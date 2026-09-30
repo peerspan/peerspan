@@ -187,6 +187,7 @@ Usage:
   capsule session accept <session-id> --capsule <id> [--allow PATH]
   capsule session message <session-id> --from <id> --text "..."
   capsule session share <session-id> --from <id> --path REL
+  capsule session approve <session-id> --by <id> --action ACTION
   capsule session revoke <session-id>
   capsule session export <session-id>
 

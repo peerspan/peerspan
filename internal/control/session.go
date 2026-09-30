@@ -19,6 +19,7 @@ type CreateSessionRequest struct {
 	CapsuleID string        `json:"capsule_id"`
 	Task      string        `json:"task"`
 	Allow     []string      `json:"allow,omitempty"`
+	AllowExec []string      `json:"allow_exec,omitempty"`
 	TTL       time.Duration `json:"-"`
 }
 
@@ -51,6 +52,7 @@ func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error
 		Status:      session.StatusPending,
 		HostCapsule: host.ID,
 		HostAllow:   allow,
+		HostExec:    req.AllowExec,
 		Audit: []capsule.AuditEvent{{
 			At:      now,
 			Type:    "session.created",
@@ -70,7 +72,7 @@ func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error
 }
 
 // AcceptSession attaches the second capsule and marks the session active.
-func (s Service) AcceptSession(id, capsuleID string, allow []string) (session.Session, error) {
+func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) (session.Session, error) {
 	sess, err := s.loadSession(id)
 	if err != nil {
 		return session.Session{}, err
@@ -95,6 +97,7 @@ func (s Service) AcceptSession(id, capsuleID string, allow []string) (session.Se
 	now := s.now()
 	sess.GuestCapsule = guest.ID
 	sess.GuestAllow = cleaned
+	sess.GuestExec = allowExec
 	sess.Status = session.StatusActive
 	sess.UpdatedAt = now
 	sess.Audit = append(sess.Audit, capsule.AuditEvent{
@@ -155,9 +158,27 @@ func (s Service) ShareSession(id, capsuleID, relPath string) (session.Session, e
 		return session.Session{}, err
 	}
 	if !allowed(allowFor(sess, capsuleID), rel) {
-		return session.Session{}, fmt.Errorf("path %q is not allowlisted", rel)
+		return s.auditSession(sess, capsuleID, "share.denied", fmt.Sprintf("path %q is not allowlisted", rel))
 	}
 	c, err := s.Store.Load(capsuleID)
+	if err != nil {
+		return session.Session{}, err
+	}
+
+	if !(hasCap(c.Authority.Capabilities, "share") || hasCap(c.Authority.Capabilities, "share:approval-required")) {
+		return s.auditSession(sess, capsuleID, "share.denied", "capsule has no share capability")
+	}
+	if hasCap(c.Authority.Capabilities, "share:approval-required") {
+		action := "share " + rel
+		switch approvalStatus(sess, capsuleID, action) {
+		case session.ApprovalGranted:
+		case session.ApprovalPending:
+			return sess, fmt.Errorf("approval required for %s", action)
+		default:
+			return s.pendApproval(sess, capsuleID, action)
+		}
+	}
+	c, err = s.Store.Load(capsuleID)
 	if err != nil {
 		return session.Session{}, err
 	}

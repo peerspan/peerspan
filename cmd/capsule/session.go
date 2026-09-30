@@ -14,7 +14,7 @@ import (
 
 func sessionCmd(args []string) error {
 	if len(args) == 0 {
-		return errors.New("session requires a subcommand: create, accept, message, share, revoke, export")
+		return errors.New("session requires a subcommand: create, accept, message, share, approve, revoke, export")
 	}
 	switch args[0] {
 	case "create":
@@ -25,6 +25,8 @@ func sessionCmd(args []string) error {
 		return sessionMessage(args[1:])
 	case "share":
 		return sessionShare(args[1:])
+	case "approve":
+		return sessionApprove(args[1:])
 	case "revoke":
 		return sessionRevoke(args[1:])
 	case "export":
@@ -40,7 +42,9 @@ func sessionCreate(args []string) error {
 	task := fs.String("task", "", "issue or task the session is for")
 	ttl := fs.String("ttl", "1h", "session lifetime, or 0 for no expiry")
 	var allow multiFlag
+	var allowExec multiFlag
 	fs.Var(&allow, "allow", "workspace path the host may share; repeatable")
+	fs.Var(&allowExec, "allow-exec", "command the host may run during the session; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -56,6 +60,7 @@ func sessionCreate(args []string) error {
 		CapsuleID: *capsuleID,
 		Task:      *task,
 		Allow:     allow,
+		AllowExec: allowExec,
 		TTL:       dur,
 	})
 	if sess.ID != "" {
@@ -68,7 +73,9 @@ func sessionAccept(args []string) error {
 	fs := flag.NewFlagSet("session accept", flag.ContinueOnError)
 	capsuleID := fs.String("capsule", "", "guest capsule id")
 	var allow multiFlag
+	var allowExec multiFlag
 	fs.Var(&allow, "allow", "workspace path the guest may share; repeatable")
+	fs.Var(&allowExec, "allow-exec", "command the guest may run during the session; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -79,7 +86,7 @@ func sessionAccept(args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := svc.AcceptSession(context.Background(), fs.Arg(0), *capsuleID, allow)
+	sess, err := svc.AcceptSession(context.Background(), fs.Arg(0), *capsuleID, allow, allowExec)
 	if err != nil {
 		return err
 	}
@@ -124,6 +131,28 @@ func sessionShare(args []string) error {
 		return err
 	}
 	sess, err := svc.ShareSession(context.Background(), fs.Arg(0), *from, *path)
+	if err != nil {
+		return err
+	}
+	fmt.Println(sess.ID)
+	return nil
+}
+
+func sessionApprove(args []string) error {
+	fs := flag.NewFlagSet("session approve", flag.ContinueOnError)
+	by := fs.String("by", "", "capsule id granting the approval")
+	action := fs.String("action", "", "action to approve, such as \"share logs/failure.txt\"")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("session approve requires a session id")
+	}
+	svc, err := openClient()
+	if err != nil {
+		return err
+	}
+	sess, err := svc.ApproveSession(context.Background(), fs.Arg(0), *by, *action)
 	if err != nil {
 		return err
 	}

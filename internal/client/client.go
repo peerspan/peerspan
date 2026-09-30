@@ -81,6 +81,7 @@ func (c Client) CreateSession(ctx context.Context, req control.CreateSessionRequ
 		"capsule_id": req.CapsuleID,
 		"task":       req.Task,
 		"allow":      req.Allow,
+		"allow_exec": req.AllowExec,
 	}
 	if req.TTL > 0 {
 		body["ttl"] = req.TTL.String()
@@ -93,10 +94,11 @@ func (c Client) CreateSession(ctx context.Context, req control.CreateSessionRequ
 }
 
 // AcceptSession joins the second capsule to a pending session.
-func (c Client) AcceptSession(ctx context.Context, id, capsuleID string, allow []string) (session.Session, error) {
+func (c Client) AcceptSession(ctx context.Context, id, capsuleID string, allow, allowExec []string) (session.Session, error) {
 	env, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/accept", map[string]any{
 		"capsule_id": capsuleID,
 		"allow":      allow,
+		"allow_exec": allowExec,
 	})
 	if env.Session != nil {
 		return *env.Session, err
@@ -121,6 +123,18 @@ func (c Client) ShareSession(ctx context.Context, id, capsuleID, path string) (s
 	env, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/share", map[string]string{
 		"from": capsuleID,
 		"path": path,
+	})
+	if env.Session != nil {
+		return *env.Session, err
+	}
+	return session.Session{}, err
+}
+
+// ApproveSession records a granted approval.
+func (c Client) ApproveSession(ctx context.Context, id, capsuleID, action string) (session.Session, error) {
+	env, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/approve", map[string]string{
+		"by":     capsuleID,
+		"action": action,
 	})
 	if env.Session != nil {
 		return *env.Session, err

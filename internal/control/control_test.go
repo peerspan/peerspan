@@ -102,8 +102,9 @@ func TestSetupAndExec(t *testing.T) {
 		Runtime: local.Runtime{},
 	}
 	c, err := svc.Create(context.Background(), CreateRequest{
-		Task:  "run tests",
-		Setup: "touch from-setup",
+		Task:         "run tests",
+		Setup:        "touch from-setup",
+		Capabilities: []string{"exec"},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -14,6 +14,9 @@ const (
 	StatusActive  = "active"
 	StatusExpired = "expired"
 	StatusRevoked = "revoked"
+
+	ApprovalPending = "pending"
+	ApprovalGranted = "granted"
 )
 
 // Session is one temporary peering between two capsules.
@@ -25,6 +28,8 @@ type Session struct {
 	GuestCapsule string               `json:"guest_capsule,omitempty"`
 	HostAllow    []string             `json:"host_allow,omitempty"`
 	GuestAllow   []string             `json:"guest_allow,omitempty"`
+	HostExec     []string             `json:"host_exec,omitempty"`
+	GuestExec    []string             `json:"guest_exec,omitempty"`
 	ExpiresAt    *time.Time           `json:"expires_at,omitempty"`
 	Transcript   []Entry              `json:"transcript,omitempty"`
 	Artifacts    []Artifact           `json:"artifacts,omitempty"`
@@ -50,12 +55,12 @@ type Artifact struct {
 	SavedAs   string    `json:"saved_as"`
 }
 
-// Approval is a human decision recorded against the session.
-// The local stub leaves this empty until approval checks exist.
+// Approval is a human decision recorded against one session action.
 type Approval struct {
 	At        time.Time `json:"at"`
 	CapsuleID string    `json:"capsule_id"`
 	Action    string    `json:"action"`
+	Status    string    `json:"status"`
 }
 
 // NewID returns a session id that is unique enough for local use.

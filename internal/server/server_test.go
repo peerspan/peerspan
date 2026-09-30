@@ -34,7 +34,11 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	b := client.Client{BaseURL: ts.URL}
 	ctx := context.Background()
 
-	host, err := a.Create(ctx, control.CreateRequest{Task: "customer issue", Setup: "printf fail > failure.txt"})
+	host, err := a.Create(ctx, control.CreateRequest{
+		Task:         "customer issue",
+		Setup:        "printf fail > failure.txt",
+		Capabilities: []string{"share"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +63,7 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.AcceptSession(ctx, sess.ID, guest.ID, nil); err != nil {
+	if _, err := b.AcceptSession(ctx, sess.ID, guest.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.MessageSession(ctx, sess.ID, host.ID, "log attached"); err != nil {

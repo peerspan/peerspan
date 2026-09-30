@@ -61,13 +61,19 @@ func Handler(svc control.Service) http.Handler {
 			CapsuleID string   `json:"capsule_id"`
 			Task      string   `json:"task"`
 			Allow     []string `json:"allow,omitempty"`
+			AllowExec []string `json:"allow_exec,omitempty"`
 			TTL       string   `json:"ttl,omitempty"`
 		}
 		if err := readJSON(w, r, &req); err != nil {
 			writeError(w, err)
 			return
 		}
-		create := control.CreateSessionRequest{CapsuleID: req.CapsuleID, Task: req.Task, Allow: req.Allow}
+		create := control.CreateSessionRequest{
+			CapsuleID: req.CapsuleID,
+			Task:      req.Task,
+			Allow:     req.Allow,
+			AllowExec: req.AllowExec,
+		}
 		if req.TTL != "" && req.TTL != "0" {
 			dur, err := time.ParseDuration(req.TTL)
 			if err != nil {
@@ -83,12 +89,13 @@ func Handler(svc control.Service) http.Handler {
 		var req struct {
 			CapsuleID string   `json:"capsule_id"`
 			Allow     []string `json:"allow,omitempty"`
+			AllowExec []string `json:"allow_exec,omitempty"`
 		}
 		if err := readJSON(w, r, &req); err != nil {
 			writeError(w, err)
 			return
 		}
-		sess, err := svc.AcceptSession(r.PathValue("id"), req.CapsuleID, req.Allow)
+		sess, err := svc.AcceptSession(r.PathValue("id"), req.CapsuleID, req.Allow, req.AllowExec)
 		writeResult(w, envelope{Session: &sess}, err)
 	})
 	mux.HandleFunc("POST /v1/sessions/{id}/message", func(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +120,18 @@ func Handler(svc control.Service) http.Handler {
 			return
 		}
 		sess, err := svc.ShareSession(r.PathValue("id"), req.From, req.Path)
+		writeResult(w, envelope{Session: &sess}, err)
+	})
+	mux.HandleFunc("POST /v1/sessions/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			By     string `json:"by"`
+			Action string `json:"action"`
+		}
+		if err := readJSON(w, r, &req); err != nil {
+			writeError(w, err)
+			return
+		}
+		sess, err := svc.ApproveSession(r.PathValue("id"), req.By, req.Action)
 		writeResult(w, envelope{Session: &sess}, err)
 	})
 	mux.HandleFunc("POST /v1/sessions/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {

@@ -15,7 +15,7 @@ import (
 
 func TestSessionExchange(t *testing.T) {
 	svc := testService(t)
-	host := mustCapsule(t, svc, "mkdir -p logs && printf fail > logs/failure.txt")
+	host := mustCapsule(t, svc, "mkdir -p logs && printf fail > logs/failure.txt", "share")
 	guest := mustCapsule(t, svc, "")
 
 	sess, err := svc.CreateSession(CreateSessionRequest{
@@ -30,7 +30,7 @@ func TestSessionExchange(t *testing.T) {
 		t.Fatalf("status = %q", sess.Status)
 	}
 
-	sess, err = svc.AcceptSession(sess.ID, guest.ID, []string{"notes/diag.txt"})
+	sess, err = svc.AcceptSession(sess.ID, guest.ID, []string{"notes/diag.txt"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestSessionRevokeAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil); err != nil {
+	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.RevokeSession(sess.ID); err != nil {
@@ -113,6 +113,53 @@ func TestSessionRevokeAndExpiry(t *testing.T) {
 	}
 }
 
+func TestCapabilityGate(t *testing.T) {
+	svc := testService(t)
+	host := mustCapsule(t, svc, "printf secret > notes.txt", "share:approval-required", "exec")
+	guest := mustCapsule(t, svc, "")
+	if _, err := svc.Exec(context.Background(), guest.ID, []string{"echo", "no"}); err == nil {
+		t.Fatal("expected exec without a capability to be refused")
+	}
+
+	sess, err := svc.CreateSession(CreateSessionRequest{
+		CapsuleID: host.ID,
+		Task:      "approval",
+		Allow:     []string{"notes.txt"},
+		AllowExec: []string{"echo ok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := svc.ShareSession(sess.ID, host.ID, "notes.txt")
+	if err == nil {
+		t.Fatal("expected share to wait for approval")
+	}
+	if len(pending.Artifacts) != 0 || len(pending.Approvals) != 1 || pending.Approvals[0].Status != session.ApprovalPending {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if _, err := svc.ApproveSession(sess.ID, host.ID, "share notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+	shared, err := svc.ShareSession(sess.ID, host.ID, "notes.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Artifacts) != 1 {
+		t.Fatalf("artifacts = %+v", shared.Artifacts)
+	}
+
+	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "nope"}); err == nil {
+		t.Fatal("expected a command outside the session allowlist to be refused")
+	}
+	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "ok"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testService(t *testing.T) Service {
 	t.Helper()
 	svc := Service{Store: store.Store{Dir: t.TempDir()}, Runtime: local.Runtime{}}
@@ -128,9 +175,9 @@ func testService(t *testing.T) Service {
 	return svc
 }
 
-func mustCapsule(t *testing.T, svc Service, setup string) capsule.Capsule {
+func mustCapsule(t *testing.T, svc Service, setup string, caps ...string) capsule.Capsule {
 	t.Helper()
-	c, err := svc.Create(context.Background(), CreateRequest{Task: "peering", Setup: setup})
+	c, err := svc.Create(context.Background(), CreateRequest{Task: "peering", Setup: setup, Capabilities: caps})
 	if err != nil {
 		t.Fatal(err)
 	}

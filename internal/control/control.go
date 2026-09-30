@@ -171,6 +171,9 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 	if c.Status != capsule.StatusRunning {
 		return "", fmt.Errorf("capsule %s is %s", c.ID, c.Status)
 	}
+	if err := s.authorizeExec(c, argv); err != nil {
+		return "", err
+	}
 
 	logPath := filepath.Join(s.Store.Dir, c.ID, "commands", fmt.Sprintf("%04d.log", len(c.Commands)+1))
 	result, runErr := s.Runtime.Exec(ctx, runtime.ExecSpec{

@@ -42,6 +42,29 @@ func (s Store) LoadSession(id string) (session.Session, error) {
 	return sess, nil
 }
 
+// ListSessions returns every peering session.
+func (s Store) ListSessions() ([]session.Session, error) {
+	entries, err := os.ReadDir(filepath.Join(s.Dir, "sessions"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var sessions []session.Session
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sess, err := s.LoadSession(entry.Name())
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, sess)
+	}
+	return sessions, nil
+}
+
 // SessionDir is the directory that holds a session record and its artifacts.
 func (s Store) SessionDir(id string) string {
 	return filepath.Join(s.Dir, "sessions", id)
