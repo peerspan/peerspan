@@ -37,7 +37,9 @@ type Capsule struct {
 	DestroyAfter *time.Time   `json:"destroy_after,omitempty"`
 }
 
-// Runtime describes where the capsule executes.
+// Runtime describes the guest running on the host.
+// The host is the machine. The guest is the isolated environment: a workcell today, a microVM later.
+// PID is the guest process as seen from the host. WorkDir is the guest workspace path on the host.
 type Runtime struct {
 	Backend string `json:"backend"`
 	Image   string `json:"image,omitempty"`

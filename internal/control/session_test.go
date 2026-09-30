@@ -16,11 +16,11 @@ import (
 
 func TestSessionExchange(t *testing.T) {
 	svc := testService(t)
-	host := mustCapsule(t, svc, "mkdir -p logs && printf fail > logs/failure.txt", "share")
-	guest := mustCapsule(t, svc, "")
+	opened := mustCapsule(t, svc, "mkdir -p logs && printf fail > logs/failure.txt", "share")
+	joined := mustCapsule(t, svc, "")
 
 	sess, err := svc.CreateSession(CreateSessionRequest{
-		CapsuleID: host.ID,
+		CapsuleID: opened.ID,
 		Task:      "sdk fails in staging",
 		Allow:     []string{"logs/failure.txt"},
 	})
@@ -31,22 +31,22 @@ func TestSessionExchange(t *testing.T) {
 		t.Fatalf("status = %q", sess.Status)
 	}
 
-	sess, err = svc.AcceptSession(sess.ID, guest.ID, []string{"notes/diag.txt"}, nil)
+	sess, err = svc.AcceptSession(sess.ID, joined.ID, []string{"notes/diag.txt"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.Status != session.StatusActive || sess.GuestCapsule != guest.ID {
+	if sess.Status != session.StatusActive || sess.JoinedCapsule != joined.ID {
 		t.Fatalf("accepted = %+v", sess)
 	}
 
-	if _, err := svc.MessageSession(sess.ID, host.ID, "failure is attached"); err != nil {
+	if _, err := svc.MessageSession(sess.ID, opened.ID, "failure is attached"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.MessageSession(sess.ID, "cap-outsider", "hello"); err == nil {
 		t.Fatal("expected outsider to be refused")
 	}
 
-	shared, err := svc.ShareSession(sess.ID, host.ID, "logs/failure.txt")
+	shared, err := svc.ShareSession(sess.ID, opened.ID, "logs/failure.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestSessionExchange(t *testing.T) {
 	if string(body) != "fail" {
 		t.Fatalf("artifact = %q", body)
 	}
-	if _, err := svc.ShareSession(sess.ID, host.ID, "logs/other.txt"); err == nil {
+	if _, err := svc.ShareSession(sess.ID, opened.ID, "logs/other.txt"); err == nil {
 		t.Fatal("expected a path outside the allowlist to be refused")
 	}
 
@@ -83,24 +83,24 @@ func TestSessionExchange(t *testing.T) {
 
 func TestSessionRevokeAndExpiry(t *testing.T) {
 	svc := testService(t)
-	host := mustCapsule(t, svc, "")
-	guest := mustCapsule(t, svc, "")
-	sess, err := svc.CreateSession(CreateSessionRequest{CapsuleID: host.ID, Task: "issue", TTL: time.Hour})
+	opened := mustCapsule(t, svc, "")
+	joined := mustCapsule(t, svc, "")
+	sess, err := svc.CreateSession(CreateSessionRequest{CapsuleID: opened.ID, Task: "issue", TTL: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+	if _, err := svc.AcceptSession(sess.ID, joined.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.RevokeSession(sess.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.MessageSession(sess.ID, host.ID, "too late"); err == nil {
+	if _, err := svc.MessageSession(sess.ID, opened.ID, "too late"); err == nil {
 		t.Fatal("expected a revoked session to refuse messages")
 	}
 
 	svc.Now = func() time.Time { return time.Now().UTC() }
-	expiring, err := svc.CreateSession(CreateSessionRequest{CapsuleID: host.ID, Task: "expires", TTL: time.Millisecond})
+	expiring, err := svc.CreateSession(CreateSessionRequest{CapsuleID: opened.ID, Task: "expires", TTL: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,23 +119,23 @@ func TestSessionRevokeAndExpiry(t *testing.T) {
 
 func TestEvidenceIncludesCommandsDuringSession(t *testing.T) {
 	svc := testService(t)
-	host := mustCapsule(t, svc, "", "exec")
-	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "before"}); err != nil {
+	opened := mustCapsule(t, svc, "", "exec")
+	if _, err := svc.Exec(context.Background(), opened.ID, []string{"echo", "before"}); err != nil {
 		t.Fatal(err)
 	}
-	guest := mustCapsule(t, svc, "")
+	joined := mustCapsule(t, svc, "")
 	sess, err := svc.CreateSession(CreateSessionRequest{
-		CapsuleID: host.ID,
+		CapsuleID: opened.ID,
 		Task:      "evidence",
 		AllowExec: []string{"echo during"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+	if _, err := svc.AcceptSession(sess.ID, joined.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "during"}); err != nil {
+	if _, err := svc.Exec(context.Background(), opened.ID, []string{"echo", "during"}); err != nil {
 		t.Fatal(err)
 	}
 	evidence, err := svc.ExportSession(sess.ID)
@@ -155,14 +155,14 @@ func TestEvidenceIncludesCommandsDuringSession(t *testing.T) {
 
 func TestCapabilityGate(t *testing.T) {
 	svc := testService(t)
-	host := mustCapsule(t, svc, "printf secret > notes.txt", "share:approval-required", "exec")
-	guest := mustCapsule(t, svc, "")
-	if _, err := svc.Exec(context.Background(), guest.ID, []string{"echo", "no"}); err == nil {
+	opened := mustCapsule(t, svc, "printf secret > notes.txt", "share:approval-required", "exec")
+	joined := mustCapsule(t, svc, "")
+	if _, err := svc.Exec(context.Background(), joined.ID, []string{"echo", "no"}); err == nil {
 		t.Fatal("expected exec without a capability to be refused")
 	}
 
 	sess, err := svc.CreateSession(CreateSessionRequest{
-		CapsuleID: host.ID,
+		CapsuleID: opened.ID,
 		Task:      "approval",
 		Allow:     []string{"notes.txt"},
 		AllowExec: []string{"echo ok"},
@@ -170,21 +170,21 @@ func TestCapabilityGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+	if _, err := svc.AcceptSession(sess.ID, joined.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
-	pending, err := svc.ShareSession(sess.ID, host.ID, "notes.txt")
+	pending, err := svc.ShareSession(sess.ID, opened.ID, "notes.txt")
 	if err == nil {
 		t.Fatal("expected share to wait for approval")
 	}
 	if len(pending.Artifacts) != 0 || len(pending.Approvals) != 1 || pending.Approvals[0].Status != session.ApprovalPending {
 		t.Fatalf("pending = %+v", pending)
 	}
-	if _, err := svc.ApproveSession(sess.ID, host.ID, "share notes.txt"); err != nil {
+	if _, err := svc.ApproveSession(sess.ID, opened.ID, "share notes.txt"); err != nil {
 		t.Fatal(err)
 	}
-	shared, err := svc.ShareSession(sess.ID, host.ID, "notes.txt")
+	shared, err := svc.ShareSession(sess.ID, opened.ID, "notes.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,51 +192,51 @@ func TestCapabilityGate(t *testing.T) {
 		t.Fatalf("artifacts = %+v", shared.Artifacts)
 	}
 
-	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "nope"}); err == nil {
+	if _, err := svc.Exec(context.Background(), opened.ID, []string{"echo", "nope"}); err == nil {
 		t.Fatal("expected a command outside the session allowlist to be refused")
 	}
-	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "ok"}); err != nil {
+	if _, err := svc.Exec(context.Background(), opened.ID, []string{"echo", "ok"}); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSessionReachability(t *testing.T) {
 	svc := testService(t)
-	host := mustCapsule(t, svc, "")
-	guest := mustCapsule(t, svc, "")
+	opened := mustCapsule(t, svc, "")
+	joined := mustCapsule(t, svc, "")
 	other := mustCapsule(t, svc, "")
-	sess, err := svc.CreateSession(CreateSessionRequest{CapsuleID: host.ID, Task: "reach", TTL: time.Hour})
+	sess, err := svc.CreateSession(CreateSessionRequest{CapsuleID: opened.ID, Task: "reach", TTL: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess, err = svc.AcceptSession(sess.ID, guest.ID, nil, nil)
+	sess, err = svc.AcceptSession(sess.ID, joined.ID, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.Link == nil || sess.Link.GuestName != guest.Network.Name {
+	if sess.Link == nil || sess.Link.JoinedName != joined.Network.Name {
 		t.Fatalf("link = %+v", sess.Link)
 	}
-	record, err := svc.Inspect(host.ID)
+	record, err := svc.Inspect(opened.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(record.Network.Endpoints) != 1 || record.Network.Endpoints[0] != sess.Link.HostIP {
+	if len(record.Network.Endpoints) != 1 || record.Network.Endpoints[0] != sess.Link.OpenedIP {
 		t.Fatalf("endpoints = %+v", record.Network.Endpoints)
 	}
-	if code, output := ping(t, svc, host.Runtime.PID, guest.Network.Name); code != 0 {
-		t.Fatalf("ping guest name: %s", output)
+	if code, output := ping(t, svc, opened.Runtime.PID, joined.Network.Name); code != 0 {
+		t.Fatalf("ping joined name: %s", output)
 	}
-	if code, _ := ping(t, svc, other.Runtime.PID, sess.Link.HostIP); code == 0 {
+	if code, _ := ping(t, svc, other.Runtime.PID, sess.Link.OpenedIP); code == 0 {
 		t.Fatal("a capsule outside the session reached the link")
 	}
 
 	if _, err := svc.RevokeSession(sess.ID); err != nil {
 		t.Fatal(err)
 	}
-	if code, output := ping(t, svc, host.Runtime.PID, guest.Network.Name); code == 0 {
+	if code, output := ping(t, svc, opened.Runtime.PID, joined.Network.Name); code == 0 {
 		t.Fatalf("still reachable after revoke: %s", output)
 	}
-	record, err = svc.Inspect(host.ID)
+	record, err = svc.Inspect(opened.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,15 +247,15 @@ func TestSessionReachability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.Reachability == nil || evidence.Reachability.HostIP == "" {
+	if evidence.Reachability == nil || evidence.Reachability.OpenedIP == "" {
 		t.Fatalf("reachability = %+v", evidence.Reachability)
 	}
 
-	sess, err = svc.CreateSession(CreateSessionRequest{CapsuleID: host.ID, Task: "expires", TTL: time.Hour})
+	sess, err = svc.CreateSession(CreateSessionRequest{CapsuleID: opened.ID, Task: "expires", TTL: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+	if _, err := svc.AcceptSession(sess.ID, joined.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	svc.Now = func() time.Time { return time.Now().UTC().Add(2 * time.Hour) }
@@ -266,7 +266,7 @@ func TestSessionReachability(t *testing.T) {
 	if expired.Status != session.StatusExpired {
 		t.Fatalf("status = %q", expired.Status)
 	}
-	if code, output := ping(t, svc, host.Runtime.PID, guest.Network.Name); code == 0 {
+	if code, output := ping(t, svc, opened.Runtime.PID, joined.Network.Name); code == 0 {
 		t.Fatalf("still reachable after expiry: %s", output)
 	}
 }

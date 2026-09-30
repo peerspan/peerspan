@@ -34,7 +34,7 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	b := client.Client{BaseURL: ts.URL}
 	ctx := context.Background()
 
-	host, err := a.Create(ctx, control.CreateRequest{
+	opened, err := a.Create(ctx, control.CreateRequest{
 		Task:         "customer issue",
 		Setup:        "printf fail > failure.txt",
 		Capabilities: []string{"share"},
@@ -42,7 +42,7 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guest, err := b.Create(ctx, control.CreateRequest{Task: "vendor debug"})
+	joined, err := b.Create(ctx, control.CreateRequest{Task: "vendor debug"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,20 +56,20 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	}
 
 	sess, err := a.CreateSession(ctx, control.CreateSessionRequest{
-		CapsuleID: host.ID,
+		CapsuleID: opened.ID,
 		Task:      "staging failure",
 		Allow:     []string{"failure.txt"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.AcceptSession(ctx, sess.ID, guest.ID, nil, nil); err != nil {
+	if _, err := b.AcceptSession(ctx, sess.ID, joined.ID, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.MessageSession(ctx, sess.ID, host.ID, "log attached"); err != nil {
+	if _, err := a.MessageSession(ctx, sess.ID, opened.ID, "log attached"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.ShareSession(ctx, sess.ID, host.ID, "failure.txt"); err != nil {
+	if _, err := a.ShareSession(ctx, sess.ID, opened.ID, "failure.txt"); err != nil {
 		t.Fatal(err)
 	}
 	exported, err := b.ExportSession(ctx, sess.ID)

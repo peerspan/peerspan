@@ -38,13 +38,13 @@ func sessionCmd(args []string) error {
 
 func sessionCreate(args []string) error {
 	fs := flag.NewFlagSet("session create", flag.ContinueOnError)
-	capsuleID := fs.String("capsule", "", "host capsule id")
+	capsuleID := fs.String("capsule", "", "capsule opening the session")
 	task := fs.String("task", "", "issue or task the session is for")
 	ttl := fs.String("ttl", "1h", "session lifetime, or 0 for no expiry")
 	var allow multiFlag
 	var allowExec multiFlag
-	fs.Var(&allow, "allow", "workspace path the host may share; repeatable")
-	fs.Var(&allowExec, "allow-exec", "command the host may run during the session; repeatable")
+	fs.Var(&allow, "allow", "workspace path this capsule may share; repeatable")
+	fs.Var(&allowExec, "allow-exec", "command this capsule may run during the session; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -71,11 +71,11 @@ func sessionCreate(args []string) error {
 
 func sessionAccept(args []string) error {
 	fs := flag.NewFlagSet("session accept", flag.ContinueOnError)
-	capsuleID := fs.String("capsule", "", "guest capsule id")
+	capsuleID := fs.String("capsule", "", "capsule joining the session")
 	var allow multiFlag
 	var allowExec multiFlag
-	fs.Var(&allow, "allow", "workspace path the guest may share; repeatable")
-	fs.Var(&allowExec, "allow-exec", "command the guest may run during the session; repeatable")
+	fs.Var(&allow, "allow", "workspace path this capsule may share; repeatable")
+	fs.Var(&allowExec, "allow-exec", "command this capsule may run during the session; repeatable")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

@@ -11,21 +11,21 @@ func (s Service) dropLink(sess session.Session) error {
 	if sess.Link == nil || s.Runtime == nil {
 		return nil
 	}
-	host, err := s.Store.Load(sess.HostCapsule)
+	opened, err := s.Store.Load(sess.OpenedCapsule)
 	if err != nil {
 		return err
 	}
-	guest, err := s.Store.Load(sess.GuestCapsule)
+	joined, err := s.Store.Load(sess.JoinedCapsule)
 	if err != nil {
 		return err
 	}
-	if err := s.Runtime.Disconnect(context.Background(), sess.ID, host.Runtime.PID, guest.Runtime.PID); err != nil {
+	if err := s.Runtime.Disconnect(context.Background(), sess.ID, opened.Runtime.PID, joined.Runtime.PID); err != nil {
 		return err
 	}
-	if err := s.clearEndpoint(host.ID, sess.Link.HostIP); err != nil {
+	if err := s.clearEndpoint(opened.ID, sess.Link.OpenedIP); err != nil {
 		return err
 	}
-	return s.clearEndpoint(guest.ID, sess.Link.GuestIP)
+	return s.clearEndpoint(joined.ID, sess.Link.JoinedIP)
 }
 
 func (s Service) setEndpoint(c capsule.Capsule, ip string) error {

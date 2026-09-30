@@ -25,18 +25,18 @@ type CreateSessionRequest struct {
 	TTL       time.Duration `json:"-"`
 }
 
-// CreateSession records a pending session. The guest joins later through AcceptSession.
+// CreateSession records a pending session. The other capsule joins later through AcceptSession.
 func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error) {
 	task := strings.TrimSpace(req.Task)
 	if task == "" {
 		return session.Session{}, fmt.Errorf("session create requires --task")
 	}
-	host, err := s.Inspect(req.CapsuleID)
+	opened, err := s.Inspect(req.CapsuleID)
 	if err != nil {
 		return session.Session{}, err
 	}
-	if host.Status != capsule.StatusRunning {
-		return session.Session{}, fmt.Errorf("capsule %s is %s", host.ID, host.Status)
+	if opened.Status != capsule.StatusRunning {
+		return session.Session{}, fmt.Errorf("capsule %s is %s", opened.ID, opened.Status)
 	}
 	allow, err := cleanAllow(req.Allow)
 	if err != nil {
@@ -49,12 +49,12 @@ func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error
 		return session.Session{}, err
 	}
 	sess := session.Session{
-		ID:          id,
-		Task:        task,
-		Status:      session.StatusPending,
-		HostCapsule: host.ID,
-		HostAllow:   allow,
-		HostExec:    req.AllowExec,
+		ID:            id,
+		Task:          task,
+		Status:        session.StatusPending,
+		OpenedCapsule: opened.ID,
+		OpenedAllow:   allow,
+		OpenedExec:    req.AllowExec,
 		Audit: []capsule.AuditEvent{{
 			At:      now,
 			Type:    "session.created",
@@ -82,22 +82,22 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 	if sess.Status != session.StatusPending {
 		return session.Session{}, fmt.Errorf("session %s is %s", sess.ID, sess.Status)
 	}
-	guest, err := s.Inspect(capsuleID)
+	joined, err := s.Inspect(capsuleID)
 	if err != nil {
 		return session.Session{}, err
 	}
-	if guest.Status != capsule.StatusRunning {
-		return session.Session{}, fmt.Errorf("capsule %s is %s", guest.ID, guest.Status)
+	if joined.Status != capsule.StatusRunning {
+		return session.Session{}, fmt.Errorf("capsule %s is %s", joined.ID, joined.Status)
 	}
-	if guest.ID == sess.HostCapsule {
+	if joined.ID == sess.OpenedCapsule {
 		return session.Session{}, fmt.Errorf("session requires two capsules")
 	}
-	host, err := s.Inspect(sess.HostCapsule)
+	opened, err := s.Inspect(sess.OpenedCapsule)
 	if err != nil {
 		return session.Session{}, err
 	}
-	if host.Status != capsule.StatusRunning {
-		return session.Session{}, fmt.Errorf("capsule %s is %s", host.ID, host.Status)
+	if opened.Status != capsule.StatusRunning {
+		return session.Session{}, fmt.Errorf("capsule %s is %s", opened.ID, opened.Status)
 	}
 	cleaned, err := cleanAllow(allow)
 	if err != nil {
@@ -107,40 +107,40 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 		return session.Session{}, fmt.Errorf("no runtime configured")
 	}
 	link, err := s.Runtime.Connect(context.Background(), sess.ID, runtime.Peer{
-		PID:  host.Runtime.PID,
-		Name: host.Network.Name,
+		PID:  opened.Runtime.PID,
+		Name: opened.Network.Name,
 	}, runtime.Peer{
-		PID:  guest.Runtime.PID,
-		Name: guest.Network.Name,
+		PID:  joined.Runtime.PID,
+		Name: joined.Network.Name,
 	})
 	if err != nil {
 		return session.Session{}, err
 	}
 	now := s.now()
-	sess.GuestCapsule = guest.ID
-	sess.GuestAllow = cleaned
-	sess.GuestExec = allowExec
+	sess.JoinedCapsule = joined.ID
+	sess.JoinedAllow = cleaned
+	sess.JoinedExec = allowExec
 	sess.Link = &session.Link{
-		HostName:  host.Network.Name,
-		GuestName: guest.Network.Name,
-		HostIP:    link.HostIP,
-		GuestIP:   link.GuestIP,
+		OpenedName: opened.Network.Name,
+		JoinedName: joined.Network.Name,
+		OpenedIP:   link.OpenedIP,
+		JoinedIP:   link.JoinedIP,
 	}
 	sess.Status = session.StatusActive
 	sess.UpdatedAt = now
 	sess.Audit = append(sess.Audit, capsule.AuditEvent{
 		At:      now,
 		Type:    "session.accepted",
-		Message: "guest capsule joined",
+		Message: "capsule joined the session",
 	})
 	if err := s.Store.SaveSession(sess); err != nil {
-		_ = s.Runtime.Disconnect(context.Background(), sess.ID, host.Runtime.PID, guest.Runtime.PID)
+		_ = s.Runtime.Disconnect(context.Background(), sess.ID, opened.Runtime.PID, joined.Runtime.PID)
 		return session.Session{}, err
 	}
-	if err := s.setEndpoint(host, link.HostIP); err != nil {
+	if err := s.setEndpoint(opened, link.OpenedIP); err != nil {
 		return sess, err
 	}
-	if err := s.setEndpoint(guest, link.GuestIP); err != nil {
+	if err := s.setEndpoint(joined, link.JoinedIP); err != nil {
 		return sess, err
 	}
 	return sess, nil
@@ -334,14 +334,14 @@ func (s Service) requireActive(sess *session.Session) error {
 }
 
 func participant(sess session.Session, capsuleID string) bool {
-	return capsuleID == sess.HostCapsule || (sess.GuestCapsule != "" && capsuleID == sess.GuestCapsule)
+	return capsuleID == sess.OpenedCapsule || (sess.JoinedCapsule != "" && capsuleID == sess.JoinedCapsule)
 }
 
 func allowFor(sess session.Session, capsuleID string) []string {
-	if capsuleID == sess.HostCapsule {
-		return sess.HostAllow
+	if capsuleID == sess.OpenedCapsule {
+		return sess.OpenedAllow
 	}
-	return sess.GuestAllow
+	return sess.JoinedAllow
 }
 
 func allowed(allow []string, rel string) bool {

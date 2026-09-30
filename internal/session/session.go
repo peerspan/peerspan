@@ -21,23 +21,23 @@ const (
 
 // Session is one temporary peering between two capsules.
 type Session struct {
-	ID           string               `json:"id"`
-	Task         string               `json:"task"`
-	Status       string               `json:"status"`
-	HostCapsule  string               `json:"host_capsule"`
-	GuestCapsule string               `json:"guest_capsule,omitempty"`
-	HostAllow    []string             `json:"host_allow,omitempty"`
-	GuestAllow   []string             `json:"guest_allow,omitempty"`
-	HostExec     []string             `json:"host_exec,omitempty"`
-	GuestExec    []string             `json:"guest_exec,omitempty"`
-	ExpiresAt    *time.Time           `json:"expires_at,omitempty"`
-	Transcript   []Entry              `json:"transcript,omitempty"`
-	Artifacts    []Artifact           `json:"artifacts,omitempty"`
-	Approvals    []Approval           `json:"approvals,omitempty"`
-	Link         *Link                `json:"link,omitempty"`
-	Audit        []capsule.AuditEvent `json:"audit"`
-	CreatedAt    time.Time            `json:"created_at"`
-	UpdatedAt    time.Time            `json:"updated_at"`
+	ID            string               `json:"id"`
+	Task          string               `json:"task"`
+	Status        string               `json:"status"`
+	OpenedCapsule string               `json:"opened_capsule"`
+	JoinedCapsule string               `json:"joined_capsule,omitempty"`
+	OpenedAllow   []string             `json:"opened_allow,omitempty"`
+	JoinedAllow   []string             `json:"joined_allow,omitempty"`
+	OpenedExec    []string             `json:"opened_exec,omitempty"`
+	JoinedExec    []string             `json:"joined_exec,omitempty"`
+	ExpiresAt     *time.Time           `json:"expires_at,omitempty"`
+	Transcript    []Entry              `json:"transcript,omitempty"`
+	Artifacts     []Artifact           `json:"artifacts,omitempty"`
+	Approvals     []Approval           `json:"approvals,omitempty"`
+	Link          *Link                `json:"link,omitempty"`
+	Audit         []capsule.AuditEvent `json:"audit"`
+	CreatedAt     time.Time            `json:"created_at"`
+	UpdatedAt     time.Time            `json:"updated_at"`
 }
 
 // Entry is one message in the session transcript.
@@ -86,10 +86,10 @@ type Participant struct {
 // Link is the session-scoped path between the two capsules.
 // The addresses stay on the record after the session ends so the evidence bundle can show what was reachable.
 type Link struct {
-	HostName  string `json:"host_name"`
-	GuestName string `json:"guest_name"`
-	HostIP    string `json:"host_ip"`
-	GuestIP   string `json:"guest_ip"`
+	OpenedName string `json:"opened_name"`
+	JoinedName string `json:"joined_name"`
+	OpenedIP   string `json:"opened_ip"`
+	JoinedIP   string `json:"joined_ip"`
 }
 
 // Executed is one command run in a participant capsule during the session.

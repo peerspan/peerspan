@@ -162,10 +162,10 @@ func hasCap(caps []string, name string) bool {
 }
 
 func execAllow(sess session.Session, capsuleID string) []string {
-	if capsuleID == sess.HostCapsule {
-		return sess.HostExec
+	if capsuleID == sess.OpenedCapsule {
+		return sess.OpenedExec
 	}
-	return sess.GuestExec
+	return sess.JoinedExec
 }
 
 func approvalStatus(sess session.Session, capsuleID, action string) string {

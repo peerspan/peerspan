@@ -1,4 +1,7 @@
 // Package runtime is the boundary between the control plane and a capsule execution backend.
+//
+// The host is the machine that runs the control plane. The guest is the isolated
+// environment that machine starts. Today the guest is a workcell. Later it is a microVM.
 package runtime
 
 import "context"
@@ -25,7 +28,7 @@ type ExecResult struct {
 	Output   string
 }
 
-// Handle is what a backend returns after a capsule is running.
+// Handle identifies one guest as seen from the host.
 type Handle struct {
 	PID     int
 	WorkDir string
@@ -39,9 +42,10 @@ type Peer struct {
 }
 
 // Link is the address pair assigned for one session.
+// Opened is the capsule that created the session. Joined is the capsule that accepted it.
 type Link struct {
-	HostIP  string
-	GuestIP string
+	OpenedIP string
+	JoinedIP string
 }
 
 // Runtime starts and stops the process that belongs to one capsule.
@@ -51,7 +55,7 @@ type Runtime interface {
 	Alive(pid int) bool
 	Exec(ctx context.Context, spec ExecSpec) (ExecResult, error)
 	// Connect lets the two workcells reach each other by their recorded names.
-	Connect(ctx context.Context, sessionID string, host, guest Peer) (Link, error)
+	Connect(ctx context.Context, sessionID string, opened, joined Peer) (Link, error)
 	// Disconnect removes the session link. It succeeds when the link is already gone.
-	Disconnect(ctx context.Context, sessionID string, hostPID, guestPID int) error
+	Disconnect(ctx context.Context, sessionID string, openedPID, joinedPID int) error
 }
