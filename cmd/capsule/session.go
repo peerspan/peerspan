@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/internal/control"
@@ -76,17 +77,15 @@ func sessionAccept(args []string) error {
 	var allowExec multiFlag
 	fs.Var(&allow, "allow", "workspace path this capsule may share; repeatable")
 	fs.Var(&allowExec, "allow-exec", "command this capsule may run during the session; repeatable")
-	if err := fs.Parse(args); err != nil {
+	id, err := parseSessionArgs(fs, args)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() != 1 {
-		return errors.New("session accept requires a session id")
 	}
 	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.AcceptSession(context.Background(), fs.Arg(0), *capsuleID, allow, allowExec)
+	sess, err := svc.AcceptSession(context.Background(), id, *capsuleID, allow, allowExec)
 	if err != nil {
 		return err
 	}
@@ -98,17 +97,15 @@ func sessionMessage(args []string) error {
 	fs := flag.NewFlagSet("session message", flag.ContinueOnError)
 	from := fs.String("from", "", "capsule id sending the message")
 	text := fs.String("text", "", "message text")
-	if err := fs.Parse(args); err != nil {
+	id, err := parseSessionArgs(fs, args)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() != 1 {
-		return errors.New("session message requires a session id")
 	}
 	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.MessageSession(context.Background(), fs.Arg(0), *from, *text)
+	sess, err := svc.MessageSession(context.Background(), id, *from, *text)
 	if err != nil {
 		return err
 	}
@@ -120,17 +117,15 @@ func sessionShare(args []string) error {
 	fs := flag.NewFlagSet("session share", flag.ContinueOnError)
 	from := fs.String("from", "", "capsule id sharing the file")
 	path := fs.String("path", "", "workspace-relative path to share")
-	if err := fs.Parse(args); err != nil {
+	id, err := parseSessionArgs(fs, args)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() != 1 {
-		return errors.New("session share requires a session id")
 	}
 	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.ShareSession(context.Background(), fs.Arg(0), *from, *path)
+	sess, err := svc.ShareSession(context.Background(), id, *from, *path)
 	if err != nil {
 		return err
 	}
@@ -142,17 +137,15 @@ func sessionApprove(args []string) error {
 	fs := flag.NewFlagSet("session approve", flag.ContinueOnError)
 	by := fs.String("by", "", "capsule id granting the approval")
 	action := fs.String("action", "", "action to approve, such as \"share logs/failure.txt\"")
-	if err := fs.Parse(args); err != nil {
+	id, err := parseSessionArgs(fs, args)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() != 1 {
-		return errors.New("session approve requires a session id")
 	}
 	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.ApproveSession(context.Background(), fs.Arg(0), *by, *action)
+	sess, err := svc.ApproveSession(context.Background(), id, *by, *action)
 	if err != nil {
 		return err
 	}
@@ -191,6 +184,24 @@ func sessionExport(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(sess)
+}
+
+// parseSessionArgs reads flags and the one session id.
+// The id may come before the flags, which is how the help text writes it.
+// The standard flag parser stops at the first non-flag, so an id in front
+// is moved to the end before parsing.
+func parseSessionArgs(fs *flag.FlagSet, args []string) (string, error) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		id := args[0]
+		args = append(append([]string{}, args[1:]...), id)
+	}
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	if fs.NArg() != 1 || fs.Arg(0) == "" {
+		return "", fmt.Errorf("%s requires a session id", fs.Name())
+	}
+	return fs.Arg(0), nil
 }
 
 func parseTTL(value string) (time.Duration, error) {
