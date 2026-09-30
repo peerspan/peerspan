@@ -12,10 +12,11 @@ Go 1.25 or later.
 go run ./cmd/capsule create --task "Fix issue 418" --repo https://github.com/example/app --capability github:pull_request:write
 go run ./cmd/capsule list
 go run ./cmd/capsule inspect <capsule-id>
+go run ./cmd/capsule exec <capsule-id> -- go test ./...
 go run ./cmd/capsule destroy <capsule-id>
 ```
 
-`create` requires `--task`. Repeat `--capability` and `--secret` to attach more than one. Records are stored as JSON files in `.capsules/` in the current directory.
+`create` requires `--task`. It starts a local process whose working directory is `.capsules/<id>/workspace`. When `--repo` is set, that directory is a git clone of the repository. When `--setup` is set, that shell command runs in the workspace before the process starts. `exec` runs a command there and records the exit code. `destroy` stops the process. Repeat `--capability` and `--secret` to attach more than one. The capsule record is `.capsules/<id>/record.json`. Process output is appended to `.capsules/<id>/process.log`. Each `exec` writes `.capsules/<id>/commands/NNNN.log`.
 
 ## Development
 
