@@ -177,6 +177,7 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 
 	logPath := filepath.Join(s.Store.Dir, c.ID, "commands", fmt.Sprintf("%04d.log", len(c.Commands)+1))
 	result, runErr := s.Runtime.Exec(ctx, runtime.ExecSpec{
+		PID:     c.Runtime.PID,
 		WorkDir: c.Runtime.WorkDir,
 		Argv:    argv,
 		LogPath: logPath,

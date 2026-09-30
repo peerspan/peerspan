@@ -1,5 +1,5 @@
-// Package local is the v0 runtime. One capsule is one local process whose
-// working directory is the capsule workspace.
+// Package local is the runtime. One capsule is one workcell: a process in its
+// own mount, pid, and network namespaces, with the workspace mounted at /workspace.
 package local
 
 import (
@@ -18,12 +18,15 @@ import (
 	"github.com/Cerebral-Systems/capsule/internal/runtime"
 )
 
-// Runtime starts a sleep process in a per-capsule workspace.
-// A git repo, when set, is cloned into that workspace first.
+// Runtime starts a workcell whose workspace is a directory on the host.
+// A git repo, when set, is cloned into that workspace before the workcell starts.
 type Runtime struct{}
 
-// Start prepares the workspace and starts the capsule process.
+// Start prepares the workspace and starts the workcell.
 func (Runtime) Start(ctx context.Context, spec runtime.Spec) (runtime.Handle, error) {
+	if os.Geteuid() != 0 {
+		return runtime.Handle{}, fmt.Errorf("workcell namespaces require root")
+	}
 	if err := os.MkdirAll(spec.Root, 0o755); err != nil {
 		return runtime.Handle{}, err
 	}
@@ -37,34 +40,29 @@ func (Runtime) Start(ctx context.Context, spec runtime.Spec) (runtime.Handle, er
 	}
 
 	logPath := filepath.Join(spec.Root, "process.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	handle, err := startWorkcell(spec.Root, workDir, logPath)
 	if err != nil {
 		return runtime.Handle{}, err
 	}
-	defer logFile.Close()
-
 	if spec.Setup != "" {
-		setup := exec.CommandContext(ctx, "sh", "-c", spec.Setup)
-		setup.Dir = workDir
-		setup.Stdout = logFile
-		setup.Stderr = logFile
-		if err := setup.Run(); err != nil {
-			return runtime.Handle{}, fmt.Errorf("setup: %w", err)
+		result, execErr := (Runtime{}).Exec(ctx, runtime.ExecSpec{
+			PID:     handle.PID,
+			Argv:    []string{"sh", "-c", spec.Setup},
+			LogPath: filepath.Join(spec.Root, "setup.log"),
+		})
+		if execErr != nil || result.ExitCode != 0 {
+			_ = (Runtime{}).Stop(handle.PID)
+			if execErr != nil {
+				return runtime.Handle{}, fmt.Errorf("setup: %w", execErr)
+			}
+			msg := strings.TrimSpace(result.Output)
+			if msg == "" {
+				return runtime.Handle{}, fmt.Errorf("setup: exit status %d", result.ExitCode)
+			}
+			return runtime.Handle{}, fmt.Errorf("setup: exit status %d: %s", result.ExitCode, msg)
 		}
 	}
-
-	cmd := exec.Command("sleep", "infinity")
-	cmd.Dir = workDir
-	cmd.Stdin = nil
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		return runtime.Handle{}, err
-	}
-	go func() { _ = cmd.Wait() }()
-
-	return runtime.Handle{PID: cmd.Process.Pid, WorkDir: workDir, LogPath: logPath}, nil
+	return handle, nil
 }
 
 // Stop signals the capsule process group and waits until it is gone.
@@ -100,11 +98,18 @@ func (Runtime) Alive(pid int) bool {
 	return alive(pid)
 }
 
-// Exec runs argv in workDir and writes combined output to the log file.
+// Exec runs argv inside the workcell and writes combined output to the log file.
 // A non-zero exit is returned in ExecResult. An error means the command did not start.
 func (Runtime) Exec(ctx context.Context, spec runtime.ExecSpec) (runtime.ExecResult, error) {
 	if len(spec.Argv) == 0 {
 		return runtime.ExecResult{}, fmt.Errorf("exec requires a command")
+	}
+	if spec.PID <= 0 {
+		return runtime.ExecResult{}, fmt.Errorf("exec requires a workcell")
+	}
+	nsenter, err := exec.LookPath("nsenter")
+	if err != nil {
+		return runtime.ExecResult{}, fmt.Errorf("nsenter is required to enter a workcell")
 	}
 	if err := os.MkdirAll(filepath.Dir(spec.LogPath), 0o755); err != nil {
 		return runtime.ExecResult{}, err
@@ -115,8 +120,10 @@ func (Runtime) Exec(ctx context.Context, spec runtime.ExecSpec) (runtime.ExecRes
 	}
 	defer logFile.Close()
 
-	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...)
-	cmd.Dir = spec.WorkDir
+	args := []string{"-t", fmt.Sprint(spec.PID), "-m", "-p", "-n", "-u", "-i", "--", "sh", "-c", `cd /workspace && exec "$@"`, "sh"}
+	args = append(args, spec.Argv...)
+	cmd := exec.CommandContext(ctx, nsenter, args...)
+	cmd.Dir = "/"
 	var buf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(logFile, &buf)
 	cmd.Stderr = io.MultiWriter(logFile, &buf)

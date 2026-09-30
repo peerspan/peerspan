@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Cerebral-Systems/capsule/internal/runtime"
@@ -75,6 +76,52 @@ func TestStartRunsSetup(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Stop(handle.PID) })
 	if _, err := os.Stat(filepath.Join(handle.WorkDir, "ready")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkcellIsIsolated(t *testing.T) {
+	rt := Runtime{}
+	root := t.TempDir()
+	handle, err := rt.Start(context.Background(), runtime.Spec{ID: "cap-iso", Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rt.Stop(handle.PID) })
+
+	wrote, err := rt.Exec(context.Background(), runtime.ExecSpec{
+		PID:     handle.PID,
+		Argv:    []string{"touch", "from-cell"},
+		LogPath: filepath.Join(root, "touch.log"),
+	})
+	if err != nil || wrote.ExitCode != 0 {
+		t.Fatalf("touch: code %d err %v output %s", wrote.ExitCode, err, wrote.Output)
+	}
+	if _, err := os.Stat(filepath.Join(handle.WorkDir, "from-cell")); err != nil {
+		t.Fatal(err)
+	}
+
+	hidden, err := rt.Exec(context.Background(), runtime.ExecSpec{
+		PID:     handle.PID,
+		Argv:    []string{"ls", "/root"},
+		LogPath: filepath.Join(root, "ls-root.log"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hidden.ExitCode == 0 {
+		t.Fatalf("workcell can see the host root: %s", hidden.Output)
+	}
+
+	links, err := rt.Exec(context.Background(), runtime.ExecSpec{
+		PID:     handle.PID,
+		Argv:    []string{"/usr/sbin/ip", "-o", "link"},
+		LogPath: filepath.Join(root, "ip.log"),
+	})
+	if err != nil || links.ExitCode != 0 {
+		t.Fatalf("ip: code %d err %v output %s", links.ExitCode, err, links.Output)
+	}
+	if !strings.Contains(links.Output, "lo:") || strings.Contains(links.Output, "eth") || strings.Contains(links.Output, "ens") {
+		t.Fatalf("network = %q", links.Output)
 	}
 }
 

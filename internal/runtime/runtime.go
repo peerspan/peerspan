@@ -8,12 +8,13 @@ type Spec struct {
 	ID    string
 	Root  string // capsule state directory, parent of the workspace
 	Repo  string // git URL or local git path; empty means an empty workspace
-	Setup string // shell command run in the workspace before the process starts
+	Setup string // shell command run inside the workcell after it starts
 }
 
 // ExecSpec is one command to run inside an already started capsule.
 type ExecSpec struct {
-	WorkDir string
+	PID     int    // workcell process to enter
+	WorkDir string // host path of the workspace
 	Argv    []string
 	LogPath string
 }
