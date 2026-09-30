@@ -30,3 +30,5 @@ go run ./cmd/capsule session export <session-id>
 go test ./...
 go run ./cmd/capsule --help
 ```
+
+`go test ./demo` runs `demo/peering.sh` and checks the evidence bundle from that run. It needs root, the same as the workcell tests.
