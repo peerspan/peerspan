@@ -34,6 +34,7 @@ type Session struct {
 	Transcript   []Entry              `json:"transcript,omitempty"`
 	Artifacts    []Artifact           `json:"artifacts,omitempty"`
 	Approvals    []Approval           `json:"approvals,omitempty"`
+	Link         *Link                `json:"link,omitempty"`
 	Audit        []capsule.AuditEvent `json:"audit"`
 	CreatedAt    time.Time            `json:"created_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
@@ -66,6 +67,7 @@ type Evidence struct {
 	Transcript   []Entry              `json:"transcript,omitempty"`
 	Artifacts    []Artifact           `json:"artifacts,omitempty"`
 	Approvals    []Approval           `json:"approvals,omitempty"`
+	Reachability *Link                `json:"reachability,omitempty"`
 	Commands     []Executed           `json:"commands,omitempty"`
 	Audit        []capsule.AuditEvent `json:"audit"`
 }
@@ -79,6 +81,15 @@ type Participant struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 	Allow        []string `json:"allow,omitempty"`
 	AllowExec    []string `json:"allow_exec,omitempty"`
+}
+
+// Link is the session-scoped path between the two capsules.
+// The addresses stay on the record after the session ends so the evidence bundle can show what was reachable.
+type Link struct {
+	HostName  string `json:"host_name"`
+	GuestName string `json:"guest_name"`
+	HostIP    string `json:"host_ip"`
+	GuestIP   string `json:"guest_ip"`
 }
 
 // Executed is one command run in a participant capsule during the session.

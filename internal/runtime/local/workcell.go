@@ -33,6 +33,8 @@ for d in bin sbin lib lib64 usr; do
 done
 printf 'root:x:0:0:root:/workspace:/bin/sh\n' > "$rootfs/etc/passwd"
 printf 'root:x:0:\n' > "$rootfs/etc/group"
+printf 'hosts: files\n' > "$rootfs/etc/nsswitch.conf"
+printf '127.0.0.1 localhost\n' > "$rootfs/etc/hosts"
 "$mount" --bind "$work" "$rootfs/workspace"
 "$mount" -t proc proc "$rootfs/proc"
 "$mount" -t tmpfs -o mode=1777 tmpfs "$rootfs/tmp"

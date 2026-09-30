@@ -32,10 +32,26 @@ type Handle struct {
 	LogPath string
 }
 
+// Peer is one capsule side of a session link.
+type Peer struct {
+	PID  int
+	Name string // recorded capsule name, such as <id>.capsule.local
+}
+
+// Link is the address pair assigned for one session.
+type Link struct {
+	HostIP  string
+	GuestIP string
+}
+
 // Runtime starts and stops the process that belongs to one capsule.
 type Runtime interface {
 	Start(ctx context.Context, spec Spec) (Handle, error)
 	Stop(pid int) error
 	Alive(pid int) bool
 	Exec(ctx context.Context, spec ExecSpec) (ExecResult, error)
+	// Connect lets the two workcells reach each other by their recorded names.
+	Connect(ctx context.Context, sessionID string, host, guest Peer) (Link, error)
+	// Disconnect removes the session link. It succeeds when the link is already gone.
+	Disconnect(ctx context.Context, sessionID string, hostPID, guestPID int) error
 }

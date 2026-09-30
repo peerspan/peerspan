@@ -18,6 +18,7 @@ func (s Service) evidence(sess session.Session) session.Evidence {
 		Transcript:   sess.Transcript,
 		Artifacts:    sess.Artifacts,
 		Approvals:    sess.Approvals,
+		Reachability: sess.Link,
 		Commands:     s.commandsDuring(sess, ended),
 		Audit:        sess.Audit,
 	}

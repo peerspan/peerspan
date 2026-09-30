@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/internal/capsule"
+	"github.com/Cerebral-Systems/capsule/internal/runtime"
 	"github.com/Cerebral-Systems/capsule/internal/runtime/local"
 	"github.com/Cerebral-Systems/capsule/internal/session"
 	"github.com/Cerebral-Systems/capsule/internal/store"
@@ -197,6 +198,90 @@ func TestCapabilityGate(t *testing.T) {
 	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "ok"}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestSessionReachability(t *testing.T) {
+	svc := testService(t)
+	host := mustCapsule(t, svc, "")
+	guest := mustCapsule(t, svc, "")
+	other := mustCapsule(t, svc, "")
+	sess, err := svc.CreateSession(CreateSessionRequest{CapsuleID: host.ID, Task: "reach", TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err = svc.AcceptSession(sess.ID, guest.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Link == nil || sess.Link.GuestName != guest.Network.Name {
+		t.Fatalf("link = %+v", sess.Link)
+	}
+	record, err := svc.Inspect(host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Network.Endpoints) != 1 || record.Network.Endpoints[0] != sess.Link.HostIP {
+		t.Fatalf("endpoints = %+v", record.Network.Endpoints)
+	}
+	if code, output := ping(t, svc, host.Runtime.PID, guest.Network.Name); code != 0 {
+		t.Fatalf("ping guest name: %s", output)
+	}
+	if code, _ := ping(t, svc, other.Runtime.PID, sess.Link.HostIP); code == 0 {
+		t.Fatal("a capsule outside the session reached the link")
+	}
+
+	if _, err := svc.RevokeSession(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := ping(t, svc, host.Runtime.PID, guest.Network.Name); code == 0 {
+		t.Fatalf("still reachable after revoke: %s", output)
+	}
+	record, err = svc.Inspect(host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Network.Endpoints) != 0 {
+		t.Fatalf("endpoints after revoke = %+v", record.Network.Endpoints)
+	}
+	evidence, err := svc.ExportSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Reachability == nil || evidence.Reachability.HostIP == "" {
+		t.Fatalf("reachability = %+v", evidence.Reachability)
+	}
+
+	sess, err = svc.CreateSession(CreateSessionRequest{CapsuleID: host.ID, Task: "expires", TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	svc.Now = func() time.Time { return time.Now().UTC().Add(2 * time.Hour) }
+	expired, err := svc.ExportSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expired.Status != session.StatusExpired {
+		t.Fatalf("status = %q", expired.Status)
+	}
+	if code, output := ping(t, svc, host.Runtime.PID, guest.Network.Name); code == 0 {
+		t.Fatalf("still reachable after expiry: %s", output)
+	}
+}
+
+func ping(t *testing.T, svc Service, pid int, target string) (int, string) {
+	t.Helper()
+	result, err := svc.Runtime.Exec(context.Background(), runtime.ExecSpec{
+		PID:     pid,
+		Argv:    []string{"/usr/bin/ping", "-c", "1", "-W", "1", target},
+		LogPath: filepath.Join(svc.Store.Dir, "ping.log"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result.ExitCode, result.Output
 }
 
 func testService(t *testing.T) Service {

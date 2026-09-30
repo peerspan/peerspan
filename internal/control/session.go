@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/internal/capsule"
+	"github.com/Cerebral-Systems/capsule/internal/runtime"
 	"github.com/Cerebral-Systems/capsule/internal/session"
 )
 
@@ -90,7 +92,27 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 	if guest.ID == sess.HostCapsule {
 		return session.Session{}, fmt.Errorf("session requires two capsules")
 	}
+	host, err := s.Inspect(sess.HostCapsule)
+	if err != nil {
+		return session.Session{}, err
+	}
+	if host.Status != capsule.StatusRunning {
+		return session.Session{}, fmt.Errorf("capsule %s is %s", host.ID, host.Status)
+	}
 	cleaned, err := cleanAllow(allow)
+	if err != nil {
+		return session.Session{}, err
+	}
+	if s.Runtime == nil {
+		return session.Session{}, fmt.Errorf("no runtime configured")
+	}
+	link, err := s.Runtime.Connect(context.Background(), sess.ID, runtime.Peer{
+		PID:  host.Runtime.PID,
+		Name: host.Network.Name,
+	}, runtime.Peer{
+		PID:  guest.Runtime.PID,
+		Name: guest.Network.Name,
+	})
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -98,6 +120,12 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 	sess.GuestCapsule = guest.ID
 	sess.GuestAllow = cleaned
 	sess.GuestExec = allowExec
+	sess.Link = &session.Link{
+		HostName:  host.Network.Name,
+		GuestName: guest.Network.Name,
+		HostIP:    link.HostIP,
+		GuestIP:   link.GuestIP,
+	}
 	sess.Status = session.StatusActive
 	sess.UpdatedAt = now
 	sess.Audit = append(sess.Audit, capsule.AuditEvent{
@@ -106,7 +134,14 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 		Message: "guest capsule joined",
 	})
 	if err := s.Store.SaveSession(sess); err != nil {
+		_ = s.Runtime.Disconnect(context.Background(), sess.ID, host.Runtime.PID, guest.Runtime.PID)
 		return session.Session{}, err
+	}
+	if err := s.setEndpoint(host, link.HostIP); err != nil {
+		return sess, err
+	}
+	if err := s.setEndpoint(guest, link.GuestIP); err != nil {
+		return sess, err
 	}
 	return sess, nil
 }
@@ -233,6 +268,9 @@ func (s Service) RevokeSession(id string) (session.Session, error) {
 	if sess.Status == session.StatusRevoked || sess.Status == session.StatusExpired {
 		return sess, nil
 	}
+	if err := s.dropLink(sess); err != nil {
+		return session.Session{}, err
+	}
 	now := s.now()
 	sess.Status = session.StatusRevoked
 	sess.UpdatedAt = now
@@ -270,6 +308,9 @@ func (s Service) loadSession(id string) (session.Session, error) {
 	}
 	if sess.ExpiresAt == nil || s.now().Before(*sess.ExpiresAt) {
 		return sess, nil
+	}
+	if err := s.dropLink(sess); err != nil {
+		return session.Session{}, err
 	}
 	now := s.now()
 	sess.Status = session.StatusExpired
