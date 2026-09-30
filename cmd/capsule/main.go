@@ -39,6 +39,8 @@ func run(args []string) error {
 		return execCmd(args[1:])
 	case "destroy":
 		return destroy(args[1:])
+	case "session":
+		return sessionCmd(args[1:])
 	case "help", "--help", "-h":
 		printHelp()
 		return nil
@@ -183,6 +185,12 @@ Usage:
   capsule inspect <capsule-id>
   capsule exec <capsule-id> -- <command> [args]
   capsule destroy <capsule-id>
+  capsule session create --capsule <id> --task "issue" [--allow PATH]
+  capsule session accept <session-id> --capsule <id> [--allow PATH]
+  capsule session message <session-id> --from <id> --text "..."
+  capsule session share <session-id> --from <id> --path REL
+  capsule session revoke <session-id>
+  capsule session export <session-id>
 
 create starts a local process. Its working directory is .capsules/<id>/workspace.
 If --repo is set, that directory is a git clone of the repository.

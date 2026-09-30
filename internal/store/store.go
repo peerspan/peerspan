@@ -27,17 +27,7 @@ func (s Store) Save(c capsule.Capsule) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	path := filepath.Join(dir, "record.json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeJSON(filepath.Join(dir, "record.json"), c)
 }
 
 // Load reads one capsule record.
@@ -71,6 +61,9 @@ func (s Store) List() ([]capsule.Capsule, error) {
 	var capsules []capsule.Capsule
 	for _, entry := range entries {
 		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(s.Dir, entry.Name(), "record.json")); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		c, err := s.Load(entry.Name())
