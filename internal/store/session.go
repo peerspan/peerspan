@@ -65,6 +65,18 @@ func (s Store) ListSessions() ([]session.Session, error) {
 	return sessions, nil
 }
 
+// SaveEvidence writes the export bundle to sessions/<id>/evidence.json.
+func (s Store) SaveEvidence(id string, evidence session.Evidence) error {
+	if !capsule.ValidID(id) {
+		return fmt.Errorf("invalid session id %q", id)
+	}
+	dir := filepath.Join(s.Dir, "sessions", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(dir, "evidence.json"), evidence)
+}
+
 // SessionDir is the directory that holds a session record and its artifacts.
 func (s Store) SessionDir(id string) string {
 	return filepath.Join(s.Dir, "sessions", id)

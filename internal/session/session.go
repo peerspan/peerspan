@@ -55,6 +55,40 @@ type Artifact struct {
 	SavedAs   string    `json:"saved_as"`
 }
 
+// Evidence is the record session export writes when a peering session is reviewed.
+type Evidence struct {
+	ID           string               `json:"id"`
+	Task         string               `json:"task"`
+	Status       string               `json:"status"`
+	CreatedAt    time.Time            `json:"created_at"`
+	EndedAt      *time.Time           `json:"ended_at,omitempty"`
+	Participants []Participant        `json:"participants"`
+	Transcript   []Entry              `json:"transcript,omitempty"`
+	Artifacts    []Artifact           `json:"artifacts,omitempty"`
+	Approvals    []Approval           `json:"approvals,omitempty"`
+	Commands     []Executed           `json:"commands,omitempty"`
+	Audit        []capsule.AuditEvent `json:"audit"`
+}
+
+// Participant is one capsule in the evidence bundle.
+// Role is "opened" for the capsule that created the session and "joined" for the capsule that accepted it.
+type Participant struct {
+	CapsuleID    string   `json:"capsule_id"`
+	Owner        string   `json:"owner,omitempty"`
+	Role         string   `json:"role"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Allow        []string `json:"allow,omitempty"`
+	AllowExec    []string `json:"allow_exec,omitempty"`
+}
+
+// Executed is one command run in a participant capsule during the session.
+type Executed struct {
+	At        time.Time `json:"at"`
+	CapsuleID string    `json:"capsule_id"`
+	Argv      []string  `json:"argv"`
+	ExitCode  int       `json:"exit_code"`
+}
+
 // Approval is a human decision recorded against one session action.
 type Approval struct {
 	At        time.Time `json:"at"`

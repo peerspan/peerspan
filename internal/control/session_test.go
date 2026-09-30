@@ -111,6 +111,45 @@ func TestSessionRevokeAndExpiry(t *testing.T) {
 	if got.Status != session.StatusExpired {
 		t.Fatalf("status = %q", got.Status)
 	}
+	if got.EndedAt == nil {
+		t.Fatal("expected an end time on the expired session")
+	}
+}
+
+func TestEvidenceIncludesCommandsDuringSession(t *testing.T) {
+	svc := testService(t)
+	host := mustCapsule(t, svc, "", "exec")
+	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "before"}); err != nil {
+		t.Fatal(err)
+	}
+	guest := mustCapsule(t, svc, "")
+	sess, err := svc.CreateSession(CreateSessionRequest{
+		CapsuleID: host.ID,
+		Task:      "evidence",
+		AllowExec: []string{"echo during"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AcceptSession(sess.ID, guest.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Exec(context.Background(), host.ID, []string{"echo", "during"}); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := svc.ExportSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.Commands) != 1 || evidence.Commands[0].Argv[1] != "during" {
+		t.Fatalf("commands = %+v", evidence.Commands)
+	}
+	if evidence.Participants[0].Capabilities[0] != "exec" {
+		t.Fatalf("capabilities = %+v", evidence.Participants[0].Capabilities)
+	}
+	if _, err := os.Stat(filepath.Join(svc.Store.SessionDir(sess.ID), "evidence.json")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCapabilityGate(t *testing.T) {

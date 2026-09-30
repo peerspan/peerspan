@@ -139,8 +139,8 @@ func Handler(svc control.Service) http.Handler {
 		writeResult(w, envelope{Session: &sess}, err)
 	})
 	mux.HandleFunc("GET /v1/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
-		sess, err := svc.ExportSession(r.PathValue("id"))
-		writeResult(w, envelope{Session: &sess}, err)
+		evidence, err := svc.ExportSession(r.PathValue("id"))
+		writeResult(w, envelope{Evidence: &evidence}, err)
 	})
 	return mux
 }
@@ -175,6 +175,7 @@ type envelope struct {
 	Capsules []capsule.Capsule `json:"capsules,omitempty"`
 	Output   string            `json:"output,omitempty"`
 	Session  *session.Session  `json:"session,omitempty"`
+	Evidence *session.Evidence `json:"evidence,omitempty"`
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {

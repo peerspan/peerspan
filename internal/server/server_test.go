@@ -79,4 +79,7 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	if exported.Status != session.StatusActive || len(exported.Transcript) != 1 || len(exported.Artifacts) != 1 {
 		t.Fatalf("export = %+v", exported)
 	}
+	if len(exported.Participants) != 2 || exported.Participants[0].Role != "opened" {
+		t.Fatalf("participants = %+v", exported.Participants)
+	}
 }

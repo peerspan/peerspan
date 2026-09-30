@@ -34,6 +34,7 @@ type envelope struct {
 	Capsules []capsule.Capsule `json:"capsules,omitempty"`
 	Output   string            `json:"output,omitempty"`
 	Session  *session.Session  `json:"session,omitempty"`
+	Evidence *session.Evidence `json:"evidence,omitempty"`
 }
 
 // Create asks the server to record a capsule and start its runtime.
@@ -151,13 +152,13 @@ func (c Client) RevokeSession(ctx context.Context, id string) (session.Session, 
 	return session.Session{}, err
 }
 
-// ExportSession returns the session record.
-func (c Client) ExportSession(ctx context.Context, id string) (session.Session, error) {
+// ExportSession returns the evidence bundle for a session.
+func (c Client) ExportSession(ctx context.Context, id string) (session.Evidence, error) {
 	env, err := c.call(ctx, http.MethodGet, "/v1/sessions/"+id, nil)
-	if env.Session != nil {
-		return *env.Session, err
+	if env.Evidence != nil {
+		return *env.Evidence, err
 	}
-	return session.Session{}, err
+	return session.Evidence{}, err
 }
 
 func (c Client) call(ctx context.Context, method, path string, body any) (envelope, error) {

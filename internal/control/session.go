@@ -247,9 +247,17 @@ func (s Service) RevokeSession(id string) (session.Session, error) {
 	return sess, nil
 }
 
-// ExportSession returns the session record, including transcript and artifacts.
-func (s Service) ExportSession(id string) (session.Session, error) {
-	return s.loadSession(id)
+// ExportSession builds the evidence bundle for a session and writes it beside the session record.
+func (s Service) ExportSession(id string) (session.Evidence, error) {
+	sess, err := s.loadSession(id)
+	if err != nil {
+		return session.Evidence{}, err
+	}
+	evidence := s.evidence(sess)
+	if err := s.Store.SaveEvidence(sess.ID, evidence); err != nil {
+		return session.Evidence{}, err
+	}
+	return evidence, nil
 }
 
 func (s Service) loadSession(id string) (session.Session, error) {
