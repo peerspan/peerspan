@@ -17,15 +17,15 @@ import (
 
 // CreateRequest is the user input for a new capsule.
 type CreateRequest struct {
-	Repo         string
-	Task         string
-	Owner        string
-	Backend      string
-	Image        string
-	Setup        string
-	NetworkMode  string
-	Capabilities []string
-	Secrets      []string
+	Repo         string   `json:"repo,omitempty"`
+	Task         string   `json:"task"`
+	Owner        string   `json:"owner,omitempty"`
+	Backend      string   `json:"backend,omitempty"`
+	Image        string   `json:"image,omitempty"`
+	Setup        string   `json:"setup,omitempty"`
+	NetworkMode  string   `json:"network_mode,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Secrets      []string `json:"secrets,omitempty"`
 }
 
 // Service wires the record store to a runtime.

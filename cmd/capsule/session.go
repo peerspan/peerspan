@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -47,11 +48,11 @@ func sessionCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	svc, err := openService()
+	client, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.CreateSession(control.CreateSessionRequest{
+	sess, err := client.CreateSession(context.Background(), control.CreateSessionRequest{
 		CapsuleID: *capsuleID,
 		Task:      *task,
 		Allow:     allow,
@@ -74,11 +75,11 @@ func sessionAccept(args []string) error {
 	if fs.NArg() != 1 {
 		return errors.New("session accept requires a session id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.AcceptSession(fs.Arg(0), *capsuleID, allow)
+	sess, err := svc.AcceptSession(context.Background(), fs.Arg(0), *capsuleID, allow)
 	if err != nil {
 		return err
 	}
@@ -96,11 +97,11 @@ func sessionMessage(args []string) error {
 	if fs.NArg() != 1 {
 		return errors.New("session message requires a session id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.MessageSession(fs.Arg(0), *from, *text)
+	sess, err := svc.MessageSession(context.Background(), fs.Arg(0), *from, *text)
 	if err != nil {
 		return err
 	}
@@ -118,11 +119,11 @@ func sessionShare(args []string) error {
 	if fs.NArg() != 1 {
 		return errors.New("session share requires a session id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.ShareSession(fs.Arg(0), *from, *path)
+	sess, err := svc.ShareSession(context.Background(), fs.Arg(0), *from, *path)
 	if err != nil {
 		return err
 	}
@@ -134,11 +135,11 @@ func sessionRevoke(args []string) error {
 	if len(args) != 1 {
 		return errors.New("session revoke requires a session id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.RevokeSession(args[0])
+	sess, err := svc.RevokeSession(context.Background(), args[0])
 	if err != nil {
 		return err
 	}
@@ -150,11 +151,11 @@ func sessionExport(args []string) error {
 	if len(args) != 1 {
 		return errors.New("session export requires a session id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.ExportSession(args[0])
+	sess, err := svc.ExportSession(context.Background(), args[0])
 	if err != nil {
 		return err
 	}

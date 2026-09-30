@@ -16,10 +16,10 @@ import (
 
 // CreateSessionRequest opens a pending peering session from one capsule.
 type CreateSessionRequest struct {
-	CapsuleID string
-	Task      string
-	Allow     []string
-	TTL       time.Duration
+	CapsuleID string        `json:"capsule_id"`
+	Task      string        `json:"task"`
+	Allow     []string      `json:"allow,omitempty"`
+	TTL       time.Duration `json:"-"`
 }
 
 // CreateSession records a pending session. The guest joins later through AcceptSession.

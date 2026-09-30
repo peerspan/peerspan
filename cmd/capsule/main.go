@@ -7,13 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Cerebral-Systems/capsule/internal/capsule"
+	"github.com/Cerebral-Systems/capsule/internal/client"
 	"github.com/Cerebral-Systems/capsule/internal/control"
-	"github.com/Cerebral-Systems/capsule/internal/runtime/local"
-	"github.com/Cerebral-Systems/capsule/internal/store"
 )
 
 func main() {
@@ -41,6 +39,8 @@ func run(args []string) error {
 		return destroy(args[1:])
 	case "session":
 		return sessionCmd(args[1:])
+	case "serve":
+		return serve(args[1:])
 	case "help", "--help", "-h":
 		printHelp()
 		return nil
@@ -66,7 +66,7 @@ func create(args []string) error {
 		return err
 	}
 
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
@@ -88,11 +88,11 @@ func create(args []string) error {
 }
 
 func list() error {
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	capsules, err := svc.List()
+	capsules, err := svc.List(context.Background())
 	if err != nil {
 		return err
 	}
@@ -111,11 +111,11 @@ func inspect(args []string) error {
 	if len(args) != 1 {
 		return errors.New("inspect requires a capsule id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	c, err := svc.Inspect(args[0])
+	c, err := svc.Inspect(context.Background(), args[0])
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func execCmd(args []string) error {
 	if len(argv) == 0 {
 		return errors.New("exec requires a command")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
@@ -153,11 +153,11 @@ func destroy(args []string) error {
 	if len(args) != 1 {
 		return errors.New("destroy requires a capsule id")
 	}
-	svc, err := openService()
+	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	c, err := svc.Destroy(args[0])
+	c, err := svc.Destroy(context.Background(), args[0])
 	if err != nil {
 		return err
 	}
@@ -165,21 +165,19 @@ func destroy(args []string) error {
 	return nil
 }
 
-func openService() (control.Service, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return control.Service{}, err
+func openClient() (client.Client, error) {
+	base := os.Getenv("CAPSULE_ADDR")
+	if base == "" {
+		base = client.DefaultBaseURL
 	}
-	return control.Service{
-		Store:   store.Store{Dir: filepath.Join(wd, ".capsules")},
-		Runtime: local.Runtime{},
-	}, nil
+	return client.Client{BaseURL: base}, nil
 }
 
 func printHelp() {
 	fmt.Println(`capsule manages local agent capsules.
 
 Usage:
+  capsule serve [--addr 127.0.0.1:8077] [--data .capsules]
   capsule create --task "Fix issue 418" [--repo URL] [--capability NAME]
   capsule list
   capsule inspect <capsule-id>
@@ -192,7 +190,8 @@ Usage:
   capsule session revoke <session-id>
   capsule session export <session-id>
 
-create starts a local process. Its working directory is .capsules/<id>/workspace.
+serve hosts the control plane. Other commands call it at CAPSULE_ADDR, or http://127.0.0.1:8077.
+create starts a local process. Its working directory is .capsules/<id>/workspace on the server.
 If --repo is set, that directory is a git clone of the repository.
 If --setup is set, that shell command runs in the workspace before the process starts.
 exec runs a command in the workspace and records its exit code.
