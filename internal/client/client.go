@@ -107,7 +107,7 @@ func (c Client) CreateSession(ctx context.Context, req control.CreateSessionRequ
 	return session.Session{}, err
 }
 
-// AcceptSession joins the second capsule to a pending session.
+// AcceptSession joins a capsule to a pending or active session.
 func (c Client) AcceptSession(ctx context.Context, id, capsuleID string, allow, allowExec []string) (session.Session, error) {
 	env, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/accept", map[string]any{
 		"capsule_id": capsuleID,

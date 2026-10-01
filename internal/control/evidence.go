@@ -25,9 +25,9 @@ func (s Service) evidence(sess session.Session) session.Evidence {
 }
 
 func (s Service) participants(sess session.Session) []session.Participant {
-	out := []session.Participant{s.participant(sess.OpenedCapsule, "opened", sess.OpenedAllow, sess.OpenedExec)}
-	if sess.JoinedCapsule != "" {
-		out = append(out, s.participant(sess.JoinedCapsule, "joined", sess.JoinedAllow, sess.JoinedExec))
+	out := make([]session.Participant, 0, len(sess.Members))
+	for _, member := range sess.Members {
+		out = append(out, s.participant(member.CapsuleID, member.Role, member.Allow, member.AllowExec))
 	}
 	return out
 }
@@ -50,10 +50,8 @@ func (s Service) participant(id, role string, allow, allowExec []string) session
 
 func (s Service) commandsDuring(sess session.Session, ended *time.Time) []session.Executed {
 	var out []session.Executed
-	for _, id := range []string{sess.OpenedCapsule, sess.JoinedCapsule} {
-		if id == "" {
-			continue
-		}
+	for _, member := range sess.Members {
+		id := member.CapsuleID
 		c, err := s.Store.Load(id)
 		if err != nil {
 			continue

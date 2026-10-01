@@ -35,7 +35,8 @@ func TestSessionExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.Status != session.StatusActive || sess.JoinedCapsule != joined.ID {
+	joinedMember, ok := sess.Member(joined.ID)
+	if sess.Status != session.StatusActive || !ok || joinedMember.Role != session.RoleJoined {
 		t.Fatalf("accepted = %+v", sess)
 	}
 
@@ -213,20 +214,22 @@ func TestSessionReachability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.Link == nil || sess.Link.JoinedName != joined.Network.Name {
+	joinedEP, ok := endpoint(sess.Link, joined.ID)
+	openedEP, openedOK := endpoint(sess.Link, opened.ID)
+	if !ok || !openedOK || joinedEP.Name != joined.Network.Name {
 		t.Fatalf("link = %+v", sess.Link)
 	}
 	record, err := svc.Inspect(opened.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(record.Network.Endpoints) != 1 || record.Network.Endpoints[0] != sess.Link.OpenedIP {
+	if len(record.Network.Endpoints) != 1 || record.Network.Endpoints[0] != openedEP.IP {
 		t.Fatalf("endpoints = %+v", record.Network.Endpoints)
 	}
 	if code, output := ping(t, svc, opened.Runtime.PID, joined.Network.Name); code != 0 {
 		t.Fatalf("ping joined name: %s", output)
 	}
-	if code, _ := ping(t, svc, other.Runtime.PID, sess.Link.OpenedIP); code == 0 {
+	if code, _ := ping(t, svc, other.Runtime.PID, openedEP.IP); code == 0 {
 		t.Fatal("a capsule outside the session reached the link")
 	}
 
@@ -247,7 +250,7 @@ func TestSessionReachability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.Reachability == nil || evidence.Reachability.OpenedIP == "" {
+	if _, ok := endpoint(evidence.Reachability, opened.ID); !ok {
 		t.Fatalf("reachability = %+v", evidence.Reachability)
 	}
 
@@ -269,6 +272,113 @@ func TestSessionReachability(t *testing.T) {
 	if code, output := ping(t, svc, opened.Runtime.PID, joined.Network.Name); code == 0 {
 		t.Fatalf("still reachable after expiry: %s", output)
 	}
+}
+
+func TestSessionThreePeers(t *testing.T) {
+	svc := testService(t)
+	opened := mustCapsule(t, svc, "mkdir -p logs && printf a > logs/a.txt", "share", "exec")
+	second := mustCapsule(t, svc, "mkdir -p notes && printf b > notes/b.txt", "share", "exec")
+	third := mustCapsule(t, svc, "mkdir -p notes && printf c > notes/c.txt", "share", "exec")
+	other := mustCapsule(t, svc, "")
+
+	sess, err := svc.CreateSession(CreateSessionRequest{
+		CapsuleID: opened.ID,
+		Task:      "three peers",
+		Allow:     []string{"logs/a.txt"},
+		AllowExec: []string{"echo from-a"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err = svc.AcceptSession(sess.ID, second.ID, []string{"notes/b.txt"}, []string{"echo from-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err = svc.AcceptSession(sess.ID, third.ID, []string{"notes/c.txt"}, []string{"echo from-c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != session.StatusActive || len(sess.Members) != 3 || len(sess.Link.Endpoints) != 3 {
+		t.Fatalf("session = %+v", sess)
+	}
+	if _, err := svc.AcceptSession(sess.ID, third.ID, nil, nil); err == nil {
+		t.Fatal("expected a second join by the same capsule to be refused")
+	}
+	if _, err := svc.MessageSession(sess.ID, third.ID, "joined"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.MessageSession(sess.ID, other.ID, "no"); err == nil {
+		t.Fatal("expected an outsider to be refused")
+	}
+	shared, err := svc.ShareSession(sess.ID, third.ID, "notes/c.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.Artifacts) != 1 || shared.Artifacts[0].CapsuleID != third.ID {
+		t.Fatalf("artifacts = %+v", shared.Artifacts)
+	}
+	if _, err := svc.ShareSession(sess.ID, second.ID, "notes/c.txt"); err == nil {
+		t.Fatal("expected the second peer's allowlist to refuse the third peer's path")
+	}
+	if _, err := svc.Exec(context.Background(), third.ID, []string{"echo", "from-b"}); err == nil {
+		t.Fatal("expected the third peer's exec allowlist to refuse another peer's command")
+	}
+	if _, err := svc.Exec(context.Background(), third.ID, []string{"echo", "from-c"}); err != nil {
+		t.Fatal(err)
+	}
+
+	openedEP, ok := endpoint(sess.Link, opened.ID)
+	if !ok {
+		t.Fatal("missing opener endpoint")
+	}
+	for _, peer := range []capsule.Capsule{opened, second, third} {
+		for _, target := range []capsule.Capsule{opened, second, third} {
+			if peer.ID == target.ID {
+				continue
+			}
+			if code, output := ping(t, svc, peer.Runtime.PID, target.Network.Name); code != 0 {
+				t.Fatalf("%s ping %s: %s", peer.ID, target.Network.Name, output)
+			}
+		}
+	}
+	if code, _ := ping(t, svc, other.Runtime.PID, openedEP.IP); code == 0 {
+		t.Fatal("a capsule outside the session reached the link")
+	}
+
+	if _, err := svc.RevokeSession(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := ping(t, svc, opened.Runtime.PID, third.Network.Name); code == 0 {
+		t.Fatalf("still reachable after revoke: %s", output)
+	}
+	evidence, err := svc.ExportSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.Participants) != 3 || len(evidence.Reachability.Endpoints) != 3 {
+		t.Fatalf("evidence peers = %d endpoints = %+v", len(evidence.Participants), evidence.Reachability)
+	}
+	joined := 0
+	for _, p := range evidence.Participants {
+		if p.Role == session.RoleJoined {
+			joined++
+		}
+	}
+	if joined != 2 {
+		t.Fatalf("joined participants = %d", joined)
+	}
+}
+
+func endpoint(link *session.Link, capsuleID string) (session.Endpoint, bool) {
+	if link == nil {
+		return session.Endpoint{}, false
+	}
+	for _, ep := range link.Endpoints {
+		if ep.CapsuleID == capsuleID {
+			return ep, true
+		}
+	}
+	return session.Endpoint{}, false
 }
 
 func ping(t *testing.T, svc Service, pid int, target string) (int, string) {

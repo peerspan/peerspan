@@ -25,7 +25,7 @@ type CreateSessionRequest struct {
 	TTL       time.Duration `json:"-"`
 }
 
-// CreateSession records a pending session. The other capsule joins later through AcceptSession.
+// CreateSession records a pending session. Other capsules join later through AcceptSession.
 func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error) {
 	task := strings.TrimSpace(req.Task)
 	if task == "" {
@@ -49,12 +49,15 @@ func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error
 		return session.Session{}, err
 	}
 	sess := session.Session{
-		ID:            id,
-		Task:          task,
-		Status:        session.StatusPending,
-		OpenedCapsule: opened.ID,
-		OpenedAllow:   allow,
-		OpenedExec:    req.AllowExec,
+		ID:     id,
+		Task:   task,
+		Status: session.StatusPending,
+		Members: []session.Member{{
+			CapsuleID: opened.ID,
+			Role:      session.RoleOpened,
+			Allow:     allow,
+			AllowExec: req.AllowExec,
+		}},
 		Audit: []capsule.AuditEvent{{
 			At:      now,
 			Type:    "session.created",
@@ -73,14 +76,18 @@ func (s Service) CreateSession(req CreateSessionRequest) (session.Session, error
 	return sess, nil
 }
 
-// AcceptSession attaches the second capsule and marks the session active.
+// AcceptSession attaches a capsule to the session.
+// The first accept marks a pending session active. Later accepts add another peer.
 func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) (session.Session, error) {
 	sess, err := s.loadSession(id)
 	if err != nil {
 		return session.Session{}, err
 	}
-	if sess.Status != session.StatusPending {
+	if sess.Status != session.StatusPending && sess.Status != session.StatusActive {
 		return session.Session{}, fmt.Errorf("session %s is %s", sess.ID, sess.Status)
+	}
+	if _, ok := sess.Member(capsuleID); ok {
+		return session.Session{}, fmt.Errorf("capsule %s is already in session %s", capsuleID, sess.ID)
 	}
 	joined, err := s.Inspect(capsuleID)
 	if err != nil {
@@ -89,16 +96,6 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 	if joined.Status != capsule.StatusRunning {
 		return session.Session{}, fmt.Errorf("capsule %s is %s", joined.ID, joined.Status)
 	}
-	if joined.ID == sess.OpenedCapsule {
-		return session.Session{}, fmt.Errorf("session requires two capsules")
-	}
-	opened, err := s.Inspect(sess.OpenedCapsule)
-	if err != nil {
-		return session.Session{}, err
-	}
-	if opened.Status != capsule.StatusRunning {
-		return session.Session{}, fmt.Errorf("capsule %s is %s", opened.ID, opened.Status)
-	}
 	cleaned, err := cleanAllow(allow)
 	if err != nil {
 		return session.Session{}, err
@@ -106,26 +103,29 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 	if s.Runtime == nil {
 		return session.Session{}, fmt.Errorf("no runtime configured")
 	}
-	link, err := s.Runtime.Connect(context.Background(), sess.ID, runtime.Peer{
-		PID:  opened.Runtime.PID,
-		Name: opened.Network.Name,
-	}, runtime.Peer{
-		PID:  joined.Runtime.PID,
-		Name: joined.Network.Name,
-	})
+	current, err := s.runningMembers(sess)
 	if err != nil {
 		return session.Session{}, err
 	}
-	now := s.now()
-	sess.JoinedCapsule = joined.ID
-	sess.JoinedAllow = cleaned
-	sess.JoinedExec = allowExec
-	sess.Link = &session.Link{
-		OpenedName: opened.Network.Name,
-		JoinedName: joined.Network.Name,
-		OpenedIP:   link.OpenedIP,
-		JoinedIP:   link.JoinedIP,
+	next := make([]capsule.Capsule, 0, len(current)+1)
+	next = append(next, current...)
+	next = append(next, joined)
+	addrs, err := s.Runtime.Connect(context.Background(), sess.ID, linkPeers(next))
+	if err != nil {
+		return session.Session{}, err
 	}
+	if len(addrs) != len(next) {
+		s.restoreLink(sess.ID, current, next)
+		return session.Session{}, fmt.Errorf("session link returned %d addresses for %d peers", len(addrs), len(next))
+	}
+	now := s.now()
+	sess.Members = append(sess.Members, session.Member{
+		CapsuleID: joined.ID,
+		Role:      session.RoleJoined,
+		Allow:     cleaned,
+		AllowExec: allowExec,
+	})
+	sess.Link = linkFrom(next, addrs)
 	sess.Status = session.StatusActive
 	sess.UpdatedAt = now
 	sess.Audit = append(sess.Audit, capsule.AuditEvent{
@@ -134,14 +134,13 @@ func (s Service) AcceptSession(id, capsuleID string, allow, allowExec []string) 
 		Message: "capsule joined the session",
 	})
 	if err := s.Store.SaveSession(sess); err != nil {
-		_ = s.Runtime.Disconnect(context.Background(), sess.ID, opened.Runtime.PID, joined.Runtime.PID)
+		s.restoreLink(sess.ID, current, next)
 		return session.Session{}, err
 	}
-	if err := s.setEndpoint(opened, link.OpenedIP); err != nil {
-		return sess, err
-	}
-	if err := s.setEndpoint(joined, link.JoinedIP); err != nil {
-		return sess, err
+	for i, c := range next {
+		if err := s.setEndpoint(c, addrs[i].IP); err != nil {
+			return sess, err
+		}
 	}
 	return sess, nil
 }
@@ -334,15 +333,56 @@ func (s Service) requireActive(sess *session.Session) error {
 	return nil
 }
 
+func (s Service) runningMembers(sess session.Session) ([]capsule.Capsule, error) {
+	out := make([]capsule.Capsule, 0, len(sess.Members))
+	for _, member := range sess.Members {
+		c, err := s.Inspect(member.CapsuleID)
+		if err != nil {
+			return nil, err
+		}
+		if c.Status != capsule.StatusRunning {
+			return nil, fmt.Errorf("capsule %s is %s", c.ID, c.Status)
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s Service) restoreLink(id string, previous, attempted []capsule.Capsule) {
+	ctx := context.Background()
+	_ = s.Runtime.Disconnect(ctx, id, linkPeers(attempted))
+	if len(previous) >= 2 {
+		_, _ = s.Runtime.Connect(ctx, id, linkPeers(previous))
+	}
+}
+
+func linkPeers(capsules []capsule.Capsule) []runtime.Peer {
+	peers := make([]runtime.Peer, len(capsules))
+	for i, c := range capsules {
+		peers[i] = runtime.Peer{PID: c.Runtime.PID, Name: c.Network.Name}
+	}
+	return peers
+}
+
+func linkFrom(capsules []capsule.Capsule, addrs []runtime.Address) *session.Link {
+	endpoints := make([]session.Endpoint, len(addrs))
+	for i, addr := range addrs {
+		endpoints[i] = session.Endpoint{CapsuleID: capsules[i].ID, Name: addr.Name, IP: addr.IP}
+	}
+	return &session.Link{Endpoints: endpoints}
+}
+
 func participant(sess session.Session, capsuleID string) bool {
-	return capsuleID == sess.OpenedCapsule || (sess.JoinedCapsule != "" && capsuleID == sess.JoinedCapsule)
+	_, ok := sess.Member(capsuleID)
+	return ok
 }
 
 func allowFor(sess session.Session, capsuleID string) []string {
-	if capsuleID == sess.OpenedCapsule {
-		return sess.OpenedAllow
+	member, ok := sess.Member(capsuleID)
+	if !ok {
+		return nil
 	}
-	return sess.JoinedAllow
+	return member.Allow
 }
 
 func allowed(allow []string, rel string) bool {

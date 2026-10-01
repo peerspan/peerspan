@@ -85,10 +85,12 @@ func checkEvidence(t *testing.T, sessionDir string, evidence session.Evidence) {
 	if len(evidence.Transcript) != 2 {
 		t.Fatalf("transcript = %+v", evidence.Transcript)
 	}
-	if evidence.Reachability == nil || evidence.Reachability.OpenedIP == "" || evidence.Reachability.JoinedIP == "" {
+	openedEP := reach(t, evidence, opened.CapsuleID)
+	joinedEP := reach(t, evidence, joined.CapsuleID)
+	if openedEP.IP == "" || joinedEP.IP == "" {
 		t.Fatalf("reachability = %+v", evidence.Reachability)
 	}
-	if evidence.Reachability.OpenedName != opened.CapsuleID+".capsule.local" || evidence.Reachability.JoinedName != joined.CapsuleID+".capsule.local" {
+	if openedEP.Name != opened.CapsuleID+".capsule.local" || joinedEP.Name != joined.CapsuleID+".capsule.local" {
 		t.Fatalf("reachability names = %+v", evidence.Reachability)
 	}
 	if len(evidence.Artifacts) != 2 {
@@ -99,7 +101,7 @@ func checkEvidence(t *testing.T, sessionDir string, evidence session.Evidence) {
 	if !granted(evidence, joined.CapsuleID, "share notes/diag.txt") {
 		t.Fatalf("approvals = %+v", evidence.Approvals)
 	}
-	checkCommands(t, evidence, opened.CapsuleID, joined.CapsuleID, evidence.Reachability.JoinedName)
+	checkCommands(t, evidence, opened.CapsuleID, joined.CapsuleID, joinedEP.Name)
 	for _, eventType := range []string{"session.created", "session.accepted", "session.shared", "share.denied", "command.denied", "approval.pending", "session.approved", "session.revoked"} {
 		if !auditHas(evidence, eventType) {
 			t.Fatalf("audit missing %s: %+v", eventType, evidence.Audit)
@@ -176,6 +178,20 @@ func checkArtifact(t *testing.T, sessionDir string, artifacts []session.Artifact
 		return
 	}
 	t.Fatalf("missing artifact %s from %s", path, capsuleID)
+}
+
+func reach(t *testing.T, evidence session.Evidence, capsuleID string) session.Endpoint {
+	t.Helper()
+	if evidence.Reachability == nil {
+		t.Fatal("missing reachability")
+	}
+	for _, ep := range evidence.Reachability.Endpoints {
+		if ep.CapsuleID == capsuleID {
+			return ep
+		}
+	}
+	t.Fatalf("missing endpoint for %s in %+v", capsuleID, evidence.Reachability)
+	return session.Endpoint{}
 }
 
 func participant(t *testing.T, evidence session.Evidence, role string) session.Participant {
