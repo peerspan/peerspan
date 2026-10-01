@@ -41,10 +41,12 @@ func (s Service) Info() Info {
 }
 
 // Service wires the record store to a runtime.
+// Runtime starts workcells. MicroVM starts Firecracker guests when create asks for that backend.
 // Underlay is this machine's address. A capsule on another machine reaches the session through it.
 type Service struct {
 	Store    store.Store
 	Runtime  runtime.Runtime
+	MicroVM  runtime.Runtime
 	Now      func() time.Time
 	Underlay string
 }
@@ -59,11 +61,9 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 	if backend == "" {
 		backend = capsule.RuntimeLocal
 	}
-	if backend != capsule.RuntimeLocal {
-		return capsule.Capsule{}, fmt.Errorf("unsupported runtime %q", backend)
-	}
-	if s.Runtime == nil {
-		return capsule.Capsule{}, fmt.Errorf("no runtime configured")
+	rt, err := s.backendRuntime(backend)
+	if err != nil {
+		return capsule.Capsule{}, err
 	}
 	mounts, err := s.secretMounts(req.Secrets)
 	if err != nil {
@@ -114,7 +114,7 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 		return capsule.Capsule{}, err
 	}
 
-	handle, err := s.Runtime.Start(ctx, runtime.Spec{
+	handle, err := rt.Start(ctx, runtime.Spec{
 		ID:      c.ID,
 		Root:    filepath.Join(s.Store.Dir, c.ID),
 		Repo:    c.Repo,
@@ -157,7 +157,7 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 		})
 	}
 	if err := s.Store.Save(c); err != nil {
-		_ = s.Runtime.Stop(handle.PID)
+		_ = rt.Stop(handle.PID)
 		return c, err
 	}
 	return c, nil
@@ -195,9 +195,6 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 	if len(argv) == 0 {
 		return "", fmt.Errorf("exec requires a command")
 	}
-	if s.Runtime == nil {
-		return "", fmt.Errorf("no runtime configured")
-	}
 	c, err := s.Inspect(id)
 	if err != nil {
 		return "", err
@@ -229,8 +226,12 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 	if err := copyWorkspace(c.Runtime.WorkDir, snap); err != nil {
 		return "", err
 	}
+	rt, err := s.backendRuntime(c.Runtime.Backend)
+	if err != nil {
+		return "", err
+	}
 	logPath := filepath.Join(s.Store.Dir, c.ID, "commands", fmt.Sprintf("%04d.log", len(c.Commands)+1))
-	result, runErr := s.Runtime.Exec(ctx, runtime.ExecSpec{
+	result, runErr := rt.Exec(ctx, runtime.ExecSpec{
 		PID:         c.Runtime.PID,
 		WorkDir:     c.Runtime.WorkDir,
 		Argv:        argv,
@@ -294,8 +295,12 @@ func (s Service) Destroy(id string) (capsule.Capsule, error) {
 	if c.Status == capsule.StatusDestroyed {
 		return c, nil
 	}
-	if c.Runtime.PID > 0 && s.Runtime != nil {
-		if err := s.Runtime.Stop(c.Runtime.PID); err != nil {
+	if c.Runtime.PID > 0 {
+		rt, err := s.backendRuntime(c.Runtime.Backend)
+		if err != nil {
+			return c, err
+		}
+		if err := rt.Stop(c.Runtime.PID); err != nil {
 			return c, err
 		}
 	}
@@ -314,10 +319,14 @@ func (s Service) Destroy(id string) (capsule.Capsule, error) {
 }
 
 func (s Service) refresh(c capsule.Capsule) (capsule.Capsule, error) {
-	if c.Status != capsule.StatusRunning || c.Runtime.PID <= 0 || s.Runtime == nil {
+	if c.Status != capsule.StatusRunning || c.Runtime.PID <= 0 {
 		return c, nil
 	}
-	if s.Runtime.Alive(c.Runtime.PID) {
+	rt, err := s.backendRuntime(c.Runtime.Backend)
+	if err != nil {
+		return c, err
+	}
+	if rt.Alive(c.Runtime.PID) {
 		return c, nil
 	}
 	now := s.now()
@@ -332,6 +341,23 @@ func (s Service) refresh(c capsule.Capsule) (capsule.Capsule, error) {
 		return c, err
 	}
 	return c, nil
+}
+
+func (s Service) backendRuntime(backend string) (runtime.Runtime, error) {
+	switch backend {
+	case capsule.RuntimeLocal:
+		if s.Runtime == nil {
+			return nil, fmt.Errorf("no runtime configured")
+		}
+		return s.Runtime, nil
+	case capsule.RuntimeMicroVM:
+		if s.MicroVM == nil {
+			return nil, fmt.Errorf("microvm runtime is not configured")
+		}
+		return s.MicroVM, nil
+	default:
+		return nil, fmt.Errorf("unsupported runtime %q", backend)
+	}
 }
 
 func (s Service) now() time.Time {

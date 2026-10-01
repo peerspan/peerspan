@@ -57,7 +57,7 @@ func create(args []string) error {
 	repo := fs.String("repo", "", "git URL or local git path to clone into the workspace")
 	task := fs.String("task", "", "task description")
 	owner := fs.String("owner", os.Getenv("USER"), "capsule owner")
-	backend := fs.String("runtime", capsule.RuntimeLocal, "runtime backend")
+	backend := fs.String("runtime", capsule.RuntimeLocal, "runtime backend (local or microvm)")
 	image := fs.String("image", "", "runtime image")
 	setup := fs.String("setup", "", "shell command run in the workspace before the process starts")
 	networkMode := fs.String("network", "local", "network mode")
@@ -215,7 +215,7 @@ func printHelp() {
 	fmt.Println(`capsule manages local agent capsules.
 
 Usage:
-  capsule serve [--addr 127.0.0.1:8077] [--data .capsules] [--underlay ADDR]
+  capsule serve [--addr 127.0.0.1:8077] [--data .capsules] [--underlay ADDR] [--firecracker PATH] [--kernel PATH]
   capsule create --task "Fix issue 418" [--repo URL] [--capability NAME]
   capsule list
   capsule inspect <capsule-id>

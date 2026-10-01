@@ -15,7 +15,8 @@ const (
 	StatusFailed    = "failed"
 	StatusDestroyed = "destroyed"
 
-	RuntimeLocal = "local"
+	RuntimeLocal   = "local"
+	RuntimeMicroVM = "microvm"
 )
 
 // Capsule is the record the control plane keeps for one agent task.
@@ -38,7 +39,7 @@ type Capsule struct {
 }
 
 // Runtime describes the guest running on the host.
-// The host is the machine. The guest is the isolated environment: a workcell today, a microVM later.
+// The host is the machine. The guest is the isolated environment: a workcell or a microVM.
 // PID is the guest process as seen from the host. WorkDir is the guest workspace path on the host.
 type Runtime struct {
 	Backend string `json:"backend"`
