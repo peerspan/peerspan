@@ -141,9 +141,6 @@ func (s Service) admit(id string, joined session.Member) (session.Session, error
 		return session.Session{}, err
 	}
 	joined.Allow = cleaned
-	if s.Runtime == nil {
-		return session.Session{}, fmt.Errorf("no runtime configured")
-	}
 	if joined.Underlay != "" {
 		for i := range sess.Members {
 			if sess.Members[i].Underlay == "" {
@@ -160,12 +157,16 @@ func (s Service) admit(id string, joined session.Member) (session.Session, error
 	if err != nil {
 		return session.Session{}, err
 	}
-	addrs, err := s.Runtime.Connect(context.Background(), sess.ID, s.Underlay, linkPeers(next))
+	rt, err := s.sessionRuntime(localCapsules(next))
+	if err != nil {
+		return session.Session{}, err
+	}
+	addrs, err := rt.Connect(context.Background(), sess.ID, s.Underlay, linkPeers(next))
 	if err != nil {
 		return session.Session{}, err
 	}
 	if len(addrs) != len(next) {
-		s.restoreLink(sess.ID, linkPeers(current), linkPeers(next))
+		s.restoreLink(sess.ID, linkPeers(current), linkPeers(next), rt)
 		return session.Session{}, fmt.Errorf("session link returned %d addresses for %d peers", len(addrs), len(next))
 	}
 	now := s.now()
@@ -179,7 +180,7 @@ func (s Service) admit(id string, joined session.Member) (session.Session, error
 		Message: "capsule joined the session",
 	})
 	if err := s.Store.SaveSession(sess); err != nil {
-		s.restoreLink(sess.ID, linkPeers(current), linkPeers(next))
+		s.restoreLink(sess.ID, linkPeers(current), linkPeers(next), rt)
 		return session.Session{}, err
 	}
 	for i, side := range next {
@@ -423,12 +424,38 @@ func (s Service) linkSides(members []session.Member) ([]linkSide, error) {
 	return out, nil
 }
 
-func (s Service) restoreLink(id string, previous, attempted []runtime.Peer) {
-	ctx := context.Background()
-	_ = s.Runtime.Disconnect(ctx, id, s.Underlay, attempted)
-	if len(previous) >= 2 {
-		_, _ = s.Runtime.Connect(ctx, id, s.Underlay, previous)
+func (s Service) restoreLink(id string, previous, attempted []runtime.Peer, rt runtime.Runtime) {
+	if rt == nil {
+		return
 	}
+	ctx := context.Background()
+	_ = rt.Disconnect(ctx, id, s.Underlay, attempted)
+	if len(previous) >= 2 {
+		_, _ = rt.Connect(ctx, id, s.Underlay, previous)
+	}
+}
+
+func (s Service) sessionRuntime(capsules []capsule.Capsule) (runtime.Runtime, error) {
+	if len(capsules) == 0 {
+		return nil, fmt.Errorf("session link requires at least one capsule")
+	}
+	backend := capsules[0].Runtime.Backend
+	for _, c := range capsules[1:] {
+		if c.Runtime.Backend != backend {
+			return nil, fmt.Errorf("session link cannot mix %q and %q runtimes", backend, c.Runtime.Backend)
+		}
+	}
+	return s.backendRuntime(backend)
+}
+
+func localCapsules(sides []linkSide) []capsule.Capsule {
+	out := make([]capsule.Capsule, 0, len(sides))
+	for _, side := range sides {
+		if side.local != nil {
+			out = append(out, *side.local)
+		}
+	}
+	return out
 }
 
 func linkPeers(sides []linkSide) []runtime.Peer {
@@ -459,9 +486,6 @@ func linkFrom(sides []linkSide, addrs []runtime.Address) *session.Link {
 // LinkSession attaches a local capsule to a session opened on another machine.
 // link is the record that machine returned.
 func (s Service) LinkSession(id, capsuleID string, link session.Link) error {
-	if s.Runtime == nil {
-		return fmt.Errorf("no runtime configured")
-	}
 	if strings.TrimSpace(s.Underlay) == "" {
 		return fmt.Errorf("capsule serve --underlay is required")
 	}
@@ -471,6 +495,10 @@ func (s Service) LinkSession(id, capsuleID string, link session.Link) error {
 	}
 	if c.Status != capsule.StatusRunning {
 		return fmt.Errorf("capsule %s is %s", c.ID, c.Status)
+	}
+	rt, err := s.backendRuntime(c.Runtime.Backend)
+	if err != nil {
+		return err
 	}
 	if len(link.Endpoints) < 2 {
 		return fmt.Errorf("session link requires at least two peers")
@@ -496,13 +524,13 @@ func (s Service) LinkSession(id, capsuleID string, link session.Link) error {
 	if !found {
 		return fmt.Errorf("capsule %s is not on this session link", capsuleID)
 	}
-	addrs, err := s.Runtime.Connect(context.Background(), id, s.Underlay, peers)
+	addrs, err := rt.Connect(context.Background(), id, s.Underlay, peers)
 	if err != nil {
 		return err
 	}
 	for i, addr := range addrs {
 		if addr.IP != link.Endpoints[i].IP {
-			_ = s.Runtime.Disconnect(context.Background(), id, s.Underlay, peers)
+			_ = rt.Disconnect(context.Background(), id, s.Underlay, peers)
 			return fmt.Errorf("session link address for %s is %s, not %s", link.Endpoints[i].Name, addr.IP, link.Endpoints[i].IP)
 		}
 	}
@@ -511,14 +539,15 @@ func (s Service) LinkSession(id, capsuleID string, link session.Link) error {
 
 // LeaveSession removes this machine's side of a session link.
 func (s Service) LeaveSession(id, capsuleID string) error {
-	if s.Runtime == nil {
-		return fmt.Errorf("no runtime configured")
-	}
 	c, err := s.Inspect(capsuleID)
 	if err != nil {
 		return err
 	}
-	if err := s.Runtime.Disconnect(context.Background(), id, s.Underlay, []runtime.Peer{{
+	rt, err := s.backendRuntime(c.Runtime.Backend)
+	if err != nil {
+		return err
+	}
+	if err := rt.Disconnect(context.Background(), id, s.Underlay, []runtime.Peer{{
 		PID:  c.Runtime.PID,
 		Name: c.Network.Name,
 	}}); err != nil {

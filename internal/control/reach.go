@@ -9,11 +9,12 @@ import (
 )
 
 func (s Service) dropLink(sess session.Session) error {
-	if sess.Link == nil || s.Runtime == nil {
+	if sess.Link == nil {
 		return nil
 	}
 	peers := make([]runtime.Peer, 0, len(sess.Members))
 	local := map[string]bool{}
+	capsules := make([]capsule.Capsule, 0, len(sess.Members))
 	for _, member := range sess.Members {
 		if !s.isLocal(member) {
 			continue
@@ -23,10 +24,23 @@ func (s Service) dropLink(sess session.Session) error {
 		if err != nil {
 			return err
 		}
+		capsules = append(capsules, c)
 		peers = append(peers, runtime.Peer{PID: c.Runtime.PID, Name: c.Network.Name})
 	}
-	if err := s.Runtime.Disconnect(context.Background(), sess.ID, s.Underlay, peers); err != nil {
-		return err
+	var rt runtime.Runtime
+	if len(capsules) == 0 {
+		rt = s.Runtime
+	} else {
+		var err error
+		rt, err = s.sessionRuntime(capsules)
+		if err != nil {
+			return err
+		}
+	}
+	if rt != nil {
+		if err := rt.Disconnect(context.Background(), sess.ID, s.Underlay, peers); err != nil {
+			return err
+		}
 	}
 	for _, endpoint := range sess.Link.Endpoints {
 		if !local[endpoint.CapsuleID] {
