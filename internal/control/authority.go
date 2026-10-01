@@ -5,11 +5,17 @@ import (
 	"strings"
 
 	"github.com/Cerebral-Systems/capsule/internal/capsule"
+	"github.com/Cerebral-Systems/capsule/internal/secret"
 	"github.com/Cerebral-Systems/capsule/internal/session"
 )
 
 func (s Service) authorizeExec(c capsule.Capsule, argv []string) error {
 	command := strings.Join(argv, " ")
+	values, err := s.secretValues(c.Authority.Secrets)
+	if err != nil {
+		return err
+	}
+	shown := secret.Redact(command, values)
 	if !hasCap(c.Authority.Capabilities, "exec") && !hasCap(c.Authority.Capabilities, "exec:approval-required") {
 		return s.auditCapsule(c, "command.denied", "capsule has no exec capability")
 	}
@@ -20,14 +26,14 @@ func (s Service) authorizeExec(c capsule.Capsule, argv []string) error {
 	needsApproval := hasCap(c.Authority.Capabilities, "exec:approval-required")
 	if len(sessions) == 0 {
 		if needsApproval && !hasCap(c.Authority.Capabilities, "exec") {
-			return fmt.Errorf("approval required for exec %s", command)
+			return fmt.Errorf("approval required for exec %s", shown)
 		}
 		return nil
 	}
-	action := "exec " + command
+	action := "exec " + shown
 	for _, sess := range sessions {
 		if !allowed(execAllow(sess, c.ID), command) && !allowed(execAllow(sess, c.ID), "*") {
-			_, err := s.auditSession(sess, c.ID, "command.denied", fmt.Sprintf("command %q is not allowlisted", command))
+			_, err := s.auditSession(sess, c.ID, "command.denied", fmt.Sprintf("command %q is not allowlisted", shown))
 			return err
 		}
 		if !needsApproval {

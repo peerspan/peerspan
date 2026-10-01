@@ -24,6 +24,21 @@ const DefaultAddr = "127.0.0.1:8077"
 // Handler routes control-plane calls onto svc.
 func Handler(svc control.Service) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /v1/secrets/{name}", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Value string `json:"value"`
+		}
+		if err := readJSON(w, r, &req); err != nil {
+			writeError(w, err)
+			return
+		}
+		err := svc.SetSecret(r.PathValue("name"), req.Value)
+		writeResult(w, envelope{}, err)
+	})
+	mux.HandleFunc("GET /v1/secrets", func(w http.ResponseWriter, r *http.Request) {
+		names, err := svc.ListSecrets()
+		writeResult(w, envelope{Secrets: names}, err)
+	})
 	mux.HandleFunc("POST /v1/capsules", func(w http.ResponseWriter, r *http.Request) {
 		var req control.CreateRequest
 		if err := readJSON(w, r, &req); err != nil {
@@ -176,6 +191,7 @@ type envelope struct {
 	Output   string            `json:"output,omitempty"`
 	Session  *session.Session  `json:"session,omitempty"`
 	Evidence *session.Evidence `json:"evidence,omitempty"`
+	Secrets  []string          `json:"secrets,omitempty"`
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -39,6 +40,8 @@ func run(args []string) error {
 		return destroy(args[1:])
 	case "session":
 		return sessionCmd(args[1:])
+	case "secret":
+		return secretCmd(args[1:])
 	case "serve":
 		return serve(args[1:])
 	case "help", "--help", "-h":
@@ -165,6 +168,41 @@ func destroy(args []string) error {
 	return nil
 }
 
+func secretCmd(args []string) error {
+	if len(args) == 0 {
+		return errors.New("secret requires set or list")
+	}
+	svc, err := openClient()
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "set":
+		if len(args) != 2 {
+			return errors.New("secret set requires a name")
+		}
+		body, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if len(body) > 0 && body[len(body)-1] == '\n' {
+			body = body[:len(body)-1]
+		}
+		return svc.SetSecret(context.Background(), args[1], string(body))
+	case "list":
+		names, err := svc.ListSecrets(context.Background())
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			fmt.Println(name)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown secret command %q", args[0])
+	}
+}
+
 func openClient() (client.Client, error) {
 	base := os.Getenv("CAPSULE_ADDR")
 	if base == "" {
@@ -190,8 +228,11 @@ Usage:
   capsule session approve <session-id> --by <id> --action ACTION
   capsule session revoke <session-id>
   capsule session export <session-id>
+  capsule secret set <name>
+  capsule secret list
 
 serve hosts the control plane. Other commands call it at CAPSULE_ADDR, or http://127.0.0.1:8077.
+secret set reads the value from stdin and stores it on the host. create --secret mounts that name read-only at /run/secrets/<name> inside the workcell.
 create starts a local process. Its working directory is .capsules/<id>/workspace on the server.
 If --repo is set, that directory is a git clone of the repository.
 If --setup is set, that shell command runs in the workspace before the process starts.

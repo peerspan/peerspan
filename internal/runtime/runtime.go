@@ -6,20 +6,28 @@ package runtime
 
 import "context"
 
+// Secret is one host file mounted read-only in the guest at /run/secrets/<Name>.
+type Secret struct {
+	Name     string
+	HostPath string
+}
+
 // Spec is what the control plane hands a backend when a capsule should start.
 type Spec struct {
-	ID    string
-	Root  string // capsule state directory, parent of the workspace
-	Repo  string // git URL or local git path; empty means an empty workspace
-	Setup string // shell command run inside the workcell after it starts
+	ID      string
+	Root    string // capsule state directory, parent of the workspace
+	Repo    string // git URL or local git path; empty means an empty workspace
+	Setup   string // shell command run inside the workcell after it starts
+	Secrets []Secret
 }
 
 // ExecSpec is one command to run inside an already started capsule.
 type ExecSpec struct {
-	PID     int    // workcell process to enter
-	WorkDir string // host path of the workspace
-	Argv    []string
-	LogPath string
+	PID         int    // workcell process to enter
+	WorkDir     string // host path of the workspace
+	Argv        []string
+	LogPath     string
+	SecretPaths []string // host files whose values are removed from captured output
 }
 
 // ExecResult is the captured outcome of one command.

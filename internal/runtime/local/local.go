@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/internal/runtime"
+	"github.com/Cerebral-Systems/capsule/internal/secret"
 )
 
 // Runtime starts a workcell whose workspace is a directory on the host.
@@ -40,15 +40,16 @@ func (Runtime) Start(ctx context.Context, spec runtime.Spec) (runtime.Handle, er
 	}
 
 	logPath := filepath.Join(spec.Root, "process.log")
-	handle, err := startWorkcell(spec.Root, workDir, logPath)
+	handle, err := startWorkcell(spec.Root, workDir, logPath, spec.Secrets)
 	if err != nil {
 		return runtime.Handle{}, err
 	}
 	if spec.Setup != "" {
 		result, execErr := (Runtime{}).Exec(ctx, runtime.ExecSpec{
-			PID:     handle.PID,
-			Argv:    []string{"sh", "-c", spec.Setup},
-			LogPath: filepath.Join(spec.Root, "setup.log"),
+			PID:         handle.PID,
+			Argv:        []string{"sh", "-c", spec.Setup},
+			LogPath:     filepath.Join(spec.Root, "setup.log"),
+			SecretPaths: secretPaths(spec.Secrets),
 		})
 		if execErr != nil || result.ExitCode != 0 {
 			_ = (Runtime{}).Stop(handle.PID)
@@ -124,11 +125,19 @@ func (Runtime) Exec(ctx context.Context, spec runtime.ExecSpec) (runtime.ExecRes
 	args = append(args, spec.Argv...)
 	cmd := exec.CommandContext(ctx, nsenter, args...)
 	cmd.Dir = "/"
+	values, err := readSecretValues(spec.SecretPaths)
+	if err != nil {
+		return runtime.ExecResult{}, err
+	}
 	var buf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(logFile, &buf)
-	cmd.Stderr = io.MultiWriter(logFile, &buf)
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
 	err = cmd.Run()
-	result := runtime.ExecResult{Output: buf.String()}
+	output := secret.Redact(buf.String(), values)
+	if _, writeErr := logFile.WriteString(output); writeErr != nil {
+		return runtime.ExecResult{}, writeErr
+	}
+	result := runtime.ExecResult{Output: output}
 	if err == nil {
 		return result, nil
 	}
@@ -139,6 +148,26 @@ func (Runtime) Exec(ctx context.Context, spec runtime.ExecSpec) (runtime.ExecRes
 	}
 	result.ExitCode = -1
 	return result, err
+}
+
+func secretPaths(secrets []runtime.Secret) []string {
+	paths := make([]string, len(secrets))
+	for i, secret := range secrets {
+		paths[i] = secret.HostPath
+	}
+	return paths
+}
+
+func readSecretValues(paths []string) ([]string, error) {
+	values := make([]string, 0, len(paths))
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, string(body))
+	}
+	return values, nil
 }
 
 func clone(ctx context.Context, repo, workDir string) error {

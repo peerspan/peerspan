@@ -35,6 +35,19 @@ type envelope struct {
 	Output   string            `json:"output,omitempty"`
 	Session  *session.Session  `json:"session,omitempty"`
 	Evidence *session.Evidence `json:"evidence,omitempty"`
+	Secrets  []string          `json:"secrets,omitempty"`
+}
+
+// SetSecret stores a secret value on the server. The value is not returned.
+func (c Client) SetSecret(ctx context.Context, name, value string) error {
+	_, err := c.call(ctx, http.MethodPut, "/v1/secrets/"+name, map[string]string{"value": value})
+	return err
+}
+
+// ListSecrets returns secret names stored on the server.
+func (c Client) ListSecrets(ctx context.Context) ([]string, error) {
+	env, err := c.call(ctx, http.MethodGet, "/v1/secrets", nil)
+	return env.Secrets, err
 }
 
 // Create asks the server to record a capsule and start its runtime.

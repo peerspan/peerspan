@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/Cerebral-Systems/capsule/internal/capsule"
 	"github.com/Cerebral-Systems/capsule/internal/runtime"
+	"github.com/Cerebral-Systems/capsule/internal/secret"
 	"github.com/Cerebral-Systems/capsule/internal/session"
 )
 
@@ -218,33 +218,34 @@ func (s Service) ShareSession(id, capsuleID, relPath string) (session.Session, e
 		return session.Session{}, err
 	}
 	src := filepath.Join(c.Runtime.WorkDir, rel)
-	f, err := os.Open(src)
+	body, err := os.ReadFile(src)
 	if err != nil {
 		return session.Session{}, err
 	}
-	defer f.Close()
+	values, err := s.secretValues(c.Authority.Secrets)
+	if err != nil {
+		return session.Session{}, err
+	}
+	if secret.Contains(string(body), values) {
+		return s.auditSession(sess, capsuleID, "share.denied", fmt.Sprintf("path %q contains a secret value", rel))
+	}
 
 	savedAs := filepath.Join("artifacts", capsuleID, filepath.Base(rel))
 	dst := filepath.Join(s.Store.SessionDir(sess.ID), savedAs)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return session.Session{}, err
 	}
-	out, err := os.Create(dst)
-	if err != nil {
+	if err := os.WriteFile(dst, body, 0o644); err != nil {
 		return session.Session{}, err
 	}
-	defer out.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(out, io.TeeReader(f, hash)); err != nil {
-		return session.Session{}, err
-	}
+	sum := sha256.Sum256(body)
 
 	now := s.now()
 	sess.Artifacts = append(sess.Artifacts, session.Artifact{
 		At:        now,
 		CapsuleID: capsuleID,
 		Path:      rel,
-		SHA256:    hex.EncodeToString(hash.Sum(nil)),
+		SHA256:    hex.EncodeToString(sum[:]),
 		SavedAs:   filepath.ToSlash(savedAs),
 	})
 	sess.UpdatedAt = now

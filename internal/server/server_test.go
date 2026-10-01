@@ -2,7 +2,9 @@ package server_test
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Cerebral-Systems/capsule/internal/client"
@@ -81,5 +83,29 @@ func TestTwoClientsShareOneServer(t *testing.T) {
 	}
 	if len(exported.Participants) != 2 || exported.Participants[0].Role != "opened" {
 		t.Fatalf("participants = %+v", exported.Participants)
+	}
+}
+
+func TestSecretSetDoesNotEchoTheValue(t *testing.T) {
+	svc := control.Service{
+		Store:   store.Store{Dir: t.TempDir()},
+		Runtime: local.Runtime{},
+	}
+	const value = "super-secret-value"
+	req := httptest.NewRequest(http.MethodPut, "/v1/secrets/token", strings.NewReader(`{"value":"`+value+`"}`))
+	rec := httptest.NewRecorder()
+	server.Handler(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), value) {
+		t.Fatalf("response echoed the secret: %s", rec.Body)
+	}
+	names, err := svc.ListSecrets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "token" {
+		t.Fatalf("names = %v", names)
 	}
 }

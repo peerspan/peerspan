@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +85,33 @@ func TestLoadMissing(t *testing.T) {
 	s := Store{Dir: t.TempDir()}
 	if _, err := s.Load("missing"); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestSecretFileStaysOutOfTheRecord(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	if err := s.PutSecret("token", "short"); err == nil {
+		t.Fatal("expected a short secret to be rejected")
+	}
+	if err := s.PutSecret("../token", "super-secret-value"); err == nil {
+		t.Fatal("expected a path secret name to be rejected")
+	}
+	if err := s.PutSecret("token", "super-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	names, err := s.ListSecrets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "token" {
+		t.Fatalf("names = %v", names)
+	}
+	body, err := os.ReadFile(filepath.Join(s.Dir, "capsule.db"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "super-secret-value") {
+		t.Fatal("secret value was written into the database")
 	}
 }
 

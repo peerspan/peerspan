@@ -12,6 +12,7 @@ import (
 
 	"github.com/Cerebral-Systems/capsule/internal/capsule"
 	"github.com/Cerebral-Systems/capsule/internal/runtime"
+	"github.com/Cerebral-Systems/capsule/internal/secret"
 	"github.com/Cerebral-Systems/capsule/internal/store"
 )
 
@@ -51,6 +52,14 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 	if s.Runtime == nil {
 		return capsule.Capsule{}, fmt.Errorf("no runtime configured")
 	}
+	mounts, err := s.secretMounts(req.Secrets)
+	if err != nil {
+		return capsule.Capsule{}, err
+	}
+	names := make([]string, len(mounts))
+	for i, mount := range mounts {
+		names[i] = mount.Name
+	}
 
 	now := s.now()
 	id, err := capsule.NewID(now)
@@ -78,7 +87,7 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 		},
 		Authority: capsule.Authority{
 			Capabilities: req.Capabilities,
-			Secrets:      req.Secrets,
+			Secrets:      names,
 		},
 		Audit: []capsule.AuditEvent{{
 			At:      now,
@@ -93,22 +102,27 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 	}
 
 	handle, err := s.Runtime.Start(ctx, runtime.Spec{
-		ID:    c.ID,
-		Root:  filepath.Join(s.Store.Dir, c.ID),
-		Repo:  c.Repo,
-		Setup: c.Runtime.Setup,
+		ID:      c.ID,
+		Root:    filepath.Join(s.Store.Dir, c.ID),
+		Repo:    c.Repo,
+		Setup:   c.Runtime.Setup,
+		Secrets: mounts,
 	})
 	if err != nil {
 		failed := s.now()
 		c.Status = capsule.StatusFailed
 		c.UpdatedAt = failed
+		msg := err.Error()
+		if values, valueErr := s.secretValues(names); valueErr == nil {
+			msg = secret.Redact(msg, values)
+		}
 		c.Audit = append(c.Audit, capsule.AuditEvent{
 			At:      failed,
 			Type:    "runtime.failed",
-			Message: clip(err.Error()),
+			Message: clip(msg),
 		})
 		_ = s.Store.Save(c)
-		return c, fmt.Errorf("start capsule %s: %w", c.ID, err)
+		return c, fmt.Errorf("start capsule %s: %s", c.ID, msg)
 	}
 
 	started := s.now()
@@ -122,6 +136,13 @@ func (s Service) Create(ctx context.Context, req CreateRequest) (capsule.Capsule
 		Type:    "runtime.started",
 		Message: fmt.Sprintf("local process started (pid %d)", handle.PID),
 	})
+	for _, name := range names {
+		c.Audit = append(c.Audit, capsule.AuditEvent{
+			At:      started,
+			Type:    "secret.injected",
+			Message: "injected secret " + name,
+		})
+	}
 	if err := s.Store.Save(c); err != nil {
 		_ = s.Runtime.Stop(handle.PID)
 		return c, err
@@ -175,17 +196,31 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 		return "", err
 	}
 
+	values, err := s.secretValues(c.Authority.Secrets)
+	if err != nil {
+		return "", err
+	}
+	paths := make([]string, 0, len(c.Authority.Secrets))
+	for _, name := range c.Authority.Secrets {
+		path, pathErr := s.Store.SecretPath(strings.TrimSpace(name))
+		if pathErr != nil {
+			return "", pathErr
+		}
+		paths = append(paths, path)
+	}
 	logPath := filepath.Join(s.Store.Dir, c.ID, "commands", fmt.Sprintf("%04d.log", len(c.Commands)+1))
 	result, runErr := s.Runtime.Exec(ctx, runtime.ExecSpec{
-		PID:     c.Runtime.PID,
-		WorkDir: c.Runtime.WorkDir,
-		Argv:    argv,
-		LogPath: logPath,
+		PID:         c.Runtime.PID,
+		WorkDir:     c.Runtime.WorkDir,
+		Argv:        argv,
+		LogPath:     logPath,
+		SecretPaths: paths,
 	})
 	code := result.ExitCode
 	if runErr != nil && code == 0 {
 		code = -1
 	}
+	argv = redactArgv(argv, values)
 
 	now := s.now()
 	c.UpdatedAt = now
@@ -198,7 +233,7 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 	c.Audit = append(c.Audit, capsule.AuditEvent{
 		At:      now,
 		Type:    "command.exited",
-		Message: clip(fmt.Sprintf("%s exited %d", strings.Join(argv, " "), code)),
+		Message: clip(secret.Redact(fmt.Sprintf("%s exited %d", strings.Join(argv, " "), code), values)),
 	})
 	if err := s.Store.Save(c); err != nil {
 		return result.Output, err

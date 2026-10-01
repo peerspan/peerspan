@@ -23,7 +23,7 @@ pivot=/usr/sbin/pivot_root
 "$mount" --make-rprivate /
 mkdir -p "$rootfs"
 "$mount" -t tmpfs -o mode=0755 tmpfs "$rootfs"
-mkdir -p "$rootfs/workspace" "$rootfs/proc" "$rootfs/tmp" "$rootfs/dev" "$rootfs/etc" "$rootfs/old"
+mkdir -p "$rootfs/workspace" "$rootfs/proc" "$rootfs/tmp" "$rootfs/dev" "$rootfs/etc" "$rootfs/run" "$rootfs/old"
 for d in bin sbin lib lib64 usr; do
   if [ -d "/$d" ]; then
     mkdir -p "$rootfs/$d"
@@ -38,6 +38,17 @@ printf '127.0.0.1 localhost\n' > "$rootfs/etc/hosts"
 "$mount" --bind "$work" "$rootfs/workspace"
 "$mount" -t proc proc "$rootfs/proc"
 "$mount" -t tmpfs -o mode=1777 tmpfs "$rootfs/tmp"
+"$mount" -t tmpfs -o mode=0700 tmpfs "$rootfs/run"
+mkdir -p "$rootfs/run/secrets"
+shift 2
+while [ "$#" -ge 2 ]; do
+  name=$1
+  src=$2
+  shift 2
+  touch "$rootfs/run/secrets/$name"
+  "$mount" --bind "$src" "$rootfs/run/secrets/$name"
+  "$mount" -o remount,bind,ro "$rootfs/run/secrets/$name"
+done
 for dev in null zero urandom random tty; do
   if [ -e "/dev/$dev" ]; then
     touch "$rootfs/dev/$dev"
@@ -56,7 +67,7 @@ cd /workspace
 exec /bin/sleep infinity
 `
 
-func startWorkcell(root, workDir, logPath string) (runtime.Handle, error) {
+func startWorkcell(root, workDir, logPath string, secrets []runtime.Secret) (runtime.Handle, error) {
 	for _, tool := range []string{"/bin/sh", "/usr/bin/mount", "/usr/sbin/pivot_root", "/bin/sleep"} {
 		if _, err := os.Stat(tool); err != nil {
 			return runtime.Handle{}, fmt.Errorf("workcell requires %s", tool)
@@ -69,7 +80,11 @@ func startWorkcell(root, workDir, logPath string) (runtime.Handle, error) {
 	defer logFile.Close()
 
 	rootfs := filepath.Join(root, "rootfs")
-	cmd := exec.Command("/bin/sh", "-c", enterScript, "sh", rootfs, workDir)
+	args := []string{"-c", enterScript, "sh", rootfs, workDir}
+	for _, secret := range secrets {
+		args = append(args, secret.Name, secret.HostPath)
+	}
+	cmd := exec.Command("/bin/sh", args...)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
