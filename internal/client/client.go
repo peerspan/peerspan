@@ -36,6 +36,7 @@ type envelope struct {
 	Session  *session.Session  `json:"session,omitempty"`
 	Evidence *session.Evidence `json:"evidence,omitempty"`
 	Secrets  []string          `json:"secrets,omitempty"`
+	Info     *control.Info     `json:"info,omitempty"`
 }
 
 // SetSecret stores a secret value on the server. The value is not returned.
@@ -109,15 +110,53 @@ func (c Client) CreateSession(ctx context.Context, req control.CreateSessionRequ
 
 // AcceptSession joins a capsule to a pending or active session.
 func (c Client) AcceptSession(ctx context.Context, id, capsuleID string, allow, allowExec []string) (session.Session, error) {
+	return c.accept(ctx, id, capsuleID, allow, allowExec, "", "", "")
+}
+
+// AcceptRemoteSession joins a capsule whose guest is on another machine.
+func (c Client) AcceptRemoteSession(ctx context.Context, id, capsuleID string, allow, allowExec []string, name, owner, underlay string) (session.Session, error) {
+	return c.accept(ctx, id, capsuleID, allow, allowExec, name, owner, underlay)
+}
+
+func (c Client) accept(ctx context.Context, id, capsuleID string, allow, allowExec []string, name, owner, underlay string) (session.Session, error) {
 	env, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/accept", map[string]any{
 		"capsule_id": capsuleID,
 		"allow":      allow,
 		"allow_exec": allowExec,
+		"name":       name,
+		"owner":      owner,
+		"underlay":   underlay,
 	})
 	if env.Session != nil {
 		return *env.Session, err
 	}
 	return session.Session{}, err
+}
+
+// Info reads this serve's underlay address.
+func (c Client) Info(ctx context.Context) (control.Info, error) {
+	env, err := c.call(ctx, http.MethodGet, "/v1/info", nil)
+	if env.Info != nil {
+		return *env.Info, err
+	}
+	return control.Info{}, err
+}
+
+// LinkSession attaches a local capsule to a session opened elsewhere.
+func (c Client) LinkSession(ctx context.Context, id, capsuleID string, link session.Link) error {
+	_, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/link", map[string]any{
+		"capsule_id": capsuleID,
+		"link":       link,
+	})
+	return err
+}
+
+// LeaveSession removes this machine's side of a session link.
+func (c Client) LeaveSession(ctx context.Context, id, capsuleID string) error {
+	_, err := c.call(ctx, http.MethodPost, "/v1/sessions/"+id+"/leave", map[string]string{
+		"capsule_id": capsuleID,
+	})
+	return err
 }
 
 // MessageSession appends a transcript entry.

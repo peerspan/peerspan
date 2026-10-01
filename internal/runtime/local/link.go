@@ -13,28 +13,26 @@ import (
 
 const ipPath = "/usr/sbin/ip"
 
-// Connect builds a bridge in its own network namespace and a veth from each workcell
-// into that bridge. The host network is not attached. A later call adds peers that
-// are not on the link yet and leaves the ones already there in place.
-func (Runtime) Connect(ctx context.Context, sessionID string, peers []runtime.Peer) ([]runtime.Address, error) {
-	if len(peers) < 2 {
-		return nil, fmt.Errorf("reachability requires at least two running workcells")
-	}
-	for _, peer := range peers {
-		if peer.PID <= 0 || strings.TrimSpace(peer.Name) == "" {
-			return nil, fmt.Errorf("reachability requires a running workcell and a name for each capsule")
-		}
+// Connect builds a bridge in its own network namespace and a veth from each local
+// workcell into that bridge. A peer on another machine is reached by a VXLAN to that
+// machine's underlay. The session subnet has no address on the host. A later call
+// adds peers that are not on the link yet and leaves the ones already there in place.
+func (r Runtime) Connect(ctx context.Context, sessionID, localUnderlay string, peers []runtime.Peer) ([]runtime.Address, error) {
+	if err := validatePeers(localUnderlay, peers); err != nil {
+		return nil, err
 	}
 	addrs, err := plan(sessionID, peers)
 	if err != nil {
 		return nil, err
 	}
-	ns := netnsName(sessionID)
+	ns := netnsName(linkKey(sessionID, localUnderlay))
 	createdNS, err := ensureBridge(ctx, ns)
 	if err != nil {
 		return nil, err
 	}
 	var created []string
+	var priorPeers []runtime.Peer
+	createdHost := false
 	cleanup := true
 	defer func() {
 		if !cleanup {
@@ -43,22 +41,36 @@ func (Runtime) Connect(ctx context.Context, sessionID string, peers []runtime.Pe
 		for _, bridgeIf := range created {
 			_ = run(context.Background(), ipPath, "netns", "exec", ns, ipPath, "link", "delete", bridgeIf)
 		}
+		if createdHost && len(priorPeers) == 0 {
+			_ = deleteHostPath(context.Background(), linkKey(sessionID, localUnderlay), r.Netns)
+		}
 		if createdNS {
 			_ = deleteNetns(context.Background(), ns)
 		}
 	}()
+	remotes, err := remoteUnderlays(localUnderlay, peers)
+	if err != nil {
+		return nil, err
+	}
+	if len(remotes) > 0 {
+		var err error
+		createdHost, err = ensureUnderlay(ctx, sessionID, localUnderlay, linkKey(sessionID, localUnderlay), r.Netns, remotes)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	var priorPeers []runtime.Peer
-	var priorAddrs []runtime.Address
 	for i, peer := range peers {
-		guestIf, bridgeIf := ifaces(sessionID, peer.Name)
+		if peer.PID <= 0 {
+			continue
+		}
+		guestIf, bridgeIf := ifaces(linkKey(sessionID, localUnderlay), peer.Name)
 		exists, err := ifaceExists(ctx, peer.PID, guestIf)
 		if err != nil {
 			return nil, err
 		}
 		if exists {
 			priorPeers = append(priorPeers, peer)
-			priorAddrs = append(priorAddrs, addrs[i])
 			continue
 		}
 		if err := addPeer(ctx, ns, peer.PID, guestIf, bridgeIf, addrs[i].IP); err != nil {
@@ -71,8 +83,8 @@ func (Runtime) Connect(ctx context.Context, sessionID string, peers []runtime.Pe
 			_ = run(context.Background(), ipPath, "netns", "exec", ns, ipPath, "link", "delete", bridgeIf)
 		}
 		created = nil
-		if len(priorPeers) >= 2 {
-			_ = publish(context.Background(), priorPeers, priorAddrs)
+		if len(priorPeers) >= 1 {
+			_ = publish(context.Background(), peers, addrs)
 		}
 		return nil, err
 	}
@@ -81,8 +93,12 @@ func (Runtime) Connect(ctx context.Context, sessionID string, peers []runtime.Pe
 }
 
 // Disconnect deletes the session bridge and the names published for it.
-func (Runtime) Disconnect(ctx context.Context, sessionID string, peers []runtime.Peer) error {
-	if err := deleteNetns(ctx, netnsName(sessionID)); err != nil && !gone(err) {
+func (r Runtime) Disconnect(ctx context.Context, sessionID, localUnderlay string, peers []runtime.Peer) error {
+	key := linkKey(sessionID, localUnderlay)
+	if err := deleteHostPath(ctx, key, r.Netns); err != nil && !gone(err) {
+		return err
+	}
+	if err := deleteNetns(ctx, netnsName(key)); err != nil && !gone(err) {
 		return err
 	}
 	for _, peer := range peers {
@@ -106,13 +122,20 @@ func plan(sessionID string, peers []runtime.Peer) ([]runtime.Address, error) {
 	return out, nil
 }
 
-func netnsName(sessionID string) string {
-	sum := sha256.Sum256([]byte(sessionID))
+func linkKey(sessionID, localUnderlay string) string {
+	if localUnderlay == "" {
+		return sessionID
+	}
+	return sessionID + "\x00" + localUnderlay
+}
+
+func netnsName(key string) string {
+	sum := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("c%x", sum[:7])
 }
 
-func ifaces(sessionID, name string) (guestIf, bridgeIf string) {
-	sum := sha256.Sum256([]byte(sessionID + "\x00" + name))
+func ifaces(key, name string) (guestIf, bridgeIf string) {
+	sum := sha256.Sum256([]byte(key + "\x00" + name))
 	guestIf = fmt.Sprintf("g%x", sum[:4])[:8]
 	bridgeIf = fmt.Sprintf("b%x", sum[:4])[:8]
 	return guestIf, bridgeIf

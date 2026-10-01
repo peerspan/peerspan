@@ -13,17 +13,25 @@ func (s Service) dropLink(sess session.Session) error {
 		return nil
 	}
 	peers := make([]runtime.Peer, 0, len(sess.Members))
+	local := map[string]bool{}
 	for _, member := range sess.Members {
+		if !s.isLocal(member) {
+			continue
+		}
+		local[member.CapsuleID] = true
 		c, err := s.Store.Load(member.CapsuleID)
 		if err != nil {
 			return err
 		}
 		peers = append(peers, runtime.Peer{PID: c.Runtime.PID, Name: c.Network.Name})
 	}
-	if err := s.Runtime.Disconnect(context.Background(), sess.ID, peers); err != nil {
+	if err := s.Runtime.Disconnect(context.Background(), sess.ID, s.Underlay, peers); err != nil {
 		return err
 	}
 	for _, endpoint := range sess.Link.Endpoints {
+		if !local[endpoint.CapsuleID] {
+			continue
+		}
 		if err := s.clearEndpoint(endpoint.CapsuleID, endpoint.IP); err != nil {
 			return err
 		}

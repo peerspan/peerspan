@@ -45,6 +45,11 @@ type Member struct {
 	Role      string   `json:"role"`
 	Allow     []string `json:"allow,omitempty"`
 	AllowExec []string `json:"allow_exec,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Owner     string   `json:"owner,omitempty"`
+	// Underlay is the address of the machine running this guest.
+	// Empty means the machine that opened the session, when every guest is there.
+	Underlay string `json:"underlay,omitempty"`
 }
 
 // Member returns the capsule's membership, if it is in the session.
@@ -111,6 +116,7 @@ type Endpoint struct {
 	CapsuleID string `json:"capsule_id"`
 	Name      string `json:"name"`
 	IP        string `json:"ip"`
+	Underlay  string `json:"underlay,omitempty"`
 }
 
 // Executed is one command run in a participant capsule during the session.

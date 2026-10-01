@@ -215,14 +215,15 @@ func printHelp() {
 	fmt.Println(`capsule manages local agent capsules.
 
 Usage:
-  capsule serve [--addr 127.0.0.1:8077] [--data .capsules]
+  capsule serve [--addr 127.0.0.1:8077] [--data .capsules] [--underlay ADDR]
   capsule create --task "Fix issue 418" [--repo URL] [--capability NAME]
   capsule list
   capsule inspect <capsule-id>
   capsule exec <capsule-id> -- <command> [args]
   capsule destroy <capsule-id>
   capsule session create --capsule <id> --task "issue" [--allow PATH]
-  capsule session accept <session-id> --capsule <id> [--allow PATH]
+  capsule session accept <session-id> --capsule <id> [--allow PATH] [--remote URL]
+  capsule session leave <session-id> --capsule <id>
   capsule session message <session-id> --from <id> --text "..."
   capsule session share <session-id> --from <id> --path REL
   capsule session approve <session-id> --by <id> --action ACTION

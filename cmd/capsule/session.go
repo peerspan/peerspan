@@ -10,12 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cerebral-Systems/capsule/internal/client"
 	"github.com/Cerebral-Systems/capsule/internal/control"
 )
 
 func sessionCmd(args []string) error {
 	if len(args) == 0 {
-		return errors.New("session requires a subcommand: create, accept, message, share, approve, revoke, export")
+		return errors.New("session requires a subcommand: create, accept, message, share, approve, revoke, leave, export")
 	}
 	switch args[0] {
 	case "create":
@@ -30,6 +31,8 @@ func sessionCmd(args []string) error {
 		return sessionApprove(args[1:])
 	case "revoke":
 		return sessionRevoke(args[1:])
+	case "leave":
+		return sessionLeave(args[1:])
 	case "export":
 		return sessionExport(args[1:])
 	default:
@@ -73,6 +76,7 @@ func sessionCreate(args []string) error {
 func sessionAccept(args []string) error {
 	fs := flag.NewFlagSet("session accept", flag.ContinueOnError)
 	capsuleID := fs.String("capsule", "", "capsule joining the session")
+	remote := fs.String("remote", "", "opener serve URL when this capsule is on another machine")
 	var allow multiFlag
 	var allowExec multiFlag
 	fs.Var(&allow, "allow", "workspace path this capsule may share; repeatable")
@@ -81,15 +85,64 @@ func sessionAccept(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *remote == "" {
+		svc, err := openClient()
+		if err != nil {
+			return err
+		}
+		sess, err := svc.AcceptSession(context.Background(), id, *capsuleID, allow, allowExec)
+		if err != nil {
+			return err
+		}
+		fmt.Println(sess.ID)
+		return nil
+	}
+	local, err := openClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	info, err := local.Info(ctx)
+	if err != nil {
+		return err
+	}
+	if info.Underlay == "" {
+		return errors.New("local capsule serve has no --underlay")
+	}
+	guest, err := local.Inspect(ctx, *capsuleID)
+	if err != nil {
+		return err
+	}
+	opener := client.Client{BaseURL: *remote}
+	sess, err := opener.AcceptRemoteSession(ctx, id, guest.ID, allow, allowExec, guest.Network.Name, guest.Owner, info.Underlay)
+	if err != nil {
+		return err
+	}
+	if sess.Link == nil {
+		return errors.New("opener did not return a session link")
+	}
+	if err := local.LinkSession(ctx, sess.ID, guest.ID, *sess.Link); err != nil {
+		return err
+	}
+	fmt.Println(sess.ID)
+	return nil
+}
+
+func sessionLeave(args []string) error {
+	fs := flag.NewFlagSet("session leave", flag.ContinueOnError)
+	capsuleID := fs.String("capsule", "", "local capsule leaving the session link")
+	id, err := parseSessionArgs(fs, args)
+	if err != nil {
+		return err
+	}
 	svc, err := openClient()
 	if err != nil {
 		return err
 	}
-	sess, err := svc.AcceptSession(context.Background(), id, *capsuleID, allow, allowExec)
-	if err != nil {
+	if err := svc.LeaveSession(context.Background(), id, *capsuleID); err != nil {
 		return err
 	}
-	fmt.Println(sess.ID)
+	fmt.Println(id)
 	return nil
 }
 

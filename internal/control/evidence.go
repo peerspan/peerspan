@@ -27,7 +27,11 @@ func (s Service) evidence(sess session.Session) session.Evidence {
 func (s Service) participants(sess session.Session) []session.Participant {
 	out := make([]session.Participant, 0, len(sess.Members))
 	for _, member := range sess.Members {
-		out = append(out, s.participant(member.CapsuleID, member.Role, member.Allow, member.AllowExec))
+		p := s.participant(member.CapsuleID, member.Role, member.Allow, member.AllowExec)
+		if p.Owner == "" {
+			p.Owner = member.Owner
+		}
+		out = append(out, p)
 	}
 	return out
 }

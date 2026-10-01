@@ -44,9 +44,11 @@ type Handle struct {
 }
 
 // Peer is one capsule on a session link.
+// A local guest has a PID. A guest on another machine has an Underlay address instead.
 type Peer struct {
-	PID  int
-	Name string // recorded capsule name, such as <id>.capsule.local
+	PID      int
+	Name     string // recorded capsule name, such as <id>.capsule.local
+	Underlay string // machine address, set only when the guest is not on this machine
 }
 
 // Address is one capsule's name and address on the session link.
@@ -62,8 +64,11 @@ type Runtime interface {
 	Alive(pid int) bool
 	Exec(ctx context.Context, spec ExecSpec) (ExecResult, error)
 	// Connect attaches every peer to the session link. Peers already on the link stay.
-	// Every peer can reach every other peer by its recorded name. The host network is not attached.
-	Connect(ctx context.Context, sessionID string, peers []Peer) ([]Address, error)
-	// Disconnect removes the session link. It succeeds when the link is already gone.
-	Disconnect(ctx context.Context, sessionID string, peers []Peer) error
+	// Every peer can reach every other peer by its recorded name.
+	// localUnderlay is this machine's address. It is used when a peer is on another machine.
+	// The session subnet is not given an address on the host. The underlay is the only path between machines, and it exists for the life of the session.
+	Connect(ctx context.Context, sessionID, localUnderlay string, peers []Peer) ([]Address, error)
+	// Disconnect removes this machine's side of the session link. It succeeds when the link is already gone.
+	// localUnderlay matches the address passed to Connect.
+	Disconnect(ctx context.Context, sessionID, localUnderlay string, peers []Peer) error
 }

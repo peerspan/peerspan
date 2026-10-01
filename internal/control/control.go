@@ -30,11 +30,23 @@ type CreateRequest struct {
 	Secrets      []string `json:"secrets,omitempty"`
 }
 
+// Info is what a peer on another machine needs to know about this serve.
+type Info struct {
+	Underlay string `json:"underlay,omitempty"`
+}
+
+// Info returns this machine's underlay address.
+func (s Service) Info() Info {
+	return Info{Underlay: s.Underlay}
+}
+
 // Service wires the record store to a runtime.
+// Underlay is this machine's address. A capsule on another machine reaches the session through it.
 type Service struct {
-	Store   store.Store
-	Runtime runtime.Runtime
-	Now     func() time.Time
+	Store    store.Store
+	Runtime  runtime.Runtime
+	Now      func() time.Time
+	Underlay string
 }
 
 // Create records a capsule and starts its runtime.

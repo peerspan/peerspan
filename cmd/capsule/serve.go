@@ -20,6 +20,7 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", server.DefaultAddr, "listen address")
 	data := fs.String("data", ".capsules", "directory for capsule and session records")
+	underlay := fs.String("underlay", "", "this machine's address, for a capsule joining from another machine")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -34,8 +35,9 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	err = server.Serve(ctx, *addr, control.Service{
-		Store:   store.Store{Dir: dir},
-		Runtime: local.Runtime{},
+		Store:    store.Store{Dir: dir},
+		Runtime:  local.Runtime{},
+		Underlay: *underlay,
 	})
 	if errors.Is(err, context.Canceled) {
 		return nil

@@ -100,18 +100,54 @@ func Handler(svc control.Service) http.Handler {
 		sess, err := svc.CreateSession(create)
 		writeResult(w, envelope{Session: &sess}, err)
 	})
+	mux.HandleFunc("GET /v1/info", func(w http.ResponseWriter, r *http.Request) {
+		info := svc.Info()
+		writeResult(w, envelope{Info: &info}, nil)
+	})
 	mux.HandleFunc("POST /v1/sessions/{id}/accept", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			CapsuleID string   `json:"capsule_id"`
 			Allow     []string `json:"allow,omitempty"`
 			AllowExec []string `json:"allow_exec,omitempty"`
+			Name      string   `json:"name,omitempty"`
+			Owner     string   `json:"owner,omitempty"`
+			Underlay  string   `json:"underlay,omitempty"`
 		}
 		if err := readJSON(w, r, &req); err != nil {
 			writeError(w, err)
 			return
 		}
-		sess, err := svc.AcceptSession(r.PathValue("id"), req.CapsuleID, req.Allow, req.AllowExec)
+		var sess session.Session
+		var err error
+		if req.Underlay != "" {
+			sess, err = svc.AcceptRemoteSession(r.PathValue("id"), req.CapsuleID, req.Allow, req.AllowExec, req.Name, req.Owner, req.Underlay)
+		} else {
+			sess, err = svc.AcceptSession(r.PathValue("id"), req.CapsuleID, req.Allow, req.AllowExec)
+		}
 		writeResult(w, envelope{Session: &sess}, err)
+	})
+	mux.HandleFunc("POST /v1/sessions/{id}/link", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			CapsuleID string       `json:"capsule_id"`
+			Link      session.Link `json:"link"`
+		}
+		if err := readJSON(w, r, &req); err != nil {
+			writeError(w, err)
+			return
+		}
+		err := svc.LinkSession(r.PathValue("id"), req.CapsuleID, req.Link)
+		writeResult(w, envelope{}, err)
+	})
+	mux.HandleFunc("POST /v1/sessions/{id}/leave", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			CapsuleID string `json:"capsule_id"`
+		}
+		if err := readJSON(w, r, &req); err != nil {
+			writeError(w, err)
+			return
+		}
+		err := svc.LeaveSession(r.PathValue("id"), req.CapsuleID)
+		writeResult(w, envelope{}, err)
 	})
 	mux.HandleFunc("POST /v1/sessions/{id}/message", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -192,6 +228,7 @@ type envelope struct {
 	Session  *session.Session  `json:"session,omitempty"`
 	Evidence *session.Evidence `json:"evidence,omitempty"`
 	Secrets  []string          `json:"secrets,omitempty"`
+	Info     *control.Info     `json:"info,omitempty"`
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {

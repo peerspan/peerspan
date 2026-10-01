@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -367,6 +368,102 @@ func TestSessionThreePeers(t *testing.T) {
 	if joined != 2 {
 		t.Fatalf("joined participants = %d", joined)
 	}
+}
+
+func TestSessionRemotePeer(t *testing.T) {
+	const (
+		aUnder = "10.188.1.1"
+		bUnder = "10.188.1.2"
+	)
+	addSites(t)
+
+	svcA := testService(t)
+	svcA.Underlay = aUnder
+	svcA.Runtime = local.Runtime{Netns: "boxa"}
+	svcB := testService(t)
+	svcB.Underlay = bUnder
+	svcB.Runtime = local.Runtime{Netns: "boxb"}
+	opened := mustCapsule(t, svcA, "")
+	remote := mustCapsule(t, svcB, "")
+	other := mustCapsule(t, svcA, "")
+
+	sess, err := svcA.CreateSession(CreateSessionRequest{CapsuleID: opened.ID, Task: "across"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err = svcA.AcceptRemoteSession(sess.ID, remote.ID, nil, nil, remote.Network.Name, remote.Owner, bUnder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = svcA.RevokeSession(sess.ID)
+		_ = svcB.LeaveSession(sess.ID, remote.ID)
+	})
+	if sess.Link == nil || len(sess.Link.Endpoints) != 2 {
+		t.Fatalf("link = %+v", sess.Link)
+	}
+	if err := svcB.LinkSession(sess.ID, remote.ID, *sess.Link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svcA.MessageSession(sess.ID, remote.ID, "from the other machine"); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := ping(t, svcA, opened.Runtime.PID, remote.Network.Name); code != 0 {
+		t.Fatalf("ping remote: %s", output)
+	}
+	if code, output := ping(t, svcB, remote.Runtime.PID, opened.Network.Name); code != 0 {
+		t.Fatalf("ping opener: %s", output)
+	}
+	openedEP, ok := endpoint(sess.Link, opened.ID)
+	if !ok {
+		t.Fatal("missing opener endpoint")
+	}
+	if code, _ := ping(t, svcA, other.Runtime.PID, openedEP.IP); code == 0 {
+		t.Fatal("a capsule outside the session reached the link")
+	}
+	evidence, err := svcA.ExportSession(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.Participants) != 2 || evidence.Participants[1].Owner != remote.Owner {
+		t.Fatalf("participants = %+v", evidence.Participants)
+	}
+	if _, err := svcA.RevokeSession(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := ping(t, svcA, opened.Runtime.PID, remote.Network.Name); code == 0 {
+		t.Fatalf("still reachable after revoke: %s", output)
+	}
+	if err := svcB.LeaveSession(sess.ID, remote.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func addSites(t *testing.T) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v: %s", args, err, out)
+		}
+	}
+	_ = exec.Command("/usr/sbin/ip", "netns", "delete", "boxa").Run()
+	_ = exec.Command("/usr/sbin/ip", "netns", "delete", "boxb").Run()
+	run("/usr/sbin/ip", "netns", "add", "boxa")
+	run("/usr/sbin/ip", "netns", "add", "boxb")
+	t.Cleanup(func() {
+		_ = exec.Command("/usr/sbin/ip", "netns", "delete", "boxa").Run()
+		_ = exec.Command("/usr/sbin/ip", "netns", "delete", "boxb").Run()
+	})
+	run("/usr/sbin/ip", "link", "add", "va", "type", "veth", "peer", "name", "vb")
+	run("/usr/sbin/ip", "link", "set", "va", "netns", "boxa")
+	run("/usr/sbin/ip", "link", "set", "vb", "netns", "boxb")
+	run("/usr/sbin/ip", "netns", "exec", "boxa", "/usr/sbin/ip", "link", "set", "lo", "up")
+	run("/usr/sbin/ip", "netns", "exec", "boxb", "/usr/sbin/ip", "link", "set", "lo", "up")
+	run("/usr/sbin/ip", "netns", "exec", "boxa", "/usr/sbin/ip", "addr", "add", "10.188.1.1/24", "dev", "va")
+	run("/usr/sbin/ip", "netns", "exec", "boxb", "/usr/sbin/ip", "addr", "add", "10.188.1.2/24", "dev", "vb")
+	run("/usr/sbin/ip", "netns", "exec", "boxa", "/usr/sbin/ip", "link", "set", "va", "up")
+	run("/usr/sbin/ip", "netns", "exec", "boxb", "/usr/sbin/ip", "link", "set", "vb", "up")
 }
 
 func endpoint(link *session.Link, capsuleID string) (session.Endpoint, bool) {

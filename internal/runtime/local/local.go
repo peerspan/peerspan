@@ -20,7 +20,11 @@ import (
 
 // Runtime starts a workcell whose workspace is a directory on the host.
 // A git repo, when set, is cloned into that workspace before the workcell starts.
-type Runtime struct{}
+// Netns is the network namespace that owns the underlay address.
+// Empty uses the namespace of this process, which is the host.
+type Runtime struct {
+	Netns string
+}
 
 // Start prepares the workspace and starts the workcell.
 func (Runtime) Start(ctx context.Context, spec runtime.Spec) (runtime.Handle, error) {
