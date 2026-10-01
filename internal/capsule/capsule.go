@@ -55,6 +55,8 @@ type Command struct {
 	Argv     []string  `json:"argv"`
 	ExitCode int       `json:"exit_code"`
 	LogPath  string    `json:"log_path"`
+	DiffPath string    `json:"diff_path,omitempty"`
+	Paths    []string  `json:"paths,omitempty"`
 }
 
 // Network describes how the capsule is reached.

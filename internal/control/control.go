@@ -6,6 +6,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -208,6 +209,14 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 		}
 		paths = append(paths, path)
 	}
+	snap, err := os.MkdirTemp("", "capsule-snap-"+id+"-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(snap)
+	if err := copyWorkspace(c.Runtime.WorkDir, snap); err != nil {
+		return "", err
+	}
 	logPath := filepath.Join(s.Store.Dir, c.ID, "commands", fmt.Sprintf("%04d.log", len(c.Commands)+1))
 	result, runErr := s.Runtime.Exec(ctx, runtime.ExecSpec{
 		PID:         c.Runtime.PID,
@@ -221,6 +230,18 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 		code = -1
 	}
 	argv = redactArgv(argv, values)
+	patch, changed, diffErr := diffWorkspace(snap, c.Runtime.WorkDir)
+	var diffPath string
+	if diffErr == nil && patch != "" {
+		patch = secret.Redact(patch, values)
+		diffPath = strings.TrimSuffix(logPath, ".log") + ".diff"
+		if writeErr := os.MkdirAll(filepath.Dir(diffPath), 0o755); writeErr != nil {
+			diffErr = writeErr
+		} else if writeErr := os.WriteFile(diffPath, []byte(patch), 0o644); writeErr != nil {
+			diffErr = writeErr
+			diffPath = ""
+		}
+	}
 
 	now := s.now()
 	c.UpdatedAt = now
@@ -229,6 +250,8 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 		Argv:     argv,
 		ExitCode: code,
 		LogPath:  logPath,
+		DiffPath: diffPath,
+		Paths:    changed,
 	})
 	c.Audit = append(c.Audit, capsule.AuditEvent{
 		At:      now,
@@ -237,6 +260,9 @@ func (s Service) Exec(ctx context.Context, id string, argv []string) (string, er
 	})
 	if err := s.Store.Save(c); err != nil {
 		return result.Output, err
+	}
+	if diffErr != nil {
+		return result.Output, diffErr
 	}
 	if runErr != nil {
 		return result.Output, runErr

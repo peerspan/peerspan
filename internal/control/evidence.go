@@ -70,6 +70,7 @@ func (s Service) commandsDuring(sess session.Session, ended *time.Time) []sessio
 				CapsuleID: id,
 				Argv:      cmd.Argv,
 				ExitCode:  cmd.ExitCode,
+				Paths:     cmd.Paths,
 			})
 		}
 	}

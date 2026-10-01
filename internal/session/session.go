@@ -93,11 +93,13 @@ type Link struct {
 }
 
 // Executed is one command run in a participant capsule during the session.
+// Paths are workspace files that changed. The patch itself stays on the host.
 type Executed struct {
 	At        time.Time `json:"at"`
 	CapsuleID string    `json:"capsule_id"`
 	Argv      []string  `json:"argv"`
 	ExitCode  int       `json:"exit_code"`
+	Paths     []string  `json:"paths,omitempty"`
 }
 
 // Approval is a human decision recorded against one session action.
