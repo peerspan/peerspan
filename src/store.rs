@@ -1,0 +1,353 @@
+use crate::model::{Agent, AttachSession, Error, Event, Identity, RegisterAgent, Session};
+use anyhow::{Context, bail};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use chrono::{SecondsFormat, Utc};
+use ed25519_dalek::SigningKey;
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::{self, DirBuilder, File, OpenOptions},
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard},
+    time::Duration,
+};
+
+const SCHEMA: &str = "
+CREATE TABLE identity (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), private_key BLOB NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, owner TEXT NOT NULL, capabilities TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id), integration TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('attached', 'detached')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX sessions_agent ON sessions(agent_id);
+CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, subject_id TEXT NOT NULL, created_at TEXT NOT NULL);
+PRAGMA user_version = 1;
+";
+
+/// Local persistence and installation ownership. Network coordination is not
+/// required. The process lock lives for as long as the connection does.
+pub struct Store {
+    connection: Mutex<Connection>,
+    _lock: File,
+    directory: PathBuf,
+    identity: Identity,
+}
+
+impl Store {
+    pub fn open(directory: &Path) -> anyhow::Result<Self> {
+        if directory.as_os_str().is_empty() {
+            bail!("state directory is empty");
+        }
+        let directory = std::path::absolute(directory)?;
+        DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&directory)?;
+        let metadata = fs::symlink_metadata(&directory)?;
+        if !metadata.is_dir() || metadata.permissions().mode() & 0o077 != 0 {
+            bail!("state directory must be a private directory (mode 0700)");
+        }
+        let lock = private_file(&directory.join("host.lock"))?;
+        fs2::FileExt::try_lock_exclusive(&lock).context("host state is already in use")?;
+        let database_path = directory.join("host.db");
+        drop(private_file(&database_path)?);
+        let mut connection = Connection::open(database_path)?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version != 0 && version != 1 {
+            bail!("unsupported host database version: {version}");
+        }
+        let tx = connection.transaction()?;
+        if version == 0 {
+            tx.execute_batch(SCHEMA)?;
+        }
+        let stored: Option<(Vec<u8>, String)> = tx
+            .query_row(
+                "SELECT private_key, created_at FROM identity WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let (private_key, created_at) = match stored {
+            Some(stored) => stored,
+            None => {
+                let mut seed = [0u8; 32];
+                getrandom::fill(&mut seed).map_err(|e| anyhow::anyhow!("random source: {e}"))?;
+                let key = SigningKey::from_bytes(&seed).to_keypair_bytes().to_vec();
+                let created = now();
+                tx.execute(
+                    "INSERT INTO identity VALUES (1, ?1, ?2)",
+                    params![key, created],
+                )?;
+                (key, created)
+            }
+        };
+        let key_bytes: [u8; 64] = private_key
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("invalid persisted host identity"))?;
+        let signing = SigningKey::from_keypair_bytes(&key_bytes)
+            .context("invalid persisted host identity")?;
+        chrono::DateTime::parse_from_rfc3339(&created_at)
+            .context("invalid identity creation time")?;
+        let public = signing.verifying_key().to_bytes();
+        let identity = Identity {
+            id: format!("host_{}", hex::encode(Sha256::digest(public))),
+            public_key: STANDARD.encode(public),
+            created_at,
+        };
+        let stale = {
+            let mut statement = tx.prepare("SELECT id FROM sessions WHERE state = 'attached'")?;
+            statement
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let at = now();
+        tx.execute(
+            "UPDATE sessions SET state = 'detached', updated_at = ?1 WHERE state = 'attached'",
+            [&at],
+        )?;
+        for id in stale {
+            append_event(&tx, "session.disconnected", &id, &at)?;
+        }
+        tx.commit()?;
+        Ok(Self {
+            connection: Mutex::new(connection),
+            _lock: lock,
+            directory,
+            identity,
+        })
+    }
+
+    pub fn identity(&self) -> Identity {
+        self.identity.clone()
+    }
+    pub fn socket_path(&self) -> PathBuf {
+        self.directory.join("admin.sock")
+    }
+
+    fn connection(&self) -> Result<MutexGuard<'_, Connection>, Error> {
+        self.connection
+            .lock()
+            .map_err(|_| Error::Internal(anyhow::anyhow!("host store lock poisoned")))
+    }
+
+    pub fn register_agent(&self, request: RegisterAgent) -> Result<Agent, Error> {
+        let name = request.name.trim().to_owned();
+        let owner = request.owner.trim().to_owned();
+        if name.is_empty() || owner.is_empty() {
+            return Err(Error::Invalid("name and owner are required".into()));
+        }
+        if name.len() > 128 || owner.len() > 128 {
+            return Err(Error::Invalid(
+                "name and owner must be at most 128 bytes".into(),
+            ));
+        }
+        let mut capabilities = Vec::new();
+        for capability in request.capabilities {
+            let capability = capability.trim().to_owned();
+            if capability.is_empty() || capability.len() > 256 {
+                return Err(Error::Invalid("invalid capability name".into()));
+            }
+            if !capabilities.contains(&capability) {
+                capabilities.push(capability);
+            }
+        }
+        let agent = Agent {
+            id: new_id("agent")?,
+            name,
+            owner,
+            capabilities,
+            created_at: now(),
+        };
+        let encoded = serde_json::to_string(&agent.capabilities)?;
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let exists: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM agents WHERE name = ?1",
+            [&agent.name],
+            |r| r.get(0),
+        )?;
+        if exists != 0 {
+            return Err(Error::Conflict("agent name already exists".into()));
+        }
+        tx.execute(
+            "INSERT INTO agents VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![agent.id, agent.name, agent.owner, encoded, agent.created_at],
+        )?;
+        append_event(&tx, "agent.registered", &agent.id, &agent.created_at)?;
+        tx.commit()?;
+        Ok(agent)
+    }
+
+    pub fn agent(&self, id: &str) -> Result<Agent, Error> {
+        Ok(self.connection()?.query_row(
+            "SELECT id, name, owner, capabilities, created_at FROM agents WHERE id = ?1",
+            [id],
+            read_agent,
+        )?)
+    }
+
+    pub fn agents(&self) -> Result<Vec<Agent>, Error> {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare(
+            "SELECT id, name, owner, capabilities, created_at FROM agents ORDER BY created_at, id",
+        )?;
+        Ok(statement
+            .query_map([], read_agent)?
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn attach_session(&self, request: AttachSession) -> Result<Session, Error> {
+        let integration = request.integration.trim().to_owned();
+        if request.agent_id.is_empty() || integration.is_empty() || integration.len() > 128 {
+            return Err(Error::Invalid(
+                "agent_id and integration are required; integration must be at most 128 bytes"
+                    .into(),
+            ));
+        }
+        let at = now();
+        let session = Session {
+            id: new_id("session")?,
+            agent_id: request.agent_id,
+            integration,
+            state: "attached".into(),
+            created_at: at.clone(),
+            updated_at: at,
+        };
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        tx.query_row(
+            "SELECT id FROM agents WHERE id = ?1",
+            [&session.agent_id],
+            |r| r.get::<_, String>(0),
+        )?;
+        tx.execute(
+            "INSERT INTO sessions VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                session.id,
+                session.agent_id,
+                session.integration,
+                session.state,
+                session.created_at,
+                session.updated_at
+            ],
+        )?;
+        append_event(&tx, "session.attached", &session.id, &session.created_at)?;
+        tx.commit()?;
+        Ok(session)
+    }
+
+    pub fn session(&self, id: &str) -> Result<Session, Error> {
+        Ok(self.connection()?.query_row("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?1", [id], read_session)?)
+    }
+
+    pub fn sessions(&self, agent_id: &str) -> Result<Vec<Session>, Error> {
+        let connection = self.connection()?;
+        if !agent_id.is_empty() {
+            connection.query_row("SELECT id FROM agents WHERE id = ?1", [agent_id], |r| {
+                r.get::<_, String>(0)
+            })?;
+        }
+        let mut statement = connection.prepare("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE (?1 = '' OR agent_id = ?1) ORDER BY created_at, id")?;
+        Ok(statement
+            .query_map([agent_id], read_session)?
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn detach_session(&self, id: &str) -> Result<Session, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let mut session = tx.query_row("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?1", [id], read_session)?;
+        if session.state == "detached" {
+            return Ok(session);
+        }
+        session.state = "detached".into();
+        session.updated_at = now();
+        tx.execute(
+            "UPDATE sessions SET state = ?1, updated_at = ?2 WHERE id = ?3",
+            params![session.state, session.updated_at, id],
+        )?;
+        append_event(&tx, "session.detached", id, &session.updated_at)?;
+        tx.commit()?;
+        Ok(session)
+    }
+
+    pub fn events(&self, after: i64, limit: i64) -> Result<Vec<Event>, Error> {
+        if after < 0 || !(1..=1000).contains(&limit) {
+            return Err(Error::Invalid(
+                "after must be nonnegative and limit must be between 1 and 1000".into(),
+            ));
+        }
+        let connection = self.connection()?;
+        let mut statement = connection.prepare("SELECT sequence, kind, subject_id, created_at FROM events WHERE sequence > ?1 ORDER BY sequence LIMIT ?2")?;
+        Ok(statement
+            .query_map(params![after, limit], |r| {
+                Ok(Event {
+                    sequence: r.get(0)?,
+                    kind: r.get(1)?,
+                    subject_id: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+}
+
+fn private_file(path: &Path) -> anyhow::Result<File> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o077 != 0 {
+        bail!("host state file must be private and regular");
+    }
+    Ok(file)
+}
+
+fn now() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true)
+}
+
+fn new_id(prefix: &str) -> Result<String, Error> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
+    Ok(format!("{prefix}_{}", hex::encode(bytes)))
+}
+
+fn append_event(tx: &Transaction<'_>, kind: &str, subject: &str, at: &str) -> rusqlite::Result<()> {
+    tx.execute(
+        "INSERT INTO events (kind, subject_id, created_at) VALUES (?1, ?2, ?3)",
+        params![kind, subject, at],
+    )?;
+    Ok(())
+}
+
+fn read_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
+    let encoded: String = row.get(3)?;
+    let capabilities = serde_json::from_str(&encoded).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+    Ok(Agent {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        owner: row.get(2)?,
+        capabilities,
+        created_at: row.get(4)?,
+    })
+}
+
+fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
+    Ok(Session {
+        id: row.get(0)?,
+        agent_id: row.get(1)?,
+        integration: row.get(2)?,
+        state: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+    })
+}
