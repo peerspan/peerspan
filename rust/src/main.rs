@@ -52,6 +52,7 @@ async fn run(mut args: Vec<String>) -> anyhow::Result<()> {
                 return Ok(());
             }
             "--state" => {
+                //BUG: this doesn't check if the directory exists, or is a directory - assumes the second arg (if it exists) is always a valid dir
                 if args.len() < 2 {
                     bail!("--state requires a directory");
                 }

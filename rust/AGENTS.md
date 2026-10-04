@@ -10,4 +10,6 @@ The current API is owner-local administration over a private Unix socket. It is 
 
 Implement working slices rather than empty modules. SQLite operations belong on blocking workers. Keep the Cargo lockfile tracked, and avoid adding dependencies without a concrete need.
 
+Use Clap with typed commands and arguments for the Rust CLI. The current manual argument parser is temporary; replace it before extending the command surface. Preserve the shared command contract when making that change.
+
 Run `cargo fmt --check`, `cargo test --locked`, and `cargo clippy --locked --all-targets -- -D warnings`. Run the shared binary conformance suite when external behavior changes.
