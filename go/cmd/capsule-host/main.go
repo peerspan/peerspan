@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/Cerebral-Systems/capsule/internal/host"
+	"github.com/Cerebral-Systems/capsule/go/internal/host"
 )
 
 const usage = `capsule-host manages a local agent host.

@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Run the same host-service contract checks against either implementation.
+
+Uses only Python's standard library. Binaries must already be built. All state
+is temporary; tests never open a developer's normal host state directory.
+"""
+
+import argparse
+import base64
+import concurrent.futures
+import hashlib
+import http.client
+import json
+from pathlib import Path
+import signal
+import socket
+import sqlite3
+import stat
+import subprocess
+import tempfile
+import time
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, path):
+        super().__init__("localhost", timeout=3)
+        self.path = str(path)
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.path)
+
+
+class Host:
+    def __init__(self, binary, state):
+        self.binary, self.state = str(binary), state
+        self.process = None
+        self.logs = tempfile.TemporaryFile()
+
+    def start(self):
+        self.process = subprocess.Popen(
+            [self.binary, "--state", str(self.state), "serve"],
+            stdout=self.logs, stderr=self.logs,
+        )
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                self.logs.seek(0)
+                raise AssertionError(f"host exited at startup: {self.logs.read().decode()}")
+            try:
+                status, identity = self.call("GET", "/v1/host")
+                if status == 200:
+                    return identity
+            except (OSError, http.client.HTTPException):
+                pass
+            time.sleep(0.02)
+        raise AssertionError("host did not become ready")
+
+    def stop(self, crash=False):
+        if self.process is not None and self.process.poll() is None:
+            self.process.send_signal(signal.SIGKILL if crash else signal.SIGTERM)
+            try:
+                self.process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+                raise AssertionError("host did not shut down")
+            if not crash:
+                assert self.process.returncode == 0, self.process.returncode
+
+    def call(self, method, path, body=None, raw=None):
+        connection = UnixHTTPConnection(self.state / "admin.sock")
+        try:
+            payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
+            connection.request(method, path, payload, {"Content-Type": "application/json"})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def cli(self, *args, success=True):
+        result = subprocess.run(
+            [self.binary, "--state", str(self.state), *args],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert (result.returncode == 0) == success, (args, result.stdout, result.stderr)
+        return json.loads(result.stdout) if success else result.stderr
+
+
+def check(binary, label):
+    with tempfile.TemporaryDirectory(prefix="capsule-contract-") as temporary:
+        host = Host(binary, Path(temporary) / "host")
+        try:
+            identity = host.start()
+            public = base64.b64decode(identity["public_key"], validate=True)
+            assert len(public) == 32
+            assert identity["id"] == "host_" + hashlib.sha256(public).hexdigest()
+            assert "private_key" not in identity
+            assert host.cli("info") == identity
+            for path, mode in [(host.state, 0o700), (host.state / "host.db", 0o600), (host.state / "admin.sock", 0o600)]:
+                assert stat.S_IMODE(path.stat().st_mode) == mode, path
+            assert host.cli("agent", "list") == []
+            assert host.cli("session", "list") == []
+            assert host.cli("activity") == []
+
+            agent = host.cli("agent", "register", "--name", " bob ", "--owner", " bob ", "--capability", " conversation ", "--capability", "conversation")
+            assert agent["name"] == "bob" and agent["owner"] == "bob"
+            assert agent["capabilities"] == ["conversation"]
+            assert agent["id"].startswith("agent_")
+            assert host.cli("agent", "inspect", agent["id"]) == agent
+            assert host.cli("agent", "list") == [agent]
+
+            status, error = host.call("POST", "/v1/agents", {"name": "bob", "owner": "bob"})
+            assert status == 409 and error["code"] == "conflict"
+            for payload in [
+                {"name": "", "owner": "bob"},
+                {"name": "alice", "owner": ""},
+                {"name": "alice", "owner": "alice", "unknown": True},
+                {"name": "alice", "owner": "alice", "capabilities": None},
+                {"Name": "alice", "owner": "alice"},
+                {"name": "alice", "owner": "alice", "capabilities": [""]},
+                {"name": "x" * 129, "owner": "bob"},
+            ]:
+                status, error = host.call("POST", "/v1/agents", payload)
+                assert status == 400 and error["code"] == "invalid", payload
+            for raw in ["{", "null", '{} {}', '{"name":"a","owner":"a"} trailing']:
+                assert host.call("POST", "/v1/agents", raw=raw)[0] == 400, raw
+            assert host.call("POST", "/v1/agents", raw='{"name":"' + 'a' * (1 << 20) + '"}')[0] == 400
+            assert host.call("GET", "/v1/agents/missing")[0] == 404
+            assert len(host.cli("activity")) == 1
+
+            session = host.cli("session", "attach", "--agent", agent["id"], "--integration", "test")
+            assert session["id"].startswith("session_")
+            assert session["agent_id"] == agent["id"] and session["state"] == "attached"
+            assert host.cli("session", "inspect", session["id"]) == session
+            assert host.cli("session", "list", "--agent", agent["id"]) == [session]
+            assert host.call("POST", "/v1/sessions", {"agent_id": "missing", "integration": "test"})[0] == 404
+            assert host.call("GET", "/v1/sessions?agent_id=missing")[0] == 404
+            assert host.call("GET", "/v1/sessions/missing")[0] == 404
+            assert host.call("POST", "/v1/sessions/missing/detach")[0] == 404
+            assert host.call("POST", "/v1/sessions", {"agent_id": agent["id"], "integration": ""})[0] == 400
+            assert host.call("POST", "/v1/sessions", {"agent_id": agent["id"], "integration": None})[0] == 400
+
+            # A second daemon must not disturb the existing socket or identity.
+            second = subprocess.run([str(binary), "--state", str(host.state), "serve"], capture_output=True, timeout=5)
+            assert second.returncode != 0
+            assert host.cli("info") == identity
+
+            detached = host.cli("session", "detach", session["id"])
+            assert detached["state"] == "detached"
+            events = host.cli("activity")
+            assert [e["kind"] for e in events] == ["agent.registered", "session.attached", "session.detached"]
+            assert host.cli("session", "detach", session["id"]) == detached
+            assert host.cli("activity") == events
+            assert host.cli("activity", "--after", str(events[0]["sequence"]), "--limit", "1") == [events[1]]
+            for query in ["after=-1", "after=bad", "limit=0", "limit=1001", "limit=bad"]:
+                assert host.call("GET", "/v1/activity?" + query)[0] == 400
+
+            # Concurrent duplicate submissions have one successful mutation.
+            def register_racer(_):
+                return host.call("POST", "/v1/agents", {"name": "racer", "owner": "bob"})[0]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                statuses = list(executor.map(register_racer, range(8)))
+            assert sorted(statuses) == [201] + [409] * 7, statuses
+
+            attached = host.cli("session", "attach", "--agent", agent["id"], "--integration", "test")
+            host.stop(crash=True)
+            assert host.start() == identity
+            assert host.cli("agent", "inspect", agent["id"]) == agent
+            assert host.cli("session", "inspect", attached["id"])["state"] == "detached"
+            recovery = host.cli("activity")[-1]
+            assert recovery["kind"] == "session.disconnected" and recovery["subject_id"] == attached["id"]
+            assert host.cli("session", "inspect", session["id"]) == detached
+
+            # Mutation and activity are atomic even if activity storage fails.
+            connection = sqlite3.connect(host.state / "host.db")
+            try:
+                connection.execute("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+                connection.commit()
+                status, error = host.call("POST", "/v1/agents", {"name": "failed", "owner": "bob"})
+                assert status == 500 and error == {"code": "internal", "error": "internal error"}
+                assert all(a["name"] != "failed" for a in host.cli("agent", "list"))
+                connection.execute("DROP TRIGGER fail_event")
+                connection.commit()
+            finally:
+                connection.close()
+            host.cli("agent", "register", "--name", "failed", "--owner", "bob")
+            host.cli("unknown", success=False)
+            host.stop()
+            assert not (host.state / "admin.sock").exists()
+        finally:
+            host.stop()
+            host.logs.close()
+    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--go", type=Path)
+    parser.add_argument("--rust", type=Path)
+    args = parser.parse_args()
+    if not (args.go or args.rust):
+        parser.error("provide --go and/or --rust binaries")
+    for label, binary in [("Go", args.go), ("Rust", args.rust)]:
+        if binary:
+            binary = binary.resolve(strict=True)
+            check(binary, label)
+
+
+if __name__ == "__main__":
+    main()

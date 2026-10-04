@@ -1,6 +1,6 @@
 # Rust agent host service
 
-This is the Rust implementation of the agent host service, developed alongside the Go implementation in `capsule`. `capsule-rs` is a provisional repository name. Both follow the shared design and conformance suite in `mesh-new`; the implementation to release as OSS remains undecided.
+This directory contains the Rust implementation of Capsule’s host service, developed alongside the [Go implementation](../go/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance suite; the implementation to release as OSS remains undecided. The commands below run from this directory.
 
 ## Run the foundation
 
@@ -43,9 +43,9 @@ There are no empty modules for future networking or runtime features. The SQLite
 ```bash
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
-python3 ../mesh-new/conformance/host_service.py --rust ./target/debug/capsule-host
+python3 ../conformance/host_service.py --rust ./target/debug/capsule-host
 ```
 
-The shared suite checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Build the Go binary to run the suite with both `--go` and `--rust`. `mesh-new/docs/host-service-contract.md` defines the initial common behavior.
+The shared suite checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Build the Go binary to run the suite with both `--go` and `--rust`. `docs/host-service-contract.md` at the repository root defines the initial common behavior.
 
-The Cargo lockfile is tracked for reproducible dependency resolution. Build timings can be compared with `mesh-new/conformance/build_timings.py`, which uses disposable source copies and isolated caches.
+The Cargo lockfile is tracked for reproducible dependency resolution. Build timings can be compared with `conformance/build_timings.py` at the repository root, which uses disposable source copies and isolated caches.

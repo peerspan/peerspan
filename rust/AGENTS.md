@@ -1,8 +1,8 @@
 # Implementation instructions
 
-This repository contains the Rust host service, developed alongside the Go implementation in `capsule`. The repository name is provisional. The implementation to release as OSS is undecided.
+This directory contains the Rust host service, developed alongside the Go implementation in `../go`. The implementation to release as OSS is undecided.
 
-Shared design, external behavior, and conformance tests live in the `mesh-new` repository. Maintain behavior parity without mechanically translating Go module structure into Rust. Record protocol and product decisions in the shared design.
+Shared external behavior and conformance tests live in this repository’s `docs/` and `conformance/` directories. The broader architecture lives in the `mesh-new` design repository. Maintain behavior parity without mechanically translating Go module structure into Rust. Record protocol and product decisions in the shared design.
 
 Coordination remains outside the data path. Hosts own execution, local state, and permission enforcement. Agent identity is distinct from sessions. Membership, ownership, and access are separate.
 
