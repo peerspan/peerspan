@@ -1,0 +1,78 @@
+package host
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+func DefaultStateDir() (string, error) {
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", errors.New("XDG_STATE_HOME must be an absolute path")
+		}
+		return filepath.Join(dir, "capsule", "host"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state", "capsule", "host"), nil
+}
+
+// Listen is called after Open has acquired the exclusive state lock. A stale
+// socket can then be removed safely; unrelated files are never overwritten.
+func (s *Store) Listen() (*net.UnixListener, error) {
+	path := s.SocketPath()
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("admin socket path contains a non-socket file: %s", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		return nil, err
+	}
+	if err = os.Chmod(path, 0o600); err != nil {
+		listener.Close()
+		return nil, err
+	}
+	return listener, nil
+}
+
+// Serve stops accepting requests on cancellation, drains outstanding local
+// requests, and returns before the caller closes the store.
+func Serve(ctx context.Context, listener net.Listener, handler http.Handler) error {
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(listener) }()
+	select {
+	case err := <-done:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := server.Shutdown(shutdownCtx)
+		if err != nil {
+			_ = server.Close()
+		}
+		serveErr := <-done
+		if !errors.Is(serveErr, http.ErrServerClosed) {
+			err = errors.Join(err, serveErr)
+		}
+		return err
+	}
+}

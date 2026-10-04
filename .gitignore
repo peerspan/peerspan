@@ -4,3 +4,5 @@
 !.env.example
 .capsules/
 /capsule
+/capsule-host
+/go/capsule-host
