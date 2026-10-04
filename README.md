@@ -1,5 +1,52 @@
 # capsule
 
+This repository contains the Go implementation of the agent host service. A Rust implementation is being developed alongside it in the provisional `capsule-rs` repository. Both follow the shared design and conformance suite in `mesh-new`; the implementation to release as OSS remains undecided.
+
+## Host service foundation
+
+The new host service owns a durable local identity, registered agents, session attachment records, and an activity log. It starts without coordination and exposes an owner-local HTTP API over a private Unix socket. It currently supports Unix platforms; validation has been run on Linux.
+
+```bash
+go build -o /tmp/capsule-host-go ./cmd/capsule-host
+/tmp/capsule-host-go --state /tmp/capsule-go-state serve
+```
+
+From another terminal:
+
+```bash
+/tmp/capsule-host-go --state /tmp/capsule-go-state info
+/tmp/capsule-host-go --state /tmp/capsule-go-state agent register --name bob --owner bob --capability conversation
+/tmp/capsule-host-go --state /tmp/capsule-go-state agent list
+/tmp/capsule-host-go --state /tmp/capsule-go-state session attach --agent AGENT_ID --integration test
+/tmp/capsule-host-go --state /tmp/capsule-go-state session list
+/tmp/capsule-host-go --state /tmp/capsule-go-state activity
+```
+
+Without `--state`, state lives in `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
+
+Agent identity survives service restarts. Session attachments become detached on restart and remain inspectable. An attachment is metadata only: this milestone does not connect a live Claude Code session or launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Peer networking, scoped sharing, the three collaboration operations, and runtime execution are subsequent milestones.
+
+```text
+cmd/capsule-host/    New host executable and owner-local CLI
+internal/host/      Identity, persistent registry, API, client, daemon lifecycle
+```
+
+No empty packages are created for future features. Module boundaries can be separated as working functionality arrives.
+
+### Verify the host service
+
+```bash
+go test -race ./internal/host ./cmd/capsule-host
+go vet ./internal/host ./cmd/capsule-host
+python3 ../mesh-new/conformance/host_service.py --go /tmp/capsule-host-go
+```
+
+The shared suite checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Build both binaries to run it with both `--go` and `--rust`. `mesh-new/docs/host-service-contract.md` defines the initial common behavior.
+
+## Earlier prototype
+
+The following commands belong to the earlier prototype in `cmd/capsule` and the other `internal` packages. That code is retained during the rewrite and is separate from the new host service.
+
 `capsule` is a CLI for creating and managing agent capsules. A capsule is an isolated workspace for an agent task, with a recorded runtime, network name, authority, and audit trail.
 
 ## Requirements
