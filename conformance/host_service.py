@@ -11,6 +11,7 @@ import concurrent.futures
 import hashlib
 import http.client
 import json
+import os
 from pathlib import Path
 import signal
 import socket
@@ -38,9 +39,9 @@ class Host:
         self.process = None
         self.logs = tempfile.TemporaryFile()
 
-    def start(self):
+    def start(self, command="run"):
         self.process = subprocess.Popen(
-            [self.binary, "--state", str(self.state), "serve"],
+            [self.binary, "--state", str(self.state), command],
             stdout=self.logs, stderr=self.logs,
         )
         deadline = time.monotonic() + 8
@@ -88,7 +89,54 @@ class Host:
         return json.loads(result.stdout) if success else result.stderr
 
 
+def check_cli_without_daemon(binary):
+    """Help and rejected/client commands must not initialize host state."""
+    with tempfile.TemporaryDirectory(prefix="capsule-cli-") as temporary:
+        state = Path(temporary) / "absent"
+        environment = os.environ.copy()
+        environment.pop("HOME", None)
+        environment.pop("XDG_STATE_HOME", None)
+        for args in [[], ["--help"], ["-h"], ["help"],
+                     ["--state", str(state), "agent", "register", "--help"],
+                     ["--state", str(state), "session", "attach", "--help"],
+                     ["--state", str(state), "activity", "--help"]]:
+            result = subprocess.run([str(binary), *args], env=environment,
+                                    capture_output=True, text=True, timeout=5)
+            assert result.returncode == 0, (args, result.stderr)
+            assert result.stdout or result.stderr, args
+            assert not state.exists(), args
+
+        invalid = [
+            ["run", "unexpected"], ["serve", "unexpected"], ["unknown"],
+            ["agent", "register", "--name"],
+            ["agent", "register", "--name", "bob"],
+            ["agent", "register", "--name", "bob", "--owner", "bob", "--unknown"],
+            ["session", "attach", "--agent", "agent_example"],
+            ["session", "inspect"], ["session", "detach", "one", "two"],
+            ["activity", "--after", "bad"], ["activity", "--after=-1"],
+            ["activity", "--limit", "0"], ["activity", "--limit", "1001"],
+            ["info"],
+        ]
+        for args in invalid:
+            result = subprocess.run([str(binary), "--state", str(state), *args],
+                                    capture_output=True, text=True, timeout=5)
+            assert result.returncode != 0, (args, result.stdout, result.stderr)
+            assert not state.exists(), args
+        result = subprocess.run([str(binary), "--state"], capture_output=True, timeout=5)
+        assert result.returncode != 0
+
+        # The daemon validates filesystem paths; a client never opens the store.
+        ordinary_file = Path(temporary) / "file"
+        ordinary_file.write_text("keep")
+        for command in ["run", "serve"]:
+            result = subprocess.run([str(binary), "--state", str(ordinary_file), command],
+                                    capture_output=True, timeout=5)
+            assert result.returncode != 0
+            assert ordinary_file.read_text() == "keep"
+
+
 def check(binary, label):
+    check_cli_without_daemon(binary)
     with tempfile.TemporaryDirectory(prefix="capsule-contract-") as temporary:
         host = Host(binary, Path(temporary) / "host")
         try:
@@ -166,7 +214,7 @@ def check(binary, label):
 
             attached = host.cli("session", "attach", "--agent", agent["id"], "--integration", "test")
             host.stop(crash=True)
-            assert host.start() == identity
+            assert host.start(command="serve") == identity
             assert host.cli("agent", "inspect", agent["id"]) == agent
             assert host.cli("session", "inspect", attached["id"])["state"] == "detached"
             recovery = host.cli("activity")[-1]

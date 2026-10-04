@@ -1,14 +1,14 @@
-# Rust agent host service
+# Rust agent host daemon
 
-This directory contains the Rust implementation of Capsule’s host service, developed alongside the [Go implementation](../go/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance suite; the implementation to release as OSS remains undecided. The commands below run from this directory.
+This directory contains the Rust implementation of Capsule’s host daemon, developed alongside the [Go implementation](../go/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance suite; the implementation to release as OSS remains undecided. The commands below run from this directory.
 
 ## Run the foundation
 
-The service owns a durable local identity, registered agents, session attachment records, and a transactional activity log. It starts without coordination. Owner-local administration uses HTTP over a private Unix socket. The current implementation requires Unix; validation has been run on Linux.
+The daemon owns a durable local identity, registered agents, session attachment records, and a transactional activity log. It starts without coordination. Owner-local administration uses HTTP over a private Unix socket. The current implementation requires Unix; validation has been run on Linux.
 
 ```bash
 cargo build --locked
-./target/debug/capsule-host --state /tmp/capsule-rust-state serve
+./target/debug/capsule-host --state /tmp/capsule-rust-state run
 ```
 
 From another terminal:
@@ -30,6 +30,7 @@ Agent identity survives restarts. Session attachments become detached on restart
 
 ```text
 src/main.rs     Executable, owner-local client, and daemon lifecycle
+src/cli.rs      Clap command definitions and local request construction
 src/model.rs    Agent, session, identity, and activity records
 src/store.rs    Private local persistence and transactional registry operations
 src/api.rs      Owner-local HTTP administration

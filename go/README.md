@@ -1,6 +1,6 @@
-# Go agent host service
+# Go agent host daemon
 
-This directory contains the Go implementation of Capsule's host service. The Rust implementation is alongside it in [../rust](../rust/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance tests.
+This directory contains the Go implementation of Capsule's host daemon. The Rust implementation is alongside it in [../rust](../rust/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance tests.
 
 ## Source structure
 
@@ -12,7 +12,7 @@ go/
 └── internal/host/         Identity, persistent registry, API, client, lifecycle
 ```
 
-There are no empty packages for future transport or runtime features. The service currently manages local identity and registry metadata; actual agent integrations, peer operations, and runtime execution are subsequent work.
+There are no empty packages for future transport or runtime features. The daemon currently manages local identity and registry metadata; actual agent integrations, peer operations, and runtime execution are subsequent work.
 
 ## Build and verify
 
@@ -25,4 +25,4 @@ go -C go vet ./internal/host ./cmd/capsule-host
 python3 conformance/host_service.py --go /tmp/capsule-host-go
 ```
 
-Run `/tmp/capsule-host-go --state /tmp/capsule-go-state serve` and use the CLI commands in the [repository guide](../README.md). The local Unix socket is an owner administration interface, not a peer API. Owner labels and capability metadata do not establish network access.
+Run `/tmp/capsule-host-go --state /tmp/capsule-go-state run` and use the CLI commands in the [repository guide](../README.md). The local Unix socket is an owner administration interface, not a peer API. Owner labels and capability metadata do not establish network access.

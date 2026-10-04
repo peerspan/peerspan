@@ -16,10 +16,10 @@ import (
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
 )
 
-const usage = `capsule-host manages a local agent host.
+const usage = `capsule-host runs and controls a local Capsule host daemon.
 
 Usage:
-  capsule-host [--state DIR] serve
+  capsule-host [--state DIR] run
   capsule-host [--state DIR] info
   capsule-host [--state DIR] agent register --name NAME --owner OWNER [--capability NAME]
   capsule-host [--state DIR] agent list
@@ -30,6 +30,7 @@ Usage:
   capsule-host [--state DIR] session detach ID
   capsule-host [--state DIR] activity [--after SEQUENCE] [--limit COUNT]
 
+The serve command is a compatibility alias for run.
 Session attachment records metadata only; agent integration is a later milestone.
 `
 
@@ -65,9 +66,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			return err
 		}
 	}
-	if args[0] == "serve" {
+	if args[0] == "run" || args[0] == "serve" {
 		if len(args) != 1 {
-			return errors.New("serve accepts no positional arguments")
+			return fmt.Errorf("%s accepts no positional arguments", args[0])
 		}
 		store, err := host.Open(ctx, *state)
 		if err != nil {
@@ -79,7 +80,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			return err
 		}
 		defer listener.Close()
-		fmt.Fprintf(errOut, "host %s listening on %s\n", store.Identity().ID, store.SocketPath())
+		fmt.Fprintf(errOut, "host daemon %s listening on local control socket %s\n", store.Identity().ID, store.SocketPath())
 		return host.Serve(ctx, listener, host.Handler(store))
 	}
 	method, path, body, err := request(args, errOut)

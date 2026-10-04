@@ -1,4 +1,4 @@
-# Initial host service contract
+# Initial host daemon contract
 
 The Go and Rust implementations develop the same host service in parallel. This document specifies the first working milestone: a durable local identity, agent registry, separate session attachment records, and local activity. It does not finalize the future peer protocol.
 
@@ -6,9 +6,9 @@ Both implementations live in the `capsule` repository: `go/` contains the Go hos
 
 ## Local administration boundary
 
-The service listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. There is no TCP listener, network membership service, or authenticated peer endpoint in this milestone.
+The daemon listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. This is the local control interface for setup, integrations, and diagnostics. It is separate from the future authenticated peer interface and the daemon’s connection to coordination; it does not define the everyday network-facing user workflow. There is no TCP listener, network membership service, or authenticated peer endpoint in this milestone.
 
-Both binaries are named `capsule-host`. They accept `--state DIR` before the command. Without it, state defaults to `$XDG_STATE_HOME/capsule/host`, or `$HOME/.local/state/capsule/host` when the former is unset. An existing state directory must be private. Run simultaneous implementations with separate directories.
+Both binaries are named `capsule-host`. They accept `--state DIR` before the command. Without it, state defaults to `$XDG_STATE_HOME/capsule/host`, or `$HOME/.local/state/capsule/host` when the former is unset. The `run` command starts the daemon in the foreground; `serve` remains a compatibility alias. An existing state directory must be private. The daemon creates a missing state directory and rejects an ordinary file at that path. Client commands do not create state or open the database. Run simultaneous implementations with separate directories.
 
 ## Identity and records
 
@@ -36,7 +36,7 @@ Requests and responses use JSON. Creation endpoints return 201; reads and detach
 | `POST /v1/sessions/{id}/detach` | `session detach ID` | Detach idempotently. |
 | `GET /v1/activity?after=N&limit=N` | `activity [--after N] [--limit N]` | Read local events after a sequence cursor. |
 
-Invalid requests return 400 with code `invalid`, missing records return 404 with `not_found`, duplicate agent names return 409 with `conflict`, and storage failures return 500 with `internal`. Error bodies have `code` and `error`. Internal responses contain the generic message `internal error`; validation message wording is not fixed by the contract. CLI successes print JSON; failures exit nonzero.
+Invalid requests return 400 with code `invalid`, missing records return 404 with `not_found`, duplicate agent names return 409 with `conflict`, and storage failures return 500 with `internal`. Error bodies have `code` and `error`. Internal responses contain the generic message `internal error`; validation message wording is not fixed by the contract. CLI successes print JSON; failures exit nonzero. Root help (including no command) exits successfully without a daemon or state directory. Command help and parser diagnostics follow the implementation’s CLI library; their wording and exact nonzero exit codes are not a shared contract. Rust uses Clap with typed subcommands and arguments.
 
 ## Persistence and lifecycle
 
