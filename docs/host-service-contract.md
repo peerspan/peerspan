@@ -1,4 +1,4 @@
-# Initial host daemon contract
+# Local host daemon contract
 
 The Go and Rust implementations develop the same host service in parallel. This document specifies the first working milestone: a durable local identity, agent registry, separate session attachment records, and local activity. It does not finalize the future peer protocol.
 
@@ -6,7 +6,7 @@ Both implementations live in the `capsule` repository: `go/` contains the Go hos
 
 ## Local administration boundary
 
-The daemon listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. This is the local control interface for setup, integrations, and diagnostics. It is separate from the future authenticated peer interface and the daemon’s connection to coordination; it does not define the everyday network-facing user workflow. There is no TCP listener, network membership service, or authenticated peer endpoint in this milestone.
+The daemon listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. This is the local control interface for setup, integrations, and diagnostics. It is separate from the authenticated peer interface and the daemon’s future connection to coordination; it does not define the everyday network-facing user workflow. The foundation starts with no TCP listener. An explicit peer listener, configured identities, and grants are specified separately in the [known-host messaging contract](peer-messaging-contract.md). There is no network membership or coordination client yet.
 
 Both binaries are named `capsule-host`. They accept `--state DIR` before the command. Without it, state defaults to `$XDG_STATE_HOME/capsule/host`, or `$HOME/.local/state/capsule/host` when the former is unset. The `run` command starts the daemon in the foreground; `serve` remains a compatibility alias. An existing state directory must be private. The daemon creates a missing state directory and rejects an ordinary file at that path. Client commands do not create state or open the database. Run simultaneous implementations with separate directories.
 
@@ -52,4 +52,4 @@ Detaching an already detached session leaves it unchanged and adds no event. At 
 
 `conformance/build_timings.py` compares clean builds, unchanged warm builds, a comment-only edit followed by a build or test run, and first release builds. Dependencies are predownloaded and build caches are isolated. Results measure these implementations, dependency choices, and compiler profiles; they do not establish general language performance.
 
-Next, define and implement the smallest authenticated interaction between two known hosts, with explicit grants enforced by the receiving host. Mixed Go and Rust peers must pass the same collaboration contract. Networking, scoped sharing, conversations, tasks, capability calls, agent process integration, and isolated runtimes are not implemented by this milestone.
+The [known-host messaging contract](peer-messaging-contract.md) extends this foundation with an opt-in TLS peer interface, host-scoped grants, durable message acceptance, and explicit recovery. Mixed Go/Rust hosts pass the same transport tests. Live agent delivery, full conversations/tasks/capability calls, enrollment, and isolated runtimes remain subsequent work.

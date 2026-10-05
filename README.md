@@ -15,13 +15,13 @@ capsule/
 
 Each implementation has its own dependency manifest and lock/checksum files. The shared contract and tests change alongside the implementations. The broader system design remains in the `mesh-new` design repository.
 
-## First working milestone
+## Implemented behavior
 
 Both host daemons provide a durable local identity, registered agents, separate session attachment records, and a transactional activity log. They start without coordination and expose owner-local administration over a private Unix socket.
 
-The [shared contract](docs/host-service-contract.md) defines the common behavior. An attachment is registry metadata only: this milestone does not operate an existing Claude Code session or launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Peer networking, scoped sharing, the three collaboration operations, and runtime execution are subsequent milestones.
+The [shared contract](docs/host-service-contract.md) defines the common behavior. An attachment is registry metadata only: this milestone does not operate an existing Claude Code session or launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known hosts can now exchange agent-addressed messages over mutually authenticated TLS, using receiver-owned grants and durable receipts. Live agent delivery, the three full collaboration operations, enrollment/coordination, and runtime execution are subsequent milestones.
 
-The next slice is described in the [peer messaging proposal](docs/peer-messaging-proposal.md), with a separate [existing-agent integration investigation](docs/agent-integration-investigation.md). These documents describe proposed work; peer messaging is not implemented yet.
+The [known-host messaging contract](docs/peer-messaging-contract.md) specifies the peer transport slice. The [peer messaging proposal](docs/peer-messaging-proposal.md) records its broader direction, and the [existing-agent integration investigation](docs/agent-integration-investigation.md) describes the next delivery experiment.
 
 ## Build and run
 
@@ -39,7 +39,7 @@ Run each daemon in its own terminal with a separate state directory:
 ./rust/target/debug/capsule-host --state /tmp/capsule-rust-state run
 ```
 
-`run` starts the daemon in the foreground; `serve` remains a compatibility alias. The private `admin.sock` socket is its local control interface, used by the CLI. Coordination and peer communication will use separate interfaces.
+`run` starts the daemon in the foreground; `serve` remains a compatibility alias. The private `admin.sock` socket is its local control interface, used by the CLI. The opt-in peer listener uses its own authenticated router. A future coordination connection is a separate interface.
 
 Both expose the same commands:
 
@@ -56,6 +56,28 @@ Use the Rust binary and its state directory for the same commands. Without `--st
 
 See the [Go guide](go/README.md) and [Rust guide](rust/README.md) for implementation details. Current implementations require Unix; validation has been run on Linux.
 
+## Try known-host messaging
+
+Start two daemons with separate state directories and explicit peer addresses:
+
+```bash
+/tmp/capsule-host-go --state /tmp/capsule-bob run --peer-listen 127.0.0.1:7401
+./rust/target/debug/capsule-host --state /tmp/capsule-alice run --peer-listen 127.0.0.1:7402
+```
+
+Read each daemon's `info`, then independently verify and configure the other's `id` and `public_key`. The examples below use placeholders for those values:
+
+```bash
+/tmp/capsule-host-go --state /tmp/capsule-bob peer add --id ALICE_HOST_ID --public-key ALICE_PUBLIC_KEY --address 127.0.0.1:7402
+./rust/target/debug/capsule-host --state /tmp/capsule-alice peer add --id BOB_HOST_ID --public-key BOB_PUBLIC_KEY --address 127.0.0.1:7401
+./rust/target/debug/capsule-host --state /tmp/capsule-alice agent register --name alice --owner alice
+./rust/target/debug/capsule-host --state /tmp/capsule-alice grant create --peer BOB_HOST_ID --agent ALICE_AGENT_ID --expires-at FUTURE_RFC3339_TIME --allow-disconnected
+/tmp/capsule-host-go --state /tmp/capsule-bob message send --peer ALICE_HOST_ID --grant GRANT_ID --agent ALICE_AGENT_ID --deadline EARLIER_FUTURE_RFC3339_TIME --content "hello"
+./rust/target/debug/capsule-host --state /tmp/capsule-alice message list
+```
+
+The grant expiration and request deadline must be in the future, with the deadline no later than expiration. Coordination is currently disconnected, so grants require explicit `--allow-disconnected`. Inspect the send's JSON `state`: `accepted` means durable host storage; `unknown` requires recovery; `rejected` means the peer rejected the attempt. Use `message retry` or `message refresh` with the original request ID. This experiment does not inject content into a running agent.
+
 ## Verify both implementations
 
 ```bash
@@ -65,9 +87,10 @@ cargo fmt --check --manifest-path rust/Cargo.toml
 cargo test --locked --manifest-path rust/Cargo.toml
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 python3 conformance/host_service.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
+python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 ```
 
-The shared suite checks the running binaries, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. It uses temporary state directories.
+The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures additionally require OpenSSL.
 
 ## Compare build times
 

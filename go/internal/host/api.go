@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"unicode/utf8"
 )
 
 // Handler is the owner-local administration API, served only over a private
@@ -70,6 +71,7 @@ func Handler(store *Store) http.Handler {
 		events, err := store.Events(r.Context(), after, limit)
 		respond(w, http.StatusOK, events, err)
 	})
+	localPeerRoutes(mux, store)
 	return mux
 }
 
@@ -83,6 +85,10 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, allowed ...string) 
 		return false
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
+		respond(w, 0, nil, ErrInvalid)
+		return false
+	}
+	if !utf8.Valid(raw) {
 		respond(w, 0, nil, ErrInvalid)
 		return false
 	}
@@ -118,6 +124,8 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 		switch {
 		case errors.Is(err, ErrInvalid):
 			status, code, message = http.StatusBadRequest, "invalid", err.Error()
+		case errors.Is(err, ErrForbidden):
+			status, code, message = http.StatusForbidden, "forbidden", "forbidden"
 		case errors.Is(err, ErrNotFound):
 			status, code, message = http.StatusNotFound, "not_found", "not found"
 		case errors.Is(err, ErrConflict):

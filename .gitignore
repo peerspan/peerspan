@@ -6,3 +6,5 @@
 /capsule
 /capsule-host
 /go/capsule-host
+
+__pycache__/

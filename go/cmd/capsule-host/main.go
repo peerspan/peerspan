@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -19,7 +20,7 @@ import (
 const usage = `capsule-host runs and controls a local Capsule host daemon.
 
 Usage:
-  capsule-host [--state DIR] run
+  capsule-host [--state DIR] run [--peer-listen IP:PORT]
   capsule-host [--state DIR] info
   capsule-host [--state DIR] agent register --name NAME --owner OWNER [--capability NAME]
   capsule-host [--state DIR] agent list
@@ -29,6 +30,15 @@ Usage:
   capsule-host [--state DIR] session inspect ID
   capsule-host [--state DIR] session detach ID
   capsule-host [--state DIR] activity [--after SEQUENCE] [--limit COUNT]
+
+  capsule-host [--state DIR] peer add --id HOST --public-key KEY --address IP:PORT
+  capsule-host [--state DIR] peer list
+  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected]
+  capsule-host [--state DIR] grant list
+  capsule-host [--state DIR] grant revoke ID
+  capsule-host [--state DIR] message send --peer HOST --grant ID --agent ID --deadline TIME --content TEXT [--request ID]
+  capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
+  capsule-host [--state DIR] message inspect|retry|refresh --peer HOST ID
 
 The serve command is a compatibility alias for run.
 Session attachment records metadata only; agent integration is a later milestone.
@@ -67,8 +77,17 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 	}
 	if args[0] == "run" || args[0] == "serve" {
-		if len(args) != 1 {
-			return fmt.Errorf("%s accepts no positional arguments", args[0])
+		runFlags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+		runFlags.SetOutput(errOut)
+		peerListen := runFlags.String("peer-listen", "", "opt-in peer bind address, IP:port")
+		if err := runFlags.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if runFlags.NArg() != 0 {
+			return errors.New("unexpected daemon arguments")
 		}
 		store, err := host.Open(ctx, *state)
 		if err != nil {
@@ -81,7 +100,26 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		defer listener.Close()
 		fmt.Fprintf(errOut, "host daemon %s listening on local control socket %s\n", store.Identity().ID, store.SocketPath())
-		return host.Serve(ctx, listener, host.Handler(store))
+		daemonCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		var peerListener net.Listener
+		if *peerListen != "" {
+			peerListener, err = store.ListenPeer(daemonCtx, *peerListen)
+			if err != nil {
+				return err
+			}
+			defer peerListener.Close()
+			fmt.Fprintf(errOut, "peer listener %s (coordination disconnected)\n", peerListener.Addr())
+		}
+		if peerListener == nil {
+			return host.Serve(daemonCtx, listener, host.Handler(store))
+		}
+		results := make(chan error, 2)
+		go func() { results <- host.Serve(daemonCtx, listener, host.Handler(store)) }()
+		go func() { results <- host.Serve(daemonCtx, peerListener, host.PeerHandler(store)) }()
+		first := <-results
+		cancel()
+		return errors.Join(first, <-results)
 	}
 	method, path, body, err := request(args, errOut)
 	if err != nil {
@@ -181,6 +219,83 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				return "POST", path + "/detach", nil, nil
 			}
 			return "GET", path, nil, nil
+		}
+	case "peer":
+		if len(args) < 2 {
+			return invalid()
+		}
+		if args[1] == "list" && len(args) == 2 {
+			return "GET", "/v1/peers", nil, nil
+		}
+		if args[1] == "add" {
+			var p host.Peer
+			err := parse("peer add", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&p.ID, "id", "", "expected host ID")
+				fs.StringVar(&p.PublicKey, "public-key", "", "owner-verified public key")
+				fs.StringVar(&p.Address, "address", "", "peer IP:port")
+			})
+			return "POST", "/v1/peers", p, err
+		}
+	case "grant":
+		if len(args) < 2 {
+			return invalid()
+		}
+		if args[1] == "list" && len(args) == 2 {
+			return "GET", "/v1/grants", nil, nil
+		}
+		if args[1] == "revoke" && len(args) == 3 {
+			return "POST", "/v1/grants/" + url.PathEscape(args[2]) + "/revoke", nil, nil
+		}
+		if args[1] == "create" {
+			var g host.CreateGrant
+			err := parse("grant create", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&g.RequesterHostID, "peer", "", "requester host ID")
+				fs.StringVar(&g.TargetAgentID, "agent", "", "target local agent ID")
+				fs.StringVar(&g.ExpiresAt, "expires-at", "", "UTC grant expiration")
+				fs.Int64Var(&g.MaxMessageBytes, "max-message-bytes", 65536, "content byte limit")
+				fs.BoolVar(&g.AllowDisconnected, "allow-disconnected", false, "permit work without coordination")
+			})
+			return "POST", "/v1/grants", g, err
+		}
+	case "message":
+		if len(args) < 2 {
+			return invalid()
+		}
+		if args[1] == "list" {
+			var after, limit int64
+			err := parse("message list", args[2:], func(fs *flag.FlagSet) {
+				fs.Int64Var(&after, "after", 0, "read messages after sequence")
+				fs.Int64Var(&limit, "limit", 100, "maximum records, 1 to 1000")
+			})
+			return "GET", fmt.Sprintf("/v1/messages?after=%d&limit=%d", after, limit), nil, err
+		}
+		if args[1] == "send" {
+			var m host.SendMessage
+			err := parse("message send", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&m.PeerHostID, "peer", "", "receiving host ID")
+				fs.StringVar(&m.RequestID, "request", "", "stable request ID; generated if omitted")
+				fs.StringVar(&m.GrantID, "grant", "", "receiver grant ID")
+				fs.StringVar(&m.TargetAgentID, "agent", "", "receiver agent ID")
+				fs.StringVar(&m.Deadline, "deadline", "", "UTC request deadline")
+				fs.StringVar(&m.Content, "content", "", "message text")
+			})
+			return "POST", "/v1/outbound", m, err
+		}
+		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" {
+			fs := flag.NewFlagSet("message "+args[1], flag.ContinueOnError)
+			fs.SetOutput(errOut)
+			peer := fs.String("peer", "", "receiving host ID")
+			if err := fs.Parse(args[2:]); err != nil {
+				return "", "", nil, err
+			}
+			if *peer == "" || fs.NArg() != 1 {
+				return invalid()
+			}
+			path := "/v1/outbound/" + url.PathEscape(*peer) + "/" + url.PathEscape(fs.Arg(0))
+			if args[1] == "inspect" {
+				return "GET", path, nil, nil
+			}
+			return "POST", path + "/" + args[1], nil, nil
 		}
 	case "activity":
 		var after int64

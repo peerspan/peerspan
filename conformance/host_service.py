@@ -34,14 +34,15 @@ class UnixHTTPConnection(http.client.HTTPConnection):
 
 
 class Host:
-    def __init__(self, binary, state):
+    def __init__(self, binary, state, daemon_args=()):
         self.binary, self.state = str(binary), state
+        self.daemon_args = daemon_args
         self.process = None
         self.logs = tempfile.TemporaryFile()
 
     def start(self, command="run"):
         self.process = subprocess.Popen(
-            [self.binary, "--state", str(self.state), command],
+            [self.binary, "--state", str(self.state), command, *self.daemon_args],
             stdout=self.logs, stderr=self.logs,
         )
         deadline = time.monotonic() + 8
@@ -235,12 +236,30 @@ def check(binary, label):
                 connection.close()
             host.cli("agent", "register", "--name", "failed", "--owner", "bob")
             host.cli("unknown", success=False)
+            before_migration = host.cli("activity")
+            host.stop()
+            assert not (host.state / "admin.sock").exists()
+            # Model an existing v1 installation, retaining its identity/registry.
+            connection = sqlite3.connect(host.state / "host.db")
+            try:
+                for table in ["outbound_messages", "received_messages", "grants", "peers"]:
+                    connection.execute("DROP TABLE " + table)
+                connection.execute("PRAGMA user_version = 1")
+                connection.commit()
+            finally:
+                connection.close()
+            assert host.start() == identity
+            assert host.cli("agent", "inspect", agent["id"]) == agent
+            assert host.cli("activity") == before_migration
+            assert host.cli("peer", "list") == []
+            assert host.cli("grant", "list") == []
+            assert host.cli("message", "list") == []
             host.stop()
             assert not (host.state / "admin.sock").exists()
         finally:
             host.stop()
             host.logs.close()
-    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity", flush=True)
+    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1 migration", flush=True)
 
 
 def main():

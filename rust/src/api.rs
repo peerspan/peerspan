@@ -26,11 +26,12 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/sessions/{id}", get(session))
         .route("/v1/sessions/{id}/detach", post(detach))
         .route("/v1/activity", get(activity))
+        .merge(crate::peer::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     store: Arc<Store>,
     f: impl FnOnce(&Store) -> Result<T, Error> + Send + 'static,
 ) -> Result<T, Error> {
@@ -39,7 +40,7 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| Error::Internal(e.into()))?
 }
 
-fn decode<T: DeserializeOwned>(body: Result<Bytes, BytesRejection>) -> Result<T, Error> {
+pub(crate) fn decode<T: DeserializeOwned>(body: Result<Bytes, BytesRejection>) -> Result<T, Error> {
     let body = body.map_err(|_| Error::Invalid("invalid request".into()))?;
     serde_json::from_slice(&body).map_err(|_| Error::Invalid("invalid request".into()))
 }
@@ -137,6 +138,7 @@ impl IntoResponse for Error {
                 "invalid",
                 format!("invalid request: {message}"),
             ),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "forbidden".into()),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found", "not found".into()),
             Self::Conflict(message) => (
                 StatusCode::CONFLICT,

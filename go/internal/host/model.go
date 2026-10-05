@@ -1,5 +1,5 @@
-// Package host implements the local host service. It has no coordination
-// dependency and does not expose a peer-facing network API.
+// Package host implements the host daemon, private local administration, and
+// an opt-in authenticated peer message interface. It has no coordination dependency.
 package host
 
 import (
@@ -8,13 +8,15 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("invalid request")
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("conflict")
+	ErrInvalid   = errors.New("invalid request")
+	ErrNotFound  = errors.New("not found")
+	ErrForbidden = errors.New("forbidden")
+	ErrConflict  = errors.New("conflict")
 )
 
 // Identity identifies this installation. The private key stays in the local store.
-// Network membership and identity verification are separate future concerns.
+// The peer transport proves possession of this key. Network membership and
+// member/agent identity verification remain separate concerns.
 type Identity struct {
 	ID        string    `json:"id"`
 	PublicKey string    `json:"public_key"`

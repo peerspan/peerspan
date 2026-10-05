@@ -12,7 +12,7 @@ go/
 └── internal/host/         Identity, persistent registry, API, client, lifecycle
 ```
 
-There are no empty packages for future transport or runtime features. The daemon currently manages local identity and registry metadata; actual agent integrations, peer operations, and runtime execution are subsequent work.
+There are no empty packages for future transport or runtime features. The daemon owns local identity and registry state and implements known-host messaging over a separate authenticated interface. Live agent integrations and runtime execution are subsequent work.
 
 ## Build and verify
 

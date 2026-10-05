@@ -24,7 +24,7 @@ From another terminal:
 
 Without `--state`, state lives in `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
 
-Agent identity survives restarts. Session attachments become detached on restart and remain inspectable. An attachment is registry metadata only: this milestone does not operate a live Claude Code session or launch a process. Capability names and owner labels are metadata, not access grants or verified network identities. Peer networking, scoped sharing, the three collaboration operations, and runtime execution are subsequent milestones.
+Agent identity survives restarts. Session attachments become detached on restart and remain inspectable. An attachment is registry metadata only: this milestone does not operate a live Claude Code session or launch a process. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Live agent delivery, enrollment, the full collaboration operations, and runtime execution remain subsequent milestones.
 
 ## Source structure
 
@@ -34,10 +34,12 @@ src/cli.rs      Clap command definitions and local request construction
 src/model.rs    Agent, session, identity, and activity records
 src/store.rs    Private local persistence and transactional registry operations
 src/api.rs      Owner-local HTTP administration
+src/peer.rs     TLS identity pins, peer transport, and message interfaces
+src/peer_store.rs  Persisted peers, grants, requests, and receipts
 tests/store.rs  Persistence and filesystem boundary checks
 ```
 
-There are no empty modules for future networking or runtime features. The SQLite connection runs on blocking workers rather than the async executor. Private state files and an exclusive process lock protect local installation state; peer authentication is a separate future concern.
+There are no empty modules for future networking or runtime features. The SQLite connection runs on blocking workers rather than the async executor. Private state files and an exclusive process lock protect local installation state; peer authentication and receiver-owned message grants use the separate TLS interface. Member/agent authentication and delegation provenance remain future work.
 
 ## Verify
 

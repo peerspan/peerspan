@@ -56,12 +56,13 @@ PRAGMA user_version = 1;
 // Store owns one host state directory. A process lock prevents two daemons from
 // claiming the same host identity and managing its sessions concurrently.
 type Store struct {
-	db        *sql.DB
-	lock      *os.File
-	dir       string
-	identity  Identity
-	closeOnce sync.Once
-	closeErr  error
+	db         *sql.DB
+	lock       *os.File
+	dir        string
+	identity   Identity
+	privateKey ed25519.PrivateKey
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -116,7 +117,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version != 0 && version != 1 {
+	if version < 0 || version > 2 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -126,6 +127,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	defer tx.Rollback()
 	if version == 0 {
 		if _, err = tx.ExecContext(ctx, schema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 2 {
+		if _, err = tx.ExecContext(ctx, peerSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -147,7 +153,8 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if len(key) != ed25519.PrivateKeySize || !ed25519.NewKeyFromSeed(key[:ed25519.SeedSize]).Equal(ed25519.PrivateKey(key)) {
 		return nil, errors.New("invalid persisted host identity")
 	}
-	public := ed25519.PrivateKey(key).Public().(ed25519.PublicKey)
+	s.privateKey = ed25519.PrivateKey(key)
+	public := s.privateKey.Public().(ed25519.PublicKey)
 	digest := sha256.Sum256(public)
 	s.identity = Identity{ID: "host_" + hex.EncodeToString(digest[:]), PublicKey: base64.StdEncoding.EncodeToString(public)}
 	s.identity.CreatedAt, err = parseTime(created)

@@ -6,7 +6,7 @@ Shared external behavior and conformance tests live in this repository’s `docs
 
 Coordination remains outside the data path. Hosts own execution, local state, and permission enforcement. Agent identity is distinct from sessions. Membership, ownership, and access are separate.
 
-The current API is owner-local administration over a private Unix socket. It is not a peer API. Owner labels, capability names, and session attachment records do not establish network authority or integration readiness.
+Administration uses a private Unix socket; the opt-in peer API uses a separate mutual TLS router. Never serve the administration router on the peer listener. Unknown identity keys and absent grants must fail closed. Owner labels, capability names, and session attachment records do not establish network authority or integration readiness.
 
 Implement working slices rather than empty modules. SQLite operations belong on blocking workers. Keep the Cargo lockfile tracked, and avoid adding dependencies without a concrete need.
 

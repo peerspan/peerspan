@@ -21,7 +21,11 @@ pub struct Cli {
 pub enum Command {
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
-    Run,
+    Run {
+        /// Opt-in peer bind address; coordination is currently disconnected
+        #[arg(long, value_name = "IP:PORT")]
+        peer_listen: Option<std::net::SocketAddr>,
+    },
     /// Show the local daemon's public identity
     Info,
     /// Manage local agent registrations
@@ -30,6 +34,15 @@ pub enum Command {
     /// Manage local session attachment records
     #[command(subcommand)]
     Session(SessionCommand),
+    /// Configure owner-verified peer identities
+    #[command(subcommand)]
+    Peer(PeerCommand),
+    /// Manage receiver-owned message grants
+    #[command(subcommand)]
+    Grant(GrantCommand),
+    /// Submit messages and inspect durable host receipts
+    #[command(subcommand)]
+    Message(MessageCommand),
     /// Read the local activity log
     Activity {
         /// Read events after this sequence
@@ -80,6 +93,76 @@ pub enum SessionCommand {
     Detach { id: String },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum PeerCommand {
+    Add {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        public_key: String,
+        #[arg(long)]
+        address: std::net::SocketAddr,
+    },
+    List,
+}
+#[derive(Debug, Subcommand)]
+pub enum GrantCommand {
+    Create {
+        #[arg(long)]
+        peer: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        expires_at: String,
+        #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
+        max_message_bytes: i64,
+        #[arg(long)]
+        allow_disconnected: bool,
+    },
+    List,
+    Revoke {
+        id: String,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum MessageCommand {
+    Send {
+        #[arg(long)]
+        peer: String,
+        #[arg(long)]
+        grant: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        deadline: String,
+        #[arg(long)]
+        content: String,
+        #[arg(long, default_value = "")]
+        request: String,
+    },
+    List {
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
+        after: i64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
+        limit: i64,
+    },
+    Inspect {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+    Retry {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+    Refresh {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+}
+
 pub struct AdminRequest {
     pub method: Method,
     pub path: String,
@@ -90,7 +173,7 @@ impl Command {
     /// Run starts the daemon; every other command uses its local control socket.
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
-            Self::Run => return None,
+            Self::Run { .. } => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
             Self::Agent(AgentCommand::List) => (Method::GET, "/v1/agents".into(), None),
             Self::Agent(AgentCommand::Inspect { id }) => {
@@ -124,6 +207,69 @@ impl Command {
             Self::Session(SessionCommand::Detach { id }) => (
                 Method::POST,
                 format!("/v1/sessions/{}/detach", encoded(&id)),
+                None,
+            ),
+            Self::Peer(PeerCommand::Add {
+                id,
+                public_key,
+                address,
+            }) => (
+                Method::POST,
+                "/v1/peers".into(),
+                Some(json!({"id":id,"public_key":public_key,"address":address.to_string()})),
+            ),
+            Self::Peer(PeerCommand::List) => (Method::GET, "/v1/peers".into(), None),
+            Self::Grant(GrantCommand::Create {
+                peer,
+                agent,
+                expires_at,
+                max_message_bytes,
+                allow_disconnected,
+            }) => (
+                Method::POST,
+                "/v1/grants".into(),
+                Some(
+                    json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected}),
+                ),
+            ),
+            Self::Grant(GrantCommand::List) => (Method::GET, "/v1/grants".into(), None),
+            Self::Grant(GrantCommand::Revoke { id }) => (
+                Method::POST,
+                format!("/v1/grants/{}/revoke", encoded(&id)),
+                None,
+            ),
+            Self::Message(MessageCommand::Send {
+                peer,
+                grant,
+                agent,
+                deadline,
+                content,
+                request,
+            }) => (
+                Method::POST,
+                "/v1/outbound".into(),
+                Some(
+                    json!({"peer_host_id":peer,"grant_id":grant,"target_agent_id":agent,"deadline":deadline,"content":content,"request_id":request}),
+                ),
+            ),
+            Self::Message(MessageCommand::List { after, limit }) => (
+                Method::GET,
+                format!("/v1/messages?after={after}&limit={limit}"),
+                None,
+            ),
+            Self::Message(MessageCommand::Inspect { peer, id }) => (
+                Method::GET,
+                format!("/v1/outbound/{}/{}", encoded(&peer), encoded(&id)),
+                None,
+            ),
+            Self::Message(MessageCommand::Retry { peer, id }) => (
+                Method::POST,
+                format!("/v1/outbound/{}/{}/retry", encoded(&peer), encoded(&id)),
+                None,
+            ),
+            Self::Message(MessageCommand::Refresh { peer, id }) => (
+                Method::POST,
+                format!("/v1/outbound/{}/{}/refresh", encoded(&peer), encoded(&id)),
                 None,
             ),
             Self::Activity { after, limit } => (

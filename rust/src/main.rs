@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    net::{UnixListener, UnixStream},
+    net::{TcpListener, UnixListener, UnixStream},
     signal::unix::{SignalKind, signal},
 };
 
@@ -39,9 +39,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(directory) => directory,
         None => default_directory()?,
     };
-    let Some(request) = command.request() else {
-        return run_daemon(directory).await;
-    };
+    if let cli::Command::Run { peer_listen } = command {
+        return run_daemon(directory, peer_listen).await;
+    }
+    let request = command.request().expect("local control command");
     let value = tokio::time::timeout(
         Duration::from_secs(10),
         call(
@@ -78,7 +79,10 @@ impl Drop for SocketCleanup {
     }
 }
 
-async fn run_daemon(directory: PathBuf) -> anyhow::Result<()> {
+async fn run_daemon(
+    directory: PathBuf,
+    peer_listen: Option<std::net::SocketAddr>,
+) -> anyhow::Result<()> {
     let store = Arc::new(Store::open(&directory)?);
     let path = store.socket_path();
     match fs::symlink_metadata(&path) {
@@ -101,11 +105,32 @@ async fn run_daemon(directory: PathBuf) -> anyhow::Result<()> {
         store.identity().id,
         path.display()
     );
-    axum::serve(listener, api::router(store))
+    let peer_listener = match peer_listen {
+        Some(address) => {
+            let listener = TcpListener::bind(address).await?;
+            eprintln!(
+                "peer listener {} (coordination disconnected)",
+                listener.local_addr()?
+            );
+            Some(listener)
+        }
+        None => None,
+    };
+    let (shutdown, peer_shutdown) = tokio::sync::watch::channel(false);
+    let admin = axum::serve(listener, api::router(store.clone()))
         .with_graceful_shutdown(async move {
             tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} }
+            let _ = shutdown.send(true);
         })
-        .await?;
+        .into_future();
+    let peers = async {
+        if let Some(listener) = peer_listener {
+            capsule_host::peer::serve(listener, store, peer_shutdown).await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    use std::future::IntoFuture;
+    tokio::try_join!(async { admin.await.map_err(anyhow::Error::from) }, peers)?;
     Ok(())
 }
 

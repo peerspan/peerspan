@@ -6,10 +6,11 @@ use ed25519_dalek::SigningKey;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs::{self, DirBuilder, File, OpenOptions},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, RwLock},
     time::Duration,
 };
 
@@ -29,6 +30,8 @@ pub struct Store {
     _lock: File,
     directory: PathBuf,
     identity: Identity,
+    pub(crate) signing_key: SigningKey,
+    pub(crate) peer_pins: RwLock<BTreeMap<String, Vec<u8>>>,
 }
 
 impl Store {
@@ -53,12 +56,15 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version != 0 && version != 1 {
+        if !(0..=2).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
         if version == 0 {
             tx.execute_batch(SCHEMA)?;
+        }
+        if version < 2 {
+            tx.execute_batch(crate::peer_store::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -109,11 +115,14 @@ impl Store {
             append_event(&tx, "session.disconnected", &id, &at)?;
         }
         tx.commit()?;
+        let peer_pins = crate::peer_store::load_pins(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
             _lock: lock,
             directory,
             identity,
+            signing_key: signing,
+            peer_pins: RwLock::new(peer_pins),
         })
     }
 
@@ -124,7 +133,7 @@ impl Store {
         self.directory.join("admin.sock")
     }
 
-    fn connection(&self) -> Result<MutexGuard<'_, Connection>, Error> {
+    pub(crate) fn connection(&self) -> Result<MutexGuard<'_, Connection>, Error> {
         self.connection
             .lock()
             .map_err(|_| Error::Internal(anyhow::anyhow!("host store lock poisoned")))
@@ -308,18 +317,23 @@ fn private_file(path: &Path) -> anyhow::Result<File> {
     Ok(file)
 }
 
-fn now() -> String {
+pub(crate) fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
-fn new_id(prefix: &str) -> Result<String, Error> {
+pub(crate) fn new_id(prefix: &str) -> Result<String, Error> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes)
         .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
     Ok(format!("{prefix}_{}", hex::encode(bytes)))
 }
 
-fn append_event(tx: &Transaction<'_>, kind: &str, subject: &str, at: &str) -> rusqlite::Result<()> {
+pub(crate) fn append_event(
+    tx: &Transaction<'_>,
+    kind: &str,
+    subject: &str,
+    at: &str,
+) -> rusqlite::Result<()> {
     tx.execute(
         "INSERT INTO events (kind, subject_id, created_at) VALUES (?1, ?2, ?3)",
         params![kind, subject, at],

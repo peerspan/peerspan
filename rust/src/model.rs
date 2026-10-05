@@ -55,6 +55,7 @@ pub struct Event {
 #[derive(Debug)]
 pub enum Error {
     Invalid(String),
+    Forbidden,
     NotFound,
     Conflict(String),
     Internal(anyhow::Error),
@@ -79,6 +80,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Invalid(message) => write!(f, "invalid request: {message}"),
+            Self::Forbidden => write!(f, "forbidden"),
             Self::NotFound => write!(f, "not found"),
             Self::Conflict(message) => write!(f, "conflict: {message}"),
             Self::Internal(error) => write!(f, "{error}"),
