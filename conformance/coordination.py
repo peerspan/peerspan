@@ -19,6 +19,7 @@ import tempfile
 import time
 
 from peer_messaging import PeerHost, available_port, timestamp
+from agent_adapter import adapter_call, credential
 
 INTERVAL = 1
 
@@ -136,6 +137,14 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             connected_grant = alice.grant(b, agent, allow=False)
             assert connected_grant['allow_disconnected'] is False
             assert send(bob, a['id'], connected_grant, agent, 'over membership')['state'] == 'accepted'
+            # Handoff uses the same predicate: while synced, a connected-only
+            # grant's message reaches the adapter.
+            session = alice.cli('session', 'attach', '--agent', agent['id'], '--integration', 'test')
+            token = credential(alice, session)['token']
+            status, handoff = adapter_call(alice, token, 'POST', '/adapter/v1/next', {})
+            assert status == 200 and handoff['request']['content'] == 'over membership', handoff
+            held = send(bob, a['id'], connected_grant, agent, 'held')
+            assert held['state'] == 'accepted'
             assert alice.call('POST', '/v1/grants', {'requester_host_id': c['id'], 'target_agent_id': agent['id'],
                                                      'expires_at': timestamp(600), 'max_message_bytes': 10})[0] == 404
 
@@ -186,6 +195,13 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             time.sleep(3 * INTERVAL + 1)
             assert send(bob, a['id'], connected_grant, agent, 'stale')['state'] == 'rejected'
             assert send(bob, a['id'], disconnected_grant, agent, 'outage')['state'] == 'accepted'
+            # Once stale, the message accepted under the connected-only grant is
+            # blocked at handoff; the disconnected grant's message is handed off.
+            status, handoff = adapter_call(alice, token, 'POST', '/adapter/v1/next', {})
+            assert status == 200 and handoff['request']['content'] == 'outage', handoff
+            states = {r['delivery']['request_id']: r['delivery']['state'] for r in alice.cli('delivery', 'list')}
+            assert states[held['request']['request_id']] == 'blocked', states
+            assert sorted(states.values()) == ['blocked', 'unknown', 'unknown'], states
 
             # Host restart keeps verified members. The creator's v3 state is
             # reopened by the joiner's implementation, which must still treat
@@ -202,7 +218,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert coord.start() == coordinator
             wait_for(lambda: alice.cli('network', 'list')[0]['last_sync_error'] is None, message='resumed sync')
             assert send(bob, a['id'], connected_grant, agent, 'reconnected')['state'] == 'accepted'
-            assert len(alice.cli('message', 'list')) == 4
+            assert len(alice.cli('message', 'list')) == 5
             late_invite = alice.cli('network', 'invite', '--network', net, '--member', 'dave', '--expires-at', timestamp(600))
             assert decode_token(late_invite['token'])[1]['root_public_key'] == network['root_public_key']
         finally:
@@ -212,7 +228,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             coord.stop()
             coord.logs.close()
     print(f'PASS {label}: signed enrollment, invite reuse/expiry/tampering, injected members, '
-          'connected grants, coordinator outage, host and coordinator restart', flush=True)
+          'connected grants and handoff, coordinator outage, host and coordinator restart', flush=True)
 
 
 def main():
