@@ -240,9 +240,21 @@ func (s *Store) NextDelivery(ctx context.Context, token string) (*Handoff, error
 	}
 	var result *Handoff
 	for _, p := range items {
-		_, err = s.messageAuthority(ctx, tx, p.sender, p.request, true)
+		g, err := grantBounds(ctx, tx, p.sender, p.request, true)
 		if err != nil && !errors.Is(err, ErrForbidden) {
 			return nil, err
+		}
+		if err == nil {
+			// A lapsed connected state is not final: leave the message
+			// unclaimed, without a delivery record, until syncing resumes or
+			// its deadline passes.
+			connected, e := s.grantConnected(ctx, tx, p.sender, g)
+			if e != nil {
+				return nil, e
+			}
+			if !connected {
+				continue
+			}
 		}
 		state := "unknown"
 		if err != nil {

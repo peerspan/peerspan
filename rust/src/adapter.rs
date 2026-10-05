@@ -3,7 +3,7 @@
 use crate::{
     api::{blocking, decode},
     model::{Error, Session},
-    peer_store::{MessageRequest, Peer, valid_id},
+    peer_store::{MessageRequest, Peer, grant_bounds, valid_id},
     store::{Store, append_event, new_id, now},
 };
 use axum::{
@@ -273,7 +273,11 @@ impl Store {
         };
         let mut handoff = None;
         for (sender, request) in pending {
-            let state = match self.message_authority(&tx, &sender, &request, true) {
+            let state = match grant_bounds(&tx, &sender, &request, true) {
+                // A lapsed connected state is not final: leave the message
+                // unclaimed, without a delivery record, until syncing resumes
+                // or its deadline passes.
+                Ok(g) if !self.grant_connected(&tx, &sender, &g)? => continue,
                 Ok(_) => "unknown",
                 Err(Error::Forbidden) => "blocked",
                 Err(e) => return Err(e),

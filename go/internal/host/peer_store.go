@@ -235,6 +235,20 @@ func (s *Store) RevokeGrant(ctx context.Context, id string) (Grant, error) {
 
 // messageAuthority is shared by wire acceptance and adapter handoff/reply.
 func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (Grant, error) {
+	g, err := grantBounds(ctx, tx, sender, r, requireDeadline)
+	if err != nil {
+		return g, err
+	}
+	connected, err := s.grantConnected(ctx, tx, sender, g)
+	if err == nil && !connected {
+		err = ErrForbidden
+	}
+	return g, err
+}
+
+// grantBounds checks everything except coordination connectivity. Its denials
+// are final: revocation, expiry, a passed deadline, and size never recover.
+func grantBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (Grant, error) {
 	g, err := readJSON[Grant](tx.QueryRowContext(ctx, `SELECT record FROM grants WHERE id = ?`, r.GrantID))
 	if errors.Is(err, ErrNotFound) {
 		err = ErrForbidden
@@ -254,18 +268,17 @@ func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string,
 	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes {
 		return g, ErrForbidden
 	}
-	// Without coordination, only a grant that opts in permits new work. This
-	// is rechecked at handoff and reply, not only at wire acceptance.
-	if !g.AllowDisconnected {
-		connected, err := s.connected(ctx, tx, sender, now)
-		if err != nil {
-			return g, err
-		}
-		if !connected {
-			return g, ErrForbidden
-		}
-	}
 	return g, nil
+}
+
+// grantConnected reports whether the grant may be used now. Without
+// coordination, only a grant that opts in permits new work. Unlike
+// grantBounds, a false result can change once syncing resumes.
+func (s *Store) grantConnected(ctx context.Context, tx *sql.Tx, sender string, g Grant) (bool, error) {
+	if g.AllowDisconnected {
+		return true, nil
+	}
+	return s.connected(ctx, tx, sender, time.Now())
 }
 func validateMessage(r MessageRequest) error {
 	if !validID(r.RequestID, "request", 16) || !validID(r.GrantID, "grant", 16) || !validID(r.TargetAgentID, "agent", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {

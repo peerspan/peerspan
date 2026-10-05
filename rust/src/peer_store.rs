@@ -154,6 +154,41 @@ fn validate_message(r: &MessageRequest) -> Result<(), Error> {
         .map_err(|_| Error::Invalid("invalid deadline".into()))?;
     Ok(())
 }
+/// Checks everything except coordination connectivity. Its denials are final:
+/// revocation, expiry, a passed deadline, and size never recover.
+pub(crate) fn grant_bounds(
+    conn: &Connection,
+    sender: &str,
+    r: &MessageRequest,
+    require_deadline: bool,
+) -> Result<Grant, Error> {
+    let g: Grant = read(
+        conn,
+        "SELECT record FROM grants WHERE id = ?1",
+        [&r.grant_id],
+    )
+    .map_err(|e| match e {
+        Error::NotFound => Error::Forbidden,
+        other => other,
+    })?;
+    let expiration = chrono::DateTime::parse_from_rfc3339(&g.expires_at)
+        .map_err(|e| Error::Internal(e.into()))?;
+    let deadline =
+        chrono::DateTime::parse_from_rfc3339(&r.deadline).map_err(|e| Error::Internal(e.into()))?;
+    let at = Utc::now();
+    if g.requester_host_id != sender
+        || g.target_agent_id != r.target_agent_id
+        || g.action != "message.append"
+        || g.revoked_at.is_some()
+        || expiration <= at
+        || deadline > expiration
+        || (require_deadline && deadline <= at)
+        || r.content.len() as i64 > g.max_message_bytes
+    {
+        return Err(Error::Forbidden);
+    }
+    Ok(g)
+}
 impl Store {
     pub(crate) fn message_authority(
         &self,
@@ -162,35 +197,23 @@ impl Store {
         r: &MessageRequest,
         require_deadline: bool,
     ) -> Result<Grant, Error> {
-        let g: Grant = read(
-            conn,
-            "SELECT record FROM grants WHERE id = ?1",
-            [&r.grant_id],
-        )
-        .map_err(|e| match e {
-            Error::NotFound => Error::Forbidden,
-            other => other,
-        })?;
-        let expiration = chrono::DateTime::parse_from_rfc3339(&g.expires_at)
-            .map_err(|e| Error::Internal(e.into()))?;
-        let deadline = chrono::DateTime::parse_from_rfc3339(&r.deadline)
-            .map_err(|e| Error::Internal(e.into()))?;
-        let at = Utc::now();
-        if g.requester_host_id != sender
-            || g.target_agent_id != r.target_agent_id
-            || g.action != "message.append"
-            || g.revoked_at.is_some()
-            || expiration <= at
-            || deadline > expiration
-            || (require_deadline && deadline <= at)
-            || r.content.len() as i64 > g.max_message_bytes
-            // Without coordination, only a grant that opts in permits new work.
-            // This is rechecked at handoff and reply, not only at wire acceptance.
-            || (!g.allow_disconnected && !self.connected(conn, sender)?)
-        {
+        let g = grant_bounds(conn, sender, r, require_deadline)?;
+        if !self.grant_connected(conn, sender, &g)? {
             return Err(Error::Forbidden);
         }
         Ok(g)
+    }
+
+    /// Whether the grant may be used now. Without coordination, only a grant
+    /// that opts in permits new work. Unlike `grant_bounds`, a false result can
+    /// change once syncing resumes.
+    pub(crate) fn grant_connected(
+        &self,
+        conn: &Connection,
+        sender: &str,
+        g: &Grant,
+    ) -> Result<bool, Error> {
+        Ok(g.allow_disconnected || self.connected(conn, sender)?)
     }
 
     pub fn peers(&self) -> Result<Vec<Peer>, Error> {
