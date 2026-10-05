@@ -6,11 +6,12 @@ Capsule connects agents across developer-owned machines, with task delegation, p
 
 ```text
 capsule/
-├── go/             Go host daemon and module
-├── rust/           Rust host daemon and crate
-├── docs/           Shared contracts and implementation proposals
-├── conformance/    Common binary checks and build measurements
-└── legacy/         Earlier prototype, retained separately
+├── go/              Go host daemon, coordinator, and module
+├── rust/            Rust host daemon and crate
+├── integrations/    Shared adapters for existing agent sessions
+├── docs/            Shared contracts and implementation proposals
+├── conformance/     Common binary checks and build measurements
+└── legacy/          Earlier prototype, retained separately
 ```
 
 Each implementation has its own dependency manifest and lock/checksum files. The shared contract and tests change alongside the implementations. The broader system design remains in the `mesh-new` design repository.
@@ -83,9 +84,9 @@ The grant expiration and request deadline must be in the future, with the deadli
 
 ## Connect an existing Claude Code session
 
-The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential; the adapter uses a separate private `adapter.sock` interface, receives authorized messages, and exposes a bounded reply tool. Senders fetch persisted replies with `message reply`. Unknown handoffs remain inspectable without automatic redelivery.
+The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential and define named outbound destinations with byte and lifetime message limits. The adapter uses a separate private `adapter.sock` interface to receive messages, initiate scoped sends, and reply. The daemon automatically retrieves responses to agent-initiated messages and returns them to the originating session. Owner-CLI sends use `message reply`. Unknown handoffs persist without automatic redelivery.
 
-The [adapter contract](docs/agent-adapter-contract.md) defines scope, handoff, reply, and restart behavior. This implements message delivery and replies; full conversations, tasks, remote tools, and host-managed sessions remain subsequent work.
+The [adapter contract](docs/agent-adapter-contract.md) and [outbound extension](docs/adapter-outbound-contract.md) define scope, budgets, handoff, reply, and restart behavior. A [live experiment](docs/results/agent-exchange-live.json) verified two running Claude Code sessions initiating messages and observing automatic replies in both directions over Go↔Rust. Full conversations, tasks, remote tools, and host-managed sessions remain subsequent work.
 
 ## Verify both implementations
 
@@ -99,6 +100,7 @@ python3 conformance/host_service.py --go /tmp/capsule-host-go --rust rust/target
 python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
+python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --coord /tmp/capsule-coord
 ```
 
 The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures additionally require OpenSSL.

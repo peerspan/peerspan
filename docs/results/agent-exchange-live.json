@@ -1,0 +1,19 @@
+{
+  "checked_at": "2026-10-05T19:05:50.134606+00:00",
+  "claude_version": "2.1.289 (Claude Code)",
+  "mcp_protocols": [
+    "2025-11-25",
+    "2025-11-25"
+  ],
+  "host_pairing": "Go\u2194Rust",
+  "two_same_running_sessions": true,
+  "agent_initiated_both_directions": true,
+  "model_observed_automatic_replies_both_directions": true,
+  "owner_cli_send_or_reply_fetch": false,
+  "builtin_tools_enabled": false,
+  "permission_relay_enabled": false,
+  "limitations": [
+    "Two isolated hosts over loopback, not separate physical machines.",
+    "Restart/credential renewal and full conversation/task lifecycle are separate milestones."
+  ]
+}

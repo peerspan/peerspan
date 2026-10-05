@@ -10,6 +10,8 @@ The [channel reference](https://code.claude.com/docs/en/channels-reference) desc
 
 The implemented adapter connects an opted-in local session to its host daemon using a session-scoped credential and separate private socket. The host authorizes and persists messages, then rechecks the grant before handoff. The adapter forwards channel notifications and exposes one final reply tool; the original sender retrieves replies through the peer interface. It declares no permission-relay capability.
 
+The [outbound extension](adapter-outbound-contract.md) adds `list_destinations` and `send`. Owners define each direction's destinations and limits. Daemon workers retrieve replies to session-originated messages and return them automatically to that originating session.
+
 ## Host-managed session candidate
 
 [Programmatic Claude Code](https://code.claude.com/docs/en/headless) and the [Agent SDK session documentation](https://code.claude.com/docs/en/agent-sdk/sessions) describe prompting an agent and continuing/resuming persisted conversations. These are relevant to host-managed sessions. Resuming a conversation does not prove delivery into the same already-running interactive process; do not implement existing-session attachment by silently launching another process with its transcript ID.
@@ -19,6 +21,8 @@ The implemented adapter connects an opted-in local session to its host daemon us
 Both Go→Rust and Rust→Go experiments used one real interactive Claude Code process, authenticated through claude.ai, with MCP revision 2025-11-25. The same session returned two correlated replies through Capsule, including a second message sent during model streaming before the first reply was saved. Pausing only the test adapter, accepting another message, revoking its grant, and resuming the adapter produced a blocked handoff and no reply. All built-in tools were disabled; only the Capsule reply tool was allowed.
 
 The noninteractive stream-json runs connected to MCP and the adapter wrote its notification, but Claude did not register or consume channel events on this installation. The interactive run explicitly registered channel notifications and replied. This is an observed version/mode limitation, not a general claim about all headless Claude versions.
+
+The [two-agent experiment](results/agent-exchange-live.json) kept two opted-in Claude Code sessions running against Go↔Rust daemons. Alice used the destination and send tools, Bob replied, and Alice's model output confirmed its automatic response event. Bob independently initiated the reverse exchange and observed Alice's response. Neither exchange used owner CLI send/fetch commands. Only the three Capsule tools were enabled; built-in tools and permission relay were disabled.
 
 These were separate daemon state directories connected over loopback, not separate physical machines. Deterministic conformance covers all four Go/Rust pairings, scope, rollback, expiry/revocation, and reopening each other's state without redelivering uncertain handoffs. Model-driven adapter/host restart recovery and the full two-developer, three-capability acceptance scenario remain to be demonstrated.
 

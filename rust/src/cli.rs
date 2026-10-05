@@ -222,6 +222,9 @@ pub enum MessageCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AdapterCommand {
+    #[command(subcommand)]
+    Route(RouteCommand),
+
     Create {
         #[arg(long)]
         session: String,
@@ -231,6 +234,34 @@ pub enum AdapterCommand {
     List,
     Inspect {
         id: String,
+    },
+    Revoke {
+        id: String,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum RouteCommand {
+    Add {
+        #[arg(long)]
+        adapter: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        peer: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        grant: String,
+        #[arg(long)]
+        expires_at: String,
+        #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
+        max_message_bytes: i64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
+        max_messages: i64,
+    },
+    List {
+        #[arg(long)]
+        adapter: String,
     },
     Revoke {
         id: String,
@@ -393,6 +424,32 @@ impl Command {
             Self::Network(NetworkCommand::Sync { id }) => (
                 Method::POST,
                 format!("/v1/networks/{}/sync", encoded(&id)),
+                None,
+            ),
+            Self::Adapter(AdapterCommand::Route(RouteCommand::Add {
+                adapter,
+                name,
+                peer,
+                agent,
+                grant,
+                expires_at,
+                max_message_bytes,
+                max_messages,
+            })) => (
+                Method::POST,
+                "/v1/adapter-routes".into(),
+                Some(
+                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"grant_id":grant,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages}),
+                ),
+            ),
+            Self::Adapter(AdapterCommand::Route(RouteCommand::List { adapter })) => (
+                Method::GET,
+                format!("/v1/adapters/{}/routes", encoded(&adapter)),
+                None,
+            ),
+            Self::Adapter(AdapterCommand::Route(RouteCommand::Revoke { id })) => (
+                Method::POST,
+                format!("/v1/adapter-routes/{}/revoke", encoded(&id)),
                 None,
             ),
             Self::Adapter(AdapterCommand::Create {

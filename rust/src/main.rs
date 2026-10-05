@@ -161,6 +161,8 @@ async fn run_daemon(
         })
         .into_future();
     let coordination = capsule_host::network::coordinate(store.clone(), peer_shutdown.clone());
+    let reply_workers =
+        capsule_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
     let peers = async {
         if let Some(listener) = peer_listener {
             capsule_host::peer::serve(listener, store, peer_shutdown).await?;
@@ -172,6 +174,10 @@ async fn run_daemon(
         async { admin.await.map_err(anyhow::Error::from) },
         async { adapter.await.map_err(anyhow::Error::from) },
         peers,
+        async {
+            reply_workers.await;
+            Ok(())
+        },
         async {
             coordination.await;
             Ok(())

@@ -2,6 +2,8 @@
 
 This slice connects an explicitly opted-in Claude Code session to either host implementation. It adds a credential-scoped local interface; the owner-local admin socket and authenticated peer interface retain their separate authority.
 
+The [outbound extension](adapter-outbound-contract.md) adds owner-defined destinations, agent-initiated sends, and automatic replies bound to the originating session.
+
 ## Credentials and routing
 
 An owner attaches a session and runs `adapter create --session ID --expires-at TIME`. The response contains a random 256-bit bearer token returned only on creation. The database stores its SHA256 digest, session, expiry, and revocation state. An agent can have only one unexpired, unrevoked credential on an attached session. Owners can list, inspect, and revoke credentials. Credentials never confer administration, arbitrary outbound messaging, shell, filesystem, or tool-approval authority.
@@ -25,13 +27,15 @@ Authorization at the handoff transaction is the boundary for starting delivery. 
 
 The authenticated original sender retrieves the saved reply at `GET /peer/v1/replies/{request_id}`. Other senders receive 404. Lookup remains available after revocation/expiry because it authorizes no new work. No reverse grant or arbitrary recipient is introduced: this is a bounded response to a previously accepted message. Pending replies return 404.
 
-`message reply --peer HOST REQUEST_ID` asks the sender's local daemon to fetch and persist the matching reply. A pending result has `state: "pending"`; transport failure has `state: "unknown"`; a stored reply has `state: "replied"`. Both unknown and pending can be checked again safely. Once saved, the reply remains locally inspectable even if the peer is unreachable. This adds no conversation or task lifecycle.
+`message reply --peer HOST REQUEST_ID` asks the sender's local daemon to fetch and persist the matching reply. Session-originated sends use daemon workers to fetch and return replies automatically; owner-CLI sends still use this command. A pending result has `state: "pending"`; transport failure has `state: "unknown"`; a stored reply has `state: "replied"`. Both unknown and pending can be checked again safely. Once saved, the reply remains locally inspectable even if the peer is unreachable. This adds no conversation or task lifecycle.
 
 Database version 4 adds credential, delivery, received-reply, and outbound-reply tables atomically. Existing identities, grants, messages, receipts, and network membership (version 3) remain intact. Both implementations share this schema and can reopen each other's state. Unknown deliveries and replies survive restart; old session attachments remain detached and are never silently substituted.
 
+Version 5 adds outbound routes and originating-session bindings, preserving version 4 state. See the outbound extension for budgets and reply-notification states.
+
 ## Claude Code adapter
 
-The adapter uses the official MCP SDK over stdio, declares only `claude/channel`, and exposes a correlated `reply` tool. It reads its credential from a private file, calls only the adapter socket, and never logs the token or message contents. It starts polling after MCP initialization and stops on authentication failure or an uncertain handoff. Writing an MCP notification is distinct from receiving a model reply.
+The adapter uses the official MCP SDK over stdio, declares only `claude/channel`, and exposes `list_destinations`, `send`, and a correlated `reply` tool. It reads its credential from a private file, calls only the adapter socket, and never logs the token or message contents. It starts polling after MCP initialization and stops on authentication failure or an uncertain handoff. Writing an MCP notification is distinct from receiving a model reply.
 
 Claude Code [Channels](https://code.claude.com/docs/en/channels) are a research preview requiring explicit session opt-in and applicable organization policy. The [reference](https://code.claude.com/docs/en/channels-reference) describes development loading, message notifications, and reply tools. An unconfigured running process is not automatically attachable. Record the actual Claude version, negotiated MCP revision, observed behavior while busy, and live-test result separately from deterministic conformance.
 

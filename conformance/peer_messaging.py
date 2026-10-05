@@ -7,6 +7,7 @@ client certificates. Private keys used here belong only to disposable hosts.
 import argparse
 import base64
 import concurrent.futures
+import errno
 from datetime import datetime, timedelta, timezone
 import http.client
 import json
@@ -148,8 +149,12 @@ class DropResponse:
                         self.dropped.set()
                         break
                     client.sendall(data)
-                client.shutdown(socket.SHUT_RDWR)
-                server.shutdown(socket.SHUT_RDWR)
+                for connection in (client, server):
+                    try:
+                        connection.shutdown(socket.SHUT_RDWR)
+                    except OSError as error:
+                        if error.errno != errno.ENOTCONN:
+                            raise
                 forwarding.join(timeout=2)
         except Exception as error:
             self.failed = error

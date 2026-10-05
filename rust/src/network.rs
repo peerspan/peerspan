@@ -956,7 +956,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -968,11 +968,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 5;")
+            .execute_batch("PRAGMA user_version = 6;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

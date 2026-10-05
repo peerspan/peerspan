@@ -62,9 +62,11 @@ func AdapterHandler(store *Store) http.Handler {
 		reply, err := store.Reply(r.Context(), token(r), r.PathValue("id"), req.Content)
 		respond(w, 200, reply, err)
 	})
+	adapterOutboundRoutes(mux, store, token)
 	return mux
 }
 func localAdapterRoutes(mux *http.ServeMux, store *Store) {
+	localOutboundRoutes(mux, store)
 	mux.HandleFunc("POST /v1/adapters", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateAdapter
 		if !decode(w, r, &req, "session_id", "expires_at") {
@@ -130,7 +132,7 @@ func (s *Store) FetchReply(ctx context.Context, peerID, id string) (ReplyStatus,
 	} else if !errors.Is(err, ErrNotFound) {
 		return ReplyStatus{}, err
 	}
-	peer, err := s.Peer(ctx, peerID)
+	peer, err := s.dialPeer(ctx, peerID)
 	if err != nil {
 		return ReplyStatus{}, err
 	}

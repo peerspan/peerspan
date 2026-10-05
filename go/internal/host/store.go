@@ -122,7 +122,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 4 {
+	if version < 0 || version > 5 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -151,6 +151,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 		}
 	}
 	var key []byte
+	if version < 5 {
+		if _, err = tx.ExecContext(ctx, adapterOutboundSchema); err != nil {
+			return nil, err
+		}
+	}
 	var created string
 	err = tx.QueryRowContext(ctx, `SELECT private_key, created_at FROM identity WHERE singleton = 1`).Scan(&key, &created)
 	if errors.Is(err, sql.ErrNoRows) {

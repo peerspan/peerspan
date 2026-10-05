@@ -43,6 +43,9 @@ Usage:
   capsule-host [--state DIR] message inspect|retry|refresh|reply --peer HOST ID
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
   capsule-host [--state DIR] adapter list|inspect|revoke [ID]
+  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET --grant ID --expires-at TIME [--max-message-bytes N --max-messages N]
+  capsule-host [--state DIR] adapter route list --adapter ID
+  capsule-host [--state DIR] adapter route revoke ID
   capsule-host [--state DIR] delivery list [--after SEQUENCE --limit COUNT]
   capsule-host [--state DIR] delivery inspect ID
 
@@ -146,6 +149,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			store.RunCoordination(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
 		}()
 		defer func() { cancel(); <-coordinationDone }()
+		repliesDone := make(chan struct{})
+		go func() { defer close(repliesDone); store.RunReplyWorkers(daemonCtx) }()
+		defer func() { cancel(); <-repliesDone }()
 		adapterListener, err := store.ListenAdapter()
 		if err != nil {
 			return err
@@ -389,6 +395,37 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		}
 	case "adapter":
 		if len(args) < 2 {
+			return invalid()
+		}
+		if args[1] == "route" {
+			if len(args) < 3 {
+				return invalid()
+			}
+			if args[2] == "add" {
+				var req host.CreateOutboundRoute
+				err := parse("adapter route add", args[3:], func(fs *flag.FlagSet) {
+					fs.StringVar(&req.AdapterID, "adapter", "", "local adapter credential ID")
+					fs.StringVar(&req.Name, "name", "", "destination name")
+					fs.StringVar(&req.PeerHostID, "peer", "", "receiving host ID")
+					fs.StringVar(&req.TargetAgentID, "agent", "", "remote agent ID")
+					fs.StringVar(&req.GrantID, "grant", "", "receiver's grant ID")
+					fs.StringVar(&req.ExpiresAt, "expires-at", "", "route expiration")
+					fs.Int64Var(&req.MaxMessageBytes, "max-message-bytes", 65536, "maximum content bytes")
+					fs.Int64Var(&req.MaxMessages, "max-messages", 100, "lifetime message budget")
+				})
+				return "POST", "/v1/adapter-routes", req, err
+			}
+			if args[2] == "list" {
+				var id string
+				err := parse("adapter route list", args[3:], func(fs *flag.FlagSet) { fs.StringVar(&id, "adapter", "", "adapter credential ID") })
+				if err == nil && id == "" {
+					return invalid()
+				}
+				return "GET", "/v1/adapters/" + url.PathEscape(id) + "/routes", nil, err
+			}
+			if args[2] == "revoke" && len(args) == 4 {
+				return "POST", "/v1/adapter-routes/" + url.PathEscape(args[3]) + "/revoke", nil, nil
+			}
 			return invalid()
 		}
 		if args[1] == "create" {

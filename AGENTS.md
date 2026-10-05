@@ -16,3 +16,5 @@ From the repository root, run the appropriate language checks:
 - Rust: `cargo fmt --check --manifest-path rust/Cargo.toml`, `cargo test --locked --manifest-path rust/Cargo.toml`, and `cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings`.
 
 Build both binaries and run the appropriate shared conformance suites when external behavior changes. Peer changes require `conformance/peer_messaging.py` across all Go/Rust pairings; enrollment and coordination changes require `conformance/coordination.py` with the Go coordinator across all creator/joiner pairings; local changes require `conformance/host_service.py`. The earlier prototype's namespace and Firecracker tests have separate execution requirements.
+
+Session-adapter changes require `conformance/agent_adapter.py` and `conformance/adapter_outbound.py` across all Go/Rust pairings, with the Node adapter and Go coordinator. Live Claude experiments are separate from deterministic conformance; record model-observed behavior and limitations without claiming model execution from notification acknowledgments alone.

@@ -96,7 +96,7 @@ pub struct ReplyStatus {
     pub error: Option<String>,
 }
 
-fn read<T: DeserializeOwned>(
+pub(crate) fn read<T: DeserializeOwned>(
     conn: &Connection,
     query: &str,
     args: impl rusqlite::Params,
@@ -133,7 +133,7 @@ fn session(conn: &Connection, id: &str) -> Result<Session, Error> {
 fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
-fn authority(conn: &Connection, token: &str) -> Result<(Adapter, Session), Error> {
+pub(crate) fn authority(conn: &Connection, token: &str) -> Result<(Adapter, Session), Error> {
     if !valid_id(token, "token", 32) {
         return Err(Error::Forbidden);
     }
@@ -472,7 +472,7 @@ struct Empty {}
 struct ReplyRequest {
     content: String,
 }
-fn token(headers: &HeaderMap) -> String {
+pub(crate) fn token(headers: &HeaderMap) -> String {
     if headers.get_all("Authorization").iter().count() != 1 {
         return String::new();
     }
@@ -485,6 +485,7 @@ fn token(headers: &HeaderMap) -> String {
 }
 pub fn router(store: Arc<Store>) -> Router {
     Router::new()
+        .merge(crate::adapter_outbound::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))
@@ -538,6 +539,7 @@ async fn reply(
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
+        .merge(crate::adapter_outbound::local_routes())
         .route("/v1/adapters", get(adapters).post(create))
         .route("/v1/adapters/{id}", get(adapter))
         .route("/v1/adapters/{id}/revoke", post(revoke))
@@ -640,6 +642,14 @@ async fn fetch_reply(
     State(store): State<Arc<Store>>,
     Path((peer, id)): Path<(String, String)>,
 ) -> Result<Json<ReplyStatus>, Error> {
+    Ok(Json(fetch_reply_status(store, peer, id).await?))
+}
+
+pub(crate) async fn fetch_reply_status(
+    store: Arc<Store>,
+    peer: String,
+    id: String,
+) -> Result<ReplyStatus, Error> {
     let p = peer.clone();
     let rid = id.clone();
     let out = blocking(store.clone(), move |s| s.outbound(&p, &rid)).await?;
@@ -647,17 +657,17 @@ async fn fetch_reply(
     let rid = id.clone();
     match blocking(store.clone(), move |s| s.outbound_reply(&p, &rid)).await {
         Ok(r) => {
-            return Ok(Json(ReplyStatus {
+            return Ok(ReplyStatus {
                 state: "replied".into(),
                 reply: Some(r),
                 error: None,
-            }));
+            });
         }
         Err(Error::NotFound) => {}
         Err(e) => return Err(e),
     }
     let p = peer.clone();
-    let target = blocking(store.clone(), move |s| s.peer(&p)).await?;
+    let target = blocking(store.clone(), move |s| s.dial_target(&p)).await?;
     let response =
         tokio::time::timeout(Duration::from_secs(8), lookup(store.clone(), target, &id)).await;
     let mut status = ReplyStatus {
@@ -692,5 +702,5 @@ async fn fetch_reply(
         }
         _ => {}
     }
-    Ok(Json(status))
+    Ok(status)
 }

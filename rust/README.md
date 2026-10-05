@@ -24,7 +24,7 @@ From another terminal:
 
 Without `--state`, state lives in `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
 
-Agent identity survives restarts. Session attachments become detached on restart and remain inspectable. An attachment is registry metadata only: this milestone does not operate a live Claude Code session or launch a process. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Signed enrollment is specified in the [coordination contract](../docs/coordination-contract.md); the coordinator itself is the Go `capsule-coord` binary. Live agent delivery, membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
+Agent identity survives restarts. Session attachments become detached on restart and remain inspectable. An attachment is registry metadata; the shared [Claude channel adapter](../integrations/claude-channel/README.md) connects an explicitly opted-in session, including scoped outbound sends and automatic replies. Hosts do not launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Signed enrollment is specified in the [coordination contract](../docs/coordination-contract.md); the coordinator itself is the Go `capsule-coord` binary. Membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
 
 ## Source structure
 
@@ -38,6 +38,8 @@ src/peer.rs        TLS identity pins, peer transport, and message interfaces
 src/peer_store.rs  Persisted peers, grants, requests, and receipts
 src/membership.rs  Signed invites, memberships, and tokens
 src/network.rs     Coordination client, member map, and network administration
+src/adapter.rs     Session credentials, incoming handoff, and final replies
+src/adapter_outbound.rs  Owner-defined destinations and automatic session replies
 tests/store.rs     Persistence and filesystem boundary checks
 tests/cli.rs       CLI parsing checks
 ```

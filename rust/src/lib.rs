@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod adapter_outbound;
 pub mod api;
 pub mod membership;
 pub mod model;

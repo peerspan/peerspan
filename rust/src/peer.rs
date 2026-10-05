@@ -426,7 +426,7 @@ pub(crate) async fn https(
         .to_bytes();
     Ok((status, bytes.to_vec()))
 }
-async fn exchange(
+pub(crate) async fn exchange(
     store: Arc<Store>,
     mut out: OutboundMessage,
     receipt_only: bool,

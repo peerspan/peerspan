@@ -16,7 +16,7 @@ go/
 └── internal/tlsid/            Host and coordinator certificates
 ```
 
-There are no empty packages for future runtime features. The daemon owns local identity and registry state, known-host messaging on a separate authenticated interface, and a coordination client. `capsule-coord` is the coordination service both host implementations use. Live agent integrations, membership revocation, and runtime execution are subsequent work.
+The daemon owns local identity and registry state, known-host messaging on a separate authenticated interface, and a coordination client. `capsule-coord` is the coordination service both host implementations use. The shared [Claude channel adapter](../integrations/claude-channel/README.md) connects opted-in sessions, including scoped outbound sends and automatic replies. Membership revocation, the full collaboration operations, and runtime execution are subsequent work.
 
 ## Build and verify
 
