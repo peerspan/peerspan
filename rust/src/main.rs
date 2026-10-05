@@ -39,6 +39,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(directory) => directory,
         None => default_directory()?,
     };
+    // this binary currently either starts a host daemon or a local admin client
+    // the daemon serves admin requests, peer-listeners etc
     if let cli::Command::Run {
         peer_listen,
         advertise,
