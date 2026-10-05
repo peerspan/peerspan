@@ -232,6 +232,41 @@ func (s *Store) RevokeGrant(ctx context.Context, id string) (Grant, error) {
 	}
 	return g, tx.Commit()
 }
+
+// messageAuthority is shared by wire acceptance and adapter handoff/reply.
+func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (Grant, error) {
+	g, err := readJSON[Grant](tx.QueryRowContext(ctx, `SELECT record FROM grants WHERE id = ?`, r.GrantID))
+	if errors.Is(err, ErrNotFound) {
+		err = ErrForbidden
+	}
+	if err != nil {
+		return g, err
+	}
+	expires, err := parseTime(g.ExpiresAt)
+	if err != nil {
+		return g, err
+	}
+	deadline, err := parseTime(r.Deadline)
+	if err != nil {
+		return g, err
+	}
+	now := time.Now()
+	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes {
+		return g, ErrForbidden
+	}
+	// Without coordination, only a grant that opts in permits new work. This
+	// is rechecked at handoff and reply, not only at wire acceptance.
+	if !g.AllowDisconnected {
+		connected, err := s.connected(ctx, tx, sender, now)
+		if err != nil {
+			return g, err
+		}
+		if !connected {
+			return g, ErrForbidden
+		}
+	}
+	return g, nil
+}
 func validateMessage(r MessageRequest) error {
 	if !validID(r.RequestID, "request", 16) || !validID(r.GrantID, "grant", 16) || !validID(r.TargetAgentID, "agent", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
 		return ErrInvalid
@@ -250,32 +285,10 @@ func (s *Store) AcceptMessage(ctx context.Context, sender string, r MessageReque
 		return Receipt{}, err
 	}
 	defer tx.Rollback()
-	g, err := readJSON[Grant](tx.QueryRowContext(ctx, "SELECT record FROM grants WHERE id = ?", r.GrantID))
-	if errors.Is(err, ErrNotFound) {
-		return Receipt{}, ErrForbidden
-	}
-	if err != nil {
+	if _, err = s.messageAuthority(ctx, tx, sender, r, true); err != nil {
 		return Receipt{}, err
 	}
-	expires, err := parseTime(g.ExpiresAt)
-	if err != nil {
-		return Receipt{}, err
-	}
-	deadline, _ := parseTime(r.Deadline)
 	now := time.Now()
-	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || !deadline.After(now) || deadline.After(expires) || int64(len(r.Content)) > g.MaxMessageBytes {
-		return Receipt{}, ErrForbidden
-	}
-	// Without coordination, only a grant that opts in permits new work.
-	if !g.AllowDisconnected {
-		connected, err := s.connected(ctx, tx, sender, now)
-		if err != nil {
-			return Receipt{}, err
-		}
-		if !connected {
-			return Receipt{}, ErrForbidden
-		}
-	}
 	var oldRequest, oldReceipt string
 	err = tx.QueryRowContext(ctx, "SELECT request, receipt FROM received_messages WHERE sender = ? AND request_id = ?", sender, r.RequestID).Scan(&oldRequest, &oldReceipt)
 	if err == nil {

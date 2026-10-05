@@ -242,7 +242,9 @@ def check(binary, label):
             # Model an existing v1 installation, retaining its identity/registry.
             connection = sqlite3.connect(host.state / "host.db")
             try:
-                for table in ["network_members", "networks", "outbound_messages", "received_messages", "grants", "peers"]:
+                for table in ["outbound_replies", "received_replies", "deliveries", "adapter_credentials",
+                              "network_members", "networks",
+                              "outbound_messages", "received_messages", "grants", "peers"]:
                     connection.execute("DROP TABLE " + table)
                 connection.execute("PRAGMA user_version = 1")
                 connection.commit()
@@ -255,13 +257,13 @@ def check(binary, label):
             assert host.cli("grant", "list") == []
             assert host.cli("message", "list") == []
             assert host.cli("network", "list") == []
-            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 3
+            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 4
             host.stop()
             assert not (host.state / "admin.sock").exists()
         finally:
             host.stop()
             host.logs.close()
-    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1→v3 migration", flush=True)
+    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1→v4 migration", flush=True)
 
 
 def main():

@@ -1,0 +1,429 @@
+package host
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+	"unicode/utf8"
+)
+
+const adapterSchema = `
+CREATE TABLE adapter_credentials (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), token_hash TEXT NOT NULL UNIQUE, record TEXT NOT NULL);
+CREATE TABLE deliveries (id TEXT PRIMARY KEY, sender TEXT NOT NULL, request_id TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES sessions(id), record TEXT NOT NULL, UNIQUE(sender, request_id));
+CREATE TABLE received_replies (sender TEXT NOT NULL, request_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(sender, request_id));
+CREATE TABLE outbound_replies (peer TEXT NOT NULL, request_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(peer, request_id));
+PRAGMA user_version = 4;
+`
+
+type Adapter struct {
+	ID        string  `json:"id"`
+	SessionID string  `json:"session_id"`
+	ExpiresAt string  `json:"expires_at"`
+	RevokedAt *string `json:"revoked_at"`
+}
+type CreateAdapter struct {
+	SessionID string `json:"session_id"`
+	ExpiresAt string `json:"expires_at"`
+}
+type AdapterCredential struct {
+	Adapter Adapter `json:"adapter"`
+	Token   string  `json:"token"`
+}
+type Delivery struct {
+	ID            string `json:"id"`
+	SenderHostID  string `json:"sender_host_id"`
+	RequestID     string `json:"request_id"`
+	TargetAgentID string `json:"target_agent_id"`
+	SessionID     string `json:"session_id"`
+	AdapterID     string `json:"adapter_id"`
+	State         string `json:"state"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+}
+type DeliveryRecord struct {
+	Sequence int64    `json:"sequence"`
+	Delivery Delivery `json:"delivery"`
+}
+type Handoff struct {
+	Delivery Delivery       `json:"delivery"`
+	Request  MessageRequest `json:"request"`
+}
+type Reply struct {
+	SenderHostID   string `json:"sender_host_id"`
+	RequestID      string `json:"request_id"`
+	ReceiverHostID string `json:"receiver_host_id"`
+	TargetAgentID  string `json:"target_agent_id"`
+	SessionID      string `json:"session_id"`
+	DeliveryID     string `json:"delivery_id"`
+	Content        string `json:"content"`
+	RepliedAt      string `json:"replied_at"`
+}
+type ReplyStatus struct {
+	State string  `json:"state"`
+	Reply *Reply  `json:"reply"`
+	Error *string `json:"error"`
+}
+
+func tokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCredential, error) {
+	expires, err := parseTime(r.ExpiresAt)
+	if err != nil || !expires.After(time.Now()) {
+		return AdapterCredential{}, ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	defer tx.Rollback()
+	session, err := scanSession(tx.QueryRowContext(ctx, `SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?`, r.SessionID))
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	if session.State != SessionAttached {
+		return AdapterCredential{}, ErrForbidden
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ? AND s.state = 'attached'`, session.AgentID)
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	for rows.Next() {
+		var encoded string
+		if err = rows.Scan(&encoded); err != nil {
+			rows.Close()
+			return AdapterCredential{}, err
+		}
+		var a Adapter
+		if err = json.Unmarshal([]byte(encoded), &a); err != nil {
+			rows.Close()
+			return AdapterCredential{}, err
+		}
+		at, e := parseTime(a.ExpiresAt)
+		if e != nil {
+			rows.Close()
+			return AdapterCredential{}, e
+		}
+		if a.RevokedAt == nil && at.After(time.Now()) {
+			rows.Close()
+			return AdapterCredential{}, fmt.Errorf("%w: agent already has an active adapter credential", ErrConflict)
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	id, err := newID("adapter")
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		return AdapterCredential{}, err
+	}
+	token := "token_" + hex.EncodeToString(random)
+	adapter := Adapter{ID: id, SessionID: r.SessionID, ExpiresAt: r.ExpiresAt}
+	data, err := json.Marshal(adapter)
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_credentials VALUES (?, ?, ?, ?)`, id, r.SessionID, tokenHash(token), string(data)); err != nil {
+		return AdapterCredential{}, err
+	}
+	if err = appendEvent(ctx, tx, "adapter.created", id, timestamp(time.Now())); err != nil {
+		return AdapterCredential{}, err
+	}
+	return AdapterCredential{Adapter: adapter, Token: token}, tx.Commit()
+}
+func (s *Store) Adapter(ctx context.Context, id string) (Adapter, error) {
+	return readJSON[Adapter](s.db.QueryRowContext(ctx, `SELECT record FROM adapter_credentials WHERE id = ?`, id))
+}
+func (s *Store) Adapters(ctx context.Context) ([]Adapter, error) {
+	return records[Adapter](ctx, s.db, `SELECT record FROM adapter_credentials ORDER BY id`)
+}
+func (s *Store) RevokeAdapter(ctx context.Context, id string) (Adapter, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Adapter{}, err
+	}
+	defer tx.Rollback()
+	a, err := readJSON[Adapter](tx.QueryRowContext(ctx, `SELECT record FROM adapter_credentials WHERE id = ?`, id))
+	if err != nil {
+		return a, err
+	}
+	if a.RevokedAt != nil {
+		return a, nil
+	}
+	at := timestamp(time.Now())
+	a.RevokedAt = &at
+	data, err := json.Marshal(a)
+	if err != nil {
+		return a, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_credentials SET record = ? WHERE id = ?`, string(data), id); err != nil {
+		return a, err
+	}
+	if err = appendEvent(ctx, tx, "adapter.revoked", id, at); err != nil {
+		return a, err
+	}
+	return a, tx.Commit()
+}
+func adapterAuthority(ctx context.Context, tx *sql.Tx, token string) (Adapter, Session, error) {
+	if !validID(token, "token", 32) {
+		return Adapter{}, Session{}, ErrForbidden
+	}
+	a, err := readJSON[Adapter](tx.QueryRowContext(ctx, `SELECT record FROM adapter_credentials WHERE token_hash = ?`, tokenHash(token)))
+	if errors.Is(err, ErrNotFound) {
+		err = ErrForbidden
+	}
+	if err != nil {
+		return a, Session{}, err
+	}
+	expires, err := parseTime(a.ExpiresAt)
+	if err != nil {
+		return a, Session{}, err
+	}
+	if a.RevokedAt != nil || !expires.After(time.Now()) {
+		return a, Session{}, ErrForbidden
+	}
+	ss, err := scanSession(tx.QueryRowContext(ctx, `SELECT id,agent_id,integration,state,created_at,updated_at FROM sessions WHERE id = ?`, a.SessionID))
+	if err == nil && ss.State != SessionAttached {
+		err = ErrForbidden
+	}
+	return a, ss, err
+}
+
+func (s *Store) NextDelivery(ctx context.Context, token string) (*Handoff, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	a, ss, err := adapterAuthority(ctx, tx, token)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT m.sender,m.request FROM received_messages m WHERE json_extract(m.request,'$.target_agent_id') = ? AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.sender = m.sender AND d.request_id = m.request_id) ORDER BY m.rowid LIMIT 100`, ss.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	type pending struct {
+		sender  string
+		request MessageRequest
+	}
+	items := []pending{}
+	for rows.Next() {
+		var p pending
+		var encoded string
+		if err = rows.Scan(&p.sender, &encoded); err != nil {
+			break
+		}
+		if err = json.Unmarshal([]byte(encoded), &p.request); err != nil {
+			break
+		}
+		items = append(items, p)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	var result *Handoff
+	for _, p := range items {
+		_, err = s.messageAuthority(ctx, tx, p.sender, p.request, true)
+		if err != nil && !errors.Is(err, ErrForbidden) {
+			return nil, err
+		}
+		state := "unknown"
+		if err != nil {
+			state = "blocked"
+		}
+		id, e := newID("delivery")
+		if e != nil {
+			return nil, e
+		}
+		at := timestamp(time.Now())
+		d := Delivery{ID: id, SenderHostID: p.sender, RequestID: p.request.RequestID, TargetAgentID: ss.AgentID, SessionID: ss.ID, AdapterID: a.ID, State: state, CreatedAt: at, UpdatedAt: at}
+		data, e := json.Marshal(d)
+		if e != nil {
+			return nil, e
+		}
+		if _, e = tx.ExecContext(ctx, `INSERT INTO deliveries VALUES (?, ?, ?, ?, ?)`, id, p.sender, d.RequestID, ss.ID, string(data)); e != nil {
+			return nil, e
+		}
+		kind := "message.handoff"
+		if state == "blocked" {
+			kind = "message.blocked"
+		}
+		if e = appendEvent(ctx, tx, kind, id, at); e != nil {
+			return nil, e
+		}
+		if state == "unknown" {
+			result = &Handoff{Delivery: d, Request: p.request}
+			break
+		}
+	}
+	return result, tx.Commit()
+}
+func (s *Store) Delivery(ctx context.Context, id string) (Delivery, error) {
+	return readJSON[Delivery](s.db.QueryRowContext(ctx, `SELECT record FROM deliveries WHERE id = ?`, id))
+}
+func (s *Store) Deliveries(ctx context.Context, after, limit int64) ([]DeliveryRecord, error) {
+	if after < 0 || limit < 1 || limit > 1000 {
+		return nil, ErrInvalid
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT rowid,record FROM deliveries WHERE rowid > ? ORDER BY rowid LIMIT ?`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeliveryRecord{}
+	for rows.Next() {
+		var item DeliveryRecord
+		var encoded string
+		if err = rows.Scan(&item.Sequence, &encoded); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal([]byte(encoded), &item.Delivery); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+func ownedDelivery(ctx context.Context, tx *sql.Tx, token, id string) (Delivery, error) {
+	a, ss, err := adapterAuthority(ctx, tx, token)
+	if err != nil {
+		return Delivery{}, err
+	}
+	d, err := readJSON[Delivery](tx.QueryRowContext(ctx, `SELECT record FROM deliveries WHERE id = ?`, id))
+	if err != nil {
+		return d, err
+	}
+	if d.AdapterID != a.ID || d.SessionID != ss.ID || d.State == "blocked" {
+		return d, ErrForbidden
+	}
+	return d, nil
+}
+func updateDelivery(ctx context.Context, tx *sql.Tx, d Delivery, kind string) error {
+	data, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE deliveries SET record = ? WHERE id = ?`, string(data), d.ID); err != nil {
+		return err
+	}
+	return appendEvent(ctx, tx, kind, d.ID, d.UpdatedAt)
+}
+func (s *Store) Forwarded(ctx context.Context, token, id string) (Delivery, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Delivery{}, err
+	}
+	defer tx.Rollback()
+	d, err := ownedDelivery(ctx, tx, token, id)
+	if err != nil {
+		return d, err
+	}
+	if d.State != "unknown" {
+		return d, nil
+	}
+	d.State, d.UpdatedAt = "forwarded", timestamp(time.Now())
+	if err = updateDelivery(ctx, tx, d, "message.forwarded"); err != nil {
+		return d, err
+	}
+	return d, tx.Commit()
+}
+func (s *Store) Reply(ctx context.Context, token, id, content string) (Reply, error) {
+	if content == "" || !utf8.ValidString(content) || len(content) > 65536 {
+		return Reply{}, ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Reply{}, err
+	}
+	defer tx.Rollback()
+	d, err := ownedDelivery(ctx, tx, token, id)
+	if err != nil {
+		return Reply{}, err
+	}
+	m, err := readJSON[MessageRequest](tx.QueryRowContext(ctx, `SELECT request FROM received_messages WHERE sender = ? AND request_id = ?`, d.SenderHostID, d.RequestID))
+	if err != nil {
+		return Reply{}, err
+	}
+	g, err := s.messageAuthority(ctx, tx, d.SenderHostID, m, false)
+	if err != nil {
+		return Reply{}, err
+	}
+	if int64(len(content)) > g.MaxMessageBytes {
+		return Reply{}, ErrForbidden
+	}
+	old, err := readJSON[Reply](tx.QueryRowContext(ctx, `SELECT record FROM received_replies WHERE sender = ? AND request_id = ?`, d.SenderHostID, d.RequestID))
+	if err == nil {
+		if old.Content != content {
+			return old, ErrConflict
+		}
+		return old, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return old, err
+	}
+	at := timestamp(time.Now())
+	r := Reply{SenderHostID: d.SenderHostID, RequestID: d.RequestID, ReceiverHostID: s.identity.ID, TargetAgentID: d.TargetAgentID, SessionID: d.SessionID, DeliveryID: d.ID, Content: content, RepliedAt: at}
+	data, err := json.Marshal(r)
+	if err != nil {
+		return r, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO received_replies VALUES (?, ?, ?)`, d.SenderHostID, d.RequestID, string(data)); err != nil {
+		return r, err
+	}
+	d.State, d.UpdatedAt = "replied", at
+	if err = updateDelivery(ctx, tx, d, "message.replied"); err != nil {
+		return r, err
+	}
+	return r, tx.Commit()
+}
+func (s *Store) ReceivedReply(ctx context.Context, sender, id string) (Reply, error) {
+	return readJSON[Reply](s.db.QueryRowContext(ctx, `SELECT record FROM received_replies WHERE sender = ? AND request_id = ?`, sender, id))
+}
+func (s *Store) OutboundReply(ctx context.Context, peer, id string) (Reply, error) {
+	return readJSON[Reply](s.db.QueryRowContext(ctx, `SELECT record FROM outbound_replies WHERE peer = ? AND request_id = ?`, peer, id))
+}
+func (s *Store) SaveOutboundReply(ctx context.Context, peer string, r Reply) (Reply, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return r, err
+	}
+	defer tx.Rollback()
+	old, err := readJSON[Reply](tx.QueryRowContext(ctx, `SELECT record FROM outbound_replies WHERE peer = ? AND request_id = ?`, peer, r.RequestID))
+	if err == nil {
+		if old != r {
+			return old, ErrConflict
+		}
+		return old, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return r, err
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		return r, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO outbound_replies VALUES (?, ?, ?)`, peer, r.RequestID, string(data)); err != nil {
+		return r, err
+	}
+	if err = appendEvent(ctx, tx, "reply.received", peer+"/"+r.RequestID, timestamp(time.Now())); err != nil {
+		return r, err
+	}
+	return r, tx.Commit()
+}

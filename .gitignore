@@ -8,3 +8,4 @@
 /go/capsule-host
 
 __pycache__/
+node_modules/

@@ -28,6 +28,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/activity", get(activity))
         .merge(crate::peer::local_routes())
         .merge(crate::network::local_routes())
+        .merge(crate::adapter::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
 }

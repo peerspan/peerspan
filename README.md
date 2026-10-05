@@ -19,7 +19,7 @@ Each implementation has its own dependency manifest and lock/checksum files. The
 
 Both host daemons provide a durable local identity, registered agents, separate session attachment records, and a transactional activity log. They start without coordination and expose owner-local administration over a private Unix socket.
 
-The [shared contract](docs/host-service-contract.md) defines the common behavior. An attachment is registry metadata only: this milestone does not operate an existing Claude Code session or launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known hosts can now exchange agent-addressed messages over mutually authenticated TLS, using receiver-owned grants and durable receipts. Hosts can also enroll in a network through signed invites and a separate `capsule-coord` coordination service. Every host verifies membership itself, so coordination can withhold members but cannot add them ([coordination contract](docs/coordination-contract.md)). Live agent delivery, the three full collaboration operations, membership revocation, relays, NAT traversal, and runtime execution are subsequent milestones; see the [production connectivity roadmap](docs/production-roadmap.md).
+The [shared contract](docs/host-service-contract.md) defines the common behavior. An attachment is registry metadata; an opted-in Claude Code session can receive messages and reply through a scoped adapter, but hosts do not launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known hosts can now exchange agent-addressed messages over mutually authenticated TLS, using receiver-owned grants and durable receipts. Hosts can also enroll in a network through signed invites and a separate `capsule-coord` coordination service. Every host verifies membership itself, so coordination can withhold members but cannot add them ([coordination contract](docs/coordination-contract.md)). The three full collaboration operations, membership revocation, relays, NAT traversal, and runtime execution are subsequent milestones; see the [production connectivity roadmap](docs/production-roadmap.md).
 
 The [known-host messaging contract](docs/peer-messaging-contract.md) specifies the peer transport slice. The [peer messaging proposal](docs/peer-messaging-proposal.md) records its broader direction, and the [existing-agent integration investigation](docs/agent-integration-investigation.md) describes the next delivery experiment.
 
@@ -79,7 +79,13 @@ Read each daemon's `info`, then independently verify and configure the other's `
 ./rust/target/debug/capsule-host --state /tmp/capsule-alice message list
 ```
 
-The grant expiration and request deadline must be in the future, with the deadline no later than expiration. Coordination is currently disconnected, so grants require explicit `--allow-disconnected`. Inspect the send's JSON `state`: `accepted` means durable host storage; `unknown` requires recovery; `rejected` means the peer rejected the attempt. Use `message retry` or `message refresh` with the original request ID. This experiment does not inject content into a running agent.
+The grant expiration and request deadline must be in the future, with the deadline no later than expiration. Manually configured peers are not network members, so their grants require explicit `--allow-disconnected`. Inspect the send's JSON `state`: `accepted` means durable host storage; `unknown` requires recovery; `rejected` means the peer rejected the attempt. Use `message retry` or `message refresh` with the original request ID. Delivery into an opted-in session uses the scoped adapter described below.
+
+## Connect an existing Claude Code session
+
+The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential; the adapter uses a separate private `adapter.sock` interface, receives authorized messages, and exposes a bounded reply tool. Senders fetch persisted replies with `message reply`. Unknown handoffs remain inspectable without automatic redelivery.
+
+The [adapter contract](docs/agent-adapter-contract.md) defines scope, handoff, reply, and restart behavior. This implements message delivery and replies; full conversations, tasks, remote tools, and host-managed sessions remain subsequent work.
 
 ## Verify both implementations
 
@@ -92,6 +98,7 @@ cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnin
 python3 conformance/host_service.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
+python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 ```
 
 The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures additionally require OpenSSL.

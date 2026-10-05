@@ -271,7 +271,7 @@ pub fn server_config(store: Arc<Store>) -> anyhow::Result<ServerConfig> {
     config.send_tls13_tickets = 0;
     Ok(config)
 }
-fn client_config(store: Arc<Store>, peer: &Peer) -> anyhow::Result<ClientConfig> {
+pub(crate) fn client_config(store: Arc<Store>, peer: &Peer) -> anyhow::Result<ClientConfig> {
     let expected = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
     pinned_client_config(store, expected)
 }
@@ -298,6 +298,7 @@ fn peer_router(store: Arc<Store>, sender: String) -> Router {
     Router::new()
         .route("/peer/v1/messages", post(accept))
         .route("/peer/v1/receipts/{id}", get(receipt))
+        .merge(crate::adapter::peer_routes())
         .layer(Extension(sender))
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)

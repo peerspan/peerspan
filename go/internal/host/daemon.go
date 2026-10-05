@@ -28,10 +28,17 @@ func DefaultStateDir() (string, error) {
 // Listen is called after Open has acquired the exclusive state lock. A stale
 // socket can then be removed safely; unrelated files are never overwritten.
 func (s *Store) Listen() (*net.UnixListener, error) {
-	path := s.SocketPath()
+	return listenSocket(s.SocketPath())
+}
+
+func (s *Store) ListenAdapter() (*net.UnixListener, error) {
+	return listenSocket(filepath.Join(s.dir, "adapter.sock"))
+}
+
+func listenSocket(path string) (*net.UnixListener, error) {
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
-			return nil, fmt.Errorf("admin socket path contains a non-socket file: %s", path)
+			return nil, fmt.Errorf("socket path contains a non-socket file: %s", path)
 		}
 		if err := os.Remove(path); err != nil {
 			return nil, err

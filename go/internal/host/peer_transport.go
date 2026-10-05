@@ -117,6 +117,7 @@ func PeerHandler(store *Store) http.Handler {
 		receipt, err := store.MessageReceipt(r.Context(), id, r.PathValue("id"))
 		respond(w, http.StatusOK, receipt, err)
 	})
+	adapterPeerRoutes(mux, store, sender)
 	return mux
 }
 func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly bool) (OutboundMessage, error) {

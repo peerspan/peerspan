@@ -134,7 +134,7 @@ pub(crate) fn records<T: DeserializeOwned>(
         .map(|r| json(r?))
         .collect()
 }
-fn valid_id(id: &str, prefix: &str, bytes: usize) -> bool {
+pub(crate) fn valid_id(id: &str, prefix: &str, bytes: usize) -> bool {
     id.strip_prefix(&format!("{prefix}_")).is_some_and(|v| {
         v.len() == bytes * 2
             && v.bytes()
@@ -155,6 +155,44 @@ fn validate_message(r: &MessageRequest) -> Result<(), Error> {
     Ok(())
 }
 impl Store {
+    pub(crate) fn message_authority(
+        &self,
+        conn: &Connection,
+        sender: &str,
+        r: &MessageRequest,
+        require_deadline: bool,
+    ) -> Result<Grant, Error> {
+        let g: Grant = read(
+            conn,
+            "SELECT record FROM grants WHERE id = ?1",
+            [&r.grant_id],
+        )
+        .map_err(|e| match e {
+            Error::NotFound => Error::Forbidden,
+            other => other,
+        })?;
+        let expiration = chrono::DateTime::parse_from_rfc3339(&g.expires_at)
+            .map_err(|e| Error::Internal(e.into()))?;
+        let deadline = chrono::DateTime::parse_from_rfc3339(&r.deadline)
+            .map_err(|e| Error::Internal(e.into()))?;
+        let at = Utc::now();
+        if g.requester_host_id != sender
+            || g.target_agent_id != r.target_agent_id
+            || g.action != "message.append"
+            || g.revoked_at.is_some()
+            || expiration <= at
+            || deadline > expiration
+            || (require_deadline && deadline <= at)
+            || r.content.len() as i64 > g.max_message_bytes
+            // Without coordination, only a grant that opts in permits new work.
+            // This is rechecked at handoff and reply, not only at wire acceptance.
+            || (!g.allow_disconnected && !self.connected(conn, sender)?)
+        {
+            return Err(Error::Forbidden);
+        }
+        Ok(g)
+    }
+
     pub fn peers(&self) -> Result<Vec<Peer>, Error> {
         records(&*self.connection()?, "SELECT record FROM peers ORDER BY id")
     }
@@ -259,32 +297,7 @@ impl Store {
         validate_message(&r)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        let g: Grant = read(
-            &tx,
-            "SELECT record FROM grants WHERE id = ?1",
-            [&r.grant_id],
-        )
-        .map_err(|e| match e {
-            Error::NotFound => Error::Forbidden,
-            other => other,
-        })?;
-        let expires = chrono::DateTime::parse_from_rfc3339(&g.expires_at)
-            .map_err(|e| Error::Internal(e.into()))?;
-        let deadline = chrono::DateTime::parse_from_rfc3339(&r.deadline)
-            .map_err(|e| Error::Internal(e.into()))?;
-        let at = Utc::now();
-        if g.requester_host_id != sender
-            || g.target_agent_id != r.target_agent_id
-            || g.action != "message.append"
-            || g.revoked_at.is_some()
-            || (!g.allow_disconnected && !self.connected(&tx, sender)?)
-            || expires <= at
-            || deadline <= at
-            || deadline > expires
-            || r.content.len() as i64 > g.max_message_bytes
-        {
-            return Err(Error::Forbidden);
-        }
+        self.message_authority(&tx, sender, &r, true)?;
         let old:Option<(String,String)>=tx.query_row("SELECT request,receipt FROM received_messages WHERE sender = ?1 AND request_id = ?2",params![sender,r.request_id],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
         if let Some((old, receipt)) = old {
             if json::<MessageRequest>(old)? != r {

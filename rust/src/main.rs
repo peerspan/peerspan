@@ -106,6 +106,20 @@ async fn run_daemon(
     let listener = UnixListener::bind(&path)?;
     let _cleanup = SocketCleanup(path.clone());
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    let adapter_path = directory.join("adapter.sock");
+    match fs::symlink_metadata(&adapter_path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_socket() {
+                bail!("adapter socket path contains a non-socket file");
+            }
+            fs::remove_file(&adapter_path)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let adapter_listener = UnixListener::bind(&adapter_path)?;
+    let _adapter_cleanup = SocketCleanup(adapter_path.clone());
+    fs::set_permissions(&adapter_path, fs::Permissions::from_mode(0o600))?;
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
     eprintln!(
@@ -129,6 +143,15 @@ async fn run_daemon(
         None => None,
     };
     let (shutdown, peer_shutdown) = tokio::sync::watch::channel(false);
+    let mut adapter_shutdown = peer_shutdown.clone();
+    let adapter = axum::serve(
+        adapter_listener,
+        capsule_host::adapter::router(store.clone()),
+    )
+    .with_graceful_shutdown(async move {
+        let _ = adapter_shutdown.changed().await;
+    })
+    .into_future();
     let admin = axum::serve(listener, api::router(store.clone()))
         .with_graceful_shutdown(async move {
             tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} }
@@ -145,6 +168,7 @@ async fn run_daemon(
     use std::future::IntoFuture;
     tokio::try_join!(
         async { admin.await.map_err(anyhow::Error::from) },
+        async { adapter.await.map_err(anyhow::Error::from) },
         peers,
         async {
             coordination.await;

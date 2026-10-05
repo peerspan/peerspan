@@ -1,0 +1,44 @@
+{
+  "experiments": [
+    {
+      "checked_at": "2026-10-05T15:52:34.064352+00:00",
+      "claude_version": "2.1.289 (Claude Code)",
+      "mcp_protocol": "2025-11-25",
+      "agent_integration": "claude-channel",
+      "mode": "interactive",
+      "same_claude_process_and_session": true,
+      "two_correlated_replies": true,
+      "second_message_sent_while_model_streaming": true,
+      "first_reply_pending_when_second_sent": true,
+      "revocation_before_handoff_blocked": true,
+      "permission_relay_enabled": false,
+      "builtin_tools_enabled": false,
+      "limitations": [
+        "Ephemeral loopback hosts; cross-machine reachability not tested.",
+        "Model-driven adapter/host restart recovery not tested; deterministic conformance covers persistence and uncertain handoffs.",
+        "Noninteractive stream-json session connected to MCP but did not register/consume channel events on this installation."
+      ],
+      "pairing": "Go→Rust"
+    },
+    {
+      "checked_at": "2026-10-05T15:54:58.648964+00:00",
+      "claude_version": "2.1.289 (Claude Code)",
+      "mcp_protocol": "2025-11-25",
+      "agent_integration": "claude-channel",
+      "mode": "interactive",
+      "same_claude_process_and_session": true,
+      "two_correlated_replies": true,
+      "second_message_sent_while_model_streaming": true,
+      "first_reply_pending_when_second_sent": true,
+      "revocation_before_handoff_blocked": true,
+      "permission_relay_enabled": false,
+      "builtin_tools_enabled": false,
+      "limitations": [
+        "Ephemeral loopback hosts; cross-machine reachability not tested.",
+        "Model-driven adapter/host restart recovery not tested; deterministic conformance covers persistence and uncertain handoffs.",
+        "Noninteractive stream-json session connected to MCP but did not register/consume channel events on this installation."
+      ],
+      "pairing": "Rust→Go"
+    }
+  ]
+}

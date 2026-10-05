@@ -40,7 +40,11 @@ Usage:
   capsule-host [--state DIR] grant revoke ID
   capsule-host [--state DIR] message send --peer HOST --grant ID --agent ID --deadline TIME --content TEXT [--request ID]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
-  capsule-host [--state DIR] message inspect|retry|refresh --peer HOST ID
+  capsule-host [--state DIR] message inspect|retry|refresh|reply --peer HOST ID
+  capsule-host [--state DIR] adapter create --session ID --expires-at TIME
+  capsule-host [--state DIR] adapter list|inspect|revoke [ID]
+  capsule-host [--state DIR] delivery list [--after SEQUENCE --limit COUNT]
+  capsule-host [--state DIR] delivery inspect ID
 
   capsule-host [--state DIR] network create --name NAME --member LABEL --coordinator HOST:PORT --coordinator-key KEY
   capsule-host [--state DIR] network invite --network ID --member LABEL --expires-at TIME
@@ -50,7 +54,7 @@ Usage:
   capsule-host [--state DIR] network sync ID
 
 The serve command is a compatibility alias for run.
-Session attachment records metadata only; agent integration is a later milestone.
+Session attachment records metadata; a scoped adapter connects an opted-in session.
 `
 
 func main() {
@@ -142,15 +146,25 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			store.RunCoordination(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
 		}()
 		defer func() { cancel(); <-coordinationDone }()
-		if peerListener == nil {
-			return host.Serve(daemonCtx, listener, host.Handler(store))
+		adapterListener, err := store.ListenAdapter()
+		if err != nil {
+			return err
 		}
-		results := make(chan error, 2)
+		defer adapterListener.Close()
+		results := make(chan error, 3)
 		go func() { results <- host.Serve(daemonCtx, listener, host.Handler(store)) }()
-		go func() { results <- host.Serve(daemonCtx, peerListener, host.PeerHandler(store)) }()
+		go func() { results <- host.Serve(daemonCtx, adapterListener, host.AdapterHandler(store)) }()
+		count := 2
+		if peerListener != nil {
+			count++
+			go func() { results <- host.Serve(daemonCtx, peerListener, host.PeerHandler(store)) }()
+		}
 		first := <-results
 		cancel()
-		return errors.Join(first, <-results)
+		for range count - 1 {
+			first = errors.Join(first, <-results)
+		}
+		return first
 	}
 	method, path, body, err := request(args, errOut)
 	if err != nil {
@@ -312,7 +326,7 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			})
 			return "POST", "/v1/outbound", m, err
 		}
-		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" {
+		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" || args[1] == "reply" {
 			fs := flag.NewFlagSet("message "+args[1], flag.ContinueOnError)
 			fs.SetOutput(errOut)
 			peer := fs.String("peer", "", "receiving host ID")
@@ -372,6 +386,43 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				return "POST", path + "/sync", nil, nil
 			}
 			return "GET", path + "/members", nil, nil
+		}
+	case "adapter":
+		if len(args) < 2 {
+			return invalid()
+		}
+		if args[1] == "create" {
+			var req host.CreateAdapter
+			err := parse("adapter create", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&req.SessionID, "session", "", "one attached session ID")
+				fs.StringVar(&req.ExpiresAt, "expires-at", "", "credential expiration")
+			})
+			return "POST", "/v1/adapters", req, err
+		}
+		if args[1] == "list" && len(args) == 2 {
+			return "GET", "/v1/adapters", nil, nil
+		}
+		if len(args) == 3 && (args[1] == "inspect" || args[1] == "revoke") {
+			path := "/v1/adapters/" + url.PathEscape(args[2])
+			if args[1] == "revoke" {
+				return "POST", path + "/revoke", nil, nil
+			}
+			return "GET", path, nil, nil
+		}
+	case "delivery":
+		if len(args) < 2 {
+			return invalid()
+		}
+		if args[1] == "inspect" && len(args) == 3 {
+			return "GET", "/v1/deliveries/" + url.PathEscape(args[2]), nil, nil
+		}
+		if args[1] == "list" {
+			var after, limit int64
+			err := parse("delivery list", args[2:], func(fs *flag.FlagSet) {
+				fs.Int64Var(&after, "after", 0, "read after this sequence")
+				fs.Int64Var(&limit, "limit", 100, "maximum records")
+			})
+			return "GET", fmt.Sprintf("/v1/deliveries?after=%d&limit=%d", after, limit), nil, err
 		}
 	case "activity":
 		var after int64

@@ -949,14 +949,14 @@ mod tests {
     }
 
     #[test]
-    fn version_two_state_migrates_to_three() {
+    fn version_two_state_migrates_to_latest() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("host");
         let identity = Store::open(&path).unwrap().identity();
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -968,11 +968,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 4;")
+            .execute_batch("PRAGMA user_version = 5;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

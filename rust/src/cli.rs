@@ -7,7 +7,7 @@ use std::path::PathBuf;
 #[command(
     name = "capsule-host",
     about = "Run and control a local Capsule host daemon",
-    after_help = "Session attachment records metadata only; agent integration is a later milestone."
+    after_help = "Session attachment records metadata; a scoped adapter connects an opted-in session."
 )]
 pub struct Cli {
     /// Private state directory; otherwise use XDG_STATE_HOME or HOME
@@ -52,6 +52,12 @@ pub enum Command {
     /// Create, join, and inspect coordinated networks
     #[command(subcommand)]
     Network(NetworkCommand),
+    /// Issue or revoke credentials for one local session
+    #[command(subcommand)]
+    Adapter(AdapterCommand),
+    /// Inspect durable adapter handoffs
+    #[command(subcommand)]
+    Delivery(DeliveryCommand),
     /// Read the local activity log
     Activity {
         /// Read events after this sequence
@@ -207,6 +213,40 @@ pub enum MessageCommand {
         peer: String,
         id: String,
     },
+    Reply {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AdapterCommand {
+    Create {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        expires_at: String,
+    },
+    List,
+    Inspect {
+        id: String,
+    },
+    Revoke {
+        id: String,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum DeliveryCommand {
+    List {
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
+        after: i64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
+        limit: i64,
+    },
+    Inspect {
+        id: String,
+    },
 }
 
 pub struct AdminRequest {
@@ -353,6 +393,38 @@ impl Command {
             Self::Network(NetworkCommand::Sync { id }) => (
                 Method::POST,
                 format!("/v1/networks/{}/sync", encoded(&id)),
+                None,
+            ),
+            Self::Adapter(AdapterCommand::Create {
+                session,
+                expires_at,
+            }) => (
+                Method::POST,
+                "/v1/adapters".into(),
+                Some(json!({"session_id":session,"expires_at":expires_at})),
+            ),
+            Self::Adapter(AdapterCommand::List) => (Method::GET, "/v1/adapters".into(), None),
+            Self::Adapter(AdapterCommand::Inspect { id }) => {
+                (Method::GET, format!("/v1/adapters/{}", encoded(&id)), None)
+            }
+            Self::Adapter(AdapterCommand::Revoke { id }) => (
+                Method::POST,
+                format!("/v1/adapters/{}/revoke", encoded(&id)),
+                None,
+            ),
+            Self::Delivery(DeliveryCommand::List { after, limit }) => (
+                Method::GET,
+                format!("/v1/deliveries?after={after}&limit={limit}"),
+                None,
+            ),
+            Self::Delivery(DeliveryCommand::Inspect { id }) => (
+                Method::GET,
+                format!("/v1/deliveries/{}", encoded(&id)),
+                None,
+            ),
+            Self::Message(MessageCommand::Reply { peer, id }) => (
+                Method::POST,
+                format!("/v1/outbound/{}/{}/reply", encoded(&peer), encoded(&id)),
                 None,
             ),
             Self::Activity { after, limit } => (
