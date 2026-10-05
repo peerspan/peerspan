@@ -42,7 +42,7 @@ Run each daemon in its own terminal with a separate state directory:
 ./rust/target/debug/capsule-host --state /tmp/capsule-rust-state run
 ```
 
-`run` starts the daemon in the foreground; `serve` remains a compatibility alias. The private `admin.sock` socket is its local control interface, used by the CLI. The opt-in peer listener uses its own authenticated router. A future coordination connection is a separate interface.
+`run` starts the daemon in the foreground; `serve` remains a compatibility alias. The private `admin.sock` socket is its local control interface, used by the CLI. The opt-in peer listener uses its own authenticated router. Coordination is a third interface: the daemon dials `capsule-coord`, and that connection is neither the admin socket nor the peer router.
 
 Both expose the same commands:
 

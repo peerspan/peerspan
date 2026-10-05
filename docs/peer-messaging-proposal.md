@@ -1,6 +1,6 @@
 # First peer interaction proposal
 
-Status: architectural proposal. The known-host transport portion is now implemented as specified in the [messaging contract](peer-messaging-contract.md). Agent delivery, enrollment, and the broader network trust model remain subsequent work. This slice follows the [local daemon foundation](host-service-contract.md). Its purpose is to establish an authenticated, authorized, durable exchange between two known hosts before building enrollment, discovery, or the full collaboration protocol.
+Status: architectural proposal. The known-host transport portion is implemented as specified in the [messaging contract](peer-messaging-contract.md). Signed enrollment is implemented as specified in the [coordination contract](coordination-contract.md). Agent delivery, revocation, relays, and the rest of the network trust model remain subsequent work. This slice follows the [local daemon foundation](host-service-contract.md). Its purpose was to establish an authenticated, authorized, durable exchange between two known hosts before enrollment, discovery, or the full collaboration protocol.
 
 ## Interfaces and user workflow
 

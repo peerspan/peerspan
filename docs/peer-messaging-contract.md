@@ -6,7 +6,7 @@ Go and Rust implement the same first peer transport slice. A host can persist a 
 
 `capsule-host [--state DIR] run [--peer-listen IP:PORT]` starts the daemon. `serve` remains an alias. Without `--peer-listen`, it exposes only owner-local administration on `admin.sock`. A peer bind is explicit; port zero chooses an available port, printed in daemon logs. The peer router contains only message acceptance and sender-scoped receipt lookup. It cannot reach local administration endpoints.
 
-Owners configure peers through the private socket, providing an independently verified host ID/public key and a literal IP address with a nonzero port. DNS, enrollment, membership, discovery, NAT traversal, and relays are not implemented. Knowing a host key does not grant operation access. The local socket still trusts its OS account; scoped credentials for individual local integrations are future work.
+Owners configure peers through the private socket, providing an independently verified host ID/public key and a literal IP address with a nonzero port. Peer addresses do not use DNS. Signed enrollment and membership are specified separately in the [coordination contract](coordination-contract.md); that contract allows a DNS name only for a pinned coordinator address. Discovery, NAT traversal, and relays are not implemented. Knowing a host key does not grant operation access. The local socket still trusts its OS account; scoped credentials for individual local integrations are future work.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Peer certificates expire 30 days after creation. A listening daemon reuses its c
 
 ## Grants and disconnected operation
 
-No coordination client is implemented. Daemons explicitly operate in disconnected mode; the absence of coordination never implies permission. A grant without `allow_disconnected: true` rejects new messages. Persisted grants remain locally enforceable across daemon restarts. Grant creation and revocation require the private owner-local socket and do not travel through the peer router.
+Grant checks stay on the receiving host. A grant with `allow_disconnected: true` permits a new append without a recent coordination sync. The [coordination contract](coordination-contract.md) defines the other path: a grant without that flag permits a new append only while the requester is a verified member of a network this host synced recently. Absence of a coordinator never implies permission. Persisted grants remain locally enforceable across daemon restarts. Grant creation and revocation require the private owner-local socket and do not travel through the peer router.
 
 A grant response contains `id` (`grant_` plus 16 random bytes in lowercase hex), `requester_host_id`, `target_agent_id`, fixed `action: "message.append"`, `expires_at`, `max_message_bytes`, `allow_disconnected`, and nullable `revoked_at`. Creation accepts `requester_host_id`, `target_agent_id`, `expires_at`, `max_message_bytes`, and optional `allow_disconnected` (false when omitted). Expiration must be in the future. The byte limit is 1–65,536; CLI default is 65,536. Both the requester peer and local agent must exist.
 

@@ -4,7 +4,7 @@ This directory contains the Rust implementation of Capsule’s host daemon, deve
 
 ## Run the foundation
 
-The daemon owns a durable local identity, registered agents, session attachment records, and a transactional activity log. It starts without coordination. Owner-local administration uses HTTP over a private Unix socket. The current implementation requires Unix; validation has been run on Linux.
+The daemon owns a durable local identity, registered agents, session attachment records, and a transactional activity log. It can start with no coordinator configured. Owner-local administration uses HTTP over a private Unix socket. The current implementation requires Unix; validation has been run on Linux.
 
 ```bash
 cargo build --locked
@@ -24,22 +24,25 @@ From another terminal:
 
 Without `--state`, state lives in `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
 
-Agent identity survives restarts. Session attachments become detached on restart and remain inspectable. An attachment is registry metadata only: this milestone does not operate a live Claude Code session or launch a process. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Live agent delivery, enrollment, the full collaboration operations, and runtime execution remain subsequent milestones.
+Agent identity survives restarts. Session attachments become detached on restart and remain inspectable. An attachment is registry metadata only: this milestone does not operate a live Claude Code session or launch a process. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Signed enrollment is specified in the [coordination contract](../docs/coordination-contract.md); the coordinator itself is the Go `capsule-coord` binary. Live agent delivery, membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
 
 ## Source structure
 
 ```text
-src/main.rs     Executable, owner-local client, and daemon lifecycle
-src/cli.rs      Clap command definitions and local request construction
-src/model.rs    Agent, session, identity, and activity records
-src/store.rs    Private local persistence and transactional registry operations
-src/api.rs      Owner-local HTTP administration
-src/peer.rs     TLS identity pins, peer transport, and message interfaces
+src/main.rs        Executable, owner-local client, and daemon lifecycle
+src/cli.rs         Clap command definitions and local request construction
+src/model.rs       Agent, session, identity, and activity records
+src/store.rs       Private local persistence, schema migration, and registry operations
+src/api.rs         Owner-local HTTP administration
+src/peer.rs        TLS identity pins, peer transport, and message interfaces
 src/peer_store.rs  Persisted peers, grants, requests, and receipts
-tests/store.rs  Persistence and filesystem boundary checks
+src/membership.rs  Signed invites, memberships, and tokens
+src/network.rs     Coordination client, member map, and network administration
+tests/store.rs     Persistence and filesystem boundary checks
+tests/cli.rs       CLI parsing checks
 ```
 
-There are no empty modules for future networking or runtime features. The SQLite connection runs on blocking workers rather than the async executor. Private state files and an exclusive process lock protect local installation state; peer authentication and receiver-owned message grants use the separate TLS interface. Member/agent authentication and delegation provenance remain future work.
+There are no empty modules for future runtime features. The SQLite connection runs on blocking workers rather than the async executor. Private state files and an exclusive process lock protect local installation state. Peer authentication and receiver-owned message grants use the separate TLS interface. Verified network membership comes from the coordination client. Agent authentication and delegation provenance remain future work.
 
 ## Verify
 
@@ -49,6 +52,6 @@ cargo clippy --locked --all-targets -- -D warnings
 python3 ../conformance/host_service.py --rust ./target/debug/capsule-host
 ```
 
-The shared suite checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Build the Go binary to run the suite with both `--go` and `--rust`. `docs/host-service-contract.md` at the repository root defines the initial common behavior.
+`host_service.py` checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Peer and enrollment checks need the Go binaries as well: `peer_messaging.py` and `coordination.py` from the repository root. `docs/host-service-contract.md` defines the initial common behavior; the peer and coordination contracts extend it.
 
 The Cargo lockfile is tracked for reproducible dependency resolution. Build timings can be compared with `conformance/build_timings.py` at the repository root, which uses disposable source copies and isolated caches.
