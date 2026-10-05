@@ -3,61 +3,44 @@ package host
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
 )
 
 func (s *Store) peerCertificate() (tls.Certificate, error) {
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	now := time.Now()
-	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: s.identity.ID}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, s.privateKey.Public(), s.privateKey)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: s.privateKey}, nil
-}
-func certificateKey(cert *x509.Certificate) ([]byte, error) {
-	public, ok := cert.PublicKey.(ed25519.PublicKey)
-	now := time.Now()
-	if !ok || len(public) != 32 || now.Before(cert.NotBefore) || !now.Before(cert.NotAfter) || len(cert.UnhandledCriticalExtensions) > 0 {
-		return nil, errors.New("invalid peer certificate")
-	}
-	return public, nil
+	return tlsid.Certificate(s.privateKey, s.identity.ID, time.Now())
 }
 func (s *Store) PeerTLS(ctx context.Context, expected *Peer) (*tls.Config, error) {
-	cert, err := s.peerCertificate()
-	if err != nil {
-		return nil, err
-	}
-	config := &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}, NextProtos: []string{"http/1.1"}, SessionTicketsDisabled: true}
+	config := tlsid.Config()
 	if expected == nil {
 		config.ClientAuth = tls.RequireAnyClientCert
+		cache := &tlsid.Cache{Key: s.privateKey, Name: s.identity.ID}
+		if _, err := cache.Get(); err != nil {
+			return nil, err
+		}
+		config.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return cache.Get() }
 	} else {
+		// Each outbound connection constructs a current certificate.
+		cert, err := s.peerCertificate()
+		if err != nil {
+			return nil, err
+		}
+		config.Certificates = []tls.Certificate{cert}
 		// Identity is the owner-pinned key, not a DNS name or public CA. Go still
 		// verifies CertificateVerify signatures; VerifyConnection below checks trust.
 		config.InsecureSkipVerify = true
 	}
 	config.VerifyConnection = func(connection tls.ConnectionState) error {
-		if len(connection.PeerCertificates) != 1 {
-			return errors.New("one peer certificate required")
-		}
-		public, err := certificateKey(connection.PeerCertificates[0])
+		public, err := tlsid.PeerKey(connection)
 		if err != nil {
 			return err
 		}
@@ -71,12 +54,7 @@ func (s *Store) PeerTLS(ctx context.Context, expected *Peer) (*tls.Config, error
 			}
 			return nil
 		}
-		peer, err := s.Peer(ctx, keyID(public))
-		if err != nil {
-			return errors.New("unknown peer")
-		}
-		key, err := peerKey(peer)
-		if err != nil || !bytes.Equal(public, key) {
+		if _, err := s.KnownHost(ctx, keyID(public), public); err != nil {
 			return errors.New("unknown peer")
 		}
 		return nil
@@ -103,17 +81,17 @@ func (s *Store) ListenPeer(ctx context.Context, address string) (net.Listener, e
 func PeerHandler(store *Store) http.Handler {
 	mux := http.NewServeMux()
 	sender := func(w http.ResponseWriter, r *http.Request) (string, bool) {
-		if r.TLS == nil || len(r.TLS.PeerCertificates) != 1 {
+		if r.TLS == nil {
 			respond(w, 0, nil, ErrForbidden)
 			return "", false
 		}
-		public, err := certificateKey(r.TLS.PeerCertificates[0])
+		public, err := tlsid.PeerKey(*r.TLS)
 		if err != nil {
 			respond(w, 0, nil, ErrForbidden)
 			return "", false
 		}
 		id := keyID(public)
-		if _, err = store.Peer(r.Context(), id); err != nil {
+		if _, err = store.KnownHost(r.Context(), id, public); err != nil {
 			respond(w, 0, nil, ErrForbidden)
 			return "", false
 		}
@@ -145,9 +123,14 @@ func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly b
 	if out.State == "accepted" {
 		return out, nil
 	}
-	peer, err := s.Peer(ctx, out.PeerHostID)
+	peer, err := s.dialPeer(ctx, out.PeerHostID)
 	if err != nil {
 		return out, err
+	}
+	if peer.Address == "" {
+		message := "peer has no reachable address"
+		out.State, out.Error = "unknown", &message
+		return s.FinishOutbound(ctx, out)
 	}
 	config, err := s.PeerTLS(ctx, &peer)
 	if err != nil {

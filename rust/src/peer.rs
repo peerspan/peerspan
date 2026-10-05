@@ -24,7 +24,11 @@ use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     crypto::{ring::default_provider, verify_tls13_signature},
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime},
-    server::danger::{ClientCertVerified, ClientCertVerifier},
+    server::{
+        ClientHello, ResolvesServerCert,
+        danger::{ClientCertVerified, ClientCertVerifier},
+    },
+    sign::CertifiedKey,
 };
 use std::{fmt, sync::Arc, time::Duration};
 use tokio::{
@@ -89,13 +93,10 @@ impl Pins {
             if expected != &key {
                 return Err(tls_error("peer identity pin mismatch"));
             }
-        } else if self
+        } else if !self
             .store
-            .peer_pins
-            .read()
+            .knows(&key)
             .map_err(|_| tls_error("peer pins lock poisoned"))?
-            .get(&key_id(&key))
-            != Some(&key)
         {
             return Err(tls_error("unknown peer"));
         }
@@ -177,16 +178,23 @@ impl ClientCertVerifier for Pins {
         vec![SignatureScheme::ED25519]
     }
 }
+const CERTIFICATE_LIFETIME: ::time::Duration = ::time::Duration::days(30);
+const CERTIFICATE_RENEWAL: ::time::Duration = ::time::Duration::days(15);
 fn certificate(
     store: &Store,
+) -> anyhow::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
+    certificate_at(store, ::time::OffsetDateTime::now_utc())
+}
+fn certificate_at(
+    store: &Store,
+    now: ::time::OffsetDateTime,
 ) -> anyhow::Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
     let der = store.signing_key.to_pkcs8_der()?;
     let key_der = PrivatePkcs8KeyDer::from(der.as_bytes().to_vec());
     let key = rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&key_der, &rcgen::PKCS_ED25519)?;
     let mut params = rcgen::CertificateParams::default();
-    let now = ::time::OffsetDateTime::now_utc();
     params.not_before = now - ::time::Duration::minutes(5);
-    params.not_after = now + ::time::Duration::days(30);
+    params.not_after = now + CERTIFICATE_LIFETIME;
     params
         .distinguished_name
         .push(rcgen::DnType::CommonName, store.identity().id);
@@ -200,22 +208,80 @@ fn certificate(
         key_der.into(),
     ))
 }
+type Clock = Box<dyn Fn() -> ::time::OffsetDateTime + Send + Sync>;
+/// Serves the listener's certificate, replacing it with one for the same host
+/// key once less than the renewal window of its validity remains.
+struct RenewingCertificate {
+    store: Arc<Store>,
+    now: Clock,
+    current: std::sync::Mutex<Option<(::time::OffsetDateTime, Arc<CertifiedKey>)>>,
+}
+impl fmt::Debug for RenewingCertificate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RenewingCertificate")
+    }
+}
+impl RenewingCertificate {
+    fn new(store: Arc<Store>, now: Clock) -> anyhow::Result<Self> {
+        let resolver = Self {
+            store,
+            now,
+            current: std::sync::Mutex::new(None),
+        };
+        resolver.get()?;
+        Ok(resolver)
+    }
+    fn get(&self) -> anyhow::Result<Arc<CertifiedKey>> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|_| anyhow::anyhow!("certificate lock poisoned"))?;
+        let now = (self.now)();
+        if let Some((not_after, key)) = current.as_ref()
+            && now + CERTIFICATE_RENEWAL < *not_after
+        {
+            return Ok(key.clone());
+        }
+        let (certs, key) = certificate_at(&self.store, now)?;
+        let signer = default_provider()
+            .key_provider
+            .load_private_key(key)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let key = Arc::new(CertifiedKey::new(certs, signer));
+        *current = Some((now + CERTIFICATE_LIFETIME, key.clone()));
+        Ok(key)
+    }
+}
+impl ResolvesServerCert for RenewingCertificate {
+    fn resolve(&self, _: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        self.get().ok()
+    }
+}
 pub fn server_config(store: Arc<Store>) -> anyhow::Result<ServerConfig> {
-    let (certs, key) = certificate(&store)?;
+    let resolver =
+        RenewingCertificate::new(store.clone(), Box::new(::time::OffsetDateTime::now_utc))?;
     let mut config = ServerConfig::builder_with_provider(Arc::new(default_provider()))
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .with_client_cert_verifier(Arc::new(Pins {
             store,
             expected: None,
         }))
-        .with_single_cert(certs, key)?;
+        .with_cert_resolver(Arc::new(resolver));
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     config.send_tls13_tickets = 0;
     Ok(config)
 }
 fn client_config(store: Arc<Store>, peer: &Peer) -> anyhow::Result<ClientConfig> {
-    let (certs, key) = certificate(&store)?;
     let expected = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
+    pinned_client_config(store, expected)
+}
+/// Client configuration proving this host's key and pinning the server's key,
+/// for peers and the coordinator alike.
+pub(crate) fn pinned_client_config(
+    store: Arc<Store>,
+    expected: Vec<u8>,
+) -> anyhow::Result<ClientConfig> {
+    let (certs, key) = certificate(&store)?;
     let mut config = ClientConfig::builder_with_provider(Arc::new(default_provider()))
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .dangerous()
@@ -303,45 +369,61 @@ async fn call(
     receipt_only: bool,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let config = client_config(store, &peer)?;
-    let stream = TcpStream::connect(&peer.address).await?;
+    let (method, path, body) = if receipt_only {
+        (
+            Method::GET,
+            format!("/peer/v1/receipts/{}", out.request.request_id),
+            Vec::new(),
+        )
+    } else {
+        (
+            Method::POST,
+            "/peer/v1/messages".into(),
+            serde_json::to_vec(&out.request)?,
+        )
+    };
+    https(
+        config,
+        &peer.address,
+        ServerName::try_from("capsule-peer")?,
+        method,
+        &path,
+        body,
+    )
+    .await
+}
+/// One HTTP/1.1 request over a fresh pinned TLS connection; the body is bounded.
+pub(crate) async fn https(
+    config: ClientConfig,
+    address: &str,
+    name: ServerName<'static>,
+    method: Method,
+    path: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    let stream = TcpStream::connect(address).await?;
     let tls = TlsConnector::from(Arc::new(config))
-        .connect(ServerName::try_from("capsule-peer")?, stream)
+        .connect(name, stream)
         .await?;
     let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await?;
     let _connection_task = ConnectionTask(tokio::spawn(async move {
         let _ = connection.await;
     }));
-    async {
-        let (method, path, body) = if receipt_only {
-            (
-                Method::GET,
-                format!("/peer/v1/receipts/{}", out.request.request_id),
-                Vec::new(),
-            )
-        } else {
-            (
-                Method::POST,
-                "/peer/v1/messages".into(),
-                serde_json::to_vec(&out.request)?,
-            )
-        };
-        let request = Request::builder()
-            .method(method)
-            .uri(format!("https://{}{path}", peer.address))
-            .header("Host", &peer.address)
-            .header("Content-Type", "application/json")
-            .header("Connection", "close")
-            .body(Full::new(BodyBytes::from(body)))?;
-        let response = sender.send_request(request).await?;
-        let status = response.status().as_u16();
-        let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
-            .collect()
-            .await
-            .map_err(|e| anyhow::anyhow!("read peer response: {e}"))?
-            .to_bytes();
-        Ok((status, bytes.to_vec()))
-    }
-    .await
+    let request = Request::builder()
+        .method(method)
+        .uri(format!("https://{address}{path}"))
+        .header("Host", address)
+        .header("Content-Type", "application/json")
+        .header("Connection", "close")
+        .body(Full::new(BodyBytes::from(body)))?;
+    let response = sender.send_request(request).await?;
+    let status = response.status().as_u16();
+    let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
+        .collect()
+        .await
+        .map_err(|e| anyhow::anyhow!("read response: {e}"))?
+        .to_bytes();
+    Ok((status, bytes.to_vec()))
 }
 async fn exchange(
     store: Arc<Store>,
@@ -352,7 +434,7 @@ async fn exchange(
         return Ok(out);
     }
     let peer_id = out.peer_host_id.clone();
-    let peer = blocking(store.clone(), move |s| s.peer(&peer_id)).await?;
+    let peer = blocking(store.clone(), move |s| s.dial_target(&peer_id)).await?;
     let response = tokio::time::timeout(
         Duration::from_secs(8),
         call(store.clone(), peer, &out, receipt_only),
@@ -508,5 +590,32 @@ mod tests {
         };
         assert!(wrong.verify(&certs[0], &[], UnixTime::now()).is_err());
         assert!(correct.verify(&certs[0], &certs, UnixTime::now()).is_err());
+    }
+    #[test]
+    fn listener_certificate_renews_before_expiry() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temporary.path().join("host")).unwrap());
+        let start = ::time::OffsetDateTime::now_utc();
+        let clock = Arc::new(std::sync::Mutex::new(start));
+        let reader = clock.clone();
+        let resolver =
+            RenewingCertificate::new(store.clone(), Box::new(move || *reader.lock().unwrap()))
+                .unwrap();
+        let first = resolver.get().unwrap();
+        *clock.lock().unwrap() =
+            start + CERTIFICATE_LIFETIME - CERTIFICATE_RENEWAL - ::time::Duration::minutes(1);
+        assert!(Arc::ptr_eq(&first, &resolver.get().unwrap()));
+        let renewal =
+            start + CERTIFICATE_LIFETIME - CERTIFICATE_RENEWAL + ::time::Duration::minutes(1);
+        *clock.lock().unwrap() = renewal;
+        let renewed = resolver.get().unwrap();
+        assert!(!Arc::ptr_eq(&first, &renewed));
+        let at = |time: ::time::OffsetDateTime| {
+            UnixTime::since_unix_epoch(Duration::from_secs(time.unix_timestamp() as u64))
+        };
+        let late = renewal + ::time::Duration::days(20);
+        assert!(certificate_key(&first.cert[0], at(late)).is_err());
+        let key = certificate_key(&renewed.cert[0], at(late)).unwrap();
+        assert_eq!(key_id(&key), store.identity().id);
     }
 }

@@ -1,5 +1,7 @@
-// Package host implements the host daemon, private local administration, and
-// an opt-in authenticated peer message interface. It has no coordination dependency.
+// Package host implements the host daemon, private local administration, an
+// opt-in authenticated peer message interface, and the client side of
+// coordination. Coordination distributes signed membership; it never carries
+// collaboration traffic, and every chain is verified locally.
 package host
 
 import (
@@ -12,6 +14,9 @@ var (
 	ErrNotFound  = errors.New("not found")
 	ErrForbidden = errors.New("forbidden")
 	ErrConflict  = errors.New("conflict")
+	// ErrUnavailable means coordination could not be reached or answered
+	// unusably; nothing was persisted.
+	ErrUnavailable = errors.New("coordination unavailable")
 )
 
 // Identity identifies this installation. The private key stays in the local store.

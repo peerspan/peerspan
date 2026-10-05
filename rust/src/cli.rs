@@ -22,9 +22,15 @@ pub enum Command {
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
     Run {
-        /// Opt-in peer bind address; coordination is currently disconnected
+        /// Opt-in peer bind address
         #[arg(long, value_name = "IP:PORT")]
         peer_listen: Option<std::net::SocketAddr>,
+        /// Peer address advertised to coordination; defaults to a specific bind address
+        #[arg(long, value_name = "IP:PORT", requires = "peer_listen")]
+        advertise: Option<std::net::SocketAddr>,
+        /// Seconds between coordination syncs
+        #[arg(long, value_name = "SECONDS", default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..=3600))]
+        coordination_interval: u64,
     },
     /// Show the local daemon's public identity
     Info,
@@ -43,6 +49,9 @@ pub enum Command {
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
+    /// Create, join, and inspect coordinated networks
+    #[command(subcommand)]
+    Network(NetworkCommand),
     /// Read the local activity log
     Activity {
         /// Read events after this sequence
@@ -104,6 +113,43 @@ pub enum PeerCommand {
         address: std::net::SocketAddr,
     },
     List,
+}
+#[derive(Debug, Subcommand)]
+pub enum NetworkCommand {
+    /// Create a network whose root key stays on this host
+    Create {
+        #[arg(long)]
+        name: String,
+        /// Member label for this host's own membership
+        #[arg(long)]
+        member: String,
+        /// Coordinator HOST:PORT
+        #[arg(long, value_name = "HOST:PORT")]
+        coordinator: String,
+        /// Independently verified coordinator public key
+        #[arg(long, value_name = "BASE64")]
+        coordinator_key: String,
+    },
+    /// Issue a one-time invite token (administrator only)
+    Invite {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long)]
+        member: String,
+        #[arg(long, value_name = "TIME")]
+        expires_at: String,
+    },
+    /// Join a network with an invite token
+    Join {
+        #[arg(long)]
+        token: String,
+    },
+    /// List networks
+    List,
+    /// List a network's verified members
+    Members { id: String },
+    /// Register or sync a network now
+    Sync { id: String },
 }
 #[derive(Debug, Subcommand)]
 pub enum GrantCommand {
@@ -270,6 +316,43 @@ impl Command {
             Self::Message(MessageCommand::Refresh { peer, id }) => (
                 Method::POST,
                 format!("/v1/outbound/{}/{}/refresh", encoded(&peer), encoded(&id)),
+                None,
+            ),
+            Self::Network(NetworkCommand::Create {
+                name,
+                member,
+                coordinator,
+                coordinator_key,
+            }) => (
+                Method::POST,
+                "/v1/networks".into(),
+                Some(
+                    json!({"name":name,"member":member,"coordinator_address":coordinator,"coordinator_public_key":coordinator_key}),
+                ),
+            ),
+            Self::Network(NetworkCommand::Invite {
+                network,
+                member,
+                expires_at,
+            }) => (
+                Method::POST,
+                format!("/v1/networks/{}/invites", encoded(&network)),
+                Some(json!({"member":member,"expires_at":expires_at})),
+            ),
+            Self::Network(NetworkCommand::Join { token }) => (
+                Method::POST,
+                "/v1/networks/join".into(),
+                Some(json!({"token":token})),
+            ),
+            Self::Network(NetworkCommand::List) => (Method::GET, "/v1/networks".into(), None),
+            Self::Network(NetworkCommand::Members { id }) => (
+                Method::GET,
+                format!("/v1/networks/{}/members", encoded(&id)),
+                None,
+            ),
+            Self::Network(NetworkCommand::Sync { id }) => (
+                Method::POST,
+                format!("/v1/networks/{}/sync", encoded(&id)),
                 None,
             ),
             Self::Activity { after, limit } => (

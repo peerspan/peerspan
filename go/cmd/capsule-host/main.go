@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
 )
@@ -20,7 +22,7 @@ import (
 const usage = `capsule-host runs and controls a local Capsule host daemon.
 
 Usage:
-  capsule-host [--state DIR] run [--peer-listen IP:PORT]
+  capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS]
   capsule-host [--state DIR] info
   capsule-host [--state DIR] agent register --name NAME --owner OWNER [--capability NAME]
   capsule-host [--state DIR] agent list
@@ -39,6 +41,13 @@ Usage:
   capsule-host [--state DIR] message send --peer HOST --grant ID --agent ID --deadline TIME --content TEXT [--request ID]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] message inspect|retry|refresh --peer HOST ID
+
+  capsule-host [--state DIR] network create --name NAME --member LABEL --coordinator HOST:PORT --coordinator-key KEY
+  capsule-host [--state DIR] network invite --network ID --member LABEL --expires-at TIME
+  capsule-host [--state DIR] network join --token TOKEN
+  capsule-host [--state DIR] network list
+  capsule-host [--state DIR] network members ID
+  capsule-host [--state DIR] network sync ID
 
 The serve command is a compatibility alias for run.
 Session attachment records metadata only; agent integration is a later milestone.
@@ -80,6 +89,8 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		runFlags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		runFlags.SetOutput(errOut)
 		peerListen := runFlags.String("peer-listen", "", "opt-in peer bind address, IP:port")
+		advertise := runFlags.String("advertise", "", "peer address advertised to coordination, IP:port; defaults to a specific --peer-listen address")
+		interval := runFlags.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
 		if err := runFlags.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
@@ -88,6 +99,12 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		if runFlags.NArg() != 0 {
 			return errors.New("unexpected daemon arguments")
+		}
+		if *advertise != "" && *peerListen == "" {
+			return errors.New("--advertise requires --peer-listen")
+		}
+		if *interval < 1 || *interval > 3600 {
+			return errors.New("--coordination-interval must be 1 to 3600 seconds")
 		}
 		store, err := host.Open(ctx, *state)
 		if err != nil {
@@ -109,8 +126,22 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 				return err
 			}
 			defer peerListener.Close()
-			fmt.Fprintf(errOut, "peer listener %s (coordination disconnected)\n", peerListener.Addr())
+			if *advertise == "" {
+				if bound, err := netip.ParseAddrPort(peerListener.Addr().String()); err == nil && !bound.Addr().IsUnspecified() {
+					*advertise = bound.String()
+				}
+			}
+			fmt.Fprintf(errOut, "peer listener %s (advertised %q)\n", peerListener.Addr(), *advertise)
 		}
+		if err = store.ConfigureCoordination(*advertise, time.Duration(*interval)*time.Second); err != nil {
+			return err
+		}
+		coordinationDone := make(chan struct{})
+		go func() {
+			defer close(coordinationDone)
+			store.RunCoordination(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
+		}()
+		defer func() { cancel(); <-coordinationDone }()
 		if peerListener == nil {
 			return host.Serve(daemonCtx, listener, host.Handler(store))
 		}
@@ -296,6 +327,51 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				return "GET", path, nil, nil
 			}
 			return "POST", path + "/" + args[1], nil, nil
+		}
+	case "network":
+		if len(args) < 2 {
+			return invalid()
+		}
+		switch args[1] {
+		case "create":
+			var n host.CreateNetwork
+			err := parse("network create", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&n.Name, "name", "", "network name")
+				fs.StringVar(&n.Member, "member", "", "this host's member label")
+				fs.StringVar(&n.CoordinatorAddress, "coordinator", "", "coordinator HOST:PORT")
+				fs.StringVar(&n.CoordinatorPublicKey, "coordinator-key", "", "pinned coordinator public key")
+			})
+			return "POST", "/v1/networks", n, err
+		case "invite":
+			var network string
+			var i host.CreateInvite
+			err := parse("network invite", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&network, "network", "", "network ID")
+				fs.StringVar(&i.Member, "member", "", "invitee member label")
+				fs.StringVar(&i.ExpiresAt, "expires-at", "", "UTC invite expiration, at most 30 days ahead")
+			})
+			if err == nil && network == "" {
+				return invalid()
+			}
+			return "POST", "/v1/networks/" + url.PathEscape(network) + "/invites", i, err
+		case "join":
+			var j host.JoinNetwork
+			err := parse("network join", args[2:], func(fs *flag.FlagSet) { fs.StringVar(&j.Token, "token", "", "invite token") })
+			return "POST", "/v1/networks/join", j, err
+		case "list":
+			if len(args) != 2 {
+				return invalid()
+			}
+			return "GET", "/v1/networks", nil, nil
+		case "members", "sync":
+			if len(args) != 3 {
+				return invalid()
+			}
+			path := "/v1/networks/" + url.PathEscape(args[2])
+			if args[1] == "sync" {
+				return "POST", path + "/sync", nil, nil
+			}
+			return "GET", path + "/members", nil, nil
 		}
 	case "activity":
 		var after int64

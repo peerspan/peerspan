@@ -10,7 +10,7 @@ use std::{
     fs::{self, DirBuilder, File, OpenOptions},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, RwLock},
+    sync::{Mutex, MutexGuard, RwLock, atomic::AtomicU64},
     time::Duration,
 };
 
@@ -32,6 +32,10 @@ pub struct Store {
     identity: Identity,
     pub(crate) signing_key: SigningKey,
     pub(crate) peer_pins: RwLock<BTreeMap<String, Vec<u8>>>,
+    /// Keys of verified network members other than this host.
+    pub(crate) member_pins: RwLock<BTreeMap<String, Vec<u8>>>,
+    pub(crate) coordination_interval: AtomicU64,
+    pub(crate) advertise: RwLock<String>,
 }
 
 impl Store {
@@ -56,7 +60,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=2).contains(&version) {
+        if !(0..=3).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -65,6 +69,9 @@ impl Store {
         }
         if version < 2 {
             tx.execute_batch(crate::peer_store::SCHEMA)?;
+        }
+        if version < 3 {
+            tx.execute_batch(crate::network::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -116,6 +123,7 @@ impl Store {
         }
         tx.commit()?;
         let peer_pins = crate::peer_store::load_pins(&connection)?;
+        let member_pins = crate::network::load_member_pins(&connection, &identity.id)?;
         Ok(Self {
             connection: Mutex::new(connection),
             _lock: lock,
@@ -123,6 +131,9 @@ impl Store {
             identity,
             signing_key: signing,
             peer_pins: RwLock::new(peer_pins),
+            member_pins: RwLock::new(member_pins),
+            coordination_interval: AtomicU64::new(30),
+            advertise: RwLock::new(String::new()),
         })
     }
 
@@ -317,8 +328,18 @@ fn private_file(path: &Path) -> anyhow::Result<File> {
     Ok(file)
 }
 
+/// Matches Go's RFC3339Nano spelling (trailing fractional zeros removed), so a
+/// stored timestamp reads back identically through either implementation.
 pub(crate) fn now() -> String {
-    Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true)
+    rfc3339(Utc::now())
+}
+
+pub(crate) fn rfc3339(time: chrono::DateTime<Utc>) -> String {
+    let full = time.to_rfc3339_opts(SecondsFormat::Nanos, true);
+    let (fraction_start, fraction_end) = (full.len() - 11, full.len() - 1);
+    let trimmed = full[fraction_start..fraction_end].trim_end_matches('0');
+    let fraction = if trimmed == "." { "" } else { trimmed };
+    format!("{}{fraction}Z", &full[..fraction_start])
 }
 
 pub(crate) fn new_id(prefix: &str) -> Result<String, Error> {
@@ -364,4 +385,18 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn timestamps_use_go_rfc3339_nano_spelling() {
+        let at = |nanos| super::rfc3339(Utc.timestamp_opt(1_790_000_000, nanos).unwrap());
+        assert_eq!(at(758_529_830), "2026-09-21T14:13:20.75852983Z");
+        assert_eq!(at(241_260_800), "2026-09-21T14:13:20.2412608Z");
+        assert_eq!(at(416_958_318), "2026-09-21T14:13:20.416958318Z");
+        assert_eq!(at(0), "2026-09-21T14:13:20Z");
+    }
 }

@@ -12,7 +12,7 @@ Maintain behavior parity without mechanically translating module structure betwe
 
 From the repository root, run the appropriate language checks:
 
-- Go: `go -C go test -race ./internal/host ./cmd/capsule-host` and `go -C go vet ./internal/host ./cmd/capsule-host`.
+- Go: `go -C go test -race ./internal/... ./cmd/...` and `go -C go vet ./internal/... ./cmd/...`. This covers the host daemon, the `capsule-coord` coordinator, and their shared `membership` and `tlsid` packages.
 - Rust: `cargo fmt --check --manifest-path rust/Cargo.toml`, `cargo test --locked --manifest-path rust/Cargo.toml`, and `cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings`.
 
-Build both binaries and run the appropriate shared conformance suites when external behavior changes. Peer changes require `conformance/peer_messaging.py` across all Go/Rust pairings; local changes require `conformance/host_service.py`. The earlier prototype's namespace and Firecracker tests have separate execution requirements.
+Build both binaries and run the appropriate shared conformance suites when external behavior changes. Peer changes require `conformance/peer_messaging.py` across all Go/Rust pairings; enrollment and coordination changes require `conformance/coordination.py` with the Go coordinator across all creator/joiner pairings; local changes require `conformance/host_service.py`. The earlier prototype's namespace and Firecracker tests have separate execution requirements.

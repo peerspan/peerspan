@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
 )
 
 func TestCertificateValidityAndIdentityPins(t *testing.T) {
@@ -27,17 +29,17 @@ func TestCertificateValidityAndIdentityPins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, err := certificateKey(leaf)
+	public, err := tlsid.Key(leaf)
 	if err != nil || keyID(public) != s.Identity().ID {
 		t.Fatalf("certificate identity: %v", err)
 	}
 	leaf.NotAfter = time.Now().Add(-time.Second)
-	if _, err := certificateKey(leaf); err == nil {
+	if _, err := tlsid.Key(leaf); err == nil {
 		t.Fatal("expired certificate accepted")
 	}
 	leaf.NotAfter = time.Now().Add(time.Hour)
 	leaf.NotBefore = time.Now().Add(time.Hour)
-	if _, err := certificateKey(leaf); err == nil {
+	if _, err := tlsid.Key(leaf); err == nil {
 		t.Fatal("future certificate accepted")
 	}
 	expected := Peer{ID: s.Identity().ID, PublicKey: s.Identity().PublicKey}

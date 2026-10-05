@@ -114,17 +114,20 @@ pub(crate) fn load_pins(connection: &Connection) -> anyhow::Result<BTreeMap<Stri
         })
         .collect()
 }
-fn json<T: DeserializeOwned>(encoded: String) -> Result<T, Error> {
+pub(crate) fn json<T: DeserializeOwned>(encoded: String) -> Result<T, Error> {
     Ok(serde_json::from_str(&encoded)?)
 }
-fn read<T: DeserializeOwned>(
+pub(crate) fn read<T: DeserializeOwned>(
     connection: &Connection,
     query: &str,
     args: impl rusqlite::Params,
 ) -> Result<T, Error> {
     json(connection.query_row(query, args, |row| row.get(0))?)
 }
-fn records<T: DeserializeOwned>(connection: &Connection, query: &str) -> Result<Vec<T>, Error> {
+pub(crate) fn records<T: DeserializeOwned>(
+    connection: &Connection,
+    query: &str,
+) -> Result<Vec<T>, Error> {
     let mut statement = connection.prepare(query)?;
     statement
         .query_map([], |row| row.get::<_, String>(0))?
@@ -216,20 +219,16 @@ impl Store {
         };
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        for (query, id) in [
-            (
-                "SELECT COUNT(*) FROM peers WHERE id = ?1",
-                &g.requester_host_id,
-            ),
-            (
-                "SELECT COUNT(*) FROM agents WHERE id = ?1",
-                &g.target_agent_id,
-            ),
-        ] {
-            let count: i64 = tx.query_row(query, [id], |r| r.get(0))?;
-            if count == 0 {
-                return Err(Error::NotFound);
-            }
+        if !self.known_host(&tx, &g.requester_host_id)? {
+            return Err(Error::NotFound);
+        }
+        let agents: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM agents WHERE id = ?1",
+            [&g.target_agent_id],
+            |r| r.get(0),
+        )?;
+        if agents == 0 {
+            return Err(Error::NotFound);
         }
         tx.execute(
             "INSERT INTO grants VALUES (?1, ?2)",
@@ -278,7 +277,7 @@ impl Store {
             || g.target_agent_id != r.target_agent_id
             || g.action != "message.append"
             || g.revoked_at.is_some()
-            || !g.allow_disconnected
+            || (!g.allow_disconnected && !self.connected(&tx, sender)?)
             || expires <= at
             || deadline <= at
             || deadline > expires
@@ -372,7 +371,7 @@ impl Store {
             content: r.content,
         };
         validate_message(&request)?;
-        self.peer(&r.peer_host_id)?;
+        self.dial_target(&r.peer_host_id)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let old: Option<String> = tx

@@ -63,6 +63,11 @@ type Store struct {
 	privateKey ed25519.PrivateKey
 	closeOnce  sync.Once
 	closeErr   error
+
+	coordination sync.Mutex // guards advertise and interval
+	advertise    string
+	interval     time.Duration
+	syncing      sync.Mutex // serializes coordinator syncs and map application
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -117,7 +122,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 2 {
+	if version < 0 || version > 3 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -132,6 +137,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 2 {
 		if _, err = tx.ExecContext(ctx, peerSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 3 {
+		if _, err = tx.ExecContext(ctx, networkSchema); err != nil {
 			return nil, err
 		}
 	}

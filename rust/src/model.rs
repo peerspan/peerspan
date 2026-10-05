@@ -58,6 +58,8 @@ pub enum Error {
     Forbidden,
     NotFound,
     Conflict(String),
+    /// A required remote service (coordination) could not be reached.
+    Unavailable(String),
     Internal(anyhow::Error),
 }
 
@@ -83,6 +85,7 @@ impl std::fmt::Display for Error {
             Self::Forbidden => write!(f, "forbidden"),
             Self::NotFound => write!(f, "not found"),
             Self::Conflict(message) => write!(f, "conflict: {message}"),
+            Self::Unavailable(message) => write!(f, "unavailable: {message}"),
             Self::Internal(error) => write!(f, "{error}"),
         }
     }

@@ -27,6 +27,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/sessions/{id}/detach", post(detach))
         .route("/v1/activity", get(activity))
         .merge(crate::peer::local_routes())
+        .merge(crate::network::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
 }
@@ -144,6 +145,11 @@ impl IntoResponse for Error {
                 StatusCode::CONFLICT,
                 "conflict",
                 format!("conflict: {message}"),
+            ),
+            Self::Unavailable(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                format!("unavailable: {message}"),
             ),
             Self::Internal(error) => {
                 eprintln!("host store error: {error}");

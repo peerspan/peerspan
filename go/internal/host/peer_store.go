@@ -178,18 +178,15 @@ func (s *Store) CreateGrant(ctx context.Context, r CreateGrant) (Grant, error) {
 		return Grant{}, err
 	}
 	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: "message.append", ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, AllowDisconnected: r.AllowDisconnected}
+	if _, err = s.KnownHost(ctx, r.RequesterHostID, nil); err != nil {
+		return g, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return g, err
 	}
 	defer tx.Rollback()
 	var count int
-	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM peers WHERE id = ?", r.RequesterHostID).Scan(&count); err != nil {
-		return g, err
-	}
-	if count == 0 {
-		return g, ErrNotFound
-	}
 	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM agents WHERE id = ?", r.TargetAgentID).Scan(&count); err != nil {
 		return g, err
 	}
@@ -253,7 +250,6 @@ func (s *Store) AcceptMessage(ctx context.Context, sender string, r MessageReque
 		return Receipt{}, err
 	}
 	defer tx.Rollback()
-	// This implementation is explicitly disconnected: a cached grant must opt in.
 	g, err := readJSON[Grant](tx.QueryRowContext(ctx, "SELECT record FROM grants WHERE id = ?", r.GrantID))
 	if errors.Is(err, ErrNotFound) {
 		return Receipt{}, ErrForbidden
@@ -267,8 +263,18 @@ func (s *Store) AcceptMessage(ctx context.Context, sender string, r MessageReque
 	}
 	deadline, _ := parseTime(r.Deadline)
 	now := time.Now()
-	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !g.AllowDisconnected || !expires.After(now) || !deadline.After(now) || deadline.After(expires) || int64(len(r.Content)) > g.MaxMessageBytes {
+	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || !deadline.After(now) || deadline.After(expires) || int64(len(r.Content)) > g.MaxMessageBytes {
 		return Receipt{}, ErrForbidden
+	}
+	// Without coordination, only a grant that opts in permits new work.
+	if !g.AllowDisconnected {
+		connected, err := s.connected(ctx, tx, sender, now)
+		if err != nil {
+			return Receipt{}, err
+		}
+		if !connected {
+			return Receipt{}, ErrForbidden
+		}
 	}
 	var oldRequest, oldReceipt string
 	err = tx.QueryRowContext(ctx, "SELECT request, receipt FROM received_messages WHERE sender = ? AND request_id = ?", sender, r.RequestID).Scan(&oldRequest, &oldReceipt)
@@ -356,7 +362,7 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 	if err := validateMessage(r.MessageRequest); err != nil {
 		return OutboundMessage{}, err
 	}
-	if _, err := s.Peer(ctx, r.PeerHostID); err != nil {
+	if _, err := s.KnownHost(ctx, r.PeerHostID, nil); err != nil {
 		return OutboundMessage{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

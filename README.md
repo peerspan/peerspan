@@ -19,7 +19,7 @@ Each implementation has its own dependency manifest and lock/checksum files. The
 
 Both host daemons provide a durable local identity, registered agents, separate session attachment records, and a transactional activity log. They start without coordination and expose owner-local administration over a private Unix socket.
 
-The [shared contract](docs/host-service-contract.md) defines the common behavior. An attachment is registry metadata only: this milestone does not operate an existing Claude Code session or launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known hosts can now exchange agent-addressed messages over mutually authenticated TLS, using receiver-owned grants and durable receipts. Live agent delivery, the three full collaboration operations, enrollment/coordination, and runtime execution are subsequent milestones.
+The [shared contract](docs/host-service-contract.md) defines the common behavior. An attachment is registry metadata only: this milestone does not operate an existing Claude Code session or launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known hosts can now exchange agent-addressed messages over mutually authenticated TLS, using receiver-owned grants and durable receipts. Hosts can also enroll in a network through signed invites and a separate `capsule-coord` coordination service. Every host verifies membership itself, so coordination can withhold members but cannot add them ([coordination contract](docs/coordination-contract.md)). Live agent delivery, the three full collaboration operations, membership revocation, relays, NAT traversal, and runtime execution are subsequent milestones; see the [production connectivity roadmap](docs/production-roadmap.md).
 
 The [known-host messaging contract](docs/peer-messaging-contract.md) specifies the peer transport slice. The [peer messaging proposal](docs/peer-messaging-proposal.md) records its broader direction, and the [existing-agent integration investigation](docs/agent-integration-investigation.md) describes the next delivery experiment.
 
@@ -29,8 +29,11 @@ From the repository root:
 
 ```bash
 go -C go build -o /tmp/capsule-host-go ./cmd/capsule-host
+go -C go build -o /tmp/capsule-coord ./cmd/capsule-coord
 cargo build --locked --manifest-path rust/Cargo.toml
 ```
+
+`capsule-coord` is the coordination service. It is a separate Go binary used by both host implementations.
 
 Run each daemon in its own terminal with a separate state directory:
 
@@ -81,16 +84,31 @@ The grant expiration and request deadline must be in the future, with the deadli
 ## Verify both implementations
 
 ```bash
-go -C go test -race ./internal/host ./cmd/capsule-host
-go -C go vet ./internal/host ./cmd/capsule-host
+go -C go test -race ./internal/... ./cmd/...
+go -C go vet ./internal/... ./cmd/...
 cargo fmt --check --manifest-path rust/Cargo.toml
 cargo test --locked --manifest-path rust/Cargo.toml
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 python3 conformance/host_service.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
+python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 ```
 
 The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures additionally require OpenSSL.
+
+## Try signed enrollment
+
+Hosts can now discover one another through a network and need no `peer add`. Start a coordinator, read its public key, and start hosts with `--peer-listen`:
+
+```bash
+/tmp/capsule-coord --state /tmp/capsule-coord-state run --listen 127.0.0.1:7400
+/tmp/capsule-coord --state /tmp/capsule-coord-state info
+/tmp/capsule-host-go --state /tmp/capsule-alice network create --name team --member alice --coordinator 127.0.0.1:7400 --coordinator-key COORD_PUBLIC_KEY
+/tmp/capsule-host-go --state /tmp/capsule-alice network invite --network NETWORK_ID --member bob --expires-at FUTURE_RFC3339_TIME
+./rust/target/debug/capsule-host --state /tmp/capsule-bob network join --token TOKEN
+```
+
+The token is a bearer secret, so deliver it out of band. Every host verifies the signed chain from root key to invite to host itself, so the coordinator cannot add hosts. While coordination has synced recently, grants work without `--allow-disconnected`. See the [coordination contract](docs/coordination-contract.md) and the [roadmap](docs/production-roadmap.md).
 
 ## Compare build times
 

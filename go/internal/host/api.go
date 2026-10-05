@@ -72,6 +72,7 @@ func Handler(store *Store) http.Handler {
 		respond(w, http.StatusOK, events, err)
 	})
 	localPeerRoutes(mux, store)
+	localNetworkRoutes(mux, store)
 	return mux
 }
 
@@ -130,6 +131,8 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 			status, code, message = http.StatusNotFound, "not_found", "not found"
 		case errors.Is(err, ErrConflict):
 			status, code, message = http.StatusConflict, "conflict", err.Error()
+		case errors.Is(err, ErrUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "unavailable", err.Error()
 		}
 		value = struct {
 			Code  string `json:"code"`
