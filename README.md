@@ -90,7 +90,7 @@ The [adapter contract](docs/agent-adapter-contract.md) and [outbound extension](
 
 The [recovery extension](docs/adapter-recovery-contract.md) adds connection leases, recovery by the original running adapter after daemon restart, and token rotation that preserves authorization and budgets. `adapter connection ID` distinguishes registered, ready, offline, and withdrawn access. The [live recovery experiment](docs/results/agent-recovery-live.json) restarts each originating daemon and rotates its token while keeping the same two Claude sessions running.
 
-If an adapter has exited and its lease has expired, the owner can authorize a fresh session through `adapter create` without first detaching the old session. Creation retires the old authorization atomically; its existing work stays bound to its original session. Live leases remain protected.
+If an adapter has exited and its lease has expired, the owner can authorize a fresh session through `adapter create` without first detaching the old session. Creation retires the old authorization atomically; its existing work stays bound to its original session. Live leases remain protected, and previously bound, recoverable adapters get a 15-second reconnect window after daemon startup before replacement is allowed.
 
 ## Verify both implementations
 

@@ -26,7 +26,10 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustls::pki_types::ServerName;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
@@ -212,7 +215,8 @@ impl Store {
                 continue;
             }
             // A fresh owner-authorized session replaces only a bound offline
-            // adapter. Preserve a setup that has not connected or a live lease.
+            // adapter. Preserve unbound setups, live leases, and the startup
+            // reconnect window for previously bound instances.
             if old.session_id == r.session_id {
                 return Err(Error::Conflict(
                     "replacement requires a fresh session attachment".into(),
@@ -232,6 +236,20 @@ impl Store {
                 return Err(Error::Conflict(format!(
                     "adapter {} has a live lease until {}; retry after it expires or explicitly detach its session",
                     old.id, lease
+                )));
+            }
+            if let Some(deadline) = self.adapter_recovery_until.get(&old.id)
+                && let Some(remaining) = deadline.checked_duration_since(Instant::now())
+                && !remaining.is_zero()
+            {
+                let until = crate::store::rfc3339(
+                    Utc::now()
+                        + chrono::Duration::from_std(remaining)
+                            .map_err(|e| Error::Internal(e.into()))?,
+                );
+                return Err(Error::Conflict(format!(
+                    "adapter {} has a restart reconnect window until {}; retry after it expires or explicitly detach its session",
+                    old.id, until
                 )));
             }
             stale.push(old);

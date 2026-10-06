@@ -16,6 +16,8 @@ INSERT INTO adapter_connections(adapter_id) SELECT id FROM adapter_credentials;
 PRAGMA user_version = 6;
 `
 
+const adapterLeaseDuration = 15 * time.Second
+
 // AdapterAuth proves both the authorization and the bound adapter instance.
 type AdapterAuth struct{ Token, Instance string }
 type Connection struct {
@@ -135,7 +137,7 @@ func (s *Store) ConnectAdapter(ctx context.Context, token, instance, adapterID, 
 	if err != nil {
 		return Connection{}, err
 	}
-	lease := now.Add(15 * time.Second)
+	lease := now.Add(adapterLeaseDuration)
 	if expiry.Before(lease) {
 		lease = expiry
 	}

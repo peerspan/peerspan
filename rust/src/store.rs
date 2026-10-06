@@ -11,7 +11,7 @@ use std::{
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, RwLock, atomic::AtomicU64},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const SCHEMA: &str = "
@@ -36,6 +36,8 @@ pub struct Store {
     pub(crate) member_pins: RwLock<BTreeMap<String, Vec<u8>>>,
     pub(crate) coordination_interval: AtomicU64,
     pub(crate) advertise: RwLock<String>,
+    /// Immutable startup deadlines for previously bound, recoverable instances.
+    pub(crate) adapter_recovery_until: BTreeMap<String, Instant>,
 }
 
 impl Store {
@@ -131,9 +133,18 @@ impl Store {
         for id in stale {
             append_event(&tx, "session.disconnected", &id, &at)?;
         }
+        let recovering = {
+            let mut statement = tx.prepare("SELECT adapter_id FROM adapter_connections WHERE instance_hash IS NOT NULL AND recoverable = 1")?;
+            statement
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
         tx.commit()?;
         let peer_pins = crate::peer_store::load_pins(&connection)?;
         let member_pins = crate::network::load_member_pins(&connection, &identity.id)?;
+        let deadline =
+            Instant::now() + Duration::from_secs(crate::adapter_connection::LEASE_SECONDS);
+        let adapter_recovery_until = recovering.into_iter().map(|id| (id, deadline)).collect();
         Ok(Self {
             connection: Mutex::new(connection),
             _lock: lock,
@@ -144,6 +155,7 @@ impl Store {
             member_pins: RwLock::new(member_pins),
             coordination_interval: AtomicU64::new(30),
             advertise: RwLock::new(String::new()),
+            adapter_recovery_until,
         })
     }
 

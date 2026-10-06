@@ -578,15 +578,108 @@ def replacement_check(original, replacement, node, label):
                 assert sql(a, "SELECT * FROM " + table) == rows
             sql(a, "DROP TRIGGER fail_replacement")
             assert connect(a, old)[0] == 200
-            # The reported case: daemon restart, original adapter gone, and a
-            # new owner setup. No explicit detach or revoke precedes this setup.
+            withdrawals = []
+            for action in ["detach", "revoke"]:
+                agent = a.cli("agent", "register", "--name", action, "--owner", "alice")
+                session = a.cli(
+                    "session", "attach", "--agent", agent["id"], "--integration", "test"
+                )
+                secret = credential(a, session)
+                assert connect(a, secret)[0] == 200
+                withdrawals.append((action, agent, session, secret))
+            # Restart clears leases but must leave the original instance a
+            # bounded opportunity to reconnect before replacement is possible.
             a.stop(crash=True)
             a.binary = str(replacement)
             assert a.start() == ai
+            restarted_at = time.monotonic()
             candidate = a.cli(
                 "session", "attach", "--agent", aa["id"], "--integration", "test"
             )
             body = {"session_id": candidate["id"], "expires_at": timestamp(1200)}
+            connection = a.cli("adapter", "connection", old["adapter"]["id"])
+            assert connection["state"] == "offline"
+            assert connection["lease_expires_at"] is None and connection["recoverable"]
+            assert sql(
+                a,
+                "SELECT lease_until_ms FROM adapter_connections WHERE adapter_id=?",
+                (old["adapter"]["id"],),
+            ) == [(0,)]
+            assert (
+                adapter_call(
+                    a, old["token"], "POST", "/adapter/v1/next", {}, auto_connect=False
+                )[0]
+                == 503
+            )
+            before = {
+                table: sql(a, "SELECT * FROM " + table)
+                for table in [
+                    "adapter_credentials",
+                    "adapter_connections",
+                    "sessions",
+                    "events",
+                ]
+            }
+            status, error = a.call("POST", "/v1/adapters", body)
+            assert status == 409, f"restart replacement returned {status}, expected 409"
+            assert "restart reconnect window until" in error["error"]
+            for table, rows in before.items():
+                assert sql(a, "SELECT * FROM " + table) == rows
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                recovering = pool.submit(connect, a, old)
+                replacing = pool.submit(a.call, "POST", "/v1/adapters", body)
+                assert recovering.result()[0] == 200
+                assert replacing.result()[0] == 409
+            assert a.cli("session", "inspect", old_session["id"])["state"] == "attached"
+            assert (
+                a.cli("adapter", "inspect", old["adapter"]["id"])["revoked_at"] is None
+            )
+            # The window is independent of liveness: expiring the recovered
+            # lease does not shorten it or turn it into authority for operations.
+            sql(
+                a,
+                "UPDATE adapter_connections SET lease_until_ms=0 WHERE adapter_id=?",
+                (old["adapter"]["id"],),
+            )
+            status, error = a.call("POST", "/v1/adapters", body)
+            assert status == 409 and "restart reconnect window until" in error["error"]
+            # An explicit owner withdrawal bypasses protection immediately.
+            for action, agent, session, secret in withdrawals:
+                if action == "detach":
+                    a.cli("session", "detach", session["id"])
+                else:
+                    a.cli("adapter", "revoke", secret["adapter"]["id"])
+                next_session = a.cli(
+                    "session", "attach", "--agent", agent["id"], "--integration", "test"
+                )
+                next_secret = credential(a, next_session)
+                assert "replaced_adapter_ids" not in next_secret
+                assert (
+                    connect(a, secret)[0] == 403 and connect(a, next_secret)[0] == 200
+                )
+            # Only bindings present at startup are protected by this window.
+            new_agent = a.cli(
+                "agent", "register", "--name", "post-restart", "--owner", "alice"
+            )
+            new_session = a.cli(
+                "session", "attach", "--agent", new_agent["id"], "--integration", "test"
+            )
+            new_secret = credential(a, new_session)
+            assert connect(a, new_secret)[0] == 200
+            sql(
+                a,
+                "UPDATE adapter_connections SET lease_until_ms=0 WHERE adapter_id=?",
+                (new_secret["adapter"]["id"],),
+            )
+            next_session = a.cli(
+                "session", "attach", "--agent", new_agent["id"], "--integration", "test"
+            )
+            assert credential(a, next_session)["replaced_adapter_ids"] == [
+                new_secret["adapter"]["id"]
+            ]
+            # A dead adapter can still be replaced after the real 15-second
+            # window. At that point reconnect and create serialize normally.
+            time.sleep(max(0, 15.1 - (time.monotonic() - restarted_at)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
                 recovering = pool.submit(connect, a, old)
                 replacing = pool.submit(a.call, "POST", "/v1/adapters", body)
@@ -713,7 +806,7 @@ def replacement_check(original, replacement, node, label):
             b.stop()
     print(
         label
-        + ": offline replacement, live protection, rollback, reconnect race and original-work isolation passed",
+        + ": offline replacement, restart grace, owner withdrawal, rollback, reconnect race and original-work isolation passed",
         flush=True,
     )
 

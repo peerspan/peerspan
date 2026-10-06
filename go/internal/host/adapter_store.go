@@ -118,7 +118,8 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 			continue
 		}
 		// Issuing a credential for a different session is the owner's replacement
-		// decision. An unbound setup or a live lease still reserves the agent.
+		// decision. An unbound setup, live lease, or startup reconnect window
+		// still reserves the agent.
 		if old.SessionID == r.SessionID {
 			err = fmt.Errorf("%w: replacement requires a fresh session attachment", ErrConflict)
 			break
@@ -129,6 +130,10 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 		}
 		if until > now.UnixMilli() {
 			err = fmt.Errorf("%w: adapter %s has a live lease until %s; retry after it expires or explicitly detach its session", ErrConflict, old.ID, timestamp(time.UnixMilli(until)))
+			break
+		}
+		if deadline := s.adapterRecoveryUntil[old.ID]; deadline.After(now) {
+			err = fmt.Errorf("%w: adapter %s has a restart reconnect window until %s; retry after it expires or explicitly detach its session", ErrConflict, old.ID, timestamp(deadline))
 			break
 		}
 		stale = append(stale, old)

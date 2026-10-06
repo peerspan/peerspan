@@ -23,6 +23,7 @@ CREATE TABLE adapter_connections (adapter_id TEXT PRIMARY KEY REFERENCES adapter
 INSERT INTO adapter_connections(adapter_id) SELECT id FROM adapter_credentials;
 PRAGMA user_version = 6;
 ";
+pub(crate) const LEASE_SECONDS: u64 = 15;
 pub struct AdapterAuth {
     pub token: String,
     pub instance: String,
@@ -131,7 +132,7 @@ impl Store {
         let expiry = DateTime::parse_from_rfc3339(&a.expires_at)
             .map_err(|e| Error::Internal(e.into()))?
             .with_timezone(&Utc);
-        let lease = (current + chrono::Duration::seconds(15)).min(expiry);
+        let lease = (current + chrono::Duration::seconds(LEASE_SECONDS as i64)).min(expiry);
         let at = now();
         if ss.state == "detached" {
             tx.execute(

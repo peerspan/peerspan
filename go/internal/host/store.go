@@ -63,6 +63,8 @@ type Store struct {
 	privateKey ed25519.PrivateKey
 	closeOnce  sync.Once
 	closeErr   error
+	// Immutable startup deadlines give previously bound instances time to reconnect.
+	adapterRecoveryUntil map[string]time.Time
 
 	coordination sync.Mutex // guards advertise and interval
 	advertise    string
@@ -217,8 +219,31 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 			return nil, err
 		}
 	}
+	rows, err = tx.QueryContext(ctx, `SELECT adapter_id FROM adapter_connections WHERE instance_hash IS NOT NULL AND recoverable = 1`)
+	if err != nil {
+		return nil, err
+	}
+	var recovering []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		recovering = append(recovering, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
+	}
+	s.adapterRecoveryUntil = make(map[string]time.Time, len(recovering))
+	deadline := time.Now().Add(adapterLeaseDuration)
+	for _, id := range recovering {
+		s.adapterRecoveryUntil[id] = deadline
 	}
 	return s, nil
 }
