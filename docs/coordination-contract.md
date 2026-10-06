@@ -117,6 +117,43 @@ New activity kinds are `network.created`, `network.joined`, `network.invite_issu
 
 Hosts give each coordinator call an 8-second timeout and accept responses up to 16 MiB.
 
+## Relay
+
+Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
+
+### Connection
+
+A host connects over TCP to the coordinator address and completes TLS 1.3 with its host certificate as the client certificate, pinning the coordinator key as for the coordination API. It offers ALPN `capsule-relay/1`; the coordination API negotiates `http/1.1`, and the coordinator dispatches on the negotiated protocol. The caller's host ID is derived from its client key. A caller that is not a member of any network on this coordinator is refused: the connection closes after the handshake, before any frame is processed. One relay connection per host is current. A new connection from the same host replaces the older one, which the coordinator closes.
+
+### Frames
+
+After the handshake, both directions carry frames: one type byte, a 2-byte big-endian payload length, then the payload. A host ID in a frame is the 32 raw bytes of the SHA-256 digest that the `host_` form spells in hex.
+
+| Type | Direction | Payload | Meaning |
+| --- | --- | --- | --- |
+| `0x01` send | host → relay | destination host ID, then one QUIC datagram | Forward this datagram. |
+| `0x02` receive | relay → host | source host ID, then one QUIC datagram | A datagram from that host. |
+| `0x03` unreachable | relay → host | destination host ID | The destination has no current relay connection, or the two hosts share no network. Sent at most once per second per destination. |
+| `0x04` ping | either | empty | Keepalive; ignored on receipt. |
+
+A datagram is 1 to 1,500 bytes. An unknown frame type, an oversized or truncated frame, or a frame of a type invalid for its direction closes the connection. Hosts send a ping after 15 seconds without sending any frame. The coordinator closes a relay connection after 45 seconds without receiving one.
+
+### Forwarding and limits
+
+The coordinator forwards a send frame only if both the source and the destination are currently members of a common network it serves. It checks that against its own member records, on every frame or from a cache refreshed at least every 5 seconds. Forwarding is best effort, with datagram semantics: frames may be dropped, but are never reordered within one source→destination pair or modified. The coordinator drops frames when a destination's outbound buffer exceeds 1 MiB. It also drops frames from a source that exceeds 8 MiB/s, using a token bucket with an 8 MiB burst. It allows at most 4,096 concurrent relay connections. A dropped frame produces no error frame, since QUIC recovers loss.
+
+### Host behavior
+
+- A host that runs with `--peer-listen` and is a member of at least one network keeps one relay connection to each of its networks' coordinators. It reconnects with backoff from 1 to 30 seconds. Through these connections it accepts inbound peer QUIC connections, the same way as on its UDP socket.
+- A host without `--peer-listen` never accepts inbound peer connections. It may open a relay connection on demand to dial out, and receives only datagrams for the connections it initiated.
+- Each relay connection carries packets for the host's single peer QUIC endpoint. Relayed peers appear to that endpoint as synthetic addresses, one per peer host ID, that are never sent on the real UDP socket. The peer protocol is unchanged: every peer TLS check and per-request authentication applies to relayed connections.
+- **Path choice:**
+  - For a manual peer or a member with a nonempty address, the dialer first tries the direct UDP address with a 2-second handshake bound.
+  - It falls back to the relay of a coordinator for a network both hosts belong to, choosing the lowest network ID, after a failed direct attempt or immediately for a member with an empty address.
+  - A peer that shares no network has no relay path.
+  - A relayed connection stays on the relay until it closes. Moving it to a direct path is milestone 4.
+- **Return path:** a relayed connection's packets return through the relay connection on which that peer's datagrams arrived.
+
 ## Verification
 
 Language tests must reproduce the test vectors, reject each tampered field, and reject non-canonical encodings. `conformance/coordination.py` runs one Go coordinator with Go and Rust hosts in every creator/joiner pairing:
@@ -129,6 +166,15 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 - host restart with persisted members;
 - coordinator restart, after which syncing resumes.
 
+`conformance/relay.py` runs the Go coordinator with Go and Rust hosts in every pairing. It covers:
+
+- two members that advertise no direct address exchange messages, receipts, and adapter replies through the relay;
+- a dead direct address falls back to the relay;
+- a non-member's relay connection is refused;
+- forwarding is refused between hosts that share no network;
+- hosts reconnect after a coordinator restart, and relayed exchanges resume;
+- a host without `--peer-listen` can send through the relay but accepts no inbound connections.
+
 ## Deferred
 
-Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Relay endpoints and observed public addresses in the map (milestones 3–4).
+Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Relay-observed public addresses, hole punching, and moving a relayed connection to a direct path (milestone 4). Per-network relay selection and relays other than the network's coordinator.
