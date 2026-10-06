@@ -117,6 +117,71 @@ New activity kinds are `network.created`, `network.joined`, `network.invite_issu
 
 Hosts give each coordinator call an 8-second timeout and accept responses up to 16 MiB.
 
+## Revocation, leaving, and root rotation
+
+Roadmap milestone 2a. The roles are explained in the [access model](access-model.md): the network administrator, meaning the host holding the current root seed, controls membership only. Revocations are signed and sticky. A host persists every valid revocation it sees and keeps enforcing it, even if a coordinator later omits it or serves an older map. Multiple administrators are milestone 2b.
+
+### Statements
+
+These use the encoding rules above: lines joined by `\n`, with no trailing newline. `epoch` is a decimal integer, starting at 0 for the genesis root, whose key derives `network_id`.
+
+| Statement | Signed by | Lines |
+| --- | --- | --- |
+| Host revocation | a root in the network's root chain | `capsule-revoke-host-v1`, `network_id`, `host_public_key`, `revoked_at` |
+| Invite revocation | a root in the root chain | `capsule-revoke-invite-v1`, `network_id`, `invite_public_key`, `revoked_at` |
+| Leave | the leaving host's key | `capsule-leave-v1`, `network_id`, `host_public_key`, `left_at` |
+| Root rotation | the root of epoch `epoch − 1` | `capsule-root-rotate-v1`, `network_id`, `epoch`, `previous_root_public_key`, `root_public_key`, `rotated_at` |
+| Attestation | the root of epoch `epoch` | `capsule-attest-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `attested_at` |
+
+Each is carried as a strict JSON object of its named fields plus `signature`. Test vectors use the network, root, invite, and host keys of the earlier vectors, a new root with seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), time `2026-10-07T00:00:00Z`, epoch `1`, and member `alice`:
+
+| Statement | `signature` |
+| --- | --- |
+| Host revocation of the host key, by the genesis root | `651E7LldaU/s+qQra4F9e6uJ5sDvFfYI0Nc+x4WdmfciBtVME9wp+fNq034EGTB2utFOLkPxhOg3k8gujAI7Ag==` |
+| Invite revocation of the invite key, by the genesis root | `XyB3LsP1IaDW5saYFuHlIr4IVvrELl9hmDW9sX3PNAVeUfJaOzx5gnv6YSkGScAR+8ymDzYLYZ+VQ4leDNBhCQ==` |
+| Leave, by the host key | `xM3Wn7Rl4G9jcG0fRUbbXjyFmWz1WcO4IC/tg8MrFOe9zEwWroQuSjo5Xhh92Mkwimg45gxfRCeOoxZC6/OeAA==` |
+| Rotation to the new root at epoch 1, by the genesis root | `etkSBT7+to1vTCpIt+m5PMyO93tht5QhAmnxVMNCwmreGUrXmCcI4YWqxfznXx6WHe8rNZ/jK7N2FWUiy9N2Bw==` |
+| Attestation of the host key at epoch 1, by the new root | `TBfNG88UlHWcSV6f79Ie1RApfqPr36hehooyjGebNB50FTB1tl9neEm42Ja13jXniAc+hU1YpRxcFVzfsF+iBg==` |
+
+### Root chain and member validity
+
+The **root chain** is the genesis root followed by verified rotations in epoch order. Each rotation is signed by the previous root, names it as `previous_root_public_key`, and increments `epoch` by exactly one. The **current root** is the last root in the chain.
+
+- **Sticky chain:** a host persists the longest root chain it has verified. It applies a map only if that map's chain extends the persisted chain, or equals it. A different rotation at an already persisted epoch is a **fork**. The host refuses that map, records `last_sync_error` (`root chain conflict`), and keeps its state until an owner resolves it out of band.
+- **Membership at epoch 0:** a member is valid by its invite chain under the genesis root, as before.
+- **Membership at epoch > 0:** a member is valid only if one of these holds:
+  - its invite chain verifies under the **current** root, for invites issued after the rotation;
+  - there is an attestation of its host key, signed by the current root, at the current epoch.
+
+  Chains under older roots alone no longer count, so a compromised old root cannot enroll hosts after a rotation.
+- **Revocations:** a revocation verifies under **any** root in the chain. Revocations fail closed: a compromised old root can remove members but never add them. A member is dropped if its host key is revoked, if a valid leave statement exists for it, or if its invite key is revoked. Revoking an invite blocks joins with it and also drops any host that already joined with it.
+- **Effect:** a dropped host is no longer known through that network. It fails peer authentication unless an owner configured it as a manual peer, and it loses relay access, as specified for members in general. Per-request authentication applies to already-open connections. A revoked host or invite cannot be reinstated in this milestone; the host re-enrolls with a new invite, or the invite is replaced.
+
+### Coordinator
+
+The map gains `rotations`, `attestations`, and `revocations`. `rotations` lists the chain's rotations in epoch order. `attestations` lists those for the current epoch. `revocations` lists every accepted host revocation, invite revocation, and leave, each as `{kind, statement}` with `kind` one of `host`, `invite`, or `leave`. The coordinator verifies everything it accepts and stores it permanently. It excludes revoked and departed hosts from `members`. It refuses their sync, relay registration, and re-registration with 403, and refuses joins with a revoked invite with 403.
+
+| Endpoint | Body | Behavior |
+| --- | --- | --- |
+| `POST /coord/v1/networks/{network_id}/revocations` | `kind` (`host` or `invite`), `statement` | Accepts a revocation that verifies under any root in the chain. The caller must be a member. Returns 200 with the map; an identical repeat returns 200. |
+| `POST /coord/v1/networks/{network_id}/leave` | `statement` | The leave statement's host key must be the caller. Returns 200. |
+| `POST /coord/v1/networks/{network_id}/rotations` | `rotation`, `attestations` | The caller must be a member. The rotation must extend the coordinator's chain by exactly one epoch; a different rotation at an existing epoch returns 409. `attestations` must cover every current member except revoked or departed ones, each signed by the new root. Returns 200 with the map. |
+
+The coordinator database moves to version 3. Its schema stays internal.
+
+### Host
+
+Database version 7 adds `CREATE TABLE network_statements (network_id TEXT NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, kind, subject))`. `kind` is one of `rotation` (subject: the epoch), `attestation` (subject: the host key), `host`, `invite`, or `leave` (subject: the revoked key). The table holds every verified statement for the network. On the administrator host, `networks.root_seed` holds the **current** root seed. The network record gains `root_epoch` and `current_root_public_key`, while `root_public_key` remains the genesis key that derives the ID. Older binaries reject version 7.
+
+| CLI after `--state DIR` | Local API | Behavior |
+| --- | --- | --- |
+| `network revoke --network ID --host HOST_ID` | `POST /v1/networks/{id}/revocations` with `{host_id}` | Administrator only (403 otherwise). Revoking this host itself returns 409. Signs a host revocation with the current root and persists it with `network.host_revoked`, enforced locally at once. It is submitted to the coordinator now and on every later sync until accepted. Returns 201 with `{network_id, kind, subject, submitted}`. |
+| `network revoke-invite --network ID --invite INVITE_PUBLIC_KEY` | `POST /v1/networks/{id}/revocations` with `{invite_public_key}` | Same rules as host revocation, for an invite. Records `network.invite_revoked`. |
+| `network leave ID` | `POST /v1/networks/{id}/leave` | Not allowed for the administrator, which returns 409. Signs a leave statement and tries the coordinator once. It then removes the network, its members, and its statements locally with `network.left`, whether or not the coordinator accepted. Returns 200 with `{network_id, submitted}`. |
+| `network rotate-root ID` | `POST /v1/networks/{id}/rotate` | Administrator only. Generates a new root and signs the rotation with the current root. Signs attestations for every current valid member, including this host, and submits them. Only after the coordinator accepts does it persist the new seed, the rotation, and the attestations, with `network.root_rotated`. Unreachable or rejected returns 503 or the coordinator's status, and nothing changes. Returns 200 with the network record. |
+
+Network and member records report the effect: a revoked or departed member disappears from `network members`. New activity kinds: `network.host_revoked`, `network.invite_revoked`, `network.member_left` (another host's leave, seen in a map), `network.left`, and `network.root_rotated`.
+
 ## Relay
 
 Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
@@ -182,6 +247,17 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 - host restart with persisted members;
 - coordinator restart, after which syncing resumes.
 
+`conformance/revocation.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing:
+
+- A revoked host loses peer access, including on an already-open connection, and loses relay access.
+- The revocation stays enforced after the coordinator database drops it, simulating an omitting or rolled-back coordinator, and after host restart.
+- A revoked invite blocks joins, and drops a host that already used it.
+- A member that leaves disappears from other hosts' member lists.
+- A leave takes effect locally while the coordinator is down.
+- After root rotation, existing members keep working through attestations. An invite signed by the old root is refused, and a member injected with only an old-root chain is ignored.
+- A forked rotation is refused with a sync error, and the persisted chain is kept.
+- Each language reproduces the statement test vectors.
+
 `conformance/relay.py` runs the Go coordinator with Go and Rust hosts in every pairing. It covers:
 
 - two members that advertise no direct address exchange messages, receipts, and adapter replies through the relay;
@@ -201,4 +277,4 @@ Language tests cover message encoding, signature and freshness checks, replayed 
 
 ## Deferred
 
-Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Port prediction for NATs that allocate a new port per destination, so two such NATs stay on the relay. A NAT that accepts unsolicited packets addressed to itself, such as a Linux router masquerading with no input filter, can deadlock hole punching. A peer's early probe creates a connection-tracking entry on the router, and the host's own outbound probe is then remapped to a different public port. Such pairs stay on the relay. Path discovery for peers reached by an advertised direct address. IPv6 candidates beyond what interfaces and STUN report. Per-network relay selection and relays other than the network's coordinator.
+Multiple administrators and the person identity they share with owner-managed access (milestone 2b). Reinstating a revoked host or invite. Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Port prediction for NATs that allocate a new port per destination, so two such NATs stay on the relay. A NAT that accepts unsolicited packets addressed to itself, such as a Linux router masquerading with no input filter, can deadlock hole punching. A peer's early probe creates a connection-tracking entry on the router, and the host's own outbound probe is then remapped to a different public port. Such pairs stay on the relay. Path discovery for peers reached by an advertised direct address. IPv6 candidates beyond what interfaces and STUN report. Per-network relay selection and relays other than the network's coordinator.
