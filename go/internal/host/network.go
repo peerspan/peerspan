@@ -217,7 +217,13 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 	if err = tx.Commit(); err != nil {
 		return n, err
 	}
-	return s.SyncNetwork(ctx, n.ID)
+	// Wake the relay manager only once the coordinator has registered this
+	// host: a relay refuses non-members, and a refusal starts reconnect backoff.
+	n, err = s.SyncNetwork(ctx, n.ID)
+	if err == nil && n.LastSyncError == nil {
+		s.wakeRelays()
+	}
+	return n, err
 }
 
 func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (Invite, error) {
@@ -322,7 +328,11 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 			}
 		}
 	}
-	return n, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return n, err
+	}
+	s.wakeRelays()
+	return n, nil
 }
 
 // SyncNetwork registers an unregistered administered network, or syncs it,

@@ -72,6 +72,9 @@ type Store struct {
 	syncing      sync.Mutex // serializes coordinator syncs and map application
 
 	peer peerTransport // the daemon's UDP socket and cached QUIC connections
+	// relayWake wakes RunRelays when this host creates or joins a network, so it
+	// becomes reachable through the new coordinator without waiting to poll.
+	relayWake chan struct{}
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -92,7 +95,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("state directory must be a private directory (mode 0700): %s", dir)
 	}
-	s := &Store{dir: dir}
+	s := &Store{dir: dir, relayWake: make(chan struct{}, 1)}
 	defer func() {
 		if err != nil {
 			_ = s.Close()

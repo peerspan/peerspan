@@ -430,10 +430,20 @@ func (s *Store) RunRelays(ctx context.Context) {
 			}
 			s.peer.mu.Unlock()
 		}
+		// Polling is the fallback; creating or joining a network wakes this early.
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-s.relayWake:
 		}
+	}
+}
+
+// wakeRelays asks RunRelays to refresh now, without blocking.
+func (s *Store) wakeRelays() {
+	select {
+	case s.relayWake <- struct{}{}:
+	default:
 	}
 }

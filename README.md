@@ -107,10 +107,13 @@ python3 conformance/host_service.py --go /tmp/capsule-host-go --rust rust/target
 python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --probe /tmp/capsule-peer-probe
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --probe /tmp/capsule-peer-probe
 python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --coord /tmp/capsule-coord
 python3 conformance/adapter_recovery.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 ```
+
+`nat_lab.py` needs root. It builds Linux network namespaces with nftables NAT routers between each host and the coordinator, and runs every Go/Rust pairing behind port-preserving, fully random, and UDP-blocking NATs. It removes everything it creates.
 
 The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures use the `capsule-peer-probe` QUIC test client, and the lost-receipt cases use a UDP proxy.
 

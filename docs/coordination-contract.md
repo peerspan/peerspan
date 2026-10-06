@@ -144,7 +144,7 @@ The coordinator forwards a send frame only if both the source and the destinatio
 
 ### Host behavior
 
-- A host that runs with `--peer-listen` and is a member of at least one network keeps one relay connection to each of its networks' coordinators. It reconnects with backoff from 1 to 30 seconds. Through these connections it accepts inbound peer QUIC connections, the same way as on its UDP socket.
+- A host that runs with `--peer-listen` and is a member of at least one network keeps one relay connection to each of its networks' coordinators. It opens that connection as soon as it creates or joins a network, rather than waiting for a periodic refresh, so a newly joined host is reachable at once. It reconnects with backoff from 1 to 30 seconds. Through these connections it accepts inbound peer QUIC connections, the same way as on its UDP socket.
 - A host without `--peer-listen` never accepts inbound peer connections. It may open a relay connection on demand to dial out, and receives only datagrams for the connections it initiated.
 - Each relay connection carries packets for the host's single peer QUIC endpoint. Relayed peers appear to that endpoint as synthetic addresses, one per peer host ID, that are never sent on the real UDP socket. The synthetic scheme is internal to each implementation; for example, Rust uses IPv4 addresses in the reserved 240.0.0.0/4 block, because `quinn` rejects IPv6 destinations on an IPv4 socket.
 - A host closes its relay connection to a coordinator that no longer serves any of its networks. An on-demand relay connection closes after 60 seconds with no relayed peer connection using it, and reopens on the next demand. The peer protocol is unchanged: every peer TLS check and per-request authentication applies to relayed connections.
@@ -176,6 +176,8 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 - forwarding is refused between hosts that share no network;
 - hosts reconnect after a coordinator restart, and relayed exchanges resume;
 - a host without `--peer-listen` can send through the relay but accepts no inbound connections.
+
+`conformance/nat_lab.py` needs root. It places each host behind its own nftables NAT router in Linux network namespaces, with no route between the private networks, and runs every pairing behind three kinds of NAT: port-preserving masquerade, fully random masquerade, and masquerade that drops all forwarded UDP. In each, both directions exchange messages through the relay. A negative control shows no path exists while the coordinator is stopped, and the same request succeeds once it restarts.
 
 ## Deferred
 

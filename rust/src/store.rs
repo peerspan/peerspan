@@ -40,6 +40,10 @@ pub struct Store {
     pub(crate) adapter_recovery_until: BTreeMap<String, Instant>,
     /// The daemon's single QUIC peer endpoint, created on listen or first dial.
     pub(crate) peer_transport: Mutex<Option<Arc<crate::quic::Transport>>>,
+    /// Wakes the relay manager when this host creates or joins a network, so
+    /// it becomes reachable through the new coordinator without waiting for
+    /// the next refresh.
+    pub(crate) relay_wake: tokio::sync::Notify,
 }
 
 impl Store {
@@ -159,6 +163,7 @@ impl Store {
             advertise: RwLock::new(String::new()),
             adapter_recovery_until,
             peer_transport: Mutex::new(None),
+            relay_wake: tokio::sync::Notify::new(),
         })
     }
 

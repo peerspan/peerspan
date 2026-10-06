@@ -412,7 +412,11 @@ async fn keep_relays(store: Arc<Store>, transport: Arc<Transport>) {
             }
             transport.relays.retain(&current);
         }
-        tokio::time::sleep(RELAY_REFRESH).await;
+        // Polling is the fallback; creating or joining a network wakes this early.
+        tokio::select! {
+            _ = tokio::time::sleep(RELAY_REFRESH) => {}
+            _ = store.relay_wake.notified() => {}
+        }
     }
 }
 struct Failure {

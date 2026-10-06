@@ -461,6 +461,9 @@ impl Store {
     /// Replaces a network's verified member set with a coordinator map. When
     /// `joined` is set, the network itself is inserted in the same transaction.
     fn apply_map(&self, network: Network, map: WireMap, joined: bool) -> Result<Network, Error> {
+        // The first accepted map (a join, or a created network's registration)
+        // means the coordinator now knows this host, so its relay will accept it.
+        let first = joined || network.last_sync_at.is_none();
         let mut members = verified_members(&network, map)?;
         let own_id = self.identity().id;
         if !members.iter().any(|m| m.host_id == own_id) {
@@ -523,6 +526,9 @@ impl Store {
         )?;
         tx.commit()?;
         self.refresh_member_pins(&connection)?;
+        if first {
+            self.relay_wake.notify_one();
+        }
         Ok(network)
     }
 
