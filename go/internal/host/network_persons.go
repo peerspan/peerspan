@@ -54,10 +54,26 @@ type RemovePerson struct {
 	PersonID string `json:"person_id"`
 }
 type Person struct {
-	PersonID  string   `json:"person_id"`
-	PublicKey string   `json:"public_key"`
-	Member    string   `json:"member"`
-	Hosts     []string `json:"hosts"`
+	PersonID      string   `json:"person_id"`
+	PublicKey     string   `json:"public_key"`
+	Member        string   `json:"member"`
+	Hosts         []string `json:"hosts"`
+	LabelConflict bool     `json:"label_conflict"`
+}
+
+// labelTaken reports whether a current person other than exceptKey holds a
+// label that conflicts with label.
+func (s *Store) labelTaken(ctx context.Context, id, label, exceptKey string) error {
+	persons, err := s.Persons(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, p := range persons {
+		if p.PublicKey != exceptKey && membership.LabelsConflict(p.Member, label) {
+			return fmt.Errorf("%w: person label %q is taken", ErrConflict, label)
+		}
+	}
+	return nil
 }
 
 func descriptorOf(n Network) (string, error) {
@@ -79,6 +95,9 @@ func (s *Store) AdmitPerson(ctx context.Context, id string, r AdmitPerson) (Admi
 	}
 	n, root, err := s.administeredNetwork(ctx, s.db, id)
 	if err != nil {
+		return Admitted{}, err
+	}
+	if err = s.labelTaken(ctx, id, r.Member, r.PersonPublicKey); err != nil {
 		return Admitted{}, err
 	}
 	admission := membership.SignPersonAdmission(root, n.ID, n.RootEpoch, r.PersonPublicKey, r.Member, timestamp(time.Now()))
@@ -138,6 +157,9 @@ func (s *Store) CreatePersonInvite(ctx context.Context, id string, r CreateInvit
 	}
 	if !membership.ValidLabel(r.Member) {
 		return Invite{}, fmt.Errorf("%w: invalid member label", ErrInvalid)
+	}
+	if err = s.labelTaken(ctx, id, r.Member, ""); err != nil {
+		return Invite{}, err
 	}
 	expires, err := parseTime(r.ExpiresAt)
 	now := time.Now()
@@ -242,11 +264,64 @@ func (s *Store) Bind(ctx context.Context, id string, r BindHost) (Bound, error) 
 	if _, err = s.callCoordinator(ctx, n, networkPath(n, "/bindings"), map[string]any{"binding": binding}); err != nil {
 		return Bound{}, err
 	}
-	if _, err = s.SyncNetwork(ctx, id); err != nil {
+	key, _ := membership.DecodeKey(binding.PersonPublicKey)
+	personID := membership.PersonID(key)
+	// Store the accepted binding before responding, so success means this host
+	// has it whatever a later sync does; the sync then sees no change and
+	// records no second event.
+	if err = s.storeOwnBinding(ctx, n.ID, binding, personID); err != nil {
 		return Bound{}, err
 	}
-	key, _ := membership.DecodeKey(binding.PersonPublicKey)
-	return Bound{NetworkID: n.ID, HostID: s.identity.ID, PersonID: membership.PersonID(key)}, nil
+	_, _ = syncAfterBind(s, ctx, id)
+	return Bound{NetworkID: n.ID, HostID: s.identity.ID, PersonID: personID}, nil
+}
+
+// syncAfterBind refreshes the map after a binding; tests replace it to show
+// the binding does not depend on that sync.
+var syncAfterBind = (*Store).SyncNetwork
+
+// storeOwnBinding records this host's coordinator-accepted binding and its
+// network.host_bound event in one transaction.
+func (s *Store) storeOwnBinding(ctx context.Context, network string, binding membership.HostBinding, personID string) error {
+	data, err := json.Marshal(binding)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	persisted, err := loadStatements(ctx, tx, network)
+	if err != nil {
+		return err
+	}
+	var label *string
+	if raw, ok := persisted.persons[binding.PersonPublicKey]; ok {
+		var proof membership.PersonProof
+		if json.Unmarshal(raw, &proof) == nil && (proof.Admission != nil) != (proof.Membership != nil) {
+			value := personLabel(proof)
+			label = &value
+		}
+	}
+	member, err := readJSON[NetworkMember](tx.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", network, s.identity.ID))
+	if err != nil {
+		return err
+	}
+	already := member.PersonID != nil && *member.PersonID == personID
+	member.PersonID, member.PersonMember = &personID, label
+	if err = putJSON(ctx, tx, "UPDATE network_members SET record = ? WHERE network_id = ? AND host_id = ?", member, network, s.identity.ID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO network_statements VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET record = excluded.record", network, kindBinding, binding.HostPublicKey, string(data)); err != nil {
+		return err
+	}
+	if !already {
+		if err = appendEvent(ctx, tx, "network.host_bound", s.identity.ID, timestamp(time.Now())); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // storeRevocation persists a sticky statement once, records its event, ends
@@ -433,6 +508,15 @@ func (s *Store) Persons(ctx context.Context, id string) ([]Person, error) {
 		persons = append(persons, p)
 	}
 	sort.Slice(persons, func(i, j int) bool { return persons[i].PersonID < persons[j].PersonID })
+	// Only a misbehaving coordinator can serve conflicting labels; keep both
+	// persons and flag them rather than dropping either.
+	for i := range persons {
+		for j := range persons {
+			if i != j && membership.LabelsConflict(persons[i].Member, persons[j].Member) {
+				persons[i].LabelConflict = true
+			}
+		}
+	}
 	return persons, nil
 }
 

@@ -256,6 +256,18 @@ func (s *Server) admitPerson(ctx context.Context, caller, network string, data [
 	if revoked.Persons[key] {
 		return nil, fmt.Errorf("%w: person has been removed", errForbidden)
 	}
+	// Person labels are unique among current persons, ignoring ASCII case; a
+	// removed person frees its label.
+	current, err := validPersons(ctx, tx, chain, revoked)
+	if err != nil {
+		return nil, err
+	}
+	label := personLabel(proof)
+	for other, p := range current {
+		if other != key && membership.LabelsConflict(personLabel(p), label) {
+			return nil, fmt.Errorf("%w: person label %q is taken", errConflict, label)
+		}
+	}
 	if m := proof.Membership; m != nil {
 		if revoked.Invites[m.InvitePublicKey] {
 			return nil, fmt.Errorf("%w: person invite has been revoked", errForbidden)

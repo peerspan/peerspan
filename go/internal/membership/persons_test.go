@@ -238,3 +238,22 @@ func TestNormalizePersonKey(t *testing.T) {
 		}
 	}
 }
+
+func TestLabelsConflictFoldsOnlyASCII(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"bob", "bob", true},
+		{"Bob", "bOB", true},
+		{"bob", "bob.smith", false},
+		{"bob", "bob ", false},
+		{"Émile", "émile", false}, // non-ASCII bytes compare exactly
+		{"Émile", "Émile", true},
+		{"straße", "STRASSE", false},
+	} {
+		if got := LabelsConflict(c.a, c.b); got != c.want {
+			t.Errorf("LabelsConflict(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}

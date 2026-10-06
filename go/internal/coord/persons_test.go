@@ -228,3 +228,45 @@ func TestRevokingPersonInviteDropsInviteOnlyPerson(t *testing.T) {
 		t.Fatalf("person admitted only through a revoked invite still served: %v", err)
 	}
 }
+
+func TestPersonLabelsAreUniqueUntilRemoved(t *testing.T) {
+	ctx := context.Background()
+	admin, bob, first, second, third := key(t), key(t), key(t), key(t), key(t)
+	g, _ := openGoverned(t, admin, bob)
+	now := membership.Timestamp(time.Now())
+	admit := func(person ed25519.PrivateKey, label string) error {
+		a := membership.SignPersonAdmission(g.root, g.network, 0, membership.PublicKey(person), label, now)
+		_, err := g.s.admitPerson(ctx, id(admin), g.network, joinBody(t, map[string]any{"admission": a}))
+		return err
+	}
+	if err := admit(first, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	// A repeat for the same key is still idempotent.
+	if err := admit(first, "bob"); err != nil {
+		t.Fatalf("repeat admission refused: %v", err)
+	}
+	if err := admit(second, "BoB"); !errors.Is(err, errConflict) {
+		t.Fatalf("label differing in ASCII case admitted: %v", err)
+	}
+	// A person invite redeemed under a taken label conflicts too.
+	token, _ := membership.PersonInvite(g.network, g.root, 0, "bob", membership.Timestamp(time.Now().Add(time.Hour)))
+	redeemed, err := token.Redeem(membership.PublicKey(third), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = g.s.admitPerson(ctx, id(bob), g.network, joinBody(t, map[string]any{"membership": redeemed})); !errors.Is(err, errConflict) {
+		t.Fatalf("invite redeemed under a taken label: %v", err)
+	}
+	if err = admit(second, "bob.smith"); err != nil {
+		t.Fatal(err)
+	}
+	// Removing the first bob frees the label.
+	removal := membership.SignPersonRemoval(g.root, g.network, membership.PublicKey(first), now)
+	if _, err = g.s.revoke(ctx, id(admin), g.network, revocationRequest{membership.KindPerson, rawOf(t, removal)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = g.s.admitPerson(ctx, id(bob), g.network, joinBody(t, map[string]any{"membership": redeemed})); err != nil {
+		t.Fatalf("freed label refused: %v", err)
+	}
+}

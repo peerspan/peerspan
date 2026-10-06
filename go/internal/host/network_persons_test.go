@@ -194,3 +194,108 @@ func TestPersonsAdmissionBindingAndRemoval(t *testing.T) {
 		t.Fatalf("persons after rotation: %+v", persons)
 	}
 }
+
+func TestPersonLabelConflicts(t *testing.T) {
+	ctx := context.Background()
+	network := startCoordinator(t)
+	alice := startPeerHost(t, "alice")
+	created, err := alice.CreateNetwork(ctx, CreateNetwork{Name: "team", Member: "alice", CoordinatorAddress: network.address, CoordinatorPublicKey: network.coord.Identity().PublicKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := created.ID
+	first, second := personKey(t), personKey(t)
+	if _, err = alice.AdmitPerson(ctx, id, AdmitPerson{PersonPublicKey: membership.EncodeKey(first.PublicKey()), Member: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	// The administrator refuses a conflicting label before signing anything.
+	if _, err = alice.AdmitPerson(ctx, id, AdmitPerson{PersonPublicKey: membership.EncodeKey(second.PublicKey()), Member: "BOB"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting admission: %v", err)
+	}
+	if _, err = alice.CreatePersonInvite(ctx, id, CreateInvite{Member: "Bob", ExpiresAt: timestamp(time.Now().Add(time.Hour))}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting person invite: %v", err)
+	}
+	// Only a misbehaving coordinator can serve conflicting labels; both are kept and flagged.
+	persons, err := alice.Persons(ctx, id)
+	if err != nil || len(persons) != 1 || persons[0].LabelConflict {
+		t.Fatalf("persons before conflict: %v %+v", err, persons)
+	}
+	n, root, err := alice.administeredNetwork(ctx, alice.db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := membership.SignPersonAdmission(root, n.ID, n.RootEpoch, membership.EncodeKey(second.PublicKey()), "bOb", timestamp(time.Now()))
+	proof := rawJSON(t, membership.PersonProof{Admission: &injected})
+	if _, err = alice.db.ExecContext(ctx, "INSERT INTO network_statements VALUES (?, ?, ?, ?)", id, kindPersonStatement, injected.PersonPublicKey, string(proof)); err != nil {
+		t.Fatal(err)
+	}
+	persons, err = alice.Persons(ctx, id)
+	if err != nil || len(persons) != 2 || !persons[0].LabelConflict || !persons[1].LabelConflict {
+		t.Fatalf("conflicting persons not both kept and flagged: %v %+v", err, persons)
+	}
+}
+
+func TestBindStoresBindingWithoutRelyingOnSync(t *testing.T) {
+	ctx := context.Background()
+	network := startCoordinator(t)
+	alice, bob := startPeerHost(t, "alice"), startPeerHost(t, "bob")
+	created, err := alice.CreateNetwork(ctx, CreateNetwork{Name: "team", Member: "alice", CoordinatorAddress: network.address, CoordinatorPublicKey: network.coord.Identity().PublicKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := created.ID
+	invite, err := alice.CreateInvite(ctx, id, CreateInvite{Member: "bob", ExpiresAt: timestamp(time.Now().Add(time.Hour))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = bob.JoinNetwork(ctx, JoinNetwork{Token: invite.Token}); err != nil {
+		t.Fatal(err)
+	}
+	pat := personKey(t)
+	patID := membership.PersonID(pat.PublicKey())
+	if _, err = alice.AdmitPerson(ctx, id, AdmitPerson{PersonPublicKey: membership.EncodeKey(pat.PublicKey()), Member: "pat"}); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, bob, id)
+	// The follow-up sync fails, as it can when the coordinator is briefly
+	// unreachable; the accepted binding is stored before Bind responds.
+	original := syncAfterBind
+	syncAfterBind = func(*Store, context.Context, string) (Network, error) {
+		return Network{}, errors.New("sync failed")
+	}
+	t.Cleanup(func() { syncAfterBind = original })
+	binding, err := membership.SignHostBinding(pat, id, bob.Identity().PublicKey, timestamp(time.Now()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = bob.Bind(ctx, id, BindHost{Binding: rawJSON(t, binding)}); err != nil {
+		t.Fatal(err)
+	}
+	if m := memberOf(t, bob, id, bob.Identity().ID); m.PersonID == nil || *m.PersonID != patID || m.PersonMember == nil || *m.PersonMember != "pat" {
+		t.Fatalf("binding not stored before responding: %+v", m)
+	}
+	persisted, err := loadStatements(ctx, bob.db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored int
+	if err = bob.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM network_statements WHERE network_id = ? AND kind = ?", id, kindBinding).Scan(&stored); err != nil || stored != 1 {
+		t.Fatalf("stored bindings: %d %v (persons %d)", stored, err, len(persisted.persons))
+	}
+	// A later successful sync records no second event.
+	syncAfterBind = original
+	mustSync(t, bob, id)
+	events, err := bob.Events(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := 0
+	for _, e := range events {
+		if e.Kind == "network.host_bound" && e.SubjectID == bob.Identity().ID {
+			bound++
+		}
+	}
+	if bound != 1 {
+		t.Fatalf("host_bound events: %d", bound)
+	}
+}

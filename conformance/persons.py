@@ -103,6 +103,21 @@ def ssh_sign(statement_lines, key, directory):
     return ''.join(line for line in armored.splitlines() if not line.startswith('-----'))
 
 
+def root_sign(host, network, lines, directory):
+    """Sign statement lines with the administrator's current root seed, via OpenSSL."""
+    with sqlite3.connect(host.state / 'host.db') as db:
+        seed = db.execute('SELECT root_seed FROM networks WHERE id = ?', (network,)).fetchone()[0]
+    key = Path(directory) / 'root-signing.der'
+    key.write_bytes(bytes.fromhex('302e020100300506032b657004220420') + bytes(seed))
+    key.chmod(0o600)
+    message = Path(directory) / 'root-message'
+    message.write_bytes('\n'.join(lines).encode())
+    signature = subprocess.run(['openssl', 'pkeyutl', '-sign', '-rawin', '-keyform', 'DER', '-inkey', str(key),
+                                '-in', str(message)], capture_output=True, check=True, timeout=10).stdout
+    key.unlink()
+    return base64.b64encode(signature).decode()
+
+
 def binding_lines(b, kind='bind'):
     at = b['bound_at'] if kind == 'bind' else b['unbound_at']
     return [f'capsule-host-{kind}-v1', b['network_id'], b['person_public_key'], b['host_public_key'], at]
@@ -156,6 +171,21 @@ def check(coord_binary, creator_binary, joiner_binary, label):
                            success=False)
             pat = alice.cli('network', 'admit', '--network', net, '--person', str(root / 'pat.pub'), '--member', 'pat')
             assert pat['person_id'] == person_id(pat_raw)
+            # Person labels are unique ignoring ASCII case: the administrator
+            # refuses locally, and the coordinator refuses an invite redeemed
+            # under a label taken after the invite was issued.
+            rhea_key, rhea_ssh, rhea_raw = ssh_key(root, 'rhea')
+            taken = alice.cli('network', 'admit', '--network', net, '--person', rhea_ssh, '--member', 'PAT',
+                              success=False)
+            assert 'conflict' in taken.lower() or 'taken' in taken, taken
+            assert 'conflict' in alice.cli('network', 'invite-person', '--network', net, '--member', 'Pat',
+                                           '--expires-at', timestamp(600), success=False).lower()
+            late_label = alice.cli('network', 'invite-person', '--network', net, '--member', 'Rhea',
+                                   '--expires-at', timestamp(600))
+            sam_key, sam_ssh, sam_raw = ssh_key(root, 'sam')
+            alice.cli('network', 'admit', '--network', net, '--person', sam_ssh, '--member', 'rhea')
+            assert bob.call('POST', '/v1/networks/redeem-person',
+                            {'token': late_label['token'], 'person_public_key': rhea_raw})[0] == 409
             quinn_key, quinn_ssh, quinn_raw = ssh_key(root, 'quinn')
             person_invite = alice.cli('network', 'invite-person', '--network', net, '--member', 'quinn',
                                       '--expires-at', timestamp(600))
@@ -181,7 +211,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             # A binding naming another host, from an unadmitted person, or a
             # second binding are refused.
             bob_binding = host_statements(bob, net, 'binding')
-            assert len(bob_binding) == 1
+            assert len(bob_binding) == 1, [(b.get('person_public_key'), b.get('host_public_key')) for b in bob_binding]
             assert carol.call('POST', f'/v1/networks/{net}/bindings', {'binding': bob_binding[0]})[0] == 400
             stranger_key, _, _ = ssh_key(root, 'stranger')
             denied = carol.cli('network', 'bind', '--network', net, '--person-key', str(stranger_key), success=False)
@@ -243,6 +273,9 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             readmit = alice.cli('network', 'admit', '--network', net, '--person', quinn_ssh, '--member', 'quinn',
                                 success=False)
             assert readmit
+            # Removing quinn frees the label for a different key.
+            new_quinn = alice.cli('network', 'admit', '--network', net, '--person', rhea_ssh, '--member', 'QUINN')
+            assert new_quinn['person_id'] == person_id(rhea_raw)
 
             # Rotation renews the admitted host and the remaining person.
             rotated = alice.cli('network', 'rotate-root', net)
@@ -252,8 +285,25 @@ def check(coord_binary, creator_binary, joiner_binary, label):
                 assert synced['root_epoch'] == 1 and synced['last_sync_error'] is None, synced
             entry = member(bob, net, c['id'])
             assert entry['admission']['epoch'] == 1, entry
-            assert {p['person_id'] for p in bob.cli('network', 'persons', net)} == {person_id(pat_raw)}
+            assert {p['person_id'] for p in bob.cli('network', 'persons', net)} == {
+                person_id(pat_raw), person_id(sam_raw), person_id(rhea_raw)}
             assert member(carol, net, b['id'])['person_id'] == person_id(pat_raw)
+            assert not any(p['label_conflict'] for p in bob.cli('network', 'persons', net))
+            # A misbehaving coordinator serves a second current person under a
+            # conflicting label: hosts keep both and flag them.
+            _, _, tia_raw = ssh_key(root, 'tia')
+            admission = {'network_id': net, 'epoch': 1, 'person_public_key': tia_raw, 'member': 'pAt',
+                         'admitted_at': timestamp(0)}
+            admission['signature'] = root_sign(alice, net, ['capsule-person-admit-v1', net, '1', tia_raw, 'pAt',
+                                                            admission['admitted_at']], root)
+            with coord_db(coord) as db:
+                db.execute('INSERT INTO statements (network_id, kind, subject, statement) VALUES (?, ?, ?, ?)',
+                           (net, 'person_admission', tia_raw, json.dumps({'admission': admission, 'membership': None})))
+            for host in (bob, carol):
+                host.cli('network', 'sync', net)
+                flagged = {p['person_id']: p['label_conflict'] for p in host.cli('network', 'persons', net)}
+                assert flagged[person_id(tia_raw)] and flagged[person_id(pat_raw)], (host.binary, flagged)
+                assert not flagged[person_id(sam_raw)], flagged
             kinds = [(e['kind'], e['subject_id']) for e in alice.cli('activity', '--limit', '1000')]
             for event in [('network.host_admitted', c['id']), ('network.person_admitted', person_id(pat_raw)),
                           ('network.host_bound', b['id']), ('network.host_unbound', c['id']),

@@ -247,6 +247,12 @@ The rules below apply at the network's current epoch *e* and current root, as de
   - a person membership whose invite is signed by the current root at epoch *e*, whose invite has not been revoked, and whose `joined_at` ≤ `invite_expires_at`.
 
   It must also have no valid person removal, under any root in the chain. Removal is sticky and permanent: the key can never be readmitted, and a new key is needed.
+- **Unique person labels.** Two person `member` labels conflict if they are equal after mapping ASCII `A`–`Z` to `a`–`z`; other characters compare exactly. A team may well have two people called Bob, and they must be admitted under different labels, such as `bob.smith` and `bob-platform`.
+  - The coordinator refuses a person admission, or a person invite redemption, with 409 if a current person (admitted and not removed) holds a conflicting label.
+  - An administrator host checks the same rule before signing a person admission or issuing a person invite.
+  - A removed person's label becomes available again.
+  - Labels are for people only. Nothing authorizes by label: identity is the person key, and signed statements name keys or person IDs.
+  - If a verified map nonetheless contains conflicting labels, which only a misbehaving coordinator can produce, hosts keep both persons and report `label_conflict: true` for each in `network persons`. They do not drop either.
 - **Bindings.** A host is bound to a person if four things hold:
   - both are currently valid;
   - a host binding exists that carries both a valid `SSHSIG` signature by that person and a valid `host_signature` by that host's key over the same statement;
@@ -299,10 +305,10 @@ Further rules:
 | `network invite-person --network ID --member LABEL --expires-at TIME` | `POST /v1/networks/{id}/person-invites` | Administrator only. Returns 201 with a token in the host-invite format, `capsule-person-invite-v1.` followed by unpadded base64url JSON with the host-invite fields plus `invite_epoch`. |
 | `network redeem-person --token TOKEN [--person-key PATH]` | `POST /v1/networks/redeem-person` with `{token, person_public_key}` | Run on any member host of that network. The CLI supplies the person's public key, and the daemon signs the membership with the invite seed and submits it. Returns 201 with `{person_id}`. |
 | `network join --descriptor DESCRIPTOR` | `POST /v1/networks/join` with `{descriptor}` | Joins with an administrator's admission of this host's key, otherwise as an invite join. Returns 403 if no admission for this host exists. |
-| `network bind --network ID [--person-key PATH]` | `POST /v1/networks/{id}/bindings` with `{binding}` | The CLI fetches this host's key from the daemon and signs the binding as the person. The daemon then adds its own `host_signature` and submits it as itself. A daemon refuses a binding of any key other than its own. Returns 201 with `{network_id, host_id, person_id}`. |
+| `network bind --network ID [--person-key PATH]` | `POST /v1/networks/{id}/bindings` with `{binding}` | The CLI fetches this host's key from the daemon and signs the binding as the person. The daemon then adds its own `host_signature` and submits it as itself. A daemon refuses a binding of any key other than its own. After the coordinator accepts, the daemon stores the binding and its `network.host_bound` event locally before responding, so success means this host has the binding, regardless of any later sync. Returns 201 with `{network_id, host_id, person_id}`. |
 | `network unbind --network ID --host HOST_ID [--person-key PATH]` | `POST /v1/networks/{id}/unbindings` with `{unbinding}` | Can be run on any member host, signed by the person. Persisted, enforced, and submitted until accepted, like a revocation. Returns 201. |
 | `network remove-person --network ID --person PERSON_ID` | `POST /v1/networks/{id}/person-removals` with `{person_id}` | Administrator only. Same rules as host revocation. Returns 201. |
-| `network persons ID` | `GET /v1/networks/{id}/persons` | Valid persons sorted by ID: `{person_id, public_key, member, hosts}`, where `hosts` lists their bound host IDs. |
+| `network persons ID` | `GET /v1/networks/{id}/persons` | Valid persons sorted by ID: `{person_id, public_key, member, hosts, label_conflict}`, where `hosts` lists their bound host IDs and `label_conflict` is normally false. |
 
 `network members` reports each host's `person_id` and `person_member`, or null. New activity kinds, recorded on every host when its verified map changes, except `network.host_admitted`, which only the administrator records:
 - `network.person_admitted` (subject: person ID);
@@ -378,7 +384,7 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 
 `conformance/persons.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing. It signs through a real `ssh-agent` and also through `--person-key` with a key file, and checks every person signature it produces with `ssh-keygen -Y verify`. It covers:
 
-- admitting persons by public key and by invite, including invite reuse and expiry;
+- admitting persons by public key and by invite, including invite reuse and expiry, and refusing a label that conflicts, ignoring ASCII case, with a current person's until that person is removed. A conflicting person injected into the coordinator database is kept, and both are reported with `label_conflict`;
 - admitting a host by public key and joining with the descriptor, and refusing a host without an admission;
 - binding with host consent, and refusing a binding submitted by another host or signed by an unadmitted person, as well as a second binding;
 - sticky unbinding and person removal that survive the coordinator dropping them, and host restart;

@@ -125,6 +125,15 @@ Layer 2 bounds disconnected operation: policy-derived access works without coord
 
 The most important row is the administrator: under this design, even a malicious administrator gains no access to members' agents. It could add a fake person to a group that owners already grant to, so groups trade convenience for that indirect power. Owners who want to avoid it grant to persons instead of groups.
 
+## Naming persons
+
+Settled on 2026-10-06, after noting that a team or organization can have several people called Bob:
+
+1. **Signed statements name persons by ID, never by label** (slices 2–3). Policies, grants, group memberships, and bindings reference `person_…` IDs or keys. The policy examples above that use `person:alice` stand for a resolved person ID.
+2. **Tooling resolves labels with care** (slices 2–3). A command that accepts a label resolves it to an ID, and fails with a list of candidates and their key fingerprints when it is ambiguous. Displays show the label with a short key fingerprint.
+3. **Labels are unique within a network** (slice 1). Conflicts ignore ASCII case, and a removed person's label is freed. This avoids honest confusion. It does not stop a malicious administrator from admitting a fake person first, which is why rule 1 matters.
+4. **Organization identity comes later.** Admissions may record a verified email from the organization's single sign-on alongside the label. That belongs with the dashboard and SSO work.
+
 ## Migration
 
 - **Networks without persons** keep working unchanged: host invites, host-scoped manual grants, and the root as the single administrator.

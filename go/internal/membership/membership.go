@@ -115,6 +115,28 @@ func ValidLabel(value string) bool {
 	return true
 }
 
+// LabelsConflict reports whether two person labels name the same person to a
+// reader: equal after mapping ASCII A–Z to a–z. Other bytes compare exactly, so
+// both implementations agree without Unicode case folding.
+func LabelsConflict(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if asciiLower(a[i]) != asciiLower(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiLower(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
 // ValidAddress accepts "" (not directly reachable) or a literal IP:PORT.
 func ValidAddress(value string) bool {
 	if value == "" {

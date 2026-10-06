@@ -224,6 +224,14 @@ pub struct PersonView {
     pub public_key: String,
     pub member: String,
     pub hosts: Vec<String>,
+    /// Set when another current person holds a conflicting label, which only a
+    /// misbehaving coordinator can produce; both persons stay valid.
+    pub label_conflict: bool,
+}
+/// Person labels conflict when equal after mapping ASCII A–Z to a–z; other
+/// bytes compare exactly, so Go and Rust agree without Unicode case folding.
+pub(crate) fn labels_conflict(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
 }
 #[derive(Debug, Serialize)]
 pub struct IssuedInvite {
@@ -1488,6 +1496,7 @@ impl Store {
         {
             return Err(Error::Forbidden);
         }
+        self.check_label_free(&connection, id, &r.member, Some(&key))?;
         let admission = PersonAdmission::sign(
             &root,
             &network.id,
@@ -1546,6 +1555,7 @@ impl Store {
         let tx = connection.transaction()?;
         let network = self.network_record(&tx, id)?;
         let root = self.current_root(&tx, id)?;
+        self.check_label_free(&tx, id, &r.member, None)?;
         let invite = random_seed()?;
         let token = PersonInviteToken::issue(
             &root,
@@ -1666,12 +1676,72 @@ impl Store {
         ))
     }
     /// Valid persons with the hosts bound to them.
+    /// Stores this host's accepted binding, its member's person, and
+    /// `network.host_bound`, each only if not already recorded, so a map that
+    /// later carries the same binding adds no second event.
+    pub(crate) fn record_own_binding(&self, id: &str, binding: &HostBinding) -> Result<(), Error> {
+        let own_key = self.identity().public_key;
+        if binding.host_public_key != own_key {
+            return Err(Error::Invalid("binding does not name this host".into()));
+        }
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        self.network_record(&tx, id)?;
+        if insert_statement(&tx, id, "binding", &own_key, binding)? {
+            let person_id = persons::person_id_of(&binding.person_public_key)?;
+            let person_member = self
+                .stored_persons(&tx, id)?
+                .into_iter()
+                .find(|p| p.person_public_key == binding.person_public_key)
+                .map(|p| p.member);
+            let own_id = self.identity().id;
+            let record: Option<String> = tx
+                .query_row(
+                    "SELECT record FROM network_members WHERE network_id = ?1 AND host_id = ?2",
+                    params![id, own_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(record) = record {
+                let mut member: Member = json(record)?;
+                member.person_id = Some(person_id);
+                member.person_member = person_member;
+                tx.execute(
+                    "UPDATE network_members SET record = ?1 WHERE network_id = ?2 AND host_id = ?3",
+                    params![serde_json::to_string(&member)?, id, own_id],
+                )?;
+            }
+            append_event(&tx, "network.host_bound", &own_id, &now())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Refuses a label that conflicts with a current person's (409). A removed
+    /// person no longer holds its label; re-admitting the same key is allowed.
+    fn check_label_free(
+        &self,
+        connection: &Connection,
+        id: &str,
+        label: &str,
+        key: Option<&str>,
+    ) -> Result<(), Error> {
+        let taken = self.stored_persons(connection, id)?.into_iter().any(|p| {
+            Some(p.person_public_key.as_str()) != key && labels_conflict(&p.member, label)
+        });
+        if taken {
+            return Err(Error::Conflict(format!(
+                "person label {label:?} is already used in this network"
+            )));
+        }
+        Ok(())
+    }
     pub fn persons(&self, id: &str) -> Result<Vec<PersonView>, Error> {
         let connection = self.connection()?;
         self.network_record(&connection, id)?;
         let members = self.stored_members(&connection, id)?;
-        Ok(self
-            .stored_persons(&connection, id)?
+        let stored = self.stored_persons(&connection, id)?;
+        let labels: Vec<String> = stored.iter().map(|p| p.member.clone()).collect();
+        Ok(stored
             .into_iter()
             .map(|p| {
                 let mut hosts: Vec<String> = members
@@ -1680,11 +1750,17 @@ impl Store {
                     .map(|m| m.host_id.clone())
                     .collect();
                 hosts.sort();
+                let label_conflict = labels
+                    .iter()
+                    .filter(|l| labels_conflict(l, &p.member))
+                    .count()
+                    > 1;
                 PersonView {
                     person_id: p.person_id,
                     public_key: p.person_public_key,
                     member: p.member,
                     hosts,
+                    label_conflict,
                 }
             })
             .collect())
@@ -2522,8 +2598,15 @@ pub async fn bind(store: Arc<Store>, id: String, request: Bind) -> Result<Bound,
         store.clone(),
         &network,
         "bindings",
-        json_value!({"binding": binding}),
+        json_value!({"binding": binding.clone()}),
     )
+    .await?;
+    // Accepted: record it now, so success means this host has the binding
+    // whatever a later sync brings. The map just applied may already hold it.
+    let lookup = network.id.clone();
+    blocking(store.clone(), move |s| {
+        s.record_own_binding(&lookup, &binding)
+    })
     .await?;
     Ok(Bound {
         network_id: network.id,
@@ -3103,6 +3186,76 @@ mod tests {
     }
 
     #[test]
+    fn an_accepted_binding_is_recorded_once_before_any_sync() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let r0 = random_seed().unwrap();
+        let id = membership::network_id(r0.verifying_key().as_bytes());
+        let network = Network {
+            id: id.clone(),
+            name: "team".into(),
+            root_public_key: key(&r0),
+            member: "bob".into(),
+            coordinator_address: "127.0.0.1:1".into(),
+            coordinator_public_key: key(&random_seed().unwrap()),
+            administrator: false,
+            last_sync_at: None,
+            last_sync_error: None,
+            root_epoch: 0,
+            current_root_public_key: String::new(),
+        };
+        let at = "2026-10-08T00:00:00Z";
+        let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
+        let pat = persons::PersonSigner::File(random_seed().unwrap());
+        let admission = PersonAdmission::sign(&r0, &id, 0, &pat.public_key_b64(), "pat", at);
+        // Joined, with the person admitted, but no binding in the map yet.
+        let mut map = wire(
+            &network,
+            vec![rooted_entry(&id, &r0, &me)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        map.persons = vec![person_entry(&admission)];
+        store.apply_map(network.clone(), map, true).unwrap();
+        let mut binding = HostBinding::sign(&pat, &id, &key(&me), at).unwrap();
+        binding.sign_host(&me).unwrap();
+        let bound_events = || {
+            store
+                .events(0, 1000)
+                .unwrap()
+                .into_iter()
+                .filter(|e| e.kind == "network.host_bound")
+                .count()
+        };
+        // Recorded on acceptance, before any later sync; repeating is a no-op.
+        store.record_own_binding(&id, &binding).unwrap();
+        store.record_own_binding(&id, &binding).unwrap();
+        assert_eq!(bound_events(), 1);
+        let own = store.identity().id;
+        let mine = store
+            .members(&id)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.host_id == own)
+            .unwrap();
+        assert_eq!(mine.person_id, Some(persons::person_id(&pat.public_key())));
+        assert_eq!(mine.person_member.as_deref(), Some("pat"));
+        // A later map carrying the same binding adds no second event.
+        let mut entry = rooted_entry(&id, &r0, &me);
+        entry["binding"] = serde_json::to_value(&binding).unwrap();
+        let mut map = wire(&network, vec![entry], vec![], vec![], vec![]);
+        map.persons = vec![person_entry(&admission)];
+        store.apply_map(network.clone(), map, false).unwrap();
+        assert_eq!(bound_events(), 1);
+        // Only this host's own binding can be recorded this way.
+        let other = random_seed().unwrap();
+        let mut theirs = HostBinding::sign(&pat, &id, &key(&other), at).unwrap();
+        theirs.sign_host(&other).unwrap();
+        assert!(store.record_own_binding(&id, &theirs).is_err());
+    }
+
+    #[test]
     fn persons_bind_hosts_and_removals_and_unbindings_are_sticky() {
         let temporary = tempfile::tempdir().unwrap();
         let store = Store::open(&temporary.path().join("host")).unwrap();
@@ -3345,6 +3498,107 @@ mod tests {
         store.apply_map(network.clone(), map, false).unwrap();
         assert!(known(&carol));
         assert_eq!(store.persons(&id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn person_labels_are_unique_ignoring_ascii_case() {
+        assert!(labels_conflict("bob", "BOB"));
+        assert!(labels_conflict("Bob.Smith", "bob.smith"));
+        assert!(!labels_conflict("bob", "bob2"));
+        // Only ASCII letters fold; other bytes compare exactly.
+        assert!(!labels_conflict("bób", "BÓB"));
+        assert!(labels_conflict("bób", "BóB"));
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let network = store
+            .create_network(CreateNetwork {
+                name: "team".into(),
+                member: "alice".into(),
+                coordinator_address: "127.0.0.1:1".into(),
+                coordinator_public_key: key(&random_seed().unwrap()),
+            })
+            .unwrap();
+        let id = network.id.clone();
+        let admit = |label: &str, signer: &persons::PersonSigner| {
+            store.sign_person_admission(
+                &id,
+                AdmitPerson {
+                    person_public_key: signer.public_key_b64(),
+                    member: label.into(),
+                },
+            )
+        };
+        let store_person = |admission: PersonAdmission| {
+            let key = admission.person_public_key.clone();
+            let proof = PersonProof {
+                admission: Some(admission),
+                membership: None,
+            };
+            store
+                .connection()
+                .unwrap()
+                .execute(
+                    "INSERT INTO network_statements VALUES (?1, 'person', ?2, ?3)",
+                    params![id, key, serde_json::to_string(&proof).unwrap()],
+                )
+                .unwrap();
+            key
+        };
+        let bob = persons::PersonSigner::File(random_seed().unwrap());
+        let other = persons::PersonSigner::File(random_seed().unwrap());
+        let bob_key = store_person(admit("bob", &bob).unwrap().1);
+        // A conflicting label is refused for admissions and person invites.
+        assert!(matches!(admit("BOB", &other), Err(Error::Conflict(_))));
+        let invite = |label: &str| {
+            store.issue_person_invite(
+                &id,
+                CreateInvite {
+                    member: label.into(),
+                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                },
+            )
+        };
+        assert!(matches!(invite("Bob"), Err(Error::Conflict(_))));
+        assert!(invite("bób").is_ok());
+        // Re-admitting the same key under its own label is not a conflict.
+        assert!(admit("bob", &bob).is_ok());
+        assert!(
+            store
+                .persons(&id)
+                .unwrap()
+                .iter()
+                .all(|p| !p.label_conflict)
+        );
+        // A conflicting person from a misbehaving coordinator is kept, and both
+        // are reported.
+        let other_admission = PersonAdmission::sign(
+            &store
+                .current_root(&store.connection().unwrap(), &id)
+                .unwrap(),
+            &id,
+            0,
+            &other.public_key_b64(),
+            "Bob",
+            &now(),
+        );
+        store_person(other_admission);
+        let listed = store.persons(&id).unwrap();
+        assert_eq!(listed.len(), 2);
+        assert!(listed.iter().all(|p| p.label_conflict));
+        // Removing a person frees its label.
+        let mut connection = store.connection().unwrap();
+        let tx = connection.transaction().unwrap();
+        store
+            .drop_person_locally(&tx, &id, &bob_key, &now())
+            .unwrap();
+        store
+            .drop_person_locally(&tx, &id, &other.public_key_b64(), &now())
+            .unwrap();
+        tx.commit().unwrap();
+        drop(connection);
+        let third = persons::PersonSigner::File(random_seed().unwrap());
+        assert!(admit("bob", &third).is_ok());
+        assert!(invite("BOB").is_ok());
     }
 
     #[test]
