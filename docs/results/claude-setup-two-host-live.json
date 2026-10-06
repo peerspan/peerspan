@@ -1,0 +1,204 @@
+{
+  "checked_at": "2026-10-06T19:45:55.130147+00:00",
+  "source_revision": "76a9bec7b4457d584ea04e052f605c6b9f2b4a07",
+  "consumer": "claude",
+  "control_transport": "mixed-local-and-ssh",
+  "worker_control_transports": {
+    "alice": "local-subprocess",
+    "bob": "ssh"
+  },
+  "distinct_machine_ids": true,
+  "hosts": [
+    {
+      "identity": {
+        "id": "host_477b7ed377966c6f4a3a7bdaa4c04bbffdc9b71a38790ac63871ae8cea2e486f",
+        "public_key": "hNh8Mk2Pw0+AkKXKUOArL2ii8df8ZpriZrK5IKdp9Ck=",
+        "created_at": "2026-10-06T19:43:56.384449679Z"
+      },
+      "agent": {
+        "capabilities": [],
+        "created_at": "2026-10-06T19:43:56.401634502Z",
+        "id": "agent_799ee7c5a5dd4e2744462cc3264040ff",
+        "name": "alice",
+        "owner": "alice"
+      },
+      "address": "192.0.2.20:40688",
+      "machine": {
+        "hostname": "cerebral-work-1",
+        "uid": 0,
+        "machine_id_hash": "c68f95a31bf2047f711a2803a548f711585dbfa9490786b2fd3744cbc03c89f0"
+      },
+      "host_binary": "/tmp/capsule-setup-assets-rspsvhw2/payload/bin/capsule-host-go",
+      "host_binary_sha256": "9e090b222ef8325f2d5d082948ef45b3bbf646d08a6d42a4595087ba2c1f366c",
+      "replacement_binary_sha256": "3c94ec99ea4c64077284035a8b31ede8ecabde7564035af617fd275172b44815"
+    },
+    {
+      "identity": {
+        "id": "host_02d5012f1c323cffc3d46e3443a11676dd2fc747020827e49a44bf8f79f48454",
+        "public_key": "aB6N32C7FrWWxa0YkHbuxJD2VUsui7M4V+gtD9VtIio=",
+        "created_at": "2026-10-06T19:43:57.87298377Z"
+      },
+      "agent": {
+        "capabilities": [],
+        "created_at": "2026-10-06T19:43:57.910380587Z",
+        "id": "agent_be9fe158a897931f25f4b78518aadf75",
+        "name": "bob",
+        "owner": "bob"
+      },
+      "address": "192.0.2.10:54695",
+      "machine": {
+        "hostname": "work-machine-1",
+        "uid": 0,
+        "machine_id_hash": "5ad2139fb33a01a81a6f54bb6a036ec7890a1f2044336f0e5969641266690022"
+      },
+      "host_binary": "/tmp/capsule-setup-host-DlM9WpPZ/payload/bin/capsule-host-rust",
+      "host_binary_sha256": "3c94ec99ea4c64077284035a8b31ede8ecabde7564035af617fd275172b44815",
+      "replacement_binary_sha256": "9e090b222ef8325f2d5d082948ef45b3bbf646d08a6d42a4595087ba2c1f366c"
+    }
+  ],
+  "sessions": [
+    {
+      "claude_version": "2.1.292 (Claude Code)",
+      "mcp_protocol": "2025-11-25",
+      "session_id": "session_a082749e09757704a2181aadc7a1892b",
+      "adapter_id": "adapter_5b229170eff18f9fefddd7ed54b3ca11",
+      "consumer_pid": 1441635,
+      "channel_sha256": "6b9674ac340a5f9641060ce5b199349bbe82e9a8f9e7adb2ffc834caac2e14a7"
+    },
+    {
+      "claude_version": "2.1.291 (Claude Code)",
+      "mcp_protocol": "2025-11-25",
+      "session_id": "session_34e9d2630734602b7877c73980400b86",
+      "adapter_id": "adapter_d7866647bde38eb89e1f59d489a56c55",
+      "consumer_pid": 782898,
+      "channel_sha256": "6b9674ac340a5f9641060ce5b199349bbe82e9a8f9e7adb2ffc834caac2e14a7"
+    }
+  ],
+  "network_id": "net_e288294dfdc4c692ba6d7061f7ed90c3a88e36dc5fd2bffec7db6965cedf20b5",
+  "grants": [
+    {
+      "action": "message.append",
+      "allow_disconnected": true,
+      "expires_at": "2026-10-06T20:03:58.923729Z",
+      "id": "grant_788424dc5c03c58349bcf847177c4e21",
+      "max_message_bytes": 65536,
+      "requester_host_id": "host_02d5012f1c323cffc3d46e3443a11676dd2fc747020827e49a44bf8f79f48454",
+      "revoked_at": null,
+      "target_agent_id": "agent_799ee7c5a5dd4e2744462cc3264040ff"
+    },
+    {
+      "action": "message.append",
+      "allow_disconnected": true,
+      "expires_at": "2026-10-06T20:03:59.444377Z",
+      "id": "grant_f2baf1c3fbe1498760a1fc6f0a59e8d2",
+      "max_message_bytes": 65536,
+      "requester_host_id": "host_477b7ed377966c6f4a3a7bdaa4c04bbffdc9b71a38790ac63871ae8cea2e486f",
+      "revoked_at": null,
+      "target_agent_id": "agent_be9fe158a897931f25f4b78518aadf75"
+    }
+  ],
+  "destination_max_messages": 4,
+  "manual_peer_pins": false,
+  "owner_cli_send_or_reply_fetch": false,
+  "agent_initiated_both_directions": true,
+  "model_observed_automatic_replies_both_directions": true,
+  "same_consumer_processes_after_restart": true,
+  "coordination_offline_exchanges": true,
+  "queued_request_blocked_after_grant_revocation": true,
+  "queued_revocation_explicit_caller_retries": 0,
+  "send_tool_calls": {
+    "alice": 3,
+    "bob": 2
+  },
+  "route_budget_remaining": {
+    "alice": 1,
+    "bob": 2
+  },
+  "send_status_tested": true,
+  "send_status_only": false,
+  "owner_cli_setup": true,
+  "owner_cli_launch": true,
+  "builtin_tools_enabled": false,
+  "permission_relay_enabled": false,
+  "exchanges": [
+    {
+      "phase": "alice-to-bob-connected",
+      "observed": true,
+      "restart": null,
+      "explicit_caller_retries": 0,
+      "send_status": [
+        {
+          "request_id": "request_aa3e3b0c654b76898c327ccb8385f45e",
+          "destination": "remote",
+          "state": "unknown",
+          "attempts": 1,
+          "next_attempt_at": "2026-10-06T19:44:19.765785055Z",
+          "error": "timeout: no recent network activity"
+        },
+        {
+          "request_id": "request_aa3e3b0c654b76898c327ccb8385f45e",
+          "destination": "remote",
+          "state": "accepted",
+          "attempts": 2,
+          "next_attempt_at": null,
+          "error": null
+        }
+      ],
+      "model_observed_send_status": true
+    },
+    {
+      "phase": "bob-to-alice-connected",
+      "observed": true,
+      "restart": null,
+      "explicit_caller_retries": 0,
+      "send_status": [
+        {
+          "request_id": "request_f10a95dda590b009125996f1d2a85f3e",
+          "destination": "remote",
+          "state": "unknown",
+          "attempts": 1,
+          "next_attempt_at": "2026-10-06T19:44:43.384857738Z",
+          "error": "peer handshake timed out"
+        },
+        {
+          "request_id": "request_f10a95dda590b009125996f1d2a85f3e",
+          "destination": "remote",
+          "state": "accepted",
+          "attempts": 2,
+          "next_attempt_at": null,
+          "error": null
+        }
+      ],
+      "model_observed_send_status": true
+    },
+    {
+      "phase": "alice-to-bob-offline-restart",
+      "observed": true,
+      "restart": {
+        "replacement_guard_status": 409,
+        "host_binary": "/tmp/capsule-setup-assets-rspsvhw2/payload/bin/capsule-host-rust"
+      },
+      "explicit_caller_retries": 0,
+      "send_status": [],
+      "model_observed_send_status": false
+    },
+    {
+      "phase": "bob-to-alice-offline-restart",
+      "observed": true,
+      "restart": {
+        "replacement_guard_status": 409,
+        "host_binary": "/tmp/capsule-setup-host-DlM9WpPZ/payload/bin/capsule-host-go"
+      },
+      "explicit_caller_retries": 0,
+      "send_status": [],
+      "model_observed_send_status": false
+    }
+  ],
+  "limitations": [
+    "Different machine IDs identify installations, not physical hardware or independently authenticated developer identities.",
+    "The receiver was paused before restart to make the pending exchange deterministic.",
+    "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment."
+  ],
+  "configured_source_revision": "754d9c85ee80a9e373a2c932cfe9ea3016eb948a",
+  "source_revision_note": "Corrected the stale configuration reference to the revision matching the deployed integration, rebuilt Go CLI, and live runner; binary hashes below identify the tested executables."
+}
