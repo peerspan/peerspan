@@ -343,7 +343,7 @@ impl PeerPath {
         let Some((endpoint, sent)) = self.pings.get(tx).copied() else {
             return false;
         };
-        if endpoint != normalize(from) {
+        if endpoint != normalize(from) || self.excluded.contains(&endpoint) {
             return false;
         }
         self.pings.remove(tx);
@@ -675,12 +675,15 @@ impl Discovery {
 
     async fn tick(&self) {
         let now = Instant::now();
-        // Load map candidates for peers about to start a discovery burst.
+        // Load exclusions before every burst, including bursts started by an
+        // incoming ping before this host has sent any traffic through a relay.
         let starting: Vec<[u8; HOST]> = match self.state.lock() {
             Ok(state) => state
                 .peers
                 .iter()
-                .filter(|(_, p)| wants_burst(p, now))
+                .filter(|(_, p)| {
+                    wants_burst(p, now) || p.burst_until.is_some_and(|until| now < until)
+                })
                 .map(|(h, _)| *h)
                 .collect(),
             Err(_) => return,
@@ -961,6 +964,89 @@ mod tests {
         path.candidates.clear();
         path.add_candidate(slow);
         assert!(path.candidates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unsolicited_pings_never_remap_a_configured_direct_address() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("host")).unwrap());
+        let peer = key(9);
+        let advertised: SocketAddr = "127.0.0.1:7401".parse().unwrap();
+        store
+            .add_peer(crate::peer_store::Peer {
+                id: key_id(peer.verifying_key().as_bytes()),
+                public_key: base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    peer.verifying_key().as_bytes(),
+                ),
+                address: advertised.to_string(),
+            })
+            .unwrap();
+        let socket = quinn::default_runtime()
+            .unwrap()
+            .wrap_udp_socket(std::net::UdpSocket::bind("127.0.0.1:0").unwrap())
+            .unwrap();
+        let discovery = Discovery::new(&store, socket, Relays::new());
+        let host = raw(&peer);
+        discovery.receive(
+            Source::Udp(advertised),
+            &signed(&peer, 1, now_ms(), Body::Ping),
+        );
+        // Incoming discovery starts a burst even without prior relay traffic.
+        discovery.tick().await;
+        {
+            let mut state = discovery.state.lock().unwrap();
+            let path = state.peers.get_mut(&host).unwrap();
+            assert!(path.candidates.is_empty());
+            assert!(path.pings.is_empty());
+            // A pong for a ping queued before the exclusion was loaded cannot
+            // turn the advertised address into a synthetic relay address.
+            path.pings.insert([7; TX], (advertised, Instant::now()));
+        }
+        discovery.receive(
+            Source::Udp(advertised),
+            &signed(
+                &peer,
+                2,
+                now_ms(),
+                Body::Pong {
+                    tx: [7; TX],
+                    observed: advertised,
+                },
+            ),
+        );
+        assert!(discovery.host_at(advertised).is_none());
+        assert_eq!(discovery.path(&host), PathState::None);
+
+        let candidate: SocketAddr = "127.0.0.1:7402".parse().unwrap();
+        discovery.receive(
+            Source::Udp(candidate),
+            &signed(&peer, 3, now_ms(), Body::Ping),
+        );
+        tokio::time::sleep(PING_EVERY).await;
+        discovery.tick().await;
+        let tx = {
+            let state = discovery.state.lock().unwrap();
+            *state.peers[&host]
+                .pings
+                .iter()
+                .find(|(_, (endpoint, _))| *endpoint == candidate)
+                .unwrap()
+                .0
+        };
+        discovery.receive(
+            Source::Udp(candidate),
+            &signed(
+                &peer,
+                4,
+                now_ms(),
+                Body::Pong {
+                    tx,
+                    observed: candidate,
+                },
+            ),
+        );
+        assert_eq!(discovery.host_at(candidate), Some(host));
     }
 
     #[tokio::test]

@@ -77,7 +77,7 @@ class ClaudeSession:
             "--tools",
             "",
             "--allowedTools",
-            "mcp__capsule__list_destinations,mcp__capsule__send,mcp__capsule__reply",
+            "mcp__capsule__list_destinations,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply",
             "--permission-mode",
             "dontAsk",
             "--disable-slash-commands",
@@ -163,11 +163,52 @@ class ClaudeSession:
                 if entry.get("type") == "assistant":
                     content = entry.get("message", {}).get("content", [])
                     if any(
-                        block.get("type") == "text" and block.get("text", "").strip() == marker
+                        block.get("type") == "text"
+                        and any(line.strip() == marker for line in block.get("text", "").splitlines())
                         for block in content
                     ):
                         return True
         return False
+
+    def tool_exchanges(self, name):
+        """Read tool calls/results only from this experiment's UUID transcript."""
+        self.running()
+        calls = {}
+        for path in (Path.home() / ".claude/projects").glob("*/" + self.sid + ".jsonl"):
+            for line in path.read_text().splitlines():
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                blocks = entry.get("message", {}).get("content", [])
+                if not isinstance(blocks, list):
+                    continue
+                for block in blocks:
+                    if (
+                        entry.get("type") == "assistant"
+                        and block.get("type") == "tool_use"
+                        and block.get("name") == name
+                    ):
+                        calls.setdefault(
+                            block["id"], {"input": block.get("input", {}), "result": None}
+                        )
+                    elif (
+                        block.get("type") == "tool_result"
+                        and block.get("tool_use_id") in calls
+                    ):
+                        content = block.get("content", [])
+                        texts = (
+                            [content] if isinstance(content, str) else [
+                                part.get("text", "") for part in content
+                                if part.get("type") == "text"
+                            ]
+                        )
+                        for text in texts:
+                            try:
+                                calls[block["tool_use_id"]]["result"] = json.loads(text)
+                            except json.JSONDecodeError:
+                                pass
+        return list(calls.values())
 
     def close(self):
         if self.process.poll() is None:

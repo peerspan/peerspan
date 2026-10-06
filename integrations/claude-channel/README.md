@@ -164,7 +164,15 @@ Then omit `--fixture` for the real Claude experiment:
 python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --output /tmp/capsule-cross-host-live.json
 ```
 
-The runner verifies signed enrollment without manual peer pins, independently scoped grants, sends and automatic replies in both directions, collaboration after coordination stops, original-session recovery and token rotation during pending exchanges, and revocation before queued delivery. It pauses only its own receiving consumer to make the pending and queued cases deterministic. Arrival checks correlate request IDs. If a send remains `unknown`, the caller explicitly retries through the MCP tool with the same ID and content, up to three times; the report records these recovery attempts. Invite and adapter secrets stay out of the report. Closing the workers stops their test processes and removes temporary state.
+The runner verifies signed enrollment without manual peer pins, independently scoped grants, sends and automatic replies in both directions, collaboration after coordination stops, original-session recovery and token rotation during pending exchanges, and revocation before queued delivery. It pauses only its own receiving consumer to make the pending and queued cases deterministic. Arrival checks correlate request IDs. An uncertain send must recover through the daemon's automatic retries; the runner makes no further send calls. Invite and adapter secrets stay out of the report. Closing the workers stops their test processes and removes temporary state.
+
+Add `--send-status` to stop each receiving daemon during the first two exchanges. The sending Claude session must call `send_status`, observe `unknown`, then observe `accepted` for the same request after the receiver returns, and receive its reply. The runner checks tool results and model text in its own session transcripts, with exactly one `send` call and one budget unit per message. `--send-status-only` runs just these two recovery exchanges:
+
+```sh
+python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --send-status-only --output /tmp/capsule-send-status-live.json
+```
+
+The [send-status live report](../../docs/results/send-status-two-host-live.json) records this focused test passing with Claude Code 2.1.291, Go→Rust and Rust→Go, on separate machines. This run does not test coordinator outage, originating-daemon replacement, token rotation, or queued revocation.
 
 The report distinguishes MCP observations from model-observed replies and records each host's identity, machine fingerprint, session, versions, and grants. `--local` validates the runner on one machine; `--allow-same-machine` permits an SSH smoke test on one installation. Both report the shared machine accurately and provide no evidence of separate physical hosts. Different machine IDs identify installations, not developer identity or physical hardware.
 

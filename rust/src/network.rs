@@ -653,6 +653,11 @@ impl Store {
             return Ok((Vec::new(), Vec::new()));
         }
         let connection = self.connection()?;
+        let manual: Option<String> = connection
+            .query_row("SELECT record FROM peers WHERE id = ?1", [host], |r| {
+                r.get(0)
+            })
+            .optional()?;
         let mut statement =
             connection.prepare("SELECT record FROM network_members WHERE host_id = ?1")?;
         let members = statement
@@ -661,6 +666,12 @@ impl Store {
             .collect::<Result<Vec<_>, _>>()?;
         let mut candidates = Vec::new();
         let mut advertised = Vec::new();
+        if let Some(record) = manual {
+            let peer: Peer = json(record)?;
+            if let Ok(addr) = peer.address.parse() {
+                advertised.push(crate::disco::normalize(addr));
+            }
+        }
         for m in members {
             if let Ok(addr) = m.address.parse() {
                 advertised.push(crate::disco::normalize(addr));

@@ -204,13 +204,14 @@ func (m *pathManager) sendCall(id relay.HostID) {
 	m.conn.writeRelay(id, m.encode(disco.Message{Type: disco.CallMeMaybe, Endpoints: own}))
 }
 
-// mapCandidates returns the candidates a peer published in any shared network.
-func (m *pathManager) mapCandidates(id relay.HostID) []netip.AddrPort {
+// mapCandidates excludes addresses that QUIC already dials directly.
+func (m *pathManager) mapCandidates(id relay.HostID) ([]netip.AddrPort, map[netip.AddrPort]bool) {
+	direct := map[netip.AddrPort]bool{}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	rows, err := m.store.db.QueryContext(ctx, "SELECT record FROM network_members WHERE host_id = ?", id.String())
 	if err != nil {
-		return nil
+		return nil, direct
 	}
 	defer rows.Close()
 	var endpoints []netip.AddrPort
@@ -219,13 +220,22 @@ func (m *pathManager) mapCandidates(id relay.HostID) []netip.AddrPort {
 		if err != nil {
 			continue
 		}
+		if e, err := netip.ParseAddrPort(member.Address); err == nil {
+			direct[normalize(e)] = true
+		}
 		for _, c := range member.Candidates {
 			if e, err := netip.ParseAddrPort(c); err == nil {
 				endpoints = append(endpoints, normalize(e))
 			}
 		}
 	}
-	return endpoints
+	filtered := endpoints[:0]
+	for _, e := range endpoints {
+		if !direct[e] {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered, direct
 }
 
 func (m *pathManager) tick() {
@@ -287,7 +297,7 @@ func (m *pathManager) tick() {
 	}
 	m.mu.Unlock()
 	for _, id := range starting {
-		candidates := m.mapCandidates(id)
+		candidates, _ := m.mapCandidates(id)
 		m.mu.Lock()
 		p := m.peer(id)
 		for _, c := range candidates {
@@ -342,6 +352,10 @@ func (m *pathManager) handleDisco(data []byte, route discoRoute) {
 	if err != nil || !msg.Verify(ed25519.PublicKey(key)) || !msg.Fresh(m.now()) {
 		return
 	}
+	_, direct := m.mapCandidates(sender)
+	if e, err := netip.ParseAddrPort(peer.Address); err == nil {
+		direct[normalize(e)] = true
+	}
 	var replay [44]byte
 	copy(replay[:32], msg.Sender[:])
 	copy(replay[32:], msg.TxID[:])
@@ -353,6 +367,16 @@ func (m *pathManager) handleDisco(data []byte, route discoRoute) {
 	}
 	m.seen[replay] = now
 	p := m.peer(sender)
+	// A direct address must keep its real QUIC address even when a peer sends
+	// discovery traffic from it. Clear any earlier discovery mapping too.
+	for e := range direct {
+		delete(p.candidates, e)
+		delete(p.valid, e)
+	}
+	if best := m.bestOf(p); best != p.best {
+		p.best = best
+		m.conn.setDirect(sender, best)
+	}
 	switch msg.Type {
 	case disco.Ping:
 		pong := m.encode(disco.Message{Type: disco.Pong, PongTxID: msg.TxID, Observed: route.udp})
@@ -361,6 +385,9 @@ func (m *pathManager) handleDisco(data []byte, route discoRoute) {
 			return
 		}
 		m.conn.writeUDP(pong, route.udp)
+		if direct[normalize(route.udp)] {
+			return
+		}
 		// The source becomes a candidate. Ping back at once and keep pinging
 		// for a round, so this side validates the endpoint too before the peer
 		// moves its QUIC traffic onto it. Only this host's own pong validates.
@@ -375,7 +402,7 @@ func (m *pathManager) handleDisco(data []byte, route discoRoute) {
 		}
 	case disco.Pong:
 		ping, ok := p.pings[msg.PongTxID]
-		if !ok || !route.udp.IsValid() {
+		if !ok || !route.udp.IsValid() || normalize(ping.endpoint) != normalize(route.udp) || direct[normalize(route.udp)] {
 			return // only this host's own ping, answered over UDP, validates
 		}
 		delete(p.pings, msg.PongTxID)
@@ -395,7 +422,7 @@ func (m *pathManager) handleDisco(data []byte, route discoRoute) {
 			return // call-me-maybe travels through the relay only
 		}
 		for _, e := range msg.Endpoints {
-			if e.Port() != 0 && e.Addr().IsValid() && !e.Addr().IsUnspecified() {
+			if e.Port() != 0 && e.Addr().IsValid() && !e.Addr().IsUnspecified() && !direct[normalize(e)] {
 				p.candidates[normalize(e)] = true
 			}
 		}

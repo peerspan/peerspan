@@ -116,6 +116,9 @@ class Experiment:
         self.expected = set()
         self.observed = set()
         self.network = self.grant = None
+        self.send_calls = 0
+        self.status_results = []
+        self.pending_marker = self.accepted_marker = None
 
     def initialize(self, settings, role, fixture):
         self.settings, self.role, self.fixture = settings, role, fixture
@@ -137,6 +140,8 @@ class Experiment:
             "address": self.host.address,
             "machine": machine_info(),
             "host_binary": self.host.binary,
+            "host_binary_sha256": hashlib.sha256(Path(self.host.binary).read_bytes()).hexdigest(),
+            "replacement_binary_sha256": hashlib.sha256(Path(settings.get("replacement_binary", self.host.binary)).read_bytes()).hexdigest(),
         }
 
     def create_network(self):
@@ -232,6 +237,7 @@ class Experiment:
             "session_id": self.session["id"],
             "adapter_id": self.secret["adapter"]["id"],
             "consumer_pid": self.consumer_pid,
+            "channel_sha256": hashlib.sha256(script.read_bytes()).hexdigest(),
         }
 
     def pause(self, paused):
@@ -244,13 +250,17 @@ class Experiment:
                 os.killpg(self.consumer_pid, sig)
             self.paused = paused
 
-    def begin(self, reply, observed):
+    def begin(self, reply, observed, track_status=False):
         content = f"Use the Capsule reply tool to respond with exactly {reply}."
         self.current_reply, self.current_observed = reply, observed
+        self.track_status = track_status
+        self.pending_marker = "PENDING_" + observed
+        self.accepted_marker = "ACCEPTED_" + observed
         self.outbound_before = len(
             sql(self.host, "SELECT request_id FROM adapter_outbound")
         )
         if self.fixture:
+            self.send_calls += 1
             result = self.consumer.call(
                 "tools/call",
                 {
@@ -270,9 +280,34 @@ class Experiment:
                 "This is a Capsule integration experiment. Use list_destinations, then send "
                 f"to destination remote this exact message: {json.dumps(content)} "
                 f"After its kind=reply event arrives, output exactly {observed}. "
-                "The send result alone is not the reply. Send only once. Keep responding to "
+                "The send result alone is not the reply. Send only once. "
+                + (
+                    "The receiver is temporarily offline. Once send returns unknown, call send_status "
+                    f"with that request_id. If send_status returns unknown, output exactly {self.pending_marker} "
+                    "and wait for the next instruction. Do not retry send. "
+                    if track_status else ""
+                )
+                + "Keep responding to "
                 "later authorized kind=message events using the Capsule reply tool, even "
                 "after this exchange finishes. Use only Capsule tools."
+            )
+
+    def check_send_status(self, request_id):
+        if self.fixture:
+            result = self.consumer.call(
+                "tools/call",
+                {"name": "send_status", "arguments": {"request_id": request_id}},
+            )
+            assert not result.get("isError"), "fixture send_status failed"
+            self.status_results.append(json.loads(result["content"][0]["text"]))
+        else:
+            self.consumer.prompt(
+                "The receiver is available again. Use send_status for your existing request_id "
+                f"{request_id}. If it is unknown, check send_status again; the daemon retries automatically. "
+                f"Once send_status returns accepted, output exactly {self.accepted_marker}. "
+                f"After the kind=reply event, output exactly {self.current_observed}. "
+                "Do not call send again. Keep responding to later kind=message events with reply. "
+                "Use only Capsule tools."
             )
 
     def pump_fixture(self):
@@ -295,54 +330,6 @@ class Experiment:
                 assert not result.get("isError"), "fixture reply failed"
             elif data["meta"]["kind"] == "reply":
                 self.observed.add(data["content"])
-
-    def retry(self):
-        current = self.snapshot()["current_request_id"]
-        assert current is not None
-        rows = sql(
-            self.host,
-            "SELECT m.record FROM outbound_messages m JOIN adapter_outbound a ON a.peer=m.peer AND a.request_id=m.request_id WHERE a.adapter_id=? AND a.request_id=?",
-            (self.secret["adapter"]["id"], current),
-        )
-        assert len(rows) == 1
-        outbound = json.loads(rows[0][0])
-        # The original attempt can finish between the controller's snapshot and
-        # this command. An accepted operation needs no further send.
-        if outbound["state"] != "unknown":
-            return False
-        arguments = {
-            "destination": "remote",
-            "request_id": current,
-            "content": outbound["request"]["content"],
-        }
-        if self.fixture:
-            result = self.consumer.call(
-                "tools/call", {"name": "send", "arguments": arguments}, seconds=20
-            )
-            assert not result.get("isError"), "fixture retry failed"
-        else:
-            self.consumer.prompt(
-                "Recover your existing uncertain Capsule send, using the send tool with exactly "
-                f"these arguments: {json.dumps(arguments)}. This retries the original operation; "
-                "do not generate a new request ID or change its destination or content. "
-                f"After its kind=reply event arrives, output exactly {self.current_observed}. "
-                "Keep responding to later authorized kind=message events through the reply tool. "
-                "Use only Capsule tools."
-            )
-            # Give the model and the adapter's bounded send time to complete
-            # before asking for another recovery attempt.
-            until = time.monotonic() + 20
-            while time.monotonic() < until:
-                rows = sql(
-                    self.host,
-                    "SELECT record FROM outbound_messages WHERE peer=? AND request_id=?",
-                    (self.peer["identity"]["id"], current),
-                )
-                if json.loads(rows[0][0])["state"] != "unknown":
-                    return True
-                self.consumer.running()
-                time.sleep(0.1)
-        return True
 
     def snapshot(self, pump=False):
         if pump:
@@ -379,6 +366,11 @@ class Experiment:
             }
             for item in messages
         ]
+        budget_remaining = sql(
+            self.host,
+            "SELECT json_extract(r.record, '$.max_messages') - COUNT(o.request_id) FROM adapter_routes r LEFT JOIN adapter_outbound o ON o.route_id=r.id WHERE r.adapter_id=? GROUP BY r.id",
+            (self.secret["adapter"]["id"],),
+        )
         current_requests = [
             item["request"]["request_id"]
             for item in messages
@@ -386,6 +378,17 @@ class Experiment:
             and self.current_reply in item["request"]["content"]
         ]
         assert len(current_requests) <= 1, "agent initiated duplicate requests"
+        if self.fixture:
+            status_results = self.status_results
+            send_calls = self.send_calls
+        else:
+            status_results = [
+                call["result"]
+                for call in self.consumer.tool_exchanges("mcp__capsule__send_status")
+                if isinstance(call["result"], dict)
+            ]
+            send_calls = len(self.consumer.tool_exchanges("mcp__capsule__send"))
+        current_status = [result for result in status_results if result.get("request_id") in current_requests]
         if observed:
             assert count == self.outbound_before + 1, "agent initiated duplicate sends"
             records = [
@@ -409,6 +412,11 @@ class Experiment:
             ),
             "outbound_count": count,
             "outbound": outbound,
+            "send_tool_calls": send_calls,
+            "route_budget_remaining": sum(row[0] for row in budget_remaining),
+            "send_status_results": current_status,
+            "model_observed_unknown_status": self.fixture or self.consumer.assistant_said(self.pending_marker),
+            "model_observed_accepted_status": self.fixture or self.consumer.assistant_said(self.accepted_marker),
             "blocked_deliveries": sum(
                 d["delivery"]["state"] == "blocked"
                 for d in self.host.cli("delivery", "list")
@@ -464,8 +472,12 @@ class Experiment:
             self.expected.add(args["reply"])
         elif operation == "begin":
             self.begin(**args)
-        elif operation == "retry":
-            return self.retry()
+        elif operation == "check_send_status":
+            return self.check_send_status(**args)
+        elif operation == "stop_peer_host":
+            self.host.stop(crash=True)
+        elif operation == "start_peer_host":
+            assert self.host.start() == self.identity
         elif operation == "pause":
             self.pause(**args)
         elif operation == "snapshot":
@@ -557,6 +569,7 @@ def worker():
 class WorkerConnection:
     def __init__(self, settings, args):
         self.local = args.local or settings.get("local", False)
+        self.fixture = args.fixture
         if self.local:
             command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
         else:
@@ -656,32 +669,34 @@ def wait_pair(alice, bob, predicate, seconds=90, pump=True):
 
 
 def wait_received(sender, receiver):
-    """Explicit caller recovery uses the original operation, never a new send."""
-    attempts = 0
-    until = time.monotonic() + 90
+    """Wait for daemon recovery without making another send call."""
+    until = time.monotonic() + 120
     while time.monotonic() < until:
         source = sender.call("snapshot", pump=False)
         target = receiver.call("snapshot", pump=False)
         request_id = source["current_request_id"]
         if request_id in target["received_request_ids"]:
-            return attempts
-        # New intents are persisted as unknown before their first network
-        # attempt finishes. A saved error identifies a completed failed attempt.
-        uncertain = any(
-            out["request_id"] == request_id
-            and out["state"] == "unknown"
-            and out["error"] is not None
-            for out in source["outbound"]
-        )
-        if uncertain:
-            assert (
-                attempts < 3
-            ), "original request remains uncertain after three caller retries"
-            attempts += int(sender.call("retry"))
-            time.sleep(1)
-        else:
-            time.sleep(0.2)
+            return 0
+        time.sleep(0.2)
     raise AssertionError("receiver did not persist the current request")
+
+
+def wait_status(sender, state, seconds=120):
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        snapshot = sender.call("snapshot", pump=False)
+        request_id = snapshot["current_request_id"]
+        if request_id and sender.fixture:
+            sender.call("check_send_status", request_id=request_id)
+            snapshot = sender.call("snapshot", pump=False)
+        results = [
+            result for result in snapshot["send_status_results"]
+            if result.get("state") == state
+        ]
+        if results and snapshot[f"model_observed_{state}_status"]:
+            return results[-1]
+        time.sleep(0.2)
+    raise AssertionError(f"send_status did not report {state}: " + json.dumps(snapshot["send_status_results"]))
 
 
 def check(args, settings):
@@ -743,14 +758,15 @@ def check(args, settings):
         )
 
         exchanges = []
-        for number, (sender, receiver, label, restart) in enumerate(
-            [
-                (alice, bob, "alice-to-bob-connected", False),
-                (bob, alice, "bob-to-alice-connected", False),
-                (alice, bob, "alice-to-bob-offline-restart", True),
-                (bob, alice, "bob-to-alice-offline-restart", True),
-            ]
-        ):
+        cases = [
+            (alice, bob, "alice-to-bob-connected", False),
+            (bob, alice, "bob-to-alice-connected", False),
+            (alice, bob, "alice-to-bob-offline-restart", True),
+            (bob, alice, "bob-to-alice-offline-restart", True),
+        ]
+        if args.send_status_only:
+            cases = cases[:2]
+        for number, (sender, receiver, label, restart) in enumerate(cases):
             if number == 2:
                 alice.call("stop_coordinator")
                 wait_pair(
@@ -766,9 +782,22 @@ def check(args, settings):
             receiver.call("expect", reply=reply)
             if restart:
                 receiver.call("pause", paused=True)
-            sender.call("begin", reply=reply, observed=observed)
+            track_status = args.send_status and number < 2
+            if track_status:
+                receiver.call("stop_peer_host")
+            sender.call("begin", reply=reply, observed=observed, track_status=track_status)
+            statuses = []
+            if track_status:
+                statuses.append(wait_status(sender, "unknown"))
+                receiver.call("start_peer_host")
             restarted = None
             retries = wait_received(sender, receiver)
+            if track_status:
+                sender.call("check_send_status", request_id=statuses[0]["request_id"])
+                statuses.append(wait_status(sender, "accepted"))
+                assert statuses[0]["request_id"] == statuses[1]["request_id"]
+                assert statuses[1]["attempts"] > statuses[0]["attempts"]
+                assert statuses[1]["next_attempt_at"] is None
             if restart:
                 restarted = sender.call("restart")
                 wait_pair(
@@ -786,28 +815,38 @@ def check(args, settings):
                     "observed": True,
                     "restart": restarted,
                     "explicit_caller_retries": retries,
+                    "send_status": statuses,
+                    "model_observed_send_status": track_status and not args.fixture,
                 }
             )
             print(f"Passed {label}.", flush=True)
 
-        # Queue one more request, withdraw its receiver-owned grant, then resume.
-        reply = f"REPLY_{nonce}_4"
-        bob.call("expect", reply=reply)
-        bob.call("pause", paused=True)
-        alice.call("begin", reply=reply, observed=f"OBSERVED_{nonce}_4")
-        revocation_retries = wait_received(alice, bob)
-        bob.call("revoke_grant")
-        bob.call("pause", paused=False)
-        wait_pair(
-            alice, bob, lambda a, b: not a["observed"] and b["blocked_deliveries"] == 1
-        )
+        revocation_retries = None
+        if not args.send_status_only:
+            # Queue one more request, withdraw its receiver-owned grant, then resume.
+            reply = f"REPLY_{nonce}_4"
+            bob.call("expect", reply=reply)
+            bob.call("pause", paused=True)
+            alice.call("begin", reply=reply, observed=f"OBSERVED_{nonce}_4")
+            revocation_retries = wait_received(alice, bob)
+            bob.call("revoke_grant")
+            bob.call("pause", paused=False)
+            wait_pair(
+                alice, bob, lambda a, b: not a["observed"] and b["blocked_deliveries"] == 1
+            )
         snapshots = [c.call("snapshot", pump=True) for c in connections]
-        assert [s["outbound_count"] for s in snapshots] == [3, 2]
+        expected = [1, 1] if args.send_status_only else [3, 2]
+        assert [s["outbound_count"] for s in snapshots] == expected
+        assert [s["send_tool_calls"] for s in snapshots] == expected, "a consumer retried send"
+        assert [s["route_budget_remaining"] for s in snapshots] == [
+            4 - count for count in expected
+        ], "recovery consumed extra route budget"
         for snapshot, session in zip(snapshots, sessions):
             assert snapshot["connection"]["adapter_id"] == session["adapter_id"]
             assert snapshot["connection"]["session_id"] == session["session_id"]
         return {
             "checked_at": datetime.now(timezone.utc).isoformat(),
+            "source_revision": settings.get("source_revision"),
             "consumer": "deterministic-mcp" if args.fixture else "claude",
             "control_transport": (
                 "local-subprocess"
@@ -833,17 +872,25 @@ def check(args, settings):
             "agent_initiated_both_directions": not args.fixture,
             "model_observed_automatic_replies_both_directions": not args.fixture,
             "same_consumer_processes_after_restart": True,
-            "coordination_offline_exchanges": True,
-            "queued_request_blocked_after_grant_revocation": True,
+            "coordination_offline_exchanges": not args.send_status_only,
+            "queued_request_blocked_after_grant_revocation": not args.send_status_only,
             "queued_revocation_explicit_caller_retries": revocation_retries,
+            "send_tool_calls": {role: s["send_tool_calls"] for role, s in zip(["alice", "bob"], snapshots)},
+            "route_budget_remaining": {role: s["route_budget_remaining"] for role, s in zip(["alice", "bob"], snapshots)},
+            "send_status_tested": args.send_status,
+            "send_status_only": args.send_status_only,
             "builtin_tools_enabled": False,
             "permission_relay_enabled": False,
             "exchanges": exchanges,
             "limitations": [
                 "Different machine IDs identify installations, not physical hardware or independently authenticated developer identities.",
-                "The receiver was paused before restart to make the pending exchange deterministic.",
+                "The receiving daemon was stopped until send_status reported unknown." if args.send_status_only else "The receiver was paused before restart to make the pending exchange deterministic.",
                 "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment.",
             ]
+            + (
+                ["Coordinator outage, originating-daemon replacement, token rotation, and queued revocation were not exercised in this focused run."]
+                if args.send_status_only else []
+            )
             + (
                 ["Deterministic MCP consumers ran; no model execution was tested."]
                 if args.fixture
@@ -868,6 +915,14 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--ssh-config", type=Path)
     parser.add_argument(
+        "--send-status", action="store_true",
+        help="Stop each receiver until send_status reports unknown, then check automatic acceptance",
+    )
+    parser.add_argument(
+        "--send-status-only", action="store_true",
+        help="Run only the two send_status recovery exchanges",
+    )
+    parser.add_argument(
         "--fixture",
         action="store_true",
         help="Use deterministic MCP consumers; no model calls",
@@ -883,6 +938,7 @@ def main():
         help="Permit SSH worker validation on one installation",
     )
     args = parser.parse_args()
+    args.send_status = args.send_status or args.send_status_only
     if args.worker:
         worker()
         return

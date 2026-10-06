@@ -36,6 +36,8 @@ The [two-host fixture report](results/cross-host-runner-two-host-fixture.json) e
 
 The [two-host live report](results/cross-host-runner-two-host-live.json) records Claude Code 2.1.291 on both machines, negotiating MCP 2025-11-25. Both agents initiated messages and observed automatic replies, including exchanges after coordination stopped and each originating daemon restarted under the other implementation. The original processes and sessions survived token rotation; revocation blocked queued delivery. This closes the separate-host messaging experiment. Independently authenticated developer identities, tasks, full conversations, and remote tools remain outside its scope.
 
+The [send-status live report](results/send-status-two-host-live.json) tests automatic outbound recovery at revision `787e119` on those two machines. Each Claude Code 2.1.291 session called `send_status` and observed `unknown`→`accepted` for its original request after the receiving daemon returned, then observed the reply. Both Go→Rust and Rust→Go used one `send` call and one route budget unit. This focused run kept coordination online and did not repeat the pending-origin restart, token-rotation, or queued-revocation cases.
+
 ## Acceptance experiment checklist
 
 1. Record the Claude Code version, MCP protocol revision, authentication mode, and whether channels are enabled. Use an isolated test workspace and an explicitly opted-in adapter.

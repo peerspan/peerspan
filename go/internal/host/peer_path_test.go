@@ -199,6 +199,43 @@ func TestPathDiscoveryChecks(t *testing.T) {
 	}
 }
 
+func TestDiscoveryDoesNotRemapConfiguredDirectAddress(t *testing.T) {
+	alice := startRelayHost(t, "alice", "0.0.0.0:0", "")
+	bob := startRelayHost(t, "bob", "0.0.0.0:0", "")
+	endpoint := netip.MustParseAddrPort("192.0.2.7:7401")
+	if _, err := alice.AddPeer(context.Background(), Peer{ID: bob.Identity().ID, PublicKey: bob.Identity().PublicKey, Address: endpoint.String()}); err != nil {
+		t.Fatal(err)
+	}
+	pm, packets := alice.peer.paths, alice.peer.packets
+	pm.close()
+	id := hostIDOf(t, bob)
+	pm.handleDisco(discoFrom(id, bob.privateKey, disco.Message{Type: disco.Ping}), discoRoute{udp: endpoint})
+	pm.mu.Lock()
+	p := pm.peer(id)
+	candidates, pings := len(p.candidates), len(p.pings)
+	// Simulate a ping queued before the owner configured the direct address.
+	tx := disco.TxID{9}
+	p.pings[tx] = pendingPing{endpoint: endpoint, sent: time.Now()}
+	pm.mu.Unlock()
+	if candidates != 0 || pings != 0 {
+		t.Fatalf("advertised source was pinged back: candidates=%d pings=%d", candidates, pings)
+	}
+	pm.handleDisco(discoFrom(id, bob.privateKey, disco.Message{Type: disco.Pong, PongTxID: tx}), discoRoute{udp: endpoint})
+	packets.mu.Lock()
+	_, remapped := packets.owners[endpoint]
+	packets.mu.Unlock()
+	if remapped {
+		t.Fatal("a configured direct address was remapped to a synthetic relay address")
+	}
+	candidate := netip.MustParseAddrPort("192.0.2.8:7401")
+	pm.handleDisco(discoFrom(id, bob.privateKey, disco.Message{Type: disco.CallMeMaybe, Endpoints: []netip.AddrPort{endpoint, candidate}}), discoRoute{client: &relayClient{out: make(chan []byte, 1)}, peer: id})
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if p.candidates[endpoint] || !p.candidates[candidate] {
+		t.Fatalf("candidate filtering: %v", p.candidates)
+	}
+}
+
 // Two relay-only hosts on loopback find a direct path from their reflexive
 // candidates, and keep exchanging messages after the coordinator stops.
 func TestDirectPathReplacesRelay(t *testing.T) {
