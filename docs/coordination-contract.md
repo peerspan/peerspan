@@ -317,6 +317,30 @@ Further rules:
 - `network.host_bound` (subject: host ID);
 - `network.host_unbound` (subject: host ID).
 
+### One-command flows
+
+Agreed on 2026-10-07, to keep administration simple for launch. The commands above remain for unusual setups, but the default flows hide the person layer. Every flow still produces exactly the statements specified above. Nothing new is trusted, and the daemon never sees a person key.
+
+**Person key discovery.** `network create` and `network join` look for a person key unless given `--no-person`. They use `--person-key PATH` if given; otherwise, the only `ssh-ed25519` identity in `ssh-agent`. If there is no agent, or no such key, or several, the person part is skipped and the reason is reported. That is never an error.
+
+**Member invite (default).** `network invite --network ID --member LABEL --expires-at TIME` now issues a member invite. `--host-only` issues the previous host-only invite. A member invite is `capsule-member-invite-v1.` followed by unpadded base64url of strict JSON: the host invite token's fields plus `invite_epoch` and `person_invite_signature`. One invite key is signed twice by the current root: as a host invite (`invite_signature`) and as a person invite with the same member label and expiry (`person_invite_signature`, over the person invite statement at `invite_epoch`). The host part and the person part are each single-use under the existing rules. The person part can also be redeemed later with `network redeem-person --token`, until the invite expires.
+
+**`network join --token TOKEN [--person-key PATH] [--no-person]`** accepts host-only and member tokens. `network join --descriptor` follows the same steps, without an admission.
+
+1. If a person key was found, the CLI asks the daemon for this host's key (`GET /v1/host`). It then signs a host binding for the token's network as the person, and sends `{token, person_public_key, binding}` (or the descriptor) to `POST /v1/networks/join`.
+2. The daemon joins the host exactly as before. A failure here fails the command, and nothing else happens.
+3. If a person key was supplied, the daemon continues with the person part:
+   - If that person is already admitted in the network, it skips admission.
+   - Otherwise, for a member token, it signs the person membership with the invite seed and submits it.
+   - It then adds its host signature to the binding, submits it, and stores it as for `network bind`.
+4. The response is the network record plus `person`: `{person_id, admitted, bound, skipped, next}`. `skipped` is null or a human-readable reason, and `next` is null or the exact follow-up command. A failure in the person part, such as a taken label, no admission, or the coordinator refusing, does not undo the host join, and the command still succeeds.
+
+**`network create ... [--person-key PATH] [--no-person]`.** If a person key was found, then after registering the network, the creator's daemon signs a person admission for the creator's key with the new root, under the creator's `--member` label. It also binds this host using the binding the CLI signed. The response gains `person` with the same shape. If registration has not succeeded yet, for example because the coordinator is unreachable, the person part is skipped and `next` names the commands to finish it.
+
+**Further machines.** For a person's second host, the administrator issues a member or host-only invite, or admits the host by public key. The person runs `network join`. That person is already admitted, so the join binds the new host to them, with no admission step.
+
+Activity events are those of the individual operations.
+
 ## Relay
 
 Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
@@ -392,6 +416,16 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 - `network members` and `network persons` reporting persons and bound hosts.
 
 Each language reproduces the test vectors, including the `SSHSIG` blobs.
+
+`conformance/persons.py` also covers the one-command flows in every pairing:
+
+- `network create` with an agent admits and binds the creator;
+- a member invite joined with an agent yields host, person, and binding in one command;
+- a second machine joined with a new invite binds to the existing person;
+- the person part is skipped, with a reason and a `next` command, when there is no agent, when there are several keys, or under `--no-person`, and the host still joins;
+- the person part of the same token is then redeemable with `network redeem-person`;
+- a taken label is skipped without undoing the host join;
+- `--host-only` invites behave as before.
 
 `conformance/revocation.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing:
 
