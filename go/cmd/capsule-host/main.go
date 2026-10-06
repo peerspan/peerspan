@@ -139,6 +139,8 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 				}
 			}
 			fmt.Fprintf(errOut, "peer listener %s (advertised %q)\n", peerListener.Addr(), *advertise)
+			// A listening host stays reachable through its networks' relays.
+			go store.RunRelays(daemonCtx)
 		}
 		if err = store.ConfigureCoordination(*advertise, time.Duration(*interval)*time.Second); err != nil {
 			return err

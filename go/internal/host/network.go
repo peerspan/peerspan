@@ -477,18 +477,19 @@ func (s *Store) verifyMap(n Network, m membership.Map) ([]NetworkMember, error) 
 	return members, nil
 }
 
-// callCoordinator posts to the pinned coordinator and decodes its map.
-func (s *Store) callCoordinator(ctx context.Context, n Network, path string, body any) (membership.Map, error) {
-	var m membership.Map
+// coordinatorTLS proves this host's key and pins the network's coordinator,
+// offering one application protocol: the coordination API or the relay.
+func (s *Store) coordinatorTLS(n Network, alpn string) (*tls.Config, error) {
 	pinned, err := membership.DecodeKey(n.CoordinatorPublicKey)
 	if err != nil {
-		return m, err
+		return nil, err
 	}
 	cert, err := s.peerCertificate()
 	if err != nil {
-		return m, err
+		return nil, err
 	}
 	config := tlsid.Config()
+	config.NextProtos = []string{alpn}
 	config.Certificates = []tls.Certificate{cert}
 	// The coordinator is authenticated by its pinned key, not a CA or DNS name.
 	config.InsecureSkipVerify = true
@@ -501,6 +502,16 @@ func (s *Store) callCoordinator(ctx context.Context, n Network, path string, bod
 			return errors.New("coordinator identity pin mismatch")
 		}
 		return nil
+	}
+	return config, nil
+}
+
+// callCoordinator posts to the pinned coordinator and decodes its map.
+func (s *Store) callCoordinator(ctx context.Context, n Network, path string, body any) (membership.Map, error) {
+	var m membership.Map
+	config, err := s.coordinatorTLS(n, "http/1.1")
+	if err != nil {
+		return m, err
 	}
 	transport := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true, TLSHandshakeTimeout: 5 * time.Second, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
 	defer transport.CloseIdleConnections()

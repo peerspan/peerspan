@@ -123,7 +123,7 @@ Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord`
 
 ### Connection
 
-A host connects over TCP to the coordinator address and completes TLS 1.3 with its host certificate as the client certificate, pinning the coordinator key as for the coordination API. It offers ALPN `capsule-relay/1`; the coordination API negotiates `http/1.1`, and the coordinator dispatches on the negotiated protocol. The caller's host ID is derived from its client key. A caller that is not a member of any network on this coordinator is refused: the connection closes after the handshake, before any frame is processed. One relay connection per host is current. A new connection from the same host replaces the older one, which the coordinator closes.
+A host connects over TCP to the coordinator address and completes TLS 1.3 with its host certificate as the client certificate, pinning the coordinator key as for the coordination API. It offers ALPN `capsule-relay/1`; the coordination API negotiates `http/1.1`, and the coordinator dispatches on the negotiated protocol. The caller's host ID is derived from its client key. The coordinator allows 10 seconds for the TLS handshake before routing the connection by ALPN. A caller that is not a member of any network on this coordinator is refused: the connection closes after the handshake, before any frame is processed. One relay connection per host is current. A new connection from the same host replaces the older one, which the coordinator closes.
 
 ### Frames
 
@@ -136,7 +136,7 @@ After the handshake, both directions carry frames: one type byte, a 2-byte big-e
 | `0x03` unreachable | relay → host | destination host ID | The destination has no current relay connection, or the two hosts share no network. Sent at most once per second per destination. |
 | `0x04` ping | either | empty | Keepalive; ignored on receipt. |
 
-A datagram is 1 to 1,500 bytes. An unknown frame type, an oversized or truncated frame, or a frame of a type invalid for its direction closes the connection. Hosts send a ping after 15 seconds without sending any frame. The coordinator closes a relay connection after 45 seconds without receiving one.
+A datagram is 1 to 1,500 bytes; a host drops a larger outgoing datagram locally instead of sending it. A send frame addressed to the sender itself is treated as unreachable. An unknown frame type, an oversized or truncated frame, or a frame of a type invalid for its direction closes the connection. Hosts send a ping after 15 seconds without sending any frame. The coordinator closes a relay connection after 45 seconds without receiving one.
 
 ### Forwarding and limits
 
@@ -146,11 +146,13 @@ The coordinator forwards a send frame only if both the source and the destinatio
 
 - A host that runs with `--peer-listen` and is a member of at least one network keeps one relay connection to each of its networks' coordinators. It reconnects with backoff from 1 to 30 seconds. Through these connections it accepts inbound peer QUIC connections, the same way as on its UDP socket.
 - A host without `--peer-listen` never accepts inbound peer connections. It may open a relay connection on demand to dial out, and receives only datagrams for the connections it initiated.
-- Each relay connection carries packets for the host's single peer QUIC endpoint. Relayed peers appear to that endpoint as synthetic addresses, one per peer host ID, that are never sent on the real UDP socket. The peer protocol is unchanged: every peer TLS check and per-request authentication applies to relayed connections.
+- Each relay connection carries packets for the host's single peer QUIC endpoint. Relayed peers appear to that endpoint as synthetic addresses, one per peer host ID, that are never sent on the real UDP socket. The synthetic scheme is internal to each implementation; for example, Rust uses IPv4 addresses in the reserved 240.0.0.0/4 block, because `quinn` rejects IPv6 destinations on an IPv4 socket.
+- A host closes its relay connection to a coordinator that no longer serves any of its networks. An on-demand relay connection closes after 60 seconds with no relayed peer connection using it, and reopens on the next demand. The peer protocol is unchanged: every peer TLS check and per-request authentication applies to relayed connections.
 - **Path choice:**
-  - For a manual peer or a member with a nonempty address, the dialer first tries the direct UDP address with a 2-second handshake bound.
+  - For a manual peer or a member with a nonempty address, the dialer first tries the direct UDP address. The handshake bound is 2 seconds when a relay fallback exists, and the usual 5 seconds when it doesn't.
   - It falls back to the relay of a coordinator for a network both hosts belong to, choosing the lowest network ID, after a failed direct attempt or immediately for a member with an empty address.
   - A peer that shares no network has no relay path.
+  - The 8-second request bound covers the whole request: the direct attempt, waiting up to 2 seconds for an on-demand relay connection, and the relayed handshake. A host may fail a pending relayed dial early when it receives `unreachable` for that destination.
   - A relayed connection stays on the relay until it closes. Moving it to a direct path is milestone 4.
 - **Return path:** a relayed connection's packets return through the relay connection on which that peer's datagrams arrived.
 

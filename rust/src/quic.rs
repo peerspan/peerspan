@@ -2,8 +2,11 @@
 //! connections; each bidirectional stream carries exactly one HTTP/1.1
 //! request and response. The owner-local router is never served here.
 use crate::{
+    api::blocking,
+    membership,
     peer::{certificate_key, client_config, peer_router, server_config},
     peer_store::{Peer, key_id, peer_key},
+    relay::{Combined, Coordinator, Relays, raw_host},
     store::Store,
 };
 use hyper_util::{rt::TokioIo, service::TowerToHyperService};
@@ -31,10 +34,18 @@ const MAX_BODY: usize = 1 << 20;
 const MAX_HEADERS: usize = 64 * 1024;
 const SERVER_NAME: &str = "capsule-peer";
 const CID_LENGTH: usize = 4;
+/// A direct attempt is bounded so a relay fallback still fits the request bound.
+const DIRECT_HANDSHAKE: Duration = Duration::from_secs(2);
+const RELAY_READY: Duration = Duration::from_secs(2);
+const RELAY_REFRESH: Duration = Duration::from_secs(5);
+/// Connection setup (direct attempt, relay readiness, and handshake) fits in
+/// the 8-second request bound.
+const REQUEST_BOUND: Duration = Duration::from_secs(8);
 
 /// The daemon's single peer endpoint and its reusable outbound connections.
 pub struct Transport {
     endpoint: Endpoint,
+    relays: Arc<Relays>,
     cache: Mutex<HashMap<String, Cached>>,
 }
 struct Cached {
@@ -63,9 +74,10 @@ pub fn listen(store: &Arc<Store>, address: SocketAddr) -> anyhow::Result<SocketA
     let crypto = QuicServerConfig::try_from(server_config(store.clone())?)?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(transport_config());
-    let endpoint = endpoint(store, Some(config), address)?;
+    let relays = Relays::new();
+    let endpoint = endpoint(store, Some(config), address, relays.clone())?;
     let bound = endpoint.local_addr()?;
-    install(store, endpoint)?;
+    install(store, endpoint, relays)?;
     Ok(bound)
 }
 /// The stateless reset key is derived from the host key exactly as the Go
@@ -76,6 +88,7 @@ fn endpoint(
     store: &Arc<Store>,
     server: Option<quinn::ServerConfig>,
     address: SocketAddr,
+    relays: Arc<Relays>,
 ) -> anyhow::Result<Endpoint> {
     let reset = reset_key(&store.signing_key.to_bytes());
     let mut config = quinn::EndpointConfig::new(Arc::new(ring::hmac::Key::new(
@@ -87,11 +100,12 @@ fn endpoint(
     config.cid_generator(|| Box::new(ShortConnectionIds));
     let runtime =
         quinn::default_runtime().ok_or_else(|| anyhow::anyhow!("no async runtime for QUIC"))?;
-    Ok(Endpoint::new(
-        config,
-        server,
-        std::net::UdpSocket::bind(address)?,
-        runtime,
+    // One socket for both paths: real UDP, plus synthetic addresses that the
+    // combined socket carries over relay connections.
+    let inner = runtime.wrap_udp_socket(std::net::UdpSocket::bind(address)?)?;
+    let socket = Arc::new(Combined { inner, relays });
+    Ok(Endpoint::new_with_abstract_socket(
+        config, server, socket, runtime,
     )?)
 }
 /// HMAC-SHA256(host key seed, "capsule-peer stateless reset").
@@ -116,15 +130,21 @@ impl quinn::ConnectionIdGenerator for ShortConnectionIds {
         None
     }
 }
-fn install(store: &Arc<Store>, endpoint: Endpoint) -> anyhow::Result<Arc<Transport>> {
+fn install(
+    store: &Arc<Store>,
+    endpoint: Endpoint,
+    relays: Arc<Relays>,
+) -> anyhow::Result<Arc<Transport>> {
     let transport = Arc::new(Transport {
         endpoint,
+        relays,
         cache: Mutex::new(HashMap::new()),
     });
     *store
         .peer_transport
         .lock()
         .map_err(|_| anyhow::anyhow!("peer transport lock poisoned"))? = Some(transport.clone());
+    sweep_relays(&transport);
     Ok(transport)
 }
 fn transport(store: &Arc<Store>) -> anyhow::Result<Arc<Transport>> {
@@ -135,37 +155,130 @@ fn transport(store: &Arc<Store>) -> anyhow::Result<Arc<Transport>> {
     if let Some(transport) = current.as_ref() {
         return Ok(transport.clone());
     }
+    // A client-only endpoint has no server configuration, so it never accepts
+    // inbound connections, direct or relayed.
+    let relays = Relays::new();
     let transport = Arc::new(Transport {
-        endpoint: endpoint(store, None, SocketAddr::from(([0, 0, 0, 0], 0)))?,
+        endpoint: endpoint(
+            store,
+            None,
+            SocketAddr::from(([0, 0, 0, 0], 0)),
+            relays.clone(),
+        )?,
+        relays,
         cache: Mutex::new(HashMap::new()),
     });
     *current = Some(transport.clone());
+    sweep_relays(&transport);
     Ok(transport)
+}
+/// Closes on-demand relay connections that no live relayed connection uses.
+/// The task ends with its transport.
+fn sweep_relays(transport: &Arc<Transport>) {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let weak = Arc::downgrade(transport);
+    runtime.spawn(async move {
+        loop {
+            tokio::time::sleep(RELAY_REFRESH).await;
+            let Some(transport) = weak.upgrade() else {
+                return;
+            };
+            transport
+                .relays
+                .sweep(&transport.relays_in_use(), std::time::Instant::now());
+        }
+    });
 }
 
 impl Transport {
-    fn cached(&self, id: &str, key: &[u8], address: SocketAddr) -> Option<Connection> {
+    /// Relays that live cached relayed connections route through.
+    fn relays_in_use(&self) -> Vec<Coordinator> {
+        let Ok(cache) = self.cache.lock() else {
+            return Vec::new();
+        };
+        cache
+            .values()
+            .filter(|entry| entry.connection.close_reason().is_none())
+            .filter_map(|entry| self.relays.host_of(entry.address))
+            .filter_map(|host| self.relays.route_of(&host))
+            .collect()
+    }
+    /// A live cached connection to this peer and key on any of its current
+    /// paths. A changed key or address never reuses the old connection.
+    fn cached(&self, id: &str, key: &[u8], paths: &[SocketAddr]) -> Option<Connection> {
         let cache = self.cache.lock().ok()?;
         let entry = cache.get(id)?;
-        (entry.key == key && entry.address == address && entry.connection.close_reason().is_none())
-            .then(|| entry.connection.clone())
+        (entry.key == key
+            && paths.contains(&entry.address)
+            && entry.connection.close_reason().is_none())
+        .then(|| entry.connection.clone())
     }
+    /// Uses a cached connection, or dials the direct address (bounded by
+    /// `DIRECT_HANDSHAKE` when a relay can take over) and then the relay.
+    /// Every step is trimmed to what remains before `deadline`.
     async fn connection(
         &self,
         store: &Arc<Store>,
         peer: &Peer,
-        key: Vec<u8>,
-        address: SocketAddr,
+        key: &[u8],
+        paths: &Paths,
+        deadline: tokio::time::Instant,
     ) -> anyhow::Result<Connection> {
-        if let Some(connection) = self.cached(&peer.id, &key, address) {
+        if let Some(connection) = self.cached(&peer.id, key, &paths.all()) {
             return Ok(connection);
         }
+        let remaining = |bound: Duration| {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            (!left.is_zero())
+                .then(|| bound.min(left))
+                .ok_or_else(|| anyhow::anyhow!("peer request bound exhausted"))
+        };
+        let mut failure = None;
+        if let Some(direct) = paths.direct {
+            let bound = if paths.relay.is_some() {
+                DIRECT_HANDSHAKE
+            } else {
+                HANDSHAKE
+            };
+            match self.dial(store, peer, key, direct, remaining(bound)?).await {
+                Ok(connection) => return Ok(connection),
+                Err(error) => failure = Some(error),
+            }
+        }
+        if let Some((coordinator, synthetic)) = &paths.relay {
+            self.relays.ensure(store, coordinator, false);
+            if let Some(host) = raw_host(&peer.id) {
+                self.relays.route(&host, coordinator);
+            }
+            if !self
+                .relays
+                .connected(coordinator, remaining(RELAY_READY)?)
+                .await
+            {
+                anyhow::bail!("relay {} is not connected", coordinator.address);
+            }
+            return self
+                .dial(store, peer, key, *synthetic, remaining(HANDSHAKE)?)
+                .await;
+        }
+        Err(failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address")))
+    }
+    async fn dial(
+        &self,
+        store: &Arc<Store>,
+        peer: &Peer,
+        key: &[u8],
+        address: SocketAddr,
+        bound: Duration,
+    ) -> anyhow::Result<Connection> {
         let mut config = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(
             client_config(store.clone(), peer)?,
         )?));
         config.transport_config(transport_config());
         let connecting = self.endpoint.connect_with(config, address, SERVER_NAME)?;
-        let connection = tokio::time::timeout(HANDSHAKE, connecting)
+        let connection = tokio::time::timeout(bound, connecting)
             .await
             .map_err(|_| anyhow::anyhow!("peer handshake timed out"))??;
         if negotiated(&connection).as_deref() != Some(ALPN) {
@@ -176,7 +289,7 @@ impl Transport {
             cache.insert(
                 peer.id.clone(),
                 Cached {
-                    key,
+                    key: key.to_vec(),
                     address,
                     connection: connection.clone(),
                 },
@@ -212,14 +325,12 @@ pub(crate) async fn request(
     body: &[u8],
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
-    if peer.address.is_empty() {
-        anyhow::bail!("peer has no dial address");
-    }
-    let address: SocketAddr = peer.address.parse()?;
     let transport = transport(&store)?;
-    let reused = transport.cached(&peer.id, &key, address).is_some();
+    let paths = paths(&store, &transport, peer).await?;
+    let deadline = tokio::time::Instant::now() + REQUEST_BOUND;
+    let reused = transport.cached(&peer.id, &key, &paths.all()).is_some();
     let connection = transport
-        .connection(&store, peer, key.clone(), address)
+        .connection(&store, peer, &key, &paths, deadline)
         .await?;
     match exchange(&connection, method, path, body).await {
         Ok(response) => Ok(response),
@@ -232,13 +343,76 @@ pub(crate) async fn request(
             if !reused || failure.responded {
                 return Err(failure.error);
             }
-            let connection = transport.connection(&store, peer, key, address).await?;
+            let connection = transport
+                .connection(&store, peer, &key, &paths, deadline)
+                .await?;
             let retried = exchange(&connection, method, path, body).await;
             if retried.is_err() {
                 transport.evict(&peer.id, &connection);
             }
             retried.map_err(|f| f.error)
         }
+    }
+}
+/// Where a peer can be reached: its direct UDP address, and the relay of the
+/// lowest-ID network both hosts belong to with the peer's synthetic address.
+struct Paths {
+    direct: Option<SocketAddr>,
+    relay: Option<(Coordinator, SocketAddr)>,
+}
+impl Paths {
+    fn all(&self) -> Vec<SocketAddr> {
+        self.direct
+            .into_iter()
+            .chain(self.relay.as_ref().map(|(_, a)| *a))
+            .collect()
+    }
+}
+async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow::Result<Paths> {
+    let direct = if peer.address.is_empty() {
+        None
+    } else {
+        Some(peer.address.parse()?)
+    };
+    let id = peer.id.clone();
+    let coordinator = blocking(store.clone(), move |s| s.relay_coordinator(&id))
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let relay = match (coordinator, raw_host(&peer.id)) {
+        (Some((address, key)), Some(host)) => {
+            let key = membership::canonical(&key, 32).map_err(|e| anyhow::anyhow!("{e}"))?;
+            transport
+                .relays
+                .address_for(&host)
+                .map(|synthetic| (Coordinator { address, key }, SocketAddr::V4(synthetic)))
+        }
+        _ => None,
+    };
+    if direct.is_none() && relay.is_none() {
+        anyhow::bail!("peer has no dial address or shared relay");
+    }
+    Ok(Paths { direct, relay })
+}
+/// Keeps a relay connection to every coordinator of this host's networks, so
+/// relayed peers can reach this listening host, and closes those to
+/// coordinators that no longer serve any of them.
+async fn keep_relays(store: Arc<Store>, transport: Arc<Transport>) {
+    loop {
+        // A failed lookup leaves the current relay connections in place.
+        if let Ok(coordinators) = blocking(store.clone(), |s| s.coordinators()).await {
+            let current: Vec<Coordinator> = coordinators
+                .into_iter()
+                .filter_map(|(address, key)| {
+                    let key = membership::canonical(&key, 32).ok()?;
+                    Some(Coordinator { address, key })
+                })
+                .collect();
+            for coordinator in &current {
+                transport.relays.ensure(&store, coordinator, true);
+            }
+            transport.relays.retain(&current);
+        }
+        tokio::time::sleep(RELAY_REFRESH).await;
     }
 }
 struct Failure {
@@ -357,6 +531,13 @@ fn dechunk(mut data: &[u8]) -> anyhow::Result<Vec<u8>> {
     }
 }
 
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// One QUIC bidirectional stream as a byte stream for hyper.
 struct Stream {
     send: quinn::SendStream,
@@ -391,6 +572,8 @@ impl tokio::io::AsyncWrite for Stream {
 /// drain remain unknown to their senders.
 pub async fn serve(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
     let transport = transport(&store)?;
+    let relays = tokio::spawn(keep_relays(store.clone(), transport.clone()));
+    let _relays = AbortOnDrop(relays);
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -524,7 +707,7 @@ mod tests {
             .cached(
                 &target.id,
                 &peer_key(&target).unwrap(),
-                address.parse().unwrap(),
+                &[address.parse().unwrap()],
             )
             .unwrap();
         let (status, body) = request(
@@ -542,7 +725,7 @@ mod tests {
             .cached(
                 &target.id,
                 &peer_key(&target).unwrap(),
-                address.parse().unwrap(),
+                &[address.parse().unwrap()],
             )
             .unwrap();
         assert_eq!(first.stable_id(), second.stable_id());
@@ -627,6 +810,300 @@ mod tests {
                     .map_or(true, |r| r.is_err())
             );
         }
+    }
+
+    /// A minimal relay with the contract's framing, standing in for the Go
+    /// coordinator: it forwards send frames between connected hosts.
+    async fn fake_relay(coordinator: &Host, hosts: &[&Host]) -> String {
+        use crate::relay::{Frame, decode, encode};
+        use sha2::Digest;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for host in hosts {
+            coordinator
+                .store
+                .add_peer(as_peer(host, "127.0.0.1:9"))
+                .unwrap();
+        }
+        let mut config = server_config(coordinator.store.clone()).unwrap();
+        config.alpn_protocols = vec![crate::relay::ALPN.to_vec()];
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        type Writers = Arc<Mutex<HashMap<[u8; 32], tokio::sync::mpsc::Sender<Vec<u8>>>>>;
+        let writers: Writers = Arc::new(Mutex::new(HashMap::new()));
+        tokio::spawn(async move {
+            loop {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let (acceptor, writers) = (acceptor.clone(), writers.clone());
+                tokio::spawn(async move {
+                    let Ok(tls) = acceptor.accept(tcp).await else {
+                        return;
+                    };
+                    let key = certificate_key(
+                        &tls.get_ref().1.peer_certificates().unwrap()[0],
+                        UnixTime::now(),
+                    )
+                    .unwrap();
+                    let source: [u8; 32] = sha2::Sha256::digest(&key).into();
+                    let (mut reader, mut writer) = tokio::io::split(tls);
+                    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1024);
+                    writers.lock().unwrap().insert(source, tx);
+                    tokio::spawn(async move {
+                        while let Some(frame) = rx.recv().await {
+                            if writer.write_all(&frame).await.is_err() {
+                                break;
+                            }
+                        }
+                    });
+                    let mut buffer = Vec::new();
+                    let mut chunk = [0u8; 16 * 1024];
+                    loop {
+                        while let Ok(Some((frame, used))) = decode(&buffer) {
+                            buffer.drain(..used);
+                            if let Frame::Send { host, datagram } = frame {
+                                let target = writers.lock().unwrap().get(&host).cloned();
+                                if let Some(target) = target {
+                                    let _ = target
+                                        .send(encode(&Frame::Receive {
+                                            host: source,
+                                            datagram,
+                                        }))
+                                        .await;
+                                }
+                            }
+                        }
+                        match reader.read(&mut chunk).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                });
+            }
+        });
+        address
+    }
+    /// Records that `host` shares a network served by `coordinator` with `other`.
+    fn share_network(host: &Host, other: &Host, coordinator: &Host, address: &str) {
+        let network = serde_json::json!({
+            "id": "net_test", "name": "test", "root_public_key": "", "member": "test",
+            "coordinator_address": address,
+            "coordinator_public_key": coordinator.store.identity().public_key,
+            "administrator": false, "last_sync_at": null, "last_sync_error": null,
+        });
+        let connection = host.store.connection().unwrap();
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO networks VALUES ('net_test', ?1, NULL)",
+                [network.to_string()],
+            )
+            .unwrap();
+        // A relay-only member: no direct address. The membership is not
+        // verified here; only the record's shape matters to these tests.
+        let identity = other.store.identity();
+        let member = serde_json::json!({
+            "host_id": identity.id, "public_key": identity.public_key, "member": "test",
+            "address": "", "updated_at": "2026-10-06T00:00:00Z",
+            "membership": {
+                "network_id": "net_test", "member": "test", "invite_public_key": "",
+                "invite_expires_at": "", "invite_signature": "", "host_public_key": "",
+                "joined_at": "", "host_signature": "",
+            },
+        });
+        connection
+            .execute(
+                "INSERT INTO network_members VALUES ('net_test', ?1, ?2)",
+                [identity.id, member.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn relayed_requests_and_path_choice() {
+        let (sender, receiver, coordinator) = (host(), host(), host());
+        let late = host();
+        let relay = fake_relay(&coordinator, &[&sender, &receiver, &late]).await;
+        for (a, b) in [
+            (&sender, &receiver),
+            (&receiver, &sender),
+            (&late, &receiver),
+            (&receiver, &late),
+        ] {
+            share_network(a, b, &coordinator, &relay);
+        }
+        let direct = listening(&receiver).await;
+        for host in [&sender, &late] {
+            receiver
+                .store
+                .add_peer(as_peer(host, "127.0.0.1:9"))
+                .unwrap();
+        }
+        let id = receiver.store.identity().id;
+        let synthetic = SocketAddr::V4(crate::relay::synthetic(&raw_host(&id).unwrap()));
+
+        // A member with no direct address is reached through the relay.
+        let relayed = as_peer(&receiver, "");
+        let (status, _) = request(sender.store.clone(), &relayed, "GET", &receipt_path(), b"")
+            .await
+            .unwrap();
+        assert_eq!(status, 404);
+        let key = peer_key(&relayed).unwrap();
+        let sender_transport = transport(&sender.store).unwrap();
+        assert!(sender_transport.cached(&id, &key, &[synthetic]).is_some());
+
+        // A dead direct address falls back to the relay after the bounded attempt.
+        let dead = as_peer(&receiver, "127.0.0.1:9");
+        let started = std::time::Instant::now();
+        let (status, _) = request(late.store.clone(), &dead, "GET", &receipt_path(), b"")
+            .await
+            .unwrap();
+        assert_eq!(status, 404);
+        assert!(started.elapsed() >= DIRECT_HANDSHAKE);
+        let late_transport = transport(&late.store).unwrap();
+        assert!(late_transport.cached(&id, &key, &[synthetic]).is_some());
+
+        // A working direct address is preferred over the relay.
+        let reachable = as_peer(&receiver, &direct);
+        late_transport.cache.lock().unwrap().clear();
+        let (status, _) = request(late.store.clone(), &reachable, "GET", &receipt_path(), b"")
+            .await
+            .unwrap();
+        assert_eq!(status, 404);
+        assert!(
+            late_transport
+                .cached(&id, &key, &[direct.parse().unwrap()])
+                .is_some()
+        );
+
+        // A host without a peer listener accepts nothing through the relay, even
+        // with its relay connection open from its own outbound request.
+        late.store
+            .add_peer(as_peer(&receiver, "127.0.0.1:9"))
+            .unwrap();
+        let client_only = as_peer(&late, "");
+        assert!(
+            request(
+                receiver.store.clone(),
+                &client_only,
+                "GET",
+                &receipt_path(),
+                b""
+            )
+            .await
+            .is_err()
+        );
+
+        // A host that shares no network has no relay path.
+        let stranger = host();
+        let error = request(
+            stranger.store.clone(),
+            &relayed,
+            "GET",
+            &receipt_path(),
+            b"",
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("no dial address"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn relay_setup_fits_the_request_bound() {
+        // The relay is up but the receiver never registered with it, so the
+        // relayed handshake can only end at the trimmed budget.
+        let (sender, receiver, coordinator) = (host(), host(), host());
+        let relay = fake_relay(&coordinator, &[&sender, &receiver]).await;
+        share_network(&sender, &receiver, &coordinator, &relay);
+        let transport = transport(&sender.store).unwrap();
+        let peer = as_peer(&receiver, "127.0.0.1:9");
+        let paths = paths(&sender.store, &transport, &peer).await.unwrap();
+        let key = peer_key(&peer).unwrap();
+        let budget = DIRECT_HANDSHAKE + Duration::from_secs(1);
+        let started = tokio::time::Instant::now();
+        let failed = transport
+            .connection(&sender.store, &peer, &key, &paths, started + budget)
+            .await;
+        assert!(failed.is_err());
+        let elapsed = started.elapsed();
+        assert!(elapsed >= DIRECT_HANDSHAKE, "{elapsed:?}");
+        assert!(elapsed < budget + Duration::from_millis(500), "{elapsed:?}");
+        // With nothing left, no attempt is made at all.
+        let spent = transport
+            .connection(
+                &sender.store,
+                &peer,
+                &key,
+                &paths,
+                tokio::time::Instant::now(),
+            )
+            .await
+            .unwrap_err();
+        assert!(spent.to_string().contains("bound exhausted"), "{spent}");
+    }
+
+    #[tokio::test]
+    async fn listening_hosts_close_relays_for_departed_networks() {
+        let (receiver, other, coordinator) = (host(), host(), host());
+        let relay = fake_relay(&coordinator, &[&receiver]).await;
+        share_network(&receiver, &other, &coordinator, &relay);
+        listening(&receiver).await;
+        let transport = transport(&receiver.store).unwrap();
+        let served = crate::relay::Coordinator {
+            address: relay.clone(),
+            key: peer_key(&as_peer(&coordinator, "")).unwrap(),
+        };
+        let deadline = tokio::time::Instant::now() + RELAY_REFRESH * 2;
+        while !transport.relays.has_client(&served) {
+            assert!(tokio::time::Instant::now() < deadline, "relay never opened");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(transport.relays.connected(&served, RELAY_READY).await);
+        // Leaving the network closes the relay on the next refresh.
+        {
+            let connection = receiver.store.connection().unwrap();
+            connection
+                .execute("DELETE FROM network_members", [])
+                .unwrap();
+            connection.execute("DELETE FROM networks", []).unwrap();
+        }
+        let deadline = tokio::time::Instant::now() + RELAY_REFRESH * 2;
+        while transport.relays.has_client(&served) {
+            assert!(tokio::time::Instant::now() < deadline, "relay never closed");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_only_reply_lookup_uses_the_relay() {
+        // The owner `message reply` and the automatic reply workers resolve a
+        // relay-only member (empty address) and must still reach it.
+        let (sender, receiver, coordinator) = (host(), host(), host());
+        let relay = fake_relay(&coordinator, &[&sender, &receiver]).await;
+        share_network(&sender, &receiver, &coordinator, &relay);
+        share_network(&receiver, &sender, &coordinator, &relay);
+        listening(&receiver).await;
+        receiver
+            .store
+            .add_peer(as_peer(&sender, "127.0.0.1:9"))
+            .unwrap();
+        let peer = receiver.store.identity().id;
+        assert_eq!(sender.store.dial_target(&peer).unwrap().address, "");
+        let out = sender
+            .store
+            .prepare_outbound(crate::peer_store::SendMessage {
+                peer_host_id: peer.clone(),
+                request_id: String::new(),
+                grant_id: format!("grant_{}", "1".repeat(32)),
+                target_agent_id: format!("agent_{}", "2".repeat(32)),
+                deadline: crate::store::rfc3339(chrono::Utc::now() + chrono::Duration::minutes(5)),
+                content: "hello".into(),
+            })
+            .unwrap();
+        let status =
+            crate::adapter::fetch_reply_status(sender.store.clone(), peer, out.request.request_id)
+                .await
+                .unwrap();
+        // The receiver answered over the relay: no reply yet.
+        assert_eq!(status.state, "pending", "{:?}", status.error);
     }
 
     #[test]

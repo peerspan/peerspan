@@ -306,6 +306,38 @@ impl Store {
             address: m.address,
         })
     }
+    /// The relay for `host`: the coordinator of the lowest-ID network that both
+    /// this host and `host` belong to, or none if they share no network.
+    pub(crate) fn relay_coordinator(&self, host: &str) -> Result<Option<(String, String)>, Error> {
+        if host == self.identity().id {
+            return Ok(None);
+        }
+        let record: Option<String> = self
+            .connection()?
+            .query_row(
+                "SELECT n.record FROM networks n JOIN network_members m ON m.network_id = n.id WHERE m.host_id = ?1 ORDER BY n.id LIMIT 1",
+                [host],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(record) = record else {
+            return Ok(None);
+        };
+        let value: Value = serde_json::from_str(&record).map_err(|e| Error::Internal(e.into()))?;
+        let field = |name: &str| value[name].as_str().map(str::to_owned);
+        Ok(field("coordinator_address").zip(field("coordinator_public_key")))
+    }
+    /// Every coordinator of a network this host belongs to.
+    pub(crate) fn coordinators(&self) -> Result<Vec<(String, String)>, Error> {
+        let mut all: Vec<_> = self
+            .networks()?
+            .into_iter()
+            .map(|n| (n.coordinator_address, n.coordinator_public_key))
+            .collect();
+        all.sort();
+        all.dedup();
+        Ok(all)
+    }
     fn refresh_member_pins(&self, connection: &Connection) -> Result<(), Error> {
         let pins = load_member_pins(connection, &self.identity().id).map_err(Error::Internal)?;
         *self

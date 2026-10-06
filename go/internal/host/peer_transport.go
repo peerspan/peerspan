@@ -119,11 +119,6 @@ func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly b
 	if err != nil {
 		return out, err
 	}
-	if peer.Address == "" {
-		message := "peer has no reachable address"
-		out.State, out.Error = "unknown", &message
-		return s.FinishOutbound(ctx, out)
-	}
 	method, path := http.MethodPost, "/peer/v1/messages"
 	var body []byte
 	if receiptOnly {

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/Cerebral-Systems/capsule/go/internal/relay"
 	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
 	"golang.org/x/sys/unix"
 	_ "modernc.org/sqlite"
@@ -65,6 +66,7 @@ type Server struct {
 	key       ed25519.PrivateKey
 	identity  Identity
 	Now       func() time.Time
+	relay     *relayServer
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -162,6 +164,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 		return nil, err
 	}
 	s := &Server{Now: time.Now}
+	s.relay = newRelayServer(s)
 	defer func() {
 		if err != nil {
 			_ = s.Close()
@@ -236,6 +239,10 @@ func ReadIdentity(ctx context.Context, dir string) (Identity, error) {
 		return Identity{}, err
 	}
 	defer db.Close()
+	// The running service may hold a write lock briefly; wait instead of failing.
+	if _, err = db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		return Identity{}, err
+	}
 	key, err := readKey(ctx, db)
 	if err != nil {
 		return Identity{}, err
@@ -262,6 +269,8 @@ func (s *Server) Close() error {
 func (s *Server) TLSConfig() (*tls.Config, error) {
 	config := tlsid.Config()
 	config.ClientAuth = tls.RequireAnyClientCert
+	// The relay shares this listener and is selected by ALPN.
+	config.NextProtos = []string{"http/1.1", relay.ALPN}
 	cache := &tlsid.Cache{Key: s.key, Name: s.identity.ID}
 	if _, err := cache.Get(); err != nil {
 		return nil, err
@@ -286,11 +295,33 @@ func (s *Server) Listen(address string) (net.Listener, error) {
 	return tls.NewListener(listener, config), nil
 }
 
-// Serve runs the coordination API until ctx is cancelled.
+// Serve runs the coordination API and the relay until ctx is cancelled. Each
+// connection completes its TLS handshake first, then relay connections leave
+// for the relay and the rest go to http.Server, whose request timeouts must
+// not apply to long-lived relay connections.
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	httpConns := newConnListener(listener.Addr())
+	serveCtx, cancelServe := context.WithCancel(ctx)
+	defer cancelServe()
+	defer s.relay.closeAll()
+	go func() {
+		for {
+			c, err := listener.Accept()
+			if err != nil {
+				// On cancellation, Shutdown closes httpConns itself.
+				if serveCtx.Err() == nil {
+					httpConns.Close()
+				}
+				return
+			}
+			go s.dispatch(serveCtx, c, httpConns)
+		}
+	}()
+	stopAccept := context.AfterFunc(serveCtx, func() { _ = listener.Close() })
+	defer stopAccept()
 	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
+	go func() { done <- server.Serve(httpConns) }()
 	select {
 	case err := <-done:
 		if errors.Is(err, http.ErrServerClosed) {

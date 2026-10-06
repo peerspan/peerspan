@@ -141,12 +141,8 @@ func (s *Store) FetchReply(ctx context.Context, peerID, id string) (ReplyStatus,
 	if err != nil {
 		return ReplyStatus{}, err
 	}
+	// A peer without a direct address may still be reachable through a relay.
 	status := ReplyStatus{State: "unknown"}
-	if peer.Address == "" {
-		message := "peer reply could not be confirmed"
-		status.Error = &message
-		return status, nil
-	}
 	code, data, err := s.peerRequest(ctx, peer, http.MethodGet, "/peer/v1/replies/"+id, nil)
 	if err == nil {
 		if code == 404 {

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Cerebral-Systems/capsule/go/internal/relay"
 	"github.com/quic-go/quic-go"
 )
 
@@ -42,11 +43,13 @@ func PeerQUICConfig(server bool) *quic.Config {
 	return &quic.Config{HandshakeIdleTimeout: peerHandshakeTimeout, MaxIdleTimeout: peerIdleTimeout, MaxIncomingStreams: streams, MaxIncomingUniStreams: -1}
 }
 
-// peerTransport owns the daemon's single UDP socket and its cached outbound
-// connections, keyed by peer host ID.
+// peerTransport owns the daemon's single UDP socket, its relay connections,
+// and its cached outbound connections, keyed by peer host ID.
 type peerTransport struct {
 	mu        sync.Mutex
 	transport *quic.Transport
+	packets   *packetConn
+	relays    map[string]*relayClient
 	conns     map[string]cachedPeerConn
 	timeout   time.Duration
 }
@@ -85,7 +88,8 @@ func (s *Store) peerUDP(bind *net.UDPAddr) (*quic.Transport, error) {
 	}
 	// Both implementations use 4-byte connection IDs so a restarted daemon of
 	// either language can reset connections its predecessor held.
-	s.peer.transport = &quic.Transport{Conn: socket, StatelessResetKey: s.statelessResetKey(), ConnectionIDLength: 4}
+	s.peer.packets = newPacketConn(socket)
+	s.peer.transport = &quic.Transport{Conn: s.peer.packets, StatelessResetKey: s.statelessResetKey(), ConnectionIDLength: 4}
 	return s.peer.transport, nil
 }
 
@@ -96,14 +100,16 @@ func (s *Store) closePeerTransport() error {
 		_ = c.conn.CloseWithError(0, "closing")
 		delete(s.peer.conns, id)
 	}
+	for key, client := range s.peer.relays {
+		client.cancel()
+		delete(s.peer.relays, key)
+	}
 	if s.peer.transport == nil {
 		return nil
 	}
 	err := s.peer.transport.Close()
-	if socket, ok := s.peer.transport.Conn.(*net.UDPConn); ok {
-		err = errors.Join(err, socket.Close())
-	}
-	s.peer.transport = nil
+	err = errors.Join(err, s.peer.packets.Close())
+	s.peer.transport, s.peer.packets = nil, nil
 	if errors.Is(err, net.ErrClosed) {
 		err = nil
 	}
@@ -316,10 +322,19 @@ func requestTLS(r *http.Request) *tls.ConnectionState {
 	return state
 }
 
-// peerConn returns a cached connection for this exact peer identity and
-// address, or dials one. reused reports whether it came from the cache.
+// peerConn returns a cached connection for this exact peer identity, address,
+// and relay, or dials one. reused reports whether it came from the cache. A
+// nonempty address is tried directly first; otherwise, or when that fails, the
+// connection goes through the relay of the lowest-ID network both hosts share.
 func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reused bool, err error) {
-	key := peer.ID + "|" + peer.PublicKey + "|" + peer.Address
+	network, relayed, err := s.relayNetwork(ctx, peer.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	key := peer.ID + "|" + peer.PublicKey + "|" + peer.Address + "|"
+	if relayed {
+		key += relayKey(network)
+	}
 	s.peer.mu.Lock()
 	if c, ok := s.peer.conns[peer.ID]; ok {
 		if c.key == key && c.conn.Context().Err() == nil {
@@ -334,17 +349,31 @@ func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reuse
 	if err != nil {
 		return nil, false, err
 	}
-	addr, err := net.ResolveUDPAddr("udp", peer.Address)
-	if err != nil {
-		return nil, false, err
-	}
 	config, err := s.PeerTLS(ctx, &peer)
 	if err != nil {
 		return nil, false, err
 	}
-	conn, err = transport.Dial(ctx, addr, config, PeerQUICConfig(false))
-	if err != nil {
-		return nil, false, err
+	if peer.Address != "" {
+		var addr *net.UDPAddr
+		if addr, err = net.ResolveUDPAddr("udp", peer.Address); err == nil {
+			direct := ctx
+			if relayed {
+				var cancel context.CancelFunc
+				direct, cancel = context.WithTimeout(ctx, relayDirectAttempt)
+				defer cancel()
+			}
+			conn, err = transport.Dial(direct, addr, config, PeerQUICConfig(false))
+		}
+		if err != nil && !relayed {
+			return nil, false, err
+		}
+	} else if !relayed {
+		return nil, false, errors.New("peer has no direct address and shares no network relay")
+	}
+	if conn == nil {
+		if conn, err = s.dialRelayed(ctx, transport, network, peer, config); err != nil {
+			return nil, false, err
+		}
 	}
 	if conn.ConnectionState().TLS.NegotiatedProtocol != PeerALPN {
 		_ = conn.CloseWithError(0x1, "unsupported application protocol")
@@ -361,6 +390,36 @@ func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reuse
 	}
 	s.peer.conns[peer.ID] = cachedPeerConn{key: key, conn: conn}
 	return conn, false, nil
+}
+
+// dialRelayed connects to a peer through a coordinator relay. The peer's
+// synthetic address routes datagrams over that relay connection.
+func (s *Store) dialRelayed(ctx context.Context, transport *quic.Transport, network Network, peer Peer, config *tls.Config) (*quic.Conn, error) {
+	id, err := relay.ParseHostID(peer.ID)
+	if err != nil {
+		return nil, err
+	}
+	client, err := s.relayFor(network, false)
+	if err != nil {
+		return nil, err
+	}
+	// The whole request, including this wait and the handshake, stays within
+	// the request bound.
+	wait, cancel := context.WithTimeout(ctx, relayReadyWait)
+	defer cancel()
+	select {
+	case <-client.ready():
+	case <-wait.Done():
+		return nil, errors.New("relay is not connected")
+	}
+	s.peer.mu.Lock()
+	packets := s.peer.packets
+	s.peer.mu.Unlock()
+	if packets == nil {
+		return nil, errors.New("peer socket is closed")
+	}
+	packets.route(id, client)
+	return transport.Dial(ctx, packets.synthetic(id), config, PeerQUICConfig(false))
 }
 
 func (s *Store) evictPeerConn(id string, conn *quic.Conn) {
@@ -388,7 +447,11 @@ func (s *Store) peerRequest(ctx context.Context, peer Peer, method, path string,
 		if err != nil {
 			return 0, nil, err
 		}
-		status, data, err := PeerStreamRequest(ctx, conn, peer.Address, method, path, body)
+		host := peer.Address
+		if host == "" {
+			host = "relay.invalid"
+		}
+		status, data, err := PeerStreamRequest(ctx, conn, host, method, path, body)
 		if err == nil {
 			return status, data, nil
 		}
