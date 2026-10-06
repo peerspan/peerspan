@@ -11,8 +11,8 @@ use crate::{
     peer::{https, pinned_client_config},
     peer_store::{Peer, json, key_id, read, records},
     persons::{
-        self, Descriptor, HostAdmission, HostBinding, HostUnbinding, PersonAdmission,
-        PersonInviteToken, PersonMembership, PersonRemoval,
+        self, Descriptor, HostAdmission, HostBinding, HostUnbinding, MEMBER_TOKEN_PREFIX,
+        MemberInviteToken, PersonAdmission, PersonInviteToken, PersonMembership, PersonRemoval,
     },
     store::{Store, append_event, now, rfc3339},
 };
@@ -97,12 +97,19 @@ pub struct CreateNetwork {
     pub member: String,
     pub coordinator_address: String,
     pub coordinator_public_key: String,
+    /// The creator's person key, found by the CLI; admitted with the new root
+    /// under the creator's member label once the network is registered.
+    #[serde(default)]
+    pub person_public_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateInvite {
     pub member: String,
     pub expires_at: String,
+    /// Issue a host-only invite instead of the default member invite.
+    #[serde(default)]
+    pub host_only: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +118,29 @@ pub struct JoinNetwork {
     pub token: Option<String>,
     #[serde(default)]
     pub descriptor: Option<String>,
+    /// The joining person's key and the binding the CLI signed for this host;
+    /// the daemon never sees the person key itself.
+    #[serde(default)]
+    pub person_public_key: Option<String>,
+    #[serde(default)]
+    pub binding: Option<HostBinding>,
+}
+/// What the one-command flows did about the person. A skipped step never
+/// undoes the host join; `next` names the exact command that finishes it.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct PersonOutcome {
+    pub person_id: Option<String>,
+    pub admitted: bool,
+    pub bound: bool,
+    pub skipped: Option<String>,
+    pub next: Option<String>,
+}
+/// A network record plus the person outcome of create or join.
+#[derive(Debug, Serialize)]
+pub struct Joined {
+    #[serde(flatten)]
+    pub network: Network,
+    pub person: Option<PersonOutcome>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1076,6 +1106,32 @@ impl Store {
         let invite = random_seed()?;
         let signed =
             membership::sign_invite_for(&network.id, &root, &invite, &r.member, &r.expires_at);
+        // A member invite (the default) also admits the joiner's person under
+        // the same label. Its label is checked when redeemed rather than now,
+        // so a second machine for an already-admitted person can be invited
+        // under that person's own label.
+        if !r.host_only {
+            let token = MemberInviteToken::issue(
+                &root,
+                &invite,
+                &network.id,
+                &network.name,
+                network.root_epoch,
+                &r.member,
+                &r.expires_at,
+                &network.coordinator_address,
+                &network.coordinator_public_key,
+            );
+            append_event(&tx, "network.invite_issued", &network.id, &now())?;
+            tx.commit()?;
+            return Ok(IssuedInvite {
+                network_id: network.id,
+                member: signed.member,
+                invite_public_key: signed.invite_public_key,
+                invite_expires_at: signed.invite_expires_at,
+                token: token.encode(),
+            });
+        }
         let token = InviteToken {
             network_id: network.id.clone(),
             network_name: network.name,
@@ -2425,7 +2481,10 @@ async fn settle_rotation(
 /// Joins only after the coordinator accepts and its map verifies; nothing is
 /// persisted otherwise.
 pub async fn join(store: Arc<Store>, token: String) -> Result<Network, Error> {
-    let token = InviteToken::decode(&token)?;
+    join_token(store, InviteToken::decode(&token)?).await
+}
+/// Joins with a decoded host invite (or a member invite's host part).
+async fn join_token(store: Arc<Store>, token: InviteToken) -> Result<Network, Error> {
     let id = token.network_id.clone();
     let exists = blocking(store.clone(), move |s| match s.network(&id) {
         Ok(_) => Ok(true),
@@ -2566,7 +2625,7 @@ pub async fn redeem_person(
     store: Arc<Store>,
     request: RedeemPerson,
 ) -> Result<RedeemedPerson, Error> {
-    let token = PersonInviteToken::decode(&request.token)?;
+    let token = persons::decode_person_invite(&request.token)?;
     let key = persons::normalize_person_key(&request.person_public_key)?;
     let id = token.network_id.clone();
     let network = blocking(store.clone(), move |s| s.network(&id)).await?;
@@ -2694,6 +2753,186 @@ pub async fn join_with_descriptor(store: Arc<Store>, text: String) -> Result<Net
         current_root_public_key: String::new(),
     };
     blocking(store, move |s| s.apply_map(network, map, true)).await
+}
+
+/// The follow-up command that finishes a skipped person step, for display.
+fn bind_command(network: &str) -> String {
+    format!("capsule-host network bind --network {network}")
+}
+fn admit_command(network: &str, person: &str, member: &str) -> String {
+    let line = persons::parse_ssh_public_line(person)
+        .map(|k| persons::ssh_public_line(&k))
+        .or_else(|_| {
+            membership::canonical(person, 32).map(|k| {
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&k);
+                persons::ssh_public_line(&key)
+            })
+        })
+        .unwrap_or_else(|_| person.to_owned());
+    format!(
+        "an administrator runs: capsule-host network admit --network {network} --person '{line}' --member {member}; then: {}",
+        bind_command(network)
+    )
+}
+
+/// The person step of `network join`: admit the person if needed (from a
+/// member invite's person part), then bind this host. Failures are reported,
+/// never returned, so they cannot undo the host join that preceded them.
+async fn person_step(
+    store: Arc<Store>,
+    network: &Network,
+    member_token: Option<(&str, &MemberInviteToken)>,
+    person_public_key: &str,
+    binding: Option<HostBinding>,
+) -> PersonOutcome {
+    let mut outcome = PersonOutcome::default();
+    let key = match persons::normalize_person_key(person_public_key) {
+        Ok(key) => key,
+        Err(e) => {
+            outcome.skipped = Some(format!("invalid person key: {e}"));
+            return outcome;
+        }
+    };
+    outcome.person_id = persons::person_id_of(&key).ok();
+    let id = network.id.clone();
+    let lookup = key.clone();
+    let admitted = blocking(store.clone(), move |s| {
+        Ok(s.persons(&id)?.iter().any(|p| p.public_key == lookup))
+    })
+    .await
+    .unwrap_or(false);
+    if admitted {
+        outcome.admitted = true;
+    } else if let Some((text, token)) = member_token {
+        let result = match token.person().redeem(&key, &now()) {
+            Ok(membership) => {
+                submit_statement(
+                    store.clone(),
+                    network,
+                    "persons",
+                    json_value!({"membership": membership}),
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        };
+        match result {
+            Ok(_) => outcome.admitted = true,
+            Err(e) => {
+                outcome.next = Some(match e {
+                    Error::Conflict(_) => admit_command(&network.id, &key, "OTHER_LABEL"),
+                    _ => format!(
+                        "capsule-host network redeem-person --token {text}; then: {}",
+                        bind_command(&network.id)
+                    ),
+                });
+                outcome.skipped = Some(format!("person admission failed: {e}"));
+                return outcome;
+            }
+        }
+    } else {
+        outcome.skipped = Some("this person is not admitted in the network".into());
+        outcome.next = Some(admit_command(&network.id, &key, "LABEL"));
+        return outcome;
+    }
+    let Some(binding) = binding else {
+        outcome.skipped = Some("no binding was supplied".into());
+        outcome.next = Some(bind_command(&network.id));
+        return outcome;
+    };
+    if binding.person_public_key != key {
+        outcome.skipped = Some("the binding names a different person".into());
+        outcome.next = Some(bind_command(&network.id));
+        return outcome;
+    }
+    match bind(store, network.id.clone(), Bind { binding }).await {
+        Ok(_) => outcome.bound = true,
+        Err(e) => {
+            outcome.skipped = Some(format!("binding failed: {e}"));
+            outcome.next = Some(bind_command(&network.id));
+        }
+    }
+    outcome
+}
+
+/// `network join`: joins the host (a failure here fails the request), then
+/// runs the person step when the CLI supplied a person key.
+pub async fn join_network(store: Arc<Store>, request: JoinNetwork) -> Result<Joined, Error> {
+    let mut member = None;
+    let network = match (&request.token, &request.descriptor) {
+        (Some(text), None) if text.trim().starts_with(MEMBER_TOKEN_PREFIX) => {
+            let token = MemberInviteToken::decode(text)?;
+            let network = join_token(store.clone(), token.host()).await?;
+            member = Some((text.as_str(), token));
+            network
+        }
+        (Some(text), None) => join(store.clone(), text.clone()).await?,
+        (None, Some(descriptor)) => join_with_descriptor(store.clone(), descriptor.clone()).await?,
+        _ => {
+            return Err(Error::Invalid(
+                "give exactly one of token or descriptor".into(),
+            ));
+        }
+    };
+    let person = match &request.person_public_key {
+        Some(key) => Some(
+            person_step(
+                store,
+                &network,
+                member.as_ref().map(|(text, token)| (*text, token)),
+                key,
+                request.binding,
+            )
+            .await,
+        ),
+        None => None,
+    };
+    Ok(Joined { network, person })
+}
+
+/// `network create`: once the network is registered, admits the creator's
+/// person with the new root under the creator's label. The CLI then signs
+/// and submits the binding, so the person key never reaches the daemon.
+async fn create_person_step(
+    store: Arc<Store>,
+    network: &Network,
+    person_public_key: &str,
+) -> PersonOutcome {
+    let mut outcome = PersonOutcome::default();
+    let key = match persons::normalize_person_key(person_public_key) {
+        Ok(key) => key,
+        Err(e) => {
+            outcome.skipped = Some(format!("invalid person key: {e}"));
+            return outcome;
+        }
+    };
+    outcome.person_id = persons::person_id_of(&key).ok();
+    if network.last_sync_at.is_none() {
+        outcome.skipped = Some("the network is not registered with its coordinator yet".into());
+        outcome.next = Some(admit_command(&network.id, &key, &network.member));
+        return outcome;
+    }
+    match admit_person(
+        store,
+        network.id.clone(),
+        AdmitPerson {
+            person_public_key: key.clone(),
+            member: network.member.clone(),
+        },
+    )
+    .await
+    {
+        Ok(_) => {
+            outcome.admitted = true;
+            outcome.next = Some(bind_command(&network.id));
+        }
+        Err(e) => {
+            outcome.skipped = Some(format!("person admission failed: {e}"));
+            outcome.next = Some(admit_command(&network.id, &key, &network.member));
+        }
+    }
+    outcome
 }
 
 /// Background registration and sync for every network until shutdown.
@@ -2846,27 +3085,26 @@ async fn list(State(store): State<Arc<Store>>) -> Result<Json<Vec<Network>>, Err
 async fn create(
     State(store): State<Arc<Store>>,
     body: Result<Bytes, BytesRejection>,
-) -> Result<(StatusCode, Json<Network>), Error> {
-    let request = decode(body)?;
+) -> Result<(StatusCode, Json<Joined>), Error> {
+    let mut request: CreateNetwork = decode(body)?;
+    let person_public_key = request.person_public_key.take();
     let network = blocking(store.clone(), move |s| s.create_network(request)).await?;
-    let network = sync_network(store, network.id).await?;
-    Ok((StatusCode::CREATED, Json(network)))
+    let network = sync_network(store.clone(), network.id).await?;
+    let person = match person_public_key {
+        Some(key) => Some(create_person_step(store, &network, &key).await),
+        None => None,
+    };
+    Ok((StatusCode::CREATED, Json(Joined { network, person })))
 }
 async fn join_route(
     State(store): State<Arc<Store>>,
     body: Result<Bytes, BytesRejection>,
-) -> Result<(StatusCode, Json<Network>), Error> {
+) -> Result<(StatusCode, Json<Joined>), Error> {
     let request: JoinNetwork = decode(body)?;
-    let network = match (request.token, request.descriptor) {
-        (Some(token), None) => join(store, token).await?,
-        (None, Some(descriptor)) => join_with_descriptor(store, descriptor).await?,
-        _ => {
-            return Err(Error::Invalid(
-                "give exactly one of token or descriptor".into(),
-            ));
-        }
-    };
-    Ok((StatusCode::CREATED, Json(network)))
+    Ok((
+        StatusCode::CREATED,
+        Json(join_network(store, request).await?),
+    ))
 }
 async fn members(
     State(store): State<Arc<Store>>,
@@ -2977,6 +3215,7 @@ mod tests {
                 member: "alice".into(),
                 coordinator_address: "coord.example:7400".into(),
                 coordinator_public_key: coordinator,
+                person_public_key: None,
             })
             .unwrap();
         assert!(network.administrator);
@@ -2998,6 +3237,7 @@ mod tests {
                 CreateInvite {
                     member: "bob".into(),
                     expires_at: expires.clone(),
+                    host_only: true,
                 },
             )
             .unwrap();
@@ -3011,7 +3251,8 @@ mod tests {
                     &network.id,
                     CreateInvite {
                         member: "bob".into(),
-                        expires_at: too_late
+                        expires_at: too_late,
+                        host_only: true,
                     }
                 )
                 .is_err()
@@ -3096,6 +3337,7 @@ mod tests {
                 CreateInvite {
                     member: "x".into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    host_only: true,
                 },
             ),
             Err(Error::Forbidden)
@@ -3183,6 +3425,230 @@ mod tests {
             .into_iter()
             .map(|e| (e.kind, e.subject_id))
             .collect()
+    }
+
+    #[test]
+    fn invites_are_member_invites_unless_host_only() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let network = store
+            .create_network(CreateNetwork {
+                name: "team".into(),
+                member: "alice".into(),
+                coordinator_address: "127.0.0.1:1".into(),
+                coordinator_public_key: key(&random_seed().unwrap()),
+                person_public_key: None,
+            })
+            .unwrap();
+        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let member = store
+            .issue_invite(
+                &network.id,
+                CreateInvite {
+                    member: "bob".into(),
+                    expires_at: expires.clone(),
+                    host_only: false,
+                },
+            )
+            .unwrap();
+        let token = MemberInviteToken::decode(&member.token).unwrap();
+        assert_eq!(token.network_id, network.id);
+        assert_eq!(token.invite_public_key, member.invite_public_key);
+        let host = store
+            .issue_invite(
+                &network.id,
+                CreateInvite {
+                    member: "bob".into(),
+                    expires_at: expires,
+                    host_only: true,
+                },
+            )
+            .unwrap();
+        assert!(InviteToken::decode(&host.token).is_ok());
+        assert!(MemberInviteToken::decode(&host.token).is_err());
+        // The default is a member invite.
+        let request: CreateInvite =
+            serde_json::from_str(r#"{"member":"bob","expires_at":"2026-11-01T00:00:00Z"}"#)
+                .unwrap();
+        assert!(!request.host_only);
+    }
+
+    #[tokio::test]
+    async fn the_person_step_reports_and_never_fails_the_join() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temporary.path().join("host")).unwrap());
+        let r0 = random_seed().unwrap();
+        let id = membership::network_id(r0.verifying_key().as_bytes());
+        let network = Network {
+            id: id.clone(),
+            name: "team".into(),
+            root_public_key: key(&r0),
+            member: "bob".into(),
+            // Nothing listens here: every coordinator call fails.
+            coordinator_address: "127.0.0.1:1".into(),
+            coordinator_public_key: key(&random_seed().unwrap()),
+            administrator: false,
+            last_sync_at: None,
+            last_sync_error: None,
+            root_epoch: 0,
+            current_root_public_key: String::new(),
+        };
+        let at = "2026-10-08T00:00:00Z";
+        let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
+        let pat = persons::PersonSigner::File(random_seed().unwrap());
+        let stranger = persons::PersonSigner::File(random_seed().unwrap());
+        let admission = PersonAdmission::sign(&r0, &id, 0, &pat.public_key_b64(), "pat", at);
+        let mut map = wire(
+            &network,
+            vec![rooted_entry(&id, &r0, &me)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        map.persons = vec![person_entry(&admission)];
+        let network = store.apply_map(network, map, true).unwrap();
+        let pid = persons::person_id(&pat.public_key());
+
+        // A person who is not admitted, without a member invite: skipped, with
+        // the exact admit-then-bind follow-up.
+        let outcome = person_step(
+            store.clone(),
+            &network,
+            None,
+            &stranger.public_key_b64(),
+            None,
+        )
+        .await;
+        assert!(!outcome.admitted && !outcome.bound);
+        assert_eq!(
+            outcome.skipped.as_deref(),
+            Some("this person is not admitted in the network")
+        );
+        let next = outcome.next.unwrap();
+        assert!(
+            next.contains("network admit") && next.contains("ssh-ed25519 "),
+            "{next}"
+        );
+        assert!(next.ends_with(&bind_command(&id)), "{next}");
+
+        // Admitted already: admission is skipped. Without a binding, the step
+        // stops at the bind follow-up.
+        let outcome = person_step(store.clone(), &network, None, &pat.public_key_b64(), None).await;
+        assert_eq!(outcome.person_id.as_deref(), Some(pid.as_str()));
+        assert!(outcome.admitted && !outcome.bound);
+        assert_eq!(outcome.skipped.as_deref(), Some("no binding was supplied"));
+        assert_eq!(outcome.next.as_deref(), Some(bind_command(&id).as_str()));
+
+        // A binding for a different person than the one supplied is refused.
+        let other = HostBinding::sign(&stranger, &id, &key(&me), at).unwrap();
+        let outcome = person_step(
+            store.clone(),
+            &network,
+            None,
+            &pat.public_key_b64(),
+            Some(other),
+        )
+        .await;
+        assert_eq!(
+            outcome.skipped.as_deref(),
+            Some("the binding names a different person")
+        );
+
+        // A valid binding the coordinator cannot accept: reported, and the
+        // host stays joined.
+        let binding = HostBinding::sign(&pat, &id, &key(&me), at).unwrap();
+        let outcome = person_step(
+            store.clone(),
+            &network,
+            None,
+            &pat.public_key_b64(),
+            Some(binding),
+        )
+        .await;
+        assert!(outcome.admitted && !outcome.bound);
+        assert!(outcome.skipped.unwrap().starts_with("binding failed"));
+        assert_eq!(outcome.next.as_deref(), Some(bind_command(&id).as_str()));
+        assert!(store.network(&id).is_ok());
+
+        // A member invite whose person part cannot be redeemed now (the
+        // coordinator is down): the follow-up redeems the same token later.
+        let invite = random_seed().unwrap();
+        let expires = rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let token = MemberInviteToken::issue(
+            &r0,
+            &invite,
+            &id,
+            "team",
+            0,
+            "sam",
+            &expires,
+            "127.0.0.1:1",
+            &network.coordinator_public_key,
+        );
+        let text = token.encode();
+        let outcome = person_step(
+            store.clone(),
+            &network,
+            Some((text.as_str(), &token)),
+            &stranger.public_key_b64(),
+            None,
+        )
+        .await;
+        assert!(!outcome.admitted);
+        assert!(
+            outcome
+                .skipped
+                .unwrap()
+                .starts_with("person admission failed")
+        );
+        let next = outcome.next.unwrap();
+        assert!(
+            next.contains("network redeem-person --token") && next.contains(&text),
+            "{next}"
+        );
+        assert_eq!(store.persons(&id).unwrap().len(), 1);
+
+        // An invalid key is reported, not returned as an error.
+        let outcome = person_step(store, &network, None, "not a key", None).await;
+        assert!(outcome.skipped.unwrap().starts_with("invalid person key"));
+    }
+
+    #[tokio::test]
+    async fn create_admits_the_creator_only_once_registered() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temporary.path().join("host")).unwrap());
+        let network = store
+            .create_network(CreateNetwork {
+                name: "team".into(),
+                member: "alice".into(),
+                coordinator_address: "127.0.0.1:1".into(),
+                coordinator_public_key: key(&random_seed().unwrap()),
+                person_public_key: None,
+            })
+            .unwrap();
+        let alice = persons::PersonSigner::File(random_seed().unwrap());
+        // Registration has not succeeded: the person step is skipped, and the
+        // follow-up admits the creator under its own member label.
+        let outcome = create_person_step(store, &network, &alice.public_key_b64()).await;
+        assert!(!outcome.admitted && !outcome.bound);
+        assert_eq!(
+            outcome.person_id.as_deref(),
+            Some(persons::person_id(&alice.public_key()).as_str())
+        );
+        assert!(outcome.skipped.unwrap().contains("not registered"));
+        let next = outcome.next.unwrap();
+        assert!(
+            next.contains("--member alice") && next.contains(&network.id),
+            "{next}"
+        );
+        // The create response flattens the network and adds `person`.
+        let value = serde_json::to_value(Joined {
+            network: network.clone(),
+            person: None,
+        })
+        .unwrap();
+        assert_eq!(value["id"], serde_json::json!(network.id));
+        assert_eq!(value["person"], serde_json::Value::Null);
     }
 
     #[test]
@@ -3516,6 +3982,7 @@ mod tests {
                 member: "alice".into(),
                 coordinator_address: "127.0.0.1:1".into(),
                 coordinator_public_key: key(&random_seed().unwrap()),
+                person_public_key: None,
             })
             .unwrap();
         let id = network.id.clone();
@@ -3555,6 +4022,7 @@ mod tests {
                 CreateInvite {
                     member: label.into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
+                    host_only: true,
                 },
             )
         };
@@ -3611,6 +4079,7 @@ mod tests {
                 member: "alice".into(),
                 coordinator_address: "127.0.0.1:1".into(),
                 coordinator_public_key: key(&random_seed().unwrap()),
+                person_public_key: None,
             })
             .unwrap();
         let id = network.id.clone();
@@ -3657,6 +4126,7 @@ mod tests {
                 CreateInvite {
                     member: "dana".into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    host_only: true,
                 },
             )
             .unwrap();
@@ -3916,6 +4386,7 @@ mod tests {
                 member: "alice".into(),
                 coordinator_address: "127.0.0.1:1".into(),
                 coordinator_public_key: key(&random_seed().unwrap()),
+                person_public_key: None,
             })
             .unwrap();
         let id = network.id.clone();
@@ -4024,6 +4495,7 @@ mod tests {
                 CreateInvite {
                     member: "erin".into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                    host_only: true,
                 },
             )
             .unwrap();
@@ -4102,6 +4574,7 @@ mod tests {
                 member: "alice".into(),
                 coordinator_address: "127.0.0.1:1".into(),
                 coordinator_public_key: key(&random_seed().unwrap()),
+                person_public_key: None,
             })
             .unwrap();
         let id = network.id.clone();

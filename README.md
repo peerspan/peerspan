@@ -135,7 +135,11 @@ Hosts can now discover one another through a network and need no `peer add`. Sta
 ./rust/target/debug/capsule-host --state /tmp/capsule-bob network join --token TOKEN
 ```
 
-The token is a bearer secret, so deliver it out of band. Every host verifies the signed chain from root key to invite to host itself, so the coordinator cannot add hosts. While coordination has synced recently, grants work without `--allow-disconnected`. See the [coordination contract](docs/coordination-contract.md) and the [roadmap](docs/production-roadmap.md).
+That is the whole default flow: the administrator creates the network and sends one invite, and each member runs one `network join` per machine.
+
+The token is a bearer secret, so deliver it out of band. Every host verifies the signed chain from root key to invite to host itself, so the coordinator cannot add hosts. While coordination has synced recently, grants work without `--allow-disconnected`.
+
+If an `ssh-ed25519` key is loaded in `ssh-agent`, `network create` and `network join` also record whose machine it is. They admit that SSH key as a person and bind the host to it, so a member's second machine joins with the same two steps. Each command's JSON `person` field reports what happened. Without an agent, or with several keys, the host still joins, and `person.skipped` and `person.next` give the reason and the exact command that finishes the step. `--person-key PATH` picks a key, `--no-person` skips persons, and `network invite --host-only` issues a host-only invite. The separate commands (`network admit`, `invite-person`, `redeem-person`, `bind`, `unbind`, `remove-person`, `persons`) remain for other setups. See the [coordination contract](docs/coordination-contract.md) and the [roadmap](docs/production-roadmap.md).
 
 ## Compare build times
 

@@ -26,6 +26,7 @@ use std::{
 pub const NAMESPACE: &str = "capsule-person-v1";
 pub const PERSON_TOKEN_PREFIX: &str = "capsule-person-invite-v1.";
 pub const DESCRIPTOR_PREFIX: &str = "capsule-network-v1.";
+pub const MEMBER_TOKEN_PREFIX: &str = "capsule-member-invite-v1.";
 const KEY_TYPE: &str = "ssh-ed25519";
 
 pub fn person_id(key: &[u8]) -> String {
@@ -843,6 +844,119 @@ impl PersonInviteToken {
     }
 }
 
+/// A member invite: one invite key signed twice by the current root, as a
+/// host invite and as a person invite with the same label and expiry, so one
+/// `network join` can admit the host and its person.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MemberInviteToken {
+    pub network_id: String,
+    pub network_name: String,
+    pub root_public_key: String,
+    pub coordinator_address: String,
+    pub coordinator_public_key: String,
+    pub member: String,
+    pub invite_public_key: String,
+    pub invite_seed: String,
+    pub invite_expires_at: String,
+    pub invite_signature: String,
+    pub invite_epoch: u64,
+    pub person_invite_signature: String,
+}
+impl MemberInviteToken {
+    /// Signs both parts with the current root.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue(
+        root: &SigningKey,
+        invite: &SigningKey,
+        network: &str,
+        network_name: &str,
+        epoch: u64,
+        member: &str,
+        expires: &str,
+        coordinator_address: &str,
+        coordinator_public_key: &str,
+    ) -> Self {
+        let host = membership::sign_invite_for(network, root, invite, member, expires);
+        let person = PersonInviteToken::issue(
+            root,
+            invite,
+            network,
+            network_name,
+            epoch,
+            member,
+            expires,
+            coordinator_address,
+            coordinator_public_key,
+        );
+        Self {
+            network_id: network.into(),
+            network_name: network_name.into(),
+            root_public_key: person.root_public_key,
+            coordinator_address: coordinator_address.into(),
+            coordinator_public_key: coordinator_public_key.into(),
+            member: host.member,
+            invite_public_key: host.invite_public_key,
+            invite_seed: person.invite_seed,
+            invite_expires_at: host.invite_expires_at,
+            invite_signature: host.invite_signature,
+            invite_epoch: epoch,
+            person_invite_signature: person.invite_signature,
+        }
+    }
+    pub fn encode(&self) -> String {
+        encode_prefixed(MEMBER_TOKEN_PREFIX, self)
+    }
+    /// Decodes and checks both parts without network contact, with the same
+    /// checks as a host invite token and a person invite token.
+    pub fn decode(text: &str) -> Result<Self, Error> {
+        let t: Self = decode_prefixed(MEMBER_TOKEN_PREFIX, text, "member invite token")?;
+        membership::InviteToken::decode(&t.host().encode())?;
+        PersonInviteToken::decode(&t.person().encode())?;
+        Ok(t)
+    }
+    /// The host part, as a host invite token.
+    pub fn host(&self) -> membership::InviteToken {
+        membership::InviteToken {
+            network_id: self.network_id.clone(),
+            network_name: self.network_name.clone(),
+            root_public_key: self.root_public_key.clone(),
+            coordinator_address: self.coordinator_address.clone(),
+            coordinator_public_key: self.coordinator_public_key.clone(),
+            member: self.member.clone(),
+            invite_public_key: self.invite_public_key.clone(),
+            invite_seed: self.invite_seed.clone(),
+            invite_expires_at: self.invite_expires_at.clone(),
+            invite_signature: self.invite_signature.clone(),
+        }
+    }
+    /// The person part, as a person invite token.
+    pub fn person(&self) -> PersonInviteToken {
+        PersonInviteToken {
+            network_id: self.network_id.clone(),
+            network_name: self.network_name.clone(),
+            root_public_key: self.root_public_key.clone(),
+            coordinator_address: self.coordinator_address.clone(),
+            coordinator_public_key: self.coordinator_public_key.clone(),
+            member: self.member.clone(),
+            invite_public_key: self.invite_public_key.clone(),
+            invite_seed: self.invite_seed.clone(),
+            invite_expires_at: self.invite_expires_at.clone(),
+            invite_signature: self.person_invite_signature.clone(),
+            invite_epoch: self.invite_epoch,
+        }
+    }
+}
+/// Decodes a person invite from either a person invite token or the person
+/// part of a member invite token.
+pub fn decode_person_invite(text: &str) -> Result<PersonInviteToken, Error> {
+    if text.trim().starts_with(MEMBER_TOKEN_PREFIX) {
+        Ok(MemberInviteToken::decode(text)?.person())
+    } else {
+        PersonInviteToken::decode(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1008,6 +1122,58 @@ mod tests {
         let mut swapped = bind.clone();
         swapped.signature = unbind.signature.clone();
         assert!(swapped.verify(NETWORK).is_err());
+    }
+
+    #[test]
+    fn member_invite_tokens_carry_both_parts_and_check_each() {
+        let root = membership::seed(ROOT_SEED).unwrap();
+        let invite = membership::seed(INVITE_SEED).unwrap();
+        let expires = rfc(chrono::Utc::now() + chrono::TimeDelta::days(1));
+        let coordinator = STANDARD.encode(root.verifying_key().as_bytes());
+        let token = MemberInviteToken::issue(
+            &root,
+            &invite,
+            NETWORK,
+            "team",
+            0,
+            "bob",
+            &expires,
+            "127.0.0.1:7400",
+            &coordinator,
+        );
+        let text = token.encode();
+        assert!(text.starts_with(MEMBER_TOKEN_PREFIX));
+        let decoded = MemberInviteToken::decode(&text).unwrap();
+        assert_eq!(decoded, token);
+        // Each part is a valid token of its own kind, signed by the same root
+        // over the same invite key, label, and expiry.
+        let host = membership::InviteToken::decode(&decoded.host().encode()).unwrap();
+        let person = PersonInviteToken::decode(&decoded.person().encode()).unwrap();
+        assert_eq!(host.invite_public_key, person.invite_public_key);
+        assert_eq!(
+            (host.member.as_str(), person.member.as_str()),
+            ("bob", "bob")
+        );
+        assert_ne!(host.invite_signature, person.invite_signature);
+        // Either signature tampered, or the halves swapped, is refused.
+        for edit in [
+            |t: &mut MemberInviteToken| t.person_invite_signature = t.invite_signature.clone(),
+            |t: &mut MemberInviteToken| t.invite_signature = t.person_invite_signature.clone(),
+            |t: &mut MemberInviteToken| t.member = "mallory".into(),
+            |t: &mut MemberInviteToken| t.invite_epoch = 1,
+        ] {
+            let mut bad = token.clone();
+            edit(&mut bad);
+            assert!(MemberInviteToken::decode(&bad.encode()).is_err());
+        }
+        // redeem-person accepts both token kinds for the person part.
+        assert_eq!(decode_person_invite(&text).unwrap(), decoded.person());
+        let alone = decoded.person().encode();
+        assert_eq!(decode_person_invite(&alone).unwrap(), decoded.person());
+        assert!(decode_person_invite(&host.encode()).is_err());
+    }
+    fn rfc(t: chrono::DateTime<chrono::Utc>) -> String {
+        t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
     }
 
     fn reencode(blob_b64: &str, edit: impl FnOnce(&mut Vec<u8>)) -> String {

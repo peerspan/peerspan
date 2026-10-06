@@ -53,9 +53,9 @@ Usage:
   capsule-host [--state DIR] delivery list [--after SEQUENCE --limit COUNT]
   capsule-host [--state DIR] delivery inspect ID
 
-  capsule-host [--state DIR] network create --name NAME --member LABEL --coordinator HOST:PORT --coordinator-key KEY
-  capsule-host [--state DIR] network invite --network ID --member LABEL --expires-at TIME
-  capsule-host [--state DIR] network join --token TOKEN
+  capsule-host [--state DIR] network create --name NAME --member LABEL --coordinator HOST:PORT --coordinator-key KEY [--person-key PATH | --no-person]
+  capsule-host [--state DIR] network invite --network ID --member LABEL --expires-at TIME [--host-only]
+  capsule-host [--state DIR] network join (--token TOKEN | --descriptor DESCRIPTOR) [--person-key PATH | --no-person]
   capsule-host [--state DIR] network list
   capsule-host [--state DIR] network members ID
   capsule-host [--state DIR] network sync ID
@@ -66,7 +66,6 @@ Usage:
   capsule-host [--state DIR] network admit --network ID (--person SSH_PUBLIC_KEY | --host HOST_PUBLIC_KEY) --member LABEL
   capsule-host [--state DIR] network invite-person --network ID --member LABEL --expires-at TIME
   capsule-host [--state DIR] network redeem-person --token TOKEN [--person-key PATH]
-  capsule-host [--state DIR] network join --descriptor DESCRIPTOR
   capsule-host [--state DIR] network bind --network ID [--person-key PATH]
   capsule-host [--state DIR] network unbind --network ID --host HOST_ID [--person-key PATH]
   capsule-host [--state DIR] network remove-person --network ID --person PERSON_ID
@@ -110,6 +109,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if args[0] == "claude" {
 		return runClaude(args[1:], *state, errOut)
 	}
+	explicitState := *state
 	if *state == "" {
 		var err error
 		*state, err = host.DefaultStateDir()
@@ -203,6 +203,13 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return first
 	}
 	client := host.Client{SocketPath: filepath.Join(*state, "admin.sock")}
+	if len(args) >= 2 && args[0] == "network" && (args[1] == "create" || args[1] == "join") {
+		err := networkCreateOrJoin(ctx, client, args[1], args[2:], explicitState, out, errOut)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
 	method, path, body, err := request(args, errOut)
 	if errors.Is(err, errPersonCommand) {
 		method, path, body, err = personRequest(ctx, client, args, errOut)
@@ -393,15 +400,6 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			return invalid()
 		}
 		switch args[1] {
-		case "create":
-			var n host.CreateNetwork
-			err := parse("network create", args[2:], func(fs *flag.FlagSet) {
-				fs.StringVar(&n.Name, "name", "", "network name")
-				fs.StringVar(&n.Member, "member", "", "this host's member label")
-				fs.StringVar(&n.CoordinatorAddress, "coordinator", "", "coordinator HOST:PORT")
-				fs.StringVar(&n.CoordinatorPublicKey, "coordinator-key", "", "pinned coordinator public key")
-			})
-			return "POST", "/v1/networks", n, err
 		case "invite":
 			var network string
 			var i host.CreateInvite
@@ -409,21 +407,12 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				fs.StringVar(&network, "network", "", "network ID")
 				fs.StringVar(&i.Member, "member", "", "invitee member label")
 				fs.StringVar(&i.ExpiresAt, "expires-at", "", "UTC invite expiration, at most 30 days ahead")
+				fs.BoolVar(&i.HostOnly, "host-only", false, "issue a host-only invite instead of a member invite")
 			})
 			if err == nil && network == "" {
 				return invalid()
 			}
 			return "POST", "/v1/networks/" + url.PathEscape(network) + "/invites", i, err
-		case "join":
-			var j host.JoinNetwork
-			err := parse("network join", args[2:], func(fs *flag.FlagSet) {
-				fs.StringVar(&j.Token, "token", "", "invite token")
-				fs.StringVar(&j.Descriptor, "descriptor", "", "network descriptor, for a host admitted by public key")
-			})
-			if err == nil && (j.Token == "") == (j.Descriptor == "") {
-				return "", "", nil, errors.New("give exactly one of --token or --descriptor")
-			}
-			return "POST", "/v1/networks/join", j, err
 		case "admit", "redeem-person", "bind", "unbind":
 			return "", "", nil, errPersonCommand
 		case "invite-person":

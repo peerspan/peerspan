@@ -3,7 +3,7 @@ mod cli;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
-use capsule_host::{api, persons, store::Store};
+use capsule_host::{api, membership, model, persons, store::Store};
 use clap::{CommandFactory, Parser};
 use cli::Cli;
 use http_body_util::{BodyExt, Full};
@@ -101,6 +101,119 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                 "ssh_public_key": persons::ssh_public_line(&key),
             })
         }
+        Command::Network(NetworkCommand::Create {
+            name,
+            member,
+            coordinator,
+            coordinator_key,
+            person_key,
+            no_person,
+        }) => {
+            let found = explicit_key(*no_person, person_key)?;
+            let mut body = json!({
+                "name": name,
+                "member": member,
+                "coordinator_address": coordinator,
+                "coordinator_public_key": coordinator_key,
+            });
+            if let Ok(signer) = &found {
+                body["person_public_key"] = json!(signer.public_key_b64());
+            }
+            let mut value = local(Method::POST, "/v1/networks".into(), Some(body)).await?;
+            let network = value["id"].as_str().unwrap_or_default().to_owned();
+            match found {
+                Ok(signer) if value["person"]["admitted"] == json!(true) => {
+                    // Admitted with the new root: bind this host now, signed
+                    // here so the person key never reaches the daemon.
+                    let result = async {
+                        let host = local(Method::GET, "/v1/host".into(), None).await?;
+                        let key = host["public_key"]
+                            .as_str()
+                            .context("host daemon returned no public key")?;
+                        let binding = persons::HostBinding::sign(&signer, &network, key, &at())
+                            .map_err(|e| anyhow::anyhow!("{e}"))?;
+                        local(
+                            Method::POST,
+                            format!("/v1/networks/{}/bindings", encoded(&network)),
+                            Some(json!({"binding": binding})),
+                        )
+                        .await
+                    }
+                    .await;
+                    match result {
+                        Ok(_) => {
+                            value["person"]["bound"] = json!(true);
+                            value["person"]["next"] = Value::Null;
+                        }
+                        Err(e) => {
+                            value["person"]["skipped"] = json!(format!("binding failed: {e:#}"));
+                            value["person"]["next"] = json!(bind_next(&network));
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(reason) => {
+                    let next = (!*no_person).then(|| {
+                        format!(
+                            "an administrator runs: capsule-host network admit --network {network} --person '<your ssh-ed25519 public key>' --member {member}; then: {}",
+                            bind_next(&network)
+                        )
+                    });
+                    value["person"] = skipped(reason, next);
+                }
+            }
+            value
+        }
+        Command::Network(NetworkCommand::Join {
+            token,
+            descriptor,
+            person_key,
+            no_person,
+        }) => {
+            let found = explicit_key(*no_person, person_key)?;
+            let mut body = match (token, descriptor) {
+                (Some(token), _) => json!({"token": token}),
+                (None, descriptor) => json!({"descriptor": descriptor}),
+            };
+            let network = token.as_deref().and_then(token_network).or_else(|| {
+                descriptor
+                    .as_deref()
+                    .and_then(|d| persons::Descriptor::decode(d).ok())
+                    .map(|d| d.network_id)
+            });
+            if let Ok(signer) = &found {
+                body["person_public_key"] = json!(signer.public_key_b64());
+                // Sign the binding before joining: the token or descriptor names
+                // the network, and the daemon names this host. If either is
+                // unavailable, the daemon reports the missing binding.
+                if let Some(network) = &network
+                    && let Ok(host) = local(Method::GET, "/v1/host".into(), None).await
+                    && let Some(key) = host["public_key"].as_str()
+                    && let Ok(binding) = persons::HostBinding::sign(signer, network, key, &at())
+                {
+                    body["binding"] = json!(binding);
+                }
+            }
+            let mut value = local(Method::POST, "/v1/networks/join".into(), Some(body)).await?;
+            if let Err(reason) = found {
+                let id = value["id"].as_str().unwrap_or_default().to_owned();
+                let member_token = token
+                    .as_deref()
+                    .is_some_and(|t| t.trim().starts_with(persons::MEMBER_TOKEN_PREFIX));
+                let next = (!*no_person).then(|| match token {
+                    Some(token) if member_token => format!(
+                        "capsule-host network redeem-person --token {token} --person-key PATH; then: {} --person-key PATH",
+                        bind_next(&id)
+                    ),
+                    _ => format!(
+                        "after an administrator admits your person: {} --person-key PATH",
+                        bind_next(&id)
+                    ),
+                });
+                value["person"] = skipped(reason, next);
+            }
+            value
+        }
         Command::Network(NetworkCommand::RedeemPerson { token, person_key }) => {
             let signer = signer(person_key)?;
             local(
@@ -160,6 +273,50 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
         _ => return Ok(None),
     };
     Ok(Some(value))
+}
+
+/// Finds the person key for the one-command flows. A missing or ambiguous key
+/// is never an error: the person step is skipped and the reason reported.
+fn discover(no_person: bool, path: &Option<PathBuf>) -> Result<persons::PersonSigner, String> {
+    if no_person {
+        return Err("person step disabled with --no-person".into());
+    }
+    persons::PersonSigner::open(path.as_deref()).map_err(|e| match e {
+        model::Error::Invalid(message) => message,
+        other => other.to_string(),
+    })
+}
+/// An explicit --person-key must be usable before anything happens; only
+/// automatic discovery skips.
+fn explicit_key(
+    no_person: bool,
+    path: &Option<PathBuf>,
+) -> anyhow::Result<Result<persons::PersonSigner, String>> {
+    let found = discover(no_person, path);
+    if let (Some(path), Err(reason)) = (path, &found) {
+        bail!("--person-key {}: {reason}", path.display());
+    }
+    Ok(found)
+}
+/// The network a token names, read locally so the CLI can sign a binding
+/// before joining. The daemon verifies the token itself.
+fn token_network(token: &str) -> Option<String> {
+    persons::MemberInviteToken::decode(token)
+        .map(|t| t.network_id)
+        .or_else(|_| membership::InviteToken::decode(token).map(|t| t.network_id))
+        .ok()
+}
+fn bind_next(network: &str) -> String {
+    format!("capsule-host network bind --network {network}")
+}
+fn skipped(reason: String, next: Option<String>) -> Value {
+    json!({
+        "person_id": Value::Null,
+        "admitted": false,
+        "bound": false,
+        "skipped": reason,
+        "next": next,
+    })
 }
 
 fn default_directory() -> anyhow::Result<PathBuf> {

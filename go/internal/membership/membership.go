@@ -315,43 +315,49 @@ func DecodeToken(value string, now time.Time) (Token, error) {
 	if err = Strict(data, &t, tokenFields...); err != nil {
 		return t, err
 	}
+	return t, checkToken(t, now)
+}
+
+// checkToken checks a decoded host invite: shape, labels, seed, expiry, and
+// the root's invite signature.
+func checkToken(t Token, now time.Time) error {
 	root, err := DecodeKey(t.RootPublicKey)
 	if err != nil {
-		return t, err
+		return err
 	}
 	// After a root rotation the token carries the current root, which does
 	// not derive the network ID; the joining host checks the root chain from
 	// the genesis root when it applies the coordinator's first map.
 	if !strings.HasPrefix(t.NetworkID, "net_") || len(t.NetworkID) != 68 {
-		return t, fmt.Errorf("%w: invalid network ID", ErrInvalid)
+		return fmt.Errorf("%w: invalid network ID", ErrInvalid)
 	}
 	if !ValidLabel(t.NetworkName) || !ValidLabel(t.Member) {
-		return t, fmt.Errorf("%w: invalid label", ErrInvalid)
+		return fmt.Errorf("%w: invalid label", ErrInvalid)
 	}
 	if !ValidCoordinatorAddress(t.CoordinatorAddress) {
-		return t, fmt.Errorf("%w: invalid coordinator address", ErrInvalid)
+		return fmt.Errorf("%w: invalid coordinator address", ErrInvalid)
 	}
 	if _, err = DecodeKey(t.CoordinatorPublicKey); err != nil {
-		return t, err
+		return err
 	}
 	invite, err := DecodeSeed(t.InviteSeed)
 	if err != nil {
-		return t, err
+		return err
 	}
 	if PublicKey(invite) != t.InvitePublicKey {
-		return t, fmt.Errorf("%w: invite seed does not match its public key", ErrInvalid)
+		return fmt.Errorf("%w: invite seed does not match its public key", ErrInvalid)
 	}
 	expires, err := ParseTime(t.InviteExpiresAt)
 	if err != nil {
-		return t, fmt.Errorf("%w: invalid invite expiration", ErrInvalid)
+		return fmt.Errorf("%w: invalid invite expiration", ErrInvalid)
 	}
 	if !expires.After(now) {
-		return t, fmt.Errorf("%w: invite has expired", ErrInvalid)
+		return fmt.Errorf("%w: invite has expired", ErrInvalid)
 	}
 	if err = verify(root, InviteStatement(t.NetworkID, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.InviteSignature); err != nil {
-		return t, err
+		return err
 	}
-	return t, nil
+	return nil
 }
 
 // Strict decodes one JSON object containing exactly fields, none null, and

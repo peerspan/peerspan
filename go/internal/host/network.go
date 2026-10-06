@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
@@ -84,10 +85,14 @@ type CreateNetwork struct {
 	Member               string `json:"member"`
 	CoordinatorAddress   string `json:"coordinator_address"`
 	CoordinatorPublicKey string `json:"coordinator_public_key"`
+	// PersonPublicKey optionally admits the creator as a person.
+	PersonPublicKey string `json:"person_public_key,omitempty"`
 }
 type CreateInvite struct {
 	Member    string `json:"member"`
 	ExpiresAt string `json:"expires_at"`
+	// HostOnly issues a host-only invite instead of the default member invite.
+	HostOnly bool `json:"host_only,omitempty"`
 }
 type Invite struct {
 	NetworkID       string `json:"network_id"`
@@ -100,8 +105,13 @@ type Invite struct {
 // JoinNetwork gives exactly one of an invite token or a network descriptor
 // for a host an administrator admitted by public key.
 type JoinNetwork struct {
-	Token      string `json:"token"`
-	Descriptor string `json:"descriptor"`
+	Token      string `json:"token,omitempty"`
+	Descriptor string `json:"descriptor,omitempty"`
+	// PersonPublicKey and Binding optionally admit and bind the person who
+	// runs this host; the CLI signs the binding, the daemon adds its own
+	// signature.
+	PersonPublicKey string          `json:"person_public_key,omitempty"`
+	Binding         json.RawMessage `json:"binding,omitempty"`
 }
 
 // ConfigureCoordination sets the daemon's advertised peer address and sync
@@ -288,14 +298,29 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 		return Invite{}, fmt.Errorf("%w: invite expiration must be in the next 30 days", ErrInvalid)
 	}
 	// root_seed is the current root; after a rotation it signs new invites.
-	token, err := membership.InviteFor(n.ID, ed25519.NewKeyFromSeed(seed), r.Member, r.ExpiresAt)
-	if err != nil {
-		return Invite{}, err
-	}
-	token.NetworkName, token.CoordinatorAddress, token.CoordinatorPublicKey = n.Name, n.CoordinatorAddress, n.CoordinatorPublicKey
-	encoded, err := token.Encode()
-	if err != nil {
-		return Invite{}, err
+	// A member invite (the default) also lets the joiner's person be admitted
+	// with the same token.
+	var encoded, invitePublicKey string
+	if r.HostOnly {
+		token, err := membership.InviteFor(n.ID, ed25519.NewKeyFromSeed(seed), r.Member, r.ExpiresAt)
+		if err != nil {
+			return Invite{}, err
+		}
+		token.NetworkName, token.CoordinatorAddress, token.CoordinatorPublicKey = n.Name, n.CoordinatorAddress, n.CoordinatorPublicKey
+		invitePublicKey = token.InvitePublicKey
+		if encoded, err = token.Encode(); err != nil {
+			return Invite{}, err
+		}
+	} else {
+		token, err := membership.MemberInvite(n.ID, ed25519.NewKeyFromSeed(seed), n.RootEpoch, r.Member, r.ExpiresAt)
+		if err != nil {
+			return Invite{}, err
+		}
+		token.NetworkName, token.CoordinatorAddress, token.CoordinatorPublicKey = n.Name, n.CoordinatorAddress, n.CoordinatorPublicKey
+		invitePublicKey = token.InvitePublicKey
+		if encoded, err = token.Encode(); err != nil {
+			return Invite{}, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -305,7 +330,7 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 	if err = appendEvent(ctx, tx, "network.invite_issued", n.ID, timestamp(now)); err != nil {
 		return Invite{}, err
 	}
-	return Invite{NetworkID: n.ID, Member: r.Member, InvitePublicKey: token.InvitePublicKey, InviteExpiresAt: r.ExpiresAt, Token: encoded}, tx.Commit()
+	return Invite{NetworkID: n.ID, Member: r.Member, InvitePublicKey: invitePublicKey, InviteExpiresAt: r.ExpiresAt, Token: encoded}, tx.Commit()
 }
 
 func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error) {
@@ -316,7 +341,15 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 		return s.joinByDescriptor(ctx, r.Descriptor)
 	}
 	now := time.Now()
-	token, err := membership.DecodeToken(r.Token, now)
+	var token membership.Token
+	var err error
+	if strings.HasPrefix(r.Token, membership.MemberTokenPrefix) {
+		var member membership.MemberToken
+		member, err = membership.DecodeMemberToken(r.Token, now)
+		token = member.Token
+	} else {
+		token, err = membership.DecodeToken(r.Token, now)
+	}
 	if err != nil {
 		return Network{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -710,18 +743,18 @@ func (s *Store) connected(ctx context.Context, tx *sql.Tx, requester string, now
 func localNetworkRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/networks", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateNetwork
-		if !decode(w, r, &req, "name", "member", "coordinator_address", "coordinator_public_key") {
+		if !decode(w, r, &req, "name", "member", "coordinator_address", "coordinator_public_key", "person_public_key") {
 			return
 		}
-		n, err := store.CreateNetwork(r.Context(), req)
+		n, err := store.createWithPerson(r.Context(), req)
 		respond(w, http.StatusCreated, n, err)
 	})
 	mux.HandleFunc("POST /v1/networks/join", func(w http.ResponseWriter, r *http.Request) {
 		var req JoinNetwork
-		if !decode(w, r, &req, "token", "descriptor") {
+		if !decode(w, r, &req, "token", "descriptor", "person_public_key", "binding") {
 			return
 		}
-		n, err := store.JoinNetwork(r.Context(), req)
+		n, err := store.joinWithPerson(r.Context(), req)
 		respond(w, http.StatusCreated, n, err)
 	})
 	mux.HandleFunc("GET /v1/networks", func(w http.ResponseWriter, r *http.Request) {
@@ -734,7 +767,7 @@ func localNetworkRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateInvite
-		if !decode(w, r, &req, "member", "expires_at") {
+		if !decode(w, r, &req, "member", "expires_at", "host_only") {
 			return
 		}
 		invite, err := store.CreateInvite(r.Context(), r.PathValue("id"), req)

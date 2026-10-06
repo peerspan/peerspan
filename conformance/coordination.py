@@ -112,7 +112,10 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             status, _ = bob.call('POST', f'/v1/networks/{net}/invites', {'member': 'bob', 'expires_at': timestamp(600)})
             assert status == 404
             assert alice.call('POST', f'/v1/networks/{net}/invites', {'member': 'bob', 'expires_at': timestamp(31 * 86400)})[0] == 400
-            invite = alice.cli('network', 'invite', '--network', net, '--member', 'bob', '--expires-at', timestamp(600))
+            # The default is a member invite; host-only invites are tested here.
+            member_invite = alice.cli('network', 'invite', '--network', net, '--member', 'bob', '--expires-at', timestamp(600))
+            assert member_invite['token'].startswith('capsule-member-invite-v1.'), member_invite
+            invite = alice.cli('network', 'invite', '--network', net, '--member', 'bob', '--expires-at', timestamp(600), '--host-only')
             assert invite['network_id'] == net and invite['member'] == 'bob' and invite['token'].startswith('capsule-invite-v1.')
             joined = bob.cli('network', 'join', '--token', invite['token'])
             assert joined['id'] == net and joined['administrator'] is False and joined['member'] == 'bob'
@@ -157,7 +160,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             short = alice.cli('network', 'invite', '--network', net, '--member', 'late', '--expires-at', timestamp(2))
             time.sleep(2.5)
             assert carol.call('POST', '/v1/networks/join', {'token': short['token']})[0] == 400
-            fresh = alice.cli('network', 'invite', '--network', net, '--member', 'carol', '--expires-at', timestamp(600))
+            fresh = alice.cli('network', 'invite', '--network', net, '--member', 'carol', '--expires-at', timestamp(600), '--host-only')
             prefix, fields = decode_token(fresh['token'])
             # coordinator_address is unsigned: pointing it at a closed port
             # proves that each rejection below happened before any contact.

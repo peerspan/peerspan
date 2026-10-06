@@ -48,6 +48,11 @@ def adapter_call(host, token, method, path, body=None, raw=None, socket_name='ad
     conn = UnixHTTPConnection(host.state / socket_name, timeout=timeout)
     try:
         payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
+        # Send headers and body in one write: http.client writes a str body
+        # separately, and a server that answers early (e.g. 404) and closes can
+        # then make the second write fail with a broken pipe.
+        if isinstance(payload, str):
+            payload = payload.encode()
         headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
         if key: headers['X-Capsule-Instance'] = key
         conn.request(method, path, payload, headers)

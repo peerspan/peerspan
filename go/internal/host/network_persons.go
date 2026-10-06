@@ -192,7 +192,8 @@ type Redeemed struct {
 }
 
 func (s *Store) RedeemPerson(ctx context.Context, r RedeemPerson) (Redeemed, error) {
-	token, err := membership.DecodePersonToken(r.Token, time.Now())
+	// A member invite's person half is redeemable here too, until it expires.
+	token, err := membership.DecodeAnyPersonToken(r.Token, time.Now())
 	if err != nil {
 		return Redeemed{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -205,17 +206,24 @@ func (s *Store) RedeemPerson(ctx context.Context, r RedeemPerson) (Redeemed, err
 	if err != nil {
 		return Redeemed{}, err
 	}
-	redeemed, err := token.Redeem(normalized, timestamp(time.Now()))
-	if err != nil {
-		return Redeemed{}, err
-	}
-	if _, err = s.callCoordinator(ctx, n, networkPath(n, "/persons"), map[string]any{"membership": redeemed}); err != nil {
-		return Redeemed{}, err
-	}
-	if _, err = s.SyncNetwork(ctx, n.ID); err != nil {
+	if err = s.redeemPerson(ctx, n, token, normalized); err != nil {
 		return Redeemed{}, err
 	}
 	return Redeemed{PersonID: membership.PersonID(key)}, nil
+}
+
+// redeemPerson signs the person membership with the invite seed, submits it,
+// and refreshes the map so this host stores the new person.
+func (s *Store) redeemPerson(ctx context.Context, n Network, token membership.PersonToken, personKey string) error {
+	redeemed, err := token.Redeem(personKey, timestamp(time.Now()))
+	if err != nil {
+		return err
+	}
+	if _, err = s.callCoordinator(ctx, n, networkPath(n, "/persons"), map[string]any{"membership": redeemed}); err != nil {
+		return err
+	}
+	_, err = s.SyncNetwork(ctx, n.ID)
+	return err
 }
 
 // joinByDescriptor joins a network that an administrator admitted this host's

@@ -43,3 +43,66 @@ fn invalid_arguments_are_rejected_before_resolving_state_or_connecting() {
         assert!(!error.contains("connect to"), "{error}");
     }
 }
+
+#[test]
+fn an_explicit_person_key_that_cannot_be_used_fails_before_any_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let state = state.to_str().unwrap();
+    let missing = dir.path().join("missing").display().to_string();
+    let encrypted = dir.path().join("encrypted");
+    std::fs::write(
+        &encrypted,
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0\n-----END OPENSSH PRIVATE KEY-----\n",
+    )
+    .unwrap();
+    let rsa = dir.path().join("rsa.pub");
+    std::fs::write(&rsa, "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQC0 rsa\n").unwrap();
+    let token = "capsule-invite-v1.e30";
+    for key in [
+        missing.as_str(),
+        encrypted.to_str().unwrap(),
+        rsa.to_str().unwrap(),
+    ] {
+        for args in [
+            vec![
+                "--state",
+                state,
+                "network",
+                "join",
+                "--token",
+                token,
+                "--person-key",
+                key,
+            ],
+            vec![
+                "--state",
+                state,
+                "network",
+                "create",
+                "--name",
+                "team",
+                "--member",
+                "alice",
+                "--coordinator",
+                "127.0.0.1:1",
+                "--coordinator-key",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "--person-key",
+                key,
+            ],
+        ] {
+            let output = Command::new(env!("CARGO_BIN_EXE_capsule-host"))
+                .args(&args)
+                .env_remove("SSH_AUTH_SOCK")
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "{args:?}: {output:?}");
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(error.contains("--person-key"), "{error}");
+            // Refused before any daemon request: no connection attempt, no state.
+            assert!(!error.contains("connect"), "{error}");
+            assert!(!std::path::Path::new(state).exists());
+        }
+    }
+}

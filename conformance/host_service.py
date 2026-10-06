@@ -100,16 +100,28 @@ class Host:
         connection = UnixHTTPConnection(self.state / "admin.sock")
         try:
             payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
+            # Send headers and body in one write: http.client writes a str body
+            # separately, and a server that answers early (e.g. 404) and closes can
+            # then make the second write fail with a broken pipe.
+            if isinstance(payload, str):
+                payload = payload.encode()
             connection.request(method, path, payload, {"Content-Type": "application/json"})
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         finally:
             connection.close()
 
+    # Suites are hermetic about ssh-agent: a developer's own agent must not
+    # turn on person flows. Hosts that test persons set keep_agent.
+    keep_agent = False
+
     def cli(self, *args, success=True):
+        env = dict(os.environ)
+        if not self.keep_agent:
+            env.pop("SSH_AUTH_SOCK", None)
         result = subprocess.run(
             [self.binary, "--state", str(self.state), *args],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=env,
         )
         assert (result.returncode == 0) == success, (args, result.stdout, result.stderr)
         return json.loads(result.stdout) if success else result.stderr

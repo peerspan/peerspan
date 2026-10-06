@@ -31,6 +31,8 @@ NAMESPACE = 'capsule-person-v1'
 
 
 class PersonHost(PeerHost):
+    keep_agent = True
+
     def __init__(self, binary, state):
         super().__init__(binary, state)
         self.daemon_args = (*self.daemon_args, '--coordination-interval', str(INTERVAL))
@@ -322,6 +324,123 @@ def check(coord_binary, creator_binary, joiner_binary, label):
           'OpenSSH-verified SSHSIG, host-signed bindings, sticky unbinding and removal, rotation renewal', flush=True)
 
 
+def use_agent(agent):
+    """Point the CLI at one agent, or at none."""
+    if agent is None:
+        os.environ.pop('SSH_AUTH_SOCK', None)
+    else:
+        os.environ['SSH_AUTH_SOCK'] = agent.socket
+
+
+def check_one_command(coord_binary, creator_binary, joiner_binary, label):
+    """The default flows: create, then one member invite and one join per machine."""
+    with tempfile.TemporaryDirectory(prefix='capsule-onecmd-') as temporary:
+        root = Path(temporary)
+        coord = Coordinator(coord_binary, root / 'coord')
+        hosts = {name: PersonHost(creator_binary if name == 'alice' else joiner_binary, root / name)
+                 for name in ('alice', 'bob', 'bob2', 'carol', 'dave', 'erin', 'frank', 'gina')}
+        (root / 'keys').mkdir()
+        keys = {name: ssh_key(root / 'keys', name) for name in ('alice', 'bob', 'carol', 'dave', 'dave2', 'erin', 'frank', 'gina')}
+        agents = {}
+        saved_sock = os.environ.get('SSH_AUTH_SOCK')
+        try:
+            for name in ('alice', 'bob', 'dave', 'erin', 'frank', 'gina'):
+                (root / f'agent-{name}').mkdir()
+                agents[name] = Agent(root / f'agent-{name}')
+                agents[name].add(keys[name][0])
+            agents['dave'].add(keys['dave2'][0])  # several identities
+            coordinator = coord.start()
+            ids = {name: host.start() for name, host in hosts.items()}
+            alice = hosts['alice']
+
+            def invite(member, *extra):
+                return alice.cli('network', 'invite', '--network', net, '--member', member,
+                                 '--expires-at', timestamp(600), *extra)
+
+            # Create with an agent: the creator is admitted and bound in one command.
+            use_agent(agents['alice'])
+            created = alice.cli('network', 'create', '--name', 'team', '--member', 'alice',
+                                '--coordinator', coord.address, '--coordinator-key', coordinator['public_key'])
+            net = created['id']
+            alice_id = person_id(keys['alice'][2])
+            person = created['person']
+            assert person['person_id'] == alice_id and person['admitted'] and person['bound'] and not person['skipped'], person
+
+            # One member invite, one join: host, person, and binding.
+            bob_invite = invite('bob')
+            assert bob_invite['token'].startswith('capsule-member-invite-v1.'), bob_invite
+            use_agent(agents['bob'])
+            joined = hosts['bob'].cli('network', 'join', '--token', bob_invite['token'])
+            bob_id = person_id(keys['bob'][2])
+            person = joined['person']
+            assert joined['id'] == net and person['person_id'] == bob_id and person['admitted'] and person['bound'], joined
+            assert not person['skipped'], joined
+            # Bob's second machine binds to the already-admitted Bob.
+            joined = hosts['bob2'].cli('network', 'join', '--token', invite('bob')['token'])
+            assert joined['person']['bound'] and joined['person']['admitted'] and joined['person']['skipped'] is None, joined
+
+            # No agent: the host still joins; the reason and exact next command
+            # are reported, and the token's person half stays redeemable.
+            use_agent(None)
+            carol_invite = invite('carol')
+            joined = hosts['carol'].cli('network', 'join', '--token', carol_invite['token'])
+            person = joined['person']
+            assert joined['id'] == net and not person['admitted'] and not person['bound'], joined
+            assert person['skipped'] and person['next'], person
+            hosts['carol'].cli('network', 'redeem-person', '--token', carol_invite['token'], '--person-key', str(keys['carol'][0]))
+            bound = hosts['carol'].cli('network', 'bind', '--network', net, '--person-key', str(keys['carol'][0]))
+            assert bound['person_id'] == person_id(keys['carol'][2]), bound
+
+            # Several agent identities and --no-person skip the person part.
+            use_agent(agents['dave'])
+            joined = hosts['dave'].cli('network', 'join', '--token', invite('dave')['token'])
+            assert joined['id'] == net and joined['person']['skipped'] and not joined['person']['bound'], joined
+            use_agent(agents['erin'])
+            joined = hosts['erin'].cli('network', 'join', '--token', invite('erin')['token'], '--no-person')
+            assert joined['person']['skipped'] and not joined['person']['bound'], joined
+
+            # A taken label skips the person part without undoing the host join.
+            use_agent(agents['frank'])
+            joined = hosts['frank'].cli('network', 'join', '--token', invite('BOB')['token'])
+            person = joined['person']
+            assert joined['id'] == net and person['person_id'] == person_id(keys['frank'][2]), joined
+            # skipped/next wording differs between implementations; check presence.
+            assert not person['admitted'] and not person['bound'] and person['skipped'] and person['next'], person
+
+            # A host-only invite joins the host; an unadmitted person is reported.
+            host_only = invite('gina', '--host-only')
+            assert host_only['token'].startswith('capsule-invite-v1.'), host_only
+            use_agent(agents['gina'])
+            joined = hosts['gina'].cli('network', 'join', '--token', host_only['token'])
+            person = joined['person']
+            assert joined['id'] == net and not person['admitted'] and person['skipped'] and person['next'], person
+
+            alice.cli('network', 'sync', net)
+            members = {m['host_id']: m['person_id'] for m in alice.cli('network', 'members', net)}
+            assert members[ids['alice']['id']] == alice_id and members[ids['bob']['id']] == bob_id, members
+            assert members[ids['bob2']['id']] == bob_id and members[ids['carol']['id']] == person_id(keys['carol'][2])
+            for name in ('dave', 'erin', 'frank', 'gina'):
+                assert members[ids[name]['id']] is None, (name, members)
+            persons = {p['person_id']: p for p in alice.cli('network', 'persons', net)}
+            assert sorted(persons[bob_id]['hosts']) == sorted([ids['bob']['id'], ids['bob2']['id']]), persons
+            assert set(persons) == {alice_id, bob_id, person_id(keys['carol'][2])}, persons
+            for statement in host_statements(alice, net, 'binding'):
+                ssh_key_line = next(k[1] for k in keys.values() if k[2] == statement['person_public_key'])
+                ssh_verify(binding_lines(statement), statement['signature'], ssh_key_line, root)
+        finally:
+            if saved_sock is None:
+                os.environ.pop('SSH_AUTH_SOCK', None)
+            else:
+                os.environ['SSH_AUTH_SOCK'] = saved_sock
+            stop_all(tuple(hosts.values()))
+            coord.stop()
+            coord.logs.close()
+            for agent in agents.values():
+                agent.stop()
+    print(f'PASS {label}: one-command create and member-invite join with an agent, second machine, '
+          'no-agent / several-keys / --no-person / taken-label / host-only skips with exact next commands', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--go', type=Path, required=True)
@@ -334,6 +453,8 @@ def main():
     for creator in binaries:
         for joiner in binaries:
             check(args.coord.resolve(), binaries[creator], binaries[joiner], f'{creator} creator, {joiner} joiners')
+            check_one_command(args.coord.resolve(), binaries[creator], binaries[joiner],
+                              f'{creator} creator, {joiner} joiners')
 
 
 if __name__ == '__main__':

@@ -208,8 +208,16 @@ pub enum NetworkCommand {
         /// Independently verified coordinator public key
         #[arg(long, value_name = "BASE64")]
         coordinator_key: String,
+        /// Person key: an OpenSSH public key (select an ssh-agent identity) or
+        /// unencrypted private key file; default is the agent's only ssh-ed25519 key
+        #[arg(long, value_name = "PATH", conflicts_with = "no_person")]
+        person_key: Option<PathBuf>,
+        /// Do not admit or bind a person
+        #[arg(long)]
+        no_person: bool,
     },
-    /// Issue a one-time invite token (administrator only)
+    /// Issue a one-time invite token (administrator only). By default a member
+    /// invite, which also admits the joiner's person and binds the host.
     Invite {
         #[arg(long, value_name = "ID")]
         network: String,
@@ -217,6 +225,9 @@ pub enum NetworkCommand {
         member: String,
         #[arg(long, value_name = "TIME")]
         expires_at: String,
+        /// Issue a host-only invite
+        #[arg(long)]
+        host_only: bool,
     },
     /// Join a network with an invite token or, if an administrator admitted
     /// this host's key, a network descriptor
@@ -229,6 +240,13 @@ pub enum NetworkCommand {
         token: Option<String>,
         #[arg(long)]
         descriptor: Option<String>,
+        /// Person key: an OpenSSH public key (select an ssh-agent identity) or
+        /// unencrypted private key file; default is the agent's only ssh-ed25519 key
+        #[arg(long, value_name = "PATH", conflicts_with = "no_person")]
+        person_key: Option<PathBuf>,
+        /// Do not admit or bind a person
+        #[arg(long)]
+        no_person: bool,
     },
     /// Admit a person or a host by public key (administrator only)
     Admit {
@@ -579,6 +597,7 @@ impl Command {
                 member,
                 coordinator,
                 coordinator_key,
+                ..
             }) => (
                 Method::POST,
                 "/v1/networks".into(),
@@ -590,12 +609,15 @@ impl Command {
                 network,
                 member,
                 expires_at,
+                host_only,
             }) => (
                 Method::POST,
                 format!("/v1/networks/{}/invites", encoded(&network)),
-                Some(json!({"member":member,"expires_at":expires_at})),
+                Some(json!({"member":member,"expires_at":expires_at,"host_only":host_only})),
             ),
-            Self::Network(NetworkCommand::Join { token, descriptor }) => (
+            Self::Network(NetworkCommand::Join {
+                token, descriptor, ..
+            }) => (
                 Method::POST,
                 "/v1/networks/join".into(),
                 Some(match (token, descriptor) {
