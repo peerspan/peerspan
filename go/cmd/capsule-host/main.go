@@ -40,9 +40,9 @@ Usage:
   capsule-host [--state DIR] grant revoke ID
   capsule-host [--state DIR] message send --peer HOST --grant ID --agent ID --deadline TIME --content TEXT [--request ID]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
-  capsule-host [--state DIR] message inspect|retry|refresh|reply --peer HOST ID
+  capsule-host [--state DIR] message inspect|retry|refresh|reply|origin --peer HOST ID
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
-  capsule-host [--state DIR] adapter list|inspect|revoke [ID]
+  capsule-host [--state DIR] adapter list|inspect|revoke|rotate|connection [ID]
   capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET --grant ID --expires-at TIME [--max-message-bytes N --max-messages N]
   capsule-host [--state DIR] adapter route list --adapter ID
   capsule-host [--state DIR] adapter route revoke ID
@@ -332,7 +332,7 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			})
 			return "POST", "/v1/outbound", m, err
 		}
-		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" || args[1] == "reply" {
+		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" || args[1] == "reply" || args[1] == "origin" {
 			fs := flag.NewFlagSet("message "+args[1], flag.ContinueOnError)
 			fs.SetOutput(errOut)
 			peer := fs.String("peer", "", "receiving host ID")
@@ -345,6 +345,9 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			path := "/v1/outbound/" + url.PathEscape(*peer) + "/" + url.PathEscape(fs.Arg(0))
 			if args[1] == "inspect" {
 				return "GET", path, nil, nil
+			}
+			if args[1] == "origin" {
+				return "GET", path + "/origin", nil, nil
 			}
 			return "POST", path + "/" + args[1], nil, nil
 		}
@@ -396,6 +399,13 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 	case "adapter":
 		if len(args) < 2 {
 			return invalid()
+		}
+		if len(args) == 3 && (args[1] == "rotate" || args[1] == "connection") {
+			method := "GET"
+			if args[1] == "rotate" {
+				method = "POST"
+			}
+			return method, "/v1/adapters/" + url.PathEscape(args[2]) + "/" + args[1], nil, nil
 		}
 		if args[1] == "route" {
 			if len(args) < 3 {

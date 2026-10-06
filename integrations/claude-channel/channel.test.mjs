@@ -12,7 +12,7 @@ test('credentials must be private regular files; symlinks are refused', async ()
   const directory = await mkdtemp(join(tmpdir(), 'capsule-channel-'));
   try {
     const path = join(directory, 'credential.json');
-    const credential = { token: `token_${'a'.repeat(64)}`, adapter: { session_id: `session_${'b'.repeat(32)}` } };
+    const credential = { token: `token_${'a'.repeat(64)}`, adapter: { id: `adapter_${'c'.repeat(32)}`, session_id: `session_${'b'.repeat(32)}` } };
     await writeFile(path, JSON.stringify(credential), { mode: 0o600 });
     assert.deepEqual(await readCredential(path), credential);
     await chmod(path, 0o644);
@@ -25,28 +25,36 @@ test('credentials must be private regular files; symlinks are refused', async ()
   }
 });
 
-test('an uncertain claim stops polling without a second mutating request', async () => {
+test('a lost claim reconnects without forwarding uncertain content again', async () => {
   let claims = 0;
   const messages = [];
+  const notifications = [];
   const sessionId = `session_${'b'.repeat(32)}`;
-  const channel = createChannel({ sessionId, pollMs: 10, log: message => messages.push(message), call: async (method, path) => {
-    if (path === '/adapter/v1/session') return { id: sessionId, state: 'attached' };
-    claims++;
-    throw new Error('could not confirm adapter request');
+  const channel = createChannel({ sessionId, adapterId: `adapter_${'c'.repeat(32)}`,  pollMs: 10, log: message => messages.push(message), call: async (method, path) => {
+    if (path === '/adapter/v1/connect') return { adapter_id: `adapter_${'c'.repeat(32)}`, session_id: sessionId, state: 'ready' };
+    if (path === '/adapter/v1/next') {
+      claims++;
+      if (claims === 1) throw new Error('claim committed but response lost');
+      if (claims === 2) return { delivery: { id: `delivery_${'a'.repeat(32)}`, session_id: sessionId }, request: { content: 'another unclaimed message' } };
+    }
+    return null;
   } });
-  channel.server.oninitialized();
-  channel.server.oninitialized();
-  await delay(30);
-  assert.equal(claims, 1);
-  assert(messages.some(message => message.includes('polling stopped')));
-  await channel.stop();
+  channel.server.notification = async event => notifications.push(event);
+  try {
+    channel.server.oninitialized();
+    channel.server.oninitialized();
+    await delay(350);
+    assert(claims >= 2);
+    assert.deepEqual(notifications.map(event => event.params.content), ['another unclaimed message']);
+    assert(messages.some(message => message.includes('Reconnecting the original instance')));
+  } finally { await channel.stop(); }
 });
 
 test('an uncertain send returns its ID; only an explicit identical retry reuses it', async () => {
   const sessionId = `session_${'b'.repeat(32)}`;
   const sends = [];
-  const channel = createChannel({ sessionId, pollMs: 10, call: async (method, path, body) => {
-    if (path === '/adapter/v1/session') return { id: sessionId, state: 'attached' };
+  const channel = createChannel({ sessionId, adapterId: `adapter_${'c'.repeat(32)}`,  pollMs: 10, call: async (method, path, body) => {
+    if (path === '/adapter/v1/connect') return { adapter_id: `adapter_${'c'.repeat(32)}`, session_id: sessionId, state: 'ready' };
     if (path === '/adapter/v1/send') {
       sends.push(body);
       if (sends.length === 1) throw new Error('response lost');

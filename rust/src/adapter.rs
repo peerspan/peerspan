@@ -1,6 +1,7 @@
 //! Credential-scoped session handoff and bounded replies. This router never
 //! exposes owner administration or arbitrary outbound messaging.
 use crate::{
+    adapter_connection::AdapterAuth,
     api::{blocking, decode},
     model::{Error, Session},
     peer_store::{Connectivity, MessageRequest, Peer, grant_bounds, valid_id},
@@ -114,7 +115,7 @@ fn rows<T: DeserializeOwned>(conn: &Connection, query: &str) -> Result<Vec<T>, E
 fn expires(value: &str) -> Result<DateTime<chrono::FixedOffset>, Error> {
     DateTime::parse_from_rfc3339(value).map_err(|e| Error::Internal(e.into()))
 }
-fn session(conn: &Connection, id: &str) -> Result<Session, Error> {
+pub(crate) fn session(conn: &Connection, id: &str) -> Result<Session, Error> {
     Ok(conn.query_row(
         "SELECT id,agent_id,integration,state,created_at,updated_at FROM sessions WHERE id = ?1",
         [id],
@@ -130,10 +131,13 @@ fn session(conn: &Connection, id: &str) -> Result<Session, Error> {
         },
     )?)
 }
-fn token_hash(token: &str) -> String {
+pub(crate) fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
-pub(crate) fn authority(conn: &Connection, token: &str) -> Result<(Adapter, Session), Error> {
+pub(crate) fn credential_authority(
+    conn: &Connection,
+    token: &str,
+) -> Result<(Adapter, Session), Error> {
     if !valid_id(token, "token", 32) {
         return Err(Error::Forbidden);
     }
@@ -150,12 +154,15 @@ pub(crate) fn authority(conn: &Connection, token: &str) -> Result<(Adapter, Sess
         return Err(Error::Forbidden);
     }
     let ss = session(conn, &a.session_id)?;
-    if ss.state != "attached" {
-        return Err(Error::Forbidden);
-    }
     Ok((a, ss))
 }
-fn owned(conn: &Connection, token: &str, id: &str) -> Result<Delivery, Error> {
+pub(crate) fn authority(
+    conn: &Connection,
+    auth: &AdapterAuth,
+) -> Result<(Adapter, Session), Error> {
+    crate::adapter_connection::authority(conn, auth)
+}
+fn owned(conn: &Connection, token: &AdapterAuth, id: &str) -> Result<Delivery, Error> {
     let (a, ss) = authority(conn, token)?;
     let d: Delivery = read(conn, "SELECT record FROM deliveries WHERE id = ?1", [id])?;
     if d.adapter_id != a.id || d.session_id != ss.id || d.state == "blocked" {
@@ -184,7 +191,7 @@ impl Store {
             return Err(Error::Forbidden);
         }
         let active = {
-            let mut stmt = tx.prepare("SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ?1 AND s.state = 'attached'")?;
+            let mut stmt = tx.prepare("SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ?1 AND (s.state = 'attached' OR EXISTS (SELECT 1 FROM adapter_connections x WHERE x.adapter_id = c.id AND x.recoverable = 1))")?;
             stmt.query_map([&ss.agent_id], |row| row.get::<_, String>(0))?
                 .map(|row| Ok(serde_json::from_str::<Adapter>(&row?)?))
                 .collect::<Result<Vec<_>, Error>>()?
@@ -214,6 +221,10 @@ impl Store {
                 token_hash(&token),
                 serde_json::to_string(&a)?
             ],
+        )?;
+        tx.execute(
+            "INSERT INTO adapter_connections(adapter_id) VALUES (?1)",
+            [&a.id],
         )?;
         append_event(&tx, "adapter.created", &a.id, &now())?;
         tx.commit()?;
@@ -253,10 +264,10 @@ impl Store {
         tx.commit()?;
         Ok(a)
     }
-    pub fn adapter_session(&self, token: &str) -> Result<Session, Error> {
+    pub fn adapter_session(&self, token: &AdapterAuth) -> Result<Session, Error> {
         Ok(authority(&*self.connection()?, token)?.1)
     }
-    pub fn next_delivery(&self, token: &str) -> Result<Option<Handoff>, Error> {
+    pub fn next_delivery(&self, token: &AdapterAuth) -> Result<Option<Handoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = authority(&tx, token)?;
@@ -355,7 +366,7 @@ impl Store {
         })
         .collect()
     }
-    pub fn forwarded(&self, token: &str, id: &str) -> Result<Delivery, Error> {
+    pub fn forwarded(&self, token: &AdapterAuth, id: &str) -> Result<Delivery, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let mut d = owned(&tx, token, id)?;
@@ -368,7 +379,7 @@ impl Store {
         tx.commit()?;
         Ok(d)
     }
-    pub fn reply(&self, token: &str, id: &str, content: String) -> Result<Reply, Error> {
+    pub fn reply(&self, token: &AdapterAuth, id: &str, content: String) -> Result<Reply, Error> {
         if content.is_empty() || content.len() > 65536 {
             return Err(Error::Invalid("invalid reply content".into()));
         }
@@ -477,7 +488,23 @@ struct Empty {}
 struct ReplyRequest {
     content: String,
 }
-pub(crate) fn token(headers: &HeaderMap) -> String {
+pub(crate) fn token(headers: &HeaderMap) -> AdapterAuth {
+    let value = bearer(headers);
+    let instance = if headers.get_all("X-Capsule-Instance").iter().count() == 1 {
+        headers
+            .get("X-Capsule-Instance")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    } else {
+        String::new()
+    };
+    AdapterAuth {
+        token: value,
+        instance,
+    }
+}
+fn bearer(headers: &HeaderMap) -> String {
     if headers.get_all("Authorization").iter().count() != 1 {
         return String::new();
     }
@@ -490,6 +517,7 @@ pub(crate) fn token(headers: &HeaderMap) -> String {
 }
 pub fn router(store: Arc<Store>) -> Router {
     Router::new()
+        .merge(crate::adapter_connection::adapter_routes())
         .merge(crate::adapter_outbound::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
@@ -544,6 +572,7 @@ async fn reply(
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
+        .merge(crate::adapter_connection::local_routes())
         .merge(crate::adapter_outbound::local_routes())
         .route("/v1/adapters", get(adapters).post(create))
         .route("/v1/adapters/{id}", get(adapter))

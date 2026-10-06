@@ -4,11 +4,13 @@ This slice connects an explicitly opted-in Claude Code session to either host im
 
 The [outbound extension](adapter-outbound-contract.md) adds owner-defined destinations, agent-initiated sends, and automatic replies bound to the originating session.
 
+The [recovery extension](adapter-recovery-contract.md) adds mandatory instance binding and leases, recovery of the same attachment after daemon restart, and owner-controlled token rotation.
+
 ## Credentials and routing
 
-An owner attaches a session and runs `adapter create --session ID --expires-at TIME`. The response contains a random 256-bit bearer token returned only on creation. The database stores its SHA256 digest, session, expiry, and revocation state. An agent can have only one unexpired, unrevoked credential on an attached session. Owners can list, inspect, and revoke credentials. Credentials never confer administration, arbitrary outbound messaging, shell, filesystem, or tool-approval authority.
+An owner attaches a session and runs `adapter create --session ID --expires-at TIME`. The response contains a random 256-bit bearer token returned only on creation or owner rotation. The database stores its SHA256 digest, session, expiry, and revocation state. An agent can have only one unexpired, unrevoked authorization on an attached or recoverable session. Owners can list, inspect, rotate, and revoke credentials. Credentials never confer administration, arbitrary outbound messaging, shell, filesystem, or tool-approval authority.
 
-Adapters call only `adapter.sock`, a private Unix socket with its own router. Every request requires `Authorization: Bearer TOKEN` and an attached session with a valid credential. Detach, credential revocation/expiry, and daemon restart invalidate access. The existing owner-local OS-account trust boundary remains: these credentials do not isolate a malicious process with full access to that same account and its state directory.
+Adapters call only `adapter.sock`, a private Unix socket with its own router. Adapters first bind an instance through `/adapter/v1/connect`. Subsequent requests require `Authorization: Bearer TOKEN`, `X-Capsule-Instance`, an attached session, and a valid connection lease. Owner detach and credential revocation/expiry stop access. Daemon restart invalidates leases, which the original running adapter can recover under the recovery extension. The existing owner-local OS-account trust boundary remains: these credentials do not isolate a malicious process with full access to that same account and its state directory.
 
 ## Handoff and reply
 
@@ -33,9 +35,11 @@ Database version 4 adds credential, delivery, received-reply, and outbound-reply
 
 Version 5 adds outbound routes and originating-session bindings, preserving version 4 state. See the outbound extension for budgets and reply-notification states.
 
+Version 6 adds connection leases and instance digests. A bound adapter can recover its original detached attachment. Older unbound state stays detached on upgrade; stored messages, replies, routes, and budgets remain intact, without inferring a live process from registry metadata.
+
 ## Claude Code adapter
 
-The adapter uses the official MCP SDK over stdio, declares only `claude/channel`, and exposes `list_destinations`, `send`, and a correlated `reply` tool. It reads its credential from a private file, calls only the adapter socket, and never logs the token or message contents. It starts polling after MCP initialization and stops on authentication failure or an uncertain handoff. Writing an MCP notification is distinct from receiving a model reply.
+The adapter uses the official MCP SDK over stdio, declares only `claude/channel`, and exposes `list_destinations`, `send`, and a correlated `reply` tool. It reads its credential from a private file, calls only the adapter socket, and never logs the token, instance secret, or message contents. It connects after MCP initialization and renews its lease while polling. Transient failures reconnect the original instance without redelivering uncertain content; owner withdrawal or a changed attachment stops access. Writing an MCP notification is distinct from receiving a model reply.
 
 Claude Code [Channels](https://code.claude.com/docs/en/channels) are a research preview requiring explicit session opt-in and applicable organization policy. The [reference](https://code.claude.com/docs/en/channels-reference) describes development loading, message notifications, and reply tools. An unconfigured running process is not automatically attachable. Record the actual Claude version, negotiated MCP revision, observed behavior while busy, and live-test result separately from deterministic conformance.
 

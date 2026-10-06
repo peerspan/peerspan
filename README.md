@@ -56,7 +56,7 @@ Both expose the same commands:
 /tmp/capsule-host-go --state /tmp/capsule-go-state activity
 ```
 
-Use the Rust binary and its state directory for the same commands. Without `--state`, both default to `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Existing state directories must be private (0700). Agent identities survive restarts; previous session attachments become detached and remain inspectable.
+Use the Rust binary and its state directory for the same commands. Without `--state`, both default to `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Existing state directories must be private (0700). Agent identities survive restarts; previous session attachments become detached and remain inspectable. A bound adapter can recover its original attachment with its live process-instance secret.
 
 See the [Go guide](go/README.md) and [Rust guide](rust/README.md) for implementation details. Current implementations require Unix; validation has been run on Linux.
 
@@ -88,6 +88,8 @@ The [Claude Code channel](integrations/claude-channel/README.md) connects one op
 
 The [adapter contract](docs/agent-adapter-contract.md) and [outbound extension](docs/adapter-outbound-contract.md) define scope, budgets, handoff, reply, and restart behavior. A [live experiment](docs/results/agent-exchange-live.json) verified two running Claude Code sessions initiating messages and observing automatic replies in both directions over Go↔Rust. Full conversations, tasks, remote tools, and host-managed sessions remain subsequent work.
 
+The [recovery extension](docs/adapter-recovery-contract.md) adds connection leases, recovery by the original running adapter after daemon restart, and token rotation that preserves authorization and budgets. `adapter connection ID` distinguishes registered, ready, offline, and withdrawn access. The [live recovery experiment](docs/results/agent-recovery-live.json) restarts each originating daemon and rotates its token while keeping the same two Claude sessions running.
+
 ## Verify both implementations
 
 ```bash
@@ -101,6 +103,7 @@ python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/targ
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --coord /tmp/capsule-coord
+python3 conformance/adapter_recovery.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 ```
 
 The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures additionally require OpenSSL.

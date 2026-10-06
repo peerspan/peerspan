@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import queue
+import secrets
 import sqlite3
 import stat
 import subprocess
@@ -22,17 +23,42 @@ from host_service import UnixHTTPConnection
 from peer_messaging import PeerHost, fixture_context, timestamp, wire
 
 
-def adapter_call(host, token, method, path, body=None, raw=None, socket_name='adapter.sock'):
+def instance_for(host, token):
+    if not hasattr(host, '_test_adapter_instances'):
+        host._test_adapter_instances = {}
+    if token not in host._test_adapter_instances:
+        records = sql(host, 'SELECT record FROM adapter_credentials WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
+        adapter = json.loads(records[0][0]) if records else {'id':'adapter_'+'0'*32,'session_id':'session_'+'0'*32}
+        host._test_adapter_instances[token]={'instance':'instance_'+secrets.token_hex(32),'pid':host.process.pid,'adapter':adapter}
+    return host._test_adapter_instances[token]
+
+
+def adapter_call(host, token, method, path, body=None, raw=None, socket_name='adapter.sock',
+                 instance=None, auto_connect=True):
+    # Raw API calls and the deterministic MCP consumer simulate one test instance.
+    # A daemon restart never automatically resumes this raw fixture client.
+    owned = instance_for(host, token)
+    key = owned['instance'] if instance is None else instance
+    if (auto_connect and path.startswith('/adapter/v1/') and path != '/adapter/v1/connect'
+            and socket_name == 'adapter.sock' and owned['pid'] == host.process.pid):
+        adapter_call(host, token, 'POST', '/adapter/v1/connect',
+                     {'instance_id': key}, instance=key, auto_connect=False)
+    if path == '/adapter/v1/connect' and body is not None:
+        body = {'adapter_id':owned['adapter']['id'],'session_id':owned['adapter']['session_id'], **body}
     conn = UnixHTTPConnection(host.state / socket_name)
     try:
         payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
-        conn.request(method, path, payload, {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+        headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
+        if key: headers['X-Capsule-Instance'] = key
+        conn.request(method, path, payload, headers)
         response = conn.getresponse()
         encoded = response.read()
         try:
             value = json.loads(encoded)
         except json.JSONDecodeError:
             value = encoded.decode()
+        if path == '/adapter/v1/connect' and response.status == 200:
+            owned['pid'] = host.process.pid
         return response.status, value
     finally:
         conn.close()
@@ -62,7 +88,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             messages = receiver.cli('message', 'list')
             activity = receiver.cli('activity')
             receiver.stop()
-            for table in ['adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
+            for table in ['adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
                 sql(receiver, 'DROP TABLE ' + table)
             sql(receiver, 'PRAGMA user_version = 3')
             # Force failure after migration begins; no partial extension may persist.
@@ -76,7 +102,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             receiver.binary = str(replacement_binary)
             identity = receiver.start()
             assert identity['id'] == b['id'] and identity['public_key'] == b['public_key']
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 5
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 6
             assert receiver.cli('message', 'list') == messages
             assert receiver.cli('activity') == activity
             assert receiver.cli('grant', 'list') == [grant]
@@ -85,18 +111,30 @@ def check_v2_migration(original_binary, replacement_binary, label):
             assert sender.cli('message', 'inspect', '--peer', b['id'], sent['request']['request_id']) == sent
         finally:
             sender.stop(); receiver.stop()
-    print(label + ': v3→v5 migration/rollback passed', flush=True)
+    print(label + ': v3→v6 migration/rollback passed', flush=True)
 
 
 class Channel:
     def __init__(self, node, script, receiver, secret, directory):
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / 'credential.json'
-        path.write_text(json.dumps(secret))
+        self.credential_path = path
+        path.write_text(json.dumps({**secret, 'test_instance': instance_for(receiver, secret['token'])['instance']}))
         path.chmod(0o600)
         self.logs = tempfile.TemporaryFile()
-        self.process = subprocess.Popen([str(node), str(script), '--socket', str(receiver.state / 'adapter.sock'),
-                                         '--credential-file', str(path), '--poll-ms', '50'],
+        # The launcher supplies the same synthetic instance used by raw fixtures;
+        # the production entry point always generates a fresh key in memory.
+        launcher = directory / 'test-channel.mjs'
+        sdk = script.parent / 'node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js'
+        launcher.write_text(
+            'import { readCredential, configuredChannel } from ' + json.dumps(script.as_uri()) + ';\n'
+            'import { StdioServerTransport } from ' + json.dumps(sdk.as_uri()) + ';\n'
+            'const [socket,path] = process.argv.slice(2);\n'
+            'const secret = await readCredential(path);\n'
+            'const channel = await configuredChannel(socket,path,{instanceId:secret.test_instance,pollMs:50});\n'
+            'process.stdin.once("end",()=>{void channel.stop()});\n'
+            'await channel.server.connect(new StdioServerTransport());\n')
+        self.process = subprocess.Popen([str(node), str(launcher), str(receiver.state / 'adapter.sock'), str(path)],
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.logs, text=True)
         self.events = queue.Queue()
         self.notifications = []
@@ -325,8 +363,9 @@ def check(sender_binary, receiver_binary, node, script, label):
                 assert actual['id'] == expected['id'] and actual['public_key'] == expected['public_key']
                 # Compare instants; state written before both used one spelling may differ.
                 assert datetime.fromisoformat(actual['created_at'].replace('Z', '+00:00')) == datetime.fromisoformat(expected['created_at'].replace('Z', '+00:00'))
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 5
-            assert adapter_call(receiver, token, 'POST', '/adapter/v1/next', {})[0] == 403
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 6
+            assert adapter_call(receiver, token, 'POST', '/adapter/v1/next', {})[0] == 503
+            receiver.cli('session', 'detach', session['id'])
             assert receiver.cli('delivery', 'inspect', uncertain['id']) == uncertain
             assert sender.cli('message', 'reply', '--peer', b['id'], rid) == saved
             session2 = receiver.cli('session', 'attach', '--agent', agent['id'], '--integration', 'test')

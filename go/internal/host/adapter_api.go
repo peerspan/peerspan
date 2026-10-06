@@ -17,16 +17,20 @@ import (
 // AdapterHandler has no owner administration or arbitrary outbound routes.
 func AdapterHandler(store *Store) http.Handler {
 	mux := http.NewServeMux()
-	token := func(r *http.Request) string {
+	token := func(r *http.Request) AdapterAuth {
 		values := r.Header.Values("Authorization")
 		if len(values) != 1 {
-			return ""
+			return AdapterAuth{}
 		}
 		value, ok := strings.CutPrefix(values[0], "Bearer ")
 		if !ok {
-			return ""
+			return AdapterAuth{}
 		}
-		return value
+		instance := r.Header.Values("X-Capsule-Instance")
+		if len(instance) != 1 {
+			return AdapterAuth{Token: value}
+		}
+		return AdapterAuth{Token: value, Instance: instance[0]}
 	}
 	mux.HandleFunc("GET /adapter/v1/session", func(w http.ResponseWriter, r *http.Request) {
 		tx, err := store.db.BeginTx(r.Context(), nil)
@@ -63,10 +67,12 @@ func AdapterHandler(store *Store) http.Handler {
 		respond(w, 200, reply, err)
 	})
 	adapterOutboundRoutes(mux, store, token)
+	adapterConnectionRoutes(mux, store, token)
 	return mux
 }
 func localAdapterRoutes(mux *http.ServeMux, store *Store) {
 	localOutboundRoutes(mux, store)
+	localConnectionRoutes(mux, store)
 	mux.HandleFunc("POST /v1/adapters", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateAdapter
 		if !decode(w, r, &req, "session_id", "expires_at") {

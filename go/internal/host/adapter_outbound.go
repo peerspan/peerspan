@@ -67,6 +67,32 @@ type ReplyHandoff struct {
 	Reply    Reply         `json:"reply"`
 }
 
+type OutboundOrigin struct {
+	PeerHostID    string         `json:"peer_host_id"`
+	RequestID     string         `json:"request_id"`
+	AdapterID     string         `json:"adapter_id"`
+	SessionID     string         `json:"session_id"`
+	RouteID       string         `json:"route_id"`
+	ReplyDelivery *ReplyDelivery `json:"reply_delivery"`
+}
+
+// OutboundOrigin exposes durable session and notification state to the owner.
+func (s *Store) OutboundOrigin(ctx context.Context, peer, id string) (OutboundOrigin, error) {
+	out := OutboundOrigin{PeerHostID: peer, RequestID: id}
+	var delivery sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT adapter_id,session_id,route_id,reply_delivery FROM adapter_outbound WHERE peer = ? AND request_id = ?`, peer, id).Scan(&out.AdapterID, &out.SessionID, &out.RouteID, &delivery)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	if err != nil {
+		return out, err
+	}
+	if delivery.Valid {
+		err = json.Unmarshal([]byte(delivery.String), &out.ReplyDelivery)
+	}
+	return out, err
+}
+
 func validRouteName(name string) bool {
 	if len(name) < 1 || len(name) > 64 {
 		return false
@@ -182,7 +208,7 @@ func (s *Store) RevokeOutboundRoute(ctx context.Context, id string) (OutboundRou
 	}
 	return r, tx.Commit()
 }
-func (s *Store) Destinations(ctx context.Context, token string) ([]Destination, error) {
+func (s *Store) Destinations(ctx context.Context, token AdapterAuth) ([]Destination, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -218,7 +244,7 @@ func (s *Store) Destinations(ctx context.Context, token string) ([]Destination, 
 	}
 	return items, rows.Err()
 }
-func (s *Store) PrepareAdapterSend(ctx context.Context, token string, r AdapterSend) (OutboundMessage, error) {
+func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r AdapterSend) (OutboundMessage, error) {
 	if !validRouteName(r.Destination) || !validID(r.RequestID, "request", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
 		return OutboundMessage{}, ErrInvalid
 	}
@@ -312,7 +338,7 @@ func insertOutbound(ctx context.Context, tx *sql.Tx, out OutboundMessage) error 
 	}
 	return appendEvent(ctx, tx, "message.queued", out.PeerHostID+"/"+out.Request.RequestID, timestamp(time.Now()))
 }
-func (s *Store) NextReply(ctx context.Context, token string) (*ReplyHandoff, error) {
+func (s *Store) NextReply(ctx context.Context, token AdapterAuth) (*ReplyHandoff, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -353,7 +379,7 @@ func (s *Store) NextReply(ctx context.Context, token string) (*ReplyHandoff, err
 	}
 	return &ReplyHandoff{Delivery: d, Reply: reply}, tx.Commit()
 }
-func (s *Store) ReplyForwarded(ctx context.Context, token, id string) (ReplyDelivery, error) {
+func (s *Store) ReplyForwarded(ctx context.Context, token AdapterAuth, id string) (ReplyDelivery, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ReplyDelivery{}, err
@@ -392,7 +418,7 @@ func (s *Store) nextReplyJob(ctx context.Context) (*replyJob, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT o.peer,o.request_id,c.record FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id JOIN sessions ss ON ss.id = o.session_id WHERE ss.state = 'attached' AND o.next_poll_at <= ? AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) ORDER BY o.next_poll_at,o.rowid LIMIT 100`, time.Now().UnixMilli())
+	rows, err := tx.QueryContext(ctx, `SELECT o.peer,o.request_id,c.record FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id JOIN sessions ss ON ss.id = o.session_id JOIN adapter_connections ac ON ac.adapter_id = o.adapter_id WHERE ac.lease_until_ms > ? AND ss.state = 'attached' AND o.next_poll_at <= ? AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) ORDER BY o.next_poll_at,o.rowid LIMIT 100`, time.Now().UnixMilli(), time.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

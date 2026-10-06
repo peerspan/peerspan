@@ -163,7 +163,7 @@ class ClaudeSession:
                 if entry.get("type") == "assistant":
                     content = entry.get("message", {}).get("content", [])
                     if any(
-                        block.get("type") == "text" and marker in block.get("text", "")
+                        block.get("type") == "text" and block.get("text", "").strip() == marker
                         for block in content
                     ):
                         return True

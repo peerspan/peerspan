@@ -98,7 +98,15 @@ func (s *Store) DetachSession(ctx context.Context, id string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	if session.State == SessionDetached {
+	result, err := tx.ExecContext(ctx, `UPDATE adapter_connections SET recoverable = 0,lease_until_ms = 0 WHERE adapter_id IN (SELECT id FROM adapter_credentials WHERE session_id = ?) AND recoverable = 1`, id)
+	if err != nil {
+		return Session{}, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return Session{}, err
+	}
+	if session.State == SessionDetached && changed == 0 {
 		return session, nil
 	}
 	session.State, session.UpdatedAt = SessionDetached, time.Now().UTC()

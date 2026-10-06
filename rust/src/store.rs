@@ -60,7 +60,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=5).contains(&version) {
+        if !(0..=6).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -78,6 +78,9 @@ impl Store {
         }
         if version < 5 {
             tx.execute_batch(crate::adapter_outbound::SCHEMA)?;
+        }
+        if version < 6 {
+            tx.execute_batch(crate::adapter_connection::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -124,6 +127,7 @@ impl Store {
             "UPDATE sessions SET state = 'detached', updated_at = ?1 WHERE state = 'attached'",
             [&at],
         )?;
+        tx.execute("UPDATE adapter_connections SET lease_until_ms = 0", [])?;
         for id in stale {
             append_event(&tx, "session.disconnected", &id, &at)?;
         }
@@ -283,7 +287,8 @@ impl Store {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let mut session = tx.query_row("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?1", [id], read_session)?;
-        if session.state == "detached" {
+        let changed=tx.execute("UPDATE adapter_connections SET recoverable = 0,lease_until_ms = 0 WHERE adapter_id IN (SELECT id FROM adapter_credentials WHERE session_id = ?1) AND recoverable = 1",[id])?;
+        if session.state == "detached" && changed == 0 {
             return Ok(session);
         }
         session.state = "detached".into();

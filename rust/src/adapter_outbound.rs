@@ -1,6 +1,7 @@
 //! Owner-defined outbound destinations and automatic, session-bound replies.
 use crate::{
     adapter::{Reply, authority, read, token},
+    adapter_connection::AdapterAuth,
     api::{blocking, decode},
     model::Error,
     peer_store::{MessageRequest, OutboundMessage, valid_id},
@@ -81,6 +82,16 @@ pub struct ReplyHandoff {
     pub delivery: ReplyDelivery,
     pub reply: Reply,
 }
+
+#[derive(Serialize)]
+pub struct OutboundOrigin {
+    pub peer_host_id: String,
+    pub request_id: String,
+    pub adapter_id: String,
+    pub session_id: String,
+    pub route_id: String,
+    pub reply_delivery: Option<ReplyDelivery>,
+}
 fn expiration(text: &str) -> Result<DateTime<chrono::FixedOffset>, Error> {
     DateTime::parse_from_rfc3339(text).map_err(|e| Error::Internal(e.into()))
 }
@@ -94,6 +105,18 @@ fn valid_name(name: &str) -> bool {
         })
 }
 impl Store {
+    pub fn outbound_origin(&self, peer: &str, id: &str) -> Result<OutboundOrigin, Error> {
+        let conn = self.connection()?;
+        let (adapter_id,session_id,route_id,delivery):(String,String,String,Option<String>)=conn.query_row("SELECT adapter_id,session_id,route_id,reply_delivery FROM adapter_outbound WHERE peer = ?1 AND request_id = ?2",params![peer,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+        Ok(OutboundOrigin {
+            peer_host_id: peer.to_owned(),
+            request_id: id.to_owned(),
+            adapter_id,
+            session_id,
+            route_id,
+            reply_delivery: delivery.map(|s| serde_json::from_str(&s)).transpose()?,
+        })
+    }
     pub fn create_outbound_route(&self, r: CreateOutboundRoute) -> Result<OutboundRoute, Error> {
         let exp = DateTime::parse_from_rfc3339(&r.expires_at)
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
@@ -188,7 +211,7 @@ impl Store {
         tx.commit()?;
         Ok(r)
     }
-    pub fn destinations(&self, token: &str) -> Result<Vec<Destination>, Error> {
+    pub fn destinations(&self, token: &AdapterAuth) -> Result<Vec<Destination>, Error> {
         let conn = self.connection()?;
         let (a, _) = authority(&conn, token)?;
         let mut stmt=conn.prepare("SELECT r.record,(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) FROM adapter_routes r WHERE adapter_id = ?1 ORDER BY name")?;
@@ -212,7 +235,7 @@ impl Store {
     }
     pub fn prepare_adapter_send(
         &self,
-        token: &str,
+        token: &AdapterAuth,
         r: AdapterSend,
     ) -> Result<OutboundMessage, Error> {
         if !valid_name(&r.destination)
@@ -336,7 +359,7 @@ impl Store {
         tx.commit()?;
         Ok(out)
     }
-    pub fn next_reply(&self, token: &str) -> Result<Option<ReplyHandoff>, Error> {
+    pub fn next_reply(&self, token: &AdapterAuth) -> Result<Option<ReplyHandoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = authority(&tx, token)?;
@@ -364,7 +387,7 @@ impl Store {
         tx.commit()?;
         Ok(Some(ReplyHandoff { delivery: d, reply }))
     }
-    pub fn reply_forwarded(&self, token: &str, id: &str) -> Result<ReplyDelivery, Error> {
+    pub fn reply_forwarded(&self, token: &AdapterAuth, id: &str) -> Result<ReplyDelivery, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = authority(&tx, token)?;
@@ -390,7 +413,7 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let candidates = {
-            let mut stmt=tx.prepare("SELECT o.peer,o.request_id,c.record FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id JOIN sessions ss ON ss.id = o.session_id WHERE ss.state = 'attached' AND o.next_poll_at <= ?1 AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) ORDER BY o.next_poll_at,o.rowid LIMIT 100")?;
+            let mut stmt=tx.prepare("SELECT o.peer,o.request_id,c.record FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id JOIN sessions ss ON ss.id = o.session_id JOIN adapter_connections ac ON ac.adapter_id = o.adapter_id WHERE ac.lease_until_ms > ?1 AND ss.state = 'attached' AND o.next_poll_at <= ?1 AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) ORDER BY o.next_poll_at,o.rowid LIMIT 100")?;
             stmt.query_map([Utc::now().timestamp_millis()], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
@@ -437,9 +460,18 @@ pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
+        .route("/v1/outbound/{peer}/{id}/origin", get(origin))
         .route("/v1/adapter-routes", post(create))
         .route("/v1/adapters/{id}/routes", get(routes))
         .route("/v1/adapter-routes/{id}/revoke", post(revoke))
+}
+async fn origin(
+    State(store): State<Arc<Store>>,
+    Path((peer, id)): Path<(String, String)>,
+) -> Result<Json<OutboundOrigin>, Error> {
+    Ok(Json(
+        blocking(store, move |s| s.outbound_origin(&peer, &id)).await?,
+    ))
 }
 async fn destinations(
     State(store): State<Arc<Store>>,

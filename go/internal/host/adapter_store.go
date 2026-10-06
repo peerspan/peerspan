@@ -91,7 +91,7 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 	if session.State != SessionAttached {
 		return AdapterCredential{}, ErrForbidden
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ? AND s.state = 'attached'`, session.AgentID)
+	rows, err := tx.QueryContext(ctx, `SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ? AND (s.state = 'attached' OR EXISTS (SELECT 1 FROM adapter_connections x WHERE x.adapter_id = c.id AND x.recoverable = 1))`, session.AgentID)
 	if err != nil {
 		return AdapterCredential{}, err
 	}
@@ -138,6 +138,9 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_credentials VALUES (?, ?, ?, ?)`, id, r.SessionID, tokenHash(token), string(data)); err != nil {
 		return AdapterCredential{}, err
 	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_connections(adapter_id) VALUES (?)`, id); err != nil {
+		return AdapterCredential{}, err
+	}
 	if err = appendEvent(ctx, tx, "adapter.created", id, timestamp(time.Now())); err != nil {
 		return AdapterCredential{}, err
 	}
@@ -176,7 +179,7 @@ func (s *Store) RevokeAdapter(ctx context.Context, id string) (Adapter, error) {
 	}
 	return a, tx.Commit()
 }
-func adapterAuthority(ctx context.Context, tx *sql.Tx, token string) (Adapter, Session, error) {
+func credentialAuthority(ctx context.Context, tx *sql.Tx, token string) (Adapter, Session, error) {
 	if !validID(token, "token", 32) {
 		return Adapter{}, Session{}, ErrForbidden
 	}
@@ -195,13 +198,10 @@ func adapterAuthority(ctx context.Context, tx *sql.Tx, token string) (Adapter, S
 		return a, Session{}, ErrForbidden
 	}
 	ss, err := scanSession(tx.QueryRowContext(ctx, `SELECT id,agent_id,integration,state,created_at,updated_at FROM sessions WHERE id = ?`, a.SessionID))
-	if err == nil && ss.State != SessionAttached {
-		err = ErrForbidden
-	}
 	return a, ss, err
 }
 
-func (s *Store) NextDelivery(ctx context.Context, token string) (*Handoff, error) {
+func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -317,7 +317,7 @@ func (s *Store) Deliveries(ctx context.Context, after, limit int64) ([]DeliveryR
 	}
 	return items, rows.Err()
 }
-func ownedDelivery(ctx context.Context, tx *sql.Tx, token, id string) (Delivery, error) {
+func ownedDelivery(ctx context.Context, tx *sql.Tx, token AdapterAuth, id string) (Delivery, error) {
 	a, ss, err := adapterAuthority(ctx, tx, token)
 	if err != nil {
 		return Delivery{}, err
@@ -341,7 +341,7 @@ func updateDelivery(ctx context.Context, tx *sql.Tx, d Delivery, kind string) er
 	}
 	return appendEvent(ctx, tx, kind, d.ID, d.UpdatedAt)
 }
-func (s *Store) Forwarded(ctx context.Context, token, id string) (Delivery, error) {
+func (s *Store) Forwarded(ctx context.Context, token AdapterAuth, id string) (Delivery, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Delivery{}, err
@@ -360,7 +360,7 @@ func (s *Store) Forwarded(ctx context.Context, token, id string) (Delivery, erro
 	}
 	return d, tx.Commit()
 }
-func (s *Store) Reply(ctx context.Context, token, id, content string) (Reply, error) {
+func (s *Store) Reply(ctx context.Context, token AdapterAuth, id, content string) (Reply, error) {
 	if content == "" || !utf8.ValidString(content) || len(content) > 65536 {
 		return Reply{}, ErrInvalid
 	}

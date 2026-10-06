@@ -24,7 +24,9 @@ The noninteractive stream-json runs connected to MCP and the adapter wrote its n
 
 The [two-agent experiment](results/agent-exchange-live.json) kept two opted-in Claude Code sessions running against Go↔Rust daemons. Alice used the destination and send tools, Bob replied, and Alice's model output confirmed its automatic response event. Bob independently initiated the reverse exchange and observed Alice's response. Neither exchange used owner CLI send/fetch commands. Only the three Capsule tools were enabled; built-in tools and permission relay were disabled.
 
-These were separate daemon state directories connected over loopback, not separate physical machines. Deterministic conformance covers all four Go/Rust pairings, scope, rollback, expiry/revocation, and reopening each other's state without redelivering uncertain handoffs. Model-driven adapter/host restart recovery and the full two-developer, three-capability acceptance scenario remain to be demonstrated.
+These were separate daemon state directories connected over loopback, not separate physical machines. Deterministic conformance covers all four Go/Rust pairings, scope, rollback, expiry/revocation, and reopening each other's state without redelivering uncertain handoffs. The full two-developer, three-capability acceptance scenario remains to be demonstrated.
+
+The [live recovery experiment](results/agent-recovery-live.json) used Claude Code 2.1.290. After each agent initiated an exchange, its originating daemon restarted under the other implementation and its token rotated. The same two Claude processes remained running, recovered their original session bindings, and observed their automatic replies. No owner CLI send/fetch commands or duplicate sends were used. This proves daemon recovery by the original adapter; replacing the adapter process requires a fresh owner-authorized attachment.
 
 ## Acceptance experiment checklist
 

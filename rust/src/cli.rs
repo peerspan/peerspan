@@ -178,6 +178,11 @@ pub enum GrantCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum MessageCommand {
+    Origin {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
     Send {
         #[arg(long)]
         peer: String,
@@ -222,6 +227,12 @@ pub enum MessageCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AdapterCommand {
+    Rotate {
+        id: String,
+    },
+    Connection {
+        id: String,
+    },
     #[command(subcommand)]
     Route(RouteCommand),
 
@@ -374,6 +385,11 @@ impl Command {
                 format!("/v1/messages?after={after}&limit={limit}"),
                 None,
             ),
+            Self::Message(MessageCommand::Origin { peer, id }) => (
+                Method::GET,
+                format!("/v1/outbound/{}/{}/origin", encoded(&peer), encoded(&id)),
+                None,
+            ),
             Self::Message(MessageCommand::Inspect { peer, id }) => (
                 Method::GET,
                 format!("/v1/outbound/{}/{}", encoded(&peer), encoded(&id)),
@@ -424,6 +440,16 @@ impl Command {
             Self::Network(NetworkCommand::Sync { id }) => (
                 Method::POST,
                 format!("/v1/networks/{}/sync", encoded(&id)),
+                None,
+            ),
+            Self::Adapter(AdapterCommand::Rotate { id }) => (
+                Method::POST,
+                format!("/v1/adapters/{}/rotate", encoded(&id)),
+                None,
+            ),
+            Self::Adapter(AdapterCommand::Connection { id }) => (
+                Method::GET,
+                format!("/v1/adapters/{}/connection", encoded(&id)),
                 None,
             ),
             Self::Adapter(AdapterCommand::Route(RouteCommand::Add {

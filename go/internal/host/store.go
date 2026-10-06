@@ -122,7 +122,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 5 {
+	if version < 0 || version > 6 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -156,6 +156,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 			return nil, err
 		}
 	}
+	if version < 6 {
+		if _, err = tx.ExecContext(ctx, adapterConnectionSchema); err != nil {
+			return nil, err
+		}
+	}
 	var created string
 	err = tx.QueryRowContext(ctx, `SELECT private_key, created_at FROM identity WHERE singleton = 1`).Scan(&key, &created)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -181,7 +186,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err != nil {
 		return nil, err
 	}
-	// Registry state survives a restart; a previous process's attachment does not.
+	// Leases never survive restart. Only a bound instance can recover its attachment.
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM sessions WHERE state = 'attached'`)
 	if err != nil {
 		return nil, err
@@ -202,6 +207,9 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	now := timestamp(time.Now())
 	if _, err = tx.ExecContext(ctx, `UPDATE sessions SET state = 'detached', updated_at = ? WHERE state = 'attached'`, now); err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_connections SET lease_until_ms = 0`); err != nil {
 		return nil, err
 	}
 	for _, id := range stale {

@@ -235,9 +235,11 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             retried = bob.cli('message', 'retry', '--peer', a['id'], stale['request']['request_id'])
             assert retried['state'] == 'accepted', retried
             assert len(alice.cli('message', 'list')) == 7
-            # The queued connected-only message is handed off once synced again.
-            session = alice.cli('session', 'attach', '--agent', agent['id'], '--integration', 'test')
-            token = credential(alice, session)['token']
+            # Recover the same authorized instance after daemon restart; syncing
+            # allows the queued connected-only message to be handed off.
+            from agent_adapter import instance_for
+            assert adapter_call(alice, token, 'POST', '/adapter/v1/connect', {
+                'instance_id': instance_for(alice, token)['instance']})[0] == 200
             status, handoff = adapter_call(alice, token, 'POST', '/adapter/v1/next', {})
             assert status == 200 and handoff['request']['request_id'] == held['request']['request_id'], handoff
             late_invite = alice.cli('network', 'invite', '--network', net, '--member', 'dave', '--expires-at', timestamp(600))
