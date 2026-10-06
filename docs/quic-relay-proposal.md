@@ -26,7 +26,7 @@ At the architecture level the design remains Tailscale-like. QUIC takes the plac
 | WireGuard node key, distributed by the control server | Ed25519 host key, distributed by `capsule-coord` and verified by every host through the signed membership chain |
 | WireGuard tunnel over UDP | QUIC with mutual TLS 1.3 over UDP |
 | DERP relays forwarding already-encrypted WireGuard packets by key, over TCP/HTTPS | A relay in `capsule-coord` forwarding already-encrypted QUIC packets by host ID, over TCP/TLS |
-| Disco messages and hole punching, then a path upgrade | Relay-observed addresses and hole punching, then QUIC connection migration |
+| Disco messages and hole punching, then a path upgrade | STUN-observed addresses, signed path probes, and hole punching, then a path switch inside the combined socket (QUIC is not involved; see the milestone 4 correction) |
 | Packet filter, plus application capabilities read through `WhoIs` | Grants enforced per request by the receiving daemon |
 
 The difference is the layer the transport provides. WireGuard provides an IP tunnel: peers become reachable at IP addresses. The daemons would still need their own authenticated application protocol on top to enforce grants and return receipts. QUIC provides an authenticated, encrypted, multiplexed connection directly between the daemons, with no IP network in between. That matches what the host service exchanges today.
@@ -36,7 +36,7 @@ The difference is the layer the transport provides. WireGuard provides an IP tun
 QUIC fits the current message-level product for three reasons:
 - **No privileges or network stack.** A WireGuard tunnel needs either a kernel interface, which requires root, or a userspace network stack inside the daemon to carry TCP or HTTP: `wireguard-go` with gVisor's netstack in Go, or `boringtun` with a stack such as `smoltcp` in Rust. QUIC runs as an ordinary userspace UDP socket in both implementations.
 - **Identity carries over.** QUIC uses TLS 1.3, so it reuses the existing Ed25519 host certificates, key pinning, and verifier code in both languages. WireGuard uses Curve25519 static keys. That needs either a second key per host, bound to the host key, or a conversion between the two key types. The TLS layer would also stay on top for per-request authorization.
-- **Connection migration.** QUIC can move an established connection from a relayed path to a direct one without a new handshake or new application state. WireGuard roams between endpoints too, but anything carried inside the tunnel would still need its own connection management.
+- **Stable connections across paths.** A QUIC connection keeps its state while the combined socket underneath switches a peer from the relay to a direct endpoint, because QUIC always sees the same synthetic peer address. QUIC's own connection migration cannot do this, since a server's address cannot change (see the milestone 4 correction). WireGuard roams between endpoints too, but anything carried inside the tunnel would still need its own connection management.
 
 WireGuard becomes relevant if capsules need **IP reachability**. Examples are a Firecracker guest that must reach a service on another host by address, or arbitrary TCP and UDP traffic between runtimes. That is the question the original design left open. The three collaboration capabilities do not require it: task delegation, peer conversations, and remote tools and resources can all run as authorized requests between daemons. When IP reachability is needed, it can come from kernel WireGuard on the hosts that run isolated runtimes, layered beside QUIC rather than replacing it. The next section describes that layering.
 
@@ -78,7 +78,7 @@ Peers currently speak HTTP/1.1 over mutually authenticated TLS 1.3 over TCP. Rel
 - relayed packets;
 - hole-punched UDP.
 
-QUIC connection migration can then move an established connection from the relay to a direct path without a new handshake or new application state.
+The combined socket can then switch an established connection from the relay to a direct path underneath QUIC, without a new handshake or new application state. QUIC's own connection migration cannot be used for this; see the milestone 4 correction.
 
 ## Milestone 3a: QUIC peer transport (direct paths only)
 
@@ -148,11 +148,15 @@ The coordinator gains a relay listener. The network map names it with an address
 ## Milestone 4: direct paths through NAT
 
 This builds on 3a and 3b:
-- **Reflexive addresses:** the relay learns each host's public UDP mapping from a UDP probe on the host's peer socket and returns it, much as STUN does. The coordinator publishes these as additional candidates in the map.
-- **Simultaneous attempt:** coordinated through the relay connection. Both sides send to each other's candidates from their peer socket.
-- **Migration:** a successful probe moves the existing peer QUIC connection off the relay by path migration. Relays remain the guaranteed fallback.
+- **Reflexive addresses:** each host learns its public UDP mapping with a STUN binding request from its peer socket to its coordinator. It reports that mapping, plus its local interface addresses, as candidates in its sync; the map publishes them.
+- **Simultaneous attempt:** coordinated through the relay connection. A host sends its candidates to the peer through the relay, and both sides send signed probes to each other's candidates from their peer socket, so both NATs open a mapping.
+- **Switching paths below QUIC:** a successful probe switches which route the combined socket uses for that peer. QUIC is never asked to change addresses. Relays remain the guaranteed fallback.
 
-The exact candidate format, probe timing, and how long the relay path is retained are left to that milestone.
+### Correction: switching happens below QUIC, not by QUIC migration
+
+An earlier version of this section said a successful probe would move the existing QUIC connection off the relay by connection migration. QUIC does not allow that. Under RFC 9000, only a client can migrate, and only by changing its own local address. A server's address is fixed for the life of the connection, except for a preferred address offered during the handshake. Moving from the relay to a hole-punched endpoint changes the remote address, so `quic-go`'s `AddPath` and `quinn`'s `rebind`, which change only the local socket, cannot express it.
+
+The milestone therefore uses Tailscale's approach: path selection lives in the socket layer. A relay-capable peer is always addressed by its synthetic address. The combined socket decides, per packet, whether that address currently means "through the relay" or "this validated UDP endpoint". It presents packets from a validated endpoint to QUIC as coming from the synthetic address. QUIC sees one stable peer address throughout. Because only signed path-discovery messages can validate an endpoint, a forged probe cannot redirect traffic. QUIC packet protection still authenticates everything QUIC accepts. The [coordination contract](coordination-contract.md) and the [messaging contract](peer-messaging-contract.md) specify the details.
 
 ## Decisions to settle
 
@@ -170,6 +174,6 @@ The exact candidate format, probe timing, and how long the relay path is retaine
 The work ships as three PRs, each a working slice with both host implementations and shared conformance:
 1. QUIC direct transport (3a).
 2. Relays in `capsule-coord` (3b).
-3. Reflexive addresses, hole punching, and migration (4).
+3. Reflexive addresses, hole punching, and path switching below QUIC (4).
 
 Each PR updates the peer-messaging and coordination contracts for the behavior it adds.

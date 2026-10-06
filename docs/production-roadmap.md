@@ -31,7 +31,7 @@ Agreed 2026-10-06: the peer transport moves to QUIC before relays are built, the
 
 ## 4. Direct-path discovery and NAT traversal
 
-This adds relay-observed public UDP mappings as candidate addresses and a simultaneous attempt coordinated through the relay. A successful attempt moves the existing QUIC connection to the direct path by connection migration. Relays remain the guaranteed path. See the [proposal](quic-relay-proposal.md).
+This adds STUN-observed public UDP mappings as candidate addresses, and signed path probes that both peers send at once, coordinated through the relay. A validated direct endpoint takes over a peer's traffic inside the combined socket, below QUIC, because QUIC cannot change a server's address. Relays remain the guaranteed path. See the [proposal](quic-relay-proposal.md).
 
 ## 5. Automatic outbound retry
 

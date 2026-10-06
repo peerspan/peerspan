@@ -64,15 +64,15 @@ A token is `capsule-invite-v1.` followed by unpadded base64url of a strict JSON 
 
 Transport is HTTP/1.1 over TLS 1.3. The coordinator presents a self-signed Ed25519 certificate for its own key, built the same way as host certificates and renewed the same way. It requires a client certificate that proves possession of an Ed25519 key, and the caller's host ID is derived from that key. Hosts pin the coordinator public key from network creation or the invite token. `coordinator_address` is `HOST:PORT`, where HOST may be an IP literal or a DNS name. DNS is safe here because the key is pinned. Peer addresses remain IP literals.
 
-Request bodies are strict flat JSON (nested only where shown), at most 1 MiB. Unknown or null fields are rejected. Errors use the usual `{code, error}` bodies. Advertised `address` is either `""` (not directly reachable) or a literal `IP:PORT` with a nonzero port.
+Request bodies are strict flat JSON (nested only where shown), at most 1 MiB. Unknown or null fields are rejected. Errors use the usual `{code, error}` bodies. Advertised `address` is either `""` (not directly reachable) or a literal `IP:PORT` with a nonzero port. `candidates` is an array of at most 8 distinct literal `IP:PORT` strings with nonzero ports (path-discovery hints, see below), possibly empty. A host verifying a map drops invalid candidates rather than the member.
 
 | Endpoint | Body | Behavior |
 | --- | --- | --- |
-| `POST /coord/v1/networks` | `name`, `root_public_key`, `membership`, `address` | Register a network. `membership` must verify under the root, and its host key must be the caller. Returns 201 with the map. If the network exists and the caller is already a member, returns 200 with the map. Any other existing network ID returns 409. |
-| `POST /coord/v1/networks/{network_id}/members` | `membership`, `address` | Join. Returns 404 for an unknown network and 400 for a chain that does not verify. Returns 403 if the host key is not the caller or the invite has expired by the coordinator's clock. If this host already used the invite key, returns 200 with the map and keeps the originally stored membership. If another host used it, returns 409. Otherwise returns 201 with the map. |
-| `POST /coord/v1/networks/{network_id}/sync` | `address` | The caller must be a member, otherwise 403, including for unknown networks. Records the address and returns 200 with the map. |
+| `POST /coord/v1/networks` | `name`, `root_public_key`, `membership`, `address`, `candidates` | Register a network. `membership` must verify under the root, and its host key must be the caller. Returns 201 with the map. If the network exists and the caller is already a member, returns 200 with the map. Any other existing network ID returns 409. |
+| `POST /coord/v1/networks/{network_id}/members` | `membership`, `address`, `candidates` | Join. Returns 404 for an unknown network and 400 for a chain that does not verify. Returns 403 if the host key is not the caller or the invite has expired by the coordinator's clock. If this host already used the invite key, returns 200 with the map and keeps the originally stored membership. If another host used it, returns 409. Otherwise returns 201 with the map. |
+| `POST /coord/v1/networks/{network_id}/sync` | `address`, `candidates` | The caller must be a member, otherwise 403, including for unknown networks. Records the address and candidates and returns 200 with the map. |
 
-A **map** is `{network_id, name, root_public_key, members}`. `members` is an array of `{host_id, membership, address, updated_at}` sorted by `host_id`, and `updated_at` is the coordinator's time of that member's last join or sync. Registration never checks invite expiry, so a network that stayed unregistered for a while can still register. On join, reuse by the same host is checked before expiry, so a retried join succeeds after expiry. Every listed body field is required. Abuse limits on registration are deferred and listed below.
+A **map** is `{network_id, name, root_public_key, members}`. `members` is an array of `{host_id, membership, address, candidates, updated_at}` sorted by `host_id`, and `updated_at` is the coordinator's time of that member's last join or sync. Registration never checks invite expiry, so a network that stayed unregistered for a while can still register. On join, reuse by the same host is checked before expiry, so a retried join succeeds after expiry. Every listed body field is required. Abuse limits on registration are deferred and listed below.
 
 ## Host changes
 
@@ -99,7 +99,7 @@ PRAGMA user_version = 3;
 | `network members ID` | `GET /v1/networks/{id}/members` | Verified members, including this host, sorted by host ID. |
 | `network sync ID` | `POST /v1/networks/{id}/sync` | Register or sync now. Returns 200 with the network record; a failure appears in `last_sync_error`. |
 
-A network record is `{id, name, root_public_key, member, coordinator_address, coordinator_public_key, administrator, last_sync_at, last_sync_error}`. The last two are nullable, and `last_sync_at` is the time of the last successful sync. A member record is `{host_id, public_key, member, address, updated_at, membership}`.
+A network record is `{id, name, root_public_key, member, coordinator_address, coordinator_public_key, administrator, last_sync_at, last_sync_error}`. The last two are nullable, and `last_sync_at` is the time of the last successful sync. A member record is `{host_id, public_key, member, address, candidates, updated_at, membership}`.
 
 `run` gains `--advertise IP:PORT`, which requires `--peer-listen`. It defaults to the bound peer address when that IP is not unspecified, and otherwise to `""`. `run` also gains `--coordination-interval SECONDS`, from 1 to 3600 with a default of 30. Each interval, the daemon registers each unregistered administered network (one with no `last_sync_at`) and syncs every other network. Registration and sync send the current advertised address.
 
@@ -156,6 +156,20 @@ The coordinator forwards a send frame only if both the source and the destinatio
   - A relayed connection stays on the relay until it closes. Moving it to a direct path is milestone 4.
 - **Return path:** a relayed connection's packets return through the relay connection on which that peer's datagrams arrived.
 
+## Direct paths through NAT
+
+Roadmap milestone 4. The relay keeps every pair reachable. Hosts also try to open a direct UDP path between relayed peers and move their traffic onto it below QUIC (see Path discovery in the [messaging contract](peer-messaging-contract.md)). The [proposal](quic-relay-proposal.md) explains why QUIC's own connection migration cannot do this.
+
+### Reflexive addresses
+
+`capsule-coord` also listens for UDP on the same IP and port as its TLS listener. It answers STUN Binding requests (RFC 8489): the 20-byte header with magic cookie `0x2112A442` and a 12-byte transaction ID. The success response carries `XOR-MAPPED-ADDRESS` with the request's observed source address and port. It ignores every other datagram, sends no other attributes, and does not authenticate. A forged or wrong mapping can only cause a failed path attempt, because peer TLS pins still apply.
+
+A host with a peer socket sends a Binding request from that socket to each of its coordinators. It sends at startup, after creating or joining a network, and at least once per coordination interval. It accepts a response only with a matching transaction ID from the coordinator address it asked. The mapped address is its reflexive candidate for that network.
+
+### Published candidates
+
+A host reports `candidates` on registration, join, and sync. If it runs with `--peer-listen`, candidates are its reflexive address and its non-loopback interface addresses paired with its bound peer port, in that order, up to 8. Otherwise the list is empty. The coordinator stores and serves them unchanged. Candidates are hints for path discovery, not dial addresses: `address` keeps its meaning, and a host still never dials a candidate as an ordinary peer address.
+
 ## Verification
 
 Language tests must reproduce the test vectors, reject each tampered field, and reject non-canonical encodings. `conformance/coordination.py` runs one Go coordinator with Go and Rust hosts in every creator/joiner pairing:
@@ -179,6 +193,12 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 
 `conformance/nat_lab.py` needs root. It places each host behind its own nftables NAT router in Linux network namespaces, with no route between the private networks, and runs every pairing behind three kinds of NAT: port-preserving masquerade, fully random masquerade, and masquerade that drops all forwarded UDP. In each, both directions exchange messages through the relay. A negative control shows no path exists while the coordinator is stopped, and the same request succeeds once it restarts.
 
+For milestone 4, `nat_lab.py` also checks path discovery in each pairing:
+- **Port-preserving NAT on both sides:** `peer path` reports `direct` within 15 seconds of the first relayed exchange. A send under an `allow_disconnected` grant then succeeds with the coordinator stopped, which proves the traffic no longer depends on the relay.
+- **Fully random NAT on both sides, and UDP blocked:** the path stays `relay`, and messages still flow.
+
+Language tests cover message encoding, signature and freshness checks, replayed transaction IDs, the rule that only one's own pong validates an endpoint, falling back after 15 seconds without pongs, and STUN encoding.
+
 ## Deferred
 
-Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Relay-observed public addresses, hole punching, and moving a relayed connection to a direct path (milestone 4). Per-network relay selection and relays other than the network's coordinator.
+Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Port prediction for NATs that allocate a new port per destination, so two such NATs stay on the relay. Path discovery for peers reached by an advertised direct address. IPv6 candidates beyond what interfaces and STUN report. Per-network relay selection and relays other than the network's coordinator.
