@@ -30,7 +30,7 @@ In Tailscale, the administrator writes one access policy for the whole network. 
 
 Deciding access per owner must not mean configuring every host separately. Tailscale is easy to use because policy is managed in one place, and Capsule keeps that property by separating where policy is **managed** from who **authorizes** it.
 
-- **Person identity:** a member gets a key of their own, separate from their host keys, and their hosts trust it. "Bob" is then one identity across all of Bob's machines. Administrator keys use the same identity, so milestone 2b can add multiple administrators.
+- **Person identity:** a person uses an existing SSH Ed25519 key, through `ssh-agent`, separate from their host keys. Administrators admit persons as well as hosts. A person binds their already-admitted hosts with that key, and each host consents. "Bob" is then one identity across all of Bob's machines. Administrator keys use the same identity, so milestone 2b can add multiple administrators. Decisions are in the [proposal](person-identity-proposal.md#decisions).
 - **Grants to people and groups:** grants name members or groups ("member `alice` may message `reviewer`", "anyone in network `team` may message `triage`"), not individual host IDs. New or re-enrolled machines are covered without new grants.
 - **Owner-signed policy, distributed centrally:** an owner edits their access policy once, from any of their machines or a future dashboard. The coordinator delivers it to all of that owner's hosts. Each host enforces it only if it carries that owner's signature. The administrator cannot author or alter it, and a coordinator can withhold it but not forge it.
 

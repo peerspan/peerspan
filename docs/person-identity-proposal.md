@@ -1,6 +1,6 @@
 # Person identity, multiple administrators, and owner-managed access
 
-Status: proposal for review (roadmap milestone 2b). Nothing here is implemented. The roles it builds on are in the [access model](access-model.md): administrators control membership, and owners control access to their own agents. The decisions to settle are listed under [Decisions to settle](#decisions-to-settle).
+Status: accepted; decisions settled on 2026-10-06 (see [Decisions](#decisions)). This is roadmap milestone 2b, and nothing here is implemented yet. The roles it builds on are in the [access model](access-model.md): administrators control membership, and owners control access to their own agents. Where the original proposal and the decisions differ, the decisions apply. The sections below are updated to match.
 
 ## Problem
 
@@ -17,21 +17,21 @@ The design must fix these without letting an administrator decide access to agen
 **Goals:**
 - A verifiable identity for a person that spans their hosts.
 - Several administrators.
-- People who add and remove their own machines without administrator involvement.
+- People who bind their own already-admitted machines to themselves, without an extra administrator step.
 - Access policy written once by its owner, granting to people and groups, distributed by coordination, and enforced by each of the owner's hosts.
 
 **Non-goals for 2b:**
-- Per-agent requester identity and multi-hop delegation provenance. Requests stay authenticated as hosts; a host acts for its owning person.
+- Per-agent requester identity and multi-hop delegation provenance. Requests stay authenticated as hosts, and a host acts for its owning person. This is roadmap milestone 6, sequenced with task delegation.
 - Network-wide guardrails written by administrators.
 - A dashboard. The CLI comes first; a dashboard is another client of the same signed statements.
-- Hardware-backed keys. This proposal recommends leaving room for them.
+- Hardware security keys (`sk-ssh-ed25519`). Person keys are software `ssh-ed25519` keys.
 
 ## Concepts
 
 | Concept | Key | Holds authority over |
 | --- | --- | --- |
 | **Network authority** | the network root key (exists today) | Which persons are administrators; root rotation |
-| **Administrator** | a person key the root has delegated to | Which persons are members; groups; revoking members |
+| **Administrator** | a person key the root has delegated to | Which hosts and persons are members; groups; revoking members |
 | **Person** | a person key, separate from any host key | Their own hosts, and access to their own agents |
 | **Host** | the existing host key | Enforcing its owner's policy for its local agents |
 
@@ -39,20 +39,23 @@ The resulting chain of authority:
 
 ```text
 network root ──delegates──▶ administrator (person key)
+administrator ──admits──▶ host (host key)          [as today]
 administrator ──admits──▶ person (person key, member label)
-person ──binds──▶ host (host key)
+person + host ──bind──▶ host belongs to person
 person ──signs──▶ access policy ──enforced by──▶ that person's hosts
 ```
 
-Administrators admit people, not machines. A person binds and unbinds their own hosts, so a new laptop needs no administrator and no new grants from anyone. Removing a person removes all of their hosts.
+Administrators admit both hosts and persons. Admitting hosts stays as today: every machine is approved by an administrator. Persons are an optional layer on top. A person binds hosts that are already admitted, by signing the binding, and the host itself submits it. Binding needs no further administrator step, and a new laptop needs no new grants from anyone once it is bound. Removing a person unbinds all of their hosts, which return to being unowned members.
 
 ## Person keys
 
-A person key is an Ed25519 key that is separate from every host key.
+A person key is an existing OpenSSH `ssh-ed25519` key, separate from every host key.
 
-- **Recommended:** a person key file at `$XDG_CONFIG_HOME/capsule/person.key`, mode 0600, outside host state directories. It is used by the CLI, not held by a daemon. The CLI signs locally and hands signed statements to the local daemon for submission. A host compromise then does not automatically yield the person key, unless the attacker controls the same OS account and the file is present.
-- **Recommended follow-up:** signing through `ssh-agent` with an existing Ed25519 SSH key (OpenSSH `SSHSIG`). Most developers already have one, and agent-held or hardware-backed keys then work without new tooling.
-- **Person ID:** `person_` followed by the lowercase hex SHA-256 of the public key, by analogy with host IDs.
+- **Signing:** through `ssh-agent` (`SSH_AUTH_SOCK`), using OpenSSH's `SSHSIG` signature format, so the private key stays in the agent. `--person-key PATH` signs with an OpenSSH private-key file instead, for CI and servers without an agent, in the same `SSHSIG` format.
+- **Key type:** only `ssh-ed25519`. Hardware security keys (`sk-ssh-ed25519@openssh.com`) are out of scope: they need a physical touch per signature, which conflicts with automatic policy re-signing.
+- **Daemons never hold person keys.** The CLI signs and hands signed statements to the local daemon for submission.
+- **Person ID:** `person_` followed by the lowercase hex SHA-256 of the 32-byte Ed25519 public key, by analogy with host IDs.
+- **Joining:** a person is admitted either from their public key, sent to an administrator out of band, which returns a non-secret network descriptor; or by redeeming a one-time person invite token. Hosts gain the same two paths: today's one-time invite, or an administrator admitting a host's public key directly.
 
 Losing a person key does not lose the person's hosts' identities. An administrator admits a replacement key under the same member label, and the person rebinds their hosts with it.
 
@@ -105,10 +108,10 @@ An owner's policy is a list of rules, each answering "who may do what to which o
 Persisted versions prevent rollback but not withholding. A coordinator, or a network partition, could keep a host on an older policy that still grants access the owner has since withdrawn. Three layers bound this:
 
 1. **Local revocation always works.** On any of their hosts, the owner can still revoke access immediately and without coordination. That host enforces it at once.
-2. **Short policy validity.** A policy carries `valid_until`, recommended at 7 days. After that its rules stop granting access. The owner's CLI or daemon re-signs before expiry. If the person key is not available to re-sign, access lapses, which fails closed.
+2. **Short policy validity.** A policy carries `valid_until`, chosen by its owner between 1 and 90 days, with a default of 7. After that its rules stop granting access. It is re-signed automatically before expiry while the owner's `ssh-agent` (via an agent socket the owner configures for their daemon) or key file is available. The daemon requests a signature and never stores the key. If no signature is available, access lapses, which fails closed.
 3. **Direct propagation.** An owner's own hosts forward a newer policy to each other over the peer transport, so withholding requires partitioning those hosts too, not only the coordinator.
 
-Layer 2 interacts with disconnected operation. A grant that allows disconnected use is meant to outlive coordination outages; under policy, that outage tolerance is bounded by `valid_until`. This trade-off needs a decision (see below).
+Layer 2 bounds disconnected operation: policy-derived access works without coordination only if its rule sets `allow_disconnected`, and only until `valid_until`. Manual host grants keep their own lifetimes, as today.
 
 ## Security analysis
 
@@ -116,7 +119,7 @@ Layer 2 interacts with disconnected operation. A grant that allows disconnected 
 | --- | --- | --- |
 | Coordinator | Withhold statements and policies, up to their validity; deny service | Admit people or hosts; forge or roll back policy; read traffic |
 | One host | Act as its owning person toward peers, as any host can today | Sign policy or bind other hosts, unless the person key is on it |
-| A person key | Bind hosts as that person; change that person's access policy | Affect other persons' agents; admit members |
+| A person key | Change that person's access policy; bind already-admitted hosts that also consent, which in practice means hosts the attacker controls | Bind other people's hosts without their consent; affect other persons' agents; admit members |
 | An administrator key | Admit or remove persons; define groups | Grant access to any agent it does not own; touch host state |
 | Network root | Delegate or revoke administrators; rotate the root | Grant access to agents. Recovery is root rotation, as in 2a. |
 
@@ -125,8 +128,8 @@ The most important row is the administrator: under this design, even a malicious
 ## Migration
 
 - **Networks without persons** keep working unchanged: host invites, host-scoped manual grants, and the root as the single administrator.
-- **Adopting persons:** the root delegates the first administrator, which is usually the root holder's own person key. Members create person keys and are admitted. Each existing host is bound by its person.
-- **Unbound hosts:** a host with no person binding can still be granted to manually, but it matches no person, group, or network principal in owner policies. Host invites can be disabled per network once all members have persons.
+- **Adopting persons:** the root delegates the first administrator, which is usually the root holder's own person key. Members' persons are admitted, and each person binds their already-admitted hosts.
+- **Unbound hosts** remain full members. They match the `network:` principal and manual grants, but no `person:` or `group:` principal. Administrators keep admitting hosts as before.
 
 ## Delivery
 
@@ -144,14 +147,19 @@ The most important row is the administrator: under this design, even a malicious
 
 Each slice ships in both host implementations with shared conformance. Like the earlier contracts, it includes adversarial checks: a withheld or rolled-back policy, a malicious administrator adding a fake member, and a stolen host without the person key.
 
-## Decisions to settle
+## Decisions
 
-| Decision | Recommendation | Alternatives |
+Settled on 2026-10-06. These replace the original recommendations wherever they differ.
+
+| # | Decision | Agreed |
 | --- | --- | --- |
-| Where person keys live | CLI-held key file outside host state; `ssh-agent` signing as a follow-up | Held by one designated host daemon; hardware keys from the start |
-| What administrators admit | Persons, who then bind their own hosts | Keep admitting hosts, with persons optional on top |
-| Groups | Administrator-defined, versioned; owners choose whether to grant to groups | Owner-defined groups only (no administrator influence on access at all, more toil) |
-| Policy validity | 7 days, re-signed automatically while the person key is available | Longer (more outage tolerance, slower withdrawal); no expiry (rely on local revocation only) |
-| Disconnected use under policy | Bounded by `valid_until` | Allow manual host grants to keep longer disconnected validity, as today |
-| Request authorization on the wire | Request names policy owner and version | Keep `grant_id`, with policies materialized into local grants on each host |
-| Root key after delegation | Recommended to be kept offline, used only to delegate administrators and rotate | Stays on the creator's host, as today |
+| 1 | Person keys | `ssh-ed25519` only, signed in OpenSSH `SSHSIG` format through `ssh-agent`. `--person-key PATH` falls back to an OpenSSH private-key file in the same format. Hardware security keys are out of scope. |
+| 2 | What administrators admit | Hosts, as today. Persons are an optional layer that administrators also admit. |
+| 3 | Join flows | For persons and hosts alike: a one-time invite token, or an administrator admitting a public key directly, plus a non-secret network descriptor. |
+| 4 | Host binding | Valid with the person's signature and the host's own submission; no administrator step. |
+| 5 | Rotation and removal | A root rotation re-signs person admissions; bound hosts need nothing. Person removal and host unbinding are signed, sticky, and permanent, like milestone 2a revocations. |
+| 6 | Groups | Defined and versioned by administrators. Owners choose whether to grant to a group or to named persons. |
+| 7 | Policy validity | Chosen by the owner per policy, 1–90 days, default 7. Re-signed automatically while the owner's agent or key file is available. |
+| 8 | Disconnected use | A policy rule needs `allow_disconnected`, and ends at `valid_until`. Manual host grants are unchanged. |
+| 9 | Request authorization | A request names the policy owner and version, and the receiver checks against its newest verified copy. |
+| 10 | Root key after delegation | Kept offline, used only to delegate or revoke administrators and to rotate. |

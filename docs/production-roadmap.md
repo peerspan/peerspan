@@ -13,6 +13,7 @@ The known-host messaging slice stores authenticated messages on hosts. It requir
 | 3 | QUIC peer transport, then encrypted relays ([proposal](quic-relay-proposal.md)) | 1 | Hosts behind NAT or firewalls cannot be reached. Implemented: QUIC transport (3a) and relays in `capsule-coord` (3b). |
 | 4 | Direct-path discovery and NAT traversal | 1, 3 | All traffic goes through the relay when a direct path would work. Implemented: STUN candidates and signed path discovery below QUIC; NATs that allocate a port per destination on both sides stay on the relay. |
 | 5 | Automatic retry of uncertain sends, owner and agent alike | — | Senders recover `unknown` outcomes by hand. |
+| 6 | Per-agent identity and delegation provenance | 2b | Requests are authenticated only as hosts, so a receiver cannot tell which agent originated a request or verify that delegated authority narrowed at each hop. |
 
 Agent delivery into a live session (see the [integration investigation](agent-integration-investigation.md)) is a parallel track. It does not depend on these milestones.
 
@@ -43,3 +44,7 @@ This adds STUN-observed public UDP mappings as candidate addresses, and signed p
 ## 5. Automatic retry of uncertain sends
 
 The daemon retries every `unknown` outbound request with backoff, using the same request ID, until it is accepted, rejected, or past its deadline. This covers owner CLI sends and agent-initiated sends alike, replacing the adapter contract's earlier rule that agent sends are never retransmitted automatically (agreed 2026-10-06). Receivers deduplicate by request ID, so a retry creates no second message and consumes no extra send budget. Senders and agents still see the request ID and its final state.
+
+## 6. Per-agent identity and delegation provenance
+
+Task delegation and remote tools create chains: Alice's agent delegates to Bob's agent, which calls a tool on Carol's host. Carol's host must verify three things: the chain originates with Alice's agent, each hop only narrowed what is allowed, and no link has been revoked or has expired. The likely shape has two parts. A host signs an assertion of which local agent or session originated a request; that is only as strong as the host, while isolated runtimes give real per-agent separation. Each hop then signs a delegation that narrows scope, and the final receiver checks the whole chain against each owner's policy. Capability-token designs such as macaroons and biscuits are the reference reading. This milestone builds on 2b's person identity and is sequenced with the first collaboration operation, task delegation. It will be proposed for review before it is built.
