@@ -189,7 +189,7 @@ func TestRelayForwardsOnlyBetweenCoMembers(t *testing.T) {
 	cert, _ := tlsid.Certificate(key(t), "host", time.Now())
 	config.Certificates = []tls.Certificate{cert}
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: config}}
-	response, err := client.Post("https://"+h.addr+"/coord/v1/networks/net_a/sync", "application/json", strings.NewReader(`{"address":""}`))
+	response, err := client.Post("https://"+h.addr+"/coord/v1/networks/net_a/sync", "application/json", strings.NewReader(`{"address":"","candidates":[]}`))
 	if err != nil || response.StatusCode != http.StatusForbidden {
 		t.Fatal(response, err)
 	}

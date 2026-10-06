@@ -49,6 +49,7 @@ type NetworkMember struct {
 	PublicKey  string                `json:"public_key"`
 	Member     string                `json:"member"`
 	Address    string                `json:"address"`
+	Candidates []string              `json:"candidates"`
 	UpdatedAt  string                `json:"updated_at"`
 	Membership membership.Membership `json:"membership"`
 }
@@ -154,6 +155,9 @@ func (s *Store) NetworkMembers(ctx context.Context, id string) ([]NetworkMember,
 		if err != nil {
 			return nil, err
 		}
+		if m.Candidates == nil {
+			m.Candidates = []string{} // records stored before candidates existed
+		}
 		members = append(members, m)
 	}
 	return members, rows.Err()
@@ -207,7 +211,7 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 	if _, err = tx.ExecContext(ctx, "INSERT INTO networks VALUES (?, ?, ?)", n.ID, string(data), root.Seed()); err != nil {
 		return n, err
 	}
-	member := NetworkMember{HostID: s.identity.ID, PublicKey: s.identity.PublicKey, Member: r.Member, Address: advertise, UpdatedAt: now, Membership: self}
+	member := NetworkMember{HostID: s.identity.ID, PublicKey: s.identity.PublicKey, Member: r.Member, Address: advertise, Candidates: []string{}, UpdatedAt: now, Membership: self}
 	if err = putJSON(ctx, tx, "INSERT INTO network_members (record, network_id, host_id) VALUES (?, ?, ?)", member, n.ID, member.HostID); err != nil {
 		return n, err
 	}
@@ -288,7 +292,8 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 	}
 	n := Network{ID: token.NetworkID, Name: token.NetworkName, RootPublicKey: token.RootPublicKey, Member: token.Member, CoordinatorAddress: token.CoordinatorAddress, CoordinatorPublicKey: token.CoordinatorPublicKey}
 	advertise, _ := s.coordinationConfig()
-	m, err := s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/members", map[string]any{"membership": self, "address": advertise})
+	candidates := s.ownCandidates(ctx, n.CoordinatorAddress)
+	m, err := s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/members", map[string]any{"membership": self, "address": advertise, "candidates": candidates})
 	if err != nil {
 		return n, err
 	}
@@ -350,11 +355,14 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		return n, err
 	}
 	advertise, _ := s.coordinationConfig()
+	// Candidates are refreshed on every registration and sync, so the
+	// reflexive mapping is probed at startup and once per interval.
+	candidates := s.ownCandidates(ctx, n.CoordinatorAddress)
 	var m membership.Map
 	if n.Administrator && n.LastSyncAt == nil {
-		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks", map[string]any{"name": n.Name, "root_public_key": n.RootPublicKey, "membership": self.Membership, "address": advertise})
+		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks", map[string]any{"name": n.Name, "root_public_key": n.RootPublicKey, "membership": self.Membership, "address": advertise, "candidates": candidates})
 	} else {
-		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/sync", map[string]any{"address": advertise})
+		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/sync", map[string]any{"address": advertise, "candidates": candidates})
 	}
 	var members []NetworkMember
 	if err == nil {
@@ -467,7 +475,8 @@ func (s *Store) verifyMap(n Network, m membership.Map) ([]NetworkMember, error) 
 		}
 		invites[proof.InvitePublicKey][proof.HostPublicKey] = true
 		hosts[id]++
-		candidates = append(candidates, NetworkMember{HostID: id, PublicKey: proof.HostPublicKey, Member: proof.Member, Address: entry.Address, UpdatedAt: entry.UpdatedAt, Membership: proof})
+		// Invalid candidates are dropped, not the member.
+		candidates = append(candidates, NetworkMember{HostID: id, PublicKey: proof.HostPublicKey, Member: proof.Member, Address: entry.Address, Candidates: membership.FilterCandidates(entry.Candidates), UpdatedAt: entry.UpdatedAt, Membership: proof})
 	}
 	members := []NetworkMember{}
 	var found bool

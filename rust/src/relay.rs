@@ -3,7 +3,12 @@
 //! pinned TLS-over-TCP connection to a network's coordinator. Relayed peers
 //! appear to the QUIC endpoint as synthetic addresses that are never sent on
 //! the real UDP socket, so every peer TLS and request check still applies.
-use crate::{membership, peer::pinned_client_config, store::Store};
+use crate::{
+    disco::{Discovery, Kind, Source, classify},
+    membership,
+    peer::pinned_client_config,
+    store::Store,
+};
 use quinn::{
     AsyncUdpSocket, UdpPoller,
     udp::{RecvMeta, Transmit},
@@ -326,6 +331,12 @@ impl Relays {
             datagram: datagram.to_vec(),
         }));
     }
+    /// Queues one datagram for `host` through its current relay route.
+    pub(crate) fn send_host(&self, host: &[u8; HOST_ID], datagram: &[u8]) {
+        if let Some(addr) = self.address_for(host) {
+            self.send(addr, datagram);
+        }
+    }
     fn deliver(&self, host: [u8; HOST_ID], datagram: Vec<u8>, coordinator: &Coordinator) {
         let Some(addr) = self.address_for(&host) else {
             return;
@@ -434,12 +445,67 @@ async fn session(
     }
 }
 
-/// The peer endpoint's socket: real UDP for direct addresses, and the relay
-/// connections for synthetic addresses.
+/// The peer endpoint's socket: real UDP for direct addresses, and for
+/// synthetic addresses either the relay or an endpoint that path discovery
+/// validated. QUIC only ever sees the synthetic address of a relayed peer.
 #[derive(Debug)]
 pub(crate) struct Combined {
     pub inner: Arc<dyn AsyncUdpSocket>,
     pub relays: Arc<Relays>,
+    pub discovery: Arc<Discovery>,
+}
+impl Combined {
+    /// A synthetic address in the socket's address family.
+    fn present(&self, addr: SocketAddrV4) -> SocketAddr {
+        if self.inner.local_addr().is_ok_and(|a| a.is_ipv6()) {
+            SocketAddr::V6(std::net::SocketAddrV6::new(
+                addr.ip().to_ipv6_mapped(),
+                addr.port(),
+                0,
+                0,
+            ))
+        } else {
+            SocketAddr::V4(addr)
+        }
+    }
+    /// Keeps QUIC datagrams from the UDP socket, presenting those from a
+    /// validated endpoint under the peer's synthetic address, and hands STUN
+    /// and discovery datagrams to path discovery. Returns how many entries
+    /// remain, compacted to the front.
+    fn filter(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta], count: usize) -> usize {
+        let mut kept = 0;
+        for i in 0..count {
+            let entry = meta[i];
+            let len = entry.len.min(bufs[i].len());
+            let stride = if entry.stride == 0 { len } else { entry.stride };
+            let quic = classify(&bufs[i][..stride.min(len)]) == Kind::Quic;
+            if !quic {
+                // Coalesced segments come from one source; handle each.
+                for segment in bufs[i][..len].chunks(stride.max(1)) {
+                    if classify(segment) != Kind::Quic {
+                        self.discovery.receive(Source::Udp(entry.addr), segment);
+                    }
+                }
+                continue;
+            }
+            let mut entry = entry;
+            if let Some(host) = self.discovery.host_at(entry.addr)
+                && let Some(synthetic) = self.relays.address_for(&host)
+            {
+                entry.addr = self.present(synthetic);
+            }
+            if kept != i {
+                let (left, right) = bufs.split_at_mut(i);
+                if left[kept].len() < len {
+                    continue;
+                }
+                left[kept][..len].copy_from_slice(&right[0][..len]);
+            }
+            meta[kept] = entry;
+            kept += 1;
+        }
+        kept
+    }
 }
 impl AsyncUdpSocket for Combined {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
@@ -452,6 +518,24 @@ impl AsyncUdpSocket for Combined {
         let SocketAddr::V4(addr) = normalize(transmit.destination) else {
             return Ok(());
         };
+        if let Some(host) = self.relays.host_of(transmit.destination)
+            && let Some(endpoint) = self.discovery.route(&host)
+        {
+            // A validated direct endpoint carries this peer's packets now.
+            let destination = match (endpoint, self.inner.local_addr()) {
+                (SocketAddr::V4(v4), Ok(SocketAddr::V6(_))) => SocketAddr::V6(
+                    std::net::SocketAddrV6::new(v4.ip().to_ipv6_mapped(), v4.port(), 0, 0),
+                ),
+                (endpoint, _) => endpoint,
+            };
+            return self.inner.try_send(&Transmit {
+                destination,
+                ecn: transmit.ecn,
+                contents: transmit.contents,
+                segment_size: transmit.segment_size,
+                src_ip: None,
+            });
+        }
         match transmit.segment_size {
             Some(size) => {
                 for segment in transmit.contents.chunks(size) {
@@ -468,24 +552,31 @@ impl AsyncUdpSocket for Combined {
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [RecvMeta],
     ) -> Poll<io::Result<usize>> {
-        if let Ok(mut received) = self.relays.received.lock()
-            && let Poll::Ready(Some((addr, datagram))) = received.poll_recv(cx)
-            && let (Some(buf), Some(slot)) = (bufs.first_mut(), meta.first_mut())
-        {
+        loop {
+            let Ok(mut received) = self.relays.received.lock() else {
+                break;
+            };
+            let Poll::Ready(Some((addr, datagram))) = received.poll_recv(cx) else {
+                break;
+            };
+            drop(received);
+            match classify(&datagram) {
+                Kind::Quic => {}
+                Kind::Disco => {
+                    if let Some(host) = self.relays.host_of(SocketAddr::V4(addr)) {
+                        self.discovery.receive(Source::Relay(host), &datagram);
+                    }
+                    continue;
+                }
+                Kind::Stun | Kind::Other => continue,
+            }
+            let (Some(buf), Some(slot)) = (bufs.first_mut(), meta.first_mut()) else {
+                break;
+            };
             let len = datagram.len().min(buf.len());
             buf[..len].copy_from_slice(&datagram[..len]);
-            let addr = if self.inner.local_addr().is_ok_and(|a| a.is_ipv6()) {
-                SocketAddr::V6(std::net::SocketAddrV6::new(
-                    addr.ip().to_ipv6_mapped(),
-                    addr.port(),
-                    0,
-                    0,
-                ))
-            } else {
-                SocketAddr::V4(addr)
-            };
             *slot = RecvMeta {
-                addr,
+                addr: self.present(addr),
                 len,
                 stride: len,
                 ecn: None,
@@ -493,7 +584,18 @@ impl AsyncUdpSocket for Combined {
             };
             return Poll::Ready(Ok(1));
         }
-        self.inner.poll_recv(cx, bufs, meta)
+        loop {
+            match self.inner.poll_recv(cx, bufs, meta) {
+                Poll::Ready(Ok(count)) => {
+                    let kept = self.filter(bufs, meta, count);
+                    if kept > 0 {
+                        return Poll::Ready(Ok(kept));
+                    }
+                    // Everything was STUN or discovery; poll the socket again.
+                }
+                other => return other,
+            }
+        }
     }
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()

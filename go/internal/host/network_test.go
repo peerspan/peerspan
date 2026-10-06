@@ -9,6 +9,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ type testNet struct {
 	coord   *coord.Server
 	dir     string
 	address string
+	stop    func() // stops the coordinator; safe to call more than once
 }
 
 func startCoordinator(t *testing.T) *testNet {
@@ -36,12 +38,16 @@ func startCoordinator(t *testing.T) *testNet {
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(ctx, listener) }()
-	t.Cleanup(func() {
-		cancel()
-		<-done
-		server.Close()
-	})
-	return &testNet{coord: server, dir: dir, address: listener.Addr().String()}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			<-done
+			server.Close()
+		})
+	}
+	t.Cleanup(stop)
+	return &testNet{coord: server, dir: dir, address: listener.Addr().String(), stop: stop}
 }
 
 func startPeerHost(t *testing.T, name string) *Store {

@@ -54,6 +54,9 @@ pub struct Member {
     pub public_key: String,
     pub member: String,
     pub address: String,
+    /// Path-discovery hints published by the member; never dial addresses.
+    #[serde(default)]
+    pub candidates: Vec<String>,
     pub updated_at: String,
     pub membership: Membership,
 }
@@ -95,7 +98,30 @@ struct WireMember {
     host_id: String,
     membership: Membership,
     address: String,
+    #[serde(default)]
+    candidates: Value,
     updated_at: String,
+}
+
+/// Keeps at most `MAX_ENDPOINTS` distinct literal `IP:PORT` candidates with
+/// nonzero ports; anything else is dropped rather than the member.
+fn valid_candidates(value: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for item in value.as_array().into_iter().flatten() {
+        let Some(text) = item.as_str() else {
+            continue;
+        };
+        match text.parse::<std::net::SocketAddr>() {
+            Ok(addr) if addr.port() != 0 && !out.iter().any(|c| c == text) => {
+                out.push(text.to_owned())
+            }
+            _ => {}
+        }
+        if out.len() == crate::disco::MAX_ENDPOINTS {
+            break;
+        }
+    }
+    out
 }
 
 fn random_seed() -> Result<SigningKey, Error> {
@@ -152,6 +178,7 @@ fn verified_members(network: &Network, map: WireMap) -> Result<Vec<Member>, Erro
             public_key: entry.membership.host_public_key.clone(),
             member: entry.membership.member.clone(),
             address,
+            candidates: valid_candidates(&entry.candidates),
             updated_at: entry.updated_at,
             membership: entry.membership,
         });
@@ -357,6 +384,44 @@ impl Store {
     fn advertised(&self) -> String {
         self.advertise.read().map(|a| a.clone()).unwrap_or_default()
     }
+    /// The candidates this host most recently published.
+    pub(crate) fn published_candidates(&self) -> Vec<std::net::SocketAddr> {
+        self.candidates
+            .read()
+            .map(|c| c.clone())
+            .unwrap_or_default()
+    }
+    /// A member's published candidates across this host's networks, and its
+    /// advertised direct addresses, which path discovery never reroutes.
+    pub(crate) fn member_candidates(
+        &self,
+        host: &str,
+    ) -> Result<(Vec<std::net::SocketAddr>, Vec<std::net::SocketAddr>), Error> {
+        if host == self.identity().id {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let connection = self.connection()?;
+        let mut statement =
+            connection.prepare("SELECT record FROM network_members WHERE host_id = ?1")?;
+        let members = statement
+            .query_map([host], |r| r.get::<_, String>(0))?
+            .map(|r| json::<Member>(r?))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut candidates = Vec::new();
+        let mut advertised = Vec::new();
+        for m in members {
+            if let Ok(addr) = m.address.parse() {
+                advertised.push(crate::disco::normalize(addr));
+            }
+            for c in m.candidates.iter().filter_map(|c| c.parse().ok()) {
+                let c = crate::disco::normalize(c);
+                if !candidates.contains(&c) {
+                    candidates.push(c);
+                }
+            }
+        }
+        Ok((candidates, advertised))
+    }
 
     pub fn create_network(&self, r: CreateNetwork) -> Result<Network, Error> {
         membership::label(&r.name)?;
@@ -390,6 +455,7 @@ impl Store {
             public_key: own.host_public_key.clone(),
             member: own.member.clone(),
             address: self.advertised(),
+            candidates: Vec::new(),
             updated_at: joined.clone(),
             membership: own,
         };
@@ -505,6 +571,11 @@ impl Store {
             if m.host_id == own_id {
                 // The coordinator's address for us may lag; record our own.
                 m.address = self.advertised();
+                m.candidates = self
+                    .published_candidates()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
             }
             tx.execute(
                 "INSERT INTO network_members VALUES (?1, ?2, ?3)",
@@ -592,6 +663,85 @@ fn parse_map(body: &[u8]) -> Result<WireMap, Error> {
     serde_json::from_slice(body).map_err(|_| Error::Unavailable("malformed coordinator map".into()))
 }
 
+/// This host's candidates for a network: its reflexive address as seen by
+/// that network's coordinator, then its non-loopback interface addresses with
+/// the bound peer port, at most `MAX_ENDPOINTS`. Empty unless listening.
+async fn publish_candidates(store: &Arc<Store>, coordinator: &str) -> Vec<String> {
+    let Some(bound) = store.peer_bound.read().ok().and_then(|b| *b) else {
+        return Vec::new();
+    };
+    let mut out: Vec<std::net::SocketAddr> = Vec::new();
+    if let Some(discovery) = crate::quic::discovery(store)
+        && let Some(reflexive) = discovery.reflexive(coordinator).await
+    {
+        out.push(reflexive);
+    }
+    for ip in interface_ips(bound) {
+        let candidate = std::net::SocketAddr::new(ip, bound.port());
+        if !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out.truncate(crate::disco::MAX_ENDPOINTS);
+    if let Ok(mut published) = store.candidates.write() {
+        published.clone_from(&out);
+    }
+    out.iter().map(ToString::to_string).collect()
+}
+/// Addresses a socket bound to `bound` receives on, excluding loopback,
+/// unspecified, multicast, and IPv6 link-local addresses.
+fn interface_ips(bound: std::net::SocketAddr) -> Vec<std::net::IpAddr> {
+    let usable = |ip: &std::net::IpAddr| {
+        !ip.is_loopback()
+            && !ip.is_unspecified()
+            && !ip.is_multicast()
+            && !matches!(ip, std::net::IpAddr::V6(v6) if v6.segments()[0] & 0xffc0 == 0xfe80)
+    };
+    if !bound.ip().is_unspecified() {
+        return Some(bound.ip()).filter(usable).into_iter().collect();
+    }
+    interface_addresses()
+        .into_iter()
+        .filter(|ip| bound.is_ipv6() || ip.is_ipv4())
+        .filter(usable)
+        .collect()
+}
+fn interface_addresses() -> Vec<std::net::IpAddr> {
+    let mut out = Vec::new();
+    // SAFETY: getifaddrs allocates a list that is only read here and released
+    // with freeifaddrs; each address is read according to its family.
+    unsafe {
+        let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut head) != 0 {
+            return out;
+        }
+        let mut cursor = head;
+        while !cursor.is_null() {
+            let entry = &*cursor;
+            if !entry.ifa_addr.is_null() {
+                match i32::from((*entry.ifa_addr).sa_family) {
+                    libc::AF_INET => {
+                        let sin = &*(entry.ifa_addr as *const libc::sockaddr_in);
+                        out.push(std::net::IpAddr::from(
+                            u32::from_be(sin.sin_addr.s_addr).to_be_bytes(),
+                        ));
+                    }
+                    libc::AF_INET6 => {
+                        let sin6 = &*(entry.ifa_addr as *const libc::sockaddr_in6);
+                        out.push(std::net::IpAddr::from(sin6.sin6_addr.s6_addr));
+                    }
+                    _ => {}
+                }
+            }
+            cursor = entry.ifa_next;
+        }
+        libc::freeifaddrs(head);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Registers an unregistered administered network, or syncs any other one.
 /// Failures are recorded on the network rather than returned.
 pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Error> {
@@ -601,18 +751,19 @@ pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Erro
     })
     .await?;
     let address = store.advertised();
+    let candidates = publish_candidates(&store, &network.coordinator_address).await;
     let (path, body, accepted): (_, _, &[u16]) = if network.administrator
         && network.last_sync_at.is_none()
     {
         (
             "/coord/v1/networks".to_owned(),
-            json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": address}),
+            json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": address, "candidates": candidates}),
             &[200, 201],
         )
     } else {
         (
             format!("/coord/v1/networks/{}/sync", network.id),
-            json_value!({"address": address}),
+            json_value!({"address": address, "candidates": candidates}),
             &[200],
         )
     };
@@ -669,12 +820,13 @@ pub async fn join(store: Arc<Store>, token: String) -> Result<Network, Error> {
         store.signing_key.verifying_key().as_bytes(),
         &now(),
     );
+    let candidates = publish_candidates(&store, &token.coordinator_address).await;
     let response = coordinator(
         store.clone(),
         &token.coordinator_address,
         &token.coordinator_public_key,
         format!("/coord/v1/networks/{}/members", token.network_id),
-        json_value!({"membership": own, "address": store.advertised()}),
+        json_value!({"membership": own, "address": store.advertised(), "candidates": candidates}),
     )
     .await
     .map_err(|e| Error::Unavailable(format!("{e:#}")))?;

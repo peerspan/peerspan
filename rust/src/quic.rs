@@ -3,6 +3,7 @@
 //! request and response. The owner-local router is never served here.
 use crate::{
     api::blocking,
+    disco::{Discovery, PathState},
     membership,
     peer::{certificate_key, client_config, peer_router, server_config},
     peer_store::{Peer, key_id, peer_key},
@@ -46,6 +47,7 @@ const REQUEST_BOUND: Duration = Duration::from_secs(8);
 pub struct Transport {
     endpoint: Endpoint,
     relays: Arc<Relays>,
+    discovery: Arc<Discovery>,
     cache: Mutex<HashMap<String, Cached>>,
 }
 struct Cached {
@@ -75,9 +77,12 @@ pub fn listen(store: &Arc<Store>, address: SocketAddr) -> anyhow::Result<SocketA
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(transport_config());
     let relays = Relays::new();
-    let endpoint = endpoint(store, Some(config), address, relays.clone())?;
+    let (endpoint, discovery) = endpoint(store, Some(config), address, relays.clone())?;
     let bound = endpoint.local_addr()?;
-    install(store, endpoint, relays)?;
+    install(store, endpoint, relays, discovery)?;
+    if let Ok(mut peer_bound) = store.peer_bound.write() {
+        *peer_bound = Some(bound);
+    }
     Ok(bound)
 }
 /// The stateless reset key is derived from the host key exactly as the Go
@@ -89,7 +94,7 @@ fn endpoint(
     server: Option<quinn::ServerConfig>,
     address: SocketAddr,
     relays: Arc<Relays>,
-) -> anyhow::Result<Endpoint> {
+) -> anyhow::Result<(Endpoint, Arc<Discovery>)> {
     let reset = reset_key(&store.signing_key.to_bytes());
     let mut config = quinn::EndpointConfig::new(Arc::new(ring::hmac::Key::new(
         ring::hmac::HMAC_SHA256,
@@ -98,15 +103,24 @@ fn endpoint(
     // A restarted daemon must parse its predecessor's short-header packets to
     // reset them, so both implementations use quic-go's 4-byte connection IDs.
     config.cid_generator(|| Box::new(ShortConnectionIds));
+    // Peers must never clear the QUIC fixed bit toward this socket: path
+    // discovery tells QUIC apart from STUN and discovery datagrams by it.
+    config.grease_quic_bit(false);
     let runtime =
         quinn::default_runtime().ok_or_else(|| anyhow::anyhow!("no async runtime for QUIC"))?;
     // One socket for both paths: real UDP, plus synthetic addresses that the
     // combined socket carries over relay connections.
     let inner = runtime.wrap_udp_socket(std::net::UdpSocket::bind(address)?)?;
-    let socket = Arc::new(Combined { inner, relays });
-    Ok(Endpoint::new_with_abstract_socket(
-        config, server, socket, runtime,
-    )?)
+    let discovery = Discovery::new(store, inner.clone(), relays.clone());
+    let socket = Arc::new(Combined {
+        inner,
+        relays,
+        discovery: discovery.clone(),
+    });
+    Ok((
+        Endpoint::new_with_abstract_socket(config, server, socket, runtime)?,
+        discovery,
+    ))
 }
 /// HMAC-SHA256(host key seed, "capsule-peer stateless reset").
 fn reset_key(seed: &[u8]) -> Vec<u8> {
@@ -134,10 +148,12 @@ fn install(
     store: &Arc<Store>,
     endpoint: Endpoint,
     relays: Arc<Relays>,
+    discovery: Arc<Discovery>,
 ) -> anyhow::Result<Arc<Transport>> {
     let transport = Arc::new(Transport {
         endpoint,
         relays,
+        discovery,
         cache: Mutex::new(HashMap::new()),
     });
     *store
@@ -158,19 +174,77 @@ fn transport(store: &Arc<Store>) -> anyhow::Result<Arc<Transport>> {
     // A client-only endpoint has no server configuration, so it never accepts
     // inbound connections, direct or relayed.
     let relays = Relays::new();
+    let (endpoint, discovery) = endpoint(
+        store,
+        None,
+        SocketAddr::from(([0, 0, 0, 0], 0)),
+        relays.clone(),
+    )?;
     let transport = Arc::new(Transport {
-        endpoint: endpoint(
-            store,
-            None,
-            SocketAddr::from(([0, 0, 0, 0], 0)),
-            relays.clone(),
-        )?,
+        endpoint,
         relays,
+        discovery,
         cache: Mutex::new(HashMap::new()),
     });
     *current = Some(transport.clone());
     sweep_relays(&transport);
     Ok(transport)
+}
+/// The daemon's path discovery, if its peer endpoint exists.
+pub(crate) fn discovery(store: &Arc<Store>) -> Option<Arc<Discovery>> {
+    store
+        .peer_transport
+        .lock()
+        .ok()?
+        .as_ref()
+        .map(|t| t.discovery.clone())
+}
+/// The current path to a known peer, for owner inspection.
+#[derive(Debug, serde::Serialize)]
+pub struct PathStatus {
+    pub host_id: String,
+    pub path: &'static str,
+    pub endpoint: Option<String>,
+    pub rtt_ms: Option<f64>,
+}
+pub(crate) fn path_status(store: &Arc<Store>, id: &str) -> Result<PathStatus, crate::model::Error> {
+    use crate::model::Error;
+    let host = raw_host(id).ok_or_else(|| Error::Invalid("invalid host ID".into()))?;
+    let poisoned = || Error::Internal(anyhow::anyhow!("peer pins lock poisoned"));
+    let known = store
+        .peer_pins
+        .read()
+        .map_err(|_| poisoned())?
+        .contains_key(id)
+        || store
+            .member_pins
+            .read()
+            .map_err(|_| poisoned())?
+            .contains_key(id);
+    if !known {
+        return Err(Error::NotFound);
+    }
+    let state = discovery(store).map_or(PathState::None, |d| d.path(&host));
+    Ok(match state {
+        PathState::Direct(endpoint, rtt) => PathStatus {
+            host_id: id.to_owned(),
+            path: "direct",
+            endpoint: Some(endpoint.to_string()),
+            rtt_ms: Some((rtt.as_secs_f64() * 1000.0 * 1000.0).round() / 1000.0),
+        },
+        PathState::Relay => PathStatus {
+            host_id: id.to_owned(),
+            path: "relay",
+            endpoint: None,
+            rtt_ms: None,
+        },
+        PathState::None => PathStatus {
+            host_id: id.to_owned(),
+            path: "none",
+            endpoint: None,
+            rtt_ms: None,
+        },
+    })
 }
 /// Closes on-demand relay connections that no live relayed connection uses.
 /// The task ends with its transport.
@@ -919,6 +993,89 @@ mod tests {
                 [identity.id, member.to_string()],
             )
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn relayed_peers_switch_to_a_validated_direct_path() {
+        let (sender, receiver, coordinator) = (host(), host(), host());
+        let relay = fake_relay(&coordinator, &[&sender, &receiver]).await;
+        share_network(&sender, &receiver, &coordinator, &relay);
+        share_network(&receiver, &sender, &coordinator, &relay);
+        let direct = listening(&receiver).await;
+        // Each knows the other as a verified member, and the receiver's
+        // published candidate is its real socket.
+        for (a, b) in [(&sender, &receiver), (&receiver, &sender)] {
+            let identity = b.store.identity();
+            let key = crate::membership::canonical(&identity.public_key, 32).unwrap();
+            a.store
+                .member_pins
+                .write()
+                .unwrap()
+                .insert(identity.id, key);
+        }
+        let id = receiver.store.identity().id;
+        {
+            let connection = sender.store.connection().unwrap();
+            let record: String = connection
+                .query_row(
+                    "SELECT record FROM network_members WHERE host_id = ?1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let mut member: serde_json::Value = serde_json::from_str(&record).unwrap();
+            member["candidates"] = serde_json::json!([direct]);
+            connection
+                .execute(
+                    "UPDATE network_members SET record = ?1 WHERE host_id = ?2",
+                    [member.to_string(), id.clone()],
+                )
+                .unwrap();
+        }
+        let relayed = as_peer(&receiver, "");
+        let (status, _) = request(sender.store.clone(), &relayed, "GET", &receipt_path(), b"")
+            .await
+            .unwrap();
+        assert_eq!(status, 404);
+        assert_eq!(path_status(&sender.store, &id).unwrap().path, "relay");
+        // Discovery validates the candidate with a signed ping/pong and moves
+        // the peer's packets onto it, below the unchanged QUIC connection.
+        let deadline = std::time::Instant::now() + Duration::from_secs(8);
+        let status = loop {
+            let status = path_status(&sender.store, &id).unwrap();
+            if status.path == "direct" || std::time::Instant::now() > deadline {
+                break status;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        assert_eq!(status.path, "direct", "{status:?}");
+        assert_eq!(status.endpoint.as_deref(), Some(direct.as_str()));
+        assert!(status.rtt_ms.is_some());
+        let key = peer_key(&relayed).unwrap();
+        let synthetic = SocketAddr::V4(crate::relay::synthetic(&raw_host(&id).unwrap()));
+        let before = transport(&sender.store)
+            .unwrap()
+            .cached(&id, &key, &[synthetic])
+            .unwrap()
+            .stable_id();
+        for _ in 0..3 {
+            let (status, _) = request(sender.store.clone(), &relayed, "GET", &receipt_path(), b"")
+                .await
+                .unwrap();
+            assert_eq!(status, 404);
+        }
+        // The same QUIC connection carried the requests across the switch.
+        let after = transport(&sender.store)
+            .unwrap()
+            .cached(&id, &key, &[synthetic])
+            .unwrap()
+            .stable_id();
+        assert_eq!(before, after);
+        // An unknown host has no path to report.
+        assert!(matches!(
+            path_status(&sender.store, &format!("host_{}", "1".repeat(64))),
+            Err(crate::model::Error::NotFound)
+        ));
     }
 
     #[tokio::test]

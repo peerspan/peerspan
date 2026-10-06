@@ -430,6 +430,7 @@ pub(crate) async fn exchange(
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/v1/peers", get(peers).post(add_peer))
+        .route("/v1/peers/{id}/path", get(peer_path))
         .route("/v1/grants", get(grants).post(create_grant))
         .route("/v1/grants/{id}/revoke", post(revoke))
         .route("/v1/messages", get(messages))
@@ -437,6 +438,12 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/outbound/{peer}/{id}", get(outbound))
         .route("/v1/outbound/{peer}/{id}/retry", post(retry))
         .route("/v1/outbound/{peer}/{id}/refresh", post(refresh))
+}
+async fn peer_path(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::quic::PathStatus>, Error> {
+    Ok(Json(crate::quic::path_status(&store, &id)?))
 }
 async fn peers(State(store): State<Arc<Store>>) -> Result<Json<Vec<Peer>>, Error> {
     Ok(Json(blocking(store, Store::peers).await?))

@@ -46,6 +46,18 @@ CREATE TABLE members (
 PRAGMA user_version = 1;
 `
 
+// candidatesSchema (version 2) stores path discovery candidates beside, not
+// inside, member rows, so a member row without candidates serves an empty list.
+const candidatesSchema = `
+CREATE TABLE member_candidates (
+ network_id TEXT NOT NULL,
+ host_id TEXT NOT NULL,
+ candidates TEXT NOT NULL,
+ PRIMARY KEY (network_id, host_id)
+);
+PRAGMA user_version = 2;
+`
+
 var (
 	errInvalid   = errors.New("invalid request")
 	errForbidden = errors.New("forbidden")
@@ -194,7 +206,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version != 0 && version != 1 {
+	if version < 0 || version > 2 {
 		return nil, fmt.Errorf("unsupported coordinator database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -211,6 +223,11 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 			return nil, keyErr
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO identity VALUES (1, ?, ?)`, []byte(key), membership.Timestamp(time.Now())); err != nil {
+			return nil, err
+		}
+	}
+	if version < 2 {
+		if _, err = tx.ExecContext(ctx, candidatesSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -301,6 +318,12 @@ func (s *Server) Listen(address string) (net.Listener, error) {
 // not apply to long-lived relay connections.
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	stunConn, err := listenSTUN(listener.Addr())
+	if err != nil {
+		return err
+	}
+	defer stunConn.Close()
+	go serveSTUN(stunConn)
 	httpConns := newConnListener(listener.Addr())
 	serveCtx, cancelServe := context.WithCancel(ctx)
 	defer cancelServe()
@@ -347,13 +370,16 @@ type registerRequest struct {
 	RootPublicKey string                `json:"root_public_key"`
 	Membership    membership.Membership `json:"membership"`
 	Address       string                `json:"address"`
+	Candidates    []string              `json:"candidates"`
 }
 type joinRequest struct {
 	Membership membership.Membership `json:"membership"`
 	Address    string                `json:"address"`
+	Candidates []string              `json:"candidates"`
 }
 type syncRequest struct {
-	Address string `json:"address"`
+	Address    string   `json:"address"`
+	Candidates []string `json:"candidates"`
 }
 
 func (s *Server) Handler() http.Handler {
@@ -364,7 +390,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		var req registerRequest
-		if !decode(w, r, &req, "name", "root_public_key", "membership", "address") {
+		if !decode(w, r, &req, "name", "root_public_key", "membership", "address", "candidates") {
 			return
 		}
 		status, m, err := s.register(r.Context(), caller, req)
@@ -376,7 +402,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		var req joinRequest
-		if !decode(w, r, &req, "membership", "address") {
+		if !decode(w, r, &req, "membership", "address", "candidates") {
 			return
 		}
 		status, m, err := s.join(r.Context(), caller, r.PathValue("network"), req)
@@ -388,10 +414,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		var req syncRequest
-		if !decode(w, r, &req, "address") {
+		if !decode(w, r, &req, "address", "candidates") {
 			return
 		}
-		m, err := s.sync(r.Context(), caller, r.PathValue("network"), req.Address)
+		m, err := s.sync(r.Context(), caller, r.PathValue("network"), req.Address, req.Candidates)
 		respond(w, http.StatusOK, m, err)
 	})
 	return mux
@@ -448,9 +474,9 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 }
 
 // verifyCaller checks a submitted chain and that it belongs to the caller.
-func verifyCaller(caller, rootKey string, m membership.Membership, address string) error {
-	if !membership.ValidAddress(address) {
-		return fmt.Errorf("%w: address must be empty or IP:port", errInvalid)
+func verifyCaller(caller, rootKey string, m membership.Membership, address string, candidates []string) error {
+	if err := validEndpoints(address, candidates); err != nil {
+		return err
 	}
 	root, err := membership.DecodeKey(rootKey)
 	if err != nil {
@@ -466,12 +492,33 @@ func verifyCaller(caller, rootKey string, m membership.Membership, address strin
 	return nil
 }
 
-func (s *Server) insertMember(ctx context.Context, tx *sql.Tx, caller string, m membership.Membership, address string) error {
+func validEndpoints(address string, candidates []string) error {
+	if !membership.ValidAddress(address) {
+		return fmt.Errorf("%w: address must be empty or IP:port", errInvalid)
+	}
+	if !membership.ValidCandidates(candidates) {
+		return fmt.Errorf("%w: candidates must be at most %d distinct IP:port values", errInvalid, membership.MaxCandidates)
+	}
+	return nil
+}
+
+func (s *Server) insertMember(ctx context.Context, tx *sql.Tx, caller string, m membership.Membership, address string, candidates []string) error {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)`, m.NetworkID, caller, m.InvitePublicKey, string(data), address, membership.Timestamp(s.Now()))
+	if _, err = tx.ExecContext(ctx, `INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)`, m.NetworkID, caller, m.InvitePublicKey, string(data), address, membership.Timestamp(s.Now())); err != nil {
+		return err
+	}
+	return putCandidates(ctx, tx, m.NetworkID, caller, candidates)
+}
+
+func putCandidates(ctx context.Context, tx *sql.Tx, network, host string, candidates []string) error {
+	data, err := json.Marshal(candidates)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO member_candidates VALUES (?, ?, ?) ON CONFLICT (network_id, host_id) DO UPDATE SET candidates = excluded.candidates`, network, host, string(data))
 	return err
 }
 
@@ -479,7 +526,7 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 	if !membership.ValidLabel(req.Name) {
 		return 0, nil, fmt.Errorf("%w: invalid network name", errInvalid)
 	}
-	if err := verifyCaller(caller, req.RootPublicKey, req.Membership, req.Address); err != nil {
+	if err := verifyCaller(caller, req.RootPublicKey, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -504,7 +551,7 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 	if _, err = tx.ExecContext(ctx, `INSERT INTO networks VALUES (?, ?, ?, ?)`, req.Membership.NetworkID, req.Name, req.RootPublicKey, membership.Timestamp(s.Now())); err != nil {
 		return 0, nil, err
 	}
-	if err = s.insertMember(ctx, tx, caller, req.Membership, req.Address); err != nil {
+	if err = s.insertMember(ctx, tx, caller, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	m, err := networkMap(ctx, tx, req.Membership.NetworkID)
@@ -531,7 +578,7 @@ func (s *Server) join(ctx context.Context, caller, network string, req joinReque
 	if req.Membership.NetworkID != network {
 		return 0, nil, fmt.Errorf("%w: membership is for a different network", errInvalid)
 	}
-	if err = verifyCaller(caller, root, req.Membership, req.Address); err != nil {
+	if err = verifyCaller(caller, root, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	var user string
@@ -558,7 +605,7 @@ func (s *Server) join(ctx context.Context, caller, network string, req joinReque
 	if exists != 0 {
 		return 0, nil, fmt.Errorf("%w: host is already a member through another invite", errConflict)
 	}
-	if err = s.insertMember(ctx, tx, caller, req.Membership, req.Address); err != nil {
+	if err = s.insertMember(ctx, tx, caller, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	m, err := networkMap(ctx, tx, network)
@@ -568,9 +615,9 @@ func (s *Server) join(ctx context.Context, caller, network string, req joinReque
 	return http.StatusCreated, m, tx.Commit()
 }
 
-func (s *Server) sync(ctx context.Context, caller, network, address string) (*membership.Map, error) {
-	if !membership.ValidAddress(address) {
-		return nil, fmt.Errorf("%w: address must be empty or IP:port", errInvalid)
+func (s *Server) sync(ctx context.Context, caller, network, address string, candidates []string) (*membership.Map, error) {
+	if err := validEndpoints(address, candidates); err != nil {
+		return nil, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -583,6 +630,9 @@ func (s *Server) sync(ctx context.Context, caller, network, address string) (*me
 	}
 	if n, err := result.RowsAffected(); err != nil || n == 0 {
 		return nil, errors.Join(err, fmt.Errorf("%w: not a member of this network", errForbidden))
+	}
+	if err = putCandidates(ctx, tx, network, caller, candidates); err != nil {
+		return nil, err
 	}
 	m, err := networkMap(ctx, tx, network)
 	if err != nil {
@@ -598,17 +648,22 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 	if err := tx.QueryRowContext(ctx, `SELECT name, root_public_key FROM networks WHERE id = ?`, network).Scan(&m.Name, &m.RootPublicKey); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT host_id, membership, address, updated_at FROM members WHERE network_id = ? ORDER BY host_id`, network)
+	rows, err := tx.QueryContext(ctx, `SELECT m.host_id, m.membership, m.address, m.updated_at, COALESCE(c.candidates, '[]') FROM members m LEFT JOIN member_candidates c ON c.network_id = m.network_id AND c.host_id = m.host_id WHERE m.network_id = ? ORDER BY m.host_id`, network)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var entry rawMember
-		if err = rows.Scan(&entry.HostID, &entry.Membership, &entry.Address, &entry.UpdatedAt); err != nil {
+		var candidates string
+		if err = rows.Scan(&entry.HostID, &entry.Membership, &entry.Address, &entry.UpdatedAt, &candidates); err != nil {
 			return nil, err
 		}
-		m.Members = append(m.Members, membership.MapMember{HostID: entry.HostID, Membership: json.RawMessage(entry.Membership), Address: entry.Address, UpdatedAt: entry.UpdatedAt})
+		member := membership.MapMember{HostID: entry.HostID, Membership: json.RawMessage(entry.Membership), Address: entry.Address, Candidates: []string{}, UpdatedAt: entry.UpdatedAt}
+		if json.Unmarshal([]byte(candidates), &member.Candidates) != nil || member.Candidates == nil {
+			member.Candidates = []string{}
+		}
+		m.Members = append(m.Members, member)
 	}
 	return m, rows.Err()
 }

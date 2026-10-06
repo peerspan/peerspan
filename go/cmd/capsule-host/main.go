@@ -35,6 +35,7 @@ Usage:
 
   capsule-host [--state DIR] peer add --id HOST --public-key KEY --address IP:PORT
   capsule-host [--state DIR] peer list
+  capsule-host [--state DIR] peer path HOST
   capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected]
   capsule-host [--state DIR] grant list
   capsule-host [--state DIR] grant revoke ID
@@ -279,6 +280,9 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		}
 		if args[1] == "list" && len(args) == 2 {
 			return "GET", "/v1/peers", nil, nil
+		}
+		if args[1] == "path" && len(args) == 3 {
+			return "GET", "/v1/peers/" + url.PathEscape(args[2]) + "/path", nil, nil
 		}
 		if args[1] == "add" {
 			var p host.Peer

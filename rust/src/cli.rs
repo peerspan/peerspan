@@ -119,6 +119,10 @@ pub enum PeerCommand {
         address: std::net::SocketAddr,
     },
     List,
+    /// Show whether traffic to a peer goes direct or through the relay
+    Path {
+        id: String,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
@@ -347,6 +351,11 @@ impl Command {
                 Some(json!({"id":id,"public_key":public_key,"address":address.to_string()})),
             ),
             Self::Peer(PeerCommand::List) => (Method::GET, "/v1/peers".into(), None),
+            Self::Peer(PeerCommand::Path { id }) => (
+                Method::GET,
+                format!("/v1/peers/{}/path", encoded(&id)),
+                None,
+            ),
             Self::Grant(GrantCommand::Create {
                 peer,
                 agent,

@@ -50,7 +50,7 @@ Peer certificates expire 30 days after creation. A listening daemon reuses its c
 Roadmap milestone 4. It applies to relay-capable peers: members a host addresses through its synthetic relay address (see Relay in the [coordination contract](coordination-contract.md)). Peers reached by an advertised or configured direct address are unchanged. Path discovery never changes what QUIC sees. QUIC always addresses the peer by its synthetic address, and the combined socket decides per packet whether that means the relay or a validated UDP endpoint.
 
 **Demultiplexing.** Every datagram on the peer UDP socket, or carried in a relay frame, is classified by its leading bytes:
-- QUIC, if the first byte has the fixed bit (`0x40`) set;
+- QUIC, if the first byte has the fixed bit (`0x40`) set. Hosts therefore never advertise or honor `grease_quic_bit` (RFC 9287), so the fixed bit is always set;
 - STUN, if bytes 4–7 are the magic cookie `0x2112A442`;
 - path discovery, if it starts with the 8-byte magic `00 63 61 70 64 69 73 63` (`\0capdisc`).
 
@@ -72,12 +72,14 @@ An endpoint is a family byte (`4` or `6`), then 4 or 16 address bytes, then a 2-
 
 **Procedure.**
 - **Triggering:** when a host sends QUIC packets to a peer over the relay, it sends that peer a call-me-maybe through the relay, listing its own published candidates. It sends at most one every 10 seconds per peer. It also pings each of the peer's candidates from the map, and the endpoints the peer listed in its own call-me-maybe, every 2 seconds for 10 seconds.
-- **Answering:** a host that receives a call-me-maybe pings the listed endpoints the same way. That opens its own NAT toward the caller. A host that receives a valid ping replies with a pong to the ping's source.
+- **Answering:** a host that receives a call-me-maybe pings the listed endpoints the same way. That opens its own NAT toward the caller. A host that receives a valid ping replies with a pong to the ping's source. If the ping arrived over UDP, it also adds that source as a candidate and pings it, which helps the reply cross the sender's NAT. A pong answering a ping that arrived through the relay encodes its observed endpoint as family 4, `0.0.0.0:0`.
 - **Validating:** a pong that answers one of this host's own pings, received over UDP from endpoint E, validates E for that peer and measures its round trip. Only a host's own completed ping/pong exchange validates an endpoint. A received ping never does, so a replayed or forged message cannot redirect traffic.
 - **Using:** while a peer has a validated endpoint, the combined socket sends that peer's QUIC packets to the endpoint with the lowest measured round trip. It presents QUIC packets arriving from a validated endpoint to QUIC as coming from the peer's synthetic address. Packets through the relay are still accepted at all times.
 - **Keeping:** while a direct path is in use, the host pings it every 5 seconds. If it receives no pong for 15 seconds, it drops the endpoint and sends that peer's packets through the relay again, then retries discovery after 30 seconds.
 
-**Inspection.** `peer path HOST` (`GET /v1/peers/{host}/path` on the owner-local socket) returns `{host_id, path, endpoint, rtt_ms}`. `path` is `direct`, `relay`, or `none`; `endpoint` and `rtt_ms` are null unless the path is direct. It reports state only and grants nothing.
+**Inspection.** `peer path HOST` (`GET /v1/peers/{host}/path` on the owner-local socket) returns `{host_id, path, endpoint, rtt_ms}`. `path` is `direct`, `relay`, or `none`; `endpoint` and `rtt_ms` are null unless the path is direct. `path` is `relay` when a relay route to that host exists, and `none` otherwise. `rtt_ms` is a number and may be fractional. An unknown host returns 404. The endpoint reports state only and grants nothing.
+
+Advertised and configured direct addresses are never treated as path-discovery candidates, so a connection dialed directly is never rerouted. A host forgets a peer's discovery state after 60 seconds without traffic to that peer. With the peer socket bound to a specific IP, that IP is the only interface candidate, and loopback yields none. With an IPv4 wildcard bind, only IPv4 interface addresses are candidates.
 
 ## Grants and disconnected operation
 

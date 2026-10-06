@@ -13,15 +13,25 @@ Topology (one per scenario):
 
 The private networks have no route to each other. Each NAT router masquerades
 its private network behind its public address and forwards nothing inbound
-that it did not see leave first. Hosts listen on 0.0.0.0, so they advertise no
-direct address; the coordinator relay is their only path to each other.
+that it did not see leave first. Like typical stateful home routers, it also
+drops unsolicited packets addressed to itself. Without that input policy, a
+peer's first hole-punching packet would create a conntrack entry on the
+router, masquerade would then pick a different source port for the host's
+own outbound probe, and neither side's mapping would ever match. Hosts listen
+on 0.0.0.0, so they advertise no direct address: they start on the
+coordinator relay, and only path discovery through both NATs can open a
+direct path.
 
 Scenarios:
-- cone: masquerade that preserves source ports where possible.
-- symmetric: masquerade with fully random source ports.
-- udp-blocked: both routers drop all forwarded UDP; the relay runs over TCP.
-Each also checks a negative control: with the coordinator stopped, a send
-cannot reach the other host.
+- cone: masquerade that preserves source ports where possible. Path discovery
+  must open a direct path within 15 s, which keeps working with the
+  coordinator stopped.
+- symmetric: masquerade with fully random source ports. The path stays on
+  the relay.
+- udp-blocked: both routers drop all forwarded UDP; the relay runs over TCP
+  and the path stays on it.
+Where the path stays relayed, a negative control also shows that with the
+coordinator stopped a send cannot reach the other host.
 """
 
 import argparse
@@ -98,6 +108,11 @@ class Lab:
                      ' }\n'
                      '}\n'
                      'table ip filter {\n'
+                     ' chain input {\n'
+                     '  type filter hook input priority 0; policy drop;\n'
+                     '  ct state established,related accept\n'
+                     '  iifname { "lo", "lan" } accept\n'
+                     ' }\n'
                      ' chain forwarding {\n'
                      '  type filter hook forward priority 0; policy drop;\n'
                      '  ct state established,related accept\n'
@@ -178,6 +193,11 @@ def send(sender, receiver_id, grant, agent, content):
                       '--deadline', timestamp(), '--content', content)
 
 
+def direct_expected(nat, block_udp):
+    """Port-preserving NAT on both sides allows a direct path; the rest stay relayed."""
+    return nat == 'cone' and not block_udp
+
+
 def scenario(coord_binary, a_binary, b_binary, nat, block_udp):
     with tempfile.TemporaryDirectory(prefix='capsule-nat-') as directory:
         root = Path(directory)
@@ -218,21 +238,51 @@ def scenario(coord_binary, a_binary, b_binary, nat, block_udp):
             assert [m['request']['content'] for m in bob.cli('message', 'list')] == ['first', 'second']
             assert [m['request']['content'] for m in alice.cli('message', 'list')] == ['reply direction']
 
-            # Negative control: with the relay gone there is no path, even under a
-            # grant that allows disconnected use.
             open_grant = bob.cli('grant', 'create', '--peer', a['id'], '--agent', agent_b['id'],
                                  '--expires-at', timestamp(1200), '--allow-disconnected')
-            coord.stop()
-            time.sleep(1)
-            out = send(alice, b['id'], open_grant, agent_b, 'no relay')
-            assert out['state'] == 'unknown', out
-            assert 'no relay' not in [m['request']['content'] for m in bob.cli('message', 'list')]
 
-            # The relay coming back restores the path for the same unknown request.
-            coord.start()
-            retried = wait_for(lambda: (r := alice.cli('message', 'retry', '--peer', b['id'], out['request']['request_id']))
-                               ['state'] == 'accepted' and r, timeout=20, message='retry through restored relay')
-            assert retried['state'] == 'accepted'
+            def path(host, peer):
+                return host.cli('peer', 'path', peer['id'])
+
+            if direct_expected(nat, block_udp):
+                # Path discovery moves both directions onto a direct UDP path
+                # through both NATs within 15 seconds of the relayed exchange.
+                wait_for(lambda: path(alice, b)['path'] == 'direct', timeout=15, message='direct path from alice')
+                wait_for(lambda: path(bob, a)['path'] == 'direct', timeout=15, message='direct path from bob')
+                view = path(alice, b)
+                assert view['endpoint'].startswith('203.0.113.20:') and view['rtt_ms'] is not None, view
+                # The traffic no longer depends on the relay.
+                coord.stop()
+                time.sleep(1)
+                out = send(alice, b['id'], open_grant, agent_b, 'direct without relay')
+                assert out['state'] == 'accepted', out
+                assert 'direct without relay' in [m['request']['content'] for m in bob.cli('message', 'list')]
+                assert path(alice, b)['path'] == 'direct'
+                coord.start()
+            else:
+                # A new port per destination, or no UDP at all: discovery cannot
+                # open a direct path, so traffic stays on the relay.
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    assert send(alice, b['id'], grant_b, agent_b, 'relayed traffic')['state'] == 'accepted'
+                    time.sleep(1)
+                for host, peer in ((alice, b), (bob, a)):
+                    view = path(host, peer)
+                    assert view['path'] == 'relay' and view['endpoint'] is None, view
+
+                # Negative control: with the relay gone there is no path, even
+                # under a grant that allows disconnected use.
+                coord.stop()
+                time.sleep(1)
+                out = send(alice, b['id'], open_grant, agent_b, 'no relay')
+                assert out['state'] == 'unknown', out
+                assert 'no relay' not in [m['request']['content'] for m in bob.cli('message', 'list')]
+
+                # The relay coming back restores the path for the same unknown request.
+                coord.start()
+                retried = wait_for(lambda: (r := alice.cli('message', 'retry', '--peer', b['id'], out['request']['request_id']))
+                                   ['state'] == 'accepted' and r, timeout=20, message='retry through restored relay')
+                assert retried['state'] == 'accepted'
         finally:
             for process in (alice, bob):
                 if process is not None:
@@ -259,8 +309,11 @@ def main():
         for a in binaries:
             for b in binaries:
                 scenario(args.coord, binaries[a], binaries[b], nat, name == 'udp-blocked')
-                print(f'PASS {name} NAT, {a}→{b}: relay-only exchange both ways, no path without the relay, '
-                      'recovery after relay restart', flush=True)
+                if direct_expected(nat, name == 'udp-blocked'):
+                    detail = 'relayed exchange both ways, direct path within 15 s, works with the coordinator stopped'
+                else:
+                    detail = 'relay-only exchange both ways, path stays relayed, no path without the relay, recovery after relay restart'
+                print(f'PASS {name} NAT, {a}→{b}: {detail}', flush=True)
 
 
 if __name__ == '__main__':

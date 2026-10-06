@@ -124,6 +124,42 @@ func ValidAddress(value string) bool {
 	return err == nil && address.Port() != 0 && address.Addr().Zone() == ""
 }
 
+// MaxCandidates bounds a member's published path discovery candidates.
+const MaxCandidates = 8
+
+// ValidCandidates accepts at most MaxCandidates distinct literal IP:PORT
+// strings with nonzero ports.
+func ValidCandidates(values []string) bool {
+	if values == nil || len(values) > MaxCandidates {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if value == "" || !ValidAddress(value) || seen[value] {
+			return false
+		}
+		seen[value] = true
+	}
+	return true
+}
+
+// FilterCandidates keeps the valid, distinct candidates in order, at most
+// MaxCandidates. Hosts drop invalid candidates rather than the member.
+func FilterCandidates(values []string) []string {
+	kept := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if len(kept) == MaxCandidates {
+			break
+		}
+		if value != "" && ValidAddress(value) && !seen[value] {
+			seen[value] = true
+			kept = append(kept, value)
+		}
+	}
+	return kept
+}
+
 // ValidCoordinatorAddress accepts HOST:PORT, where HOST is an IP or DNS name.
 func ValidCoordinatorAddress(value string) bool {
 	host, port, err := net.SplitHostPort(value)
@@ -324,5 +360,6 @@ type MapMember struct {
 	// rejecting the map.
 	Membership json.RawMessage `json:"membership"`
 	Address    string          `json:"address"`
+	Candidates []string        `json:"candidates"`
 	UpdatedAt  string          `json:"updated_at"`
 }

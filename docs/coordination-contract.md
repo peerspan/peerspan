@@ -168,7 +168,7 @@ A host with a peer socket sends a Binding request from that socket to each of it
 
 ### Published candidates
 
-A host reports `candidates` on registration, join, and sync. If it runs with `--peer-listen`, candidates are its reflexive address and its non-loopback interface addresses paired with its bound peer port, in that order, up to 8. Otherwise the list is empty. The coordinator stores and serves them unchanged. Candidates are hints for path discovery, not dial addresses: `address` keeps its meaning, and a host still never dials a candidate as an ordinary peer address.
+A host reports `candidates` on registration, join, and sync. If it runs with `--peer-listen`, candidates are its reflexive address and its non-loopback interface addresses paired with its bound peer port, in that order, up to 8. Otherwise the list is empty. Only listening hosts send STUN requests. A dial-only host publishes no candidates and lists none in its call-me-maybe; it can still reach a direct path, because the peer learns its source from its pings. The coordinator stores and serves them unchanged. Candidates are hints for path discovery, not dial addresses: `address` keeps its meaning, and a host still never dials a candidate as an ordinary peer address.
 
 ## Verification
 
@@ -201,4 +201,4 @@ Language tests cover message encoding, signature and freshness checks, replayed 
 
 ## Deferred
 
-Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Port prediction for NATs that allocate a new port per destination, so two such NATs stay on the relay. Path discovery for peers reached by an advertised direct address. IPv6 candidates beyond what interfaces and STUN report. Per-network relay selection and relays other than the network's coordinator.
+Membership and invite revocation, root rotation, and multiple administrators (milestone 2). Registration rate limits and quotas on the coordinator. Long-poll or streamed map updates in place of interval polling. Port prediction for NATs that allocate a new port per destination, so two such NATs stay on the relay. A NAT that accepts unsolicited packets addressed to itself, such as a Linux router masquerading with no input filter, can deadlock hole punching. A peer's early probe creates a connection-tracking entry on the router, and the host's own outbound probe is then remapped to a different public port. Such pairs stay on the relay. Path discovery for peers reached by an advertised direct address. IPv6 candidates beyond what interfaces and STUN report. Per-network relay selection and relays other than the network's coordinator.

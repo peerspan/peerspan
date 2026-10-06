@@ -49,6 +49,8 @@ type peerTransport struct {
 	mu        sync.Mutex
 	transport *quic.Transport
 	packets   *packetConn
+	paths     *pathManager
+	listening bool // a peer listener accepts inbound connections
 	relays    map[string]*relayClient
 	conns     map[string]cachedPeerConn
 	timeout   time.Duration
@@ -89,6 +91,8 @@ func (s *Store) peerUDP(bind *net.UDPAddr) (*quic.Transport, error) {
 	// Both implementations use 4-byte connection IDs so a restarted daemon of
 	// either language can reset connections its predecessor held.
 	s.peer.packets = newPacketConn(socket)
+	s.peer.paths = newPathManager(s, s.peer.packets)
+	s.peer.packets.paths = s.peer.paths
 	s.peer.transport = &quic.Transport{Conn: s.peer.packets, StatelessResetKey: s.statelessResetKey(), ConnectionIDLength: 4}
 	return s.peer.transport, nil
 }
@@ -109,7 +113,8 @@ func (s *Store) closePeerTransport() error {
 	}
 	err := s.peer.transport.Close()
 	err = errors.Join(err, s.peer.packets.Close())
-	s.peer.transport, s.peer.packets = nil, nil
+	s.peer.paths.close()
+	s.peer.transport, s.peer.packets, s.peer.paths = nil, nil, nil
 	if errors.Is(err, net.ErrClosed) {
 		err = nil
 	}
@@ -139,6 +144,9 @@ func (s *Store) ListenPeer(ctx context.Context, address string) (net.Listener, e
 	if err != nil {
 		return nil, err
 	}
+	s.peer.mu.Lock()
+	s.peer.listening = true
+	s.peer.mu.Unlock()
 	listenCtx, cancel := context.WithCancel(context.Background())
 	l := &streamListener{ln: ln, ctx: listenCtx, cancel: cancel, streams: make(chan net.Conn), slots: make(chan struct{}, peerMaxConnections)}
 	go l.acceptConnections()

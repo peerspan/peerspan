@@ -11,7 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"net/netip"
+
+	"github.com/Cerebral-Systems/capsule/go/internal/disco"
 	"github.com/Cerebral-Systems/capsule/go/internal/relay"
+	"github.com/Cerebral-Systems/capsule/go/internal/stun"
 )
 
 // Relay client timing from the coordination contract.
@@ -40,9 +44,14 @@ type packetConn struct {
 	done chan struct{}
 	once sync.Once
 
+	// paths runs path discovery; it is set once, right after construction.
+	paths *pathManager
+
 	mu       sync.Mutex
 	peers    map[[16]byte]relay.HostID
 	routes   map[relay.HostID]*relayClient
+	direct   map[relay.HostID]netip.AddrPort // validated endpoint in use
+	owners   map[netip.AddrPort]relay.HostID // inverse of direct
 	deadline time.Time
 	changed  chan struct{}
 }
@@ -53,7 +62,7 @@ type datagram struct {
 }
 
 func newPacketConn(udp *net.UDPConn) *packetConn {
-	c := &packetConn{udp: udp, in: make(chan datagram, 1024), done: make(chan struct{}), peers: map[[16]byte]relay.HostID{}, routes: map[relay.HostID]*relayClient{}, changed: make(chan struct{})}
+	c := &packetConn{udp: udp, in: make(chan datagram, 1024), done: make(chan struct{}), peers: map[[16]byte]relay.HostID{}, routes: map[relay.HostID]*relayClient{}, direct: map[relay.HostID]netip.AddrPort{}, owners: map[netip.AddrPort]relay.HostID{}, changed: make(chan struct{})}
 	go c.readUDP()
 	return c
 }
@@ -68,9 +77,37 @@ func (c *packetConn) readUDP() {
 			}
 			continue
 		}
-		c.push(datagram{data: append([]byte(nil), buf[:n]...), addr: addr})
+		if n == 0 {
+			continue
+		}
+		data := append([]byte(nil), buf[:n]...)
+		from := normalize(addr.AddrPort())
+		switch {
+		case isQUIC(data):
+			// A validated endpoint's packets reach QUIC from the peer's
+			// synthetic address, so QUIC never sees the path change.
+			c.mu.Lock()
+			id, direct := c.owners[from]
+			c.mu.Unlock()
+			if direct {
+				c.paths.active(id, false)
+				c.push(datagram{data: data, addr: c.synthetic(id)})
+			} else {
+				c.push(datagram{data: data, addr: addr})
+			}
+		case stun.IsMessage(data), disco.IsMessage(data):
+			c.paths.receive(data, discoRoute{udp: from})
+		}
 	}
 }
+
+// isQUIC classifies a datagram by the QUIC fixed bit; STUN and path discovery
+// messages always have it clear. This relies on no host greasing the fixed bit
+// (RFC 9287): quic-go v0.63 never advertises grease_quic_bit (0x2ab2), always
+// sets the bit, rejects packets without it, and ignores the parameter when a
+// peer offers it, so a conforming peer never clears the bit toward a Go host.
+// The Rust host disables quinn's grease_quic_bit for the same reason.
+func isQUIC(data []byte) bool { return len(data) > 0 && data[0]&0x40 != 0 }
 
 // push drops the datagram when the endpoint is not keeping up; QUIC recovers.
 func (c *packetConn) push(d datagram) {
@@ -108,7 +145,53 @@ func (c *packetConn) route(id relay.HostID, client *relayClient) {
 func (c *packetConn) deliver(from relay.HostID, data []byte, client *relayClient) {
 	addr := c.synthetic(from)
 	c.route(from, client)
-	c.push(datagram{data: data, addr: addr})
+	switch {
+	case isQUIC(data):
+		c.paths.active(from, false)
+		c.push(datagram{data: data, addr: addr})
+	case disco.IsMessage(data):
+		c.paths.receive(data, discoRoute{client: client, peer: from})
+	}
+}
+
+// writeUDP sends a datagram on the real socket.
+func (c *packetConn) writeUDP(data []byte, to netip.AddrPort) {
+	_, _ = c.udp.WriteToUDPAddrPort(data, to)
+}
+
+// writeRelay sends a datagram to a peer through its current relay route.
+func (c *packetConn) writeRelay(id relay.HostID, data []byte) {
+	c.mu.Lock()
+	client := c.routes[id]
+	c.mu.Unlock()
+	if client != nil {
+		client.send(id, data)
+	}
+}
+
+// relayed reports whether a peer has a relay route.
+func (c *packetConn) relayed(id relay.HostID) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.routes[id] != nil
+}
+
+// setDirect sends a peer's synthetic-addressed packets to a validated endpoint,
+// or, given an invalid endpoint, back through the relay.
+func (c *packetConn) setDirect(id relay.HostID, endpoint netip.AddrPort) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if old, ok := c.direct[id]; ok {
+		delete(c.owners, old)
+		delete(c.direct, id)
+	}
+	if endpoint.IsValid() {
+		if previous, ok := c.owners[endpoint]; ok {
+			delete(c.direct, previous)
+		}
+		c.direct[id] = endpoint
+		c.owners[endpoint] = id
+	}
 }
 
 func (c *packetConn) ReadFrom(p []byte) (int, net.Addr, error) {
@@ -157,8 +240,18 @@ func (c *packetConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	c.mu.Lock()
 	id, known := c.peers[ip]
 	client := c.routes[id]
+	endpoint, direct := c.direct[id]
 	c.mu.Unlock()
-	if known && client != nil {
+	if !known {
+		return len(p), nil
+	}
+	if direct {
+		c.paths.active(id, false)
+		_, err := c.udp.WriteToUDPAddrPort(p, endpoint)
+		return len(p), err
+	}
+	if client != nil {
+		c.paths.active(id, true)
 		client.send(id, p)
 	}
 	// An unroutable relayed datagram is dropped like lost UDP.

@@ -10,7 +10,7 @@ The known-host messaging slice stores authenticated messages on hosts. It requir
 | 1 | Signed enrollment and coordination ([contract](coordination-contract.md)) | — | Manual key and address exchange. Grants no longer require `--allow-disconnected` while coordination is connected. Implemented. |
 | 2 | Membership revocation and root-key management | 1 | Membership cannot be withdrawn except by coordinator omission. There is only one administrator key. |
 | 3 | QUIC peer transport, then encrypted relays ([proposal](quic-relay-proposal.md)) | 1 | Hosts behind NAT or firewalls cannot be reached. Implemented: QUIC transport (3a) and relays in `capsule-coord` (3b). |
-| 4 | Direct-path discovery and NAT traversal | 1, 3 | All traffic goes through the relay when a direct path would work. |
+| 4 | Direct-path discovery and NAT traversal | 1, 3 | All traffic goes through the relay when a direct path would work. Implemented: STUN candidates and signed path discovery below QUIC; NATs that allocate a port per destination on both sides stay on the relay. |
 | 5 | Automatic outbound retry schedule | — | Senders recover `unknown` outcomes by hand. |
 
 Agent delivery into a live session (see the [integration investigation](agent-integration-investigation.md)) is a parallel track. It does not depend on these milestones.

@@ -44,6 +44,11 @@ pub struct Store {
     /// it becomes reachable through the new coordinator without waiting for
     /// the next refresh.
     pub(crate) relay_wake: tokio::sync::Notify,
+    /// The peer socket's bound address while listening. Candidates are
+    /// published only then.
+    pub(crate) peer_bound: RwLock<Option<std::net::SocketAddr>>,
+    /// The candidates most recently published to a coordinator.
+    pub(crate) candidates: RwLock<Vec<std::net::SocketAddr>>,
 }
 
 impl Store {
@@ -164,6 +169,8 @@ impl Store {
             adapter_recovery_until,
             peer_transport: Mutex::new(None),
             relay_wake: tokio::sync::Notify::new(),
+            peer_bound: RwLock::new(None),
+            candidates: RwLock::new(Vec::new()),
         })
     }
 

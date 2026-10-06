@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod adapter_connection;
 pub mod adapter_outbound;
 pub mod api;
+pub mod disco;
 pub mod membership;
 pub mod model;
 pub mod network;
