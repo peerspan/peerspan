@@ -543,6 +543,9 @@ class Experiment:
         ]
         return {
             "consumer_running": self.consumer.process.poll() is None,
+            "startup_stage": getattr(self.consumer, "startup_stage", None),
+            "startup_markers": [marker for marker in ["Accessing", "Enter to confirm", "Loading", "development", "channels", "MCP", "Sign in", "error"]
+                                if not self.fixture and marker in self.consumer.screen()],
             "outbound_states": [record["state"] for record in records],
             "current_operation_count": sum(
                 hasattr(self, "current_reply")

@@ -49,7 +49,15 @@ func runClaude(args []string, state string, errOut io.Writer) error {
 	if o.Action == "start" {
 		fs.StringVar(&o.Workspace, "workspace", "", "Claude working directory; defaults to this directory")
 	}
-	if err := fs.Parse(args[1:]); err != nil {
+	parseArgs := args[1:]
+	for index, arg := range parseArgs {
+		if arg == "--" {
+			o.ClaudeArgs = parseArgs[index+1:]
+			parseArgs = parseArgs[:index]
+			break
+		}
+	}
+	if err := fs.Parse(parseArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
@@ -58,17 +66,8 @@ func runClaude(args []string, state string, errOut io.Writer) error {
 	if o.Directory == "" {
 		return errors.New("--directory is required")
 	}
-	if fs.NArg() != 0 {
-		separator := false
-		for _, arg := range args[1:] {
-			if arg == "--" {
-				separator = true
-			}
-		}
-		if o.Action != "start" || !separator {
-			return errors.New("Claude arguments require start and a -- separator")
-		}
-		o.ClaudeArgs = fs.Args()
+	if fs.NArg() != 0 || len(o.ClaudeArgs) != 0 && o.Action != "start" {
+		return errors.New("Claude arguments require start and a -- separator")
 	}
 	if o.Action == "setup" || o.Action == "start" && o.Agent != "" {
 		if o.Agent == "" || o.Channel == "" || o.ExpiresAt == "" {

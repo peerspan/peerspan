@@ -191,6 +191,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             assert "--dangerously-skip-permissions" not in launched["arguments"]
             assert before == snapshot(source), "launch minted another attachment"
             invoke(client, source, "start", "--directory", str(directory), "--", "--mcp-config", "{}", success=False)
+            invoke(client, source, "start", "--directory", str(directory), "unexpected", "--", "--name", "example", success=False)
             invoke(client, source, "start", "--directory", str(root / "invalid workspace setup"),
                    "--workspace", str(root / "absent"), "--agent", mine["id"], "--channel", str(script),
                    "--node", str(node), "--claude", str(claude), "--expires-at", timestamp(900), success=False)

@@ -137,6 +137,7 @@ class ClaudeSession:
         return self.debug_path.read_text() if self.debug_path.exists() else ""
 
     def ready(self):
+        self.startup_stage = "workspace_confirmation"
         wait_for(
             lambda: "Accessing" in self.screen()
             and "Enter to confirm" in self.screen(),
@@ -144,6 +145,7 @@ class ClaudeSession:
         )
         time.sleep(0.5)
         os.write(self.master, b"\x1b[B\r")
+        self.startup_stage = "channel_confirmation"
         wait_for(
             lambda: "Loading" in self.screen()
             and "development" in self.screen()
@@ -151,7 +153,9 @@ class ClaudeSession:
             20,
         )
         os.write(self.master, b"\r")
+        self.startup_stage = "channel_registration"
         wait_for(lambda: "Channel notifications registered" in self.debug(), 30)
+        self.startup_stage = "ready"
 
     def prompt(self, text):
         # Bracketed paste avoids terminal interpretation of punctuation/newlines.
