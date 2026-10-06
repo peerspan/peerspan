@@ -1,42 +1,46 @@
 {
-  "checked_at": "2026-10-06T04:35:28.459583+00:00",
+  "checked_at": "2026-10-06T06:47:53.686063+00:00",
   "consumer": "claude",
   "control_transport": "local-subprocess",
+  "worker_control_transports": {
+    "alice": "local-subprocess",
+    "bob": "local-subprocess"
+  },
   "distinct_machine_ids": false,
   "hosts": [
     {
       "identity": {
-        "id": "host_d78c59611ff5ac3f1b5f3eb37e2cd0ddf1ce4789f137c2ff21e7b8d9f4cf6b0e",
-        "public_key": "y7eNnOwgRyGL3OpnXtAbaD1JTp3thShb0oqZZbP72FA=",
-        "created_at": "2026-10-06T04:34:19.992632742Z"
+        "id": "host_c8995cf8816b3aaf406d2d2bb706384cf5b68101741f489c52fa0f0cc3e04b90",
+        "public_key": "fxWEu1Y6erHFaXRny5now7bDiMcDlYtbIk0P6I72hGk=",
+        "created_at": "2026-10-06T06:47:00.811735791Z"
       },
       "agent": {
         "capabilities": [],
-        "created_at": "2026-10-06T04:34:20.030312971Z",
-        "id": "agent_c3a1da36bdfb5b9b0db8c95a81e54a95",
+        "created_at": "2026-10-06T06:47:00.828542466Z",
+        "id": "agent_a712d0afb716f5bb7db19bf2421d1dd8",
         "name": "alice",
         "owner": "alice"
       },
-      "address": "127.0.0.1:56195",
+      "address": "127.0.0.1:55138",
       "machine": {
         "uid": 0
       },
-      "host_binary": "/tmp/capsule-restart-host-go"
+      "host_binary": "/tmp/capsule-cross-host-quic-go"
     },
     {
       "identity": {
-        "id": "host_3d877339732c4616366180c766c16aaa195c2da7f64353e1e07d506b644a4c7e",
-        "public_key": "YdHqNw1t5wVpMUT54G0oOHzL0l3LdVGq8I9jk51jpY0=",
-        "created_at": "2026-10-06T04:34:20.114244775Z"
+        "id": "host_a5614e4361a381576a422e973d6172ddaba9fe03db7d4e588cc20d3b9bcab0fe",
+        "public_key": "VRs1TSzwka+BuNWVKetd+O1OItecgl/Jf2PWnjMCl7A=",
+        "created_at": "2026-10-06T06:47:00.865872522Z"
       },
       "agent": {
         "capabilities": [],
-        "created_at": "2026-10-06T04:34:20.159056545Z",
-        "id": "agent_2b80ae25d8ea5ddaaec220e52da8e45b",
+        "created_at": "2026-10-06T06:47:00.884547138Z",
+        "id": "agent_996970f1f0f4c1d43a00048ebf641d70",
         "name": "bob",
         "owner": "bob"
       },
-      "address": "127.0.0.1:49235",
+      "address": "127.0.0.1:59801",
       "machine": {
         "uid": 0
       },
@@ -45,21 +49,44 @@
   ],
   "sessions": [
     {
-      "claude_version": "2.1.290 (Claude Code)",
+      "claude_version": "2.1.291 (Claude Code)",
       "mcp_protocol": "2025-11-25",
-      "session_id": "session_932bbf9d93b34ba631984b492320dfff",
-      "adapter_id": "adapter_e6202a5221320e6a4284c4df9a3dbc38",
-      "consumer_pid": 2355589
+      "session_id": "session_15ffbc98f95e863207e54b98d6c41997",
+      "adapter_id": "adapter_42158a95a694555fe071523ee344d59b",
+      "consumer_pid": 3575752
     },
     {
-      "claude_version": "2.1.290 (Claude Code)",
+      "claude_version": "2.1.291 (Claude Code)",
       "mcp_protocol": "2025-11-25",
-      "session_id": "session_54f2e95411e1075acdd3906658f56ecf",
-      "adapter_id": "adapter_8ae7a2ae00076791dba4827b64382c01",
-      "consumer_pid": 2356016
+      "session_id": "session_d1d673dc1755008258cf52c1b6f21321",
+      "adapter_id": "adapter_ce9c7ae9d7955fa2536415a86cad7907",
+      "consumer_pid": 3576533
     }
   ],
-  "network_id": "net_ad9a0f37264b79f8c5437412531dc2364d31150c3ac9ac481cf3474f2ab7d05d",
+  "network_id": "net_eb75d85306b133b049614ff111be8b6fc79c7360542ca09f1fba0703a377abda",
+  "grants": [
+    {
+      "action": "message.append",
+      "allow_disconnected": true,
+      "expires_at": "2026-10-06T07:07:01.118106Z",
+      "id": "grant_80f50877ad78b091d1f47275f7efea9e",
+      "max_message_bytes": 65536,
+      "requester_host_id": "host_a5614e4361a381576a422e973d6172ddaba9fe03db7d4e588cc20d3b9bcab0fe",
+      "revoked_at": null,
+      "target_agent_id": "agent_a712d0afb716f5bb7db19bf2421d1dd8"
+    },
+    {
+      "action": "message.append",
+      "allow_disconnected": true,
+      "expires_at": "2026-10-06T07:07:01.209163Z",
+      "id": "grant_4f77a52cfd78e2855a287b22dd2ecc59",
+      "max_message_bytes": 65536,
+      "requester_host_id": "host_c8995cf8816b3aaf406d2d2bb706384cf5b68101741f489c52fa0f0cc3e04b90",
+      "revoked_at": null,
+      "target_agent_id": "agent_996970f1f0f4c1d43a00048ebf641d70"
+    }
+  ],
+  "destination_max_messages": 4,
   "manual_peer_pins": false,
   "owner_cli_send_or_reply_fetch": false,
   "agent_initiated_both_directions": true,
@@ -67,18 +94,21 @@
   "same_consumer_processes_after_restart": true,
   "coordination_offline_exchanges": true,
   "queued_request_blocked_after_grant_revocation": true,
+  "queued_revocation_explicit_caller_retries": 1,
   "builtin_tools_enabled": false,
   "permission_relay_enabled": false,
   "exchanges": [
     {
       "phase": "alice-to-bob-connected",
       "observed": true,
-      "restart": null
+      "restart": null,
+      "explicit_caller_retries": 0
     },
     {
       "phase": "bob-to-alice-connected",
       "observed": true,
-      "restart": null
+      "restart": null,
+      "explicit_caller_retries": 0
     },
     {
       "phase": "alice-to-bob-offline-restart",
@@ -86,15 +116,17 @@
       "restart": {
         "replacement_guard_status": 409,
         "host_binary": "/root/capsule/capsule-offline-replacement/rust/target/debug/capsule-host"
-      }
+      },
+      "explicit_caller_retries": 0
     },
     {
       "phase": "bob-to-alice-offline-restart",
       "observed": true,
       "restart": {
         "replacement_guard_status": 409,
-        "host_binary": "/tmp/capsule-restart-host-go"
-      }
+        "host_binary": "/tmp/capsule-cross-host-quic-go"
+      },
+      "explicit_caller_retries": 0
     }
   ],
   "limitations": [
@@ -102,6 +134,7 @@
     "The receiver was paused before restart to make the pending exchange deterministic.",
     "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment."
   ],
+  "peer_transport": "QUIC v1 over UDP with mutual TLS 1.3",
   "redactions": [
     "Local hostname and machine-id fingerprints omitted from the committed report. The original run detected one shared machine."
   ]

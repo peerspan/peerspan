@@ -158,11 +158,11 @@ class Channel:
         self.process.stdin.write(json.dumps(value) + '\n')
         self.process.stdin.flush()
 
-    def call(self, method, params):
+    def call(self, method, params, *, seconds=8):
         self.count += 1
         rid = self.count
         self.send({'jsonrpc': '2.0', 'id': rid, 'method': method, 'params': params})
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             event = self.events.get(timeout=max(.01, deadline - time.monotonic()))
             assert event is not None, 'MCP subprocess exited'

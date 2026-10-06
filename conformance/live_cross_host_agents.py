@@ -195,16 +195,21 @@ class Experiment:
         )
         script = Path(self.settings["repo"]) / "integrations/claude-channel/channel.mjs"
         directory = self.root / "consumer"
+        node = Path(self.settings["node"]).resolve(strict=True)
         if self.fixture:
-            self.consumer = Channel(
-                Path(self.settings["node"]), script, self.host, self.secret, directory
-            )
+            self.consumer = Channel(node, script, self.host, self.secret, directory)
             self.credential_path = self.consumer.credential_path
             version, protocol = None, "2025-11-25"
         else:
+            # Pin the executable so a CLI auto-update cannot change the version
+            # reported for the process this experiment actually launched.
+            claude = Path(self.settings["claude"]).resolve(strict=True)
+            version = subprocess.check_output(
+                [str(claude), "--version"], text=True, timeout=10
+            ).strip()
             self.consumer = ClaudeSession(
-                Path(self.settings["claude"]),
-                Path(self.settings["node"]),
+                claude,
+                node,
                 script,
                 self.host,
                 self.secret,
@@ -212,9 +217,6 @@ class Experiment:
             )
             self.consumer.ready()
             self.credential_path = directory / "credential.json"
-            version = subprocess.check_output(
-                [self.settings["claude"], "--version"], text=True, timeout=10
-            ).strip()
             protocol = re.search(
                 r'"negotiatedProtocolVersion":"([^"]+)"', self.consumer.debug()
             ).group(1)
@@ -253,6 +255,9 @@ class Experiment:
                         "content": content,
                     },
                 },
+                # Establishment can take 5 s, and the adapter's send wait is
+                # bounded at 12 s. The test client must outlast both.
+                seconds=20,
             )
             assert not result.get("isError"), "fixture send failed"
         else:
@@ -286,14 +291,57 @@ class Experiment:
             elif data["meta"]["kind"] == "reply":
                 self.observed.add(data["content"])
 
+    def retry(self):
+        current = self.snapshot()["current_request_id"]
+        assert current is not None
+        rows = sql(
+            self.host,
+            "SELECT m.record FROM outbound_messages m JOIN adapter_outbound a ON a.peer=m.peer AND a.request_id=m.request_id WHERE a.adapter_id=? AND a.request_id=?",
+            (self.secret["adapter"]["id"], current),
+        )
+        assert len(rows) == 1
+        outbound = json.loads(rows[0][0])
+        assert outbound["state"] == "unknown", "retry is only for an uncertain send"
+        arguments = {
+            "destination": "remote",
+            "request_id": current,
+            "content": outbound["request"]["content"],
+        }
+        if self.fixture:
+            result = self.consumer.call(
+                "tools/call", {"name": "send", "arguments": arguments}, seconds=20
+            )
+            assert not result.get("isError"), "fixture retry failed"
+        else:
+            self.consumer.prompt(
+                "Recover your existing uncertain Capsule send, using the send tool with exactly "
+                f"these arguments: {json.dumps(arguments)}. This retries the original operation; "
+                "do not generate a new request ID or change its destination or content. "
+                f"After its kind=reply event arrives, output exactly {self.current_observed}. "
+                "Keep responding to later authorized kind=message events through the reply tool. "
+                "Use only Capsule tools."
+            )
+            # Give the model and the adapter's bounded send time to complete
+            # before asking for another recovery attempt.
+            until = time.monotonic() + 20
+            while time.monotonic() < until:
+                rows = sql(
+                    self.host,
+                    "SELECT record FROM outbound_messages WHERE peer=? AND request_id=?",
+                    (self.peer["identity"]["id"], current),
+                )
+                if json.loads(rows[0][0])["state"] != "unknown":
+                    return
+                self.consumer.running()
+                time.sleep(0.1)
+
     def snapshot(self, pump=False):
         if pump:
             self.pump_fixture()
         assert self.consumer.process.poll() is None, "test consumer exited"
         assert self.consumer.process.pid == self.consumer_pid
-        received = [
-            json.loads(row[0])["content"]
-            for row in sql(self.host, "SELECT request FROM received_messages")
+        received_request_ids = [
+            row[0] for row in sql(self.host, "SELECT request_id FROM received_messages")
         ]
         network = self.host.cli("network", "list")[0]
         synced = datetime.fromisoformat(network["last_sync_at"].replace("Z", "+00:00"))
@@ -310,6 +358,25 @@ class Experiment:
             else self.consumer.assistant_said(self.current_observed)
         )
         count = len(sql(self.host, "SELECT request_id FROM adapter_outbound"))
+        messages = [
+            json.loads(row[0])
+            for row in sql(self.host, "SELECT record FROM outbound_messages")
+        ]
+        outbound = [
+            {
+                "request_id": item["request"]["request_id"],
+                "state": item["state"],
+                "error": item.get("error"),
+            }
+            for item in messages
+        ]
+        current_requests = [
+            item["request"]["request_id"]
+            for item in messages
+            if hasattr(self, "current_reply")
+            and self.current_reply in item["request"]["content"]
+        ]
+        assert len(current_requests) <= 1, "agent initiated duplicate requests"
         if observed:
             assert count == self.outbound_before + 1, "agent initiated duplicate sends"
             records = [
@@ -323,7 +390,8 @@ class Experiment:
             assert all(r["adapter_id"] == self.secret["adapter"]["id"] for r in records)
             observed = bool(records) and all(r["state"] == "forwarded" for r in records)
         return {
-            "received": received,
+            "received_request_ids": received_request_ids,
+            "current_request_id": current_requests[0] if current_requests else None,
             "observed": bool(observed),
             "disconnected": disconnected,
             "sync_failed": network["last_sync_error"] is not None,
@@ -331,6 +399,7 @@ class Experiment:
                 "adapter", "connection", self.secret["adapter"]["id"]
             ),
             "outbound_count": count,
+            "outbound": outbound,
             "blocked_deliveries": sum(
                 d["delivery"]["state"] == "blocked"
                 for d in self.host.cli("delivery", "list")
@@ -386,6 +455,8 @@ class Experiment:
             self.expected.add(args["reply"])
         elif operation == "begin":
             self.begin(**args)
+        elif operation == "retry":
+            self.retry()
         elif operation == "pause":
             self.pause(**args)
         elif operation == "snapshot":
@@ -544,7 +615,37 @@ def wait_pair(alice, bob, predicate, seconds=90, pump=True):
         if result:
             return result
         time.sleep(0.2)
-    raise AssertionError("cross-host condition timed out")
+    summaries = [
+        {key: snapshot[key] for key in ["observed", "outbound", "blocked_deliveries"]}
+        for snapshot in [a, b]
+    ]
+    raise AssertionError("cross-host condition timed out: " + json.dumps(summaries))
+
+
+def wait_received(sender, receiver):
+    """Explicit caller recovery uses the original operation, never a new send."""
+    attempts = 0
+    until = time.monotonic() + 90
+    while time.monotonic() < until:
+        source = sender.call("snapshot", pump=False)
+        target = receiver.call("snapshot", pump=False)
+        request_id = source["current_request_id"]
+        if request_id in target["received_request_ids"]:
+            return attempts
+        uncertain = any(
+            out["request_id"] == request_id and out["state"] == "unknown"
+            for out in source["outbound"]
+        )
+        if uncertain:
+            assert (
+                attempts < 3
+            ), "original request remains uncertain after three caller retries"
+            sender.call("retry")
+            attempts += 1
+            time.sleep(1)
+        else:
+            time.sleep(0.2)
+    raise AssertionError("receiver did not persist the current request")
 
 
 def check(args, settings):
@@ -631,11 +732,8 @@ def check(args, settings):
                 receiver.call("pause", paused=True)
             sender.call("begin", reply=reply, observed=observed)
             restarted = None
+            retries = wait_received(sender, receiver)
             if restart:
-                content = f"Use the Capsule reply tool to respond with exactly {reply}."
-                wait_pair(
-                    sender, receiver, lambda _a, b: content in b["received"], pump=False
-                )
                 restarted = sender.call("restart")
                 wait_pair(
                     sender,
@@ -646,16 +744,22 @@ def check(args, settings):
                 )
                 receiver.call("pause", paused=False)
             wait_pair(sender, receiver, lambda a, _b: a["observed"])
-            exchanges.append({"phase": label, "observed": True, "restart": restarted})
+            exchanges.append(
+                {
+                    "phase": label,
+                    "observed": True,
+                    "restart": restarted,
+                    "explicit_caller_retries": retries,
+                }
+            )
             print(f"Passed {label}.", flush=True)
 
         # Queue one more request, withdraw its receiver-owned grant, then resume.
-        reply = f"REVOKED_{nonce}"
+        reply = f"REPLY_{nonce}_4"
         bob.call("expect", reply=reply)
         bob.call("pause", paused=True)
-        alice.call("begin", reply=reply, observed=f"MUST_NOT_OBSERVE_{nonce}")
-        content = f"Use the Capsule reply tool to respond with exactly {reply}."
-        wait_pair(alice, bob, lambda _a, b: content in b["received"], pump=False)
+        alice.call("begin", reply=reply, observed=f"OBSERVED_{nonce}_4")
+        revocation_retries = wait_received(alice, bob)
         bob.call("revoke_grant")
         bob.call("pause", paused=False)
         wait_pair(
@@ -695,6 +799,7 @@ def check(args, settings):
             "same_consumer_processes_after_restart": True,
             "coordination_offline_exchanges": True,
             "queued_request_blocked_after_grant_revocation": True,
+            "queued_revocation_explicit_caller_retries": revocation_retries,
             "builtin_tools_enabled": False,
             "permission_relay_enabled": False,
             "exchanges": exchanges,
