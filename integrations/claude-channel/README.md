@@ -113,3 +113,53 @@ python3 conformance/live_agent_exchange.py --go GO_BINARY --rust RUST_BINARY --n
 The second experiment uses two interactive Claude sessions to initiate messages in both directions and confirm automatic replies in their model output, without owner CLI send/fetch commands. Both experiments create temporary host and MCP configuration. Claude records each test workspace's trust/session information through its normal account state. Existing sessions and MCP configurations are not selected or reconfigured. Noninteractive stream-json mode connected to MCP but did not consume channel events in the tested installation; use the interactive path for this slice. Recorded results are in the [ingress report](../../docs/results/claude-channel-live.json) and [two-agent exchange report](../../docs/results/agent-exchange-live.json).
 
 `--restart-pending` additionally restarts each originating daemon with the other implementation and rotates its token while waiting for a reply. The [recovery report](../../docs/results/agent-recovery-live.json) records the same two Claude processes completing those exchanges without duplicate sends or replacement sessions.
+
+## Acceptance on two machines
+
+[`live_cross_host_agents.py`](../../conformance/live_cross_host_agents.py) runs the experiment through two SSH accounts. Each machine needs this checkout, Python 3, the built host binaries, Node 22+, and the channel's installed npm dependencies. Alice also needs `capsule-coord`. For a model run, each account needs an authenticated Claude Code installation with channels available. The runner creates isolated test state and two opted-in sessions; it enables only Capsule tools. Existing daemons, workspaces, and grants are not used. Claude records these test sessions in its normal account history.
+
+Configure SSH aliases with normal host-key verification. The advertised IPs and ports must be directly reachable between the machines; the runner adds no tunnels, relays, or firewall rules. Save a configuration like this outside the repository, replacing the addresses and absolute paths:
+
+```json
+{
+  "alice": {
+    "ssh": "alice-dev",
+    "repo": "/home/alice/capsule",
+    "host_binary": "/tmp/capsule-host-go",
+    "replacement_binary": "/home/alice/capsule/rust/target/debug/capsule-host",
+    "node": "/usr/bin/node",
+    "claude": "/home/alice/.local/bin/claude",
+    "listen": "0.0.0.0:7443",
+    "advertise": "10.0.0.10:7443",
+    "coord_binary": "/tmp/capsule-coord",
+    "coord_listen": "0.0.0.0:7444",
+    "coord_advertise": "10.0.0.10:7444"
+  },
+  "bob": {
+    "ssh": "bob-dev",
+    "repo": "/home/bob/capsule",
+    "host_binary": "/home/bob/capsule/rust/target/debug/capsule-host",
+    "replacement_binary": "/tmp/capsule-host-go",
+    "node": "/usr/bin/node",
+    "claude": "/home/bob/.local/bin/claude",
+    "listen": "0.0.0.0:7443",
+    "advertise": "10.0.0.11:7443"
+  }
+}
+```
+
+`replacement_binary` is optional; omit it to restart the same implementation. First run deterministic MCP consumers, which make no model calls:
+
+```sh
+python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --fixture --output /tmp/capsule-cross-host-fixture.json
+```
+
+Then omit `--fixture` for the real Claude experiment:
+
+```sh
+python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --output /tmp/capsule-cross-host-live.json
+```
+
+The runner verifies signed enrollment without manual peer pins, independently scoped grants, sends and automatic replies in both directions, collaboration after coordination stops, original-session recovery and token rotation during pending exchanges, and revocation before queued delivery. It pauses only its own receiving consumer to make the pending and queued cases deterministic. Invite and adapter secrets stay out of the report. Closing the workers stops their test processes and removes temporary state.
+
+The report distinguishes MCP observations from model-observed replies and records each host's identity, machine fingerprint, session, versions, and grants. `--local` validates the runner on one machine; `--allow-same-machine` permits an SSH smoke test on one installation. Both report the shared machine accurately and provide no evidence of separate physical hosts. Different machine IDs identify installations, not developer identity or physical hardware.

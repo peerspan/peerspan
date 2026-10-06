@@ -28,6 +28,10 @@ These were separate daemon state directories connected over loopback, not separa
 
 The [live recovery experiment](results/agent-recovery-live.json) used Claude Code 2.1.290. After each agent initiated an exchange, its originating daemon restarted under the other implementation and its token rotated. The same two Claude processes remained running, recovered their original session bindings, and observed their automatic replies. No owner CLI send/fetch commands or duplicate sends were used. This proves daemon recovery by the original adapter; replacing the adapter process requires a fresh owner-authorized attachment.
 
+The [cross-host runner](../conformance/live_cross_host_agents.py) extends this experiment to two SSH targets, using signed enrollment, independent grants, coordinator outage, pending daemon restarts, and queued-message revocation. Its [setup guide](../integrations/claude-channel/README.md#acceptance-on-two-machines) distinguishes deterministic MCP checks, real model observations, and single-machine validation. Running this harness locally does not close the separate-host acceptance gap.
+
+The [local validation report](results/cross-host-runner-local-live.json) records two Claude Code 2.1.290 sessions completing all four exchanges, including both directions after coordination stopped and each originating daemon restarted under the other implementation. Their original sessions survived token rotation, and a queued request was blocked after its receiver revoked the grant. This run used one machine and one account; SSH worker orchestration was separately checked with deterministic MCP consumers across all four Go/Rust pairings.
+
 ## Acceptance experiment checklist
 
 1. Record the Claude Code version, MCP protocol revision, authentication mode, and whether channels are enabled. Use an isolated test workspace and an explicitly opted-in adapter.
