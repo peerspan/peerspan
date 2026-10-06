@@ -32,8 +32,9 @@ type CreateAdapter struct {
 	ExpiresAt string `json:"expires_at"`
 }
 type AdapterCredential struct {
-	Adapter Adapter `json:"adapter"`
-	Token   string  `json:"token"`
+	Adapter            Adapter  `json:"adapter"`
+	Token              string   `json:"token"`
+	ReplacedAdapterIDs []string `json:"replaced_adapter_ids,omitempty"`
 }
 type Delivery struct {
 	ID            string `json:"id"`
@@ -91,35 +92,81 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 	if session.State != SessionAttached {
 		return AdapterCredential{}, ErrForbidden
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ? AND (s.state = 'attached' OR EXISTS (SELECT 1 FROM adapter_connections x WHERE x.adapter_id = c.id AND x.recoverable = 1))`, session.AgentID)
+	rows, err := tx.QueryContext(ctx, `SELECT c.record,x.instance_hash,x.lease_until_ms FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE s.agent_id = ? AND (s.state = 'attached' OR x.recoverable = 1) ORDER BY c.id`, session.AgentID)
 	if err != nil {
 		return AdapterCredential{}, err
 	}
+	now := time.Now()
+	var stale []Adapter
 	for rows.Next() {
 		var encoded string
-		if err = rows.Scan(&encoded); err != nil {
-			rows.Close()
-			return AdapterCredential{}, err
+		var hash sql.NullString
+		var until int64
+		if err = rows.Scan(&encoded, &hash, &until); err != nil {
+			break
 		}
-		var a Adapter
-		if err = json.Unmarshal([]byte(encoded), &a); err != nil {
-			rows.Close()
-			return AdapterCredential{}, err
+		var old Adapter
+		if err = json.Unmarshal([]byte(encoded), &old); err != nil {
+			break
 		}
-		at, e := parseTime(a.ExpiresAt)
-		if e != nil {
-			rows.Close()
-			return AdapterCredential{}, e
+		var exp time.Time
+		exp, err = parseTime(old.ExpiresAt)
+		if err != nil {
+			break
 		}
-		if a.RevokedAt == nil && at.After(time.Now()) {
-			rows.Close()
-			return AdapterCredential{}, fmt.Errorf("%w: agent already has an active adapter credential", ErrConflict)
+		if old.RevokedAt != nil || !exp.After(now) {
+			continue
 		}
+		// Issuing a credential for a different session is the owner's replacement
+		// decision. An unbound setup or a live lease still reserves the agent.
+		if old.SessionID == r.SessionID {
+			err = fmt.Errorf("%w: replacement requires a fresh session attachment", ErrConflict)
+			break
+		}
+		if !hash.Valid {
+			err = fmt.Errorf("%w: adapter %s has not connected; revoke it or detach its session to cancel that setup", ErrConflict, old.ID)
+			break
+		}
+		if until > now.UnixMilli() {
+			err = fmt.Errorf("%w: adapter %s has a live lease until %s; retry after it expires or explicitly detach its session", ErrConflict, old.ID, timestamp(time.UnixMilli(until)))
+			break
+		}
+		stale = append(stale, old)
 	}
-	err = rows.Err()
+	if err == nil {
+		err = rows.Err()
+	}
 	rows.Close()
 	if err != nil {
 		return AdapterCredential{}, err
+	}
+	if !expires.After(now) {
+		return AdapterCredential{}, ErrInvalid
+	}
+	replaced := []string{}
+	at := timestamp(now)
+	for _, old := range stale {
+		old.RevokedAt = &at
+		data, err := json.Marshal(old)
+		if err != nil {
+			return AdapterCredential{}, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE adapter_credentials SET record = ? WHERE id = ?`, string(data), old.ID); err != nil {
+			return AdapterCredential{}, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE adapter_connections SET recoverable = 0,lease_until_ms = 0 WHERE adapter_id = ?`, old.ID); err != nil {
+			return AdapterCredential{}, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET state = 'detached',updated_at = ? WHERE id = ?`, at, old.SessionID); err != nil {
+			return AdapterCredential{}, err
+		}
+		if err = appendEvent(ctx, tx, "adapter.replaced", old.ID, at); err != nil {
+			return AdapterCredential{}, err
+		}
+		if err = appendEvent(ctx, tx, "session.detached", old.SessionID, at); err != nil {
+			return AdapterCredential{}, err
+		}
+		replaced = append(replaced, old.ID)
 	}
 	id, err := newID("adapter")
 	if err != nil {
@@ -144,7 +191,7 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 	if err = appendEvent(ctx, tx, "adapter.created", id, timestamp(time.Now())); err != nil {
 		return AdapterCredential{}, err
 	}
-	return AdapterCredential{Adapter: adapter, Token: token}, tx.Commit()
+	return AdapterCredential{Adapter: adapter, Token: token, ReplacedAdapterIDs: replaced}, tx.Commit()
 }
 func (s *Store) Adapter(ctx context.Context, id string) (Adapter, error) {
 	return readJSON[Adapter](s.db.QueryRowContext(ctx, `SELECT record FROM adapter_credentials WHERE id = ?`, id))

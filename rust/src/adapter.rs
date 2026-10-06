@@ -55,6 +55,8 @@ pub struct CreateAdapter {
 pub struct AdapterCredential {
     pub adapter: Adapter,
     pub token: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replaced_adapter_ids: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delivery {
@@ -191,17 +193,67 @@ impl Store {
             return Err(Error::Forbidden);
         }
         let active = {
-            let mut stmt = tx.prepare("SELECT c.record FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id WHERE s.agent_id = ?1 AND (s.state = 'attached' OR EXISTS (SELECT 1 FROM adapter_connections x WHERE x.adapter_id = c.id AND x.recoverable = 1))")?;
-            stmt.query_map([&ss.agent_id], |row| row.get::<_, String>(0))?
-                .map(|row| Ok(serde_json::from_str::<Adapter>(&row?)?))
-                .collect::<Result<Vec<_>, Error>>()?
+            let mut stmt = tx.prepare("SELECT c.record,x.instance_hash,x.lease_until_ms FROM adapter_credentials c JOIN sessions s ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE s.agent_id = ?1 AND (s.state = 'attached' OR x.recoverable = 1) ORDER BY c.id")?;
+            stmt.query_map([&ss.agent_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
         };
-        for a in active {
-            if a.revoked_at.is_none() && expires(&a.expires_at)? > Utc::now() {
+        let current = Utc::now();
+        let at = now();
+        let mut stale = Vec::new();
+        for (data, hash, until) in active {
+            let old: Adapter = serde_json::from_str(&data)?;
+            if old.revoked_at.is_some() || expires(&old.expires_at)? <= current {
+                continue;
+            }
+            // A fresh owner-authorized session replaces only a bound offline
+            // adapter. Preserve a setup that has not connected or a live lease.
+            if old.session_id == r.session_id {
                 return Err(Error::Conflict(
-                    "agent already has an active adapter credential".into(),
+                    "replacement requires a fresh session attachment".into(),
                 ));
             }
+            if hash.is_none() {
+                return Err(Error::Conflict(format!(
+                    "adapter {} has not connected; revoke it or detach its session to cancel that setup",
+                    old.id
+                )));
+            }
+            if until > current.timestamp_millis() {
+                let lease = crate::store::rfc3339(
+                    DateTime::from_timestamp_millis(until)
+                        .ok_or_else(|| Error::Internal(anyhow::anyhow!("invalid lease")))?,
+                );
+                return Err(Error::Conflict(format!(
+                    "adapter {} has a live lease until {}; retry after it expires or explicitly detach its session",
+                    old.id, lease
+                )));
+            }
+            stale.push(old);
+        }
+        if expiration <= current {
+            return Err(Error::Invalid("invalid expiration".into()));
+        }
+        let mut replaced_adapter_ids = Vec::new();
+        for mut old in stale {
+            old.revoked_at = Some(at.clone());
+            tx.execute(
+                "UPDATE adapter_credentials SET record = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&old)?, old.id],
+            )?;
+            tx.execute("UPDATE adapter_connections SET recoverable = 0,lease_until_ms = 0 WHERE adapter_id = ?1",[&old.id])?;
+            tx.execute(
+                "UPDATE sessions SET state = 'detached',updated_at = ?1 WHERE id = ?2",
+                params![at, old.session_id],
+            )?;
+            append_event(&tx, "adapter.replaced", &old.id, &at)?;
+            append_event(&tx, "session.detached", &old.session_id, &at)?;
+            replaced_adapter_ids.push(old.id);
         }
         let a = Adapter {
             id: new_id("adapter")?,
@@ -228,7 +280,11 @@ impl Store {
         )?;
         append_event(&tx, "adapter.created", &a.id, &now())?;
         tx.commit()?;
-        Ok(AdapterCredential { adapter: a, token })
+        Ok(AdapterCredential {
+            adapter: a,
+            token,
+            replaced_adapter_ids,
+        })
     }
     pub fn adapter(&self, id: &str) -> Result<Adapter, Error> {
         read(

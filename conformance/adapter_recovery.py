@@ -216,6 +216,8 @@ def check(a_binary, b_binary, node, label):
             sibling = b.cli(
                 "session", "attach", "--agent", ba["id"], "--integration", "test"
             )
+
+            assert connect(b, bc)[0] == 200
             assert (
                 b.call(
                     "POST",
@@ -224,7 +226,6 @@ def check(a_binary, b_binary, node, label):
                 )[0]
                 == 409
             )
-            assert connect(b, bc)[0] == 200
             assert b.cli("session", "inspect", bss["id"])["state"] == "attached"
             assert b.cli("delivery", "inspect", unknown["id"]) == unknown
             assert adapter_call(b, bc["token"], "POST", "/adapter/v1/next", {}) == (
@@ -502,6 +503,221 @@ def check(a_binary, b_binary, node, label):
     )
 
 
+def replacement_check(original, replacement, node, label):
+    """Creating a fresh owner-authorized session replaces a bound offline one."""
+    with tempfile.TemporaryDirectory(prefix="capsule-offline-replace-") as directory:
+        root = Path(directory)
+        a = PeerHost(original, root / "a")
+        b = PeerHost(replacement, root / "b")
+        try:
+            ai, bi = a.start(), b.start()
+            a.configure(b, bi)
+            b.configure(a, ai)
+            aa = a.cli("agent", "register", "--name", "alice", "--owner", "alice")
+            ba = b.cli("agent", "register", "--name", "bob", "--owner", "bob")
+            old_session = a.cli(
+                "session", "attach", "--agent", aa["id"], "--integration", "test"
+            )
+            bs = b.cli(
+                "session", "attach", "--agent", ba["id"], "--integration", "test"
+            )
+            old, bc = credential(a, old_session), credential(b, bs)
+            assert connect(a, old)[0] == connect(b, bc)[0] == 200
+            bg = b.grant(ai, ba)
+            ag = a.grant(bi, aa)
+            old_route = route(a, old, bi, ba, bg, budget=2)
+            outgoing = send(a, old, "old outbound")[1]
+            b_delivery = adapter_call(b, bc["token"], "POST", "/adapter/v1/next", {})[
+                1
+            ]["delivery"]
+            incoming = b.submit(ai, aa, ag, content="claimed in old session")
+            old_delivery = adapter_call(
+                a, old["token"], "POST", "/adapter/v1/next", {}
+            )[1]["delivery"]
+            candidate = a.cli(
+                "session", "attach", "--agent", aa["id"], "--integration", "test"
+            )
+            body = {"session_id": candidate["id"], "expires_at": timestamp(1200)}
+            status, error = a.call("POST", "/v1/adapters", body)
+            assert status == 409 and "live lease until" in error["error"]
+            # Ordinary lease expiry also permits replacement, while reusing the
+            # old session ID remains forbidden. Inject expiry rather than sleep.
+            sql(
+                a,
+                "UPDATE adapter_connections SET lease_until_ms=0 WHERE adapter_id=?",
+                (old["adapter"]["id"],),
+            )
+            assert (
+                a.cli("adapter", "connection", old["adapter"]["id"])["state"]
+                == "offline"
+            )
+            assert (
+                a.call(
+                    "POST",
+                    "/v1/adapters",
+                    {"session_id": old_session["id"], "expires_at": timestamp(1200)},
+                )[0]
+                == 409
+            )
+            before = {
+                table: sql(a, "SELECT * FROM " + table)
+                for table in [
+                    "adapter_credentials",
+                    "adapter_connections",
+                    "sessions",
+                    "events",
+                ]
+            }
+            # Fail after fencing the old authorization, during the new creation.
+            sql(
+                a,
+                "CREATE TRIGGER fail_replacement BEFORE INSERT ON events WHEN NEW.kind='adapter.created' BEGIN SELECT RAISE(ABORT,'injected'); END",
+            )
+            assert a.call("POST", "/v1/adapters", body)[0] == 500
+            for table, rows in before.items():
+                assert sql(a, "SELECT * FROM " + table) == rows
+            sql(a, "DROP TRIGGER fail_replacement")
+            assert connect(a, old)[0] == 200
+            # The reported case: daemon restart, original adapter gone, and a
+            # new owner setup. No explicit detach or revoke precedes this setup.
+            a.stop(crash=True)
+            a.binary = str(replacement)
+            assert a.start() == ai
+            candidate = a.cli(
+                "session", "attach", "--agent", aa["id"], "--integration", "test"
+            )
+            body = {"session_id": candidate["id"], "expires_at": timestamp(1200)}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                recovering = pool.submit(connect, a, old)
+                replacing = pool.submit(a.call, "POST", "/v1/adapters", body)
+                recovered = recovering.result()
+                created = replacing.result()
+            if recovered[0] == 200:
+                assert created[0] == 409
+                assert (
+                    a.cli("adapter", "inspect", old["adapter"]["id"])["revoked_at"]
+                    is None
+                )
+                sql(
+                    a,
+                    "UPDATE adapter_connections SET lease_until_ms=0 WHERE adapter_id=?",
+                    (old["adapter"]["id"],),
+                )
+                # Concurrent new setups must not repeatedly replace a credential
+                # that has just been issued and has not connected yet.
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                    outcomes = list(
+                        pool.map(
+                            lambda _: a.call("POST", "/v1/adapters", body), range(4)
+                        )
+                    )
+                assert [status for status, _ in outcomes].count(201) == 1
+                assert [status for status, _ in outcomes].count(409) == 3
+                created = next(out for out in outcomes if out[0] == 201)
+            else:
+                assert recovered[0] == 403 and created[0] == 201
+            fresh = created[1]
+            assert fresh["replaced_adapter_ids"] == [old["adapter"]["id"]]
+            assert fresh["adapter"]["session_id"] == candidate["id"]
+            assert (
+                a.cli("adapter", "connection", old["adapter"]["id"])["state"]
+                == "revoked"
+            )
+            assert a.cli("session", "inspect", old_session["id"])["state"] == "detached"
+            assert connect(a, old)[0] == 403
+            assert (
+                a.call("POST", "/v1/adapters/" + old["adapter"]["id"] + "/rotate")[0]
+                == 403
+            )
+            assert connect(a, fresh)[0] == 200
+            assert a.cli("delivery", "inspect", old_delivery["id"]) == old_delivery
+            assert adapter_call(a, fresh["token"], "POST", "/adapter/v1/next", {}) == (
+                200,
+                None,
+            )
+            assert (
+                adapter_call(a, fresh["token"], "GET", "/adapter/v1/destinations")[1]
+                == []
+            )
+            assert a.cli(
+                "adapter", "route", "list", "--adapter", old["adapter"]["id"]
+            ) == [old_route]
+            assert len(sql(a, "SELECT request_id FROM adapter_outbound")) == 1
+            # A final reply for old work remains owner-inspectable and never
+            # becomes a notification to the replacement session.
+            assert (
+                adapter_call(
+                    b,
+                    bc["token"],
+                    "POST",
+                    "/adapter/v1/deliveries/" + b_delivery["id"] + "/reply",
+                    {"content": "old final reply"},
+                )[0]
+                == 200
+            )
+            assert (
+                a.cli(
+                    "message",
+                    "reply",
+                    "--peer",
+                    bi["id"],
+                    outgoing["request"]["request_id"],
+                )["reply"]["content"]
+                == "old final reply"
+            )
+            assert adapter_call(
+                a, fresh["token"], "POST", "/adapter/v1/replies/next", {}
+            ) == (200, None)
+            origin = a.cli(
+                "message",
+                "origin",
+                "--peer",
+                bi["id"],
+                outgoing["request"]["request_id"],
+            )
+            assert (
+                origin["adapter_id"] == old["adapter"]["id"]
+                and origin["session_id"] == old_session["id"]
+            )
+            assert origin["reply_delivery"] is None
+            assert incoming["request"]["request_id"] == old_delivery["request_id"]
+            events = a.cli("activity")
+            assert (
+                len(
+                    [
+                        e
+                        for e in events
+                        if e["kind"] == "adapter.replaced"
+                        and e["subject_id"] == old["adapter"]["id"]
+                    ]
+                )
+                == 1
+            )
+            # New agent-addressed work can reach the new session normally.
+            new_message = b.submit(ai, aa, ag, content="new session work")
+            new_handoff = adapter_call(
+                a, fresh["token"], "POST", "/adapter/v1/next", {}
+            )[1]
+            assert new_handoff["delivery"]["session_id"] == candidate["id"]
+            assert (
+                new_handoff["request"]["request_id"]
+                == new_message["request"]["request_id"]
+            )
+            a.stop(crash=True)
+            a.binary = str(original)
+            assert a.start() == ai
+            assert connect(a, old)[0] == 403 and connect(a, fresh)[0] == 200
+            assert a.cli("delivery", "inspect", old_delivery["id"]) == old_delivery
+        finally:
+            a.stop()
+            b.stop()
+    print(
+        label
+        + ": offline replacement, live protection, rollback, reconnect race and original-work isolation passed",
+        flush=True,
+    )
+
+
 def migration(original, replacement, label):
     with tempfile.TemporaryDirectory(prefix="capsule-v5-recovery-") as directory:
         root = Path(directory)
@@ -613,6 +829,7 @@ def main():
         (rust, go, "Rust→Go"),
     ]:
         check(a, b, node, label)
+        replacement_check(a, b, node, label)
     migration(go, rust, "Go→Rust")
     migration(rust, go, "Rust→Go")
 

@@ -57,3 +57,5 @@ The [known-host messaging contract](peer-messaging-contract.md) extends this fou
 ## Session adapter extensions
 
 The [adapter contract](agent-adapter-contract.md), [outbound extension](adapter-outbound-contract.md), and [recovery extension](adapter-recovery-contract.md) define the separate credential-scoped interface for existing sessions. Registry attachment alone is not readiness. A live adapter proves its bound instance and renews a connection lease; the same instance can recover its original attachment after daemon restart. Owner detach and authorization expiry/revocation stop access. Token rotation preserves the authorization ID, original expiry, routes, budgets, and collaboration records. Shared schema v6 adds these connection records atomically.
+
+Owner creation of an authorization for a fresh session replaces a previously connected authorization whose lease is no longer valid. Its response includes `replaced_adapter_ids`, and revocation/detachment commit with the new credential. A live lease or an unbound setup still conflicts. Old collaboration records and routes retain their original authorization/session bindings.

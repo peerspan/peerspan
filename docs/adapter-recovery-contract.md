@@ -10,7 +10,17 @@ Schema v6 adds `adapter_connections`: one record per adapter authorization with 
 
 The Claude subprocess generates its random instance secret in memory. It is not saved in the credential file or returned by inspection. A daemon restart can therefore be recovered by the same running subprocess; a replacement subprocess requires an explicitly authorized fresh attachment. This proves continuity of the adapter within the existing owner-local OS-account trust boundary, not a separately authenticated model identity. Resuming a transcript does not establish the same running session.
 
-On daemon startup, registry sessions become detached and all leases are invalidated. Only sessions with a previously bound connection and retained recovery flag can reconnect. Owner detachment clears that flag even if the registry session is already detached. Revocation and expiration independently stop recovery. A recoverable authorization reserves its agent until expiry or explicit owner withdrawal, preventing a new attachment from taking over while the daemon is down.
+On daemon startup, registry sessions become detached and all leases are invalidated. Only sessions with a previously bound connection and retained recovery flag can reconnect. Owner detachment clears that flag even if the registry session is already detached. Revocation and expiration independently stop recovery.
+
+## Replacing an offline adapter
+
+When an adapter has previously connected but its lease is no longer valid, the owner can attach a fresh session and run the usual `adapter create --session NEW_SESSION --expires-at TIME`. Creation atomically revokes the old authorization, clears its recovery flag and lease, detaches its session, and issues the fresh credential. Its response includes `replaced_adapter_ids`; activity records include `adapter.replaced` and `session.detached`. There is no separate cleanup command or wait for the old credential's expiry. If creation fails, the old authorization and session remain unchanged.
+
+A valid lease still blocks replacement and the conflict reports its expiry. An authorization that has never connected also reserves its setup; the owner can revoke or detach it explicitly to abandon that setup. Replacement requires a different session ID. A reused credential file or a competing adapter instance cannot perform it: this is an owner-local authorization operation.
+
+Lease expiry alone does not revoke a recoverable authorization. The original instance may reconnect until the owner authorizes a replacement. Reconnection and replacement serialize: either the original instance renews its lease and creation conflicts, or creation revokes it and later reconnects fail. A fresh credential that has not connected yet is protected from another concurrent setup replacing it.
+
+Old deliveries, outbound requests, cached replies, notification records, routes, and consumed budgets stay bound to the old authorization and session. They are not redelivered, reassigned, or copied to the replacement. The owner can still inspect them; the new session requires its own outbound destinations. New agent-addressed requests may use the newly authorized session.
 
 ## Credential rotation
 

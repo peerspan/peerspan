@@ -172,7 +172,11 @@ impl Store {
         )?;
         append_event(&tx, "adapter.credential_rotated", &a.id, &now())?;
         tx.commit()?;
-        Ok(AdapterCredential { adapter: a, token })
+        Ok(AdapterCredential {
+            adapter: a,
+            token,
+            replaced_adapter_ids: Vec::new(),
+        })
     }
 }
 #[derive(Deserialize)]
