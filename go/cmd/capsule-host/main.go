@@ -56,6 +56,10 @@ Usage:
   capsule-host [--state DIR] network list
   capsule-host [--state DIR] network members ID
   capsule-host [--state DIR] network sync ID
+  capsule-host [--state DIR] network revoke --network ID --host HOST_ID
+  capsule-host [--state DIR] network revoke-invite --network ID --invite INVITE_PUBLIC_KEY
+  capsule-host [--state DIR] network leave ID
+  capsule-host [--state DIR] network rotate-root ID
 
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
@@ -392,15 +396,35 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				return invalid()
 			}
 			return "GET", "/v1/networks", nil, nil
-		case "members", "sync":
+		case "members", "sync", "leave", "rotate-root":
 			if len(args) != 3 {
 				return invalid()
 			}
 			path := "/v1/networks/" + url.PathEscape(args[2])
-			if args[1] == "sync" {
+			switch args[1] {
+			case "sync":
 				return "POST", path + "/sync", nil, nil
+			case "leave":
+				return "POST", path + "/leave", nil, nil
+			case "rotate-root":
+				return "POST", path + "/rotate", nil, nil
 			}
 			return "GET", path + "/members", nil, nil
+		case "revoke", "revoke-invite":
+			var network string
+			var req host.RevokeMembership
+			err := parse("network "+args[1], args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&network, "network", "", "network ID")
+				if args[1] == "revoke" {
+					fs.StringVar(&req.HostID, "host", "", "host ID to revoke")
+				} else {
+					fs.StringVar(&req.InvitePublicKey, "invite", "", "invite public key to revoke")
+				}
+			})
+			if err == nil && (network == "" || req.HostID+req.InvitePublicKey == "") {
+				return invalid()
+			}
+			return "POST", "/v1/networks/" + url.PathEscape(network) + "/revocations", req, err
 		}
 	case "adapter":
 		if len(args) < 2 {

@@ -185,8 +185,15 @@ func MemberStatement(networkID, invitePublicKey, hostPublicKey, joinedAt string)
 	return []byte(strings.Join([]string{"capsule-member-v1", networkID, invitePublicKey, hostPublicKey, joinedAt}, "\n"))
 }
 
-// Invite creates a one-time invite key for member, signed by the root key.
+// Invite creates a one-time invite key for member, signed by the genesis root.
 func Invite(root ed25519.PrivateKey, member, expiresAt string) (Token, error) {
+	return InviteFor(NetworkID(root.Public().(ed25519.PublicKey)), root, member, expiresAt)
+}
+
+// InviteFor creates an invite signed by root for a network whose ID derives
+// from its genesis root, so a rotated root can still issue invites. The token
+// carries the signing root's key.
+func InviteFor(network string, root ed25519.PrivateKey, member, expiresAt string) (Token, error) {
 	if !ValidLabel(member) {
 		return Token{}, fmt.Errorf("%w: invalid member label", ErrInvalid)
 	}
@@ -197,7 +204,6 @@ func Invite(root ed25519.PrivateKey, member, expiresAt string) (Token, error) {
 	if err != nil {
 		return Token{}, err
 	}
-	network := NetworkID(root.Public().(ed25519.PublicKey))
 	t := Token{NetworkID: network, RootPublicKey: PublicKey(root), Member: member, InvitePublicKey: PublicKey(invite), InviteSeed: Seed(invite), InviteExpiresAt: expiresAt}
 	t.InviteSignature = sign(root, InviteStatement(network, t.InvitePublicKey, member, expiresAt))
 	return t, nil
@@ -214,10 +220,17 @@ func (t Token) Join(host ed25519.PrivateKey, joinedAt string) (Membership, error
 	return m, nil
 }
 
-// Verify checks the chain against the network root key and returns the host ID.
+// Verify checks the chain against the network's genesis root key and returns
+// the host ID.
 func (m Membership) Verify(root ed25519.PublicKey) (string, error) {
-	if m.NetworkID != NetworkID(root) {
-		return "", fmt.Errorf("%w: network ID does not match root key", ErrInvalid)
+	return m.VerifyUnder(NetworkID(root), root)
+}
+
+// VerifyUnder checks the chain for network against root, which may be a
+// rotated root, and returns the host ID.
+func (m Membership) VerifyUnder(network string, root ed25519.PublicKey) (string, error) {
+	if m.NetworkID != network {
+		return "", fmt.Errorf("%w: membership is for a different network", ErrInvalid)
 	}
 	if !ValidLabel(m.Member) {
 		return "", fmt.Errorf("%w: invalid member label", ErrInvalid)
@@ -284,8 +297,11 @@ func DecodeToken(value string, now time.Time) (Token, error) {
 	if err != nil {
 		return t, err
 	}
-	if t.NetworkID != NetworkID(root) {
-		return t, fmt.Errorf("%w: network ID does not match root key", ErrInvalid)
+	// After a root rotation the token carries the current root, which does
+	// not derive the network ID; the joining host checks the root chain from
+	// the genesis root when it applies the coordinator's first map.
+	if !strings.HasPrefix(t.NetworkID, "net_") || len(t.NetworkID) != 68 {
+		return t, fmt.Errorf("%w: invalid network ID", ErrInvalid)
 	}
 	if !ValidLabel(t.NetworkName) || !ValidLabel(t.Member) {
 		return t, fmt.Errorf("%w: invalid label", ErrInvalid)
@@ -352,6 +368,11 @@ type Map struct {
 	Name          string      `json:"name"`
 	RootPublicKey string      `json:"root_public_key"`
 	Members       []MapMember `json:"members"`
+	// Rotations, current-epoch attestations, and revocations stay raw so a
+	// host can reject one bad entry; a bad rotation rejects the map.
+	Rotations    []json.RawMessage `json:"rotations"`
+	Attestations []json.RawMessage `json:"attestations"`
+	Revocations  []json.RawMessage `json:"revocations"`
 }
 
 type MapMember struct {

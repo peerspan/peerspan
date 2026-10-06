@@ -58,6 +58,20 @@ CREATE TABLE member_candidates (
 PRAGMA user_version = 2;
 `
 
+// statementsSchema (version 3) stores accepted rotations, current-epoch
+// attestations, and revocations. Hosts verify them all; they are stored as
+// submitted.
+const statementsSchema = `
+CREATE TABLE statements (
+ network_id TEXT NOT NULL,
+ kind TEXT NOT NULL,
+ subject TEXT NOT NULL,
+ statement TEXT NOT NULL,
+ PRIMARY KEY (network_id, kind, subject)
+);
+PRAGMA user_version = 3;
+`
+
 var (
 	errInvalid   = errors.New("invalid request")
 	errForbidden = errors.New("forbidden")
@@ -206,7 +220,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 2 {
+	if version < 0 || version > 3 {
 		return nil, fmt.Errorf("unsupported coordinator database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -228,6 +242,11 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	}
 	if version < 2 {
 		if _, err = tx.ExecContext(ctx, candidatesSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 3 {
+		if _, err = tx.ExecContext(ctx, statementsSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -420,6 +439,7 @@ func (s *Server) Handler() http.Handler {
 		m, err := s.sync(r.Context(), caller, r.PathValue("network"), req.Address, req.Candidates)
 		respond(w, http.StatusOK, m, err)
 	})
+	s.governanceRoutes(mux)
 	return mux
 }
 
@@ -473,16 +493,13 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-// verifyCaller checks a submitted chain and that it belongs to the caller.
-func verifyCaller(caller, rootKey string, m membership.Membership, address string, candidates []string) error {
+// verifyCaller checks a submitted chain against the network's current root
+// and that it belongs to the caller.
+func verifyCaller(caller, network string, root ed25519.PublicKey, m membership.Membership, address string, candidates []string) error {
 	if err := validEndpoints(address, candidates); err != nil {
 		return err
 	}
-	root, err := membership.DecodeKey(rootKey)
-	if err != nil {
-		return err
-	}
-	host, err := m.Verify(root)
+	host, err := m.VerifyUnder(network, root)
 	if err != nil {
 		return err
 	}
@@ -526,7 +543,11 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 	if !membership.ValidLabel(req.Name) {
 		return 0, nil, fmt.Errorf("%w: invalid network name", errInvalid)
 	}
-	if err := verifyCaller(caller, req.RootPublicKey, req.Membership, req.Address, req.Candidates); err != nil {
+	root, err := membership.DecodeKey(req.RootPublicKey)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := verifyCaller(caller, membership.NetworkID(root), root, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -543,6 +564,9 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 			return 0, nil, err
 		}
 		if exists == 0 {
+			if revoked, err := revokedHost(ctx, tx, req.Membership.NetworkID, req.Membership.HostPublicKey); err != nil || revoked {
+				return 0, nil, errors.Join(err, fmt.Errorf("%w: host has been revoked or has left", errForbidden))
+			}
 			return 0, nil, fmt.Errorf("%w: network already registered", errConflict)
 		}
 		m, err := networkMap(ctx, tx, req.Membership.NetworkID)
@@ -567,19 +591,24 @@ func (s *Server) join(ctx context.Context, caller, network string, req joinReque
 		return 0, nil, err
 	}
 	defer tx.Rollback()
-	var root string
-	err = tx.QueryRowContext(ctx, `SELECT root_public_key FROM networks WHERE id = ?`, network).Scan(&root)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil, errNotFound
-	}
+	chain, err := chainOf(ctx, tx, network)
 	if err != nil {
 		return 0, nil, err
 	}
 	if req.Membership.NetworkID != network {
 		return 0, nil, fmt.Errorf("%w: membership is for a different network", errInvalid)
 	}
-	if err = verifyCaller(caller, root, req.Membership, req.Address, req.Candidates); err != nil {
+	// Joins verify under the current root: after a rotation, invites signed
+	// by an older root are refused.
+	if err = verifyCaller(caller, network, chain.Current(), req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
+	}
+	revoked, err := revokedOf(ctx, tx, chain)
+	if err != nil {
+		return 0, nil, err
+	}
+	if revoked.Excludes(req.Membership) {
+		return 0, nil, fmt.Errorf("%w: host or invite has been revoked, or the host has left", errForbidden)
 	}
 	var user string
 	err = tx.QueryRowContext(ctx, `SELECT host_id FROM members WHERE network_id = ? AND invite_public_key = ?`, network, req.Membership.InvitePublicKey).Scan(&user)
@@ -665,7 +694,10 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 		}
 		m.Members = append(m.Members, member)
 	}
-	return m, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return m, addStatements(ctx, tx, m)
 }
 
 type rawMember struct{ HostID, Membership, Address, UpdatedAt string }

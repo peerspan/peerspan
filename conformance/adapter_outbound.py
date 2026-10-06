@@ -419,7 +419,7 @@ def check(go, rust, node, label):
             b.stop(crash=True)
             a.binary, b.binary = str(rust), str(go)
             assert a.start() == ai and b.start() == bi
-            assert sql(a, "PRAGMA user_version")[0][0] == 6
+            assert sql(a, "PRAGMA user_version")[0][0] == 7
             assert send(a, ac)[0] == 503
             a.cli("session", "detach", ass["id"])
             assert (
@@ -508,6 +508,7 @@ def migration_check(original_binary, replacement_binary, label):
             a.stop(crash=True)
             b.stop(crash=True)
             for host in (a, b):
+                sql(host, "DROP TABLE network_statements")
                 sql(host, "DROP TABLE adapter_connections")
                 sql(host, "DROP TABLE adapter_outbound")
                 sql(host, "DROP TABLE adapter_routes")
@@ -530,7 +531,7 @@ def migration_check(original_binary, replacement_binary, label):
             assert (
                 sql(a, "PRAGMA user_version")[0][0]
                 == sql(b, "PRAGMA user_version")[0][0]
-                == 6
+                == 7
             )
             assert a.cli("adapter", "list") == [ac["adapter"]] and b.cli(
                 "adapter", "list"
@@ -566,7 +567,7 @@ def migration_check(original_binary, replacement_binary, label):
             a.stop()
             b.stop()
     print(
-        label + ": populated v4→v6 migration and partial-schema rollback passed",
+        label + ": populated v4→v7 migration and partial-schema rollback passed",
         flush=True,
     )
 

@@ -133,7 +133,7 @@ These use the encoding rules above: lines joined by `\n`, with no trailing newli
 | Root rotation | the root of epoch `epoch − 1` | `capsule-root-rotate-v1`, `network_id`, `epoch`, `previous_root_public_key`, `root_public_key`, `rotated_at` |
 | Attestation | the root of epoch `epoch` | `capsule-attest-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `attested_at` |
 
-Each is carried as a strict JSON object of its named fields plus `signature`. Test vectors use the network, root, invite, and host keys of the earlier vectors, a new root with seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), time `2026-10-07T00:00:00Z`, epoch `1`, and member `alice`:
+Each is carried as a strict JSON object of its named fields plus `signature`; `epoch` is a JSON number, signed as its decimal spelling. Test vectors use the network, root, invite, and host keys of the earlier vectors, a new root with seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), time `2026-10-07T00:00:00Z`, epoch `1`, and member `alice`:
 
 | Statement | `signature` |
 | --- | --- |
@@ -155,7 +155,7 @@ The **root chain** is the genesis root followed by verified rotations in epoch o
 
   Chains under older roots alone no longer count, so a compromised old root cannot enroll hosts after a rotation.
 - **Revocations:** a revocation verifies under **any** root in the chain. Revocations fail closed: a compromised old root can remove members but never add them. A member is dropped if its host key is revoked, if a valid leave statement exists for it, or if its invite key is revoked. Revoking an invite blocks joins with it and also drops any host that already joined with it.
-- **Effect:** a dropped host is no longer known through that network. It fails peer authentication unless an owner configured it as a manual peer, and it loses relay access, as specified for members in general. Per-request authentication applies to already-open connections. A revoked host or invite cannot be reinstated in this milestone; the host re-enrolls with a new invite, or the invite is replaced.
+- **Effect:** a dropped host is no longer known through that network. It fails peer authentication unless an owner configured it as a manual peer, and it loses relay access, as specified for members in general. Per-request authentication applies to already-open connections. A revoked host or invite cannot be reinstated in this milestone. A revoked or departed host key can never rejoin, even with a fresh invite: the coordinator returns 403. Rejoining therefore means a new host identity, with a new state directory and key, plus a new invite.
 
 ### Coordinator
 
@@ -164,10 +164,10 @@ The map gains `rotations`, `attestations`, and `revocations`. `rotations` lists 
 | Endpoint | Body | Behavior |
 | --- | --- | --- |
 | `POST /coord/v1/networks/{network_id}/revocations` | `kind` (`host` or `invite`), `statement` | Accepts a revocation that verifies under any root in the chain. The caller must be a member. Returns 200 with the map; an identical repeat returns 200. |
-| `POST /coord/v1/networks/{network_id}/leave` | `statement` | The leave statement's host key must be the caller. Returns 200. |
-| `POST /coord/v1/networks/{network_id}/rotations` | `rotation`, `attestations` | The caller must be a member. The rotation must extend the coordinator's chain by exactly one epoch; a different rotation at an existing epoch returns 409. `attestations` must cover every current member except revoked or departed ones, each signed by the new root. Returns 200 with the map. |
+| `POST /coord/v1/networks/{network_id}/leave` | `statement` | The leave statement's host key must be the caller. Returns 200 with `{}`. |
+| `POST /coord/v1/networks/{network_id}/rotations` | `rotation`, `attestations` | The caller must be a member. The rotation must extend the coordinator's chain by exactly one epoch. An identical resubmission of an accepted rotation returns 200, and a different rotation at an existing epoch returns 409. `attestations` must cover every current member except revoked or departed ones, each signed by the new root. Returns 200 with the map. |
 
-The coordinator database moves to version 3. Its schema stays internal.
+On these endpoints, an unknown network returns 403, as for sync. A `leave` kind sent to the revocations endpoint returns 400. The coordinator database moves to version 3. Its schema stays internal.
 
 ### Host
 
@@ -178,9 +178,19 @@ Database version 7 adds `CREATE TABLE network_statements (network_id TEXT NOT NU
 | `network revoke --network ID --host HOST_ID` | `POST /v1/networks/{id}/revocations` with `{host_id}` | Administrator only (403 otherwise). Revoking this host itself returns 409. Signs a host revocation with the current root and persists it with `network.host_revoked`, enforced locally at once. It is submitted to the coordinator now and on every later sync until accepted. Returns 201 with `{network_id, kind, subject, submitted}`. |
 | `network revoke-invite --network ID --invite INVITE_PUBLIC_KEY` | `POST /v1/networks/{id}/revocations` with `{invite_public_key}` | Same rules as host revocation, for an invite. Records `network.invite_revoked`. |
 | `network leave ID` | `POST /v1/networks/{id}/leave` | Not allowed for the administrator, which returns 409. Signs a leave statement and tries the coordinator once. It then removes the network, its members, and its statements locally with `network.left`, whether or not the coordinator accepted. Returns 200 with `{network_id, submitted}`. |
-| `network rotate-root ID` | `POST /v1/networks/{id}/rotate` | Administrator only. Generates a new root and signs the rotation with the current root. Signs attestations for every current valid member, including this host, and submits them. Only after the coordinator accepts does it persist the new seed, the rotation, and the attestations, with `network.root_rotated`. Unreachable or rejected returns 503 or the coordinator's status, and nothing changes. Returns 200 with the network record. |
+| `network rotate-root ID` | `POST /v1/networks/{id}/rotate` | Administrator only. Generates a new root and signs the rotation with the current root. Signs attestations for every current valid member, including this host. **Before submitting,** it persists all of this as a pending rotation. The old root stays current locally until the coordinator accepts; then the new seed, rotation, and attestations become current atomically, with `network.root_rotated`. If the coordinator is unreachable, it returns 503 and keeps the rotation pending. Returns 200 with the network record. |
 
-Network and member records report the effect: a revoked or departed member disappears from `network members`. New activity kinds: `network.host_revoked`, `network.invite_revoked`, `network.member_left` (another host's leave, seen in a map), `network.left`, and `network.root_rotated`.
+**Pending rotation.** A pending rotation is a `network_statements` row of kind `pending_rotation`. Its subject is the new epoch in decimal, and its record is `{rotation, attestations, root_seed}`, where `root_seed` is the new seed in standard Base64. The state directory is private, as for `networks.root_seed`. On restart and on every sync, the administrator resubmits a pending rotation until it is accepted. The coordinator returns 200 for a resubmission identical to a rotation it already accepted. If the coordinator returns 409 (a different rotation at that epoch) or 400 (it can never accept this rotation), or its chain has moved past that epoch, the host discards the pending rotation and records the sync error `root rotation discarded: <reason>`. Any other failure keeps the rotation pending. Persisting before submitting closes the window in which a crash right after acceptance would leave the coordinator on a root whose seed no host holds.
+
+**Additional rules:**
+- **Invite tokens after a rotation** carry the current root, the signer, in `root_public_key`. Decoding no longer requires that key to derive `network_id`. On join, the genesis root comes from the map and must derive the ID, and the membership must verify under the verified chain.
+- **A coordinator chain shorter than the persisted one** is refused with the sync error `coordinator root chain is behind this host`.
+- **Storage:** `network_statements` rows hold the bare statement JSON. A revoke response's `subject` is the revoked public key.
+- **Revoke errors:** revoking an unknown host returns 404, and revoking the invite this host itself joined with returns 409. Repeating a revocation returns the stored statement, even after the revoked host has been dropped locally, with no second event; it is resubmitted if not yet accepted. Leaves are not resubmitted by other hosts, because the coordinator accepts a leave only from the departing host. Null fields in the revoke body are treated as absent.
+- **Resubmission:** any host, not only the administrator, resubmits valid revocations it holds that the coordinator does not list.
+- **Already-open connections:** a request from a host that is no longer known gets 403 on an already-open connection; the connection is not closed.
+
+Network and member records report the effect: a revoked or departed member disappears from `network members`. New activity kinds: `network.host_revoked` (subject: host ID), `network.invite_revoked` (subject: invite key), `network.member_left` (another host's leave, seen in a map), `network.left`, and `network.root_rotated`. A dropped host also produces `network.member_removed`.
 
 ## Relay
 

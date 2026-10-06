@@ -29,6 +29,14 @@ CREATE TABLE network_members (network_id TEXT NOT NULL, host_id TEXT NOT NULL, r
 PRAGMA user_version = 3;
 `
 
+// The v7 schema holds every verified rotation, current-epoch attestation, and
+// revocation for each network. Revocations are sticky: they are never removed
+// while the host stays in the network.
+const statementsSchema = `
+CREATE TABLE network_statements (network_id TEXT NOT NULL, kind TEXT NOT NULL, subject TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, kind, subject));
+PRAGMA user_version = 7;
+`
+
 const defaultCoordinationInterval = 30 * time.Second
 
 type Network struct {
@@ -41,6 +49,10 @@ type Network struct {
 	Administrator        bool    `json:"administrator"`
 	LastSyncAt           *string `json:"last_sync_at"`
 	LastSyncError        *string `json:"last_sync_error"`
+	// RootPublicKey stays the genesis root that derives ID; these follow
+	// rotations.
+	RootEpoch            int64  `json:"root_epoch"`
+	CurrentRootPublicKey string `json:"current_root_public_key"`
 }
 
 // NetworkMember is a verified map entry. Membership is the host's own proof.
@@ -116,6 +128,9 @@ func scanNetwork(row interface{ Scan(...any) error }) (Network, error) {
 	}
 	err := json.Unmarshal([]byte(record), &n)
 	n.Administrator = administrator
+	if n.CurrentRootPublicKey == "" {
+		n.CurrentRootPublicKey = n.RootPublicKey // records from before rotation existed
+	}
 	return n, err
 }
 
@@ -197,7 +212,7 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 	if err != nil {
 		return Network{}, err
 	}
-	n := Network{ID: token.NetworkID, Name: r.Name, RootPublicKey: token.RootPublicKey, Member: r.Member, CoordinatorAddress: r.CoordinatorAddress, CoordinatorPublicKey: r.CoordinatorPublicKey, Administrator: true}
+	n := Network{ID: token.NetworkID, Name: r.Name, RootPublicKey: token.RootPublicKey, CurrentRootPublicKey: token.RootPublicKey, Member: r.Member, CoordinatorAddress: r.CoordinatorAddress, CoordinatorPublicKey: r.CoordinatorPublicKey, Administrator: true}
 	advertise, _ := s.coordinationConfig()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -255,7 +270,8 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 	if err != nil || !expires.After(now) || expires.After(now.Add(30*24*time.Hour)) {
 		return Invite{}, fmt.Errorf("%w: invite expiration must be in the next 30 days", ErrInvalid)
 	}
-	token, err := membership.Invite(ed25519.NewKeyFromSeed(seed), r.Member, r.ExpiresAt)
+	// root_seed is the current root; after a rotation it signs new invites.
+	token, err := membership.InviteFor(n.ID, ed25519.NewKeyFromSeed(seed), r.Member, r.ExpiresAt)
 	if err != nil {
 		return Invite{}, err
 	}
@@ -290,6 +306,8 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 	if err != nil {
 		return Network{}, err
 	}
+	// After a rotation the token carries the current root; the genesis root,
+	// which must derive the network ID, comes from the coordinator's map.
 	n := Network{ID: token.NetworkID, Name: token.NetworkName, RootPublicKey: token.RootPublicKey, Member: token.Member, CoordinatorAddress: token.CoordinatorAddress, CoordinatorPublicKey: token.CoordinatorPublicKey}
 	advertise, _ := s.coordinationConfig()
 	candidates := s.ownCandidates(ctx, n.CoordinatorAddress)
@@ -297,10 +315,16 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 	if err != nil {
 		return n, err
 	}
-	members, err := s.verifyMap(n, m)
+	if genesis, keyErr := membership.DecodeKey(m.RootPublicKey); keyErr != nil || membership.NetworkID(genesis) != n.ID {
+		return n, fmt.Errorf("%w: coordinator map root does not derive the network ID", ErrUnavailable)
+	}
+	n.RootPublicKey = m.RootPublicKey
+	applied, err := s.verifyMap(ctx, n, m)
 	if err != nil {
 		return n, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
+	members := applied.members
+	n.RootEpoch, n.CurrentRootPublicKey = applied.chain.Epoch(), applied.chain.CurrentPublicKey()
 	synced := timestamp(time.Now())
 	n.LastSyncAt = &synced
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -333,6 +357,9 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 			}
 		}
 	}
+	if err = s.persistStatements(ctx, tx, n.ID, applied, synced); err != nil {
+		return n, err
+	}
 	if err = tx.Commit(); err != nil {
 		return n, err
 	}
@@ -350,6 +377,23 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 	if err != nil {
 		return n, err
 	}
+	// A rotation persisted before a crash or a lost response is resubmitted
+	// until the coordinator accepts or refuses it.
+	if n.Administrator && n.LastSyncAt != nil {
+		pending, err := loadPendingRotation(ctx, s.db, id)
+		if err != nil {
+			return n, err
+		}
+		if pending != nil {
+			rotated, err := s.completeRotation(ctx, n, pending)
+			if errors.Is(err, ErrConflict) || errors.Is(err, ErrInvalid) {
+				return rotated, nil // discarded; the sync error is recorded
+			}
+			if err == nil {
+				n = rotated
+			}
+		}
+	}
 	self, err := readJSON[NetworkMember](s.db.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", id, s.identity.ID))
 	if err != nil {
 		return n, err
@@ -364,9 +408,9 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 	} else {
 		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/sync", map[string]any{"address": advertise, "candidates": candidates})
 	}
-	var members []NetworkMember
+	var applied appliedMap
 	if err == nil {
-		members, err = s.verifyMap(n, m)
+		applied, err = s.verifyMap(ctx, n, m)
 	}
 	// Persist outcomes even if the requesting client disconnected.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -382,14 +426,27 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		n.LastSyncError = &message
 	} else {
 		n.LastSyncAt, n.LastSyncError = &now, nil
-		if txErr = s.replaceMembers(finishCtx, tx, n.ID, members, now); txErr != nil {
+		n.RootEpoch, n.CurrentRootPublicKey = applied.chain.Epoch(), applied.chain.CurrentPublicKey()
+		if txErr = s.replaceMembers(finishCtx, tx, n.ID, applied.members, now); txErr != nil {
+			return n, txErr
+		}
+		if txErr = s.persistStatements(finishCtx, tx, n.ID, applied, now); txErr != nil {
 			return n, txErr
 		}
 	}
 	if txErr = putJSON(finishCtx, tx, "UPDATE networks SET record = ? WHERE id = ?", n, n.ID); txErr != nil {
 		return n, txErr
 	}
-	return n, tx.Commit()
+	if txErr = tx.Commit(); txErr != nil {
+		return n, txErr
+	}
+	if err == nil {
+		// Revocations this host holds but the coordinator does not (a local
+		// revocation not yet submitted, or one an omitting coordinator lost)
+		// are submitted on every sync until the coordinator serves them.
+		s.submitMissingRevocations(finishCtx, n, applied.missing)
+	}
+	return n, nil
 }
 
 func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, members []NetworkMember, now string) error {
@@ -438,62 +495,6 @@ func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, 
 		}
 	}
 	return nil
-}
-
-// verifyMap keeps only entries whose chains verify under the stored root, and
-// drops every entry sharing an invite key with a different host or sharing a
-// host ID with another entry. An invalid address is kept as "". The map must
-// include this host.
-func (s *Store) verifyMap(n Network, m membership.Map) ([]NetworkMember, error) {
-	if m.NetworkID != n.ID || m.RootPublicKey != n.RootPublicKey {
-		return nil, errors.New("coordinator map is for a different network")
-	}
-	root, err := membership.DecodeKey(n.RootPublicKey)
-	if err != nil {
-		return nil, err
-	}
-	var candidates []NetworkMember
-	invites := map[string]map[string]bool{}
-	hosts := map[string]int{}
-	for _, entry := range m.Members {
-		var proof membership.Membership
-		if json.Unmarshal(entry.Membership, &proof) != nil {
-			continue
-		}
-		id, err := proof.Verify(root)
-		if err != nil || id != entry.HostID {
-			continue
-		}
-		if !membership.ValidAddress(entry.Address) {
-			entry.Address = ""
-		}
-		if _, err = parseTime(entry.UpdatedAt); err != nil {
-			continue
-		}
-		if invites[proof.InvitePublicKey] == nil {
-			invites[proof.InvitePublicKey] = map[string]bool{}
-		}
-		invites[proof.InvitePublicKey][proof.HostPublicKey] = true
-		hosts[id]++
-		// Invalid candidates are dropped, not the member.
-		candidates = append(candidates, NetworkMember{HostID: id, PublicKey: proof.HostPublicKey, Member: proof.Member, Address: entry.Address, Candidates: membership.FilterCandidates(entry.Candidates), UpdatedAt: entry.UpdatedAt, Membership: proof})
-	}
-	members := []NetworkMember{}
-	var found bool
-	for _, member := range candidates {
-		if len(invites[member.Membership.InvitePublicKey]) != 1 || hosts[member.HostID] != 1 {
-			continue
-		}
-		// Any validly signed membership for this host's key is accepted; a
-		// coordinator keeps the original membership when a join is retried.
-		found = found || member.HostID == s.identity.ID
-		members = append(members, member)
-	}
-	if !found {
-		return nil, errors.New("coordinator map does not include this host's membership")
-	}
-	sort.Slice(members, func(i, j int) bool { return members[i].HostID < members[j].HostID })
-	return members, nil
 }
 
 // coordinatorTLS proves this host's key and pins the network's coordinator,

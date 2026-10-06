@@ -160,6 +160,24 @@ pub enum NetworkCommand {
     Members { id: String },
     /// Register or sync a network now
     Sync { id: String },
+    /// Revoke a member host's membership (administrator only)
+    Revoke {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "HOST_ID")]
+        host: String,
+    },
+    /// Revoke an invite, and any host that joined with it (administrator only)
+    RevokeInvite {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "INVITE_PUBLIC_KEY")]
+        invite: String,
+    },
+    /// Leave a network; takes effect locally even if coordination is down
+    Leave { id: String },
+    /// Rotate the network root key and re-attest current members (administrator only)
+    RotateRoot { id: String },
 }
 #[derive(Debug, Subcommand)]
 pub enum GrantCommand {
@@ -449,6 +467,26 @@ impl Command {
             Self::Network(NetworkCommand::Sync { id }) => (
                 Method::POST,
                 format!("/v1/networks/{}/sync", encoded(&id)),
+                None,
+            ),
+            Self::Network(NetworkCommand::Revoke { network, host }) => (
+                Method::POST,
+                format!("/v1/networks/{}/revocations", encoded(&network)),
+                Some(json!({"host_id": host})),
+            ),
+            Self::Network(NetworkCommand::RevokeInvite { network, invite }) => (
+                Method::POST,
+                format!("/v1/networks/{}/revocations", encoded(&network)),
+                Some(json!({"invite_public_key": invite})),
+            ),
+            Self::Network(NetworkCommand::Leave { id }) => (
+                Method::POST,
+                format!("/v1/networks/{}/leave", encoded(&id)),
+                None,
+            ),
+            Self::Network(NetworkCommand::RotateRoot { id }) => (
+                Method::POST,
+                format!("/v1/networks/{}/rotate", encoded(&id)),
                 None,
             ),
             Self::Adapter(AdapterCommand::Rotate { id }) => (

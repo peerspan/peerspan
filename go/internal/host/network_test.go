@@ -224,18 +224,19 @@ func TestVerifyMapDropsSharedInvites(t *testing.T) {
 	}
 	n := Network{ID: token.NetworkID, RootPublicKey: token.RootPublicKey}
 	m := membership.Map{NetworkID: n.ID, RootPublicKey: n.RootPublicKey, Members: []membership.MapMember{entry(self), entry(m1), entry(m2)}}
-	members, err := s.verifyMap(n, m)
+	applied, err := s.verifyMap(context.Background(), n, m)
+	members := applied.members
 	if err != nil || len(members) != 1 || members[0].HostID != s.Identity().ID {
 		t.Fatalf("shared invite accepted: %+v %v", members, err)
 	}
 	bad := entry(m1)
 	bad.Membership = json.RawMessage(strings.Replace(string(bad.Membership), `"member":"a"`, `"member":null`, 1))
 	m.Members = []membership.MapMember{entry(self), bad}
-	if members, err = s.verifyMap(n, m); err != nil || len(members) != 1 {
-		t.Fatalf("malformed entry: %+v %v", members, err)
+	if applied, err = s.verifyMap(context.Background(), n, m); err != nil || len(applied.members) != 1 {
+		t.Fatalf("malformed entry: %+v %v", applied.members, err)
 	}
 	m.Members = []membership.MapMember{entry(m1)}
-	if _, err = s.verifyMap(n, m); err == nil {
+	if _, err = s.verifyMap(context.Background(), n, m); err == nil {
 		t.Fatal("map omitting this host accepted")
 	}
 }

@@ -701,6 +701,9 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
         return;
     };
     let router = peer_router(store.clone(), key_id(&key));
+    // Answers every request from a host that is no longer known.
+    let forbidden: axum::Router = axum::Router::new()
+        .fallback(|| async { Err::<(), crate::model::Error>(crate::model::Error::Forbidden) });
     let mut streams = JoinSet::new();
     loop {
         tokio::select! {
@@ -708,12 +711,14 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
             accepted = connection.accept_bi() => {
                 let Ok((send, recv)) = accepted else { break };
                 // Each request re-authenticates: a host removed while its
-                // connection stays open cannot submit or query anything.
-                if !store.knows(&key).unwrap_or(false) {
-                    connection.close(VarInt::from_u32(2), b"unknown peer");
-                    break;
-                }
-                let service = TowerToHyperService::new(router.clone());
+                // connection stays open gets 403 for anything it submits or
+                // queries, as on a fresh request, and is never routed.
+                let known = store.knows(&key).unwrap_or(false);
+                let service = TowerToHyperService::new(if known {
+                    router.clone()
+                } else {
+                    forbidden.clone()
+                });
                 streams.spawn(async move {
                     let served = hyper::server::conn::http1::Builder::new()
                         .keep_alive(false)
@@ -807,17 +812,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(first.stable_id(), second.stable_id());
-        // Removing the sender's pin refuses further requests on that connection.
+        // Removing the sender's pin refuses further requests on that open
+        // connection with 403, the same answer a fresh request would get.
         receiver
             .store
             .peer_pins
             .write()
             .unwrap()
             .remove(&sender.store.identity().id);
-        assert!(
-            request(sender.store.clone(), &target, "GET", &receipt_path(), b"")
-                .await
-                .is_err()
+        let (status, _) = request(sender.store.clone(), &target, "GET", &receipt_path(), b"")
+            .await
+            .unwrap();
+        assert_eq!(status, 403);
+        let third = transport(&sender.store)
+            .unwrap()
+            .cached(
+                &target.id,
+                &peer_key(&target).unwrap(),
+                &[address.parse().unwrap()],
+            )
+            .unwrap();
+        assert_eq!(
+            first.stable_id(),
+            third.stable_id(),
+            "refused on the same connection"
         );
         // Restoring it lets a fresh connection through.
         receiver.store.peer_pins.write().unwrap().insert(

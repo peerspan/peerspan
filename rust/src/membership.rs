@@ -145,7 +145,24 @@ pub struct Invite {
     pub invite_signature: String,
 }
 pub fn sign_invite(root: &SigningKey, invite: &SigningKey, member: &str, expires: &str) -> Invite {
-    let network = network_id(root.verifying_key().as_bytes());
+    sign_invite_for(
+        &network_id(root.verifying_key().as_bytes()),
+        root,
+        invite,
+        member,
+        expires,
+    )
+}
+/// Signs an invite with the network's current root, which after a rotation
+/// no longer derives the network ID.
+pub fn sign_invite_for(
+    network: &str,
+    root: &SigningKey,
+    invite: &SigningKey,
+    member: &str,
+    expires: &str,
+) -> Invite {
+    let network = network.to_owned();
     let invite_public_key = STANDARD.encode(invite.verifying_key().as_bytes());
     let statement = invite_statement(&network, &invite_public_key, member, expires);
     Invite {
@@ -175,7 +192,9 @@ pub fn sign_member(invite: Invite, key: &SigningKey, host: &[u8], joined: &str) 
         host_signature: STANDARD.encode(key.sign(statement.as_bytes()).to_bytes()),
     }
 }
-fn verify_invite(
+/// Verifies an invite signed by a root that need not derive the network ID:
+/// after rotation, invites are signed by the current root of the chain.
+fn verify_invite_under(
     root: &VerifyingKey,
     network: &str,
     invite: &str,
@@ -183,9 +202,6 @@ fn verify_invite(
     expires: &str,
     sig: &str,
 ) -> Result<(), Error> {
-    if network_id(root.as_bytes()) != network {
-        return Err(invalid("network ID does not match root key"));
-    }
     label(member)?;
     time(expires)?;
     public_key(invite)?;
@@ -197,10 +213,18 @@ fn verify_invite(
 }
 
 impl Membership {
-    /// Verifies the full chain; returns the member's host ID.
+    /// Verifies the full chain under the genesis root, which must derive the
+    /// network ID; returns the member's host ID.
     pub fn verify(&self, root_public_key: &str) -> Result<String, Error> {
+        if network_id(public_key(root_public_key)?.as_bytes()) != self.network_id {
+            return Err(invalid("network ID does not match root key"));
+        }
+        self.verify_under(root_public_key)
+    }
+    /// Verifies the chain under any root of the network's root chain.
+    pub fn verify_under(&self, root_public_key: &str) -> Result<String, Error> {
         let root = public_key(root_public_key)?;
-        verify_invite(
+        verify_invite_under(
             &root,
             &self.network_id,
             &self.invite_public_key,
@@ -244,8 +268,11 @@ impl InviteToken {
         }
         let token: Self =
             serde_json::from_slice(&json).map_err(|_| invalid("invalid invite token"))?;
+        // After a root rotation the invite is signed by the current root, which
+        // does not derive the network ID; the joiner checks it against the
+        // coordinator's verified root chain before persisting anything.
         let root = public_key(&token.root_public_key)?;
-        verify_invite(
+        verify_invite_under(
             &root,
             &token.network_id,
             &token.invite_public_key,
@@ -274,6 +301,292 @@ impl InviteToken {
             invite_expires_at: self.invite_expires_at.clone(),
             invite_signature: self.invite_signature.clone(),
         }
+    }
+}
+
+fn sign_lines(key: &SigningKey, lines: &[&str]) -> String {
+    STANDARD.encode(key.sign(lines.join("\n").as_bytes()).to_bytes())
+}
+fn verify_lines(key: &str, lines: &[&str], sig: &str) -> Result<(), Error> {
+    public_key(key)?
+        .verify_strict(lines.join("\n").as_bytes(), &signature(sig)?)
+        .map_err(|_| invalid("invalid statement signature"))
+}
+fn check_network(network: &str, expected: &str) -> Result<(), Error> {
+    if network != expected {
+        return Err(invalid("statement is for another network"));
+    }
+    Ok(())
+}
+
+/// A root-signed revocation of a member host key.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HostRevocation {
+    pub network_id: String,
+    pub host_public_key: String,
+    pub revoked_at: String,
+    pub signature: String,
+}
+impl HostRevocation {
+    fn lines(&self) -> [&str; 4] {
+        [
+            "capsule-revoke-host-v1",
+            &self.network_id,
+            &self.host_public_key,
+            &self.revoked_at,
+        ]
+    }
+    pub fn sign(root: &SigningKey, network: &str, host: &str, at: &str) -> Self {
+        let mut r = Self {
+            network_id: network.into(),
+            host_public_key: host.into(),
+            revoked_at: at.into(),
+            signature: String::new(),
+        };
+        r.signature = sign_lines(root, &r.lines());
+        r
+    }
+    /// Valid when signed by any root of the chain.
+    pub fn verify(&self, network: &str, roots: &[String]) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
+        public_key(&self.host_public_key)?;
+        time(&self.revoked_at)?;
+        roots
+            .iter()
+            .find_map(|root| verify_lines(root, &self.lines(), &self.signature).ok())
+            .ok_or_else(|| invalid("revocation not signed by a network root"))
+    }
+}
+
+/// A root-signed revocation of an invite key, which also discredits any host
+/// that joined with it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InviteRevocation {
+    pub network_id: String,
+    pub invite_public_key: String,
+    pub revoked_at: String,
+    pub signature: String,
+}
+impl InviteRevocation {
+    fn lines(&self) -> [&str; 4] {
+        [
+            "capsule-revoke-invite-v1",
+            &self.network_id,
+            &self.invite_public_key,
+            &self.revoked_at,
+        ]
+    }
+    pub fn sign(root: &SigningKey, network: &str, invite: &str, at: &str) -> Self {
+        let mut r = Self {
+            network_id: network.into(),
+            invite_public_key: invite.into(),
+            revoked_at: at.into(),
+            signature: String::new(),
+        };
+        r.signature = sign_lines(root, &r.lines());
+        r
+    }
+    pub fn verify(&self, network: &str, roots: &[String]) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
+        public_key(&self.invite_public_key)?;
+        time(&self.revoked_at)?;
+        roots
+            .iter()
+            .find_map(|root| verify_lines(root, &self.lines(), &self.signature).ok())
+            .ok_or_else(|| invalid("revocation not signed by a network root"))
+    }
+}
+
+/// A member's own signed departure.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Leave {
+    pub network_id: String,
+    pub host_public_key: String,
+    pub left_at: String,
+    pub signature: String,
+}
+impl Leave {
+    fn lines(&self) -> [&str; 4] {
+        [
+            "capsule-leave-v1",
+            &self.network_id,
+            &self.host_public_key,
+            &self.left_at,
+        ]
+    }
+    pub fn sign(host: &SigningKey, network: &str, at: &str) -> Self {
+        let mut r = Self {
+            network_id: network.into(),
+            host_public_key: STANDARD.encode(host.verifying_key().as_bytes()),
+            left_at: at.into(),
+            signature: String::new(),
+        };
+        r.signature = sign_lines(host, &r.lines());
+        r
+    }
+    pub fn verify(&self, network: &str) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
+        time(&self.left_at)?;
+        verify_lines(&self.host_public_key, &self.lines(), &self.signature)
+    }
+}
+
+/// The previous root's signature over its successor.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Rotation {
+    pub network_id: String,
+    pub epoch: u64,
+    pub previous_root_public_key: String,
+    pub root_public_key: String,
+    pub rotated_at: String,
+    pub signature: String,
+}
+impl Rotation {
+    fn verify_with(&self, epoch: &str) -> Result<(), Error> {
+        verify_lines(
+            &self.previous_root_public_key,
+            &[
+                "capsule-root-rotate-v1",
+                &self.network_id,
+                epoch,
+                &self.previous_root_public_key,
+                &self.root_public_key,
+                &self.rotated_at,
+            ],
+            &self.signature,
+        )
+    }
+    pub fn sign(previous: &SigningKey, network: &str, epoch: u64, root: &str, at: &str) -> Self {
+        let previous_root_public_key = STANDARD.encode(previous.verifying_key().as_bytes());
+        let epoch_text = epoch.to_string();
+        let signature = sign_lines(
+            previous,
+            &[
+                "capsule-root-rotate-v1",
+                network,
+                &epoch_text,
+                &previous_root_public_key,
+                root,
+                at,
+            ],
+        );
+        Self {
+            network_id: network.into(),
+            epoch,
+            previous_root_public_key,
+            root_public_key: root.into(),
+            rotated_at: at.into(),
+            signature,
+        }
+    }
+}
+
+/// A current root's attestation that a host key is a member at an epoch.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Attestation {
+    pub network_id: String,
+    pub epoch: u64,
+    pub host_public_key: String,
+    pub member: String,
+    pub attested_at: String,
+    pub signature: String,
+}
+impl Attestation {
+    pub fn sign(
+        root: &SigningKey,
+        network: &str,
+        epoch: u64,
+        host: &str,
+        member: &str,
+        at: &str,
+    ) -> Self {
+        let epoch_text = epoch.to_string();
+        Self {
+            signature: sign_lines(
+                root,
+                &["capsule-attest-v1", network, &epoch_text, host, member, at],
+            ),
+            network_id: network.into(),
+            epoch,
+            host_public_key: host.into(),
+            member: member.into(),
+            attested_at: at.into(),
+        }
+    }
+    pub fn verify(&self, network: &str, epoch: u64, root: &str) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
+        if self.epoch != epoch {
+            return Err(invalid("attestation is for another epoch"));
+        }
+        label(&self.member)?;
+        time(&self.attested_at)?;
+        public_key(&self.host_public_key)?;
+        let epoch_text = epoch.to_string();
+        verify_lines(
+            root,
+            &[
+                "capsule-attest-v1",
+                network,
+                &epoch_text,
+                &self.host_public_key,
+                &self.member,
+                &self.attested_at,
+            ],
+            &self.signature,
+        )
+    }
+}
+
+/// Verifies a root chain from the genesis root, which must derive `network`,
+/// and returns its roots in epoch order: index `e` is the root of epoch `e`.
+pub fn verify_chain(
+    network: &str,
+    genesis: &str,
+    rotations: &[Rotation],
+) -> Result<Vec<String>, Error> {
+    if network_id(public_key(genesis)?.as_bytes()) != network {
+        return Err(invalid("network ID does not match root key"));
+    }
+    let mut roots = vec![genesis.to_owned()];
+    for (index, rotation) in rotations.iter().enumerate() {
+        let epoch = index as u64 + 1;
+        check_network(&rotation.network_id, network)?;
+        if rotation.epoch != epoch
+            || rotation.previous_root_public_key != roots[index]
+            || roots.contains(&rotation.root_public_key)
+        {
+            return Err(invalid("root chain is not consecutive"));
+        }
+        public_key(&rotation.root_public_key)?;
+        time(&rotation.rotated_at)?;
+        rotation.verify_with(&epoch.to_string())?;
+        roots.push(rotation.root_public_key.clone());
+    }
+    Ok(roots)
+}
+
+/// How a coordinator's root chain relates to the chain this host persisted.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ChainRelation {
+    /// Equal to, or extending, the persisted chain.
+    Extends,
+    /// A consistent prefix: the coordinator is behind this host.
+    Behind,
+    /// A different rotation at an epoch this host already persisted.
+    Fork,
+}
+pub fn chain_relation(persisted: &[Rotation], offered: &[Rotation]) -> ChainRelation {
+    if persisted.iter().zip(offered).any(|(a, b)| a != b) {
+        ChainRelation::Fork
+    } else if offered.len() < persisted.len() {
+        ChainRelation::Behind
+    } else {
+        ChainRelation::Extends
     }
 }
 
@@ -404,6 +717,155 @@ mod tests {
         old.invite_expires_at = expired.invite_expires_at;
         old.invite_signature = expired.invite_signature;
         assert!(InviteToken::decode(&old.encode()).is_err());
+    }
+
+    const NEW_ROOT_SEED: &str = "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=";
+    const NEW_ROOT: &str = "ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=";
+    const AT: &str = "2026-10-07T00:00:00Z";
+
+    #[test]
+    fn reproduces_statement_test_vectors() {
+        let root = seed(ROOT_SEED).unwrap();
+        let new_root = seed(NEW_ROOT_SEED).unwrap();
+        assert_eq!(
+            STANDARD.encode(new_root.verifying_key().as_bytes()),
+            NEW_ROOT
+        );
+        let roots = vec![ROOT.to_owned()];
+        let host = HostRevocation::sign(&root, NETWORK, HOST, AT);
+        assert_eq!(
+            host.signature,
+            "651E7LldaU/s+qQra4F9e6uJ5sDvFfYI0Nc+x4WdmfciBtVME9wp+fNq034EGTB2utFOLkPxhOg3k8gujAI7Ag=="
+        );
+        host.verify(NETWORK, &roots).unwrap();
+        let invite = InviteRevocation::sign(&root, NETWORK, INVITE, AT);
+        assert_eq!(
+            invite.signature,
+            "XyB3LsP1IaDW5saYFuHlIr4IVvrELl9hmDW9sX3PNAVeUfJaOzx5gnv6YSkGScAR+8ymDzYLYZ+VQ4leDNBhCQ=="
+        );
+        invite.verify(NETWORK, &roots).unwrap();
+        let leave = Leave::sign(&seed(HOST_SEED).unwrap(), NETWORK, AT);
+        assert_eq!(leave.host_public_key, HOST);
+        assert_eq!(
+            leave.signature,
+            "xM3Wn7Rl4G9jcG0fRUbbXjyFmWz1WcO4IC/tg8MrFOe9zEwWroQuSjo5Xhh92Mkwimg45gxfRCeOoxZC6/OeAA=="
+        );
+        leave.verify(NETWORK).unwrap();
+        let rotation = Rotation::sign(&root, NETWORK, 1, NEW_ROOT, AT);
+        assert_eq!(rotation.previous_root_public_key, ROOT);
+        assert_eq!(
+            rotation.signature,
+            "etkSBT7+to1vTCpIt+m5PMyO93tht5QhAmnxVMNCwmreGUrXmCcI4YWqxfznXx6WHe8rNZ/jK7N2FWUiy9N2Bw=="
+        );
+        assert_eq!(
+            verify_chain(NETWORK, ROOT, std::slice::from_ref(&rotation)).unwrap(),
+            vec![ROOT.to_owned(), NEW_ROOT.to_owned()]
+        );
+        let attestation = Attestation::sign(&new_root, NETWORK, 1, HOST, "alice", AT);
+        assert_eq!(
+            attestation.signature,
+            "TBfNG88UlHWcSV6f79Ie1RApfqPr36hehooyjGebNB50FTB1tl9neEm42Ja13jXniAc+hU1YpRxcFVzfsF+iBg=="
+        );
+        attestation.verify(NETWORK, 1, NEW_ROOT).unwrap();
+        // Strict JSON shapes.
+        let value = serde_json::to_value(&rotation).unwrap();
+        assert_eq!(value["epoch"], 1);
+        let mut extra = value.clone();
+        extra["extra"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<Rotation>(extra).is_err());
+    }
+
+    #[test]
+    fn statements_reject_tampering() {
+        let root = seed(ROOT_SEED).unwrap();
+        let new_root = seed(NEW_ROOT_SEED).unwrap();
+        let roots = vec![ROOT.to_owned()];
+        let other = format!("net_{}", "0".repeat(64));
+        let mut host = HostRevocation::sign(&root, NETWORK, HOST, AT);
+        assert!(host.verify(&other, &roots).is_err());
+        host.host_public_key = INVITE.into();
+        assert!(host.verify(NETWORK, &roots).is_err());
+        // Signed by a key outside the chain.
+        let rogue = HostRevocation::sign(&new_root, NETWORK, HOST, AT);
+        assert!(rogue.verify(NETWORK, &roots).is_err());
+        assert!(
+            rogue
+                .verify(NETWORK, &[ROOT.into(), NEW_ROOT.into()])
+                .is_ok()
+        );
+        let mut invite = InviteRevocation::sign(&root, NETWORK, INVITE, AT);
+        invite.revoked_at = "2026-10-07T00:00:01Z".into();
+        assert!(invite.verify(NETWORK, &roots).is_err());
+        let mut leave = Leave::sign(&seed(HOST_SEED).unwrap(), NETWORK, AT);
+        leave.host_public_key = INVITE.into();
+        assert!(leave.verify(NETWORK).is_err());
+        let rotation = Rotation::sign(&root, NETWORK, 1, NEW_ROOT, AT);
+        let tampers: Vec<fn(&mut Rotation)> = vec![
+            |r| r.epoch = 2,
+            |r| r.root_public_key = HOST.into(),
+            |r| r.previous_root_public_key = HOST.into(),
+            |r| r.rotated_at = "2026-10-07T00:00:01Z".into(),
+            |r| r.network_id = format!("net_{}", "0".repeat(64)),
+        ];
+        for tamper in tampers {
+            let mut r = rotation.clone();
+            tamper(&mut r);
+            assert!(verify_chain(NETWORK, ROOT, &[r]).is_err());
+        }
+        // A rotation signed by the new root itself does not extend the chain.
+        let selfsigned = Rotation::sign(&new_root, NETWORK, 1, NEW_ROOT, AT);
+        assert!(verify_chain(NETWORK, ROOT, &[selfsigned]).is_err());
+        // The genesis root must derive the network ID.
+        assert!(verify_chain(NETWORK, NEW_ROOT, &[]).is_err());
+        let attestation = Attestation::sign(&new_root, NETWORK, 1, HOST, "alice", AT);
+        assert!(attestation.verify(NETWORK, 2, NEW_ROOT).is_err());
+        assert!(attestation.verify(NETWORK, 1, ROOT).is_err());
+        let mut relabeled = attestation;
+        relabeled.member = "mallory".into();
+        assert!(relabeled.verify(NETWORK, 1, NEW_ROOT).is_err());
+    }
+
+    #[test]
+    fn chain_relations_and_rotated_invites() {
+        let root = seed(ROOT_SEED).unwrap();
+        let new_root = seed(NEW_ROOT_SEED).unwrap();
+        let one = Rotation::sign(&root, NETWORK, 1, NEW_ROOT, AT);
+        let third = seed(HOST_SEED).unwrap();
+        let third_key = STANDARD.encode(third.verifying_key().as_bytes());
+        let two = Rotation::sign(&new_root, NETWORK, 2, &third_key, AT);
+        let fork = Rotation::sign(&root, NETWORK, 1, &third_key, AT);
+        assert_eq!(
+            chain_relation(&[], std::slice::from_ref(&one)),
+            ChainRelation::Extends
+        );
+        assert_eq!(
+            chain_relation(std::slice::from_ref(&one), std::slice::from_ref(&one)),
+            ChainRelation::Extends
+        );
+        assert_eq!(
+            chain_relation(std::slice::from_ref(&one), &[one.clone(), two.clone()]),
+            ChainRelation::Extends
+        );
+        assert_eq!(
+            chain_relation(&[one.clone(), two], std::slice::from_ref(&one)),
+            ChainRelation::Behind
+        );
+        assert_eq!(chain_relation(&[one], &[fork]), ChainRelation::Fork);
+        // An invite signed by the current root verifies only under that root.
+        let invite = seed(INVITE_SEED).unwrap();
+        let mut signed = sign_invite(&new_root, &invite, "bob", "2099-01-01T00:00:00Z");
+        signed.network_id = NETWORK.into();
+        let statement = invite_statement(
+            NETWORK,
+            &signed.invite_public_key,
+            "bob",
+            "2099-01-01T00:00:00Z",
+        );
+        signed.invite_signature = STANDARD.encode(new_root.sign(statement.as_bytes()).to_bytes());
+        let m = sign_member(signed, &invite, &[3; 32], "2026-10-07T00:00:00Z");
+        assert!(m.verify_under(NEW_ROOT).is_ok());
+        assert!(m.verify(NEW_ROOT).is_err());
+        assert!(m.verify(ROOT).is_err());
     }
 
     #[test]
