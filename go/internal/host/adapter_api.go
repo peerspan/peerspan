@@ -70,6 +70,7 @@ func AdapterHandler(store *Store) http.Handler {
 	return mux
 }
 func localAdapterRoutes(mux *http.ServeMux, store *Store) {
+	localSetupRoute(mux, store)
 	localOutboundRoutes(mux, store)
 	localConnectionRoutes(mux, store)
 	mux.HandleFunc("POST /v1/adapters", func(w http.ResponseWriter, r *http.Request) {

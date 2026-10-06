@@ -76,15 +76,22 @@ func tokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCredential, error) {
-	expires, err := parseTime(r.ExpiresAt)
-	if err != nil || !expires.After(time.Now()) {
-		return AdapterCredential{}, ErrInvalid
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AdapterCredential{}, err
 	}
 	defer tx.Rollback()
+	credential, err := s.createAdapter(ctx, tx, r)
+	if err != nil {
+		return AdapterCredential{}, err
+	}
+	return credential, tx.Commit()
+}
+func (s *Store) createAdapter(ctx context.Context, tx *sql.Tx, r CreateAdapter) (AdapterCredential, error) {
+	expires, err := parseTime(r.ExpiresAt)
+	if err != nil || !expires.After(time.Now()) {
+		return AdapterCredential{}, ErrInvalid
+	}
 	session, err := scanSession(tx.QueryRowContext(ctx, `SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?`, r.SessionID))
 	if err != nil {
 		return AdapterCredential{}, err
@@ -196,7 +203,7 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 	if err = appendEvent(ctx, tx, "adapter.created", id, timestamp(time.Now())); err != nil {
 		return AdapterCredential{}, err
 	}
-	return AdapterCredential{Adapter: adapter, Token: token, ReplacedAdapterIDs: replaced}, tx.Commit()
+	return AdapterCredential{Adapter: adapter, Token: token, ReplacedAdapterIDs: replaced}, nil
 }
 func (s *Store) Adapter(ctx context.Context, id string) (Adapter, error) {
 	return readJSON[Adapter](s.db.QueryRowContext(ctx, `SELECT record FROM adapter_credentials WHERE id = ?`, id))

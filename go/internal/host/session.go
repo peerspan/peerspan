@@ -10,21 +10,41 @@ import (
 )
 
 func (s *Store) AttachSession(ctx context.Context, req AttachSession) (Session, error) {
-	req.Integration = strings.TrimSpace(req.Integration)
-	if req.AgentID == "" || req.Integration == "" || len(req.Integration) > 128 {
-		return Session{}, fmt.Errorf("%w: agent_id and integration are required; integration must be at most 128 bytes", ErrInvalid)
-	}
-	id, err := newID("session")
-	if err != nil {
-		return Session{}, err
-	}
-	now := time.Now().UTC()
-	session := Session{ID: id, AgentID: req.AgentID, Integration: req.Integration, State: SessionAttached, CreatedAt: now, UpdatedAt: now}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, err
 	}
 	defer tx.Rollback()
+	session, err := attachSession(ctx, tx, req, "")
+	if err != nil {
+		return Session{}, err
+	}
+	return session, tx.Commit()
+}
+func attachSession(ctx context.Context, tx *sql.Tx, req AttachSession, id string) (Session, error) {
+	req.Integration = strings.TrimSpace(req.Integration)
+	if req.AgentID == "" || req.Integration == "" || len(req.Integration) > 128 {
+		return Session{}, fmt.Errorf("%w: agent_id and integration are required; integration must be at most 128 bytes", ErrInvalid)
+	}
+	if id == "" {
+		var err error
+		id, err = newID("session")
+		if err != nil {
+			return Session{}, err
+		}
+	} else if !validID(id, "session", 16) {
+		return Session{}, ErrInvalid
+	}
+	var exists int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", id).Scan(&exists); err != nil {
+		return Session{}, err
+	}
+	if exists != 0 {
+		return Session{}, ErrConflict
+	}
+	now := time.Now().UTC()
+	session := Session{ID: id, AgentID: req.AgentID, Integration: req.Integration, State: SessionAttached, CreatedAt: now, UpdatedAt: now}
+	var err error
 	var agentID string
 	if err = tx.QueryRowContext(ctx, `SELECT id FROM agents WHERE id = ?`, req.AgentID).Scan(&agentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -36,9 +56,6 @@ func (s *Store) AttachSession(ctx context.Context, req AttachSession) (Session, 
 		return Session{}, err
 	}
 	if err = appendEvent(ctx, tx, "session.attached", session.ID, timestamp(now)); err != nil {
-		return Session{}, err
-	}
-	if err = tx.Commit(); err != nil {
 		return Session{}, err
 	}
 	return session, nil

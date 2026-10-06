@@ -24,6 +24,9 @@ const usage = `capsule-host runs and controls a local Capsule host daemon.
 Usage:
   capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS]
   capsule-host [--state DIR] info
+  capsule-host [--state DIR] claude setup|start --directory DIR --agent ID --channel FILE --expires-at TIME [--routes FILE --node PROGRAM --claude PROGRAM]
+  capsule-host [--state DIR] claude start --directory DIR [--workspace DIR]
+  capsule-host [--state DIR] claude doctor --directory DIR
   capsule-host [--state DIR] agent register --name NAME --owner OWNER [--capability NAME]
   capsule-host [--state DIR] agent list
   capsule-host [--state DIR] agent inspect ID
@@ -103,6 +106,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	}
 	if args[0] == "person" {
 		return personShow(args[1:], out, errOut)
+	}
+	if args[0] == "claude" {
+		return runClaude(args[1:], *state, errOut)
 	}
 	if *state == "" {
 		var err error

@@ -59,3 +59,19 @@ The [known-host messaging contract](peer-messaging-contract.md) extends this fou
 The [adapter contract](agent-adapter-contract.md), [outbound extension](adapter-outbound-contract.md), and [recovery extension](adapter-recovery-contract.md) define the separate credential-scoped interface for existing sessions. Registry attachment alone is not readiness. A live adapter proves its bound instance and renews a connection lease; the same instance can recover its original attachment after daemon restart. Owner detach and authorization expiry/revocation stop access. Token rotation preserves the authorization ID, original expiry, routes, budgets, and collaboration records. Shared schema v6 adds these connection records atomically.
 
 Owner creation of an authorization for a fresh session replaces a previously connected authorization whose lease is no longer valid. Its response includes `replaced_adapter_ids`, and revocation/detachment commit with the new credential. A live lease, an unbound setup, or the 15-second startup reconnect window still conflicts. The window protects previously bound, recoverable instances without restoring their leases; explicit owner detach or revoke bypasses it. Old collaboration records and routes retain their original authorization/session bindings.
+
+## Owner integration setup and diagnostics
+
+These endpoints exist only on `admin.sock`, with the same JSON validation and error conventions as other owner requests:
+
+| API | Response | Behavior |
+| --- | --- | --- |
+| `POST /v1/adapters/setup` | 201: `{session, credential, routes}` | Atomically attach a session, issue its credential, and create its destinations. |
+| `POST /v1/adapters/{id}/verify-credential` | 200: `{matches: boolean}` | Compare the supplied `{token}` with the stored digest without connecting an adapter. |
+| `GET /v1/adapters/{id}/route-status` | 200: `[{route, messages_remaining}]` | Read all owner-configured routes, including withdrawn routes, ordered by name, with remaining lifetime budgets. |
+
+Setup requires `agent_id`, a caller-chosen unused `session_id` (`session_` plus 32 hex characters), `integration`, and future RFC3339 `expires_at`. Optional `routes` is an array of at most 100 entries, each requiring `name`, `peer_host_id`, `target_agent_id`, `grant_id`, `expires_at`, `max_message_bytes`, and `max_messages`. Route validation and offline replacement use the existing adapter contracts. Session, credential, routes, activity, and any replacement commit together; a conflict, invalid route, or storage failure rolls everything back. Reusing a session ID conflicts; it does not mint or recover another credential. No schema migration is needed.
+
+Credential verification reports digest equality separately from authorization validity; expiry, revocation, and connection state must still be inspected. Neither diagnostic endpoint changes leases, activity, message handoffs, or budgets. `messages_remaining` subtracts the number of durable requests bound to that route, including failed requests; retries of the same request do not consume more budget. Unknown authorizations return 404.
+
+Both CLIs provide `claude setup`, `claude start`, and `claude doctor` using the shared Claude integration helper. The owner chooses an agent, expiry, new private setup directory, and optional destination file. Setup persists its requested session ID before calling the daemon, so an ambiguous response can be recovered by inspecting that exact attachment. Recovery preserves expiry and destinations and refuses a bound instance. Start launches an explicitly opted-in foreground Claude process; doctor only reads local readiness. A live adapter lease does not prove model availability or channel consumption. See the [integration guide](../integrations/claude-channel/README.md) for commands, prerequisites, and recovery.

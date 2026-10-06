@@ -34,6 +34,9 @@ pub enum Command {
     },
     /// Show the local daemon's public identity
     Info,
+    /// Prepare, launch, or diagnose an opted-in Claude Code session
+    #[command(subcommand)]
+    Claude(ClaudeCommand),
     /// Manage local agent registrations
     #[command(subcommand)]
     Agent(AgentCommand),
@@ -70,6 +73,59 @@ pub enum Command {
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
         limit: i64,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ClaudeCommand {
+    /// Create private MCP configuration and an owner-authorized attachment
+    Setup {
+        #[command(flatten)]
+        runtime: ClaudeRuntime,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        channel: PathBuf,
+        #[arg(long)]
+        expires_at: String,
+        #[arg(long)]
+        routes: Option<PathBuf>,
+    },
+    /// Launch a prepared session, or prepare and launch one with --agent
+    Start {
+        #[command(flatten)]
+        runtime: ClaudeRuntime,
+        #[arg(long, requires_all = ["channel", "expires_at"])]
+        agent: Option<String>,
+        #[arg(long, requires = "agent")]
+        channel: Option<PathBuf>,
+        #[arg(long, requires = "agent")]
+        expires_at: Option<String>,
+        #[arg(long, requires = "agent")]
+        routes: Option<PathBuf>,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        /// Additional Claude arguments after --; Capsule channel options cannot be overridden
+        #[arg(last = true, allow_hyphen_values = true)]
+        claude_args: Vec<String>,
+    },
+    /// Inspect setup and adapter readiness without establishing a lease
+    Doctor {
+        #[command(flatten)]
+        runtime: ClaudeRuntime,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ClaudeRuntime {
+    /// Private setup directory
+    #[arg(long)]
+    pub directory: PathBuf,
+    /// Node 22+ executable
+    #[arg(long)]
+    pub node: Option<PathBuf>,
+    /// Claude Code executable
+    #[arg(long)]
+    pub claude: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -403,6 +459,7 @@ impl Command {
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Run { .. }
+            | Self::Claude(_)
             | Self::Person(_)
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }

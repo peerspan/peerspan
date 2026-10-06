@@ -85,6 +85,8 @@ The grant expiration and request deadline must be in the future, with the deadli
 
 ## Connect an existing Claude Code session
 
+Both CLIs provide `claude setup` to create private session configuration and scoped destinations, `claude start` to launch that opted-in session, and `claude doctor` to inspect prerequisites, credentials, adapter leases, and destination budgets without changing state. Follow the [setup guide](integrations/claude-channel/README.md#configure-one-session).
+
 The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential and define named outbound destinations with byte and lifetime message limits. The adapter uses a separate private `adapter.sock` interface to receive messages, initiate scoped sends, and reply. The daemon automatically retrieves responses to agent-initiated messages and returns them to the originating session. Owner-CLI sends use `message reply`. Unknown handoffs persist without automatic redelivery.
 
 The [adapter contract](docs/agent-adapter-contract.md) and [outbound extension](docs/adapter-outbound-contract.md) define scope, budgets, handoff, reply, and restart behavior. A [live experiment](docs/results/agent-exchange-live.json) verified two running Claude Code sessions initiating messages and observing automatic replies in both directions over Go↔Rust. Full conversations, tasks, remote tools, and host-managed sessions remain subsequent work.
@@ -114,6 +116,7 @@ sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target
 python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --probe /tmp/capsule-peer-probe
 python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --coord /tmp/capsule-coord
 python3 conformance/adapter_recovery.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
+python3 conformance/claude_setup.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 ```
 
 `nat_lab.py` needs root. It builds Linux network namespaces with nftables NAT routers between each host and the coordinator, and runs every Go/Rust pairing behind port-preserving, fully random, and UDP-blocking NATs. It removes everything it creates.

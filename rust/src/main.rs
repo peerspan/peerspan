@@ -1,3 +1,4 @@
+mod claude;
 mod cli;
 
 use anyhow::{Context, bail};
@@ -35,6 +36,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         println!();
         return Ok(());
     };
+    if let cli::Command::Claude(command) = command {
+        return claude::run(command, cli.state);
+    }
     let directory = match cli.state {
         Some(directory) => directory,
         None => default_directory()?,

@@ -125,7 +125,7 @@ class Experiment:
         self.host = ExperimentHost(settings, self.root / "host")
         self.identity = self.host.start()
         self.agent = self.host.cli("agent", "register", "--name", role, "--owner", role)
-        self.session = self.host.cli(
+        self.session = None if settings.get("setup_flow") else self.host.cli(
             "session",
             "attach",
             "--agent",
@@ -133,7 +133,7 @@ class Experiment:
             "--integration",
             "cross-host-experiment",
         )
-        self.secret = credential(self.host, self.session)
+        self.secret = None if settings.get("setup_flow") else credential(self.host, self.session)
         return {
             "identity": self.identity,
             "agent": self.agent,
@@ -190,17 +190,31 @@ class Experiment:
         return self.grant
 
     def start_consumer(self, remote_grant):
-        route(
-            self.host,
-            self.secret,
-            self.peer["identity"],
-            self.peer["agent"],
-            remote_grant,
-            budget=4,
-        )
         script = Path(self.settings["repo"]) / "integrations/claude-channel/channel.mjs"
         directory = self.root / "consumer"
         node = Path(self.settings["node"]).resolve(strict=True)
+        launch = None
+        if self.settings.get("setup_flow"):
+            self.setup_directory = self.root / "claude-setup"
+            routes_file = self.root / "destinations.json"
+            routes_file.write_text(json.dumps([{
+                "name": "remote", "peer_host_id": self.peer["identity"]["id"],
+                "target_agent_id": self.peer["agent"]["id"], "grant_id": remote_grant["id"],
+                "expires_at": remote_grant["expires_at"], "max_message_bytes": 65536, "max_messages": 4,
+            }]))
+            configured = self.host.cli(
+                "claude", "setup", "--agent", self.agent["id"],
+                "--directory", str(self.setup_directory), "--channel", str(script),
+                "--expires-at", timestamp(1200), "--routes", str(routes_file),
+                "--node", str(node), "--claude", self.settings["claude"],
+            )
+            assert configured["state"] == "configured" and not configured["adapter_ready"]
+            self.session = self.host.cli("session", "inspect", configured["session_id"])
+            self.secret = json.loads((self.setup_directory / "credential.json").read_text())
+            launch = [self.host.binary, "--state", str(self.host.state), "claude", "start",
+                      "--directory", str(self.setup_directory), "--workspace", str(directory)]
+        else:
+            route(self.host, self.secret, self.peer["identity"], self.peer["agent"], remote_grant, budget=4)
         if self.fixture:
             self.consumer = Channel(node, script, self.host, self.secret, directory)
             self.credential_path = self.consumer.credential_path
@@ -219,9 +233,11 @@ class Experiment:
                 self.host,
                 self.secret,
                 directory,
+                launch=launch,
+                credential_path=self.setup_directory / "credential.json" if launch else None,
             )
             self.consumer.ready()
-            self.credential_path = directory / "credential.json"
+            self.credential_path = self.setup_directory / "credential.json" if launch else directory / "credential.json"
             # Older Claude versions log this metadata inside an escaped JSON
             # string. Read the negotiated value in either representation.
             protocol_match = re.search(
@@ -454,6 +470,8 @@ class Experiment:
         rotated = self.host.cli("adapter", "rotate", self.secret["adapter"]["id"])
         assert rotated["adapter"] == self.secret["adapter"]
         atomic_credential(self.credential_path, rotated)
+        if hasattr(self, "setup_directory") and self.credential_path != self.setup_directory / "credential.json":
+            atomic_credential(self.setup_directory / "credential.json", rotated)
         self.secret = rotated
         return {"replacement_guard_status": status, "host_binary": self.host.binary}
 
@@ -704,6 +722,7 @@ def check(args, settings):
     allow_same = args.local or args.allow_same_machine
     for role in ["alice", "bob"]:
         actor = settings[role]
+        actor["setup_flow"] = args.setup_flow
         assert isinstance(
             actor.get("local", False), bool
         ), f"{role}.local must be boolean"
@@ -879,6 +898,8 @@ def check(args, settings):
             "route_budget_remaining": {role: s["route_budget_remaining"] for role, s in zip(["alice", "bob"], snapshots)},
             "send_status_tested": args.send_status,
             "send_status_only": args.send_status_only,
+            "owner_cli_setup": args.setup_flow,
+            "owner_cli_launch": args.setup_flow and not args.fixture,
             "builtin_tools_enabled": False,
             "permission_relay_enabled": False,
             "exchanges": exchanges,
@@ -914,6 +935,7 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--ssh-config", type=Path)
+    parser.add_argument("--setup-flow", action="store_true", help="Prepare and launch through the public claude CLI workflow")
     parser.add_argument(
         "--send-status", action="store_true",
         help="Stop each receiver until send_status reports unknown, then check automatic acceptance",

@@ -177,14 +177,23 @@ fn update(tx: &Transaction<'_>, d: &Delivery, kind: &str) -> Result<(), Error> {
 }
 impl Store {
     pub fn create_adapter(&self, r: CreateAdapter) -> Result<AdapterCredential, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let credential = self.create_adapter_in(&tx, r)?;
+        tx.commit()?;
+        Ok(credential)
+    }
+    pub(crate) fn create_adapter_in(
+        &self,
+        tx: &Transaction<'_>,
+        r: CreateAdapter,
+    ) -> Result<AdapterCredential, Error> {
         let expiration = DateTime::parse_from_rfc3339(&r.expires_at)
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
         if expiration <= Utc::now() {
             return Err(Error::Invalid("invalid expiration".into()));
         }
-        let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
-        let ss = session(&tx, &r.session_id)?;
+        let ss = session(tx, &r.session_id)?;
         if ss.state != "attached" {
             return Err(Error::Forbidden);
         }
@@ -262,8 +271,8 @@ impl Store {
                 "UPDATE sessions SET state = 'detached',updated_at = ?1 WHERE id = ?2",
                 params![at, old.session_id],
             )?;
-            append_event(&tx, "adapter.replaced", &old.id, &at)?;
-            append_event(&tx, "session.detached", &old.session_id, &at)?;
+            append_event(tx, "adapter.replaced", &old.id, &at)?;
+            append_event(tx, "session.detached", &old.session_id, &at)?;
             replaced_adapter_ids.push(old.id);
         }
         let a = Adapter {
@@ -289,8 +298,7 @@ impl Store {
             "INSERT INTO adapter_connections(adapter_id) VALUES (?1)",
             [&a.id],
         )?;
-        append_event(&tx, "adapter.created", &a.id, &now())?;
-        tx.commit()?;
+        append_event(tx, "adapter.created", &a.id, &now())?;
         Ok(AdapterCredential {
             adapter: a,
             token,

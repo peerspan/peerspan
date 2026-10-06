@@ -257,6 +257,17 @@ impl Store {
     }
 
     pub fn attach_session(&self, request: AttachSession) -> Result<Session, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let session = Self::attach_session_in(&tx, request, None)?;
+        tx.commit()?;
+        Ok(session)
+    }
+    pub(crate) fn attach_session_in(
+        tx: &rusqlite::Transaction<'_>,
+        request: AttachSession,
+        id: Option<String>,
+    ) -> Result<Session, Error> {
         let integration = request.integration.trim().to_owned();
         if request.agent_id.is_empty() || integration.is_empty() || integration.len() > 128 {
             return Err(Error::Invalid(
@@ -266,15 +277,25 @@ impl Store {
         }
         let at = now();
         let session = Session {
-            id: new_id("session")?,
+            id: match id {
+                Some(id) if crate::peer_store::valid_id(&id, "session", 16) => id,
+                Some(_) => return Err(Error::Invalid("invalid session ID".into())),
+                None => new_id("session")?,
+            },
             agent_id: request.agent_id,
             integration,
             state: "attached".into(),
             created_at: at.clone(),
             updated_at: at,
         };
-        let mut connection = self.connection()?;
-        let tx = connection.transaction()?;
+        let exists: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            [&session.id],
+            |r| r.get(0),
+        )?;
+        if exists != 0 {
+            return Err(Error::Conflict("session already exists".into()));
+        }
         tx.query_row(
             "SELECT id FROM agents WHERE id = ?1",
             [&session.agent_id],
@@ -291,8 +312,7 @@ impl Store {
                 session.updated_at
             ],
         )?;
-        append_event(&tx, "session.attached", &session.id, &session.created_at)?;
-        tx.commit()?;
+        append_event(tx, "session.attached", &session.id, &session.created_at)?;
         Ok(session)
     }
 

@@ -108,18 +108,29 @@ func validRouteName(name string) bool {
 	return true
 }
 func (s *Store) CreateOutboundRoute(ctx context.Context, r CreateOutboundRoute) (OutboundRoute, error) {
-	exp, err := parseTime(r.ExpiresAt)
-	if err != nil || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || !validID(r.GrantID, "grant", 16) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
-		return OutboundRoute{}, ErrInvalid
-	}
-	if _, err = s.KnownHost(ctx, r.PeerHostID, nil); err != nil {
-		return OutboundRoute{}, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return OutboundRoute{}, err
 	}
 	defer tx.Rollback()
+	route, err := s.createOutboundRoute(ctx, tx, r)
+	if err != nil {
+		return OutboundRoute{}, err
+	}
+	return route, tx.Commit()
+}
+func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOutboundRoute) (OutboundRoute, error) {
+	exp, err := parseTime(r.ExpiresAt)
+	if err != nil || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || !validID(r.GrantID, "grant", 16) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
+		return OutboundRoute{}, ErrInvalid
+	}
+	var known int
+	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM peers WHERE id = ?) + (SELECT COUNT(*) FROM network_members WHERE host_id = ? AND host_id != ?)", r.PeerHostID, r.PeerHostID, s.identity.ID).Scan(&known); err != nil {
+		return OutboundRoute{}, err
+	}
+	if known == 0 {
+		return OutboundRoute{}, ErrNotFound
+	}
 	a, err := readJSON[Adapter](tx.QueryRowContext(ctx, `SELECT record FROM adapter_credentials WHERE id = ?`, r.AdapterID))
 	if err != nil {
 		return OutboundRoute{}, err
@@ -160,7 +171,7 @@ func (s *Store) CreateOutboundRoute(ctx context.Context, r CreateOutboundRoute) 
 	if err = appendEvent(ctx, tx, "adapter.route_created", id, timestamp(time.Now())); err != nil {
 		return route, err
 	}
-	return route, tx.Commit()
+	return route, nil
 }
 func (s *Store) OutboundRoutes(ctx context.Context, adapterID string) ([]OutboundRoute, error) {
 	if _, err := s.Adapter(ctx, adapterID); err != nil {

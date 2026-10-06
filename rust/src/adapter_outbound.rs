@@ -128,6 +128,17 @@ impl Store {
         })
     }
     pub fn create_outbound_route(&self, r: CreateOutboundRoute) -> Result<OutboundRoute, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let route = self.create_outbound_route_in(&tx, r)?;
+        tx.commit()?;
+        Ok(route)
+    }
+    pub(crate) fn create_outbound_route_in(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        r: CreateOutboundRoute,
+    ) -> Result<OutboundRoute, Error> {
         let exp = DateTime::parse_from_rfc3339(&r.expires_at)
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
         if exp <= Utc::now()
@@ -139,13 +150,11 @@ impl Store {
         {
             return Err(Error::Invalid("invalid route bounds".into()));
         }
-        let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
-        if !self.known_host(&tx, &r.peer_host_id)? {
+        if !self.known_host(tx, &r.peer_host_id)? {
             return Err(Error::NotFound);
         }
         let a: crate::adapter::Adapter = read(
-            &tx,
+            tx,
             "SELECT record FROM adapter_credentials WHERE id = ?1",
             [&r.adapter_id],
         )?;
@@ -190,8 +199,7 @@ impl Store {
                 serde_json::to_string(&route)?
             ],
         )?;
-        append_event(&tx, "adapter.route_created", &route.id, &now())?;
-        tx.commit()?;
+        append_event(tx, "adapter.route_created", &route.id, &now())?;
         Ok(route)
     }
     pub fn outbound_routes(&self, adapter_id: &str) -> Result<Vec<OutboundRoute>, Error> {

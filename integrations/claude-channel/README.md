@@ -11,47 +11,59 @@ cd integrations/claude-channel
 npm ci --ignore-scripts
 ```
 
-With your daemon running, register an agent and attach a session using the existing CLI. Create a private credential file for that session; use an absolute path and a future RFC3339 expiration:
+With your daemon running and your agent registered, prepare and start one explicitly opted-in session:
 
 ```bash
-capsule-host --state STATE session attach --agent AGENT_ID --integration claude-channel
-umask 077
-capsule-host --state STATE adapter create --session SESSION_ID --expires-at FUTURE_TIME > /absolute/credential.json
+capsule-host --state STATE claude setup --directory /absolute/session-setup --agent AGENT_ID --channel /absolute/integrations/claude-channel/channel.mjs --expires-at FUTURE_TIME
+capsule-host claude start --directory /absolute/session-setup --workspace /absolute/project
+capsule-host claude doctor --directory /absolute/session-setup
 ```
 
-Configure an MCP server named `capsule` in your Claude Code project. Replace the paths with your actual Node executable, adapter, daemon state, and credential file:
+`setup` creates the session, expiring credential, and optional destinations in one daemon transaction. It writes `profile.json`, `credential.json`, and `mcp.json` into a new private directory (0700; files 0600). Existing configuration is never overwritten. `--expires-at` is a future RFC3339 time. Use `--node PROGRAM` and `--claude PROGRAM` if the executables are outside PATH. Both Go and Rust CLIs use the shared `setup.mjs` beside `channel.mjs`; install the complete integration directory.
 
-```json
-{
-  "mcpServers": {
-    "capsule": {
-      "command": "/absolute/path/to/node",
-      "args": [
-        "/absolute/path/to/integrations/claude-channel/channel.mjs",
-        "--socket", "/absolute/STATE/adapter.sock",
-        "--credential-file", "/absolute/credential.json"
-      ]
-    }
-  }
-}
-```
+`start` launches Claude in the foreground using that private MCP configuration and opts in to `server:capsule`. It allows the four scoped Capsule tools; normal Claude project settings and permissions apply. Add Claude arguments after `--`, for example `-- --name collaboration`. Arguments cannot replace the prepared MCP configuration or channel selection. No global Claude configuration is edited. Combine preparation and launch by passing the setup flags to `claude start`.
 
-Start the interactive session with the development opt-in for this locally built channel:
+Claude Code presents its development-channel confirmation. Channels are a [research preview](https://code.claude.com/docs/en/channels), subject to authentication and organization policy. Setup checks Node, installed dependencies, Claude launch flags, and `claude auth status`; organization policy is checked by Claude at launch. This flow starts an opted-in session; it cannot add a channel to an arbitrary already-running Claude process. Plain MCP registration does not enable incoming messages.
 
-```bash
-claude --dangerously-load-development-channels server:capsule
-```
+## Diagnose and recover
 
-Claude Code presents its development-channel confirmation. This is a [research preview](https://code.claude.com/docs/en/channels-reference#test-during-the-research-preview), subject to authentication and organization policy. Configure a credential for each intended session; do not reuse it to silently substitute another process. Plain MCP registration alone does not enable incoming channel messages.
+`doctor` prints JSON and exits zero when prerequisites, private configuration, credential, authorization, and the original adapter's lease pass inspection. Immediately after setup it exits nonzero with `registered`: configuration exists but no adapter has connected. It identifies unavailable daemons, changed host identity, missing or stale credentials, expired leases, detached sessions, and revoked or expired authorization. Destinations show remaining lifetime message budgets and expiry/revocation status. Remote reachability and grant acceptance remain unverified.
 
-Use your Claude executable's full path if it is not on your shell PATH.
+Inspection never connects an adapter, renews a lease, hands off a message, or changes permissions. `adapter_ready` refers to the adapter lease and local configuration. `model_availability: "unknown"` and `channel_consumption: "unverified"` remain explicit even with a live lease. Check a live exchange separately to establish model consumption.
+
+If setup loses the daemon response or fails while saving the credential, retain its private directory and run `claude start --directory DIR`. A `preparing` profile records the exact requested session and scopes before submission. Recovery reuses that session and original expiry/destinations, rotating its token if necessary. It refuses an attachment that has already connected or changed. Known setup refusals roll back all daemon changes and remove the new preparing directory; ambiguous failures retain it. `doctor` reports interrupted setup without completing it.
+
+Once an adapter has connected, `start` will not adopt its authorization for another process. Keep the original Claude process during daemon recovery. For a closed session, choose a fresh setup directory; the existing offline replacement policy applies. Live leases, unbound setups, and the startup reconnect window still conflict. Explicit owner detach or revoke withdraws an unused setup. Authorization expiry requires a fresh owner-authorized setup; token rotation does not extend expiry. Keep credential files private and never commit them.
+
+The existing `session attach`, `adapter create`, and `adapter route add` commands remain available for manual integrations. The generated `mcp.json` documents the required stdio channel arguments.
 
 ## Allow the agent to initiate messages
 
-After configuring the peer or enrolling both hosts in a network, the receiving owner grants access to its target agent. The sending owner then creates a named destination for this session's adapter credential:
+After configuring the peer or enrolling both hosts in a network, the receiving owner grants access to its target agent:
 
 ```bash
 capsule-host --state RECEIVER_STATE grant create --peer SENDER_HOST_ID --agent TARGET_AGENT_ID --expires-at GRANT_EXPIRY --allow-disconnected
+```
+
+The sending owner can pass `--routes /absolute/destinations.json` to `claude setup` or a new `claude start`. The file is a JSON array:
+
+```json
+[
+  {
+    "name": "bob",
+    "peer_host_id": "RECEIVER_HOST_ID",
+    "target_agent_id": "TARGET_AGENT_ID",
+    "grant_id": "GRANT_ID",
+    "expires_at": "ROUTE_EXPIRY",
+    "max_message_bytes": 4096,
+    "max_messages": 20
+  }
+]
+```
+
+Setup creates at most 100 destinations. Omitted limits default to 65536 bytes and 100 lifetime messages; omitted route expiry defaults to credential expiry. An invalid destination rolls back the whole setup. Setup grants no inbound access and creates no peer membership. For an already prepared attachment, add or inspect routes with the existing commands:
+
+```bash
 capsule-host --state SENDER_STATE adapter route add --adapter ADAPTER_ID --name bob --peer RECEIVER_HOST_ID --agent TARGET_AGENT_ID --grant GRANT_ID --expires-at ROUTE_EXPIRY --max-message-bytes 4096 --max-messages 20
 capsule-host --state SENDER_STATE adapter route list --adapter ADAPTER_ID
 ```
@@ -84,9 +96,9 @@ If the old adapter has exited, attach a fresh session and issue its credential u
 Owners can rotate the token while keeping the original authorization ID, expiry, instance, routes, and budgets. Replace the private credential file atomically:
 
 ```bash
-capsule_credential_next=$(mktemp /absolute/.capsule-credential.XXXXXX)
+capsule_credential_next=$(mktemp /absolute/session-setup/.credential.XXXXXX)
 capsule-host --state STATE adapter rotate ADAPTER_ID > "$capsule_credential_next" &&
-  mv "$capsule_credential_next" /absolute/credential.json
+  mv "$capsule_credential_next" /absolute/session-setup/credential.json
 ```
 
 The running adapter reloads only the same authorization and session. The old token immediately loses access; the adapter allows up to 30 seconds for its replacement file. Rotation does not extend authorization lifetime. Inspect an agent-originated request with `message origin --peer HOST REQUEST_ID`, including an uncertain reply-notification handoff. See the [recovery contract](../../docs/adapter-recovery-contract.md).
@@ -97,12 +109,13 @@ From the repository root:
 
 ```bash
 npm --prefix integrations/claude-channel test
-python3 conformance/agent_adapter.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY
+python3 conformance/agent_adapter.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY --probe PROBE_BINARY
 python3 conformance/adapter_outbound.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY --coord COORD_BINARY
 python3 conformance/adapter_recovery.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY
+python3 conformance/claude_setup.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY
 ```
 
-The Python suite uses a deterministic MCP client and temporary host state. The separate `conformance/live_claude_channel.py` experiment uses authenticated Claude Code and real model calls; it tests an interactive session, a second message during model streaming, and revocation before queued handoff. Its PTY driver requires Linux:
+The Python suites use deterministic MCP clients and temporary host state. `claude_setup.py` also uses an explicit Claude executable fixture for prerequisite and launch checks, across all CLI/daemon pairings; it makes no model calls. The separate `conformance/live_claude_channel.py` experiment uses authenticated Claude Code and real model calls; it tests an interactive session, a second message during model streaming, and revocation before queued handoff. Its PTY driver requires Linux:
 
 ```bash
 python3 conformance/live_claude_channel.py --sender GO_BINARY --receiver RUST_BINARY --node NODE_BINARY --claude CLAUDE_BINARY --output /tmp/capsule-live.json
@@ -163,6 +176,8 @@ Then omit `--fixture` for the real Claude experiment:
 ```sh
 python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --output /tmp/capsule-cross-host-live.json
 ```
+
+Add `--setup-flow` to prepare attachments and launch real Claude sessions through `claude setup` and `claude start`. With `--fixture`, setup still uses the public command, while the deterministic MCP consumer handles messages.
 
 The runner verifies signed enrollment without manual peer pins, independently scoped grants, sends and automatic replies in both directions, collaboration after coordination stops, original-session recovery and token rotation during pending exchanges, and revocation before queued delivery. It pauses only its own receiving consumer to make the pending and queued cases deterministic. Arrival checks correlate request IDs. An uncertain send must recover through the daemon's automatic retries; the runner makes no further send calls. Invite and adapter secrets stay out of the report. Closing the workers stops their test processes and removes temporary state.
 

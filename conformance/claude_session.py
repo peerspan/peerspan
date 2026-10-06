@@ -26,15 +26,16 @@ def wait_for(check, seconds=60):
 
 
 class ClaudeSession:
-    def __init__(self, claude, node, script, host, secret, directory):
+    def __init__(self, claude, node, script, host, secret, directory, launch=None, credential_path=None):
         self.directory = directory
         directory.mkdir(mode=0o700)
         self.sid = str(uuid.uuid4())
         self.console = bytearray()
         self.debug_path = directory / "debug.log"
-        cp = directory / "credential.json"
-        cp.write_text(json.dumps(secret))
-        cp.chmod(0o600)
+        cp = credential_path or directory / "credential.json"
+        if credential_path is None:
+            cp.write_text(json.dumps(secret))
+            cp.chmod(0o600)
         config = directory / "mcp.json"
         config.write_text(
             json.dumps(
@@ -86,6 +87,13 @@ class ClaudeSession:
             "--debug-file",
             str(self.debug_path),
         ]
+        if launch is not None:
+            # The public launcher supplies its generated MCP/channel options;
+            # test-only settings still restrict this experiment to Capsule.
+            for flag in ["--mcp-config", "--dangerously-load-development-channels"]:
+                index = command.index(flag)
+                del command[index:index + 2]
+            command = launch + ["--"] + command[1:]
         self.process = subprocess.Popen(
             command,
             cwd=directory,
