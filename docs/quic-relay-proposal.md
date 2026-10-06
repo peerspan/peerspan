@@ -38,9 +38,38 @@ QUIC fits the current message-level product for three reasons:
 - **Identity carries over.** QUIC uses TLS 1.3, so it reuses the existing Ed25519 host certificates, key pinning, and verifier code in both languages. WireGuard uses Curve25519 static keys. That needs either a second key per host, bound to the host key, or a conversion between the two key types. The TLS layer would also stay on top for per-request authorization.
 - **Connection migration.** QUIC can move an established connection from a relayed path to a direct one without a new handshake or new application state. WireGuard roams between endpoints too, but anything carried inside the tunnel would still need its own connection management.
 
-WireGuard becomes the better fit if capsules need **IP reachability**. Examples are a Firecracker guest that must reach a service on another host by address, or arbitrary TCP and UDP traffic between runtimes. That is the question the original design left open. The three collaboration capabilities do not require it: task delegation, peer conversations, and remote tools and resources can all run as authorized requests between daemons. If IP reachability becomes a near-term requirement, WireGuard should be reconsidered before the transport is built. The choice is then between a userspace WireGuard tunnel carrying the existing HTTP/TLS peer protocol, and QUIC. A WireGuard tunnel could also be added later beside QUIC for runtime networking, without replacing the message transport.
+WireGuard becomes relevant if capsules need **IP reachability**. Examples are a Firecracker guest that must reach a service on another host by address, or arbitrary TCP and UDP traffic between runtimes. That is the question the original design left open. The three collaboration capabilities do not require it: task delegation, peer conversations, and remote tools and resources can all run as authorized requests between daemons. When IP reachability is needed, it can come from kernel WireGuard on the hosts that run isolated runtimes, layered beside QUIC rather than replacing it. The next section describes that layering.
 
-The transport choice, and the condition under which it would change, should also be recorded as a product decision in the `mesh-new` system design.
+## Layered option: kernel WireGuard for runtime networking
+
+Choosing QUIC for daemon messaging does not rule out kernel WireGuard for Firecracker or other microVM runtimes. It rules out kernel WireGuard as the only transport for every host.
+
+### Why microVM hosts suit kernel WireGuard
+
+- **They are already Linux and privileged.** Firecracker needs KVM, so microVM hosts are Linux. Kernel WireGuard has been in mainline since Linux 5.6. Running a microVM already needs tap devices and usually network namespaces, which require root or `CAP_NET_ADMIN`; the legacy prototype's Firecracker tests already require root. Creating and configuring a `wg` interface over netlink needs the same privilege, so it adds no new privilege requirement.
+- **It matches the original design.** Issue 7 placed the tunnel in the dataplane on the host, outside the guest, with the key and the filter on the host side of the isolation boundary. On a microVM host:
+  - the host owns a `wg` interface and the WireGuard keys, and the guest gets only a tap device;
+  - host nftables rules enforce what the guest may reach;
+  - WireGuard binds each peer to its allowed tunnel IPs, so an inbound packet's source tunnel IP reliably identifies the peer;
+  - the agent inside the guest can neither read the key nor bypass the filter.
+
+### Where kernel WireGuard constrains the design
+
+1. **It is Linux-only.** A macOS developer laptop running Claude Code has no kernel WireGuard and would need `wireguard-go` or `boringtun` in userspace. The message transport therefore should not depend on WireGuard. That is the main reason to keep QUIC for daemon-to-daemon traffic.
+2. **The kernel owns the UDP socket.** This is why Tailscale runs WireGuard in userspace even on Linux: its relays, path discovery, and hole punching need control of the socket that sends WireGuard packets. With kernel WireGuard:
+   - **Relayed peers:** a relayed peer's endpoint points at a local userspace proxy on loopback, which forwards packets to the relay. That adds one userspace hop, only for relayed peers. NetBird is believed to use a similar kernel-WireGuard-plus-proxy approach; that should be checked against its current code before relying on it as precedent.
+   - **Hole punching:** less direct, because discovery probes cannot be sent from WireGuard's own socket. The coordinator can instead learn a peer's public mapping from the endpoint WireGuard reports after a handshake, as `wg show endpoints` does.
+3. **It needs a second key.** WireGuard uses Curve25519 keys, separate from the Ed25519 host key. The host signs its WireGuard public key with its host key. The coordinator distributes it alongside the membership chain, and peers accept a WireGuard key only if that signature verifies.
+
+### The layered design
+
+- **Messages:** QUIC between daemons on every host, as proposed here. Grants, receipts, and replies stay at the application layer, on any OS.
+- **Runtime networking:** optional kernel WireGuard on Linux runtime hosts, only for guests that need IP reachability. The daemon configures the interface over netlink, and host nftables rules enforce the session's network policy.
+- **Relays:** the `capsule-coord` relay proposed below forwards already-encrypted packets addressed by host ID. It does not care whether they are QUIC or WireGuard packets. The same relay can carry both, with the local proxy hop on the WireGuard side.
+
+Making WireGuard the only transport would require two things instead: userspace WireGuard on every non-Linux host, and our own relay, path discovery, and hole-punching logic built around a socket the kernel owns.
+
+The transport choice, this layering, and the condition under which runtime networking is added should also be recorded as product decisions in the `mesh-new` system design.
 
 ## Why move to QUIC first
 
@@ -129,7 +158,7 @@ The exact candidate format, probe timing, and how long the relay path is retaine
 
 | Decision | Recommendation | Alternative |
 | --- | --- | --- |
-| Peer transport | QUIC (agreed 2026-10-06) | Userspace WireGuard tunnel carrying the existing HTTP/TLS protocol. Revisit if capsules need IP reachability; see [Why QUIC fits now, and when WireGuard would](#why-quic-fits-now-and-when-wireguard-would) |
+| Peer transport | QUIC for daemon messaging on every host (agreed 2026-10-06) | WireGuard as the only transport, which needs userspace WireGuard on non-Linux hosts. Kernel WireGuard can instead be layered on Linux runtime hosts for guest IP reachability; see [Layered option](#layered-option-kernel-wireguard-for-runtime-networking) |
 | Application protocol over QUIC | HTTP/1.1, one request per bidirectional stream, ALPN `capsule-peer/1` | HTTP/3 (`quic-go/http3`, Rust `h3` 0.0.x) |
 | Relay carrier | Framed QUIC packets over TLS/TCP (DERP-style) | QUIC datagrams over a QUIC connection to the relay; this cannot reach UDP-blocked hosts and needs a smaller inner MTU |
 | Cutover | Hard switch, incompatible peer protocol version | Serve TCP and QUIC side by side for one release |
