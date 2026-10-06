@@ -23,8 +23,8 @@ import time
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, path):
-        super().__init__("localhost", timeout=3)
+    def __init__(self, path, timeout=3):
+        super().__init__("localhost", timeout=timeout)
         self.path = str(path)
 
     def connect(self):

@@ -70,6 +70,8 @@ type Store struct {
 	advertise    string
 	interval     time.Duration
 	syncing      sync.Mutex // serializes coordinator syncs and map application
+
+	peer peerTransport // the daemon's UDP socket and cached QUIC connections
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -268,8 +270,9 @@ func privateFile(path string) (*os.File, error) {
 
 func (s *Store) Close() error {
 	s.closeOnce.Do(func() {
+		s.closeErr = s.closePeerTransport()
 		if s.db != nil {
-			s.closeErr = s.db.Close()
+			s.closeErr = errors.Join(s.closeErr, s.db.Close())
 		}
 		if s.lock != nil {
 			s.closeErr = errors.Join(s.closeErr, s.lock.Close())

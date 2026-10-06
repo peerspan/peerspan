@@ -1,0 +1,228 @@
+{
+  "label": "QUIC, quic-transport branch (PR for milestone 3a)",
+  "platform": "Linux-6.1.0-53-amd64-x86_64-with-glibc2.36",
+  "cpu_count": 8,
+  "network": "loopback, one machine",
+  "count": 200,
+  "concurrency": 8,
+  "warmup": 10,
+  "note": "send includes durable writes on both hosts (SQLite synchronous=FULL); lookup is a read-only reply lookup",
+  "pairings": {
+    "Go\u2192Go": {
+      "small": {
+        "content_bytes": 16,
+        "send": {
+          "p50_ms": 18.694,
+          "p90_ms": 21.948,
+          "p99_ms": 28.294,
+          "mean_ms": 18.924,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 0.716,
+          "p90_ms": 0.991,
+          "p99_ms": 1.364,
+          "mean_ms": 0.774,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 138.208,
+          "p90_ms": 240.692,
+          "p99_ms": 337.639,
+          "mean_ms": 152.365,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 52.0
+        }
+      },
+      "max": {
+        "content_bytes": 65536,
+        "send": {
+          "p50_ms": 25.777,
+          "p90_ms": 31.794,
+          "p99_ms": 76.442,
+          "mean_ms": 26.996,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 1.828,
+          "p90_ms": 2.389,
+          "p99_ms": 3.259,
+          "mean_ms": 1.899,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 144.808,
+          "p90_ms": 227.359,
+          "p99_ms": 311.666,
+          "mean_ms": 155.689,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 50.7
+        }
+      }
+    },
+    "Go\u2192Rust": {
+      "small": {
+        "content_bytes": 16,
+        "send": {
+          "p50_ms": 17.916,
+          "p90_ms": 23.339,
+          "p99_ms": 30.244,
+          "mean_ms": 19.212,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 0.789,
+          "p90_ms": 1.111,
+          "p99_ms": 1.598,
+          "mean_ms": 0.844,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 164.606,
+          "p90_ms": 267.589,
+          "p99_ms": 408.031,
+          "mean_ms": 176.034,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 45.1
+        }
+      },
+      "max": {
+        "content_bytes": 65536,
+        "send": {
+          "p50_ms": 23.394,
+          "p90_ms": 30.174,
+          "p99_ms": 78.931,
+          "mean_ms": 24.827,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 1.261,
+          "p90_ms": 1.887,
+          "p99_ms": 4.622,
+          "mean_ms": 1.434,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 142.367,
+          "p90_ms": 216.127,
+          "p99_ms": 316.514,
+          "mean_ms": 150.143,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 52.6
+        }
+      }
+    },
+    "Rust\u2192Go": {
+      "small": {
+        "content_bytes": 16,
+        "send": {
+          "p50_ms": 17.777,
+          "p90_ms": 21.541,
+          "p99_ms": 27.247,
+          "mean_ms": 18.435,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 1.26,
+          "p90_ms": 1.581,
+          "p99_ms": 2.068,
+          "mean_ms": 1.295,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 156.439,
+          "p90_ms": 222.549,
+          "p99_ms": 274.253,
+          "mean_ms": 161.674,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 48.8
+        }
+      },
+      "max": {
+        "content_bytes": 65536,
+        "send": {
+          "p50_ms": 22.513,
+          "p90_ms": 29.778,
+          "p99_ms": 40.215,
+          "mean_ms": 23.998,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 1.276,
+          "p90_ms": 1.573,
+          "p99_ms": 2.706,
+          "mean_ms": 1.331,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 150.188,
+          "p90_ms": 205.846,
+          "p99_ms": 323.285,
+          "mean_ms": 157.541,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 50.3
+        }
+      }
+    },
+    "Rust\u2192Rust": {
+      "small": {
+        "content_bytes": 16,
+        "send": {
+          "p50_ms": 18.476,
+          "p90_ms": 26.98,
+          "p99_ms": 30.906,
+          "mean_ms": 20.218,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 1.004,
+          "p90_ms": 1.298,
+          "p99_ms": 3.206,
+          "mean_ms": 1.078,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 140.794,
+          "p90_ms": 207.371,
+          "p99_ms": 262.949,
+          "mean_ms": 146.694,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 54.0
+        }
+      },
+      "max": {
+        "content_bytes": 65536,
+        "send": {
+          "p50_ms": 25.271,
+          "p90_ms": 32.976,
+          "p99_ms": 88.902,
+          "mean_ms": 26.75,
+          "samples": 200
+        },
+        "lookup": {
+          "p50_ms": 0.914,
+          "p90_ms": 1.217,
+          "p99_ms": 2.641,
+          "mean_ms": 0.937,
+          "samples": 200
+        },
+        "concurrent_send": {
+          "p50_ms": 150.38,
+          "p90_ms": 227.956,
+          "p99_ms": 353.361,
+          "mean_ms": 160.048,
+          "samples": 200,
+          "concurrency": 8,
+          "messages_per_second": 49.5
+        }
+      }
+    }
+  }
+}

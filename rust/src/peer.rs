@@ -18,7 +18,7 @@ use bytes::Bytes as BodyBytes;
 use ed25519_dalek::pkcs8::EncodePrivateKey;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request};
-use hyper_util::{rt::TokioIo, service::TowerToHyperService};
+use hyper_util::rt::TokioIo;
 use rustls::{
     ClientConfig, DigitallySignedStruct, DistinguishedName, ServerConfig, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -31,18 +31,17 @@ use rustls::{
     sign::CertifiedKey,
 };
 use std::{fmt, sync::Arc, time::Duration};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::watch,
-    task::JoinSet,
-};
-use tokio_rustls::{TlsAcceptor, TlsConnector};
+use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector;
 use x509_parser::prelude::*;
 
 fn tls_error(message: &str) -> rustls::Error {
     rustls::Error::General(message.into())
 }
-fn certificate_key(cert: &CertificateDer<'_>, at: UnixTime) -> Result<Vec<u8>, rustls::Error> {
+pub(crate) fn certificate_key(
+    cert: &CertificateDer<'_>,
+    at: UnixTime,
+) -> Result<Vec<u8>, rustls::Error> {
     let (rest, cert) = X509Certificate::from_der(cert.as_ref())
         .map_err(|_| tls_error("invalid peer certificate"))?;
     if !rest.is_empty()
@@ -267,19 +266,20 @@ pub fn server_config(store: Arc<Store>) -> anyhow::Result<ServerConfig> {
             expected: None,
         }))
         .with_cert_resolver(Arc::new(resolver));
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = vec![crate::quic::ALPN.to_vec()];
     config.send_tls13_tickets = 0;
     Ok(config)
 }
 pub(crate) fn client_config(store: Arc<Store>, peer: &Peer) -> anyhow::Result<ClientConfig> {
     let expected = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
-    pinned_client_config(store, expected)
+    pinned_client_config(store, expected, crate::quic::ALPN)
 }
 /// Client configuration proving this host's key and pinning the server's key,
-/// for peers and the coordinator alike.
+/// for peers (over QUIC) and the coordinator (over TCP) alike.
 pub(crate) fn pinned_client_config(
     store: Arc<Store>,
     expected: Vec<u8>,
+    alpn: &[u8],
 ) -> anyhow::Result<ClientConfig> {
     let (certs, key) = certificate(&store)?;
     let mut config = ClientConfig::builder_with_provider(Arc::new(default_provider()))
@@ -290,11 +290,11 @@ pub(crate) fn pinned_client_config(
             expected: Some(expected),
         }))
         .with_client_auth_cert(certs, key)?;
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = vec![alpn.to_vec()];
     config.resumption = rustls::client::Resumption::disabled();
     Ok(config)
 }
-fn peer_router(store: Arc<Store>, sender: String) -> Router {
+pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
     Router::new()
         .route("/peer/v1/messages", post(accept))
         .route("/peer/v1/receipts/{id}", get(receipt))
@@ -322,39 +322,6 @@ async fn receipt(
         blocking(store, move |s| s.message_receipt(&sender, &id)).await?,
     ))
 }
-pub async fn serve(
-    listener: TcpListener,
-    store: Arc<Store>,
-    mut shutdown: watch::Receiver<bool>,
-) -> anyhow::Result<()> {
-    let acceptor = TlsAcceptor::from(Arc::new(server_config(store.clone())?));
-    let mut connections = JoinSet::new();
-    loop {
-        tokio::select! {
-         _=shutdown.changed()=>break,
-         Some(_)=connections.join_next(),if !connections.is_empty()=>{},
-         incoming=listener.accept(),if connections.len()<64=>{
-          let(stream,_)=incoming?;let acceptor=acceptor.clone();let store=store.clone();
-          connections.spawn(async move {
-           let Ok(Ok(tls))=tokio::time::timeout(Duration::from_secs(5),acceptor.accept(stream)).await else{return;};
-           let Some(cert)=tls.get_ref().1.peer_certificates().and_then(|c|c.first()) else{return;};
-           let Ok(key)=certificate_key(cert,UnixTime::now()) else{return;};let sender=key_id(&key);
-           let router=peer_router(store,sender);
-           let connection=hyper::server::conn::http1::Builder::new().keep_alive(false).serve_connection(TokioIo::new(tls),TowerToHyperService::new(router));
-           let _=tokio::time::timeout(Duration::from_secs(15),connection).await;
-          });
-         }
-        }
-    }
-    // Requests which outlive the bounded drain remain unknown to their senders.
-    let _ = tokio::time::timeout(Duration::from_secs(5), async {
-        while connections.join_next().await.is_some() {}
-    })
-    .await;
-    connections.abort_all();
-    while connections.join_next().await.is_some() {}
-    Ok(())
-}
 // Dropping a timed-out or cancelled call closes its separately polled transport.
 struct ConnectionTask(tokio::task::JoinHandle<()>);
 impl Drop for ConnectionTask {
@@ -369,31 +336,16 @@ async fn call(
     out: &OutboundMessage,
     receipt_only: bool,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
-    let config = client_config(store, &peer)?;
-    let (method, path, body) = if receipt_only {
-        (
-            Method::GET,
-            format!("/peer/v1/receipts/{}", out.request.request_id),
-            Vec::new(),
-        )
+    if receipt_only {
+        let path = format!("/peer/v1/receipts/{}", out.request.request_id);
+        crate::quic::request(store, &peer, "GET", &path, b"").await
     } else {
-        (
-            Method::POST,
-            "/peer/v1/messages".into(),
-            serde_json::to_vec(&out.request)?,
-        )
-    };
-    https(
-        config,
-        &peer.address,
-        ServerName::try_from("capsule-peer")?,
-        method,
-        &path,
-        body,
-    )
-    .await
+        let body = serde_json::to_vec(&out.request)?;
+        crate::quic::request(store, &peer, "POST", "/peer/v1/messages", &body).await
+    }
 }
-/// One HTTP/1.1 request over a fresh pinned TLS connection; the body is bounded.
+/// One HTTP/1.1 request over a fresh pinned TLS-over-TCP connection, used for
+/// the coordinator; peers use QUIC. The body is bounded.
 pub(crate) async fn https(
     config: ClientConfig,
     address: &str,
@@ -403,6 +355,8 @@ pub(crate) async fn https(
     body: Vec<u8>,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let stream = TcpStream::connect(address).await?;
+    // Without this, Nagle plus delayed ACK adds ~40 ms to each small request.
+    stream.set_nodelay(true)?;
     let tls = TlsConnector::from(Arc::new(config))
         .connect(name, stream)
         .await?;

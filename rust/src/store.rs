@@ -10,7 +10,7 @@ use std::{
     fs::{self, DirBuilder, File, OpenOptions},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, RwLock, atomic::AtomicU64},
+    sync::{Arc, Mutex, MutexGuard, RwLock, atomic::AtomicU64},
     time::{Duration, Instant},
 };
 
@@ -38,6 +38,8 @@ pub struct Store {
     pub(crate) advertise: RwLock<String>,
     /// Immutable startup deadlines for previously bound, recoverable instances.
     pub(crate) adapter_recovery_until: BTreeMap<String, Instant>,
+    /// The daemon's single QUIC peer endpoint, created on listen or first dial.
+    pub(crate) peer_transport: Mutex<Option<Arc<crate::quic::Transport>>>,
 }
 
 impl Store {
@@ -156,6 +158,7 @@ impl Store {
             coordination_interval: AtomicU64::new(30),
             advertise: RwLock::new(String::new()),
             adapter_recovery_until,
+            peer_transport: Mutex::new(None),
         })
     }
 

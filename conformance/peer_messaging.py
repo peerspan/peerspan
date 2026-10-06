@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
-"""Exercise real Go/Rust peer daemons using isolated state and TLS fixtures.
+"""Exercise real Go/Rust peer daemons using isolated state and QUIC fixtures.
 
-Requires built binaries, Python's standard library, and OpenSSL for raw-wire
-client certificates. Private keys used here belong only to disposable hosts.
+Requires built binaries, Python's standard library, and capsule-peer-probe for
+raw-wire requests. Private keys used here belong only to disposable hosts.
 """
 import argparse
 import base64
 import concurrent.futures
-import errno
 from datetime import datetime, timedelta, timezone
-import http.client
 import json
 from pathlib import Path
 import secrets
+import select
 import socket
 import sqlite3
-import ssl
 import subprocess
 import tempfile
 import threading
@@ -33,9 +31,27 @@ def request_id():
 
 
 def available_port():
-    with socket.socket() as connection:
-        connection.bind(('127.0.0.1', 0))
-        return connection.getsockname()[1]
+    """A loopback port currently free for both UDP (peers) and TCP (coordinator)."""
+    for _ in range(100):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            udp.bind(('127.0.0.1', 0))
+            port = udp.getsockname()[1]
+            with socket.socket() as tcp:
+                try:
+                    tcp.bind(('127.0.0.1', port))
+                except OSError:
+                    continue
+            return port
+    raise AssertionError('no free loopback port')
+
+
+# Path to capsule-peer-probe, set by each suite's main.
+PROBE = None
+
+
+def set_probe(path):
+    global PROBE
+    PROBE = str(path)
 
 
 class PeerHost(Host):
@@ -61,108 +77,86 @@ class PeerHost(Host):
                         '--content', content, '--request', rid or request_id())
 
 
-def fixture_context(host, temporary):
-    """Generate an mTLS client for this disposable host, using its real key."""
+def fixture_context(host, temporary=None):
+    """A raw-wire client identity for this disposable host, using its real key."""
     connection = sqlite3.connect(host.state / 'host.db')
     try:
         key = connection.execute('SELECT private_key FROM identity').fetchone()[0]
     finally:
         connection.close()
-    key_path = temporary / (host.state.name + '.key.der')
-    cert_path = temporary / (host.state.name + '.cert.pem')
-    key_path.write_bytes(bytes.fromhex('302e020100300506032b657004220420') + key[:32])
-    key_path.chmod(0o600)
-    subprocess.run(['openssl', 'req', '-new', '-x509', '-key', str(key_path), '-keyform', 'DER',
-                    '-out', str(cert_path), '-subj', '/CN=contract-client', '-days', '1'],
-                   check=True, capture_output=True, timeout=5)
-    pem_key = temporary / (host.state.name + '.key.pem')
-    subprocess.run(['openssl', 'pkey', '-inform', 'DER', '-in', str(key_path), '-out', str(pem_key)],
-                   check=True, capture_output=True, timeout=5)
-    pem_key.chmod(0o600)
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.minimum_version = ssl.TLSVersion.TLSv1_3
-    context.maximum_version = ssl.TLSVersion.TLSv1_3
-    # Actual daemon clients test pinning. This raw-wire fixture tests the API.
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    context.load_cert_chain(cert_path, pem_key)
-    return context
+    return {'seed_hex': bytes(key[:32]).hex()}
 
 
 def wire(host, context, method, path, body=None, raw=None):
-    connection = http.client.HTTPSConnection('127.0.0.1', host.port, context=context, timeout=5)
-    try:
-        payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
-        connection.request(method, path, payload, {'Content-Type': 'application/json'})
-        response = connection.getresponse()
-        data = response.read()
-        try:
-            value = json.loads(data) if data else None
-        except json.JSONDecodeError:
-            value = data.decode()
-        return response.status, value
-    finally:
-        connection.close()
+    """Send one peer request through capsule-peer-probe, without pin checks."""
+    assert PROBE, 'set_probe() was not called'
+    payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
+    if isinstance(payload, str):
+        payload = payload.encode()
+    args = [PROBE, '--seed-hex', context['seed_hex'], '--address', f'127.0.0.1:{host.port}',
+            '--method', method, '--path', path]
+    if payload is not None:
+        args.append('--body-stdin')
+    result = subprocess.run(args, input=payload, capture_output=True, timeout=15)
+    if result.returncode != 0:
+        raise OSError('probe failed: ' + result.stderr.decode(errors='replace').strip())
+    value = json.loads(result.stdout)
+    return value['status'], value['body']
 
 
 class DropResponse:
-    """Opaque TCP relay drops server data after the receiver commits a message.
+    """Opaque UDP proxy that drops the receiver's packets once it commits a message.
 
-    Handshake and request traffic pass untouched. SQLite observation belongs to
-    the test harness only and makes this an actual lost-receipt scenario.
+    QUIC handshake and request packets pass untouched. SQLite observation belongs
+    to the test harness only and makes this an actual lost-receipt scenario.
     """
     def __init__(self, receiver, rid):
         self.receiver, self.rid = receiver, rid
-        self.listener = socket.socket()
-        self.listener.bind(('127.0.0.1', 0))
-        self.listener.listen()
-        self.listener.settimeout(5)
-        self.address = f'127.0.0.1:{self.listener.getsockname()[1]}'
+        self.client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.client.bind(('127.0.0.1', 0))
+        self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.upstream.connect(('127.0.0.1', self.receiver.port))
+        self.address = f'127.0.0.1:{self.client.getsockname()[1]}'
         self.failed = None
         self.dropped = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
-    def run(self):
+    def committed(self):
+        connection = sqlite3.connect(self.receiver.state / 'host.db')
         try:
-            client, _ = self.listener.accept()
-            server = socket.create_connection(('127.0.0.1', self.receiver.port), timeout=5)
-            client.settimeout(5)
-            server.settimeout(5)
-            with client, server:
-                def outbound():
+            return connection.execute('SELECT COUNT(*) FROM received_messages WHERE request_id = ?',
+                                      (self.rid,)).fetchone()[0] > 0
+        finally:
+            connection.close()
+
+    def run(self):
+        sender = None
+        deadline = time.monotonic() + 15
+        try:
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([self.client, self.upstream], [], [], 0.2)
+                if self.client in ready:
+                    data, sender = self.client.recvfrom(65535)
+                    self.upstream.send(data)
+                if self.upstream in ready:
                     try:
-                        while data := client.recv(65536):
-                            server.sendall(data)
-                    except OSError:
-                        pass
-                forwarding = threading.Thread(target=outbound, daemon=True)
-                forwarding.start()
-                while data := server.recv(65536):
-                    connection = sqlite3.connect(self.receiver.state / 'host.db')
-                    try:
-                        accepted = connection.execute('SELECT COUNT(*) FROM received_messages WHERE request_id = ?',
-                                                      (self.rid,)).fetchone()[0]
-                    finally:
-                        connection.close()
-                    if accepted:
+                        data = self.upstream.recv(65535)
+                    except ConnectionRefusedError:
+                        continue
+                    if self.committed():
                         self.dropped.set()
-                        break
-                    client.sendall(data)
-                for connection in (client, server):
-                    try:
-                        connection.shutdown(socket.SHUT_RDWR)
-                    except OSError as error:
-                        if error.errno != errno.ENOTCONN:
-                            raise
-                forwarding.join(timeout=2)
+                        return
+                    if sender is not None:
+                        self.client.sendto(data, sender)
         except Exception as error:
             self.failed = error
         finally:
-            self.listener.close()
+            self.client.close()
+            self.upstream.close()
 
     def close(self):
-        self.thread.join(timeout=10)
+        self.thread.join(timeout=20)
         assert not self.thread.is_alive()
         assert self.failed is None, self.failed
         assert self.dropped.is_set(), 'relay did not observe acceptance before dropping response'
@@ -343,7 +337,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
+    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
     args = parser.parse_args()
+    set_probe(args.probe.resolve(strict=True))
     go, rust = args.go.resolve(strict=True), args.rust.resolve(strict=True)
     for sender, receiver, label in [(go, go, 'Go→Go'), (rust, rust, 'Rust→Rust'), (go, rust, 'Go→Rust'), (rust, go, 'Rust→Go')]:
         check(sender, receiver, label)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -142,33 +141,21 @@ func (s *Store) FetchReply(ctx context.Context, peerID, id string) (ReplyStatus,
 	if err != nil {
 		return ReplyStatus{}, err
 	}
-	config, err := s.PeerTLS(ctx, &peer)
-	if err != nil {
-		return ReplyStatus{}, err
-	}
-	transport := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true, TLSHandshakeTimeout: 5 * time.Second, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	r, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+peer.Address+"/peer/v1/replies/"+id, nil)
-	if err != nil {
-		return ReplyStatus{}, err
-	}
 	status := ReplyStatus{State: "unknown"}
-	response, err := client.Do(r)
+	if peer.Address == "" {
+		message := "peer reply could not be confirmed"
+		status.Error = &message
+		return status, nil
+	}
+	code, data, err := s.peerRequest(ctx, peer, http.MethodGet, "/peer/v1/replies/"+id, nil)
 	if err == nil {
-		defer response.Body.Close()
-		if response.StatusCode == 404 {
+		if code == 404 {
 			status.State = "pending"
 			return status, nil
 		}
-		if response.StatusCode != 200 {
+		if code != 200 {
 			err = errors.New("peer reply lookup failed")
 		} else {
-			var data []byte
-			data, err = io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
-			if err == nil && len(data) > 1<<20 {
-				err = errors.New("peer reply too large")
-			}
 			var reply Reply
 			if err == nil {
 				decoder := json.NewDecoder(bytes.NewReader(data))

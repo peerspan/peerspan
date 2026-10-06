@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    net::{TcpListener, UnixListener, UnixStream},
+    net::{UnixListener, UnixStream},
     signal::unix::{SignalKind, signal},
 };
 
@@ -129,20 +129,19 @@ async fn run_daemon(
         store.identity().id,
         path.display()
     );
-    let peer_listener = match peer_listen {
+    let listening = match peer_listen {
         Some(address) => {
-            let listener = TcpListener::bind(address).await?;
-            let bound = listener.local_addr()?;
+            let bound = capsule_host::quic::listen(&store, address)?;
             let advertised = match advertise {
                 Some(address) => address.to_string(),
                 None if !bound.ip().is_unspecified() => bound.to_string(),
                 None => String::new(),
             };
-            eprintln!("peer listener {bound} (advertising {advertised:?})");
+            eprintln!("peer listener udp {bound} (advertising {advertised:?})");
             store.set_advertised(advertised);
-            Some(listener)
+            true
         }
-        None => None,
+        None => false,
     };
     let (shutdown, peer_shutdown) = tokio::sync::watch::channel(false);
     let mut adapter_shutdown = peer_shutdown.clone();
@@ -164,8 +163,8 @@ async fn run_daemon(
     let reply_workers =
         capsule_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
     let peers = async {
-        if let Some(listener) = peer_listener {
-            capsule_host::peer::serve(listener, store, peer_shutdown).await?;
+        if listening {
+            capsule_host::quic::serve(store, peer_shutdown).await?;
         }
         Ok::<_, anyhow::Error>(())
     };

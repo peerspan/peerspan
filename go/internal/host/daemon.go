@@ -60,7 +60,7 @@ func listenSocket(path string) (*net.UnixListener, error) {
 // Serve stops accepting requests on cancellation, drains outstanding local
 // requests, and returns before the caller closes the store.
 func Serve(ctx context.Context, listener net.Listener, handler http.Handler) error {
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	server := &http.Server{Handler: handler, ConnContext: peerConnContext, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	select {

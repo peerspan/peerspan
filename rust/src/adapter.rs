@@ -17,21 +17,14 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
-use bytes::Bytes as BodyBytes;
 use chrono::{DateTime, Utc};
-use http_body_util::{BodyExt, Full};
-use hyper::{Method, Request};
-use hyper_util::rt::TokioIo;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use rustls::pki_types::ServerName;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::net::TcpStream;
-use tokio_rustls::TlsConnector;
 
 pub(crate) const SCHEMA: &str = "
 CREATE TABLE adapter_credentials (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), token_hash TEXT NOT NULL UNIQUE, record TEXT NOT NULL);
@@ -715,36 +708,8 @@ async fn peer_reply(
         blocking(store, move |s| s.received_reply(&sender, &id)).await?,
     ))
 }
-struct ConnectionTask(tokio::task::JoinHandle<()>);
-impl Drop for ConnectionTask {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
 async fn lookup(store: Arc<Store>, peer: Peer, id: &str) -> anyhow::Result<(u16, Vec<u8>)> {
-    let config = crate::peer::client_config(store, &peer)?;
-    let stream = TcpStream::connect(&peer.address).await?;
-    let tls = TlsConnector::from(Arc::new(config))
-        .connect(ServerName::try_from("capsule-peer")?, stream)
-        .await?;
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await?;
-    let _task = ConnectionTask(tokio::spawn(async move {
-        let _ = conn.await;
-    }));
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(format!("https://{}/peer/v1/replies/{id}", peer.address))
-        .header("Host", &peer.address)
-        .header("Connection", "close")
-        .body(Full::new(BodyBytes::new()))?;
-    let response = sender.send_request(req).await?;
-    let status = response.status().as_u16();
-    let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
-        .collect()
-        .await
-        .map_err(|e| anyhow::anyhow!("read reply: {e}"))?
-        .to_bytes();
-    Ok((status, bytes.to_vec()))
+    crate::quic::request(store, &peer, "GET", &format!("/peer/v1/replies/{id}"), b"").await
 }
 async fn fetch_reply(
     State(store): State<Arc<Store>>,

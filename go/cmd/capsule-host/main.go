@@ -95,7 +95,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if args[0] == "run" || args[0] == "serve" {
 		runFlags := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		runFlags.SetOutput(errOut)
-		peerListen := runFlags.String("peer-listen", "", "opt-in peer bind address, IP:port")
+		peerListen := runFlags.String("peer-listen", "", "opt-in peer bind address, UDP IP:port")
 		advertise := runFlags.String("advertise", "", "peer address advertised to coordination, IP:port; defaults to a specific --peer-listen address")
 		interval := runFlags.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
 		if err := runFlags.Parse(args[1:]); err != nil {

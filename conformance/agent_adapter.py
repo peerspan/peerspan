@@ -20,7 +20,7 @@ import threading
 import time
 
 from host_service import UnixHTTPConnection
-from peer_messaging import PeerHost, fixture_context, timestamp, wire
+from peer_messaging import PeerHost, fixture_context, set_probe, timestamp, wire
 
 
 def instance_for(host, token):
@@ -34,7 +34,7 @@ def instance_for(host, token):
 
 
 def adapter_call(host, token, method, path, body=None, raw=None, socket_name='adapter.sock',
-                 instance=None, auto_connect=True):
+                 instance=None, auto_connect=True, timeout=3):
     # Raw API calls and the deterministic MCP consumer simulate one test instance.
     # A daemon restart never automatically resumes this raw fixture client.
     owned = instance_for(host, token)
@@ -45,7 +45,7 @@ def adapter_call(host, token, method, path, body=None, raw=None, socket_name='ad
                      {'instance_id': key}, instance=key, auto_connect=False)
     if path == '/adapter/v1/connect' and body is not None:
         body = {'adapter_id':owned['adapter']['id'],'session_id':owned['adapter']['session_id'], **body}
-    conn = UnixHTTPConnection(host.state / socket_name)
+    conn = UnixHTTPConnection(host.state / socket_name, timeout=timeout)
     try:
         payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
         headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
@@ -389,7 +389,9 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--node', type=Path, required=True)
+    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
     args = parser.parse_args()
+    set_probe(args.probe.resolve(strict=True))
     script = Path(__file__).resolve().parents[1] / 'integrations/claude-channel/channel.mjs'
     check_v2_migration(args.go.resolve(), args.rust.resolve(), 'Go→Rust')
     check_v2_migration(args.rust.resolve(), args.go.resolve(), 'Rust→Go')

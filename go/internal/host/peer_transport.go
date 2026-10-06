@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -21,6 +19,7 @@ func (s *Store) peerCertificate() (tls.Certificate, error) {
 }
 func (s *Store) PeerTLS(ctx context.Context, expected *Peer) (*tls.Config, error) {
 	config := tlsid.Config()
+	config.NextProtos = []string{PeerALPN}
 	if expected == nil {
 		config.ClientAuth = tls.RequireAnyClientCert
 		cache := &tlsid.Cache{Key: s.privateKey, Name: s.identity.ID}
@@ -61,31 +60,19 @@ func (s *Store) PeerTLS(ctx context.Context, expected *Peer) (*tls.Config, error
 	}
 	return config, nil
 }
-func (s *Store) ListenPeer(ctx context.Context, address string) (net.Listener, error) {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil || net.ParseIP(host) == nil {
-		return nil, fmt.Errorf("%w: peer bind address must be IP:port", ErrInvalid)
-	}
-	config, err := s.PeerTLS(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return nil, err
-	}
-	return tls.NewListener(listener, config), nil
-}
 
 // PeerHandler exposes only message acceptance and sender-scoped receipts.
+// Each request rechecks that the connection's key is still a known host, so a
+// host removed while its connection stays open is refused.
 func PeerHandler(store *Store) http.Handler {
 	mux := http.NewServeMux()
 	sender := func(w http.ResponseWriter, r *http.Request) (string, bool) {
-		if r.TLS == nil {
+		state := requestTLS(r)
+		if state == nil {
 			respond(w, 0, nil, ErrForbidden)
 			return "", false
 		}
-		public, err := tlsid.PeerKey(*r.TLS)
+		public, err := tlsid.PeerKey(*state)
 		if err != nil {
 			respond(w, 0, nil, ErrForbidden)
 			return "", false
@@ -118,7 +105,11 @@ func PeerHandler(store *Store) http.Handler {
 		respond(w, http.StatusOK, receipt, err)
 	})
 	adapterPeerRoutes(mux, store, sender)
-	return mux
+	// A stream carries exactly one exchange.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Connection", "close")
+		mux.ServeHTTP(w, r)
+	})
 }
 func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly bool) (OutboundMessage, error) {
 	if out.State == "accepted" {
@@ -133,59 +124,36 @@ func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly b
 		out.State, out.Error = "unknown", &message
 		return s.FinishOutbound(ctx, out)
 	}
-	config, err := s.PeerTLS(ctx, &peer)
-	if err != nil {
-		return out, err
-	}
-	transport := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true, TLSHandshakeTimeout: 5 * time.Second, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 8 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	method, path := http.MethodPost, "/peer/v1/messages"
-	var body io.Reader
+	var body []byte
 	if receiptOnly {
 		method, path = http.MethodGet, "/peer/v1/receipts/"+out.Request.RequestID
 	} else {
-		encoded, err := json.Marshal(out.Request)
+		body, err = json.Marshal(out.Request)
 		if err != nil {
 			return out, err
 		}
-		body = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, "https://"+peer.Address+path, body)
-	if err != nil {
-		return out, err
-	}
-	request.Header.Set("Content-Type", "application/json")
 	out.State = "unknown"
 	out.Error = nil
-	response, err := client.Do(request)
-	if err == nil {
-		defer response.Body.Close()
-		var data []byte
-		data, err = io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
-		if err == nil && len(data) > 1<<20 {
-			err = errors.New("peer response too large")
+	status, data, err := s.peerRequest(ctx, peer, method, path, body)
+	if err == nil && status == 200 {
+		var receipt Receipt
+		err = json.Unmarshal(data, &receipt)
+		if err == nil && (receipt.SenderHostID != s.identity.ID || receipt.ReceiverHostID != peer.ID || receipt.RequestID != out.Request.RequestID || receipt.TargetAgentID != out.Request.TargetAgentID) {
+			err = errors.New("invalid peer receipt")
 		}
 		if err == nil {
-			if response.StatusCode == 200 {
-				var receipt Receipt
-				err = json.Unmarshal(data, &receipt)
-				if err == nil && (receipt.SenderHostID != s.identity.ID || receipt.ReceiverHostID != peer.ID || receipt.RequestID != out.Request.RequestID || receipt.TargetAgentID != out.Request.TargetAgentID) {
-					err = errors.New("invalid peer receipt")
-				}
-				if err == nil {
-					if _, err = parseTime(receipt.AcceptedAt); err == nil {
-						out.State = "accepted"
-						out.Receipt = &receipt
-					}
-				}
-			} else {
-				if !receiptOnly && (response.StatusCode == 400 || response.StatusCode == 403 || response.StatusCode == 404 || response.StatusCode == 409) {
-					out.State = "rejected"
-				}
-				err = fmt.Errorf("peer returned HTTP %d", response.StatusCode)
+			if _, err = parseTime(receipt.AcceptedAt); err == nil {
+				out.State = "accepted"
+				out.Receipt = &receipt
 			}
 		}
+	} else if err == nil {
+		if !receiptOnly && (status == 400 || status == 403 || status == 404 || status == 409) {
+			out.State = "rejected"
+		}
+		err = fmt.Errorf("peer returned HTTP %d", status)
 	}
 	if err != nil {
 		message := err.Error()

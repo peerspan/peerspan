@@ -527,7 +527,7 @@ async fn coordinator(
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = membership::canonical(key, 32).map_err(|e| anyhow::anyhow!("{e}"))?;
     let (host, _) = membership::split_host_port(address).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let config = pinned_client_config(store, key)?;
+    let config = pinned_client_config(store, key, b"http/1.1")?;
     let name = rustls::pki_types::ServerName::try_from(host)?;
     tokio::time::timeout(
         Duration::from_secs(8),

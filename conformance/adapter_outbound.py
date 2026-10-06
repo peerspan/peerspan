@@ -48,13 +48,14 @@ def route(
     )
 
 
-def send(host, secret, content="hello", name="remote", rid=None):
+def send(host, secret, content="hello", name="remote", rid=None, timeout=3):
     return adapter_call(
         host,
         secret["token"],
         "POST",
         "/adapter/v1/send",
         {"destination": name, "request_id": rid or request_id(), "content": content},
+        timeout=timeout,
     )
 
 
@@ -310,7 +311,8 @@ def check(go, rust, node, label):
             lost = request_id()
             relay = DropResponse(b, lost)
             a.configure(b, bi, address=relay.address)
-            assert send(a, ac, "lost receipt", rid=lost)[1]["state"] == "unknown"
+            # Over QUIC a lost response surfaces after the 8-second request timeout.
+            assert send(a, ac, "lost receipt", rid=lost, timeout=15)[1]["state"] == "unknown"
             relay.close()
             a.configure(b, bi)
             sql(a, "DROP TRIGGER pause_reply_poll")
