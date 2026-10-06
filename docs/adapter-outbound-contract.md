@@ -21,7 +21,9 @@ Choose a route expiry no later than the remote grant's expiry and a byte bound n
 
 The daemon assigns a delivery deadline of five minutes or the route's expiry, whichever comes first. It commits the immutable outbound request, origin binding, budget consumption, and activity before transmission. An existing request owned by another adapter or the owner CLI cannot be adopted. Reusing an ID with another destination or content conflicts. Origin bindings survive restart and cannot be redirected to another session.
 
-The MCP `send` tool generates a request ID before calling the daemon and reports it even if the response is lost. An explicit retry supplies that same ID and identical destination/content. The same credential cannot reuse that ID at another destination, including on another peer. No automatic retransmission or new ID is created on an uncertain send.
+The MCP `send` tool generates a request ID before calling the daemon and reports it even if the response is lost. The daemon retries an uncertain send automatically, with the same request ID, as specified under Outbound recovery in the [messaging contract](peer-messaging-contract.md); retries consume no extra budget. An explicit retry supplies that same ID and identical destination/content. The same credential cannot reuse that ID at another destination, including on another peer. An uncertain send is never given a new ID; the daemon's automatic retries reuse the original one.
+
+`GET /adapter/v1/sends/{request_id}` returns `{request_id, destination, state, attempts, next_attempt_at, error}` for a send made with this credential, and 404 for any other request. The MCP adapter exposes it as the `send_status` tool, so an agent can follow an uncertain send to its final state without owner commands.
 
 ## Automatic return path
 
