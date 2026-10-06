@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-10-06T17:20:25.030707+00:00",
-  "source_revision": "787e1195d64023fba686a054484c7dcce46132fc",
+  "checked_at": "2026-10-06T17:44:03.359268+00:00",
+  "source_revision": "daa626748c42fbe717514c8894fc54431f741115",
   "consumer": "claude",
   "control_transport": "mixed-local-and-ssh",
   "worker_control_transports": {
@@ -11,14 +11,14 @@
   "hosts": [
     {
       "identity": {
-        "id": "host_3b5a5c1abd6dfaebee96f03928ba437cc0212ca55f740437e77b7436ad9d9744",
-        "public_key": "4RtBjDoQyrEcBd5voAvsTeePt+SakBVF5tPcjP1zWLE=",
-        "created_at": "2026-10-06T17:19:26.970755539Z"
+        "id": "host_73d0e4e6d753a568d6bf0b3df41b12edde9550c494e41e90c29b638877ec8db3",
+        "public_key": "fJle6oxxjemYoXL8gLLSHr4xK8wi9i9XSulEOd4b++k=",
+        "created_at": "2026-10-06T17:42:05.836648853Z"
       },
       "agent": {
         "capabilities": [],
-        "created_at": "2026-10-06T17:19:26.987038178Z",
-        "id": "agent_a25e3890472b49398997b98793531465",
+        "created_at": "2026-10-06T17:42:05.853958605Z",
+        "id": "agent_f429ec240e8f093b4866b6ca3fe51d6c",
         "name": "alice",
         "owner": "alice"
       },
@@ -29,19 +29,19 @@
         "machine_id_hash": "c68f95a31bf2047f711a2803a548f711585dbfa9490786b2fd3744cbc03c89f0"
       },
       "host_binary": "/tmp/capsule-send-status-assets-cfy3rskt/payload/bin/capsule-host-go",
-      "host_binary_sha256": "99fd28a4cda9a0c4f248d3883b7465817ef5358dcafdb6b6fa56b0b5c81094d3",
-      "replacement_binary_sha256": "7b87130afcba6d6124a37139f03995c91319d29b76d82e4828806fa91e567615"
+      "host_binary_sha256": "2c8da6f72f410c286349308bb6afe237e036604a0d556864eaa4a66d20ce78a8",
+      "replacement_binary_sha256": "d06884e3384d78e4dddaf8c4aaa80d3eccb285e5fc43dbae6ce3799c3fe8db53"
     },
     {
       "identity": {
-        "id": "host_5d66542e9098ab78a61c15ceb390dea48a79345e3089b34623753810b6ed6f12",
-        "public_key": "fOrEfS+vy5fPN2YWrcB/uTklO5UiXSRwnlIN3IHaA0A=",
-        "created_at": "2026-10-06T17:19:28.542013314Z"
+        "id": "host_728e91d6afef6040365e31194e5ee50611278a6273fd23d0d5f11777d470018c",
+        "public_key": "dfpTdHBvwkPL7+mOvUWQY//a6gyKrNKxVfZLi12Y4WQ=",
+        "created_at": "2026-10-06T17:42:07.290786233Z"
       },
       "agent": {
         "capabilities": [],
-        "created_at": "2026-10-06T17:19:28.589172493Z",
-        "id": "agent_b2f4c061262a48fc7d0f4b18fdcccf63",
+        "created_at": "2026-10-06T17:42:07.319132089Z",
+        "id": "agent_e97990b689c364957b8b4ad8276f727a",
         "name": "bob",
         "owner": "bob"
       },
@@ -52,49 +52,49 @@
         "machine_id_hash": "5ad2139fb33a01a81a6f54bb6a036ec7890a1f2044336f0e5969641266690022"
       },
       "host_binary": "/tmp/capsule-retry-host-OqJpz1yb/payload/bin/capsule-host-rust",
-      "host_binary_sha256": "7b87130afcba6d6124a37139f03995c91319d29b76d82e4828806fa91e567615",
-      "replacement_binary_sha256": "99fd28a4cda9a0c4f248d3883b7465817ef5358dcafdb6b6fa56b0b5c81094d3"
+      "host_binary_sha256": "d06884e3384d78e4dddaf8c4aaa80d3eccb285e5fc43dbae6ce3799c3fe8db53",
+      "replacement_binary_sha256": "2c8da6f72f410c286349308bb6afe237e036604a0d556864eaa4a66d20ce78a8"
     }
   ],
   "sessions": [
     {
       "claude_version": "2.1.291 (Claude Code)",
       "mcp_protocol": "2025-11-25",
-      "session_id": "session_215277e4c7167a339265097278bf8731",
-      "adapter_id": "adapter_271aa49c0aae8a2d28e9db00d3667ed2",
-      "consumer_pid": 178977,
+      "session_id": "session_8c8a1d4d51d765c47c1bb6ff7fb4d640",
+      "adapter_id": "adapter_ea4949d85bdbe8cfad5a3706a1483f93",
+      "consumer_pid": 428923,
       "channel_sha256": "6b9674ac340a5f9641060ce5b199349bbe82e9a8f9e7adb2ffc834caac2e14a7"
     },
     {
       "claude_version": "2.1.291 (Claude Code)",
       "mcp_protocol": "2025-11-25",
-      "session_id": "session_e9c880a9b0f0562137bc53ebc9eaccc1",
-      "adapter_id": "adapter_0fb466f3ef9cfc5eeb063bf35efcdfbc",
-      "consumer_pid": 741728,
+      "session_id": "session_3f0fe25443d1e6311cfadc5470ba2b4e",
+      "adapter_id": "adapter_220718b11b44b5c68557b82afdf25d1d",
+      "consumer_pid": 749244,
       "channel_sha256": "6b9674ac340a5f9641060ce5b199349bbe82e9a8f9e7adb2ffc834caac2e14a7"
     }
   ],
-  "network_id": "net_304f896b6266267058be0e639152c02538aa01907e74dca30d9f4ea57a8ef6bd",
+  "network_id": "net_99460a3baf2e8ad7de533d4c4648e6f0a787e5706658a55aa8b9bcd25d9ab282",
   "grants": [
     {
       "action": "message.append",
       "allow_disconnected": true,
-      "expires_at": "2026-10-06T17:39:29.585532Z",
-      "id": "grant_5e08182bca2b8b724068f5a04c6886b9",
+      "expires_at": "2026-10-06T18:02:08.306240Z",
+      "id": "grant_e5ff6c3c38fe38d29ce664482b1c4176",
       "max_message_bytes": 65536,
-      "requester_host_id": "host_5d66542e9098ab78a61c15ceb390dea48a79345e3089b34623753810b6ed6f12",
+      "requester_host_id": "host_728e91d6afef6040365e31194e5ee50611278a6273fd23d0d5f11777d470018c",
       "revoked_at": null,
-      "target_agent_id": "agent_a25e3890472b49398997b98793531465"
+      "target_agent_id": "agent_f429ec240e8f093b4866b6ca3fe51d6c"
     },
     {
       "action": "message.append",
       "allow_disconnected": true,
-      "expires_at": "2026-10-06T17:39:30.140561Z",
-      "id": "grant_19debbcb3baa3d6d30f9bff88929da73",
+      "expires_at": "2026-10-06T18:02:08.875869Z",
+      "id": "grant_2cdad71c855a76d1a3c8ad5a43aa7739",
       "max_message_bytes": 65536,
-      "requester_host_id": "host_3b5a5c1abd6dfaebee96f03928ba437cc0212ca55f740437e77b7436ad9d9744",
+      "requester_host_id": "host_73d0e4e6d753a568d6bf0b3df41b12edde9550c494e41e90c29b638877ec8db3",
       "revoked_at": null,
-      "target_agent_id": "agent_b2f4c061262a48fc7d0f4b18fdcccf63"
+      "target_agent_id": "agent_e97990b689c364957b8b4ad8276f727a"
     }
   ],
   "destination_max_messages": 4,
@@ -103,19 +103,19 @@
   "agent_initiated_both_directions": true,
   "model_observed_automatic_replies_both_directions": true,
   "same_consumer_processes_after_restart": true,
-  "coordination_offline_exchanges": false,
-  "queued_request_blocked_after_grant_revocation": false,
-  "queued_revocation_explicit_caller_retries": null,
+  "coordination_offline_exchanges": true,
+  "queued_request_blocked_after_grant_revocation": true,
+  "queued_revocation_explicit_caller_retries": 0,
   "send_tool_calls": {
-    "alice": 1,
-    "bob": 1
+    "alice": 3,
+    "bob": 2
   },
   "route_budget_remaining": {
-    "alice": 3,
-    "bob": 3
+    "alice": 1,
+    "bob": 2
   },
   "send_status_tested": true,
-  "send_status_only": true,
+  "send_status_only": false,
   "builtin_tools_enabled": false,
   "permission_relay_enabled": false,
   "exchanges": [
@@ -126,15 +126,15 @@
       "explicit_caller_retries": 0,
       "send_status": [
         {
-          "request_id": "request_e6e5cae2cb8a8a5255aa575d188e19ec",
+          "request_id": "request_34d994e0f46a1c894d6b3249682c4d0c",
           "destination": "remote",
           "state": "unknown",
           "attempts": 1,
-          "next_attempt_at": "2026-10-06T17:19:48.539681786Z",
+          "next_attempt_at": "2026-10-06T17:42:26.307904394Z",
           "error": "timeout: no recent network activity"
         },
         {
-          "request_id": "request_e6e5cae2cb8a8a5255aa575d188e19ec",
+          "request_id": "request_34d994e0f46a1c894d6b3249682c4d0c",
           "destination": "remote",
           "state": "accepted",
           "attempts": 2,
@@ -151,15 +151,15 @@
       "explicit_caller_retries": 0,
       "send_status": [
         {
-          "request_id": "request_5e70588a3ea8ef592ff2b17d71ab211d",
+          "request_id": "request_7253c453a7ede1d19e11884966c3173e",
           "destination": "remote",
           "state": "unknown",
           "attempts": 1,
-          "next_attempt_at": "2026-10-06T17:20:12.349553472Z",
+          "next_attempt_at": "2026-10-06T17:42:50.693205377Z",
           "error": "peer handshake timed out"
         },
         {
-          "request_id": "request_5e70588a3ea8ef592ff2b17d71ab211d",
+          "request_id": "request_7253c453a7ede1d19e11884966c3173e",
           "destination": "remote",
           "state": "accepted",
           "attempts": 2,
@@ -168,12 +168,33 @@
         }
       ],
       "model_observed_send_status": true
+    },
+    {
+      "phase": "alice-to-bob-offline-restart",
+      "observed": true,
+      "restart": {
+        "replacement_guard_status": 409,
+        "host_binary": "/tmp/capsule-send-status-assets-cfy3rskt/payload/bin/capsule-host-rust"
+      },
+      "explicit_caller_retries": 0,
+      "send_status": [],
+      "model_observed_send_status": false
+    },
+    {
+      "phase": "bob-to-alice-offline-restart",
+      "observed": true,
+      "restart": {
+        "replacement_guard_status": 409,
+        "host_binary": "/tmp/capsule-retry-host-OqJpz1yb/payload/bin/capsule-host-go"
+      },
+      "explicit_caller_retries": 0,
+      "send_status": [],
+      "model_observed_send_status": false
     }
   ],
   "limitations": [
     "Different machine IDs identify installations, not physical hardware or independently authenticated developer identities.",
-    "The receiving daemon was stopped until send_status reported unknown.",
-    "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment.",
-    "Coordinator outage, originating-daemon replacement, token rotation, and queued revocation were not exercised in this focused run."
+    "The receiver was paused before restart to make the pending exchange deterministic.",
+    "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment."
   ]
 }

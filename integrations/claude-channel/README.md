@@ -172,7 +172,7 @@ Add `--send-status` to stop each receiving daemon during the first two exchanges
 python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --send-status-only --output /tmp/capsule-send-status-live.json
 ```
 
-The [send-status live report](../../docs/results/send-status-two-host-live.json) records this focused test passing with Claude Code 2.1.291, Go→Rust and Rust→Go, on separate machines. This run does not test coordinator outage, originating-daemon replacement, token rotation, or queued revocation.
+The [send-status live report](../../docs/results/send-status-two-host-live.json) records the full `--send-status` experiment passing with Claude Code 2.1.291, Go→Rust and Rust→Go, on separate machines. After the two receiver-outage exchanges, the original sessions also completed the coordinator-outage, originating-daemon replacement, token-rotation, and queued-revocation cases.
 
 The report distinguishes MCP observations from model-observed replies and records each host's identity, machine fingerprint, session, versions, and grants. `--local` validates the runner on one machine; `--allow-same-machine` permits an SSH smoke test on one installation. Both report the shared machine accurately and provide no evidence of separate physical hosts. Different machine IDs identify installations, not developer identity or physical hardware.
 
