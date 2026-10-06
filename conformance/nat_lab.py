@@ -44,7 +44,7 @@ import subprocess
 import tempfile
 import time
 
-from host_service import Host
+from host_service import Host, die_with_parent
 from peer_messaging import timestamp
 
 COORD_IP, COORD_PORT = '203.0.113.1', 7400
@@ -161,7 +161,7 @@ class NatCoordinator:
 
     def start(self):
         self.process = subprocess.Popen([self.binary, '--state', str(self.state), 'run', '--listen', self.address],
-                                        stdout=self.logs, stderr=self.logs)
+                                        stdout=self.logs, stderr=self.logs, preexec_fn=die_with_parent)
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if self.process.poll() is not None:

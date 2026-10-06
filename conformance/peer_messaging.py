@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 
-from host_service import Host
+from host_service import Host, stop_all
 
 
 def timestamp(seconds=600):
@@ -327,9 +327,7 @@ def check(sender_binary, receiver_binary, label):
             for query in ['after=-1', 'after=bad', 'limit=0', 'limit=1001']:
                 assert receiver.call('GET', '/v1/messages?' + query)[0] == 400
         finally:
-            for host in (sender, receiver, stranger):
-                host.stop()
-                host.logs.close()
+            stop_all((sender, receiver, stranger))
     print(f'PASS {label}: mTLS identity pins, directional grants, disconnected access, atomic acceptance, lost receipts, restart, deduplication, revocation', flush=True)
 
 

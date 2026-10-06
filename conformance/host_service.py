@@ -7,6 +7,7 @@ is temporary; tests never open a developer's normal host state directory.
 
 import argparse
 import base64
+import ctypes
 import concurrent.futures
 import hashlib
 import http.client
@@ -33,6 +34,30 @@ class UnixHTTPConnection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
+def die_with_parent():
+    """Kill test daemons if the suite process dies, e.g. on a runner timeout (Linux)."""
+    try:
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except (AttributeError, OSError):
+        pass
+
+
+def stop_all(hosts):
+    """Stop every host even if one fails, then raise the first failure."""
+    failure = None
+    for host in hosts:
+        try:
+            host.stop()
+        except Exception as error:  # keep stopping the rest
+            failure = failure or error
+        finally:
+            logs = getattr(host, 'logs', None)
+            if logs is not None:
+                logs.close()
+    if failure is not None:
+        raise failure
+
+
 class Host:
     def __init__(self, binary, state, daemon_args=()):
         self.binary, self.state = str(binary), state
@@ -43,7 +68,7 @@ class Host:
     def start(self, command="run"):
         self.process = subprocess.Popen(
             [self.binary, "--state", str(self.state), command, *self.daemon_args],
-            stdout=self.logs, stderr=self.logs,
+            stdout=self.logs, stderr=self.logs, preexec_fn=die_with_parent,
         )
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:

@@ -19,6 +19,7 @@ import tempfile
 import time
 
 from peer_messaging import PeerHost, available_port, timestamp
+from host_service import die_with_parent
 from agent_adapter import adapter_call, credential
 
 INTERVAL = 1
@@ -46,7 +47,7 @@ class Coordinator:
 
     def start(self):
         self.process = subprocess.Popen([self.binary, '--state', str(self.state), 'run', '--listen', self.address],
-                                        stdout=self.logs, stderr=self.logs)
+                                        stdout=self.logs, stderr=self.logs, preexec_fn=die_with_parent)
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
