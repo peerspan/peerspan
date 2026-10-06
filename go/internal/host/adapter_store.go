@@ -245,15 +245,19 @@ func (s *Store) NextDelivery(ctx context.Context, token string) (*Handoff, error
 			return nil, err
 		}
 		if err == nil {
-			// A lapsed connected state is not final: leave the message
+			// A recoverable connected state is not final: leave the message
 			// unclaimed, without a delivery record, until syncing resumes or
-			// its deadline passes.
-			connected, e := s.grantConnected(ctx, tx, p.sender, g)
+			// its deadline passes. A sender that is no longer a member is
+			// blocked like any final denial.
+			usable, recoverable, e := s.grantConnected(ctx, tx, p.sender, g)
 			if e != nil {
 				return nil, e
 			}
-			if !connected {
+			if !usable && recoverable {
 				continue
+			}
+			if !usable {
+				err = ErrForbidden
 			}
 		}
 		state := "unknown"
@@ -373,7 +377,9 @@ func (s *Store) Reply(ctx context.Context, token, id, content string) (Reply, er
 	if err != nil {
 		return Reply{}, err
 	}
-	g, err := s.messageAuthority(ctx, tx, d.SenderHostID, m, false)
+	// A reply answers content this host already delivered, so only final
+	// bounds apply; a lapsed connected state does not strand it.
+	g, err := grantBounds(ctx, tx, d.SenderHostID, m, false)
 	if err != nil {
 		return Reply{}, err
 	}

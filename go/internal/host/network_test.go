@@ -157,7 +157,8 @@ func TestEnrollmentAndConnectedGrants(t *testing.T) {
 	if _, err = alice.db.ExecContext(ctx, "UPDATE networks SET record = ? WHERE id = ?", string(data), n.ID); err != nil {
 		t.Fatal(err)
 	}
-	if out := send("stale"); out.State != "rejected" {
+	// The lapsed connected state is retryable: 503, recorded as unknown.
+	if out := send("stale"); out.State != "unknown" || out.Error == nil || !strings.Contains(*out.Error, "HTTP 503") {
 		t.Fatalf("stale send: %+v", out)
 	}
 

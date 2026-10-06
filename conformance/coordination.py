@@ -143,6 +143,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             token = credential(alice, session)['token']
             status, handoff = adapter_call(alice, token, 'POST', '/adapter/v1/next', {})
             assert status == 200 and handoff['request']['content'] == 'over membership', handoff
+            delivered = handoff['delivery']['id']
             held = send(bob, a['id'], connected_grant, agent, 'held')
             assert held['state'] == 'accepted'
             assert alice.call('POST', '/v1/grants', {'requester_host_id': c['id'], 'target_agent_id': agent['id'],
@@ -196,7 +197,9 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             coord.stop()
             wait_for(lambda: alice.cli('network', 'list')[0]['last_sync_error'] is not None, message='sync failure')
             time.sleep(3 * INTERVAL + 1)
-            assert send(bob, a['id'], connected_grant, agent, 'stale')['state'] == 'rejected'
+            # A lapsed connected state is retryable: 503, recorded as unknown.
+            stale = send(bob, a['id'], connected_grant, agent, 'stale')
+            assert stale['state'] == 'unknown' and 'HTTP 503' in stale['error'], stale
             assert send(bob, a['id'], disconnected_grant, agent, 'outage')['state'] == 'accepted'
             # Once stale, a connected-only message stays queued without a
             # delivery record; one whose deadline passed is blocked for good.
@@ -208,6 +211,10 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert states[brief['request']['request_id']] == 'blocked', states
             assert sorted(states.values()) == ['blocked', 'unknown', 'unknown'], states
             assert adapter_call(alice, token, 'POST', '/adapter/v1/next', {}) == (200, None)
+            # A reply to content delivered while synced needs only final bounds.
+            status, reply = adapter_call(alice, token, 'POST', f'/adapter/v1/deliveries/{delivered}/reply',
+                                         {'content': 'answered during outage'})
+            assert status == 200, reply
 
             # Host restart keeps verified members. The creator's v3 state is
             # reopened by the joiner's implementation, which must still treat
@@ -218,13 +225,16 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert [m['host_id'] for m in alice.cli('network', 'members', net)] == ids
             assert alice.cli('network', 'list')[0]['administrator'] is True
             assert send(bob, a['id'], disconnected_grant, agent, 'after restart')['state'] == 'accepted'
-            assert send(bob, a['id'], connected_grant, agent, 'still stale')['state'] == 'rejected'
+            assert send(bob, a['id'], connected_grant, agent, 'still stale')['state'] == 'unknown'
 
             # Coordinator restart: syncing resumes and connected grants work again.
             assert coord.start() == coordinator
             wait_for(lambda: alice.cli('network', 'list')[0]['last_sync_error'] is None, message='resumed sync')
             assert send(bob, a['id'], connected_grant, agent, 'reconnected')['state'] == 'accepted'
-            assert len(alice.cli('message', 'list')) == 6
+            # Retrying the same request after reconnection succeeds.
+            retried = bob.cli('message', 'retry', '--peer', a['id'], stale['request']['request_id'])
+            assert retried['state'] == 'accepted', retried
+            assert len(alice.cli('message', 'list')) == 7
             # The queued connected-only message is handed off once synced again.
             session = alice.cli('session', 'attach', '--agent', agent['id'], '--integration', 'test')
             token = credential(alice, session)['token']

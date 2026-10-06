@@ -111,7 +111,7 @@ A host applies a map only if all of the following hold: its network ID and root 
 
 - A host is **known** if it is a manually configured peer or a verified member of any network, other than this host. Inbound TLS authentication, `grant create`, and the peer router accept known hosts. `peer list` still shows only manually configured peers.
 - For outbound dialing, a manual peer's address takes precedence. Otherwise the daemon uses the nonempty address of the member entry with the latest `updated_at`. A member with no address can authenticate inbound but cannot be dialed. A send to it records `unknown` with an error.
-- The **connected** state for a grant: a grant without `allow_disconnected` permits a new append only if the requester is currently a member of some network whose `last_sync_at` is within three coordination intervals of now. Otherwise only `allow_disconnected` grants work, as before. Receipt lookup is unchanged.
+- The **connected** state for a grant: a grant without `allow_disconnected` permits a new append only if the requester is currently a member of some network whose `last_sync_at` is within three coordination intervals of now. Otherwise only `allow_disconnected` grants work, as before. The receiver checks the final grant bounds first. If only the connected state fails and the requester is a verified member of a network this host has not synced recently, it returns 503 `unavailable` rather than 403, so the sender records `unknown` and may retry the same request ID later. A requester that is not a member of any network gets 403, because that does not recover. Adapter handoff leaves such a message queued, and a reply to already-delivered content needs only the final bounds (see the [adapter contract](agent-adapter-contract.md)). Receipt lookup is unchanged.
 
 New activity kinds are `network.created`, `network.joined`, `network.invite_issued`, `network.member_added`, and `network.member_removed`.
 
@@ -125,7 +125,7 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 - message exchange without `peer add`, using a grant without `allow_disconnected`;
 - rejected invite reuse, locally expired invites, and tampered tokens (no network contact; the token points at a closed port and must fail with 400 rather than 503). Coordinator-side expiry is covered by Go unit tests, since the suite shares one clock;
 - a member row injected directly into the coordinator database, simulating a compromised coordinator, which hosts must ignore;
-- coordinator outage: connected-only grants are denied after three intervals, while `allow_disconnected` grants still work;
+- coordinator outage: connected-only sends get 503 and `unknown` after three intervals and succeed on retry after reconnection, while `allow_disconnected` grants still work; a reply to already-delivered content succeeds during the outage;
 - host restart with persisted members;
 - coordinator restart, after which syncing resumes.
 

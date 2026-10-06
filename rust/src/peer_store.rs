@@ -189,6 +189,15 @@ pub(crate) fn grant_bounds(
     }
     Ok(g)
 }
+/// Whether a grant's connected-state requirement is met.
+pub(crate) enum Connectivity {
+    Usable,
+    /// The requester is a verified member of a network this host has not
+    /// synced recently; resumed syncing can restore it.
+    Stale,
+    /// The requester is not a member of any network; this does not recover.
+    Absent,
+}
 impl Store {
     pub(crate) fn message_authority(
         &self,
@@ -198,22 +207,35 @@ impl Store {
         require_deadline: bool,
     ) -> Result<Grant, Error> {
         let g = grant_bounds(conn, sender, r, require_deadline)?;
-        if !self.grant_connected(conn, sender, &g)? {
-            return Err(Error::Forbidden);
+        match self.grant_connected(conn, sender, &g)? {
+            Connectivity::Usable => Ok(g),
+            // Retryable (503), unlike final denials.
+            Connectivity::Stale => Err(Error::Unavailable("coordination disconnected".into())),
+            Connectivity::Absent => Err(Error::Forbidden),
         }
-        Ok(g)
     }
 
     /// Whether the grant may be used now. Without coordination, only a grant
-    /// that opts in permits new work. Unlike `grant_bounds`, a false result can
-    /// change once syncing resumes.
+    /// that opts in permits new work.
     pub(crate) fn grant_connected(
         &self,
         conn: &Connection,
         sender: &str,
         g: &Grant,
-    ) -> Result<bool, Error> {
-        Ok(g.allow_disconnected || self.connected(conn, sender)?)
+    ) -> Result<Connectivity, Error> {
+        if g.allow_disconnected || self.connected(conn, sender)? {
+            return Ok(Connectivity::Usable);
+        }
+        let member: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM network_members WHERE host_id = ?1)",
+            [sender],
+            |r| r.get(0),
+        )?;
+        Ok(if member {
+            Connectivity::Stale
+        } else {
+            Connectivity::Absent
+        })
     }
 
     pub fn peers(&self) -> Result<Vec<Peer>, Error> {

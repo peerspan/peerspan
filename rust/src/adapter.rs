@@ -3,7 +3,7 @@
 use crate::{
     api::{blocking, decode},
     model::{Error, Session},
-    peer_store::{MessageRequest, Peer, grant_bounds, valid_id},
+    peer_store::{Connectivity, MessageRequest, Peer, grant_bounds, valid_id},
     store::{Store, append_event, new_id, now},
 };
 use axum::{
@@ -274,11 +274,14 @@ impl Store {
         let mut handoff = None;
         for (sender, request) in pending {
             let state = match grant_bounds(&tx, &sender, &request, true) {
-                // A lapsed connected state is not final: leave the message
-                // unclaimed, without a delivery record, until syncing resumes
-                // or its deadline passes.
-                Ok(g) if !self.grant_connected(&tx, &sender, &g)? => continue,
-                Ok(_) => "unknown",
+                Ok(g) => match self.grant_connected(&tx, &sender, &g)? {
+                    Connectivity::Usable => "unknown",
+                    // A recoverable connected state is not final: leave the
+                    // message unclaimed, without a delivery record, until
+                    // syncing resumes or its deadline passes.
+                    Connectivity::Stale => continue,
+                    Connectivity::Absent => "blocked",
+                },
                 Err(Error::Forbidden) => "blocked",
                 Err(e) => return Err(e),
             };
@@ -377,7 +380,9 @@ impl Store {
             "SELECT request FROM received_messages WHERE sender = ?1 AND request_id = ?2",
             params![d.sender_host_id, d.request_id],
         )?;
-        let g = self.message_authority(&tx, &d.sender_host_id, &request, false)?;
+        // A reply answers content this host already delivered, so only final
+        // bounds apply; a lapsed connected state does not strand it.
+        let g = grant_bounds(&tx, &d.sender_host_id, &request, false)?;
         if content.len() as i64 > g.max_message_bytes {
             return Err(Error::Forbidden);
         }
