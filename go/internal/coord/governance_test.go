@@ -148,21 +148,21 @@ func TestRootRotation(t *testing.T) {
 		}
 		return out
 	}
-	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin)}); !errors.Is(err, errInvalid) {
+	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin), nil}); !errors.Is(err, errInvalid) {
 		t.Fatalf("rotation missing an attestation: %v", err)
 	}
-	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(g.root, 1, admin, bob)}); err == nil {
+	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(g.root, 1, admin, bob), nil}); err == nil {
 		t.Fatal("attestations by the old root accepted")
 	}
-	m, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob)})
+	m, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob), nil})
 	if err != nil || len(m.Rotations) != 1 || len(m.Attestations) != 2 || len(m.Members) != 2 {
 		t.Fatalf("rotation: %v %+v", err, m)
 	}
-	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob)}); err != nil {
+	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob), nil}); err != nil {
 		t.Fatalf("repeat rotation: %v", err)
 	}
 	forked := membership.SignRotation(g.root, g.network, 1, fork.Public().(ed25519.PublicKey), now)
-	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{forked, attest(fork, 1, admin, bob)}); !errors.Is(err, errConflict) {
+	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{forked, attest(fork, 1, admin, bob), nil}); !errors.Is(err, errConflict) {
 		t.Fatalf("forked rotation: %v", err)
 	}
 	// Invites signed by the old root are refused; the new root's are accepted.
@@ -195,7 +195,7 @@ func TestStatementsMigrationFromVersion2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`DROP TABLE statements; PRAGMA user_version = 2;`); err != nil {
+	if _, err = db.Exec(`DROP TABLE statements; ALTER TABLE members DROP COLUMN admission; PRAGMA user_version = 2;`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -205,7 +205,7 @@ func TestStatementsMigrationFromVersion2(t *testing.T) {
 	}
 	defer s.Close()
 	var version, tables int
-	if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 3 {
+	if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 4 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'statements'`).Scan(&tables); err != nil || tables != 1 || s.Identity() != identity {

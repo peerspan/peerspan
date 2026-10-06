@@ -27,7 +27,28 @@ const (
 	kindRotation        = "rotation"
 	kindAttestation     = "attestation"
 	kindPendingRotation = "pending_rotation"
+	// Persons and host binding: admissions and bindings are not revocations.
+	kindPersonStatement = "person"         // subject: person key; a PersonProof
+	kindHostAdmission   = "host_admission" // subject: host key
+	kindBinding         = "binding"        // subject: host key
+	// A person removal is stored apart from the "person" admission kind; it
+	// is the "person" kind in a map's revocations.
+	kindPersonRemoval = "person_removal"
 )
+
+// revocationKind maps a stored revocation kind to its map kind, and back.
+func revocationKind(stored string) string {
+	if stored == kindPersonRemoval {
+		return membership.KindPerson
+	}
+	return stored
+}
+func storedKind(kind string) string {
+	if kind == membership.KindPerson {
+		return kindPersonRemoval
+	}
+	return kind
+}
 
 // pendingRotation is a signed rotation persisted before it is submitted, so a
 // crash after the coordinator accepts it cannot lose the new root seed. The
@@ -35,7 +56,10 @@ const (
 type pendingRotation struct {
 	Rotation     membership.Rotation      `json:"rotation"`
 	Attestations []membership.Attestation `json:"attestations"`
-	RootSeed     string                   `json:"root_seed"`
+	// Admissions re-sign, under the new root, every host admitted by public
+	// key and every current person.
+	Admissions []json.RawMessage `json:"admissions"`
+	RootSeed   string            `json:"root_seed"`
 }
 
 type statementRecord struct {
@@ -44,9 +68,11 @@ type statementRecord struct {
 }
 
 type persistedStatements struct {
-	rotations    []membership.Rotation
-	attestations []json.RawMessage
-	revocations  []statementRecord
+	rotations      []membership.Rotation
+	attestations   []json.RawMessage
+	revocations    []statementRecord // kinds as stored
+	persons        map[string]json.RawMessage
+	hostAdmissions map[string]json.RawMessage
 }
 
 // appliedMap is a verified map: valid members under the root chain, plus the
@@ -56,8 +82,10 @@ type appliedMap struct {
 	previousEpoch int64
 	members       []NetworkMember
 	attestations  []membership.Attestation
-	revocations   []statementRecord
-	missing       []statementRecord
+	revocations   []statementRecord // stored kinds
+	missing       []statementRecord // stored kinds
+	persons       map[string]membership.PersonProof
+	bindings      map[string]membership.HostBinding // by host key
 }
 
 type queryer interface {
@@ -65,7 +93,7 @@ type queryer interface {
 }
 
 func loadStatements(ctx context.Context, q queryer, network string) (persistedStatements, error) {
-	var p persistedStatements
+	p := persistedStatements{persons: map[string]json.RawMessage{}, hostAdmissions: map[string]json.RawMessage{}}
 	rows, err := q.QueryContext(ctx, "SELECT kind, subject, record FROM network_statements WHERE network_id = ?", network)
 	if err != nil {
 		return p, err
@@ -87,7 +115,11 @@ func loadStatements(ctx context.Context, q queryer, network string) (persistedSt
 			p.rotations = append(p.rotations, rotation)
 		case kindAttestation:
 			p.attestations = append(p.attestations, r.statement)
-		case kindPendingRotation:
+		case kindPendingRotation, kindBinding:
+		case kindPersonStatement:
+			p.persons[r.subject] = r.statement
+		case kindHostAdmission:
+			p.hostAdmissions[r.subject] = r.statement
 		default:
 			p.revocations = append(p.revocations, r)
 		}
@@ -153,7 +185,7 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 	revoked := membership.NewRevoked()
 	known := map[string]bool{}
 	for _, r := range persisted.revocations {
-		revoked.Add(r.kind, r.subject)
+		revoked.Add(revocationKind(r.kind), r.subject)
 		known[r.kind+" "+r.subject] = true
 	}
 	served := map[string]bool{}
@@ -166,8 +198,9 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 		if err != nil {
 			continue
 		}
-		served[kind+" "+subject] = true
 		revoked.Add(kind, subject)
+		kind = storedKind(kind)
+		served[kind+" "+subject] = true
 		if !known[kind+" "+subject] {
 			known[kind+" "+subject] = true
 			a.revocations = append(a.revocations, statementRecord{kind, subject, entry.Statement})
@@ -178,45 +211,55 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 			a.missing = append(a.missing, r)
 		}
 	}
+	// Persons are valid under the current root and not removed.
+	a.persons = map[string]membership.PersonProof{}
+	for _, entry := range m.Persons {
+		proof, ok := personProof(entry)
+		if !ok {
+			continue
+		}
+		key, _, err := a.chain.VerifyPerson(proof)
+		public, keyErr := membership.DecodeKey(key)
+		if err != nil || keyErr != nil || key != entry.PersonPublicKey || membership.PersonID(public) != entry.PersonID || revoked.Persons[key] {
+			continue
+		}
+		// Revoking a person invite also drops persons admitted only through it.
+		if proof.Membership != nil && revoked.Invites[proof.Membership.InvitePublicKey] {
+			continue
+		}
+		a.persons[key] = proof
+	}
+	a.bindings = map[string]membership.HostBinding{}
 	var candidates []NetworkMember
 	invites := map[string]map[string]bool{}
 	hosts := map[string]int{}
 	excludedSelf := false
 	for _, entry := range m.Members {
-		var proof membership.Membership
-		if json.Unmarshal(entry.Membership, &proof) != nil {
+		member, ok := a.verifyMember(entry, attested, revoked)
+		if !ok {
 			continue
 		}
-		id, err := a.chain.ValidMember(proof, attested)
-		if err != nil || id != entry.HostID {
+		if revoked.ExcludesHost(member.PublicKey, member.inviteKey()) {
+			excludedSelf = excludedSelf || member.HostID == s.identity.ID
 			continue
 		}
-		if revoked.Excludes(proof) {
-			excludedSelf = excludedSelf || id == s.identity.ID
-			continue
+		if invite := member.inviteKey(); invite != "" {
+			if invites[invite] == nil {
+				invites[invite] = map[string]bool{}
+			}
+			invites[invite][member.PublicKey] = true
 		}
-		if !membership.ValidAddress(entry.Address) {
-			entry.Address = ""
-		}
-		if _, err = parseTime(entry.UpdatedAt); err != nil {
-			continue
-		}
-		if invites[proof.InvitePublicKey] == nil {
-			invites[proof.InvitePublicKey] = map[string]bool{}
-		}
-		invites[proof.InvitePublicKey][proof.HostPublicKey] = true
-		hosts[id]++
-		// Invalid candidates are dropped, not the member.
-		candidates = append(candidates, NetworkMember{HostID: id, PublicKey: proof.HostPublicKey, Member: proof.Member, Address: entry.Address, Candidates: membership.FilterCandidates(entry.Candidates), UpdatedAt: entry.UpdatedAt, Membership: proof})
+		hosts[member.HostID]++
+		candidates = append(candidates, member)
 	}
 	a.members = []NetworkMember{}
 	var found bool
 	for _, member := range candidates {
-		if len(invites[member.Membership.InvitePublicKey]) != 1 || hosts[member.HostID] != 1 {
+		if invite := member.inviteKey(); (invite != "" && len(invites[invite]) != 1) || hosts[member.HostID] != 1 {
 			continue
 		}
-		// Any validly signed membership for this host's key is accepted; a
-		// coordinator keeps the original membership when a join is retried.
+		// Any validly signed membership or admission for this host's key is
+		// accepted; a coordinator keeps the original when a join is retried.
 		found = found || member.HostID == s.identity.ID
 		a.members = append(a.members, member)
 	}
@@ -228,6 +271,84 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 	}
 	sort.Slice(a.members, func(i, j int) bool { return a.members[i].HostID < a.members[j].HostID })
 	return a, nil
+}
+
+func personProof(entry membership.MapPerson) (membership.PersonProof, bool) {
+	var proof membership.PersonProof
+	if len(entry.Admission) > 0 && string(entry.Admission) != "null" {
+		proof.Admission = new(membership.PersonAdmission)
+		if json.Unmarshal(entry.Admission, proof.Admission) != nil {
+			return proof, false
+		}
+	}
+	if len(entry.Membership) > 0 && string(entry.Membership) != "null" {
+		proof.Membership = new(membership.PersonMembership)
+		if json.Unmarshal(entry.Membership, proof.Membership) != nil {
+			return proof, false
+		}
+	}
+	return proof, (proof.Admission == nil) != (proof.Membership == nil)
+}
+
+func present(raw json.RawMessage) bool { return len(raw) > 0 && string(raw) != "null" }
+
+// verifyMember checks one map entry: an invite chain valid under the root
+// chain, or a host admission by the current root; then its binding, kept only
+// if signed by a valid person for this host and not unbound.
+func (a *appliedMap) verifyMember(entry membership.MapMember, attested map[string]membership.Attestation, revoked membership.Revoked) (NetworkMember, bool) {
+	var member NetworkMember
+	switch {
+	case present(entry.Membership) && !present(entry.Admission):
+		var proof membership.Membership
+		if json.Unmarshal(entry.Membership, &proof) != nil {
+			return member, false
+		}
+		id, err := a.chain.ValidMember(proof, attested)
+		if err != nil || id != entry.HostID {
+			return member, false
+		}
+		member = NetworkMember{HostID: id, PublicKey: proof.HostPublicKey, Member: proof.Member, Membership: &proof}
+	case present(entry.Admission) && !present(entry.Membership):
+		var admission membership.HostAdmission
+		if json.Unmarshal(entry.Admission, &admission) != nil {
+			return member, false
+		}
+		id, err := a.chain.VerifyHostAdmission(admission)
+		if err != nil || id != entry.HostID {
+			return member, false
+		}
+		member = NetworkMember{HostID: id, PublicKey: admission.HostPublicKey, Member: admission.Member, Admission: &admission}
+	default:
+		return member, false
+	}
+	if _, err := parseTime(entry.UpdatedAt); err != nil {
+		return member, false
+	}
+	member.Address, member.UpdatedAt = entry.Address, entry.UpdatedAt
+	if !membership.ValidAddress(member.Address) {
+		member.Address = ""
+	}
+	// Invalid candidates are dropped, not the member.
+	member.Candidates = membership.FilterCandidates(entry.Candidates)
+	if present(entry.Binding) {
+		var b membership.HostBinding
+		if json.Unmarshal(entry.Binding, &b) == nil && b.HostPublicKey == member.PublicKey && membership.VerifyHostBinding(a.chain.NetworkID, b) == nil && revoked.Bound(b.PersonPublicKey, b.HostPublicKey) {
+			if proof, ok := a.persons[b.PersonPublicKey]; ok {
+				key, _ := membership.DecodeKey(b.PersonPublicKey)
+				id, label := membership.PersonID(key), personLabel(proof)
+				member.PersonID, member.PersonMember = &id, &label
+				a.bindings[b.HostPublicKey] = b
+			}
+		}
+	}
+	return member, true
+}
+
+func personLabel(p membership.PersonProof) string {
+	if p.Admission != nil {
+		return p.Admission.Member
+	}
+	return p.Membership.Member
 }
 
 func putStatementRecord(ctx context.Context, tx *sql.Tx, network string, r statementRecord) error {
@@ -265,9 +386,19 @@ func (s *Store) persistStatements(ctx context.Context, tx *sql.Tx, network strin
 			return err
 		}
 	}
+	if err := s.persistPersons(ctx, tx, network, a, now); err != nil {
+		return err
+	}
 	for _, r := range a.revocations {
 		if err := putStatementRecord(ctx, tx, network, r); err != nil {
 			return err
+		}
+		if r.kind == kindPersonRemoval {
+			if key, err := membership.DecodeKey(r.subject); err == nil {
+				if err = appendEvent(ctx, tx, "network.person_removed", membership.PersonID(key), now); err != nil {
+					return err
+				}
+			}
 		}
 		if r.kind == membership.KindLeave && r.subject != s.identity.PublicKey {
 			if key, err := membership.DecodeKey(r.subject); err == nil {
@@ -282,7 +413,7 @@ func (s *Store) persistStatements(ctx context.Context, tx *sql.Tx, network strin
 
 func (s *Store) submitMissingRevocations(ctx context.Context, n Network, missing []statementRecord) {
 	for _, r := range missing {
-		_, _ = s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/revocations", map[string]any{"kind": r.kind, "statement": r.statement})
+		_, _ = s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/revocations", map[string]any{"kind": revocationKind(r.kind), "statement": r.statement})
 	}
 }
 
@@ -374,7 +505,7 @@ func (s *Store) Revoke(ctx context.Context, id string, r RevokeMembership) (Revo
 		if err != nil {
 			return RevocationResult{}, err
 		}
-		if self.Membership.InvitePublicKey == r.InvitePublicKey {
+		if self.inviteKey() == r.InvitePublicKey {
 			return RevocationResult{}, fmt.Errorf("%w: this host joined with that invite", ErrConflict)
 		}
 		data, err := json.Marshal(membership.SignInviteRevocation(root, id, r.InvitePublicKey, now))
@@ -437,7 +568,7 @@ func (s *Store) dropExcludedMembers(ctx context.Context, tx *sql.Tx, network, no
 	}
 	revoked := membership.NewRevoked()
 	for _, r := range persisted.revocations {
-		revoked.Add(r.kind, r.subject)
+		revoked.Add(revocationKind(r.kind), r.subject)
 	}
 	rows, err := tx.QueryContext(ctx, "SELECT record FROM network_members WHERE network_id = ?", network)
 	if err != nil {
@@ -450,7 +581,7 @@ func (s *Store) dropExcludedMembers(ctx context.Context, tx *sql.Tx, network, no
 			rows.Close()
 			return err
 		}
-		if member.HostID != s.identity.ID && revoked.Excludes(member.Membership) {
+		if member.HostID != s.identity.ID && revoked.ExcludesHost(member.PublicKey, member.inviteKey()) {
 			drop = append(drop, member.HostID)
 		}
 	}
@@ -570,9 +701,54 @@ func (s *Store) prepareRotation(ctx context.Context, n Network, current ed25519.
 	}
 	now := timestamp(time.Now())
 	epoch := chain.Epoch() + 1
-	p := &pendingRotation{Rotation: membership.SignRotation(current, n.ID, epoch, next.Public().(ed25519.PublicKey), now), Attestations: []membership.Attestation{}, RootSeed: membership.Seed(next)}
+	p := &pendingRotation{Rotation: membership.SignRotation(current, n.ID, epoch, next.Public().(ed25519.PublicKey), now), Attestations: []membership.Attestation{}, Admissions: []json.RawMessage{}, RootSeed: membership.Seed(next)}
 	for _, member := range members {
-		p.Attestations = append(p.Attestations, membership.SignAttestation(next, n.ID, epoch, member.PublicKey, member.Membership.Member, now))
+		if member.Membership != nil {
+			p.Attestations = append(p.Attestations, membership.SignAttestation(next, n.ID, epoch, member.PublicKey, member.Membership.Member, now))
+		}
+	}
+	revoked := membership.NewRevoked()
+	for _, r := range persisted.revocations {
+		revoked.Add(revocationKind(r.kind), r.subject)
+	}
+	// Host admissions still valid at the current epoch, joined or not.
+	hostKeys := make([]string, 0, len(persisted.hostAdmissions))
+	for key := range persisted.hostAdmissions {
+		hostKeys = append(hostKeys, key)
+	}
+	sort.Strings(hostKeys)
+	for _, key := range hostKeys {
+		var a membership.HostAdmission
+		if json.Unmarshal(persisted.hostAdmissions[key], &a) != nil || revoked.ExcludesHost(a.HostPublicKey, "") {
+			continue
+		}
+		if _, err = chain.VerifyHostAdmission(a); err != nil {
+			continue
+		}
+		data, err := json.Marshal(membership.SignHostAdmission(next, n.ID, epoch, a.HostPublicKey, a.Member, now))
+		if err != nil {
+			return nil, err
+		}
+		p.Admissions = append(p.Admissions, data)
+	}
+	personKeys := make([]string, 0, len(persisted.persons))
+	for key := range persisted.persons {
+		personKeys = append(personKeys, key)
+	}
+	sort.Strings(personKeys)
+	for _, key := range personKeys {
+		var proof membership.PersonProof
+		if json.Unmarshal(persisted.persons[key], &proof) != nil || revoked.Persons[key] {
+			continue
+		}
+		if _, _, err = chain.VerifyPerson(proof); err != nil {
+			continue
+		}
+		data, err := json.Marshal(membership.SignPersonAdmission(next, n.ID, epoch, key, personLabel(proof), now))
+		if err != nil {
+			return nil, err
+		}
+		p.Admissions = append(p.Admissions, data)
 	}
 	data, err := json.Marshal(p)
 	if err != nil {
@@ -617,7 +793,11 @@ func (s *Store) RotateRoot(ctx context.Context, id string) (Network, error) {
 // or as no longer applicable (400), the pending rotation is discarded and the
 // failure recorded as a sync error; otherwise it stays pending.
 func (s *Store) completeRotation(ctx context.Context, n Network, p *pendingRotation) (Network, error) {
-	m, err := s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/rotations", map[string]any{"rotation": p.Rotation, "attestations": p.Attestations})
+	admissions := p.Admissions
+	if admissions == nil {
+		admissions = []json.RawMessage{}
+	}
+	m, err := s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/rotations", map[string]any{"rotation": p.Rotation, "attestations": p.Attestations, "admissions": admissions})
 	var applied appliedMap
 	if err == nil {
 		applied, err = s.verifyMap(ctx, n, m)
@@ -715,4 +895,72 @@ func localGovernanceRoutes(mux *http.ServeMux, store *Store) {
 		n, err := store.RotateRoot(r.Context(), r.PathValue("id"))
 		respond(w, http.StatusOK, n, err)
 	})
+}
+
+// persistPersons replaces the verified persons and bindings, and records host
+// admissions served for members admitted by public key. Locally signed host
+// admissions are kept so the administrator can renew them at a rotation.
+func (s *Store) persistPersons(ctx context.Context, tx *sql.Tx, network string, a appliedMap, now string) error {
+	previous := map[string]bool{}
+	rows, err := tx.QueryContext(ctx, "SELECT subject FROM network_statements WHERE network_id = ? AND kind = ?", network, kindPersonStatement)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var subject string
+		if err = rows.Scan(&subject); err != nil {
+			rows.Close()
+			return err
+		}
+		previous[subject] = true
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM network_statements WHERE network_id = ? AND kind IN (?, ?)", network, kindPersonStatement, kindBinding); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(a.persons))
+	for key := range a.persons {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		data, err := json.Marshal(a.persons[key])
+		if err != nil {
+			return err
+		}
+		if err = putStatementRecord(ctx, tx, network, statementRecord{kindPersonStatement, key, data}); err != nil {
+			return err
+		}
+		if !previous[key] {
+			public, _ := membership.DecodeKey(key)
+			if err = appendEvent(ctx, tx, "network.person_admitted", membership.PersonID(public), now); err != nil {
+				return err
+			}
+		}
+	}
+	for host, b := range a.bindings {
+		data, err := json.Marshal(b)
+		if err != nil {
+			return err
+		}
+		if err = putStatementRecord(ctx, tx, network, statementRecord{kindBinding, host, data}); err != nil {
+			return err
+		}
+	}
+	for _, member := range a.members {
+		if member.Admission == nil {
+			continue
+		}
+		data, err := json.Marshal(member.Admission)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO network_statements VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET record = excluded.record", network, kindHostAdmission, member.PublicKey, string(data)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

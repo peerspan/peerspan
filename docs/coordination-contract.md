@@ -217,7 +217,7 @@ A person key is an OpenSSH `ssh-ed25519` key. Only the CLI uses it. Daemons neve
 | Person membership | the person invite key (raw Ed25519) | `capsule-person-member-v1`, `network_id`, `invite_public_key`, `person_public_key`, `joined_at` |
 | Person removal | any root in the chain (raw Ed25519) | `capsule-person-remove-v1`, `network_id`, `person_public_key`, `removed_at` |
 | Host admission | root of `epoch` (raw Ed25519) | `capsule-host-admit-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `admitted_at` |
-| Host binding | the person (`SSHSIG`) | `capsule-host-bind-v1`, `network_id`, `person_public_key`, `host_public_key`, `bound_at` |
+| Host binding | the person (`SSHSIG`) **and** the host (raw Ed25519, `host_signature`) | `capsule-host-bind-v1`, `network_id`, `person_public_key`, `host_public_key`, `bound_at` |
 | Host unbinding | the person (`SSHSIG`) | `capsule-host-unbind-v1`, `network_id`, `person_public_key`, `host_public_key`, `unbound_at` |
 
 Each statement is carried as a strict JSON object of its fields plus `signature`, with `epoch` as a JSON number. A person **membership** object nests its invite: `{network_id, member, invite_public_key, invite_expires_at, invite_epoch, invite_signature, person_public_key, joined_at, person_signature}`. The person invite statement's lines use `invite_epoch` as their `epoch`.
@@ -231,6 +231,7 @@ Each statement is carried as a strict JSON object of its fields plus `signature`
 | Person membership | `FP3SdKMjbdMcRQIsfMffRb6mnyqnDnX4hxj/cTz6DHyWeozcrRxdGU+/lYLEakp8tiS/jwOiCLJA/7DXhfOrDw==` |
 | Person removal | `gIGBRuXaZVCyEU+jkM1JUxo88yDrpZ8k7JbmKGObmeF14QeY2//Wdrn4CgetByjN4szTFbssvtuS6ynt3O8jBA==` |
 | Host admission | `fYyNXrDCWJs61KeT2macWLkh/D+WVMI1i10iiC2mpFoQ9fz7EhDhy8KXAr+zjRfpdRzhzpGfAfEF4dBcMYGUCw==` |
+| Host binding `host_signature` (host key) | `xv+sVNH6/g1gJrknO2ImE97qrROduO2Oe0U4gvqcddbHibmhzR28SRWf7RtYUDizWnWE4Eufy3F1aijw6uvSDg==` |
 | Host binding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADAULCAWp02fy0fuxtv6fhaI8PHqxyBPr6SzVcTupgU0xsTYIMciLKFSVOaqYIOshUcKvNhgbAmBsiz6Cbe7UBw==` |
 | Host unbinding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkiK02ZWdpz63BExI0ccVmkrPSaSUJEVrherPRCB7IWIDjvE6x1VieH2UJnMuWmp5tiXmTHuTs4mxDyehsUr4AA==` |
 
@@ -248,9 +249,10 @@ The rules below apply at the network's current epoch *e* and current root, as de
   It must also have no valid person removal, under any root in the chain. Removal is sticky and permanent: the key can never be readmitted, and a new key is needed.
 - **Bindings.** A host is bound to a person if four things hold:
   - both are currently valid;
-  - a valid host binding by that person exists;
-  - the coordinator accepted it from that host itself, which is the host's consent;
+  - a host binding exists that carries both a valid `SSHSIG` signature by that person and a valid `host_signature` by that host's key over the same statement;
   - no valid host unbinding by that person for that host exists, which is sticky.
+
+  The host signature is the host's consent, and every host verifies it. Other hosts therefore need not trust the coordinator's claim about who submitted a binding. A coordinator colluding with a person key cannot bind someone else's host to that person, which matters once a person's policy governs their hosts' agents (slice 3). The coordinator additionally requires the bound host to submit the binding itself.
 
   A host is bound to at most one person: the coordinator refuses a second binding with 409 until the first is unbound. If the person is removed, all of their bindings end.
 - **Rotation.** When the root rotates, the administrator re-signs a host admission or a person admission at the new epoch for every currently valid key admitted by public key or person invite. These are submitted with the rotation as `admissions`. Bindings need nothing new.
@@ -273,7 +275,22 @@ The map gains `persons`: an array of `{person_id, person_public_key, member, adm
 
 ### Host
 
-There is no schema change. The statements are stored in `network_statements` (database version 7) under the new kinds `person` (subject: person key), `host_admission` (subject: host key), and `binding` (subject: host key), alongside the existing revocation kinds. Member records gain nullable `person_id` and `person_member`.
+There is no schema change. The statements are stored in `network_statements` (database version 7), alongside the existing revocation kinds:
+- `person` (subject: person key), holding `{admission, membership}` with exactly one non-null;
+- `host_admission` (subject: host key);
+- `binding` (subject: host key);
+- `person_removal` (subject: person key), which a map lists as revocation kind `person`;
+- `unbind` (subject: `<person key> <host key>`).
+
+Member records make `membership` nullable, and gain `admission`, `person_id`, and `person_member`, also nullable. In maps, members and persons carry both `membership` and `admission`, with one of them null, and a member's `binding` is null when it is unbound.
+
+Further rules:
+- **Joining by descriptor** sends `{address, candidates}` to the members endpoint, and the coordinator uses its recorded admission. An explicit `admission` is also accepted.
+- **Rotation `admissions`** holds bare host and person admissions, told apart by which key field is present. A pending rotation record gains `admissions`, which is empty when absent. At a rotation, the administrator re-signs only admissions still valid at its epoch, and an admission that is not re-signed lapses.
+- **Coordinator acceptance:** admitting a person or a host requires the coordinator to accept, and otherwise returns 503 with nothing persisted. Unbinding and person removal are local-first and idempotent, and return the revocation shape `{network_id, kind, subject, submitted}`.
+- **Person keys in the local API:** `person_public_key` accepts canonical Base64 or an `ssh-ed25519` line, and the CLI also accepts a path to a `.pub` file.
+- **Invite revocation** also drops persons admitted only through that invite.
+- **Admission rules:** binding to an unadmitted person returns 403, and an already admitted person keeps its original admission.
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
@@ -282,12 +299,12 @@ There is no schema change. The statements are stored in `network_statements` (da
 | `network invite-person --network ID --member LABEL --expires-at TIME` | `POST /v1/networks/{id}/person-invites` | Administrator only. Returns 201 with a token in the host-invite format, `capsule-person-invite-v1.` followed by unpadded base64url JSON with the host-invite fields plus `invite_epoch`. |
 | `network redeem-person --token TOKEN [--person-key PATH]` | `POST /v1/networks/redeem-person` with `{token, person_public_key}` | Run on any member host of that network. The CLI supplies the person's public key, and the daemon signs the membership with the invite seed and submits it. Returns 201 with `{person_id}`. |
 | `network join --descriptor DESCRIPTOR` | `POST /v1/networks/join` with `{descriptor}` | Joins with an administrator's admission of this host's key, otherwise as an invite join. Returns 403 if no admission for this host exists. |
-| `network bind --network ID [--person-key PATH]` | `POST /v1/networks/{id}/bindings` with `{binding}` | The CLI fetches this host's key from the daemon, signs the binding, and the daemon submits it as itself. Returns 201. |
+| `network bind --network ID [--person-key PATH]` | `POST /v1/networks/{id}/bindings` with `{binding}` | The CLI fetches this host's key from the daemon and signs the binding as the person. The daemon then adds its own `host_signature` and submits it as itself. A daemon refuses a binding of any key other than its own. Returns 201 with `{network_id, host_id, person_id}`. |
 | `network unbind --network ID --host HOST_ID [--person-key PATH]` | `POST /v1/networks/{id}/unbindings` with `{unbinding}` | Can be run on any member host, signed by the person. Persisted, enforced, and submitted until accepted, like a revocation. Returns 201. |
 | `network remove-person --network ID --person PERSON_ID` | `POST /v1/networks/{id}/person-removals` with `{person_id}` | Administrator only. Same rules as host revocation. Returns 201. |
 | `network persons ID` | `GET /v1/networks/{id}/persons` | Valid persons sorted by ID: `{person_id, public_key, member, hosts}`, where `hosts` lists their bound host IDs. |
 
-`network members` reports each host's `person_id` and `person_member`, or null. New activity kinds:
+`network members` reports each host's `person_id` and `person_member`, or null. New activity kinds, recorded on every host when its verified map changes, except `network.host_admitted`, which only the administrator records:
 - `network.person_admitted` (subject: person ID);
 - `network.person_removed` (subject: person ID);
 - `network.host_admitted` (subject: host ID);

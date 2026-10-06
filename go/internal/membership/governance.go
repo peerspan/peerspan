@@ -256,6 +256,18 @@ func (c Chain) VerifyRevocation(entry Revocation) (string, string, error) {
 			return "", "", err
 		}
 		return KindLeave, l.HostPublicKey, verify(host, l.Message(), l.Signature)
+	case KindPerson:
+		var r PersonRemoval
+		if err := json.Unmarshal(entry.Statement, &r); err != nil {
+			return "", "", err
+		}
+		return KindPerson, r.PersonPublicKey, c.verifyPersonRemoval(r)
+	case KindUnbind:
+		var u HostUnbinding
+		if err := json.Unmarshal(entry.Statement, &u); err != nil {
+			return "", "", err
+		}
+		return KindUnbind, UnbindSubject(u.PersonPublicKey, u.HostPublicKey), VerifyHostUnbinding(c.NetworkID, u)
 	}
 	return "", "", fmt.Errorf("%w: unknown revocation kind", ErrInvalid)
 }
@@ -278,14 +290,15 @@ func (c Chain) verifyByAnyRoot(network, subject, at string, message []byte, sign
 	return fmt.Errorf("%w: revocation is not signed by a root of this network", ErrInvalid)
 }
 
-// Revoked is the set of revoked host keys, revoked invite keys, and departed
-// host keys for one network.
+// Revoked is the set of revoked host keys, revoked invite keys, departed
+// host keys, removed person keys, and unbound person-host pairs for one
+// network.
 type Revoked struct {
-	Hosts, Invites, Left map[string]bool
+	Hosts, Invites, Left, Persons, Unbound map[string]bool
 }
 
 func NewRevoked() Revoked {
-	return Revoked{Hosts: map[string]bool{}, Invites: map[string]bool{}, Left: map[string]bool{}}
+	return Revoked{Hosts: map[string]bool{}, Invites: map[string]bool{}, Left: map[string]bool{}, Persons: map[string]bool{}, Unbound: map[string]bool{}}
 }
 
 func (r Revoked) Add(kind, subject string) {
@@ -296,7 +309,22 @@ func (r Revoked) Add(kind, subject string) {
 		r.Invites[subject] = true
 	case KindLeave:
 		r.Left[subject] = true
+	case KindPerson:
+		r.Persons[subject] = true
+	case KindUnbind:
+		r.Unbound[subject] = true
 	}
+}
+
+// ExcludesHost reports whether a host key, joined through inviteKey ("" for a
+// host admitted by public key), is revoked or departed.
+func (r Revoked) ExcludesHost(hostKey, inviteKey string) bool {
+	return r.Hosts[hostKey] || r.Left[hostKey] || (inviteKey != "" && r.Invites[inviteKey])
+}
+
+// Bound reports whether a binding of host by person is still in effect.
+func (r Revoked) Bound(personKey, hostKey string) bool {
+	return !r.Persons[personKey] && !r.Unbound[UnbindSubject(personKey, hostKey)]
 }
 
 // Excludes reports whether a membership is revoked, departed, or joined

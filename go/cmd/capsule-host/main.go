@@ -60,7 +60,18 @@ Usage:
   capsule-host [--state DIR] network revoke-invite --network ID --invite INVITE_PUBLIC_KEY
   capsule-host [--state DIR] network leave ID
   capsule-host [--state DIR] network rotate-root ID
+  capsule-host [--state DIR] network admit --network ID (--person SSH_PUBLIC_KEY | --host HOST_PUBLIC_KEY) --member LABEL
+  capsule-host [--state DIR] network invite-person --network ID --member LABEL --expires-at TIME
+  capsule-host [--state DIR] network redeem-person --token TOKEN [--person-key PATH]
+  capsule-host [--state DIR] network join --descriptor DESCRIPTOR
+  capsule-host [--state DIR] network bind --network ID [--person-key PATH]
+  capsule-host [--state DIR] network unbind --network ID --host HOST_ID [--person-key PATH]
+  capsule-host [--state DIR] network remove-person --network ID --person PERSON_ID
+  capsule-host [--state DIR] network persons ID
+  capsule-host person show [--person-key PATH]
 
+Person keys are ssh-ed25519 keys in ssh-agent (SSH_AUTH_SOCK), or --person-key
+PATH naming a public key in the agent or an unencrypted OpenSSH private key file.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `
@@ -89,6 +100,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Fprint(out, usage)
 		return nil
+	}
+	if args[0] == "person" {
+		return personShow(args[1:], out, errOut)
 	}
 	if *state == "" {
 		var err error
@@ -182,14 +196,18 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		return first
 	}
+	client := host.Client{SocketPath: filepath.Join(*state, "admin.sock")}
 	method, path, body, err := request(args, errOut)
+	if errors.Is(err, errPersonCommand) {
+		method, path, body, err = personRequest(ctx, client, args, errOut)
+	}
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-	result, err := (host.Client{SocketPath: filepath.Join(*state, "admin.sock")}).Call(ctx, method, path, body)
+	result, err := client.Call(ctx, method, path, body)
 	if err != nil {
 		return err
 	}
@@ -392,8 +410,44 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			return "POST", "/v1/networks/" + url.PathEscape(network) + "/invites", i, err
 		case "join":
 			var j host.JoinNetwork
-			err := parse("network join", args[2:], func(fs *flag.FlagSet) { fs.StringVar(&j.Token, "token", "", "invite token") })
+			err := parse("network join", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&j.Token, "token", "", "invite token")
+				fs.StringVar(&j.Descriptor, "descriptor", "", "network descriptor, for a host admitted by public key")
+			})
+			if err == nil && (j.Token == "") == (j.Descriptor == "") {
+				return "", "", nil, errors.New("give exactly one of --token or --descriptor")
+			}
 			return "POST", "/v1/networks/join", j, err
+		case "admit", "redeem-person", "bind", "unbind":
+			return "", "", nil, errPersonCommand
+		case "invite-person":
+			var network string
+			var i host.CreateInvite
+			err := parse("network invite-person", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&network, "network", "", "network ID")
+				fs.StringVar(&i.Member, "member", "", "invitee member label")
+				fs.StringVar(&i.ExpiresAt, "expires-at", "", "UTC invite expiration, at most 30 days ahead")
+			})
+			if err == nil && network == "" {
+				return invalid()
+			}
+			return "POST", "/v1/networks/" + url.PathEscape(network) + "/person-invites", i, err
+		case "remove-person":
+			var network string
+			var req host.RemovePerson
+			err := parse("network remove-person", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&network, "network", "", "network ID")
+				fs.StringVar(&req.PersonID, "person", "", "person ID to remove")
+			})
+			if err == nil && (network == "" || req.PersonID == "") {
+				return invalid()
+			}
+			return "POST", "/v1/networks/" + url.PathEscape(network) + "/person-removals", req, err
+		case "persons":
+			if len(args) != 3 {
+				return invalid()
+			}
+			return "GET", "/v1/networks/" + url.PathEscape(args[2]) + "/persons", nil, nil
 		case "list":
 			if len(args) != 2 {
 				return invalid()

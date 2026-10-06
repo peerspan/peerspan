@@ -197,7 +197,7 @@ func injectMember(n *testNet, m membership.Membership) error {
 	defer db.Close()
 	data, _ := json.Marshal(m)
 	key, _ := membership.DecodeKey(m.HostPublicKey)
-	_, err = db.Exec("INSERT INTO members VALUES (?, ?, ?, ?, '', ?)", m.NetworkID, membership.HostID(key), m.InvitePublicKey, string(data), timestamp(time.Now()))
+	_, err = db.Exec("INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at) VALUES (?, ?, ?, ?, '', ?)", m.NetworkID, membership.HostID(key), m.InvitePublicKey, string(data), timestamp(time.Now()))
 	return err
 }
 

@@ -180,7 +180,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             forged = dict(entry['membership'], host_public_key=base64.b64encode(rogue_key).decode(),
                           invite_public_key=base64.b64encode(secrets.token_bytes(32)).decode())
             database = sqlite3.connect(coord.state / 'coord.db')
-            database.execute('INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)',
+            database.execute('INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
                              (net, rogue_id, forged['invite_public_key'], json.dumps(forged), '127.0.0.1:9', timestamp(0)))
             database.commit()
             database.close()

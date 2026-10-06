@@ -373,6 +373,16 @@ type Map struct {
 	Rotations    []json.RawMessage `json:"rotations"`
 	Attestations []json.RawMessage `json:"attestations"`
 	Revocations  []json.RawMessage `json:"revocations"`
+	// Persons are admitted persons, each with exactly one non-null proof.
+	Persons []MapPerson `json:"persons"`
+}
+
+type MapPerson struct {
+	PersonID        string          `json:"person_id"`
+	PersonPublicKey string          `json:"person_public_key"`
+	Member          string          `json:"member"`
+	Admission       json.RawMessage `json:"admission"`
+	Membership      json.RawMessage `json:"membership"`
 }
 
 type MapMember struct {
@@ -380,6 +390,10 @@ type MapMember struct {
 	// Membership stays raw so a host can reject one bad entry without
 	// rejecting the map.
 	Membership json.RawMessage `json:"membership"`
+	// Admission replaces Membership for a host admitted by public key.
+	Admission json.RawMessage `json:"admission"`
+	// Binding is the host's current binding to a person, or null.
+	Binding    json.RawMessage `json:"binding"`
 	Address    string          `json:"address"`
 	Candidates []string        `json:"candidates"`
 	UpdatedAt  string          `json:"updated_at"`

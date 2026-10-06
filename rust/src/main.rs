@@ -2,17 +2,17 @@ mod cli;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
-use capsule_host::{api, store::Store};
+use capsule_host::{api, persons, store::Store};
 use clap::{CommandFactory, Parser};
 use cli::Cli;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     env, fs,
     os::unix::fs::{FileTypeExt, PermissionsExt},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -49,6 +49,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     {
         return run_daemon(directory, peer_listen, advertise, coordination_interval).await;
     }
+    if let Some(value) = person_command(&command, &directory).await? {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
     let request = command.request().expect("local control command");
     let value = tokio::time::timeout(
         Duration::from_secs(10),
@@ -63,6 +67,95 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     .context("local host daemon request timed out")??;
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+/// Commands that sign with a person key. The key stays with the CLI (an
+/// ssh-agent identity or a key file); the daemon only receives the signed
+/// statement. `person show` needs no daemon at all.
+async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Result<Option<Value>> {
+    use cli::{Command, NetworkCommand, PersonCommand, encoded};
+    let socket = directory.join("admin.sock");
+    let signer = |path: &Option<PathBuf>| {
+        persons::PersonSigner::open(path.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))
+    };
+    let at = || chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let local = |method: Method, path: String, body: Option<Value>| {
+        let socket = socket.clone();
+        async move {
+            tokio::time::timeout(Duration::from_secs(10), call(socket, method, path, body))
+                .await
+                .context("local host daemon request timed out")?
+        }
+    };
+    let value = match command {
+        Command::Person(PersonCommand::Show { person_key }) => {
+            let signer = signer(person_key)?;
+            let key = signer.public_key();
+            json!({
+                "person_id": persons::person_id(&key),
+                "public_key": signer.public_key_b64(),
+                "ssh_public_key": persons::ssh_public_line(&key),
+            })
+        }
+        Command::Network(NetworkCommand::RedeemPerson { token, person_key }) => {
+            let signer = signer(person_key)?;
+            local(
+                Method::POST,
+                "/v1/networks/redeem-person".into(),
+                Some(json!({"token": token, "person_public_key": signer.public_key_b64()})),
+            )
+            .await?
+        }
+        Command::Network(NetworkCommand::Bind {
+            network,
+            person_key,
+        }) => {
+            let signer = signer(person_key)?;
+            let host = local(Method::GET, "/v1/host".into(), None).await?;
+            let key = host["public_key"]
+                .as_str()
+                .context("host daemon returned no public key")?;
+            let binding = persons::HostBinding::sign(&signer, network, key, &at())
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            local(
+                Method::POST,
+                format!("/v1/networks/{}/bindings", encoded(network)),
+                Some(json!({"binding": binding})),
+            )
+            .await?
+        }
+        Command::Network(NetworkCommand::Unbind {
+            network,
+            host,
+            person_key,
+        }) => {
+            let signer = signer(person_key)?;
+            let members = local(
+                Method::GET,
+                format!("/v1/networks/{}/members", encoded(network)),
+                None,
+            )
+            .await?;
+            let key = members
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|m| m["host_id"].as_str() == Some(host.as_str()))
+                .and_then(|m| m["public_key"].as_str())
+                .context("that host is not a member of this network")?
+                .to_owned();
+            let unbinding = persons::HostUnbinding::sign(&signer, network, &key, &at())
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            local(
+                Method::POST,
+                format!("/v1/networks/{}/unbindings", encoded(network)),
+                Some(json!({"unbinding": unbinding})),
+            )
+            .await?
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(value))
 }
 
 fn default_directory() -> anyhow::Result<PathBuf> {

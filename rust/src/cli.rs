@@ -52,6 +52,9 @@ pub enum Command {
     /// Create, join, and inspect coordinated networks
     #[command(subcommand)]
     Network(NetworkCommand),
+    /// Inspect the person key used to sign person statements (no daemon)
+    #[command(subcommand)]
+    Person(PersonCommand),
     /// Issue or revoke credentials for one local session
     #[command(subcommand)]
     Adapter(AdapterCommand),
@@ -125,6 +128,16 @@ pub enum PeerCommand {
     },
 }
 #[derive(Debug, Subcommand)]
+pub enum PersonCommand {
+    /// Show the person ID and key from ssh-agent or --person-key
+    Show {
+        /// OpenSSH public key (select an ssh-agent identity) or unencrypted private key file
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
     /// Create a network whose root key stays on this host
     Create {
@@ -149,11 +162,77 @@ pub enum NetworkCommand {
         #[arg(long, value_name = "TIME")]
         expires_at: String,
     },
-    /// Join a network with an invite token
+    /// Join a network with an invite token or, if an administrator admitted
+    /// this host's key, a network descriptor
     Join {
+        #[arg(
+            long,
+            required_unless_present = "descriptor",
+            conflicts_with = "descriptor"
+        )]
+        token: Option<String>,
+        #[arg(long)]
+        descriptor: Option<String>,
+    },
+    /// Admit a person or a host by public key (administrator only)
+    Admit {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        /// ssh-ed25519 public key line, or a path to one
+        #[arg(
+            long,
+            value_name = "SSH_PUBLIC_KEY",
+            required_unless_present = "host",
+            conflicts_with = "host"
+        )]
+        person: Option<String>,
+        /// Host public key (standard Base64), as `info` prints it
+        #[arg(long, value_name = "HOST_PUBLIC_KEY")]
+        host: Option<String>,
+        #[arg(long)]
+        member: String,
+    },
+    /// Issue a one-time person invite token (administrator only)
+    InvitePerson {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long)]
+        member: String,
+        #[arg(long, value_name = "TIME")]
+        expires_at: String,
+    },
+    /// Redeem a person invite for your person key, on a member host
+    RedeemPerson {
         #[arg(long)]
         token: String,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
+    /// Bind this host to your person; signed with your person key
+    Bind {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Unbind one of your hosts; signed with your person key
+    Unbind {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "HOST_ID")]
+        host: String,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Remove a person and end its bindings (administrator only)
+    RemovePerson {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "PERSON_ID")]
+        person: String,
+    },
+    /// List a network's persons and the hosts bound to them
+    Persons { id: String },
     /// List networks
     List,
     /// List a network's verified members
@@ -323,7 +402,13 @@ impl Command {
     /// Run starts the daemon; every other command uses its local control socket.
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
-            Self::Run { .. } => return None,
+            Self::Run { .. }
+            | Self::Person(_)
+            | Self::Network(
+                NetworkCommand::RedeemPerson { .. }
+                | NetworkCommand::Bind { .. }
+                | NetworkCommand::Unbind { .. },
+            ) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
             Self::Agent(AgentCommand::List) => (Method::GET, "/v1/agents".into(), None),
             Self::Agent(AgentCommand::Inspect { id }) => {
@@ -453,11 +538,58 @@ impl Command {
                 format!("/v1/networks/{}/invites", encoded(&network)),
                 Some(json!({"member":member,"expires_at":expires_at})),
             ),
-            Self::Network(NetworkCommand::Join { token }) => (
+            Self::Network(NetworkCommand::Join { token, descriptor }) => (
                 Method::POST,
                 "/v1/networks/join".into(),
-                Some(json!({"token":token})),
+                Some(match (token, descriptor) {
+                    (Some(token), _) => json!({"token": token}),
+                    (None, descriptor) => json!({"descriptor": descriptor}),
+                }),
             ),
+            Self::Network(NetworkCommand::Admit {
+                network,
+                person,
+                host,
+                member,
+            }) => match (person, host) {
+                (Some(person), _) => {
+                    // A path to an OpenSSH public key file is read here; a
+                    // key line is passed through for the daemon to check.
+                    let key = std::fs::read_to_string(&person)
+                        .map(|text| text.trim().to_owned())
+                        .unwrap_or(person);
+                    (
+                        Method::POST,
+                        format!("/v1/networks/{}/persons", encoded(&network)),
+                        Some(json!({"person_public_key": key, "member": member})),
+                    )
+                }
+                (None, host) => (
+                    Method::POST,
+                    format!("/v1/networks/{}/hosts", encoded(&network)),
+                    Some(json!({"host_public_key": host.unwrap_or_default(), "member": member})),
+                ),
+            },
+            Self::Network(NetworkCommand::InvitePerson {
+                network,
+                member,
+                expires_at,
+            }) => (
+                Method::POST,
+                format!("/v1/networks/{}/person-invites", encoded(&network)),
+                Some(json!({"member": member, "expires_at": expires_at})),
+            ),
+            Self::Network(NetworkCommand::RemovePerson { network, person }) => (
+                Method::POST,
+                format!("/v1/networks/{}/person-removals", encoded(&network)),
+                Some(json!({"person_id": person})),
+            ),
+            Self::Network(NetworkCommand::Persons { id }) => (
+                Method::GET,
+                format!("/v1/networks/{}/persons", encoded(&id)),
+                None,
+            ),
+
             Self::Network(NetworkCommand::List) => (Method::GET, "/v1/networks".into(), None),
             Self::Network(NetworkCommand::Members { id }) => (
                 Method::GET,
@@ -567,7 +699,7 @@ impl Command {
     }
 }
 
-fn encoded(value: &str) -> String {
+pub fn encoded(value: &str) -> String {
     value
         .bytes()
         .map(|byte| {

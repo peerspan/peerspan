@@ -55,15 +55,28 @@ type Network struct {
 	CurrentRootPublicKey string `json:"current_root_public_key"`
 }
 
-// NetworkMember is a verified map entry. Membership is the host's own proof.
+// NetworkMember is a verified map entry. Exactly one of Membership (an invite
+// chain) and Admission (an administrator's admission of its key) is set.
+// PersonID and PersonMember name the person the host is bound to, if any.
 type NetworkMember struct {
-	HostID     string                `json:"host_id"`
-	PublicKey  string                `json:"public_key"`
-	Member     string                `json:"member"`
-	Address    string                `json:"address"`
-	Candidates []string              `json:"candidates"`
-	UpdatedAt  string                `json:"updated_at"`
-	Membership membership.Membership `json:"membership"`
+	HostID       string                    `json:"host_id"`
+	PublicKey    string                    `json:"public_key"`
+	Member       string                    `json:"member"`
+	Address      string                    `json:"address"`
+	Candidates   []string                  `json:"candidates"`
+	UpdatedAt    string                    `json:"updated_at"`
+	Membership   *membership.Membership    `json:"membership"`
+	Admission    *membership.HostAdmission `json:"admission"`
+	PersonID     *string                   `json:"person_id"`
+	PersonMember *string                   `json:"person_member"`
+}
+
+// inviteKey is the invite a member joined through, or "" if admitted by key.
+func (m NetworkMember) inviteKey() string {
+	if m.Membership == nil {
+		return ""
+	}
+	return m.Membership.InvitePublicKey
 }
 
 type CreateNetwork struct {
@@ -83,8 +96,12 @@ type Invite struct {
 	InviteExpiresAt string `json:"invite_expires_at"`
 	Token           string `json:"token"`
 }
+
+// JoinNetwork gives exactly one of an invite token or a network descriptor
+// for a host an administrator admitted by public key.
 type JoinNetwork struct {
-	Token string `json:"token"`
+	Token      string `json:"token"`
+	Descriptor string `json:"descriptor"`
 }
 
 // ConfigureCoordination sets the daemon's advertised peer address and sync
@@ -226,7 +243,7 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 	if _, err = tx.ExecContext(ctx, "INSERT INTO networks VALUES (?, ?, ?)", n.ID, string(data), root.Seed()); err != nil {
 		return n, err
 	}
-	member := NetworkMember{HostID: s.identity.ID, PublicKey: s.identity.PublicKey, Member: r.Member, Address: advertise, Candidates: []string{}, UpdatedAt: now, Membership: self}
+	member := NetworkMember{HostID: s.identity.ID, PublicKey: s.identity.PublicKey, Member: r.Member, Address: advertise, Candidates: []string{}, UpdatedAt: now, Membership: &self}
 	if err = putJSON(ctx, tx, "INSERT INTO network_members (record, network_id, host_id) VALUES (?, ?, ?)", member, n.ID, member.HostID); err != nil {
 		return n, err
 	}
@@ -292,6 +309,12 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 }
 
 func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error) {
+	if (r.Token == "") == (r.Descriptor == "") {
+		return Network{}, fmt.Errorf("%w: give exactly one of token or descriptor", ErrInvalid)
+	}
+	if r.Descriptor != "" {
+		return s.joinByDescriptor(ctx, r.Descriptor)
+	}
 	now := time.Now()
 	token, err := membership.DecodeToken(r.Token, now)
 	if err != nil {
@@ -315,6 +338,12 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 	if err != nil {
 		return n, err
 	}
+	return s.finishJoin(ctx, n, m)
+}
+
+// finishJoin verifies the coordinator's first map and persists the network,
+// its members, and its statements together.
+func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Network, error) {
 	if genesis, keyErr := membership.DecodeKey(m.RootPublicKey); keyErr != nil || membership.NetworkID(genesis) != n.ID {
 		return n, fmt.Errorf("%w: coordinator map root does not derive the network ID", ErrUnavailable)
 	}
@@ -324,6 +353,11 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 		return n, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	members := applied.members
+	for _, member := range members {
+		if member.HostID == s.identity.ID && n.Member == "" {
+			n.Member = member.Member // joined by descriptor: the admission's label
+		}
+	}
 	n.RootEpoch, n.CurrentRootPublicKey = applied.chain.Epoch(), applied.chain.CurrentPublicKey()
 	synced := timestamp(time.Now())
 	n.LastSyncAt = &synced
@@ -467,6 +501,10 @@ func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, 
 	if err = rows.Err(); err != nil {
 		return err
 	}
+	bound, err := boundPersons(ctx, tx, network)
+	if err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM network_members WHERE network_id = ?", network); err != nil {
 		return err
 	}
@@ -480,6 +518,9 @@ func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, 
 			if err = appendEvent(ctx, tx, "network.member_added", member.HostID, now); err != nil {
 				return err
 			}
+		}
+		if err = bindingEvents(ctx, tx, member.HostID, bound[member.HostID], member.PersonID, now); err != nil {
+			return err
 		}
 	}
 	removed := []string{}
@@ -677,7 +718,7 @@ func localNetworkRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/join", func(w http.ResponseWriter, r *http.Request) {
 		var req JoinNetwork
-		if !decode(w, r, &req, "token") {
+		if !decode(w, r, &req, "token", "descriptor") {
 			return
 		}
 		n, err := store.JoinNetwork(r.Context(), req)
@@ -703,4 +744,44 @@ func localNetworkRoutes(mux *http.ServeMux, store *Store) {
 		n, err := store.SyncNetwork(r.Context(), r.PathValue("id"))
 		respond(w, http.StatusOK, n, err)
 	})
+}
+
+// boundPersons returns each stored member's bound person ID, or "".
+func boundPersons(ctx context.Context, tx *sql.Tx, network string) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT record FROM network_members WHERE network_id = ?", network)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bound := map[string]string{}
+	for rows.Next() {
+		member, err := readJSON[NetworkMember](rows)
+		if err != nil {
+			return nil, err
+		}
+		if member.PersonID != nil {
+			bound[member.HostID] = *member.PersonID
+		}
+	}
+	return bound, rows.Err()
+}
+
+// bindingEvents records a host becoming bound, unbound, or rebound.
+func bindingEvents(ctx context.Context, tx *sql.Tx, host, before string, after *string, now string) error {
+	current := ""
+	if after != nil {
+		current = *after
+	}
+	if before == current {
+		return nil
+	}
+	if before != "" {
+		if err := appendEvent(ctx, tx, "network.host_unbound", host, now); err != nil {
+			return err
+		}
+	}
+	if current != "" {
+		return appendEvent(ctx, tx, "network.host_bound", host, now)
+	}
+	return nil
 }

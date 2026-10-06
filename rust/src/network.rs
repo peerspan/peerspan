@@ -10,6 +10,10 @@ use crate::{
     model::Error,
     peer::{https, pinned_client_config},
     peer_store::{Peer, json, key_id, read, records},
+    persons::{
+        self, Descriptor, HostAdmission, HostBinding, HostUnbinding, PersonAdmission,
+        PersonInviteToken, PersonMembership, PersonRemoval,
+    },
     store::{Store, append_event, now, rfc3339},
 };
 use axum::{
@@ -74,7 +78,17 @@ pub struct Member {
     #[serde(default)]
     pub candidates: Vec<String>,
     pub updated_at: String,
-    pub membership: Membership,
+    /// The invite chain, for a host that joined with an invite token.
+    #[serde(default)]
+    pub membership: Option<Membership>,
+    /// The administrator's admission, for a host admitted by public key.
+    #[serde(default)]
+    pub admission: Option<HostAdmission>,
+    /// The person this host is bound to, if any.
+    #[serde(default)]
+    pub person_id: Option<String>,
+    #[serde(default)]
+    pub person_member: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -93,7 +107,123 @@ pub struct CreateInvite {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JoinNetwork {
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub descriptor: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdmitPerson {
+    pub person_public_key: String,
+    pub member: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdmitHost {
+    pub host_public_key: String,
+    pub member: String,
+}
+#[derive(Debug, Serialize)]
+pub struct AdmittedPerson {
+    pub person_id: String,
+    pub descriptor: String,
+}
+#[derive(Debug, Serialize)]
+pub struct AdmittedHost {
+    pub host_id: String,
+    pub descriptor: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedeemPerson {
     pub token: String,
+    pub person_public_key: String,
+}
+#[derive(Debug, Serialize)]
+pub struct RedeemedPerson {
+    pub person_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Bind {
+    pub binding: HostBinding,
+}
+#[derive(Debug, Serialize)]
+pub struct Bound {
+    pub network_id: String,
+    pub host_id: String,
+    pub person_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Unbind {
+    pub unbinding: HostUnbinding,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemovePerson {
+    pub person_id: String,
+}
+/// A verified person: its admission or invite chain under the current root.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersonEntry {
+    pub person_id: String,
+    pub person_public_key: String,
+    pub member: String,
+    #[serde(default)]
+    pub admission: Option<PersonAdmission>,
+    #[serde(default)]
+    pub membership: Option<PersonMembership>,
+}
+/// The stored form of a verified person (`network_statements` kind
+/// `person`): exactly one of an admission or an invite chain, the one that
+/// verified under the current root.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct PersonProof {
+    #[serde(default)]
+    admission: Option<PersonAdmission>,
+    #[serde(default)]
+    membership: Option<PersonMembership>,
+}
+impl PersonEntry {
+    fn proof(&self) -> PersonProof {
+        match &self.admission {
+            Some(a) => PersonProof {
+                admission: Some(a.clone()),
+                membership: None,
+            },
+            None => PersonProof {
+                admission: None,
+                membership: self.membership.clone(),
+            },
+        }
+    }
+    fn from_proof(proof: PersonProof) -> Result<Self, Error> {
+        let (key, member) = match (&proof.admission, &proof.membership) {
+            (Some(a), _) => (a.person_public_key.clone(), a.member.clone()),
+            (None, Some(m)) => (m.person_public_key.clone(), m.member.clone()),
+            (None, None) => {
+                return Err(Error::Internal(anyhow::anyhow!(
+                    "stored person has no admission"
+                )));
+            }
+        };
+        Ok(Self {
+            person_id: persons::person_id_of(&key)?,
+            person_public_key: key,
+            member,
+            admission: proof.admission,
+            membership: proof.membership,
+        })
+    }
+}
+#[derive(Debug, Serialize)]
+pub struct PersonView {
+    pub person_id: String,
+    pub public_key: String,
+    pub member: String,
+    pub hosts: Vec<String>,
 }
 #[derive(Debug, Serialize)]
 pub struct IssuedInvite {
@@ -114,6 +244,8 @@ struct WireMap {
     attestations: Vec<Value>,
     #[serde(default)]
     revocations: Vec<Value>,
+    #[serde(default)]
+    persons: Vec<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,6 +276,9 @@ pub struct Left {
 pub(crate) struct PendingRotation {
     rotation: Rotation,
     attestations: Vec<Attestation>,
+    /// Host and person admissions re-signed at the new epoch.
+    #[serde(default)]
+    admissions: Vec<Value>,
     root_seed: String,
 }
 #[derive(Debug)]
@@ -162,6 +297,8 @@ struct Statements {
     hosts: Vec<HostRevocation>,
     invites: Vec<InviteRevocation>,
     leaves: Vec<Leave>,
+    person_removals: Vec<PersonRemoval>,
+    unbindings: Vec<HostUnbinding>,
 }
 impl Statements {
     fn load(connection: &Connection, network: &str) -> Result<Self, Error> {
@@ -185,6 +322,8 @@ impl Statements {
                 "host" => out.hosts.push(json(record)?),
                 "invite" => out.invites.push(json(record)?),
                 "leave" => out.leaves.push(json(record)?),
+                "person_removal" => out.person_removals.push(json(record)?),
+                "unbind" => out.unbindings.push(json(record)?),
                 _ => {}
             }
         }
@@ -195,6 +334,8 @@ impl Statements {
 /// A map verified against this host's persisted statements.
 struct VerifiedMap {
     members: Vec<Member>,
+    persons: Vec<PersonEntry>,
+    bindings: Vec<HostBinding>,
     rotations: Vec<Rotation>,
     roots: Vec<String>,
     statements: Statements,
@@ -214,7 +355,12 @@ fn insert_statement(
 #[derive(Deserialize)]
 struct WireMember {
     host_id: String,
-    membership: Membership,
+    #[serde(default)]
+    membership: Option<Membership>,
+    #[serde(default)]
+    admission: Option<Value>,
+    #[serde(default)]
+    binding: Option<Value>,
     address: String,
     #[serde(default)]
     candidates: Value,
@@ -359,6 +505,28 @@ fn verify_map(
                     statements.leaves.push(r);
                 }
             }
+            "person" => {
+                if let Ok(r) = serde_json::from_value::<PersonRemoval>(statement)
+                    && r.verify(&network.id, &roots).is_ok()
+                    && !statements
+                        .person_removals
+                        .iter()
+                        .any(|p| p.person_public_key == r.person_public_key)
+                {
+                    statements.person_removals.push(r);
+                }
+            }
+            "unbind" => {
+                if let Ok(r) = serde_json::from_value::<HostUnbinding>(statement)
+                    && r.verify(&network.id).is_ok()
+                    && !statements
+                        .unbindings
+                        .iter()
+                        .any(|u| u.subject() == r.subject())
+                {
+                    statements.unbindings.push(r);
+                }
+            }
             _ => {}
         }
     }
@@ -378,37 +546,157 @@ fn verify_map(
         .iter()
         .map(|a| a.host_public_key.as_str())
         .collect();
+    let removed_persons: BTreeSet<&str> = statements
+        .person_removals
+        .iter()
+        .map(|p| p.person_public_key.as_str())
+        .collect();
+    // Persons: an admission or an invite chain under the current root at the
+    // current epoch; removal is sticky. A person invite used by more than one
+    // person key discredits all of them.
+    let mut person_candidates: Vec<PersonEntry> = Vec::new();
+    for entry in map.persons {
+        let admission = entry
+            .get("admission")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<PersonAdmission>(v.clone()).ok());
+        let membership = entry
+            .get("membership")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<PersonMembership>(v.clone()).ok());
+        let admission = admission.filter(|a| a.verify(&network.id, epoch, &current).is_ok());
+        let membership = membership.filter(|m| {
+            admission.is_none()
+                && m.verify(&network.id, epoch, &current).is_ok()
+                && !revoked_invites.contains(m.invite_public_key.as_str())
+        });
+        let (key, member) = match (&admission, &membership) {
+            (Some(a), _) => (a.person_public_key.clone(), a.member.clone()),
+            (None, Some(m)) => (m.person_public_key.clone(), m.member.clone()),
+            (None, None) => continue,
+        };
+        let Ok(person_id) = persons::person_id_of(&key) else {
+            continue;
+        };
+        if removed_persons.contains(key.as_str())
+            || entry["person_id"]
+                .as_str()
+                .is_some_and(|id| id != person_id)
+            || person_candidates.iter().any(|p| p.person_public_key == key)
+        {
+            continue;
+        }
+        person_candidates.push(PersonEntry {
+            person_id,
+            person_public_key: key,
+            member,
+            admission,
+            membership,
+        });
+    }
+    let mut person_invites: BTreeMap<String, usize> = BTreeMap::new();
+    for p in &person_candidates {
+        if let Some(m) = &p.membership
+            && p.admission.is_none()
+        {
+            *person_invites
+                .entry(m.invite_public_key.clone())
+                .or_default() += 1;
+        }
+    }
+    let mut persons: Vec<PersonEntry> = person_candidates
+        .into_iter()
+        .filter(|p| match (&p.admission, &p.membership) {
+            (None, Some(m)) => person_invites[&m.invite_public_key] == 1,
+            _ => true,
+        })
+        .collect();
+    persons.sort_by(|a, b| a.person_id.cmp(&b.person_id));
+    let unbound: BTreeSet<String> = statements
+        .unbindings
+        .iter()
+        .map(HostUnbinding::subject)
+        .collect();
+    let mut bindings = Vec::new();
     let mut candidates = Vec::new();
     for entry in map.members {
         let Ok(entry) = serde_json::from_value::<WireMember>(entry) else {
             continue;
         };
-        let m = &entry.membership;
-        if m.network_id != network.id
-            || revoked_hosts.contains(m.host_public_key.as_str())
-            || revoked_invites.contains(m.invite_public_key.as_str())
-        {
+        let admission = entry
+            .admission
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<HostAdmission>(v).ok());
+        let (host_id, key, member, membership, admission) = if let Some(m) = entry.membership {
+            if m.network_id != network.id || revoked_invites.contains(m.invite_public_key.as_str())
+            {
+                continue;
+            }
+            let verified = if epoch == 0 {
+                m.verify(&network.root_public_key)
+            } else {
+                m.verify_under(&current).or_else(|error| {
+                    if attested.contains(m.host_public_key.as_str()) {
+                        roots
+                            .iter()
+                            .find_map(|root| m.verify_under(root).ok())
+                            .ok_or(error)
+                    } else {
+                        Err(error)
+                    }
+                })
+            };
+            let Ok(host_id) = verified else {
+                continue;
+            };
+            (
+                host_id,
+                m.host_public_key.clone(),
+                m.member.clone(),
+                Some(m),
+                None,
+            )
+        } else if let Some(a) = admission {
+            let Ok(host_id) = a.verify(&network.id, epoch, &current) else {
+                continue;
+            };
+            (
+                host_id,
+                a.host_public_key.clone(),
+                a.member.clone(),
+                None,
+                Some(a),
+            )
+        } else {
+            continue;
+        };
+        if host_id != entry.host_id || revoked_hosts.contains(key.as_str()) {
             continue;
         }
-        let verified = if epoch == 0 {
-            m.verify(&network.root_public_key)
-        } else {
-            m.verify_under(&current).or_else(|error| {
-                if attested.contains(m.host_public_key.as_str()) {
-                    roots
-                        .iter()
-                        .find_map(|root| m.verify_under(root).ok())
-                        .ok_or(error)
-                } else {
-                    Err(error)
-                }
-            })
+        // A binding counts when its person is valid, it binds this host, and
+        // that person has not unbound this host.
+        let binding = entry
+            .binding
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<HostBinding>(v).ok())
+            .filter(|b| {
+                b.host_public_key == key
+                    && b.verify(&network.id).is_ok()
+                    && !unbound.contains(&format!("{} {}", b.person_public_key, key))
+            });
+        let person = binding.as_ref().and_then(|b| {
+            persons
+                .iter()
+                .find(|p| p.person_public_key == b.person_public_key)
+        });
+        let (person_id, person_member) = match person {
+            Some(p) => (Some(p.person_id.clone()), Some(p.member.clone())),
+            None => (None, None),
         };
-        let Ok(host_id) = verified else {
-            continue;
-        };
-        if host_id != entry.host_id {
-            continue;
+        if person.is_some()
+            && let Some(b) = binding
+        {
+            bindings.push(b);
         }
         let address = if membership::advertised(&entry.address).is_ok() {
             entry.address
@@ -417,27 +705,34 @@ fn verify_map(
         };
         candidates.push(Member {
             host_id,
-            public_key: entry.membership.host_public_key.clone(),
-            member: entry.membership.member.clone(),
+            public_key: key,
+            member,
             address,
             candidates: valid_candidates(&entry.candidates),
             updated_at: entry.updated_at,
-            membership: entry.membership,
+            membership,
+            admission,
+            person_id,
+            person_member,
         });
     }
     let mut invite_hosts: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     let mut host_counts: BTreeMap<&str, usize> = BTreeMap::new();
     for m in &candidates {
-        invite_hosts
-            .entry(&m.membership.invite_public_key)
-            .or_default()
-            .insert(&m.host_id);
+        if let Some(membership) = &m.membership {
+            invite_hosts
+                .entry(&membership.invite_public_key)
+                .or_default()
+                .insert(&m.host_id);
+        }
         *host_counts.entry(&m.host_id).or_default() += 1;
     }
     let rejected: BTreeSet<String> = candidates
         .iter()
         .filter(|m| {
-            invite_hosts[m.membership.invite_public_key.as_str()].len() > 1
+            m.membership
+                .as_ref()
+                .is_some_and(|ms| invite_hosts[ms.invite_public_key.as_str()].len() > 1)
                 || host_counts[m.host_id.as_str()] > 1
         })
         .map(|m| m.host_id.clone())
@@ -447,8 +742,11 @@ fn verify_map(
         .filter(|m| !rejected.contains(&m.host_id))
         .collect();
     members.sort_by(|a, b| a.host_id.cmp(&b.host_id));
+    bindings.retain(|b| members.iter().any(|m| m.public_key == b.host_public_key));
     Ok(VerifiedMap {
         members,
+        persons,
+        bindings,
         rotations: offered,
         roots,
         statements,
@@ -722,7 +1020,10 @@ impl Store {
             address: self.advertised(),
             candidates: Vec::new(),
             updated_at: joined.clone(),
-            membership: own,
+            membership: Some(own),
+            admission: None,
+            person_id: None,
+            person_member: None,
         };
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -859,6 +1160,67 @@ impl Store {
                 append_event(&tx, "network.member_left", &key_id(&key), &at)?;
             }
         }
+        for r in &statements.person_removals {
+            if insert_statement(&tx, &id, "person_removal", &r.person_public_key, r)?
+                && let Ok(person) = persons::person_id_of(&r.person_public_key)
+            {
+                append_event(&tx, "network.person_removed", &person, &at)?;
+            }
+        }
+        for u in &statements.unbindings {
+            insert_statement(&tx, &id, "unbind", &u.subject(), u)?;
+        }
+        // Persons, bindings, and host admissions are the coordinator's current
+        // verified sets; removals and unbindings above are the sticky part.
+        let replace = |kind: &str| -> Result<BTreeSet<String>, Error> {
+            let old: BTreeSet<String> = {
+                let mut statement = tx.prepare(
+                    "SELECT subject FROM network_statements WHERE network_id = ?1 AND kind = ?2",
+                )?;
+                statement
+                    .query_map(params![id, kind], |r| r.get::<_, String>(0))?
+                    .collect::<Result<_, _>>()?
+            };
+            tx.execute(
+                "DELETE FROM network_statements WHERE network_id = ?1 AND kind = ?2",
+                params![id, kind],
+            )?;
+            Ok(old)
+        };
+        let old_persons = replace("person")?;
+        for p in &verified.persons {
+            insert_statement(&tx, &id, "person", &p.person_public_key, &p.proof())?;
+            if !old_persons.contains(&p.person_public_key) {
+                append_event(&tx, "network.person_admitted", &p.person_id, &at)?;
+            }
+        }
+        let old_admissions = replace("host_admission")?;
+        for m in &members {
+            if let Some(a) = &m.admission {
+                insert_statement(&tx, &id, "host_admission", &a.host_public_key, a)?;
+                if !old_admissions.contains(&a.host_public_key) {
+                    append_event(&tx, "network.host_admitted", &m.host_id, &at)?;
+                }
+            }
+        }
+        let old_bindings = replace("binding")?;
+        for b in &verified.bindings {
+            insert_statement(&tx, &id, "binding", &b.host_public_key, b)?;
+        }
+        let new_bindings: BTreeSet<&str> = verified
+            .bindings
+            .iter()
+            .map(|b| b.host_public_key.as_str())
+            .collect();
+        for m in &members {
+            let bound = new_bindings.contains(m.public_key.as_str());
+            let was = old_bindings.contains(&m.public_key);
+            if bound && !was {
+                append_event(&tx, "network.host_bound", &m.host_id, &at)?;
+            } else if was && !bound {
+                append_event(&tx, "network.host_unbound", &m.host_id, &at)?;
+            }
+        }
         let old: BTreeSet<String> = {
             let mut statement =
                 tx.prepare("SELECT host_id FROM network_members WHERE network_id = ?1")?;
@@ -903,6 +1265,79 @@ impl Store {
             self.relay_wake.notify_one();
         }
         Ok(network)
+    }
+
+    /// The verified persons this host holds for a network.
+    fn stored_persons(&self, connection: &Connection, id: &str) -> Result<Vec<PersonEntry>, Error> {
+        let mut statement = connection.prepare(
+            "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'person' ORDER BY subject",
+        )?;
+        let mut persons: Vec<PersonEntry> = statement
+            .query_map([id], |r| r.get::<_, String>(0))?
+            .map(|r| PersonEntry::from_proof(json(r?)?))
+            .collect::<Result<_, _>>()?;
+        persons.sort_by(|a, b| a.person_id.cmp(&b.person_id));
+        Ok(persons)
+    }
+    fn stored_members(&self, connection: &Connection, id: &str) -> Result<Vec<Member>, Error> {
+        let mut statement =
+            connection.prepare("SELECT record FROM network_members WHERE network_id = ?1")?;
+        statement
+            .query_map([id], |r| r.get::<_, String>(0))?
+            .map(|r| json(r?))
+            .collect()
+    }
+    /// Ends a host's binding locally: drops the binding and clears the
+    /// member's person, with `network.host_unbound`.
+    fn drop_binding_locally(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+        host_key: &str,
+        at: &str,
+    ) -> Result<(), Error> {
+        let removed = tx.execute(
+            "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'binding' AND subject = ?2",
+            params![id, host_key],
+        )?;
+        for mut m in self.stored_members(tx, id)? {
+            if m.public_key == host_key && (removed > 0 || m.person_id.is_some()) {
+                m.person_id = None;
+                m.person_member = None;
+                tx.execute(
+                    "UPDATE network_members SET record = ?1 WHERE network_id = ?2 AND host_id = ?3",
+                    params![serde_json::to_string(&m)?, id, m.host_id],
+                )?;
+                append_event(tx, "network.host_unbound", &m.host_id, at)?;
+            }
+        }
+        Ok(())
+    }
+    /// Removes a person locally with all of its bindings.
+    fn drop_person_locally(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+        person_key: &str,
+        at: &str,
+    ) -> Result<(), Error> {
+        tx.execute(
+            "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'person' AND subject = ?2",
+            params![id, person_key],
+        )?;
+        let bound: Vec<HostBinding> = {
+            let mut statement = tx.prepare(
+                "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'binding'",
+            )?;
+            statement
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .map(|r| json(r?))
+                .collect::<Result<_, _>>()?
+        };
+        for b in bound.iter().filter(|b| b.person_public_key == person_key) {
+            self.drop_binding_locally(tx, id, &b.host_public_key, at)?;
+        }
+        Ok(())
     }
 
     /// The current root seed of a network this host administers.
@@ -961,10 +1396,12 @@ impl Store {
             (key, serde_json::to_value(statement)?, vec![subject.clone()])
         } else {
             membership::public_key(&subject)?;
-            if members
-                .iter()
-                .any(|m| m.host_id == own_id && m.membership.invite_public_key == subject)
-            {
+            if members.iter().any(|m| {
+                m.host_id == own_id
+                    && m.membership
+                        .as_ref()
+                        .is_some_and(|ms| ms.invite_public_key == subject)
+            }) {
                 return Err(Error::Conflict(
                     "cannot revoke the invite this host joined with".into(),
                 ));
@@ -972,9 +1409,24 @@ impl Store {
             let statement = InviteRevocation::sign(&root, &network.id, &subject, &at);
             let dropped = members
                 .iter()
-                .filter(|m| m.membership.invite_public_key == subject)
+                .filter(|m| {
+                    m.membership
+                        .as_ref()
+                        .is_some_and(|ms| ms.invite_public_key == subject)
+                })
                 .map(|m| m.host_id.clone())
                 .collect();
+            // Persons admitted with this invite lose their admission too.
+            for person in self.stored_persons(&tx, id)? {
+                if person.admission.is_none()
+                    && person
+                        .membership
+                        .as_ref()
+                        .is_some_and(|m| m.invite_public_key == subject)
+                {
+                    self.drop_person_locally(&tx, id, &person.person_public_key, &at)?;
+                }
+            }
             (subject.clone(), serde_json::to_value(statement)?, dropped)
         };
         let existing: Option<String> = tx
@@ -1018,6 +1470,226 @@ impl Store {
         ))
     }
 
+    /// Signs a person admission with the current root (administrator only).
+    pub fn sign_person_admission(
+        &self,
+        id: &str,
+        r: AdmitPerson,
+    ) -> Result<(Network, PersonAdmission), Error> {
+        membership::label(&r.member)?;
+        let key = persons::normalize_person_key(&r.person_public_key)?;
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let root = self.current_root(&connection, id)?;
+        if Statements::load(&connection, id)?
+            .person_removals
+            .iter()
+            .any(|r| r.person_public_key == key)
+        {
+            return Err(Error::Forbidden);
+        }
+        let admission = PersonAdmission::sign(
+            &root,
+            &network.id,
+            network.root_epoch,
+            &key,
+            &r.member,
+            &now(),
+        );
+        Ok((network, admission))
+    }
+    /// Signs a host admission with the current root (administrator only).
+    pub fn sign_host_admission(
+        &self,
+        id: &str,
+        r: AdmitHost,
+    ) -> Result<(Network, HostAdmission), Error> {
+        membership::label(&r.member)?;
+        let key = membership::public_key(&r.host_public_key)?;
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let root = self.current_root(&connection, id)?;
+        if key_id(key.as_bytes()) == self.identity().id {
+            return Err(Error::Conflict("this host is already a member".into()));
+        }
+        let statements = Statements::load(&connection, id)?;
+        if statements
+            .hosts
+            .iter()
+            .map(|h| &h.host_public_key)
+            .chain(statements.leaves.iter().map(|l| &l.host_public_key))
+            .any(|k| *k == r.host_public_key)
+        {
+            return Err(Error::Forbidden);
+        }
+        let admission = HostAdmission::sign(
+            &root,
+            &network.id,
+            network.root_epoch,
+            &r.host_public_key,
+            &r.member,
+            &now(),
+        );
+        Ok((network, admission))
+    }
+    /// Issues a one-time person invite signed by the current root.
+    pub fn issue_person_invite(&self, id: &str, r: CreateInvite) -> Result<IssuedInvite, Error> {
+        membership::label(&r.member)?;
+        let expires = membership::time(&r.expires_at)?;
+        let at = chrono::Utc::now();
+        if expires <= at || expires > at + MAX_INVITE_LIFETIME {
+            return Err(Error::Invalid(
+                "invite expiry must be in the future and at most 30 days ahead".into(),
+            ));
+        }
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let network = self.network_record(&tx, id)?;
+        let root = self.current_root(&tx, id)?;
+        let invite = random_seed()?;
+        let token = PersonInviteToken::issue(
+            &root,
+            &invite,
+            &network.id,
+            &network.name,
+            network.root_epoch,
+            &r.member,
+            &r.expires_at,
+            &network.coordinator_address,
+            &network.coordinator_public_key,
+        );
+        append_event(&tx, "network.invite_issued", &network.id, &now())?;
+        tx.commit()?;
+        Ok(IssuedInvite {
+            network_id: network.id,
+            member: token.member.clone(),
+            invite_public_key: token.invite_public_key.clone(),
+            invite_expires_at: token.invite_expires_at.clone(),
+            token: token.encode(),
+        })
+    }
+    /// Removes a person (administrator only): signed by the current root,
+    /// persisted, and enforced locally at once, ending its bindings.
+    pub fn remove_person(&self, id: &str, r: RemovePerson) -> Result<(Revoked, Value), Error> {
+        let at = now();
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let network = self.network_record(&tx, id)?;
+        let root = self.current_root(&tx, id)?;
+        let stored = Statements::load(&tx, id)?;
+        let existing = stored
+            .person_removals
+            .iter()
+            .find(|p| persons::person_id_of(&p.person_public_key).ok() == Some(r.person_id.clone()))
+            .cloned();
+        let removal = match existing {
+            Some(removal) => removal,
+            None => {
+                let person = self
+                    .stored_persons(&tx, id)?
+                    .into_iter()
+                    .find(|p| p.person_id == r.person_id)
+                    .ok_or(Error::NotFound)?;
+                let removal =
+                    PersonRemoval::sign(&root, &network.id, &person.person_public_key, &at);
+                insert_statement(
+                    &tx,
+                    id,
+                    "person_removal",
+                    &removal.person_public_key,
+                    &removal,
+                )?;
+                append_event(&tx, "network.person_removed", &r.person_id, &at)?;
+                self.drop_person_locally(&tx, id, &removal.person_public_key, &at)?;
+                removal
+            }
+        };
+        tx.commit()?;
+        Ok((
+            Revoked {
+                network_id: network.id,
+                kind: "person".into(),
+                subject: removal.person_public_key.clone(),
+                submitted: false,
+            },
+            json_value!({"kind": "person", "statement": removal}),
+        ))
+    }
+    /// Records a person's unbinding of a host: verified, persisted, and
+    /// enforced locally at once.
+    pub fn record_unbinding(
+        &self,
+        id: &str,
+        unbinding: HostUnbinding,
+    ) -> Result<(Revoked, Value), Error> {
+        let at = now();
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let network = self.network_record(&tx, id)?;
+        unbinding.verify(&network.id)?;
+        let subject = unbinding.subject();
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'unbind' AND subject = ?2",
+                params![id, subject],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let unbinding = match existing {
+            Some(record) => json(record)?,
+            None => {
+                insert_statement(&tx, id, "unbind", &subject, &unbinding)?;
+                let bound: Option<String> = tx
+                    .query_row(
+                        "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'binding' AND subject = ?2",
+                        params![id, unbinding.host_public_key],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if let Some(record) = bound
+                    && json::<HostBinding>(record)?.person_public_key == unbinding.person_public_key
+                {
+                    self.drop_binding_locally(&tx, id, &unbinding.host_public_key, &at)?;
+                }
+                unbinding
+            }
+        };
+        tx.commit()?;
+        Ok((
+            Revoked {
+                network_id: network.id,
+                kind: "unbind".into(),
+                subject: unbinding.host_public_key.clone(),
+                submitted: false,
+            },
+            json_value!({"kind": "unbind", "statement": unbinding}),
+        ))
+    }
+    /// Valid persons with the hosts bound to them.
+    pub fn persons(&self, id: &str) -> Result<Vec<PersonView>, Error> {
+        let connection = self.connection()?;
+        self.network_record(&connection, id)?;
+        let members = self.stored_members(&connection, id)?;
+        Ok(self
+            .stored_persons(&connection, id)?
+            .into_iter()
+            .map(|p| {
+                let mut hosts: Vec<String> = members
+                    .iter()
+                    .filter(|m| m.person_id.as_deref() == Some(p.person_id.as_str()))
+                    .map(|m| m.host_id.clone())
+                    .collect();
+                hosts.sort();
+                PersonView {
+                    person_id: p.person_id,
+                    public_key: p.person_public_key,
+                    member: p.member,
+                    hosts,
+                }
+            })
+            .collect())
+    }
+
     /// This host's own revocations of a kind the coordinator has not yet listed.
     fn pending_revocations(
         &self,
@@ -1026,7 +1698,7 @@ impl Store {
     ) -> Result<Vec<Value>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT kind, subject, record FROM network_statements WHERE network_id = ?1 AND kind IN ('host', 'invite')",
+            "SELECT kind, subject, record FROM network_statements WHERE network_id = ?1 AND kind IN ('host', 'invite', 'person_removal', 'unbind')",
         )?;
         let rows = statement
             .query_map([id], |r| {
@@ -1042,6 +1714,11 @@ impl Store {
             .filter(|(kind, subject, _)| !listed.contains(&(kind.clone(), subject.clone())))
             .filter_map(|(kind, _, record)| {
                 let statement: Value = serde_json::from_str(&record).ok()?;
+                let kind = if kind == "person_removal" {
+                    "person"
+                } else {
+                    kind.as_str()
+                };
                 Some(json_value!({"kind": kind, "statement": statement}))
             })
             .collect())
@@ -1093,7 +1770,7 @@ impl Store {
         let next_key = STANDARD.encode(next.verifying_key().as_bytes());
         let at = now();
         let rotation = Rotation::sign(&root, id, epoch, &next_key, &at);
-        let attestations = {
+        let members: Vec<Member> = {
             let mut statement = tx.prepare(
                 "SELECT record FROM network_members WHERE network_id = ?1 ORDER BY host_id",
             )?;
@@ -1101,13 +1778,46 @@ impl Store {
                 .query_map([id], |r| r.get::<_, String>(0))?
                 .map(|r| json::<Member>(r?))
                 .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .map(|m| Attestation::sign(&next, id, epoch, &m.public_key, &m.member, &at))
-                .collect()
         };
+        // Invite-chain members are attested; hosts and persons admitted by
+        // public key or person invite are re-admitted at the new epoch.
+        let mut attestations = Vec::new();
+        let mut admissions = Vec::new();
+        for m in &members {
+            if m.admission.is_some() {
+                admissions.push(serde_json::to_value(HostAdmission::sign(
+                    &next,
+                    id,
+                    epoch,
+                    &m.public_key,
+                    &m.member,
+                    &at,
+                ))?);
+            } else {
+                attestations.push(Attestation::sign(
+                    &next,
+                    id,
+                    epoch,
+                    &m.public_key,
+                    &m.member,
+                    &at,
+                ));
+            }
+        }
+        for p in self.stored_persons(&tx, id)? {
+            admissions.push(serde_json::to_value(PersonAdmission::sign(
+                &next,
+                id,
+                epoch,
+                &p.person_public_key,
+                &p.member,
+                &at,
+            ))?);
+        }
         let pending = PendingRotation {
             rotation,
             attestations,
+            admissions,
             root_seed: STANDARD.encode(next.to_bytes()),
         };
         insert_statement(&tx, id, "pending_rotation", &epoch.to_string(), &pending)?;
@@ -1200,7 +1910,9 @@ impl Store {
         Ok(network)
     }
 
-    fn own_membership(&self, id: &str) -> Result<Membership, Error> {
+    /// This host's invite chain, used to register an administered network.
+    /// A host admitted by public key has none.
+    fn own_membership(&self, id: &str) -> Result<Option<Membership>, Error> {
         let m: Member = read(
             &*self.connection()?,
             "SELECT record FROM network_members WHERE network_id = ?1 AND host_id = ?2",
@@ -1336,9 +2048,8 @@ pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Erro
     .await?;
     let address = store.advertised();
     let candidates = publish_candidates(&store, &network.coordinator_address).await;
-    let (path, body, accepted): (_, _, &[u16]) = if network.administrator
-        && network.last_sync_at.is_none()
-    {
+    let registration = own.filter(|_| network.administrator && network.last_sync_at.is_none());
+    let (path, body, accepted): (_, _, &[u16]) = if let Some(own) = registration {
         (
             "/coord/v1/networks".to_owned(),
             json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": address, "candidates": candidates}),
@@ -1408,21 +2119,34 @@ pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Erro
     }
 }
 
-/// The `(kind, subject)` of every host and invite revocation a map lists.
+/// The stored `(kind, subject)` of every revocation a map lists that this
+/// host would otherwise resubmit.
 fn listed_revocations(map: &WireMap) -> BTreeSet<(String, String)> {
     map.revocations
         .iter()
         .filter_map(|entry| {
-            let kind = entry["kind"].as_str()?;
-            let field = match kind {
-                "host" => "host_public_key",
-                "invite" => "invite_public_key",
+            let statement = &entry["statement"];
+            let (kind, subject) = match entry["kind"].as_str()? {
+                "host" => ("host", statement["host_public_key"].as_str()?.to_owned()),
+                "invite" => (
+                    "invite",
+                    statement["invite_public_key"].as_str()?.to_owned(),
+                ),
+                "person" => (
+                    "person_removal",
+                    statement["person_public_key"].as_str()?.to_owned(),
+                ),
+                "unbind" => (
+                    "unbind",
+                    format!(
+                        "{} {}",
+                        statement["person_public_key"].as_str()?,
+                        statement["host_public_key"].as_str()?
+                    ),
+                ),
                 _ => return None,
             };
-            Some((
-                kind.to_owned(),
-                entry["statement"][field].as_str()?.to_owned(),
-            ))
+            Some((kind.to_owned(), subject))
         })
         .collect()
 }
@@ -1527,7 +2251,7 @@ async fn submit_rotation(
         &network.coordinator_address,
         &network.coordinator_public_key,
         format!("/coord/v1/networks/{}/rotations", network.id),
-        json_value!({"rotation": pending.rotation, "attestations": pending.attestations}),
+        json_value!({"rotation": pending.rotation, "attestations": pending.attestations, "admissions": pending.admissions}),
     )
     .await;
     match response {
@@ -1677,6 +2401,218 @@ pub async fn join(store: Arc<Store>, token: String) -> Result<Network, Error> {
     blocking(store, move |s| s.apply_map(network, map, true)).await
 }
 
+/// The non-secret descriptor that lets a key an administrator admitted find
+/// and pin this network.
+fn descriptor(network: &Network) -> String {
+    Descriptor {
+        network_id: network.id.clone(),
+        network_name: network.name.clone(),
+        root_public_key: network.root_public_key.clone(),
+        coordinator_address: network.coordinator_address.clone(),
+        coordinator_public_key: network.coordinator_public_key.clone(),
+    }
+    .encode()
+}
+
+/// Submits a statement to a coordinator endpoint and applies the map it
+/// returns; a rejection maps to the matching local status.
+async fn submit_statement(
+    store: Arc<Store>,
+    network: &Network,
+    endpoint: &str,
+    body: Value,
+) -> Result<Network, Error> {
+    let response = coordinator(
+        store.clone(),
+        &network.coordinator_address,
+        &network.coordinator_public_key,
+        format!("/coord/v1/networks/{}/{endpoint}", network.id),
+        body,
+    )
+    .await
+    .map_err(|e| Error::Unavailable(format!("{e:#}")))?;
+    let map = match response {
+        (200 | 201, body) => parse_map(&body)?,
+        (status, body) => return Err(coordinator_status(status, &body)),
+    };
+    let network = network.clone();
+    blocking(store, move |s| s.apply_map(network, map, false)).await
+}
+
+/// Admits a person by public key (administrator only).
+pub async fn admit_person(
+    store: Arc<Store>,
+    id: String,
+    request: AdmitPerson,
+) -> Result<AdmittedPerson, Error> {
+    let (network, admission) = blocking(store.clone(), move |s| {
+        s.sign_person_admission(&id, request)
+    })
+    .await?;
+    let person_id = persons::person_id_of(&admission.person_public_key)?;
+    let network = submit_statement(
+        store,
+        &network,
+        "persons",
+        json_value!({"admission": admission}),
+    )
+    .await?;
+    Ok(AdmittedPerson {
+        person_id,
+        descriptor: descriptor(&network),
+    })
+}
+/// Admits a host by public key (administrator only); it joins with the
+/// returned descriptor.
+pub async fn admit_host(
+    store: Arc<Store>,
+    id: String,
+    request: AdmitHost,
+) -> Result<AdmittedHost, Error> {
+    let (network, admission) =
+        blocking(store.clone(), move |s| s.sign_host_admission(&id, request)).await?;
+    let host_id = key_id(&membership::canonical(&admission.host_public_key, 32)?);
+    let network = submit_statement(
+        store,
+        &network,
+        "hosts",
+        json_value!({"admission": admission}),
+    )
+    .await?;
+    Ok(AdmittedHost {
+        host_id,
+        descriptor: descriptor(&network),
+    })
+}
+/// Redeems a person invite on a member host: the invite seed signs the
+/// person's key, and the coordinator admits it.
+pub async fn redeem_person(
+    store: Arc<Store>,
+    request: RedeemPerson,
+) -> Result<RedeemedPerson, Error> {
+    let token = PersonInviteToken::decode(&request.token)?;
+    let key = persons::normalize_person_key(&request.person_public_key)?;
+    let id = token.network_id.clone();
+    let network = blocking(store.clone(), move |s| s.network(&id)).await?;
+    let membership = token.redeem(&key, &now())?;
+    submit_statement(
+        store,
+        &network,
+        "persons",
+        json_value!({"membership": membership}),
+    )
+    .await?;
+    Ok(RedeemedPerson {
+        person_id: persons::person_id_of(&key)?,
+    })
+}
+/// Submits a person's binding of this host; the host's own submission is its
+/// consent.
+pub async fn bind(store: Arc<Store>, id: String, request: Bind) -> Result<Bound, Error> {
+    let lookup = id.clone();
+    let network = blocking(store.clone(), move |s| s.network(&lookup)).await?;
+    // The CLI supplies the person's signature; this daemon adds its own
+    // consent, and only for its own key.
+    let mut binding = request.binding;
+    binding.verify_person(&network.id)?;
+    binding.sign_host(&store.signing_key)?;
+    binding.verify(&network.id)?;
+    let person_id = persons::person_id_of(&binding.person_public_key)?;
+    submit_statement(
+        store.clone(),
+        &network,
+        "bindings",
+        json_value!({"binding": binding}),
+    )
+    .await?;
+    Ok(Bound {
+        network_id: network.id,
+        host_id: store.identity().id,
+        person_id,
+    })
+}
+/// Records a person's unbinding of a host locally, then submits it now and
+/// on every later sync until the coordinator lists it.
+pub async fn unbind(store: Arc<Store>, id: String, request: Unbind) -> Result<Revoked, Error> {
+    let lookup = id.clone();
+    let (mut revoked, body) = blocking(store.clone(), move |s| {
+        s.record_unbinding(&lookup, request.unbinding)
+    })
+    .await?;
+    let network = blocking(store.clone(), move |s| s.network(&id)).await?;
+    revoked.submitted = submit_revocation(store, &network, body).await;
+    Ok(revoked)
+}
+/// Removes a person (administrator only): enforced locally first, then
+/// submitted until the coordinator lists it.
+pub async fn remove_person(
+    store: Arc<Store>,
+    id: String,
+    request: RemovePerson,
+) -> Result<Revoked, Error> {
+    let lookup = id.clone();
+    let (mut revoked, body) =
+        blocking(store.clone(), move |s| s.remove_person(&lookup, request)).await?;
+    let network = blocking(store.clone(), move |s| s.network(&id)).await?;
+    revoked.submitted = submit_revocation(store, &network, body).await;
+    Ok(revoked)
+}
+/// Joins with an administrator's admission of this host's key. The
+/// coordinator holds the admission; this host proves its key over TLS.
+pub async fn join_with_descriptor(store: Arc<Store>, text: String) -> Result<Network, Error> {
+    let d = Descriptor::decode(&text)?;
+    let id = d.network_id.clone();
+    let exists = blocking(store.clone(), move |s| match s.network(&id) {
+        Ok(_) => Ok(true),
+        Err(Error::NotFound) => Ok(false),
+        Err(e) => Err(e),
+    })
+    .await?;
+    if exists {
+        return Err(Error::Conflict("network already joined".into()));
+    }
+    let candidates = publish_candidates(&store, &d.coordinator_address).await;
+    let response = coordinator(
+        store.clone(),
+        &d.coordinator_address,
+        &d.coordinator_public_key,
+        format!("/coord/v1/networks/{}/members", d.network_id),
+        json_value!({"address": store.advertised(), "candidates": candidates}),
+    )
+    .await
+    .map_err(|e| Error::Unavailable(format!("{e:#}")))?;
+    let map = match response {
+        (200 | 201, body) => parse_map(&body)?,
+        (status, body) => return Err(coordinator_status(status, &body)),
+    };
+    let own = store.identity().id;
+    let member = map
+        .members
+        .iter()
+        .find(|m| m["host_id"].as_str() == Some(own.as_str()))
+        .and_then(|m| {
+            m["admission"]["member"]
+                .as_str()
+                .or(m["membership"]["member"].as_str())
+        })
+        .unwrap_or_default()
+        .to_owned();
+    let network = Network {
+        id: d.network_id,
+        name: d.network_name,
+        root_public_key: d.root_public_key,
+        member,
+        coordinator_address: d.coordinator_address,
+        coordinator_public_key: d.coordinator_public_key,
+        administrator: false,
+        last_sync_at: None,
+        last_sync_error: None,
+        root_epoch: 0,
+        current_root_public_key: String::new(),
+    };
+    blocking(store, move |s| s.apply_map(network, map, true)).await
+}
+
 /// Background registration and sync for every network until shutdown.
 pub async fn coordinate(store: Arc<Store>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
     loop {
@@ -1708,6 +2644,98 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/networks/{id}/revocations", post(revoke_route))
         .route("/v1/networks/{id}/leave", post(leave_route))
         .route("/v1/networks/{id}/rotate", post(rotate_route))
+        .route(
+            "/v1/networks/{id}/persons",
+            get(persons_route).post(admit_person_route),
+        )
+        .route("/v1/networks/{id}/hosts", post(admit_host_route))
+        .route(
+            "/v1/networks/{id}/person-invites",
+            post(person_invite_route),
+        )
+        .route("/v1/networks/redeem-person", post(redeem_person_route))
+        .route("/v1/networks/{id}/bindings", post(bind_route))
+        .route("/v1/networks/{id}/unbindings", post(unbind_route))
+        .route(
+            "/v1/networks/{id}/person-removals",
+            post(remove_person_route),
+        )
+}
+async fn persons_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<PersonView>>, Error> {
+    Ok(Json(blocking(store, move |s| s.persons(&id)).await?))
+}
+async fn admit_person_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<AdmittedPerson>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(admit_person(store, id, request).await?),
+    ))
+}
+async fn admit_host_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<AdmittedHost>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(admit_host(store, id, request).await?),
+    ))
+}
+async fn person_invite_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<IssuedInvite>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(blocking(store, move |s| s.issue_person_invite(&id, request)).await?),
+    ))
+}
+async fn redeem_person_route(
+    State(store): State<Arc<Store>>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<RedeemedPerson>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(redeem_person(store, request).await?),
+    ))
+}
+async fn bind_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Bound>), Error> {
+    let request = decode(body)?;
+    Ok((StatusCode::CREATED, Json(bind(store, id, request).await?)))
+}
+async fn unbind_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Revoked>), Error> {
+    let request = decode(body)?;
+    Ok((StatusCode::CREATED, Json(unbind(store, id, request).await?)))
+}
+async fn remove_person_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Revoked>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(remove_person(store, id, request).await?),
+    ))
 }
 async fn revoke_route(
     State(store): State<Arc<Store>>,
@@ -1746,7 +2774,16 @@ async fn join_route(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<Network>), Error> {
     let request: JoinNetwork = decode(body)?;
-    Ok((StatusCode::CREATED, Json(join(store, request.token).await?)))
+    let network = match (request.token, request.descriptor) {
+        (Some(token), None) => join(store, token).await?,
+        (None, Some(descriptor)) => join_with_descriptor(store, descriptor).await?,
+        _ => {
+            return Err(Error::Invalid(
+                "give exactly one of token or descriptor".into(),
+            ));
+        }
+    };
+    Ok((StatusCode::CREATED, Json(network)))
 }
 async fn members(
     State(store): State<Arc<Store>>,
@@ -1826,6 +2863,7 @@ mod tests {
                 wrong_id,
                 json_value!({"host_id": "junk"}),
             ],
+            persons: Vec::new(),
         };
         let members = verify_map(&network, map, Statements::default())
             .unwrap()
@@ -1839,6 +2877,7 @@ mod tests {
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
+            persons: Vec::new(),
         };
         assert!(verify_map(&network, other, Statements::default()).is_err());
     }
@@ -1863,6 +2902,8 @@ mod tests {
         assert_eq!(
             members[0]
                 .membership
+                .as_ref()
+                .unwrap()
                 .verify(&network.root_public_key)
                 .unwrap(),
             store.identity().id
@@ -1941,6 +2982,7 @@ mod tests {
                 json_value!({"host_id": store.identity().id, "membership": me, "address": "", "updated_at": "2026-10-05T00:00:00Z"}),
                 member_entry(&root, &other, &random_seed().unwrap()),
             ],
+            persons: Vec::new(),
         };
         // A map that omits this host is not applied.
         let mut missing = map();
@@ -2035,7 +3077,417 @@ mod tests {
             rotations,
             attestations,
             revocations,
+            persons: Vec::new(),
         }
+    }
+
+    fn person_entry(admission: &PersonAdmission) -> Value {
+        json_value!({
+            "person_id": persons::person_id_of(&admission.person_public_key).unwrap(),
+            "person_public_key": admission.person_public_key,
+            "member": admission.member,
+            "admission": admission,
+        })
+    }
+    fn admitted_entry(admission: &HostAdmission) -> Value {
+        let key = membership::canonical(&admission.host_public_key, 32).unwrap();
+        json_value!({"host_id": key_id(&key), "admission": admission, "address": "", "updated_at": "2026-10-05T00:00:00Z"})
+    }
+    fn events(store: &Store) -> Vec<(String, String)> {
+        store
+            .events(0, 1000)
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.kind, e.subject_id))
+            .collect()
+    }
+
+    #[test]
+    fn persons_bind_hosts_and_removals_and_unbindings_are_sticky() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let r0 = random_seed().unwrap();
+        let id = membership::network_id(r0.verifying_key().as_bytes());
+        let network = Network {
+            id: id.clone(),
+            name: "team".into(),
+            root_public_key: key(&r0),
+            member: "bob".into(),
+            coordinator_address: "127.0.0.1:1".into(),
+            coordinator_public_key: key(&random_seed().unwrap()),
+            administrator: false,
+            last_sync_at: None,
+            last_sync_error: None,
+            root_epoch: 0,
+            current_root_public_key: String::new(),
+        };
+        let at = "2026-10-08T00:00:00Z";
+        let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
+        let [carol, dave] = [(); 2].map(|_| random_seed().unwrap());
+        let [p_key, q_key, x_key] = [(); 3].map(|_| random_seed().unwrap());
+        let (p, q, x) = (
+            persons::PersonSigner::File(p_key.clone()),
+            persons::PersonSigner::File(q_key.clone()),
+            persons::PersonSigner::File(x_key),
+        );
+        // P by admission, Q by person invite; X was never admitted.
+        let admit_p = PersonAdmission::sign(&r0, &id, 0, &p.public_key_b64(), "pat", at);
+        let token = PersonInviteToken::issue(
+            &r0,
+            &random_seed().unwrap(),
+            &id,
+            "team",
+            0,
+            "quinn",
+            "2099-01-01T00:00:00Z",
+            "127.0.0.1:1",
+            &key(&r0),
+        );
+        let q_membership = token.redeem(&q.public_key_b64(), at).unwrap();
+        let q_entry = json_value!({
+            "person_id": persons::person_id(&q.public_key()),
+            "person_public_key": q.public_key_b64(),
+            "member": "quinn",
+            "membership": q_membership,
+        });
+        // A forged admission (not the root) is ignored.
+        let forged = PersonAdmission::sign(
+            &random_seed().unwrap(),
+            &id,
+            0,
+            &x.public_key_b64(),
+            "xavier",
+            at,
+        );
+        let persons_wire = || {
+            vec![
+                person_entry(&admit_p),
+                q_entry.clone(),
+                person_entry(&forged),
+            ]
+        };
+        // Carol is admitted by public key; dave joined with an invite.
+        let carol_admission = HostAdmission::sign(&r0, &id, 0, &key(&carol), "carol", at);
+        let consented = |person: &persons::PersonSigner, host: &SigningKey| {
+            let mut b = HostBinding::sign(person, &id, &key(host), at).unwrap();
+            b.sign_host(host).unwrap();
+            b
+        };
+        let bind_me = consented(&p, &me);
+        let bind_carol = consented(&q, &carol);
+        // A binding naming another host, one by an unadmitted person, and one
+        // carrying only the person's signature (no host consent).
+        let misdirected = consented(&p, &carol);
+        let by_stranger = consented(&x, &dave);
+        let unconsented = HostBinding::sign(&p, &id, &key(&dave), at).unwrap();
+        let members = |bindings: bool| {
+            let mut mine = rooted_entry(&id, &r0, &me);
+            let mut carol_entry = admitted_entry(&carol_admission);
+            let mut dave_entry = rooted_entry(&id, &r0, &dave);
+            if bindings {
+                mine["binding"] = serde_json::to_value(&bind_me).unwrap();
+                carol_entry["binding"] = serde_json::to_value(&bind_carol).unwrap();
+                dave_entry["binding"] = serde_json::to_value(&by_stranger).unwrap();
+            } else {
+                dave_entry["binding"] = serde_json::to_value(&misdirected).unwrap();
+            }
+            vec![mine, carol_entry, dave_entry]
+        };
+        let mut map = wire(&network, members(true), vec![], vec![], vec![]);
+        map.persons = persons_wire();
+        store.apply_map(network.clone(), map, true).unwrap();
+        let known = |k: &SigningKey| store.knows(&k.verifying_key().to_bytes()).unwrap();
+        assert!(
+            known(&carol) && known(&dave),
+            "a key-admitted host is a member"
+        );
+        let person_of = |host: &SigningKey| {
+            store
+                .members(&id)
+                .unwrap()
+                .into_iter()
+                .find(|m| m.public_key == key(host))
+                .map(|m| (m.person_id, m.person_member))
+                .unwrap()
+        };
+        let pid = persons::person_id(&p.public_key());
+        let qid = persons::person_id(&q.public_key());
+        assert_eq!(person_of(&me), (Some(pid.clone()), Some("pat".into())));
+        assert_eq!(person_of(&carol), (Some(qid.clone()), Some("quinn".into())));
+        assert_eq!(
+            person_of(&dave),
+            (None, None),
+            "an unadmitted person binds nothing"
+        );
+        let mut no_consent = members(true);
+        no_consent[2]["binding"] = serde_json::to_value(&unconsented).unwrap();
+        let mut map = wire(&network, no_consent, vec![], vec![], vec![]);
+        map.persons = persons_wire();
+        store.apply_map(network.clone(), map, false).unwrap();
+        assert_eq!(
+            person_of(&dave),
+            (None, None),
+            "a binding without the host's signature binds nothing"
+        );
+        let listed = store.persons(&id).unwrap();
+        assert_eq!(listed.len(), 2, "the forged admission is ignored");
+        let view = |pid: &str| listed.iter().find(|v| v.person_id == pid).unwrap();
+        assert_eq!(
+            view(&pid).hosts,
+            vec![key_id(me.verifying_key().as_bytes())]
+        );
+        assert_eq!(
+            view(&qid).hosts,
+            vec![key_id(carol.verifying_key().as_bytes())]
+        );
+        assert_eq!(view(&qid).member, "quinn");
+        let kinds = events(&store);
+        assert!(kinds.contains(&("network.person_admitted".into(), pid.clone())));
+        assert!(kinds.contains(&(
+            "network.host_admitted".into(),
+            key_id(carol.verifying_key().as_bytes())
+        )));
+        assert!(kinds.contains(&(
+            "network.host_bound".into(),
+            key_id(carol.verifying_key().as_bytes())
+        )));
+
+        // Q unbinds carol locally: enforced at once and sticky even though the
+        // coordinator still serves the binding.
+        let unbind = HostUnbinding::sign(&q, &id, &key(&carol), at).unwrap();
+        let (revoked, body) = store.record_unbinding(&id, unbind.clone()).unwrap();
+        assert_eq!(
+            (revoked.kind.as_str(), revoked.subject.as_str()),
+            ("unbind", key(&carol).as_str())
+        );
+        assert_eq!(body["kind"], "unbind");
+        assert_eq!(person_of(&carol), (None, None));
+        let mut map = wire(&network, members(true), vec![], vec![], vec![]);
+        map.persons = persons_wire();
+        store.apply_map(network.clone(), map, false).unwrap();
+        assert_eq!(person_of(&carol), (None, None), "unbinding is sticky");
+        assert_eq!(person_of(&me), (Some(pid.clone()), Some("pat".into())));
+        // A forged unbinding is refused.
+        let mut tampered = unbind.clone();
+        tampered.host_public_key = key(&me);
+        assert!(store.record_unbinding(&id, tampered).is_err());
+
+        // The root removes P: it disappears with its binding, stickily.
+        let removal = PersonRemoval::sign(&r0, &id, &p.public_key_b64(), at);
+        let mut map = wire(
+            &network,
+            members(true),
+            vec![],
+            vec![],
+            vec![json_value!({"kind": "person", "statement": removal})],
+        );
+        map.persons = persons_wire();
+        store.apply_map(network.clone(), map, false).unwrap();
+        assert_eq!(person_of(&me), (None, None));
+        let mut map = wire(&network, members(true), vec![], vec![], vec![]);
+        map.persons = persons_wire();
+        store.apply_map(network.clone(), map, false).unwrap();
+        assert_eq!(person_of(&me), (None, None), "removal is sticky");
+        assert_eq!(
+            store
+                .persons(&id)
+                .unwrap()
+                .iter()
+                .map(|v| v.person_id.clone())
+                .collect::<Vec<_>>(),
+            vec![qid.clone()]
+        );
+        assert!(events(&store).contains(&("network.person_removed".into(), pid.clone())));
+
+        // After a rotation, epoch-0 admissions and person invites no longer
+        // count; re-signed admissions at the new epoch do.
+        let r1 = random_seed().unwrap();
+        let rotation = Rotation::sign(&r0, &id, 1, &key(&r1), at);
+        let attest_me = Attestation::sign(&r1, &id, 1, &key(&me), "bob", at);
+        let attest_dave = Attestation::sign(&r1, &id, 1, &key(&dave), "dave", at);
+        let stale = |carol_entry: Value| {
+            let mut map = wire(
+                &network,
+                vec![
+                    rooted_entry(&id, &r0, &me),
+                    carol_entry,
+                    rooted_entry(&id, &r0, &dave),
+                ],
+                vec![serde_json::to_value(&rotation).unwrap()],
+                vec![
+                    serde_json::to_value(&attest_me).unwrap(),
+                    serde_json::to_value(&attest_dave).unwrap(),
+                ],
+                vec![],
+            );
+            map.persons = vec![q_entry.clone()];
+            map
+        };
+        store
+            .apply_map(
+                network.clone(),
+                stale(admitted_entry(&carol_admission)),
+                false,
+            )
+            .unwrap();
+        assert!(
+            !known(&carol),
+            "an epoch-0 host admission lapses after rotation"
+        );
+        assert!(
+            store.persons(&id).unwrap().is_empty(),
+            "an epoch-0 person invite lapses"
+        );
+        let readmit_carol = HostAdmission::sign(&r1, &id, 1, &key(&carol), "carol", at);
+        let readmit_q = PersonAdmission::sign(&r1, &id, 1, &q.public_key_b64(), "quinn", at);
+        let mut map = stale(admitted_entry(&readmit_carol));
+        map.persons = vec![person_entry(&readmit_q)];
+        store.apply_map(network.clone(), map, false).unwrap();
+        assert!(known(&carol));
+        assert_eq!(store.persons(&id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn administrators_admit_persons_and_hosts_and_rotation_readmits_them() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let network = store
+            .create_network(CreateNetwork {
+                name: "team".into(),
+                member: "alice".into(),
+                coordinator_address: "127.0.0.1:1".into(),
+                coordinator_public_key: key(&random_seed().unwrap()),
+            })
+            .unwrap();
+        let id = network.id.clone();
+        let person = persons::PersonSigner::File(random_seed().unwrap());
+        let ssh = persons::ssh_public_line(&person.public_key());
+        let (_, admission) = store
+            .sign_person_admission(
+                &id,
+                AdmitPerson {
+                    person_public_key: format!("{ssh} bob@laptop"),
+                    member: "bob".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(admission.person_public_key, person.public_key_b64());
+        admission.verify(&id, 0, &network.root_public_key).unwrap();
+        let carol = random_seed().unwrap();
+        let (_, host) = store
+            .sign_host_admission(
+                &id,
+                AdmitHost {
+                    host_public_key: key(&carol),
+                    member: "carol".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            host.verify(&id, 0, &network.root_public_key).unwrap(),
+            key_id(carol.verifying_key().as_bytes())
+        );
+        assert!(matches!(
+            store.sign_host_admission(
+                &id,
+                AdmitHost {
+                    host_public_key: key(&store.signing_key),
+                    member: "me".into(),
+                },
+            ),
+            Err(Error::Conflict(_))
+        ));
+        let invite = store
+            .issue_person_invite(
+                &id,
+                CreateInvite {
+                    member: "dana".into(),
+                    expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
+                },
+            )
+            .unwrap();
+        let token = PersonInviteToken::decode(&invite.token).unwrap();
+        assert_eq!(token.invite_epoch, 0);
+        let d = Descriptor::decode(&descriptor(&network)).unwrap();
+        assert_eq!(d.root_public_key, network.root_public_key);
+
+        // Persist the admitted person and host as a coordinator map would.
+        let own = store.own_membership(&id).unwrap().unwrap();
+        let map = WireMap {
+            network_id: id.clone(),
+            root_public_key: network.root_public_key.clone(),
+            members: vec![
+                json_value!({"host_id": store.identity().id, "membership": own, "address": "", "updated_at": "2026-10-05T00:00:00Z"}),
+                admitted_entry(&host),
+            ],
+            rotations: vec![],
+            attestations: vec![],
+            revocations: vec![],
+            persons: vec![person_entry(&admission)],
+        };
+        store
+            .apply_map(store.network(&id).unwrap(), map, false)
+            .unwrap();
+        let (_, pending) = store.prepare_rotation(&id).unwrap();
+        assert_eq!(
+            pending.attestations.len(),
+            1,
+            "the invite-chain member is attested"
+        );
+        assert_eq!(
+            pending.admissions.len(),
+            2,
+            "the host and person are re-admitted"
+        );
+        let next = pending.rotation.root_public_key.clone();
+        for a in &pending.admissions {
+            if a.get("host_public_key").is_some() {
+                let a: HostAdmission = serde_json::from_value(a.clone()).unwrap();
+                a.verify(&id, 1, &next).unwrap();
+            } else {
+                let a: PersonAdmission = serde_json::from_value(a.clone()).unwrap();
+                a.verify(&id, 1, &next).unwrap();
+            }
+        }
+
+        // Removing the person is local first and idempotent.
+        let pid = persons::person_id(&person.public_key());
+        let (first, body) = store
+            .remove_person(
+                &id,
+                RemovePerson {
+                    person_id: pid.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(body["kind"], "person");
+        assert!(store.persons(&id).unwrap().is_empty());
+        let (again, _) = store
+            .remove_person(
+                &id,
+                RemovePerson {
+                    person_id: pid.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(first.subject, again.subject);
+        assert_eq!(
+            events(&store)
+                .iter()
+                .filter(|e| *e == &("network.person_removed".to_owned(), pid.clone()))
+                .count(),
+            1
+        );
+        assert!(matches!(
+            store.sign_person_admission(
+                &id,
+                AdmitPerson {
+                    person_public_key: ssh,
+                    member: "bob".into(),
+                },
+            ),
+            Err(Error::Forbidden)
+        ));
     }
 
     #[test]
@@ -2277,7 +3729,11 @@ mod tests {
         store.apply_map(network.clone(), map(), false).unwrap();
         assert!(!known(&carol) && known(&dave));
         // Revoking an invite drops the host that joined with it; not our own invite.
-        let own_invite = store.own_membership(&id).unwrap().invite_public_key;
+        let own_invite = store
+            .own_membership(&id)
+            .unwrap()
+            .unwrap()
+            .invite_public_key;
         assert!(matches!(
             revoke(None, Some(own_invite)),
             Err(Error::Conflict(_))

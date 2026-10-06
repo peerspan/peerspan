@@ -140,7 +140,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
                 db.execute("DELETE FROM statements WHERE kind = 'host'")
             bob_record = next(m for m in bob.cli('network', 'members', net) if m['host_id'] == ids[bob])
             with coord_db(coord) as db:
-                db.execute('INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)',
+                db.execute('INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
                            (net, ids[bob], bob_record['membership']['invite_public_key'],
                             json.dumps(bob_record['membership']), '', timestamp(0)))
             carol.cli('network', 'sync', net)
@@ -199,7 +199,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
                       'host_signature': b64(sign(base64.b64decode(token['invite_seed']), statement, root))}
             rogue_id = 'host_' + hashlib.sha256(base64.b64decode(rogue_public)).hexdigest()
             with coord_db(coord) as db:
-                db.execute('INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)',
+                db.execute('INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
                            (net, rogue_id, token['invite_public_key'], json.dumps(forged), '', timestamp(0)))
             frank.cli('network', 'sync', net)
             assert rogue_id not in member_ids(frank, net)

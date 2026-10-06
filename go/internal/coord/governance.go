@@ -69,7 +69,7 @@ func statementsOf(ctx context.Context, tx *sql.Tx, network, kind string) ([]json
 // revokedOf collects stored revocations; they were verified on acceptance.
 func revokedOf(ctx context.Context, tx *sql.Tx, chain membership.Chain) (membership.Revoked, error) {
 	revoked := membership.NewRevoked()
-	rows, err := tx.QueryContext(ctx, `SELECT kind, subject FROM statements WHERE network_id = ? AND kind IN ('host', 'invite', 'leave')`, chain.NetworkID)
+	rows, err := tx.QueryContext(ctx, `SELECT kind, subject FROM statements WHERE network_id = ? AND kind IN ('host', 'invite', 'leave', 'person', 'unbind')`, chain.NetworkID)
 	if err != nil {
 		return revoked, err
 	}
@@ -119,16 +119,23 @@ func dropExcluded(ctx context.Context, tx *sql.Tx, chain membership.Chain) error
 	if err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT host_id, membership FROM members WHERE network_id = ?`, chain.NetworkID)
+	rows, err := tx.QueryContext(ctx, `SELECT host_id, membership, COALESCE(admission, '') FROM members WHERE network_id = ?`, chain.NetworkID)
 	if err != nil {
 		return err
 	}
 	var drop []string
 	for rows.Next() {
-		var host, data string
-		if err = rows.Scan(&host, &data); err != nil {
+		var host, data, admission string
+		if err = rows.Scan(&host, &data, &admission); err != nil {
 			rows.Close()
 			return err
+		}
+		if data == "" {
+			var a membership.HostAdmission
+			if json.Unmarshal([]byte(admission), &a) != nil || revoked.ExcludesHost(a.HostPublicKey, "") {
+				drop = append(drop, host)
+			}
+			continue
 		}
 		var m membership.Membership
 		if json.Unmarshal([]byte(data), &m) != nil || revoked.Excludes(m) {
@@ -166,7 +173,7 @@ func addStatements(ctx context.Context, tx *sql.Tx, m *membership.Map) error {
 		return err
 	}
 	m.Attestations = append(m.Attestations, attestations...)
-	for _, kind := range []string{membership.KindHost, membership.KindInvite, membership.KindLeave} {
+	for _, kind := range []string{membership.KindHost, membership.KindInvite, membership.KindLeave, membership.KindPerson, membership.KindUnbind} {
 		raw, err := statementsOf(ctx, tx, m.NetworkID, kind)
 		if err != nil {
 			return err
@@ -200,6 +207,10 @@ type leaveRequest struct {
 type rotationRequest struct {
 	Rotation     membership.Rotation      `json:"rotation"`
 	Attestations []membership.Attestation `json:"attestations"`
+	// Admissions are host and person admissions re-signed by the new root,
+	// each a bare statement told apart by host_public_key or
+	// person_public_key.
+	Admissions []json.RawMessage `json:"admissions"`
 }
 
 func (s *Server) governanceRoutes(mux *http.ServeMux) {
@@ -233,7 +244,7 @@ func (s *Server) governanceRoutes(mux *http.ServeMux) {
 			return
 		}
 		var req rotationRequest
-		if !decode(w, r, &req, "rotation", "attestations") {
+		if !decode(w, r, &req, "rotation", "attestations", "admissions") {
 			return
 		}
 		m, err := s.rotate(r.Context(), caller, r.PathValue("network"), req)
@@ -242,8 +253,10 @@ func (s *Server) governanceRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) revoke(ctx context.Context, caller, network string, req revocationRequest) (*membership.Map, error) {
-	if req.Kind != membership.KindHost && req.Kind != membership.KindInvite {
-		return nil, fmt.Errorf("%w: kind must be host or invite", errInvalid)
+	switch req.Kind {
+	case membership.KindHost, membership.KindInvite, membership.KindPerson, membership.KindUnbind:
+	default:
+		return nil, fmt.Errorf("%w: kind must be host, invite, person, or unbind", errInvalid)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -347,6 +360,10 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 	if len(attested) != len(members) {
 		return nil, fmt.Errorf("%w: attestations must cover every current member", errInvalid)
 	}
+	hostAdmissions, personAdmissions, err := s.rotationAdmissions(ctx, tx, chain, next, req.Admissions)
+	if err != nil {
+		return nil, err
+	}
 	rotation, err := json.Marshal(req.Rotation)
 	if err != nil {
 		return nil, err
@@ -366,6 +383,9 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 			return nil, err
 		}
 	}
+	if err = replaceAdmissions(ctx, tx, network, hostAdmissions, personAdmissions); err != nil {
+		return nil, err
+	}
 	m, err := networkMap(ctx, tx, network)
 	if err != nil {
 		return nil, err
@@ -373,9 +393,10 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 	return m, tx.Commit()
 }
 
-// memberKeys maps each current member's host key to its member label.
+// memberKeys maps each current invite-chain member's host key to its member
+// label; members admitted by public key are covered by admissions instead.
 func memberKeys(ctx context.Context, tx *sql.Tx, network string) (map[string]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT membership FROM members WHERE network_id = ?`, network)
+	rows, err := tx.QueryContext(ctx, `SELECT membership FROM members WHERE network_id = ? AND membership != ''`, network)
 	if err != nil {
 		return nil, err
 	}

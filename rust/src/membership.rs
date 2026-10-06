@@ -39,7 +39,7 @@ pub struct InviteToken {
     pub invite_signature: String,
 }
 
-fn invalid(message: &str) -> Error {
+pub(crate) fn invalid(message: &str) -> Error {
     Error::Invalid(message.into())
 }
 
@@ -304,15 +304,15 @@ impl InviteToken {
     }
 }
 
-fn sign_lines(key: &SigningKey, lines: &[&str]) -> String {
+pub(crate) fn sign_lines(key: &SigningKey, lines: &[&str]) -> String {
     STANDARD.encode(key.sign(lines.join("\n").as_bytes()).to_bytes())
 }
-fn verify_lines(key: &str, lines: &[&str], sig: &str) -> Result<(), Error> {
+pub(crate) fn verify_lines(key: &str, lines: &[&str], sig: &str) -> Result<(), Error> {
     public_key(key)?
         .verify_strict(lines.join("\n").as_bytes(), &signature(sig)?)
         .map_err(|_| invalid("invalid statement signature"))
 }
-fn check_network(network: &str, expected: &str) -> Result<(), Error> {
+pub(crate) fn check_network(network: &str, expected: &str) -> Result<(), Error> {
     if network != expected {
         return Err(invalid("statement is for another network"));
     }

@@ -72,6 +72,15 @@ CREATE TABLE statements (
 PRAGMA user_version = 3;
 `
 
+// admissionSchema (version 4) lets a host join with an administrator's
+// admission of its public key instead of an invite chain. Such a member has an
+// empty membership and a synthetic, unique invite_public_key of
+// "admission:" + its host key.
+const admissionSchema = `
+ALTER TABLE members ADD COLUMN admission TEXT;
+PRAGMA user_version = 4;
+`
+
 var (
 	errInvalid   = errors.New("invalid request")
 	errForbidden = errors.New("forbidden")
@@ -220,7 +229,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 3 {
+	if version < 0 || version > 4 {
 		return nil, fmt.Errorf("unsupported coordinator database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -247,6 +256,11 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	}
 	if version < 3 {
 		if _, err = tx.ExecContext(ctx, statementsSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 4 {
+		if _, err = tx.ExecContext(ctx, admissionSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -420,11 +434,11 @@ func (s *Server) Handler() http.Handler {
 		if !ok {
 			return
 		}
-		var req joinRequest
-		if !decode(w, r, &req, "membership", "address", "candidates") {
+		data, ok := readBody(w, r)
+		if !ok {
 			return
 		}
-		status, m, err := s.join(r.Context(), caller, r.PathValue("network"), req)
+		status, m, err := s.joinRequest(r.Context(), caller, r.PathValue("network"), data)
 		respond(w, status, m, err)
 	})
 	mux.HandleFunc("POST /coord/v1/networks/{network}/sync", func(w http.ResponseWriter, r *http.Request) {
@@ -440,6 +454,7 @@ func (s *Server) Handler() http.Handler {
 		respond(w, http.StatusOK, m, err)
 	})
 	s.governanceRoutes(mux)
+	s.personRoutes(mux)
 	return mux
 }
 
@@ -457,16 +472,25 @@ func callerID(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, dst any, fields ...string) bool {
-	defer r.Body.Close()
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err == nil {
-		err = membership.Strict(data, dst, fields...)
+	data, ok := readBody(w, r)
+	if !ok {
+		return false
 	}
-	if err != nil {
+	if err := membership.Strict(data, dst, fields...); err != nil {
 		respond(w, 0, nil, fmt.Errorf("%w: %v", errInvalid, err))
 		return false
 	}
 	return true
+}
+
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	defer r.Body.Close()
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		respond(w, 0, nil, fmt.Errorf("%w: %v", errInvalid, err))
+		return nil, false
+	}
+	return data, true
 }
 
 func respond(w http.ResponseWriter, status int, value any, err error) {
@@ -524,7 +548,7 @@ func (s *Server) insertMember(ctx context.Context, tx *sql.Tx, caller string, m 
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)`, m.NetworkID, caller, m.InvitePublicKey, string(data), address, membership.Timestamp(s.Now())); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, m.NetworkID, caller, m.InvitePublicKey, string(data), address, membership.Timestamp(s.Now())); err != nil {
 		return err
 	}
 	return putCandidates(ctx, tx, m.NetworkID, caller, candidates)
@@ -677,18 +701,18 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 	if err := tx.QueryRowContext(ctx, `SELECT name, root_public_key FROM networks WHERE id = ?`, network).Scan(&m.Name, &m.RootPublicKey); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT m.host_id, m.membership, m.address, m.updated_at, COALESCE(c.candidates, '[]') FROM members m LEFT JOIN member_candidates c ON c.network_id = m.network_id AND c.host_id = m.host_id WHERE m.network_id = ? ORDER BY m.host_id`, network)
+	rows, err := tx.QueryContext(ctx, `SELECT m.host_id, m.membership, COALESCE(m.admission, ''), m.address, m.updated_at, COALESCE(c.candidates, '[]') FROM members m LEFT JOIN member_candidates c ON c.network_id = m.network_id AND c.host_id = m.host_id WHERE m.network_id = ? ORDER BY m.host_id`, network)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var entry rawMember
-		var candidates string
-		if err = rows.Scan(&entry.HostID, &entry.Membership, &entry.Address, &entry.UpdatedAt, &candidates); err != nil {
+		var candidates, admission string
+		if err = rows.Scan(&entry.HostID, &entry.Membership, &admission, &entry.Address, &entry.UpdatedAt, &candidates); err != nil {
 			return nil, err
 		}
-		member := membership.MapMember{HostID: entry.HostID, Membership: json.RawMessage(entry.Membership), Address: entry.Address, Candidates: []string{}, UpdatedAt: entry.UpdatedAt}
+		member := membership.MapMember{HostID: entry.HostID, Membership: rawOrNull(entry.Membership), Admission: rawOrNull(admission), Address: entry.Address, Candidates: []string{}, UpdatedAt: entry.UpdatedAt}
 		if json.Unmarshal([]byte(candidates), &member.Candidates) != nil || member.Candidates == nil {
 			member.Candidates = []string{}
 		}
@@ -697,7 +721,18 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	return m, addStatements(ctx, tx, m)
+	if err = addStatements(ctx, tx, m); err != nil {
+		return nil, err
+	}
+	return m, addPersons(ctx, tx, m)
+}
+
+// rawOrNull serves an empty stored column as JSON null.
+func rawOrNull(value string) json.RawMessage {
+	if value == "" {
+		return nil
+	}
+	return json.RawMessage(value)
 }
 
 type rawMember struct{ HostID, Membership, Address, UpdatedAt string }

@@ -74,6 +74,7 @@ func Handler(store *Store) http.Handler {
 	localPeerRoutes(mux, store)
 	localNetworkRoutes(mux, store)
 	localGovernanceRoutes(mux, store)
+	localPersonRoutes(mux, store)
 	localAdapterRoutes(mux, store)
 	return mux
 }

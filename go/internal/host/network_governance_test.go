@@ -121,7 +121,7 @@ func TestRevocationLeaveAndRotation(t *testing.T) {
 	if _, err = db.Exec("DELETE FROM statements WHERE kind = 'host'"); err != nil {
 		t.Fatal(err)
 	}
-	if err = injectMember(network, bobProof.Membership); err != nil {
+	if err = injectMember(network, *bobProof.Membership); err != nil {
 		t.Fatal(err)
 	}
 	mustSync(t, carol, id)
@@ -276,7 +276,7 @@ func TestPendingRotationSurvivesCrashAndForkDiscards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = alice.callCoordinator(ctx, n, "/coord/v1/networks/"+id+"/rotations", map[string]any{"rotation": pending.Rotation, "attestations": pending.Attestations}); err != nil {
+	if _, err = alice.callCoordinator(ctx, n, "/coord/v1/networks/"+id+"/rotations", map[string]any{"rotation": pending.Rotation, "attestations": pending.Attestations, "admissions": pending.Admissions}); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := alice.Network(ctx, id); after.RootEpoch != 0 || string(seed()) != string(original) || pendingCount() != 1 {

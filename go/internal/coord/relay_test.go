@@ -58,7 +58,7 @@ func (h *relayHarness) member(t *testing.T, network string, k ed25519.PrivateKey
 	if _, err := h.s.db.ExecContext(ctx, `INSERT OR IGNORE INTO networks VALUES (?, 'n', 'root', 'now')`, network); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.s.db.ExecContext(ctx, `INSERT INTO members VALUES (?, ?, ?, '{}', '', 'now')`, network, id(k), id(k)); err != nil {
+	if _, err := h.s.db.ExecContext(ctx, `INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at) VALUES (?, ?, ?, '{}', '', 'now')`, network, id(k), id(k)); err != nil {
 		t.Fatal(err)
 	}
 }

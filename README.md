@@ -107,6 +107,7 @@ python3 conformance/host_service.py --go /tmp/capsule-host-go --rust rust/target
 python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --probe /tmp/capsule-peer-probe
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/revocation.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+python3 conformance/persons.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/send_retry.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
