@@ -192,6 +192,108 @@ Database version 7 adds `CREATE TABLE network_statements (network_id TEXT NOT NU
 
 Network and member records report the effect: a revoked or departed member disappears from `network members`. New activity kinds: `network.host_revoked` (subject: host ID), `network.invite_revoked` (subject: invite key), `network.member_left` (another host's leave, seen in a map), `network.left`, and `network.root_rotated`. A dropped host also produces `network.member_removed`.
 
+## Persons and host binding
+
+Roadmap milestone 2b, slice 1. The design is in the [person identity proposal](person-identity-proposal.md), and its decisions apply. Administrators keep admitting hosts. Persons are an optional layer: an administrator admits a person, and the person binds hosts that are already admitted. Until slice 2 adds delegated administrators, the administrator is the host holding the current root seed. Persons authorize nothing yet; slice 3's owner policy builds on them.
+
+### Person keys and signatures
+
+A person key is an OpenSSH `ssh-ed25519` key. Only the CLI uses it. Daemons never read or store person keys, and receive only signed statements.
+
+- **Agent signing (default):** the CLI signs through `ssh-agent` at `SSH_AUTH_SOCK`, using the only `ssh-ed25519` identity in the agent. It is an error if there are none or several.
+- **Choosing a key:** `--person-key PATH` names either a public key file, which selects that identity in the agent, or an unencrypted OpenSSH private key file, which signs locally without an agent.
+- **Format:** person statements are signed in OpenSSH `SSHSIG` format, with namespace `capsule-person-v1` and hash `sha512`. The JSON `signature` field is standard Base64 of the binary `SSHSIG` blob: the bytes inside an armored `-----BEGIN SSH SIGNATURE-----` block, without the armor.
+- **Verification:** a verifier checks the `SSHSIG` magic and version 1, that the embedded public key is `ssh-ed25519` with the expected person key, the namespace, an empty reserved field, hash `sha512`, and the Ed25519 signature over the `SSHSIG` signed data. `ssh-keygen -Y verify -n capsule-person-v1` accepts these signatures.
+- **Keys and IDs:** person public keys in statements are canonical standard Base64 of the 32 raw key bytes. A person ID is `person_` followed by the lowercase hex SHA-256 of those bytes.
+
+`capsule-host person show [--person-key PATH]` needs no daemon. It prints `{person_id, public_key, ssh_public_key}`.
+
+### Statements
+
+| Statement | Signed by | Lines |
+| --- | --- | --- |
+| Person admission | root of `epoch` (raw Ed25519) | `capsule-person-admit-v1`, `network_id`, `epoch`, `person_public_key`, `member`, `admitted_at` |
+| Person invite | root of `epoch` (raw Ed25519) | `capsule-person-invite-v1`, `network_id`, `epoch`, `invite_public_key`, `member`, `invite_expires_at` |
+| Person membership | the person invite key (raw Ed25519) | `capsule-person-member-v1`, `network_id`, `invite_public_key`, `person_public_key`, `joined_at` |
+| Person removal | any root in the chain (raw Ed25519) | `capsule-person-remove-v1`, `network_id`, `person_public_key`, `removed_at` |
+| Host admission | root of `epoch` (raw Ed25519) | `capsule-host-admit-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `admitted_at` |
+| Host binding | the person (`SSHSIG`) | `capsule-host-bind-v1`, `network_id`, `person_public_key`, `host_public_key`, `bound_at` |
+| Host unbinding | the person (`SSHSIG`) | `capsule-host-unbind-v1`, `network_id`, `person_public_key`, `host_public_key`, `unbound_at` |
+
+Each statement is carried as a strict JSON object of its fields plus `signature`, with `epoch` as a JSON number. A person **membership** object nests its invite: `{network_id, member, invite_public_key, invite_expires_at, invite_epoch, invite_signature, person_public_key, joined_at, person_signature}`. The person invite statement's lines use `invite_epoch` as their `epoch`.
+
+**Test vectors.** These use the network, root, invite, and host keys of the earlier vectors. The person seed is `BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=`, its public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=` (OpenSSH `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG56HN0psLeP0Tr0xVmP7/TvKpcWbjym8uT7/M2AUFvx`), and its ID `person_7599776c3085e3f9da0d13071eb0b4ab50fd2bf64c06dd92c2365af3a328eca3`. Times are `2026-10-08T00:00:00Z`, and the invite expires `2026-11-01T00:00:00Z`. Epochs are 0. The person member label is `bob` and the host member label is `carol`.
+
+| Statement | `signature` |
+| --- | --- |
+| Person admission | `57pOZqduTPBJKqC2gEAjW23pzd7zwul08CTAxX2KBRSlI36JJfb5WNf8x9LOlaLKK1jBL2r72mLJXIkpTYi+BA==` |
+| Person invite | `DOs/7yFxVmC3IuPAcfqlF1EDczkw0++1gRZOjIQNCcK7d3nOPFDZoWcnrhMpBIzdLlEF6fR52K45m8TXGKNVAQ==` |
+| Person membership | `FP3SdKMjbdMcRQIsfMffRb6mnyqnDnX4hxj/cTz6DHyWeozcrRxdGU+/lYLEakp8tiS/jwOiCLJA/7DXhfOrDw==` |
+| Person removal | `gIGBRuXaZVCyEU+jkM1JUxo88yDrpZ8k7JbmKGObmeF14QeY2//Wdrn4CgetByjN4szTFbssvtuS6ynt3O8jBA==` |
+| Host admission | `fYyNXrDCWJs61KeT2macWLkh/D+WVMI1i10iiC2mpFoQ9fz7EhDhy8KXAr+zjRfpdRzhzpGfAfEF4dBcMYGUCw==` |
+| Host binding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADAULCAWp02fy0fuxtv6fhaI8PHqxyBPr6SzVcTupgU0xsTYIMciLKFSVOaqYIOshUcKvNhgbAmBsiz6Cbe7UBw==` |
+| Host unbinding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkiK02ZWdpz63BExI0ccVmkrPSaSUJEVrherPRCB7IWIDjvE6x1VieH2UJnMuWmp5tiXmTHuTs4mxDyehsUr4AA==` |
+
+Ed25519 is deterministic, so an implementation holding the person seed must reproduce these `SSHSIG` blobs byte for byte.
+
+### Validity
+
+The rules below apply at the network's current epoch *e* and current root, as defined in milestone 2a.
+
+- **Hosts.** A host is a member if its invite chain is valid, as before, or if a host admission of its key is signed by the current root at epoch *e*. The admission at epoch 0 is signed by the genesis root. In either case, the host must not be revoked or departed.
+- **Persons.** A person is admitted in either of two ways:
+  - a person admission of its key, signed by the current root at epoch *e*;
+  - a person membership whose invite is signed by the current root at epoch *e*, whose invite has not been revoked, and whose `joined_at` ≤ `invite_expires_at`.
+
+  It must also have no valid person removal, under any root in the chain. Removal is sticky and permanent: the key can never be readmitted, and a new key is needed.
+- **Bindings.** A host is bound to a person if four things hold:
+  - both are currently valid;
+  - a valid host binding by that person exists;
+  - the coordinator accepted it from that host itself, which is the host's consent;
+  - no valid host unbinding by that person for that host exists, which is sticky.
+
+  A host is bound to at most one person: the coordinator refuses a second binding with 409 until the first is unbound. If the person is removed, all of their bindings end.
+- **Rotation.** When the root rotates, the administrator re-signs a host admission or a person admission at the new epoch for every currently valid key admitted by public key or person invite. These are submitted with the rotation as `admissions`. Bindings need nothing new.
+
+### Network descriptor
+
+`capsule-network-v1.` followed by unpadded base64url of strict JSON `{network_id, network_name, root_public_key, coordinator_address, coordinator_public_key}`. `root_public_key` is the **genesis** root, which derives `network_id`. A descriptor is not a secret. It lets a host or person whose key an administrator admitted find and pin the network, and it grants nothing by itself.
+
+### Coordinator
+
+The map gains `persons`: an array of `{person_id, person_public_key, member, admission | membership}`, sorted by `person_id`. Each members entry gains `admission` (nullable), set when the host joined by public key and replacing `membership`. It also gains `binding` (nullable), the host's current binding statement. `revocations` gains the kinds `person` (removal) and `unbind`. The rotation endpoint gains a required `admissions` array, which may be empty.
+
+| Endpoint | Body | Behavior |
+| --- | --- | --- |
+| `POST /coord/v1/networks/{network_id}/persons` | exactly one of `admission`, `membership` | The caller must be a member. Admits a person after verification; an identical repeat returns 200. A removed person key returns 403, and a reused person invite 409. Returns 200 with the map. |
+| `POST /coord/v1/networks/{network_id}/hosts` | `admission` | The caller must be a member. Records a host admission. The admitted host then joins with it. Returns 200 with the map. |
+| `POST /coord/v1/networks/{network_id}/members` | `membership` or `admission`, plus `address`, `candidates` | Join, as before. With `admission`, the admitted host key must be the caller. |
+| `POST /coord/v1/networks/{network_id}/bindings` | `binding` | The caller must be the bound host and a member. The person must be admitted. Returns 409 if the host is already bound, 403 if the binding was unbound before (unbinding is permanent for that host and person), and otherwise 200 with the map. |
+| `POST /coord/v1/networks/{network_id}/revocations` | adds the kinds `person` and `unbind` | Person removal (root-signed) or host unbinding (person-signed, submitted by any member), with the same sticky and idempotent rules as other revocations. |
+
+### Host
+
+There is no schema change. The statements are stored in `network_statements` (database version 7) under the new kinds `person` (subject: person key), `host_admission` (subject: host key), and `binding` (subject: host key), alongside the existing revocation kinds. Member records gain nullable `person_id` and `person_member`.
+
+| CLI after `--state DIR` | Local API | Behavior |
+| --- | --- | --- |
+| `network admit --network ID --person SSH_PUBLIC_KEY --member LABEL` | `POST /v1/networks/{id}/persons` with `{person_public_key, member}` | Administrator only. Signs and submits a person admission. Returns 201 with `{person_id, descriptor}`. `SSH_PUBLIC_KEY` is an `ssh-ed25519` public key line or a path to one. |
+| `network admit --network ID --host HOST_PUBLIC_KEY --member LABEL` | `POST /v1/networks/{id}/hosts` with `{host_public_key, member}` | Administrator only. Signs and submits a host admission. Returns 201 with `{host_id, descriptor}`. |
+| `network invite-person --network ID --member LABEL --expires-at TIME` | `POST /v1/networks/{id}/person-invites` | Administrator only. Returns 201 with a token in the host-invite format, `capsule-person-invite-v1.` followed by unpadded base64url JSON with the host-invite fields plus `invite_epoch`. |
+| `network redeem-person --token TOKEN [--person-key PATH]` | `POST /v1/networks/redeem-person` with `{token, person_public_key}` | Run on any member host of that network. The CLI supplies the person's public key, and the daemon signs the membership with the invite seed and submits it. Returns 201 with `{person_id}`. |
+| `network join --descriptor DESCRIPTOR` | `POST /v1/networks/join` with `{descriptor}` | Joins with an administrator's admission of this host's key, otherwise as an invite join. Returns 403 if no admission for this host exists. |
+| `network bind --network ID [--person-key PATH]` | `POST /v1/networks/{id}/bindings` with `{binding}` | The CLI fetches this host's key from the daemon, signs the binding, and the daemon submits it as itself. Returns 201. |
+| `network unbind --network ID --host HOST_ID [--person-key PATH]` | `POST /v1/networks/{id}/unbindings` with `{unbinding}` | Can be run on any member host, signed by the person. Persisted, enforced, and submitted until accepted, like a revocation. Returns 201. |
+| `network remove-person --network ID --person PERSON_ID` | `POST /v1/networks/{id}/person-removals` with `{person_id}` | Administrator only. Same rules as host revocation. Returns 201. |
+| `network persons ID` | `GET /v1/networks/{id}/persons` | Valid persons sorted by ID: `{person_id, public_key, member, hosts}`, where `hosts` lists their bound host IDs. |
+
+`network members` reports each host's `person_id` and `person_member`, or null. New activity kinds:
+- `network.person_admitted` (subject: person ID);
+- `network.person_removed` (subject: person ID);
+- `network.host_admitted` (subject: host ID);
+- `network.host_bound` (subject: host ID);
+- `network.host_unbound` (subject: host ID).
+
 ## Relay
 
 Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
@@ -256,6 +358,17 @@ Language tests must reproduce the test vectors, reject each tampered field, and 
 - coordinator outage: connected-only sends get 503 and `unknown` after three intervals and succeed on retry after reconnection, while `allow_disconnected` grants still work; a reply to already-delivered content succeeds during the outage;
 - host restart with persisted members;
 - coordinator restart, after which syncing resumes.
+
+`conformance/persons.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing. It signs through a real `ssh-agent` and also through `--person-key` with a key file, and checks every person signature it produces with `ssh-keygen -Y verify`. It covers:
+
+- admitting persons by public key and by invite, including invite reuse and expiry;
+- admitting a host by public key and joining with the descriptor, and refusing a host without an admission;
+- binding with host consent, and refusing a binding submitted by another host or signed by an unadmitted person, as well as a second binding;
+- sticky unbinding and person removal that survive the coordinator dropping them, and host restart;
+- re-signing admissions at a root rotation;
+- `network members` and `network persons` reporting persons and bound hosts.
+
+Each language reproduces the test vectors, including the `SSHSIG` blobs.
 
 `conformance/revocation.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing:
 
