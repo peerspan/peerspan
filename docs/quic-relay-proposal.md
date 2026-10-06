@@ -7,6 +7,41 @@ Status: proposal for review, covering roadmap milestones 3 and 4 ([roadmap](prod
 
 Everything else here is proposed. The decisions to settle before implementation are listed under [Decisions to settle](#decisions-to-settle).
 
+## How this design was reached
+
+The project started from a WireGuard- or Tailscale-like connectivity model. QUIC came in later, so the path from one to the other is recorded here.
+
+1. **The original design was WireGuard.** The issue 7 design in `mesh-new` (commit `087cd42`, 2026-10-02) recorded as decided "the same split of roles as a WireGuard mesh with a coordination server". It was to be built from scratch, with no `tsnet` and no Headscale. It proposed WireGuard as the tunnel between dataplanes, and a relay that "forwards ciphertext addressed by public key and cannot read it". It left one question open: does a session need live IP reachability between capsules, or only messages and artifacts? If only messages and artifacts, a relay with pinned keys would be enough, and the direct-path and hole-punching steps could wait.
+2. **The design reset removed it.** The later reset (`mesh-new` commit `6a068af`) replaced that document. The current `design.md` treats Tailscale only as a reference for separating coordination from locally enforced peer communication, and says the reference "does not commit this project to Tailscale code, WireGuard, or any specific provider". Peer transport, trust, and relay operation became open decisions again.
+3. **The first peer slice went application-level.** The known-host messaging work (#13) chose HTTP/1.1 over mutually authenticated TLS 1.3 over TCP, with hosts pinned by their Ed25519 key and grants enforced on every request. That answered the open question for the current product: what crosses hosts is authorized messages, receipts, and replies, not IP packets.
+4. **The roadmap followed from that.** It described relays as a TCP splice carrying the end-to-end peer TLS, and noted that NAT traversal would need a UDP transport such as QUIC. It left that transport decision for the NAT milestone.
+5. **The relay questions settled it.** For the relay carrier, the options were a TCP splice of the existing peer TLS (recommended) or moving the peer transport to QUIC now. The decision was to move to QUIC now. It avoids building a TCP relay and then reworking it for UDP hole punching. This proposal builds on that choice.
+
+## Relation to WireGuard and Tailscale
+
+At the architecture level the design remains Tailscale-like. QUIC takes the place WireGuard holds in Tailscale:
+
+| Tailscale | This proposal |
+| --- | --- |
+| WireGuard node key, distributed by the control server | Ed25519 host key, distributed by `capsule-coord` and verified by every host through the signed membership chain |
+| WireGuard tunnel over UDP | QUIC with mutual TLS 1.3 over UDP |
+| DERP relays forwarding already-encrypted WireGuard packets by key, over TCP/HTTPS | A relay in `capsule-coord` forwarding already-encrypted QUIC packets by host ID, over TCP/TLS |
+| Disco messages and hole punching, then a path upgrade | Relay-observed addresses and hole punching, then QUIC connection migration |
+| Packet filter, plus application capabilities read through `WhoIs` | Grants enforced per request by the receiving daemon |
+
+The difference is the layer the transport provides. WireGuard provides an IP tunnel: peers become reachable at IP addresses. The daemons would still need their own authenticated application protocol on top to enforce grants and return receipts. QUIC provides an authenticated, encrypted, multiplexed connection directly between the daemons, with no IP network in between. That matches what the host service exchanges today.
+
+## Why QUIC fits now, and when WireGuard would
+
+QUIC fits the current message-level product for three reasons:
+- **No privileges or network stack.** A WireGuard tunnel needs either a kernel interface, which requires root, or a userspace network stack inside the daemon to carry TCP or HTTP: `wireguard-go` with gVisor's netstack in Go, or `boringtun` with a stack such as `smoltcp` in Rust. QUIC runs as an ordinary userspace UDP socket in both implementations.
+- **Identity carries over.** QUIC uses TLS 1.3, so it reuses the existing Ed25519 host certificates, key pinning, and verifier code in both languages. WireGuard uses Curve25519 static keys. That needs either a second key per host, bound to the host key, or a conversion between the two key types. The TLS layer would also stay on top for per-request authorization.
+- **Connection migration.** QUIC can move an established connection from a relayed path to a direct one without a new handshake or new application state. WireGuard roams between endpoints too, but anything carried inside the tunnel would still need its own connection management.
+
+WireGuard becomes the better fit if capsules need **IP reachability**. Examples are a Firecracker guest that must reach a service on another host by address, or arbitrary TCP and UDP traffic between runtimes. That is the question the original design left open. The three collaboration capabilities do not require it: task delegation, peer conversations, and remote tools and resources can all run as authorized requests between daemons. If IP reachability becomes a near-term requirement, WireGuard should be reconsidered before the transport is built. The choice is then between a userspace WireGuard tunnel carrying the existing HTTP/TLS peer protocol, and QUIC. A WireGuard tunnel could also be added later beside QUIC for runtime networking, without replacing the message transport.
+
+The transport choice, and the condition under which it would change, should also be recorded as a product decision in the `mesh-new` system design.
+
 ## Why move to QUIC first
 
 Peers currently speak HTTP/1.1 over mutually authenticated TLS 1.3 over TCP. Relays could splice TCP streams, but NAT traversal over TCP depends on simultaneous open, which works far less reliably than UDP hole punching. Moving the peer transport to QUIC first gives every later path one design:
@@ -94,6 +129,7 @@ The exact candidate format, probe timing, and how long the relay path is retaine
 
 | Decision | Recommendation | Alternative |
 | --- | --- | --- |
+| Peer transport | QUIC (agreed 2026-10-06) | Userspace WireGuard tunnel carrying the existing HTTP/TLS protocol. Revisit if capsules need IP reachability; see [Why QUIC fits now, and when WireGuard would](#why-quic-fits-now-and-when-wireguard-would) |
 | Application protocol over QUIC | HTTP/1.1, one request per bidirectional stream, ALPN `capsule-peer/1` | HTTP/3 (`quic-go/http3`, Rust `h3` 0.0.x) |
 | Relay carrier | Framed QUIC packets over TLS/TCP (DERP-style) | QUIC datagrams over a QUIC connection to the relay; this cannot reach UDP-blocked hosts and needs a smaller inner MTU |
 | Cutover | Hard switch, incompatible peer protocol version | Serve TCP and QUIC side by side for one release |
