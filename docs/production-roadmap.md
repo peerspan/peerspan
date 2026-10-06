@@ -9,7 +9,7 @@ The known-host messaging slice stores authenticated messages on hosts. It requir
 | 0 | Automatic peer certificate renewal | — | Restart needed every 30 days. Done. |
 | 1 | Signed enrollment and coordination ([contract](coordination-contract.md)) | — | Manual key and address exchange. Grants no longer require `--allow-disconnected` while coordination is connected. Implemented. |
 | 2a | Signed membership revocation, leaving, and root rotation | 1 | Membership cannot be withdrawn except by coordinator omission, and the root key cannot be replaced. |
-| 2b | Person identity: multiple administrators and owner-managed access ([access model](access-model.md)); proposal first | 2a | One administrator key, and access configured per host, naming individual host IDs. |
+| 2b | Person identity: multiple administrators and owner-managed access ([proposal](person-identity-proposal.md)) | 2a | One administrator key, and access configured per host, naming individual host IDs. |
 | 3 | QUIC peer transport, then encrypted relays ([proposal](quic-relay-proposal.md)) | 1 | Hosts behind NAT or firewalls cannot be reached. Implemented: QUIC transport (3a) and relays in `capsule-coord` (3b). |
 | 4 | Direct-path discovery and NAT traversal | 1, 3 | All traffic goes through the relay when a direct path would work. Implemented: STUN candidates and signed path discovery below QUIC; NATs that allocate a port per destination on both sides stay on the relay. |
 | 5 | Automatic retry of uncertain sends, owner and agent alike | — | Senders recover `unknown` outcomes by hand. |

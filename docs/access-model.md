@@ -34,7 +34,7 @@ Deciding access per owner must not mean configuring every host separately. Tails
 - **Grants to people and groups:** grants name members or groups ("member `alice` may message `reviewer`", "anyone in network `team` may message `triage`"), not individual host IDs. New or re-enrolled machines are covered without new grants.
 - **Owner-signed policy, distributed centrally:** an owner edits their access policy once, from any of their machines or a future dashboard. The coordinator delivers it to all of that owner's hosts. Each host enforces it only if it carries that owner's signature. The administrator cannot author or alter it, and a coordinator can withhold it but not forge it.
 
-The result is configured once, applies everywhere, and is authorized only by the owner. This design will be proposed for review before it is built. Network-wide guardrails, where an administrator publishes restrictions that can only narrow access, remain a separate future decision. Each host would enforce them on itself, so they are only as strong as membership revocation.
+The result is configured once, applies everywhere, and is authorized only by the owner. The design is in the [person identity proposal](person-identity-proposal.md), under review. Network-wide guardrails, where an administrator publishes restrictions that can only narrow access, remain a separate future decision. Each host would enforce them on itself, so they are only as strong as membership revocation.
 
 ## Membership revocation (planned, milestone 2a)
 
