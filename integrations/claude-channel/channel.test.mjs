@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { readCredential, createChannel } from './channel.mjs';
+import { readCredential, createChannel, AdapterError } from './channel.mjs';
 
 test('credentials must be private regular files; symlinks are refused', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'capsule-channel-'));
@@ -83,6 +83,43 @@ test('an uncertain send returns its ID; only an explicit identical retry reuses 
     } });
     assert.equal(invalid.isError, true);
     assert.equal(sends.length, 2);
+  } finally {
+    await client.close();
+    await channel.stop();
+  }
+});
+
+test('send_status follows a send the host retries automatically', async () => {
+  const sessionId = `session_${'b'.repeat(32)}`;
+  const known = `request_${'1'.repeat(32)}`;
+  const missing = `request_${'2'.repeat(32)}`;
+  const paths = [];
+  const channel = createChannel({ sessionId, adapterId: `adapter_${'c'.repeat(32)}`, pollMs: 10, call: async (method, path) => {
+    if (path === '/adapter/v1/connect') return { adapter_id: `adapter_${'c'.repeat(32)}`, session_id: sessionId, state: 'ready' };
+    if (path.startsWith('/adapter/v1/sends/')) {
+      paths.push(`${method} ${path}`);
+      if (path.endsWith(known)) return { request_id: known, destination: 'bob', state: 'unknown', attempts: 2, next_attempt_at: '2026-10-07T00:00:02Z', error: 'peer returned HTTP 503' };
+      throw new AdapterError('not found', 404);
+    }
+    return null;
+  } });
+  const client = new Client({ name: 'conformance', version: '1' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await channel.server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = (await client.listTools()).tools.map(tool => tool.name);
+    assert(tools.includes('send_status'));
+    const status = await client.callTool({ name: 'send_status', arguments: { request_id: known } });
+    assert.equal(status.isError, undefined);
+    assert.deepEqual(JSON.parse(status.content[0].text).attempts, 2);
+    const absent = await client.callTool({ name: 'send_status', arguments: { request_id: missing } });
+    assert.equal(JSON.parse(absent.content[0].text).state, 'not_recorded');
+    for (const args of [{}, { request_id: 'request_x' }, { request_id: known, extra: 1 }]) {
+      const invalid = await client.callTool({ name: 'send_status', arguments: args });
+      assert.equal(invalid.isError, true);
+    }
+    assert.deepEqual(paths, [`GET /adapter/v1/sends/${known}`, `GET /adapter/v1/sends/${missing}`]);
   } finally {
     await client.close();
     await channel.stop();

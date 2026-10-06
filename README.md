@@ -81,7 +81,7 @@ Read each daemon's `info`, then independently verify and configure the other's `
 ./rust/target/debug/capsule-host --state /tmp/capsule-alice message list
 ```
 
-The grant expiration and request deadline must be in the future, with the deadline no later than expiration. Manually configured peers are not network members, so their grants require explicit `--allow-disconnected`. Inspect the send's JSON `state`: `accepted` means durable host storage; `unknown` requires recovery; `rejected` means the peer rejected the attempt. Use `message retry` or `message refresh` with the original request ID. Delivery into an opted-in session uses the scoped adapter described below.
+The grant expiration and request deadline must be in the future, with the deadline no later than expiration. Manually configured peers are not network members, so their grants require explicit `--allow-disconnected`. Inspect the send's JSON `state`: `accepted` means durable host storage; `unknown` means the outcome is not yet confirmed, and the daemon retries it automatically with the same request ID until it is accepted, rejected, or past its deadline; `rejected` means the peer rejected the attempt. `message inspect` shows `attempts` and `next_attempt_at`. `message retry` and `message refresh` remain available with the original request ID. Delivery into an opted-in session uses the scoped adapter described below.
 
 ## Connect an existing Claude Code session
 
@@ -108,6 +108,7 @@ python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/targ
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/revocation.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+python3 conformance/send_retry.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --probe /tmp/capsule-peer-probe
 python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --coord /tmp/capsule-coord

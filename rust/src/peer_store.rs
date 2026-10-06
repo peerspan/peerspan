@@ -1,6 +1,6 @@
 use crate::{
     model::Error,
-    store::{Store, append_event, new_id, now},
+    store::{Store, append_event, new_id, now, rfc3339},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
@@ -87,6 +87,19 @@ pub struct OutboundMessage {
     pub state: String,
     pub receipt: Option<Receipt>,
     pub error: Option<String>,
+    /// Transmissions so far (submissions and receipt queries).
+    #[serde(default)]
+    pub attempts: u32,
+    /// When the daemon next retries an `unknown` record; null once final or
+    /// given up. Records from before automatic retry lack it and are due now.
+    #[serde(default)]
+    pub next_attempt_at: Option<String>,
+    /// Receipt queries made after the deadline; written only when nonzero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub receipt_queries: u32,
+}
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 pub(crate) fn key_id(key: &[u8]) -> String {
@@ -454,6 +467,10 @@ impl Store {
             state: "unknown".into(),
             receipt: None,
             error: None,
+            attempts: 0,
+            // Retried automatically if the inline send never finishes.
+            next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+            receipt_queries: 0,
         };
         tx.execute(
             "INSERT INTO outbound_messages VALUES (?1, ?2, ?3)",

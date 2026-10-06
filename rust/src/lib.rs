@@ -10,4 +10,5 @@ pub mod peer;
 pub mod peer_store;
 pub mod quic;
 pub mod relay;
+pub mod retry;
 pub mod store;

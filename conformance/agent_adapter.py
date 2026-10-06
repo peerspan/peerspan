@@ -249,7 +249,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert sender.cli('message', 'reply', '--peer', b['id'], rid)['state'] == 'pending'
             channel = Channel(node, script, receiver, secret, root)
             tools = channel.call('tools/list', {})['tools']
-            assert [tool['name'] for tool in tools] == ['list_destinations', 'send', 'reply']
+            assert [tool['name'] for tool in tools] == ['list_destinations', 'send', 'send_status', 'reply']
             event = channel.notification()
             assert event['content'] == first['request']['content']
             assert event['meta']['request_id'] == rid

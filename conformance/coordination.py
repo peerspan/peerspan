@@ -226,7 +226,8 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert [m['host_id'] for m in alice.cli('network', 'members', net)] == ids
             assert alice.cli('network', 'list')[0]['administrator'] is True
             assert send(bob, a['id'], disconnected_grant, agent, 'after restart')['state'] == 'accepted'
-            assert send(bob, a['id'], connected_grant, agent, 'still stale')['state'] == 'unknown'
+            still_stale = send(bob, a['id'], connected_grant, agent, 'still stale')
+            assert still_stale['state'] == 'unknown', still_stale
 
             # Coordinator restart: syncing resumes and connected grants work again.
             assert coord.start() == coordinator
@@ -235,7 +236,10 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             # Retrying the same request after reconnection succeeds.
             retried = bob.cli('message', 'retry', '--peer', a['id'], stale['request']['request_id'])
             assert retried['state'] == 'accepted', retried
-            assert len(alice.cli('message', 'list')) == 7
+            # The other stale send is accepted by the sender's automatic retry.
+            wait_for(lambda: bob.cli('message', 'inspect', '--peer', a['id'], still_stale['request']['request_id'])
+                     ['state'] == 'accepted', timeout=60, message='automatic retry of the stale send')
+            assert len(alice.cli('message', 'list')) == 8
             # Recover the same authorized instance after daemon restart; syncing
             # allows the queued connected-only message to be handed off.
             from agent_adapter import instance_for

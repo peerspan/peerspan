@@ -66,6 +66,16 @@ pub struct AdapterSend {
     pub request_id: String,
     pub content: String,
 }
+/// An agent's view of one of its own sends, including automatic retry progress.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct SendStatus {
+    pub request_id: String,
+    pub destination: String,
+    pub state: String,
+    pub attempts: u32,
+    pub next_attempt_at: Option<String>,
+    pub error: Option<String>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplyDelivery {
     pub id: String,
@@ -325,6 +335,12 @@ impl Store {
             state: "unknown".into(),
             receipt: None,
             error: None,
+            attempts: 0,
+            // Retried automatically if the inline send never finishes.
+            next_attempt_at: Some(crate::store::rfc3339(
+                Utc::now() + crate::retry::PREPARE_GUARD,
+            )),
+            receipt_queries: 0,
         };
         tx.execute(
             "INSERT INTO outbound_messages VALUES (?1,?2,?3)",
@@ -358,6 +374,40 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(out)
+    }
+    /// A send made with this credential; any other request is not found.
+    pub fn send_status(&self, token: &AdapterAuth, request_id: &str) -> Result<SendStatus, Error> {
+        if !valid_id(request_id, "request", 16) {
+            return Err(Error::NotFound);
+        }
+        let conn = self.connection()?;
+        let (a, _) = authority(&conn, token)?;
+        let (peer, route_id): (String, String) = conn
+            .query_row(
+                "SELECT peer, route_id FROM adapter_outbound WHERE adapter_id = ?1 AND request_id = ?2",
+                params![a.id, request_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or(Error::NotFound)?;
+        let route: OutboundRoute = read(
+            &conn,
+            "SELECT record FROM adapter_routes WHERE id = ?1",
+            [&route_id],
+        )?;
+        let out: OutboundMessage = read(
+            &conn,
+            "SELECT record FROM outbound_messages WHERE peer = ?1 AND request_id = ?2",
+            params![peer, request_id],
+        )?;
+        Ok(SendStatus {
+            request_id: out.request.request_id,
+            destination: route.name,
+            state: out.state,
+            attempts: out.attempts,
+            next_attempt_at: out.next_attempt_at,
+            error: out.error,
+        })
     }
     pub fn next_reply(&self, token: &AdapterAuth) -> Result<Option<ReplyHandoff>, Error> {
         let mut conn = self.connection()?;
@@ -455,6 +505,7 @@ pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/adapter/v1/destinations", get(destinations))
         .route("/adapter/v1/send", post(send))
+        .route("/adapter/v1/sends/{request_id}", get(send_status))
         .route("/adapter/v1/replies/next", post(next))
         .route("/adapter/v1/replies/{id}/forwarded", post(forwarded))
 }
@@ -489,6 +540,16 @@ async fn send(
     let t = token(&headers);
     let out = blocking(store.clone(), move |s| s.prepare_adapter_send(&t, req)).await?;
     Ok(Json(crate::peer::exchange(store, out, false).await?))
+}
+async fn send_status(
+    State(store): State<Arc<Store>>,
+    Path(request_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<SendStatus>, Error> {
+    let t = token(&headers);
+    Ok(Json(
+        blocking(store, move |s| s.send_status(&t, &request_id)).await?,
+    ))
 }
 async fn next(
     State(store): State<Arc<Store>>,
@@ -566,4 +627,124 @@ pub async fn reply_workers(store: Arc<Store>, shutdown: watch::Receiver<bool>) {
         reply_loop(store.clone(), shutdown.clone()),
         reply_loop(store, shutdown)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        adapter::CreateAdapter,
+        model::{AttachSession, RegisterAgent},
+        peer_store::{Peer, key_id},
+    };
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    fn connected_adapter(store: &Store, name: &str) -> AdapterAuth {
+        let agent = store
+            .register_agent(RegisterAgent {
+                name: name.into(),
+                owner: name.into(),
+                capabilities: vec![],
+            })
+            .unwrap();
+        let session = store
+            .attach_session(AttachSession {
+                agent_id: agent.id,
+                integration: "test".into(),
+            })
+            .unwrap();
+        let credential = store
+            .create_adapter(CreateAdapter {
+                session_id: session.id.clone(),
+                expires_at: crate::store::rfc3339(Utc::now() + chrono::Duration::hours(1)),
+            })
+            .unwrap();
+        let instance = format!(
+            "instance_{}",
+            hex::encode(name.repeat(32).as_bytes())[..64].to_owned()
+        );
+        store
+            .connect_adapter(
+                &credential.token,
+                &instance,
+                &credential.adapter.id,
+                &session.id,
+            )
+            .unwrap();
+        AdapterAuth {
+            token: credential.token,
+            instance,
+        }
+    }
+
+    #[test]
+    fn send_status_is_scoped_to_the_sending_credential() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let mut seed = [0u8; 32];
+        getrandom::fill(&mut seed).unwrap();
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        let peer = store
+            .add_peer(Peer {
+                id: key_id(&key),
+                public_key: STANDARD.encode(key),
+                address: "127.0.0.1:9".into(),
+            })
+            .unwrap();
+        let alice = connected_adapter(&store, "a");
+        let bob = connected_adapter(&store, "b");
+        let alice_id = crate::adapter::authority(&store.connection().unwrap(), &alice)
+            .unwrap()
+            .0
+            .id;
+        store
+            .create_outbound_route(CreateOutboundRoute {
+                adapter_id: alice_id,
+                name: "reviewer".into(),
+                peer_host_id: peer.id,
+                target_agent_id: format!("agent_{}", "1".repeat(32)),
+                grant_id: format!("grant_{}", "1".repeat(32)),
+                expires_at: crate::store::rfc3339(Utc::now() + chrono::Duration::minutes(30)),
+                max_message_bytes: 100,
+                max_messages: 10,
+            })
+            .unwrap();
+        let request_id = format!("request_{}", "2".repeat(32));
+        store
+            .prepare_adapter_send(
+                &alice,
+                AdapterSend {
+                    destination: "reviewer".into(),
+                    request_id: request_id.clone(),
+                    content: "hello".into(),
+                },
+            )
+            .unwrap();
+        let status = store.send_status(&alice, &request_id).unwrap();
+        assert_eq!(
+            (
+                status.destination.as_str(),
+                status.state.as_str(),
+                status.attempts
+            ),
+            ("reviewer", "unknown", 0)
+        );
+        // A prepared send is due after the inline send's bound.
+        assert!(status.next_attempt_at.is_some());
+        assert!(matches!(
+            store.send_status(&bob, &request_id),
+            Err(Error::NotFound)
+        ));
+        let other = format!("request_{}", "3".repeat(32));
+        assert!(matches!(
+            store.send_status(&alice, &other),
+            Err(Error::NotFound)
+        ));
+        assert!(matches!(
+            store.send_status(&alice, "bad"),
+            Err(Error::NotFound)
+        ));
+    }
 }

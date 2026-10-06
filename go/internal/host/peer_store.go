@@ -76,6 +76,15 @@ type OutboundMessage struct {
 	State      string         `json:"state"`
 	Receipt    *Receipt       `json:"receipt"`
 	Error      *string        `json:"error"`
+	// Attempts counts transmissions, including receipt queries. NextAttemptAt
+	// is the next automatic attempt; nil once the outcome is final or retries
+	// stopped. A record from before automatic retry has neither field and is
+	// treated as attempts 0 and due now.
+	Attempts      int64   `json:"attempts"`
+	NextAttemptAt *string `json:"next_attempt_at"`
+	// ReceiptQueries counts receipt queries made at or after the deadline,
+	// automatic or explicit; automatic retry stops after ten of them.
+	ReceiptQueries int64 `json:"receipt_queries,omitempty"`
 }
 
 func validID(id, prefix string, bytes int) bool {
@@ -417,7 +426,7 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 	if !errors.Is(err, ErrNotFound) {
 		return old, err
 	}
-	out := OutboundMessage{PeerHostID: r.PeerHostID, Request: r.MessageRequest, State: "unknown"}
+	out := OutboundMessage{PeerHostID: r.PeerHostID, Request: r.MessageRequest, State: "unknown", NextAttemptAt: s.initialAttempt()}
 	data, err := json.Marshal(out)
 	if err != nil {
 		return out, err
@@ -430,7 +439,10 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 	}
 	return out, tx.Commit()
 }
-func (s *Store) FinishOutbound(ctx context.Context, out OutboundMessage) (OutboundMessage, error) {
+
+// FinishOutbound records one attempt's outcome and schedules the next automatic
+// attempt while the outcome stays unknown. An accepted record is never downgraded.
+func (s *Store) FinishOutbound(ctx context.Context, out OutboundMessage, refresh bool) (OutboundMessage, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return out, err
@@ -443,6 +455,8 @@ func (s *Store) FinishOutbound(ctx context.Context, out OutboundMessage) (Outbou
 	if old.State == "accepted" {
 		return old, nil
 	}
+	out.Attempts, out.ReceiptQueries = old.Attempts+1, old.ReceiptQueries
+	s.scheduleAfterAttempt(&out, refresh)
 	data, err := json.Marshal(out)
 	if err != nil {
 		return out, err

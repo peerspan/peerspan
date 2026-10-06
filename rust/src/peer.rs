@@ -424,6 +424,12 @@ pub(crate) async fn exchange(
     if let Err(error) = result {
         out.error = Some(format!("{error:#}"));
     }
+    crate::retry::schedule(
+        &mut out,
+        receipt_only,
+        chrono::Utc::now(),
+        crate::retry::jitter(),
+    );
     blocking(store, move |s| s.finish_outbound(out)).await
 }
 

@@ -115,6 +115,15 @@ func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly b
 	if out.State == "accepted" {
 		return out, nil
 	}
+	unlock, err := s.lockOutbound(ctx, outboundKey(out.PeerHostID, out.Request.RequestID))
+	if err != nil {
+		return out, err
+	}
+	defer unlock()
+	// Another attempt may have finished while this one waited.
+	if current, err := s.Outbound(ctx, out.PeerHostID, out.Request.RequestID); err == nil && current.State == "accepted" {
+		return current, nil
+	}
 	peer, err := s.dialPeer(ctx, out.PeerHostID)
 	if err != nil {
 		return out, err
@@ -157,7 +166,7 @@ func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly b
 	// Persist outcomes even if the submitting CLI disconnected after the send.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return s.FinishOutbound(finishCtx, out)
+	return s.FinishOutbound(finishCtx, out, receiptOnly)
 }
 func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/peers", func(w http.ResponseWriter, r *http.Request) {

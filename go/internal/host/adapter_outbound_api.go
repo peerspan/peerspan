@@ -18,6 +18,10 @@ func adapterOutboundRoutes(mux *http.ServeMux, store *Store, token func(*http.Re
 		}
 		respond(w, 200, out, err)
 	})
+	mux.HandleFunc("GET /adapter/v1/sends/{id}", func(w http.ResponseWriter, r *http.Request) {
+		status, err := store.AdapterSendStatus(r.Context(), token(r), r.PathValue("id"))
+		respond(w, 200, status, err)
+	})
 	mux.HandleFunc("POST /adapter/v1/replies/next", func(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &struct{}{}) {
 			return

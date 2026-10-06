@@ -353,9 +353,16 @@ def check(go, rust, node, label):
                 )
                 == 1
             )
+            # Reply retrieval did not resubmit it; the daemon's automatic retry
+            # resolves the lost receipt with the same request ID, still one copy.
+            wait_for(
+                lambda: a.cli("message", "inspect", "--peer", bi["id"], lost)["state"]
+                == "accepted",
+                seconds=30,
+            )
             assert (
-                a.cli("message", "inspect", "--peer", bi["id"], lost)["state"]
-                == "unknown"
+                len([m for m in b.cli("message", "list") if m["request"]["request_id"] == lost])
+                == 1
             )
             a.cli("adapter", "route", "revoke", r["id"])
             assert send(a, ac, "lost receipt", rid=lost)[0] == 403

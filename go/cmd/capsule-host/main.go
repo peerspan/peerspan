@@ -158,6 +158,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		defer func() { cancel(); <-coordinationDone }()
 		repliesDone := make(chan struct{})
 		go func() { defer close(repliesDone); store.RunReplyWorkers(daemonCtx) }()
+		retriesDone := make(chan struct{})
+		go func() { defer close(retriesDone); store.RunOutboundRetries(daemonCtx) }()
+		defer func() { cancel(); <-retriesDone }()
 		defer func() { cancel(); <-repliesDone }()
 		adapterListener, err := store.ListenAdapter()
 		if err != nil {

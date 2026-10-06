@@ -315,7 +315,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	if exp.Before(deadline) {
 		deadline = exp
 	}
-	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content}, State: "unknown"}
+	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content}, State: "unknown", NextAttemptAt: s.initialAttempt()}
 	if err = insertOutbound(ctx, tx, out); err != nil {
 		return out, err
 	}

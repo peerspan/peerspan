@@ -75,6 +75,8 @@ type Store struct {
 	// relayWake wakes RunRelays when this host creates or joins a network, so it
 	// becomes reachable through the new coordinator without waiting to poll.
 	relayWake chan struct{}
+
+	retry outboundRetry // automatic retry state for uncertain sends
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {

@@ -69,9 +69,9 @@ capsule-host --state RECEIVER_STATE delivery list
 
 `adapter revoke ADAPTER_ID`, owner session detachment, or credential expiry stop adapter access. Grants are checked again at handoff and reply. An uncertain handoff is retained for inspection and is never automatically sent again or moved to another session. `forwarded` confirms a notification write, not model execution. See the [adapter contract](../../docs/agent-adapter-contract.md).
 
-`adapter route revoke ROUTE_ID` stops further sends through that route. Replies to earlier sends can still return while the original credential is valid. An uncertain send reports its request ID: an explicit retry must reuse that ID and identical destination/content. Each new persisted request uses one lifetime budget unit, including failed or rejected attempts. See the [outbound contract](../../docs/adapter-outbound-contract.md).
+`adapter route revoke ROUTE_ID` stops further sends through that route. Replies to earlier sends can still return while the original credential is valid. An uncertain send reports its request ID, and the daemon retries it automatically with that same ID until it is accepted, rejected, or past its deadline. The agent follows it with `send_status`. Only a send the host never recorded (`send_status` reports `not_recorded`) needs an explicit retry, with the same ID and identical destination/content. Each new persisted request uses one lifetime budget unit, including failed or rejected attempts; automatic and explicit retries of the same request use none. See the [outbound contract](../../docs/adapter-outbound-contract.md).
 
-The adapter exposes `list_destinations`, `send`, and `reply`, and omits permission-relay capability. Message access does not give a peer shell or filesystem access through Capsule; the existing agent still has whatever local permissions its owner granted it.
+The adapter exposes `list_destinations`, `send`, `send_status`, and `reply`, and omits permission-relay capability. Message access does not give a peer shell or filesystem access through Capsule; the existing agent still has whatever local permissions its owner granted it.
 
 ## Connection recovery and token rotation
 

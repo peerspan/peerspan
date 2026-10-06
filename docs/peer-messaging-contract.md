@@ -103,7 +103,7 @@ The key `(sender_host_id, request_id)` identifies a received request. While auth
 
 The local send body contains `peer_host_id` plus the five message fields. `request_id` may be omitted or empty for daemon generation. Persist the immutable request and `message.queued` event before attempting any network send. Reusing its `(peer_host_id, request_id)` with different fields is a local 409 conflict.
 
-Outbound records contain `peer_host_id`, `request`, `state`, nullable `receipt`, nullable `error`, `attempts` (transmissions so far), and nullable `next_attempt_at`:
+Outbound records contain `peer_host_id`, `request`, `state`, nullable `receipt`, nullable `error`, `attempts` (every network attempt so far, submissions and receipt queries, automatic or explicit), nullable `next_attempt_at`, and `receipt_queries` (receipt queries made at or after the deadline, written only when nonzero):
 
 - `unknown`: prepared or unconfirmed. A transport failure, timeout, malformed receipt, remote server error, or lost response does not establish whether the receiver accepted the request.
 - `rejected`: the authenticated peer returned 400, 403, 404, or 409 for the append attempt.
@@ -111,11 +111,11 @@ Outbound records contain `peer_host_id`, `request`, `state`, nullable `receipt`,
 
 **Automatic retry** (roadmap milestone 5, agreed 2026-10-06). The daemon retries every `unknown` record itself, using the saved request and the same request ID. This applies to owner CLI sends and agent-initiated sends alike. Receivers deduplicate by sender and request ID, so a retry never creates a second message, and it consumes no extra route budget.
 
-- **Schedule:** the first automatic attempt is 1 second after an `unknown` outcome. The delay doubles up to 60 seconds, with ±20% random jitter, and is persisted in `next_attempt_at`.
+- **Schedule:** a newly prepared record is first due 10 seconds after preparation, past the 8-second bound of the inline send, so the worker never races it. After any attempt that ends `unknown`, the next is 1 second later. The delay doubles up to 60 seconds, with ±20% random jitter, and is persisted in `next_attempt_at`.
 - **Before the deadline:** each attempt resubmits the request. An identical retry of a request the receiver already accepted returns the original receipt.
-- **After the deadline:** the receiver would refuse a resubmission, so attempts only query the receipt (refresh), on the same backoff. They stop after 10 receipt queries, or 24 hours past the deadline. `next_attempt_at` then becomes null and the record stays `unknown`, since acceptance can no longer be established.
+- **After the deadline:** the receiver would refuse a resubmission, so attempts only query the receipt (refresh), on the same backoff. They stop once `receipt_queries` reaches 10, or 24 hours past the deadline. `next_attempt_at` then becomes null and the record stays `unknown`, since acceptance can no longer be established.
 - **Stopping:** `accepted` and `rejected` are final. Their `next_attempt_at` is null, and no further attempt is made.
-- **Limits:** at most 4 automatic attempts run at once per daemon. After a restart, records whose `next_attempt_at` has passed are spread evenly over the first 10 seconds instead of sent at once. A record from before this milestone has no schedule fields and is treated as `attempts: 0` and due now.
+- **Limits:** at most 4 automatic attempts run at once per daemon. After a restart, overdue record *i* of *n* becomes due at now + 10 s × *i* / *n*, so the first is immediate and none arrive in a burst. A record from before this milestone has no schedule fields and is treated as `attempts: 0` and due now.
 - **Explicit commands:** `message retry` and `message refresh` still work at any time. A successful outcome from either ends the schedule.
 - **Activity:** individual attempts record no activity events; `message.accepted` and `message.rejected` are recorded once, as before.
 

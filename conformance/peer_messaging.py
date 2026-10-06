@@ -261,7 +261,9 @@ def check(sender_binary, receiver_binary, label):
             # Also prove both implementations can reopen each other's v2 state.
             sender.binary, receiver.binary = str(receiver_binary), str(sender_binary)
             assert sender.start() == a and receiver.start() == b
-            assert sender.cli('message', 'inspect', '--peer', b['id'], rid)['state'] == 'unknown'
+            # The restarted sender may already have retried it automatically; an
+            # explicit retry then waits for that attempt and returns its outcome.
+            assert sender.cli('message', 'inspect', '--peer', b['id'], rid)['state'] in ('unknown', 'accepted')
             recovered = sender.cli('message', 'retry', '--peer', b['id'], rid)
             assert recovered['state'] == 'accepted', recovered
             assert len([message for message in receiver.cli('message', 'list') if message['request']['request_id'] == rid]) == 1

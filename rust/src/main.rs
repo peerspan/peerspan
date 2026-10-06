@@ -162,6 +162,7 @@ async fn run_daemon(
     let coordination = capsule_host::network::coordinate(store.clone(), peer_shutdown.clone());
     let reply_workers =
         capsule_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
+    let retries = capsule_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
@@ -175,6 +176,10 @@ async fn run_daemon(
         peers,
         async {
             reply_workers.await;
+            Ok(())
+        },
+        async {
+            retries.await;
             Ok(())
         },
         async {

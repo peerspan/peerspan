@@ -1,14 +1,18 @@
 package host
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -246,5 +250,107 @@ func TestQUICLostResponseIsUnknown(t *testing.T) {
 	}
 	if out.State != "unknown" || out.Error == nil {
 		t.Fatalf("lost response: %+v", out)
+	}
+}
+
+// A stream-level failure on a shared connection evicts it from the cache but
+// must not cancel another request in flight on the same connection.
+func TestEvictionWaitsForInFlightRequests(t *testing.T) {
+	ctx := context.Background()
+	receiver, err := Open(ctx, filepath.Join(t.TempDir(), "receiver"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer receiver.Close()
+	sender := startQUICHost(t, filepath.Join(t.TempDir(), "sender"), "127.0.0.1:0")
+	if _, err = receiver.AddPeer(ctx, sender.peer()); err != nil {
+		t.Fatal(err)
+	}
+	config, err := receiver.PeerTLS(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &quic.Transport{Conn: socket}
+	defer transport.Close()
+	ln, err := transport.Listen(config, PeerQUICConfig(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accepted sync.WaitGroup
+	connections := make(chan struct{}, 8)
+	go func() {
+		for {
+			conn, err := ln.Accept(ctx)
+			if err != nil {
+				return
+			}
+			connections <- struct{}{}
+			accepted.Add(1)
+			go func() {
+				defer accepted.Done()
+				for {
+					stream, err := conn.AcceptStream(ctx)
+					if err != nil {
+						return
+					}
+					go func() {
+						request, err := http.ReadRequest(bufio.NewReader(stream))
+						if err != nil {
+							return
+						}
+						switch request.URL.Path {
+						case "/fail":
+							stream.CancelWrite(7)
+							stream.CancelRead(7)
+							return
+						case "/slow":
+							time.Sleep(700 * time.Millisecond)
+						}
+						_, _ = io.WriteString(stream, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+						_ = stream.Close()
+					}()
+				}
+			}()
+		}
+	}()
+	peer := Peer{ID: receiver.Identity().ID, PublicKey: receiver.Identity().PublicKey, Address: socket.LocalAddr().String()}
+	if _, err = sender.store.AddPeer(ctx, peer); err != nil {
+		t.Fatal(err)
+	}
+	// Warm the cache so both requests below share one connection.
+	if status, _, err := sender.store.peerRequest(ctx, peer, http.MethodGet, "/ok", nil); err != nil || status != 200 {
+		t.Fatalf("warm-up: %d %v", status, err)
+	}
+	slow := make(chan error, 1)
+	go func() {
+		status, _, err := sender.store.peerRequest(ctx, peer, http.MethodGet, "/slow", nil)
+		if err == nil && status != 200 {
+			err = fmt.Errorf("status %d", status)
+		}
+		slow <- err
+	}()
+	time.Sleep(150 * time.Millisecond)
+	if _, _, err := sender.store.peerRequest(ctx, peer, http.MethodGet, "/fail", nil); err == nil {
+		t.Fatal("reset stream reported success")
+	}
+	if err := <-slow; err != nil {
+		t.Fatalf("in-flight request was cancelled by another request's eviction: %v", err)
+	}
+	// The failed connection left the cache: the next request dials fresh.
+	if status, _, err := sender.store.peerRequest(ctx, peer, http.MethodGet, "/ok", nil); err != nil || status != 200 {
+		t.Fatalf("after eviction: %d %v", status, err)
+	}
+	if got := len(connections); got != 2 {
+		t.Fatalf("server saw %d connections, want 2 (one evicted, one fresh)", got)
+	}
+	sender.store.peer.mu.Lock()
+	leftover := len(sender.store.peer.users)
+	sender.store.peer.mu.Unlock()
+	if leftover > 1 {
+		t.Fatalf("%d connections still tracked after requests finished", leftover)
 	}
 }

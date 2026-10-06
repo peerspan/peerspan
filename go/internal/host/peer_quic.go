@@ -53,7 +53,16 @@ type peerTransport struct {
 	listening bool // a peer listener accepts inbound connections
 	relays    map[string]*relayClient
 	conns     map[string]cachedPeerConn
-	timeout   time.Duration
+	// users counts in-flight requests per outbound connection. An evicted
+	// connection is closed only when its last request finishes, so one failed
+	// stream never cancels other requests sharing the connection.
+	users   map[*quic.Conn]*connUsers
+	timeout time.Duration
+}
+
+type connUsers struct {
+	active  int
+	evicted bool
 }
 
 type cachedPeerConn struct {
@@ -103,6 +112,10 @@ func (s *Store) closePeerTransport() error {
 	for id, c := range s.peer.conns {
 		_ = c.conn.CloseWithError(0, "closing")
 		delete(s.peer.conns, id)
+	}
+	for conn := range s.peer.users {
+		_ = conn.CloseWithError(0, "closing")
+		delete(s.peer.users, conn)
 	}
 	for key, client := range s.peer.relays {
 		client.cancel()
@@ -346,11 +359,12 @@ func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reuse
 	s.peer.mu.Lock()
 	if c, ok := s.peer.conns[peer.ID]; ok {
 		if c.key == key && c.conn.Context().Err() == nil {
+			s.acquireConnLocked(c.conn)
 			s.peer.mu.Unlock()
 			return c.conn, true, nil
 		}
-		_ = c.conn.CloseWithError(0, "peer changed")
 		delete(s.peer.conns, peer.ID)
+		s.retireConnLocked(c.conn, "peer changed")
 	}
 	s.peer.mu.Unlock()
 	transport, err := s.peerUDP(nil)
@@ -394,9 +408,11 @@ func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reuse
 	}
 	if c, ok := s.peer.conns[peer.ID]; ok && c.key == key && c.conn.Context().Err() == nil {
 		_ = conn.CloseWithError(0, "duplicate")
+		s.acquireConnLocked(c.conn)
 		return c.conn, true, nil
 	}
 	s.peer.conns[peer.ID] = cachedPeerConn{key: key, conn: conn}
+	s.acquireConnLocked(conn)
 	return conn, false, nil
 }
 
@@ -430,13 +446,60 @@ func (s *Store) dialRelayed(ctx context.Context, transport *quic.Transport, netw
 	return transport.Dial(ctx, packets.synthetic(id), config, PeerQUICConfig(false))
 }
 
+// acquireConnLocked records one more in-flight request on conn. s.peer.mu is held.
+func (s *Store) acquireConnLocked(conn *quic.Conn) {
+	if s.peer.users == nil {
+		s.peer.users = map[*quic.Conn]*connUsers{}
+	}
+	u := s.peer.users[conn]
+	if u == nil {
+		u = &connUsers{}
+		s.peer.users[conn] = u
+	}
+	u.active++
+}
+
+// retireConnLocked stops new requests from using conn and closes it once no
+// request is using it. s.peer.mu is held.
+func (s *Store) retireConnLocked(conn *quic.Conn, reason string) {
+	u := s.peer.users[conn]
+	if u != nil && u.active > 0 {
+		u.evicted = true
+		return
+	}
+	delete(s.peer.users, conn)
+	_ = conn.CloseWithError(0, reason)
+}
+
+// releaseConn ends one request's use of conn, closing an evicted connection
+// after its last request.
+func (s *Store) releaseConn(conn *quic.Conn) {
+	s.peer.mu.Lock()
+	defer s.peer.mu.Unlock()
+	u := s.peer.users[conn]
+	if u == nil {
+		return
+	}
+	if u.active--; u.active > 0 {
+		return
+	}
+	if u.evicted {
+		delete(s.peer.users, conn)
+		_ = conn.CloseWithError(0, "request failed")
+	} else if conn.Context().Err() != nil {
+		delete(s.peer.users, conn)
+	}
+}
+
+// evictPeerConn removes a connection from the cache after a failed request, so
+// new requests dial fresh. Requests already in flight on it finish first.
 func (s *Store) evictPeerConn(id string, conn *quic.Conn) {
 	s.peer.mu.Lock()
+	defer s.peer.mu.Unlock()
 	if c, ok := s.peer.conns[id]; ok && c.conn == conn {
 		delete(s.peer.conns, id)
 	}
-	s.peer.mu.Unlock()
-	_ = conn.CloseWithError(0, "request failed")
+	s.retireConnLocked(conn, "request failed")
 }
 
 // peerRequest performs one bounded exchange with a peer. A request that fails
@@ -461,9 +524,11 @@ func (s *Store) peerRequest(ctx context.Context, peer Peer, method, path string,
 		}
 		status, data, err := PeerStreamRequest(ctx, conn, host, method, path, body)
 		if err == nil {
+			s.releaseConn(conn)
 			return status, data, nil
 		}
 		s.evictPeerConn(peer.ID, conn)
+		s.releaseConn(conn)
 		if !reused || attempt > 0 || conn.Context().Err() == nil || ctx.Err() != nil {
 			return 0, nil, err
 		}

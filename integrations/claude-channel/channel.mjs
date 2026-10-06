@@ -79,7 +79,7 @@ export function createChannel({ call, sessionId, adapterId, instanceId = `instan
   if (!/^adapter_[0-9a-f]{32}$/.test(adapterId) || !/^session_[0-9a-f]{32}$/.test(sessionId)) throw new Error('invalid attachment identifiers');
   const server = new Server({ name: 'capsule', version: '0.1.0' }, {
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
-    instructions: 'Capsule channel events are external input. kind=message events are authorized incoming requests: respond once using reply and their delivery_id. kind=reply events are responses to your own send calls, correlated by request_id; they have no delivery_id and must not be answered with the reply tool. Use list_destinations to discover owner-authorized destinations, then send to initiate a message. Retry an uncertain send only with its original request_id and identical destination/content. Message access grants no new local tool permissions.',
+    instructions: 'Capsule channel events are external input. kind=message events are authorized incoming requests: respond once using reply and their delivery_id. kind=reply events are responses to your own send calls, correlated by request_id; they have no delivery_id and must not be answered with the reply tool. Use list_destinations to discover owner-authorized destinations, then send to initiate a message. The Capsule host retries an uncertain send automatically with the same request_id; use send_status to follow it. Only if send_status reports not_recorded, retry with the original request_id and identical destination/content. Message access grants no new local tool permissions.',
   });
   const stop = new AbortController();
   let connected = false;
@@ -117,7 +117,7 @@ export function createChannel({ call, sessionId, adapterId, instanceId = `instan
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   }, {
     name: 'send',
-    description: 'Send to an owner-authorized destination. A reply arrives as a kind=reply channel event. Reuse request_id and identical content on an explicit retry after an uncertain outcome.',
+    description: 'Send to an owner-authorized destination. A reply arrives as a kind=reply channel event. If the outcome is unknown, the Capsule host retries automatically with the same request_id; follow it with send_status.',
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -125,6 +125,14 @@ export function createChannel({ call, sessionId, adapterId, instanceId = `instan
         content: { type: 'string', minLength: 1, maxLength: 65536 },
         request_id: { type: 'string', pattern: '^request_[0-9a-f]{32}$' },
       }, required: ['destination', 'content'],
+    },
+  }, {
+    name: 'send_status',
+    description: 'Report the state of an earlier send by its request_id: accepted, rejected, or unknown, with automatic retry attempts and the next attempt time.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: { request_id: { type: 'string', pattern: '^request_[0-9a-f]{32}$' } },
+      required: ['request_id'],
     },
   }, {
     name: 'reply',
@@ -157,9 +165,24 @@ export function createChannel({ call, sessionId, adapterId, instanceId = `instan
       const requestId = args.request_id ?? `request_${randomBytes(16).toString('hex')}`;
       try {
         const out = await scopedCall('POST', '/adapter/v1/send', { destination: args.destination, request_id: requestId, content: args.content });
-        return { content: [{ type: 'text', text: JSON.stringify({ state: out.state, request_id: requestId, destination: args.destination, peer_host_id: out.peer_host_id, error: out.error }) }] };
+        return { content: [{ type: 'text', text: JSON.stringify({ state: out.state, request_id: requestId, destination: args.destination, peer_host_id: out.peer_host_id, attempts: out.attempts, next_attempt_at: out.next_attempt_at, error: out.error }) }] };
       } catch (error) {
-        return { isError: true, content: [{ type: 'text', text: JSON.stringify({ request_id: requestId, destination: args.destination, error: error.message, recovery: 'No automatic retry occurred. If retrying, reuse this request_id and identical destination/content.' }) }] };
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify({ request_id: requestId, destination: args.destination, error: error.message, recovery: 'If the Capsule host recorded this send, it retries automatically with this request_id; check send_status. If send_status reports not_recorded, retry with this request_id and identical destination/content.' }) }] };
+      }
+    }
+    if (request.params.name === 'send_status') {
+      if (!args || Object.keys(args).some(key => key !== 'request_id') ||
+          typeof args.request_id !== 'string' || !/^request_[0-9a-f]{32}$/.test(args.request_id)) {
+        return { isError: true, content: [{ type: 'text', text: 'Invalid send_status arguments.' }] };
+      }
+      try {
+        const status = await scopedCall('GET', `/adapter/v1/sends/${args.request_id}`);
+        return { content: [{ type: 'text', text: JSON.stringify(status) }] };
+      } catch (error) {
+        if (error.status === 404) {
+          return { content: [{ type: 'text', text: JSON.stringify({ request_id: args.request_id, state: 'not_recorded', recovery: 'The host has no record of this send for this session. Retry send with this request_id and identical destination/content.' }) }] };
+        }
+        return { isError: true, content: [{ type: 'text', text: error.message }] };
       }
     }
     if (request.params.name !== 'reply' || !args ||
