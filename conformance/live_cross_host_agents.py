@@ -454,7 +454,8 @@ def worker():
 
 class WorkerConnection:
     def __init__(self, settings, args):
-        if args.local:
+        self.local = args.local or settings.get("local", False)
+        if self.local:
             command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
         else:
             command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
@@ -551,6 +552,9 @@ def check(args, settings):
     allow_same = args.local or args.allow_same_machine
     for role in ["alice", "bob"]:
         actor = settings[role]
+        assert isinstance(
+            actor.get("local", False), bool
+        ), f"{role}.local must be boolean"
         for name in ["repo", "host_binary", "node"] + (
             [] if args.fixture else ["claude"]
         ):
@@ -665,7 +669,19 @@ def check(args, settings):
         return {
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "consumer": "deterministic-mcp" if args.fixture else "claude",
-            "control_transport": "local-subprocess" if args.local else "ssh",
+            "control_transport": (
+                "local-subprocess"
+                if all(c.local for c in connections)
+                else (
+                    "mixed-local-and-ssh"
+                    if any(c.local for c in connections)
+                    else "ssh"
+                )
+            ),
+            "worker_control_transports": {
+                role: "local-subprocess" if connection.local else "ssh"
+                for role, connection in zip(["alice", "bob"], connections)
+            },
             "distinct_machine_ids": distinct,
             "hosts": identities,
             "sessions": sessions,

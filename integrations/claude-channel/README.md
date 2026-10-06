@@ -148,7 +148,11 @@ Configure SSH aliases with normal host-key verification. The advertised IPs and 
 }
 ```
 
-`replacement_binary` is optional; omit it to restart the same implementation. First run deterministic MCP consumers, which make no model calls:
+`replacement_binary` is optional; omit it to restart the same implementation.
+
+If this controller runs on Alice's machine, replace Alice's `"ssh"` entry with `"local": true`. Her paths then refer to this machine, while Bob still runs over SSH. The distinct-installation check remains enabled.
+
+First run deterministic MCP consumers, which make no model calls:
 
 ```sh
 python3 conformance/live_cross_host_agents.py --config /tmp/capsule-hosts.json --fixture --output /tmp/capsule-cross-host-fixture.json
