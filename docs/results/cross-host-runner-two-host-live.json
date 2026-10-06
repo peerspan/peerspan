@@ -1,0 +1,142 @@
+{
+  "checked_at": "2026-10-06T07:38:38.487802+00:00",
+  "consumer": "claude",
+  "control_transport": "mixed-local-and-ssh",
+  "worker_control_transports": {
+    "alice": "local-subprocess",
+    "bob": "ssh"
+  },
+  "distinct_machine_ids": true,
+  "hosts": [
+    {
+      "identity": {
+        "id": "host_9145b67564121504280ea4af73b53fa53c77159c09bc9cde0d65287909617402",
+        "public_key": "dhuW0z0oldFjyaSaq76Yzm52FCU//A7hnMK8ik7GEwk=",
+        "created_at": "2026-10-06T07:37:34.300653864Z"
+      },
+      "agent": {
+        "capabilities": [],
+        "created_at": "2026-10-06T07:37:34.317861048Z",
+        "id": "agent_f6abbb33e7a27b2339a3e977ac8aa4bd",
+        "name": "alice",
+        "owner": "alice"
+      },
+      "machine": {
+        "uid": 0
+      },
+      "host_binary": "capsule-host-go"
+    },
+    {
+      "identity": {
+        "id": "host_086675f66e3f43163275a804143736df3720c837cc3d2528e3331ada44f0f08b",
+        "public_key": "8PM39NKEAl4tGOQ1UhizGjBf+5HYIWVrsHAA3uKg/Io=",
+        "created_at": "2026-10-06T07:37:35.784961334Z"
+      },
+      "agent": {
+        "capabilities": [],
+        "created_at": "2026-10-06T07:37:35.804845167Z",
+        "id": "agent_6a9d8f32fdefa342680015f0586b7577",
+        "name": "bob",
+        "owner": "bob"
+      },
+      "machine": {
+        "uid": 0
+      },
+      "host_binary": "capsule-host-rust"
+    }
+  ],
+  "sessions": [
+    {
+      "claude_version": "2.1.291 (Claude Code)",
+      "mcp_protocol": "2025-11-25",
+      "session_id": "session_aef35e685991c3fd6e9c988063372b46",
+      "adapter_id": "adapter_6d633b41a4617d378021c99ed8dac06a",
+      "consumer_pid": 3988114
+    },
+    {
+      "claude_version": "2.1.291 (Claude Code)",
+      "mcp_protocol": "2025-11-25",
+      "session_id": "session_2772c7062fff7fb0350dca423bf2bf22",
+      "adapter_id": "adapter_5041e40ee612a11fc26b2c05019dfbca",
+      "consumer_pid": 610629
+    }
+  ],
+  "network_id": "net_f075fd22cf7eaefac0c5da26c2fa5daf7c2fb76f0ce969245c4490f61429446c",
+  "grants": [
+    {
+      "action": "message.append",
+      "allow_disconnected": true,
+      "expires_at": "2026-10-06T07:57:36.474798Z",
+      "id": "grant_d67b684242844f42e3276e20b91c610c",
+      "max_message_bytes": 65536,
+      "requester_host_id": "host_086675f66e3f43163275a804143736df3720c837cc3d2528e3331ada44f0f08b",
+      "revoked_at": null,
+      "target_agent_id": "agent_f6abbb33e7a27b2339a3e977ac8aa4bd"
+    },
+    {
+      "action": "message.append",
+      "allow_disconnected": true,
+      "expires_at": "2026-10-06T07:57:36.913153Z",
+      "id": "grant_1d178403e1e7f3eb9b6767c55bc3594b",
+      "max_message_bytes": 65536,
+      "requester_host_id": "host_9145b67564121504280ea4af73b53fa53c77159c09bc9cde0d65287909617402",
+      "revoked_at": null,
+      "target_agent_id": "agent_6a9d8f32fdefa342680015f0586b7577"
+    }
+  ],
+  "destination_max_messages": 4,
+  "manual_peer_pins": false,
+  "owner_cli_send_or_reply_fetch": false,
+  "agent_initiated_both_directions": true,
+  "model_observed_automatic_replies_both_directions": true,
+  "same_consumer_processes_after_restart": true,
+  "coordination_offline_exchanges": true,
+  "queued_request_blocked_after_grant_revocation": true,
+  "queued_revocation_explicit_caller_retries": 0,
+  "builtin_tools_enabled": false,
+  "permission_relay_enabled": false,
+  "exchanges": [
+    {
+      "phase": "alice-to-bob-connected",
+      "observed": true,
+      "restart": null,
+      "explicit_caller_retries": 0
+    },
+    {
+      "phase": "bob-to-alice-connected",
+      "observed": true,
+      "restart": null,
+      "explicit_caller_retries": 0
+    },
+    {
+      "phase": "alice-to-bob-offline-restart",
+      "observed": true,
+      "restart": {
+        "replacement_guard_status": 409,
+        "host_binary": "capsule-host-rust"
+      },
+      "explicit_caller_retries": 0
+    },
+    {
+      "phase": "bob-to-alice-offline-restart",
+      "observed": true,
+      "restart": {
+        "replacement_guard_status": 409,
+        "host_binary": "capsule-host-go"
+      },
+      "explicit_caller_retries": 0
+    }
+  ],
+  "limitations": [
+    "Different machine IDs identify installations, not physical hardware or independently authenticated developer identities.",
+    "The receiver was paused before restart to make the pending exchange deterministic.",
+    "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment.",
+    "Claude accounts were authenticated on both hosts; independently authenticated developer identities were not verified."
+  ],
+  "binary_source_commit": "35bbba003dc2f29d364c4ac3c48e7c0c7f39cf52",
+  "runner_sha256": "16c1587cc6f70e7b56f04ec857bfc24641973badb7a478fb707eabdb63273ad2",
+  "peer_transport": "QUIC v1 over UDP; relay-capable build from merged PR #26",
+  "redactions": [
+    "Hostnames, IP addresses, machine fingerprints, and temporary executable paths omitted from the public report."
+  ]
+}

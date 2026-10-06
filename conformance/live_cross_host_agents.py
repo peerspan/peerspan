@@ -217,9 +217,14 @@ class Experiment:
             )
             self.consumer.ready()
             self.credential_path = directory / "credential.json"
-            protocol = re.search(
-                r'"negotiatedProtocolVersion":"([^"]+)"', self.consumer.debug()
-            ).group(1)
+            # Older Claude versions log this metadata inside an escaped JSON
+            # string. Read the negotiated value in either representation.
+            protocol_match = re.search(
+                r'"negotiatedProtocolVersion"\s*:\s*"([^"]+)"',
+                self.consumer.debug().replace(r"\"", '"'),
+            )
+            assert protocol_match, "Claude did not log the negotiated MCP version"
+            protocol = protocol_match.group(1)
         self.consumer_pid = self.consumer.process.pid
         return {
             "claude_version": version,
@@ -301,7 +306,10 @@ class Experiment:
         )
         assert len(rows) == 1
         outbound = json.loads(rows[0][0])
-        assert outbound["state"] == "unknown", "retry is only for an uncertain send"
+        # The original attempt can finish between the controller's snapshot and
+        # this command. An accepted operation needs no further send.
+        if outbound["state"] != "unknown":
+            return False
         arguments = {
             "destination": "remote",
             "request_id": current,
@@ -331,9 +339,10 @@ class Experiment:
                     (self.peer["identity"]["id"], current),
                 )
                 if json.loads(rows[0][0])["state"] != "unknown":
-                    return
+                    return True
                 self.consumer.running()
                 time.sleep(0.1)
+        return True
 
     def snapshot(self, pump=False):
         if pump:
@@ -456,7 +465,7 @@ class Experiment:
         elif operation == "begin":
             self.begin(**args)
         elif operation == "retry":
-            self.retry()
+            return self.retry()
         elif operation == "pause":
             self.pause(**args)
         elif operation == "snapshot":
@@ -494,6 +503,24 @@ class Experiment:
         if errors:
             raise RuntimeError("test process cleanup failed") from None
 
+    def failure_summary(self):
+        """Report operation states without credentials, prompts, or CLI output."""
+        if self.host is None or self.consumer is None:
+            return {}
+        records = [
+            json.loads(row[0])
+            for row in sql(self.host, "SELECT record FROM outbound_messages")
+        ]
+        return {
+            "consumer_running": self.consumer.process.poll() is None,
+            "outbound_states": [record["state"] for record in records],
+            "current_operation_count": sum(
+                hasattr(self, "current_reply")
+                and self.current_reply in record["request"]["content"]
+                for record in records
+            ),
+        }
+
 
 def worker():
     def interrupted(_number, _frame):
@@ -516,6 +543,10 @@ def worker():
                     "ok": False,
                     "error": f"{operation} failed ({type(error).__name__})",
                 }
+                try:
+                    response["diagnostics"] = experiment.failure_summary()
+                except Exception:
+                    response["diagnostics"] = {}
             print(json.dumps(response), flush=True)
             if operation == "close" or not response["ok"]:
                 break
@@ -580,7 +611,9 @@ class WorkerConnection:
         self.process.stdin.flush()
         response = self.responses.get(timeout=120)
         assert response is not None, "worker exited; check SSH and remote prerequisites"
-        assert response["ok"], response["error"]
+        assert response["ok"], (
+            response["error"] + ": " + json.dumps(response.get("diagnostics", {}))
+        )
         return response["value"]
 
     def close(self):
@@ -632,16 +665,19 @@ def wait_received(sender, receiver):
         request_id = source["current_request_id"]
         if request_id in target["received_request_ids"]:
             return attempts
+        # New intents are persisted as unknown before their first network
+        # attempt finishes. A saved error identifies a completed failed attempt.
         uncertain = any(
-            out["request_id"] == request_id and out["state"] == "unknown"
+            out["request_id"] == request_id
+            and out["state"] == "unknown"
+            and out["error"] is not None
             for out in source["outbound"]
         )
         if uncertain:
             assert (
                 attempts < 3
             ), "original request remains uncertain after three caller retries"
-            sender.call("retry")
-            attempts += 1
+            attempts += int(sender.call("retry"))
             time.sleep(1)
         else:
             time.sleep(0.2)

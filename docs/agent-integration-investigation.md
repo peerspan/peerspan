@@ -32,6 +32,10 @@ The [cross-host runner](../conformance/live_cross_host_agents.py) extends this e
 
 The [local validation report](results/cross-host-runner-local-live.json) records two Claude Code 2.1.291 sessions completing all four exchanges over QUIC, including both directions after coordination stopped and each originating daemon restarted under the other implementation. Their original sessions survived token rotation, and a queued request was blocked after its receiver revoked the grant. This run used one machine and one account; SSH worker orchestration was separately checked with deterministic MCP consumers across all four Go/Rust pairings.
 
+The [two-host fixture report](results/cross-host-runner-two-host-fixture.json) extends those checks to separate installations across all four Go/Rust pairings. Original consumers survived daemon restarts and token rotation while coordination was offline; revoked queued messages were blocked. Go↔Rust also exchanged replies through a forced relay path while coordination remained running. These checks validate the transport and adapter behavior without model execution.
+
+The [two-host live report](results/cross-host-runner-two-host-live.json) records Claude Code 2.1.291 on both machines, negotiating MCP 2025-11-25. Both agents initiated messages and observed automatic replies, including exchanges after coordination stopped and each originating daemon restarted under the other implementation. The original processes and sessions survived token rotation; revocation blocked queued delivery. This closes the separate-host messaging experiment. Independently authenticated developer identities, tasks, full conversations, and remote tools remain outside its scope.
+
 ## Acceptance experiment checklist
 
 1. Record the Claude Code version, MCP protocol revision, authentication mode, and whether channels are enabled. Use an isolated test workspace and an explicitly opted-in adapter.

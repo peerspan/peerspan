@@ -1,0 +1,216 @@
+{
+  "checked_at": "2026-10-06T07:27:34.649974+00:00",
+  "source_commit": "35bbba003dc2f29d364c4ac3c48e7c0c7f39cf52",
+  "consumer": "deterministic-mcp",
+  "peer_transport": "QUIC v1 over UDP; relay-capable build from merged PR #26",
+  "control_transport": "mixed-local-and-ssh",
+  "distinct_machine_ids": true,
+  "model_execution_tested": false,
+  "manual_peer_pins": false,
+  "owner_cli_send_or_reply_fetch": false,
+  "checks": {
+    "same_consumer_processes_after_restart": true,
+    "coordination_offline_exchanges": true,
+    "queued_request_blocked_after_grant_revocation": true
+  },
+  "pairings": [
+    {
+      "alice": "go",
+      "bob": "go",
+      "mcp_protocols": [
+        "2025-11-25",
+        "2025-11-25"
+      ],
+      "exchanges": [
+        {
+          "phase": "alice-to-bob-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "alice-to-bob-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-rust"
+          },
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-rust"
+          },
+          "explicit_caller_retries": 0
+        }
+      ],
+      "queued_revocation_explicit_caller_retries": 0
+    },
+    {
+      "alice": "go",
+      "bob": "rust",
+      "mcp_protocols": [
+        "2025-11-25",
+        "2025-11-25"
+      ],
+      "exchanges": [
+        {
+          "phase": "alice-to-bob-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "alice-to-bob-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-rust"
+          },
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-go"
+          },
+          "explicit_caller_retries": 0
+        }
+      ],
+      "queued_revocation_explicit_caller_retries": 0
+    },
+    {
+      "alice": "rust",
+      "bob": "go",
+      "mcp_protocols": [
+        "2025-11-25",
+        "2025-11-25"
+      ],
+      "exchanges": [
+        {
+          "phase": "alice-to-bob-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "alice-to-bob-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-go"
+          },
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-rust"
+          },
+          "explicit_caller_retries": 0
+        }
+      ],
+      "queued_revocation_explicit_caller_retries": 0
+    },
+    {
+      "alice": "rust",
+      "bob": "rust",
+      "mcp_protocols": [
+        "2025-11-25",
+        "2025-11-25"
+      ],
+      "exchanges": [
+        {
+          "phase": "alice-to-bob-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-connected",
+          "observed": true,
+          "restart": null,
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "alice-to-bob-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-go"
+          },
+          "explicit_caller_retries": 0
+        },
+        {
+          "phase": "bob-to-alice-offline-restart",
+          "observed": true,
+          "restart": {
+            "replacement_guard_status": 409,
+            "host_binary": "capsule-host-go"
+          },
+          "explicit_caller_retries": 0
+        }
+      ],
+      "queued_revocation_explicit_caller_retries": 0
+    }
+  ],
+  "forced_cross_host_relay": {
+    "checked_at": "2026-10-06T07:28:27.790230+00:00",
+    "consumer": "deterministic-mcp",
+    "distinct_machine_ids": true,
+    "direct_addresses_intentionally_not_listening": true,
+    "peer_transport": "end-to-end QUIC via capsule-coord TLS/TCP relay",
+    "exchanges": [
+      {
+        "pairing": "Go-to-Rust",
+        "observed_by_mcp_consumer": true,
+        "explicit_caller_retries": 0
+      },
+      {
+        "pairing": "Rust-to-Go",
+        "observed_by_mcp_consumer": true,
+        "explicit_caller_retries": 0
+      }
+    ],
+    "coordinator_stopped": false,
+    "model_execution_tested": false,
+    "limitations": [
+      "Coordinator remained running for this forced-relay experiment.",
+      "Different installation IDs do not establish independently authenticated developer identities."
+    ]
+  },
+  "redactions": [
+    "Hostnames, IP addresses, machine fingerprints, session IDs, and temporary executable paths omitted from this public summary."
+  ],
+  "limitations": [
+    "Different machine IDs identify installations, not physical hardware or independently authenticated developer identities.",
+    "The receiver was paused before restart to make the pending exchange deterministic.",
+    "Tasks, full conversations, remote tools, and adapter-process replacement are outside this experiment.",
+    "Deterministic MCP consumers ran; no model execution was tested."
+  ]
+}
