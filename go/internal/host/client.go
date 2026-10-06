@@ -14,6 +14,15 @@ import (
 // Client talks only to the owner-local Unix socket; it cannot call remote hosts.
 type Client struct{ SocketPath string }
 
+// ClientError retains the status for owner workflows that must distinguish a
+// confirmed refusal from an unknown outcome after a lost response.
+type ClientError struct {
+	Status        int
+	Code, Message string
+}
+
+func (e *ClientError) Error() string { return "host service: " + e.Message }
+
 func (c Client) Call(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
 	var input io.Reader
 	if body != nil {
@@ -50,11 +59,12 @@ func (c Client) Call(ctx context.Context, method, path string, body any) (json.R
 	if resp.StatusCode >= 400 {
 		var failure struct {
 			Error string `json:"error"`
+			Code  string `json:"code"`
 		}
 		if err := json.Unmarshal(data, &failure); err != nil {
 			return nil, fmt.Errorf("host service returned HTTP %d", resp.StatusCode)
 		}
-		return nil, fmt.Errorf("host service: %s", failure.Error)
+		return nil, &ClientError{Status: resp.StatusCode, Code: failure.Code, Message: failure.Error}
 	}
 	if !json.Valid(data) {
 		return nil, fmt.Errorf("invalid JSON from host service")

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "id": "claude-code",
+  "command": ["node", "./provider.mjs"],
+  "operations": ["prepare", "check", "launch"]
+}

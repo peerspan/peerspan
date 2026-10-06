@@ -34,9 +34,6 @@ pub enum Command {
     },
     /// Show the local daemon's public identity
     Info,
-    /// Prepare, launch, or diagnose an opted-in Claude Code session
-    #[command(subcommand)]
-    Claude(ClaudeCommand),
     /// Manage local agent registrations
     #[command(subcommand)]
     Agent(AgentCommand),
@@ -76,59 +73,6 @@ pub enum Command {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum ClaudeCommand {
-    /// Create private MCP configuration and an owner-authorized attachment
-    Setup {
-        #[command(flatten)]
-        runtime: ClaudeRuntime,
-        #[arg(long)]
-        agent: String,
-        #[arg(long)]
-        channel: PathBuf,
-        #[arg(long)]
-        expires_at: String,
-        #[arg(long)]
-        routes: Option<PathBuf>,
-    },
-    /// Launch a prepared session, or prepare and launch one with --agent
-    Start {
-        #[command(flatten)]
-        runtime: ClaudeRuntime,
-        #[arg(long, requires_all = ["channel", "expires_at"])]
-        agent: Option<String>,
-        #[arg(long, requires = "agent")]
-        channel: Option<PathBuf>,
-        #[arg(long, requires = "agent")]
-        expires_at: Option<String>,
-        #[arg(long, requires = "agent")]
-        routes: Option<PathBuf>,
-        #[arg(long)]
-        workspace: Option<PathBuf>,
-        /// Additional Claude arguments after --; Capsule channel options cannot be overridden
-        #[arg(last = true, allow_hyphen_values = true)]
-        claude_args: Vec<String>,
-    },
-    /// Inspect setup and adapter readiness without establishing a lease
-    Doctor {
-        #[command(flatten)]
-        runtime: ClaudeRuntime,
-    },
-}
-
-#[derive(Debug, clap::Args)]
-pub struct ClaudeRuntime {
-    /// Private setup directory
-    #[arg(long)]
-    pub directory: PathBuf,
-    /// Node 22+ executable
-    #[arg(long)]
-    pub node: Option<PathBuf>,
-    /// Claude Code executable
-    #[arg(long)]
-    pub claude: Option<PathBuf>,
-}
-
-#[derive(Debug, Subcommand)]
 pub enum AgentCommand {
     /// Register an agent owned by this host
     Register {
@@ -149,6 +93,40 @@ pub enum AgentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SessionCommand {
+    /// Prepare an opted-in session using an installed harness integration
+    Setup {
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long, requires_all=["agent","expires_at"])]
+        harness: Option<String>,
+        #[arg(long, requires_all=["harness","expires_at"])]
+        agent: Option<String>,
+        #[arg(long, requires_all=["agent","harness"])]
+        expires_at: Option<String>,
+        #[arg(long, requires = "agent")]
+        integrations: Option<PathBuf>,
+        #[arg(long, requires = "agent")]
+        runner: Option<PathBuf>,
+        #[arg(long, requires = "agent")]
+        routes: Option<PathBuf>,
+        #[arg(long = "option", value_name = "KEY=VALUE", requires = "agent")]
+        options: Vec<String>,
+    },
+    /// Launch a prepared session if its integration supports launch
+    Start {
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(last = true, allow_hyphen_values = true)]
+        harness_args: Vec<String>,
+    },
+    /// Inspect session and integration readiness without changing state
+    Doctor {
+        #[arg(long)]
+        directory: PathBuf,
+    },
+
     /// Record an attachment to a registered agent
     Attach {
         #[arg(long, value_name = "ID")]
@@ -477,7 +455,11 @@ impl Command {
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Run { .. }
-            | Self::Claude(_)
+            | Self::Session(
+                SessionCommand::Setup { .. }
+                | SessionCommand::Start { .. }
+                | SessionCommand::Doctor { .. },
+            )
             | Self::Person(_)
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }

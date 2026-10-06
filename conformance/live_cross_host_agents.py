@@ -203,15 +203,15 @@ class Experiment:
                 "expires_at": remote_grant["expires_at"], "max_message_bytes": 65536, "max_messages": 4,
             }]))
             configured = self.host.cli(
-                "claude", "setup", "--agent", self.agent["id"],
-                "--directory", str(self.setup_directory), "--channel", str(script),
+                "session", "setup", "--harness", "claude-code", "--agent", self.agent["id"],
+                "--directory", str(self.setup_directory), "--integrations", str(script.parent.parent),
                 "--expires-at", timestamp(1200), "--routes", str(routes_file),
-                "--node", str(node), "--claude", self.settings["claude"],
+                "--runner", str(node), "--option", "executable=" + self.settings["claude"],
             )
             assert configured["state"] == "configured" and not configured["adapter_ready"]
             self.session = self.host.cli("session", "inspect", configured["session_id"])
             self.secret = json.loads((self.setup_directory / "credential.json").read_text())
-            launch = [self.host.binary, "--state", str(self.host.state), "claude", "start",
+            launch = [self.host.binary, "--state", str(self.host.state), "session", "start",
                       "--directory", str(self.setup_directory), "--workspace", str(directory)]
         else:
             route(self.host, self.secret, self.peer["identity"], self.peer["agent"], remote_grant, budget=4)
@@ -222,7 +222,8 @@ class Experiment:
         else:
             # Pin the executable so a CLI auto-update cannot change the version
             # reported for the process this experiment actually launched.
-            claude = Path(self.settings["claude"]).resolve(strict=True)
+            executable = json.loads((self.setup_directory / "profile.json").read_text())["provider_state"]["executable"] if launch else self.settings["claude"]
+            claude = Path(executable).resolve(strict=True)
             version = subprocess.check_output(
                 [str(claude), "--version"], text=True, timeout=10
             ).strip()
@@ -938,7 +939,7 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--ssh-config", type=Path)
-    parser.add_argument("--setup-flow", action="store_true", help="Prepare and launch through the public claude CLI workflow")
+    parser.add_argument("--setup-flow", action="store_true", help="Prepare and launch through the public session CLI workflow")
     parser.add_argument(
         "--send-status", action="store_true",
         help="Stop each receiver until send_status reports unknown, then check automatic acceptance",

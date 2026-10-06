@@ -42,7 +42,7 @@ def snapshot(host):
 
 
 def invoke(client, host, *args, success=True):
-    result = subprocess.run([str(client), "--state", str(host.state), "claude", *args],
+    result = subprocess.run([str(client), "--state", str(host.state), "session", *args],
                             capture_output=True, text=True, timeout=30)
     assert (result.returncode == 0) == success, (args, result.stdout, result.stderr)
     assert "token_" not in result.stdout + result.stderr
@@ -112,7 +112,7 @@ class DropSetupResponse:
 
 def setup(client, host, agent, directory, node, claude, script, routes=None):
     args = ["setup", "--directory", str(directory), "--agent", agent["id"],
-            "--channel", str(script), "--node", str(node), "--claude", str(claude),
+            "--harness", "claude-code", "--integrations", str(script.parent.parent), "--runner", str(node), "--option", "executable="+str(claude),
             "--expires-at", timestamp(900)]
     if routes is not None:
         path = directory.parent / (directory.name + "-routes.json")
@@ -150,7 +150,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             # Existing configuration, private-file violations, and identity
             # mismatches must fail without changing authorization or activity.
             setup_args = ["setup", "--directory", str(directory), "--agent", mine["id"],
-                          "--channel", str(script), "--node", str(node), "--claude", str(claude),
+                          "--harness", "claude-code", "--integrations", str(script.parent.parent), "--runner", str(node), "--option", "executable="+str(claude),
                           "--expires-at", timestamp(900)]
             invoke(client, source, *setup_args, success=False)
             assert files == {name: (directory / name).read_bytes() for name in files}
@@ -176,7 +176,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             (directory / "profile.json").write_bytes(files["profile.json"])
             (directory / "mcp.json").write_text('{"mcpServers":{}}')
             report = invoke(client, source, "doctor", "--directory", str(directory), success=False)
-            assert next(c for c in report["checks"] if c["name"] == "mcp_config")["status"] == "error"
+            assert next(c for c in report["checks"] if c["name"] == "harness/mcp_config")["status"] == "error"
             (directory / "mcp.json").write_bytes(files["mcp.json"])
             assert before == snapshot(source)
 
@@ -192,10 +192,9 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             assert before == snapshot(source), "launch minted another attachment"
             invoke(client, source, "start", "--directory", str(directory), "--", "--mcp-config", "{}", success=False)
             invoke(client, source, "start", "--directory", str(directory), "unexpected", "--", "--name", "example", success=False)
-            invoke(client, source, "start", "--directory", str(root / "invalid workspace setup"),
-                   "--workspace", str(root / "absent"), "--agent", mine["id"], "--channel", str(script),
-                   "--node", str(node), "--claude", str(claude), "--expires-at", timestamp(900), success=False)
-            assert not (root / "invalid workspace setup").exists() and before == snapshot(source)
+            invoke(client, source, "start", "--directory", str(directory),
+                   "--workspace", str(root / "absent"), success=False)
+            assert before == snapshot(source)
 
             # Real MCP consumers use the prepared credentials/routes unchanged.
             other_dir = root / "receiver setup"
@@ -215,8 +214,15 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             notification = wait(received)
             assert not responder.reply(notification["params"]["meta"]["delivery_id"], "hello back").get("isError")
             wait(lambda: len(sql(source, "SELECT record FROM outbound_replies")) == 1)
+            # Let the consumer acknowledge its reply before freezing it. The
+            # daemon's reply dispatcher legitimately changes activity and the
+            # outbound row independently of an owner diagnostic request.
+            wait(lambda: sql(source, "SELECT json_extract(reply_delivery,'$.state') FROM adapter_outbound") == [("forwarded",)])
             sender.process.send_signal(signal.SIGSTOP)
             paused = sender
+            _, stopped = os.waitpid(sender.process.pid, os.WUNTRACED)
+            assert os.WIFSTOPPED(stopped)
+            time.sleep(0.1)  # Settle any request already received by the daemon.
             before = snapshot(source)
             report = invoke(client, source, "doctor", "--directory", str(directory))
             assert report["adapter_ready"] and report["model_availability"] == "unknown"
@@ -239,7 +245,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             paused = sender
             before = snapshot(source)
             args = ["setup", "--directory", str(root / "conflict"), "--agent", mine["id"],
-                    "--channel", str(script), "--node", str(node), "--claude", str(claude), "--expires-at", timestamp(900)]
+                    "--harness", "claude-code", "--integrations", str(script.parent.parent), "--runner", str(node), "--option", "executable="+str(claude), "--expires-at", timestamp(900)]
             invoke(client, source, *args, success=False)
             assert before == snapshot(source) and not (root / "conflict").exists()
             sender.process.send_signal(signal.SIGCONT)
@@ -278,7 +284,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             bad_auth.write_text(bad_auth.read_text().replace('"loggedIn":True', '"loggedIn":False'))
             before = snapshot(source)
             invoke(client, source, "setup", "--directory", str(root / "bad auth"), "--agent", independent["id"],
-                   "--channel", str(script), "--node", str(node), "--claude", str(bad_auth), "--expires-at", timestamp(900), success=False)
+                   "--harness", "claude-code", "--integrations", str(script.parent.parent), "--runner", str(node), "--option", "executable="+str(bad_auth), "--expires-at", timestamp(900), success=False)
             assert before == snapshot(source) and not (root / "bad auth").exists()
             request = {"agent_id": independent["id"], "session_id": "session_" + secrets.token_hex(16),
                        "integration": "claude-code", "expires_at": timestamp(900),
@@ -304,7 +310,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             proxy = DropSetupResponse(source)
             try:
                 args = ["setup", "--directory", str(lost_dir), "--agent", independent["id"],
-                        "--channel", str(script), "--node", str(node), "--claude", str(claude), "--expires-at", timestamp(900)]
+                        "--harness", "claude-code", "--integrations", str(script.parent.parent), "--runner", str(node), "--option", "executable="+str(claude), "--expires-at", timestamp(900)]
                 invoke(client, source, *args, success=False)
                 assert proxy.dropped
             finally:

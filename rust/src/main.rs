@@ -1,5 +1,5 @@
-mod claude;
 mod cli;
+mod integration;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
@@ -36,8 +36,18 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         println!();
         return Ok(());
     };
-    if let cli::Command::Claude(command) = command {
-        return claude::run(command, cli.state);
+    if matches!(
+        &command,
+        cli::Command::Session(
+            cli::SessionCommand::Setup { .. }
+                | cli::SessionCommand::Start { .. }
+                | cli::SessionCommand::Doctor { .. }
+        )
+    ) {
+        let cli::Command::Session(operation) = command else {
+            unreachable!()
+        };
+        return integration::run(operation, cli.state).await;
     }
     let directory = match cli.state {
         Some(directory) => directory,
@@ -464,7 +474,7 @@ async fn call(
     };
     let request = Request::builder()
         .method(method)
-        .uri(format!("http://localhost{path}"))
+        .uri(path)
         .header("Host", "localhost")
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(encoded)))?;
@@ -477,10 +487,14 @@ async fn call(
         .to_bytes();
     let value: Value = serde_json::from_slice(&bytes)?;
     if status.is_client_error() || status.is_server_error() {
-        bail!(
-            "host daemon: {}",
-            value["error"].as_str().unwrap_or("request failed")
-        );
+        return Err(integration::DaemonError {
+            status: status.as_u16(),
+            message: value["error"]
+                .as_str()
+                .unwrap_or("request failed")
+                .to_owned(),
+        }
+        .into());
     }
     Ok(value)
 }

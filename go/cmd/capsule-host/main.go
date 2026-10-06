@@ -24,9 +24,9 @@ const usage = `capsule-host runs and controls a local Capsule host daemon.
 Usage:
   capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS]
   capsule-host [--state DIR] info
-  capsule-host [--state DIR] claude setup|start --directory DIR --agent ID --channel FILE --expires-at TIME [--routes FILE --node PROGRAM --claude PROGRAM]
-  capsule-host [--state DIR] claude start --directory DIR [--workspace DIR]
-  capsule-host [--state DIR] claude doctor --directory DIR
+  capsule-host [--state DIR] session setup --directory DIR --harness ID --agent ID --expires-at TIME [--integrations DIR --runner PROGRAM --option KEY=VALUE --routes FILE]
+  capsule-host [--state DIR] session start --directory DIR [--workspace DIR] [-- HARNESS_ARGS]
+  capsule-host [--state DIR] session doctor --directory DIR
   capsule-host [--state DIR] agent register --name NAME --owner OWNER [--capability NAME]
   capsule-host [--state DIR] agent list
   capsule-host [--state DIR] agent inspect ID
@@ -106,8 +106,8 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if args[0] == "person" {
 		return personShow(args[1:], out, errOut)
 	}
-	if args[0] == "claude" {
-		return runClaude(args[1:], *state, errOut)
+	if args[0] == "session" && len(args) > 1 && (args[1] == "setup" || args[1] == "start" || args[1] == "doctor") {
+		return runSessionSetup(ctx, args[1:], *state, out, errOut)
 	}
 	explicitState := *state
 	if *state == "" {
