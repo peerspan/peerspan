@@ -341,6 +341,84 @@ Agreed on 2026-10-07, to keep administration simple for launch. The commands abo
 
 Activity events are those of the individual operations.
 
+## Administrators and groups
+
+Roadmap milestone 2b, slice 2. Decided on 2026-10-07:
+
+- **Delegated administrators** do everything except govern the root. They admit and remove hosts and persons, issue invites, revoke, and define groups. Only the root delegates or removes administrators and rotates.
+- **Removing an administrator** keeps what they admitted, unless the removal says otherwise.
+- **The root can go offline** by rotating to an SSH key.
+- **`network create`** makes the creator's person the first administrator.
+
+### Signatures
+
+A root signature is either raw Ed25519, the 64-byte signature used until now, or an `SSHSIG` blob whose embedded key is the root. Verifiers accept both forms for every root-signed statement. An **administrator signature** is an `SSHSIG` blob (namespace `capsule-person-v1`) whose embedded key is a current administrator.
+
+These statements may carry either a root signature or an administrator signature:
+- host invite and person invite (`invite_signature`, `person_invite_signature`);
+- host admission and person admission;
+- host revocation, invite revocation, and person removal;
+- group definition.
+
+Delegation, administrator removal, rotation, and attestation remain root-only.
+
+### Statements
+
+| Statement | Signed by | Lines |
+| --- | --- | --- |
+| Administrator delegation | root of `epoch` | `capsule-admin-delegate-v1`, `network_id`, `epoch`, `person_public_key`, `delegated_at` |
+| Administrator removal | any root in the chain | `capsule-admin-remove-v1`, `network_id`, `person_public_key`, `revoke_admitted` (`true` or `false`), `removed_at` |
+| Group definition | root or administrator | `capsule-group-v1`, `network_id`, `name`, `version`, `defined_at`, then one line per member person ID, in ascending byte order with no duplicates |
+
+Group names are 1–64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter or digit. `version` is a decimal integer of at least 1. A definition with no member lines deletes the group. Group members are always person IDs, never labels.
+
+**Test vectors.** These use the earlier root, host, and person keys, with the person as the administrator. A second person has seed `BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY=` (public key `iodf/x6zhFFXes1a/uQFRWVo3XyJ4JCGOgVXvHr0nxc=`, ID `person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2`). Times are `2026-10-09T00:00:00Z`, and the epoch is 0.
+
+| Statement | `signature` |
+| --- | --- |
+| Delegation of the person, by the genesis root (raw) | `lmKnLMD6XXbYk4pExnNpxbFHR9bZccZWHmlTq7Yssam9dkzfeE7n/2rKom9raC5FmPM7HY7P/TLzx1Vn43zlAg==` |
+| Removal of the person as administrator with `revoke_admitted` `true`, by the genesis root (raw) | `R1qwK9h6ZU+QyzpsXKf5fZWFzqDo0CoTYyi3S/KReuGQn6Dbr0KRGaMDwsciCb6ANbAF5Ye2Vs6V/qBnWwoABA==` |
+| Host admission (member `carol`) signed by the administrator (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGcn2mQsdrkxxBpUyZFanSkCt4bNXYd5C9IjqaLeEs9HxQBscBZYl7WlhEUHuoffN6pW+hZDICMZH5jTfbs4mAg==` |
+| Group `backend`, version 1, with both persons, signed by the administrator (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAVIvTT/9fTeKaYW0R9edFKS2bknw2Pu/MYty3zhnrayKHhm+lT0xtwfNsdawnv4hFr7UW5PDYaHTIflrZ/f9MAA==` |
+
+### Validity
+
+- **Administrators.** A person is an administrator at epoch *e* if four things hold:
+  - they are a valid person;
+  - a delegation of their key exists at epoch *e*, signed by the current root;
+  - no administrator removal of them exists;
+  - no person removal of them exists.
+
+  Removal is sticky and permanent for that key. A root rotation re-signs every current administrator's delegation at the new epoch, alongside the other admissions.
+- **Administrator-signed statements** are valid while their signer is a current administrator. They need no re-signing at a rotation. After a removal with `revoke_admitted: false`, statements the removed administrator signed stay valid. After a removal with `revoke_admitted: true`, every statement that administrator signed becomes invalid, as if never issued. This includes invites, so members who joined through them are dropped too. It also includes group versions, so each affected group reverts to its newest version signed by a signer that is still valid, or ceases to exist.
+- **Groups.** For each name, the valid definition with the highest `version` applies. The coordinator refuses a definition whose version is not higher than the current one, with 409. Hosts persist the highest version they have verified and never accept a lower one, except for the revert caused by `revoke_admitted`. Members that are not current persons are ignored.
+
+### Which key signs
+
+The same commands as before (`network invite`, `invite-person`, `admit`, `revoke`, `revoke-invite`, `remove-person`) and the new group commands choose a signer automatically:
+- If this host holds the current root seed, the daemon signs with the root, as today.
+- Otherwise, the CLI signs with the person key (discovered as in the one-command flows), and that person must be a current administrator; otherwise the command returns 403. The daemon still never sees person keys. It receives the statement already signed.
+
+The root-only commands sign with the root seed when this host holds it. Otherwise they sign through the CLI with `--root-key PATH`, a `.pub` file selecting an agent identity, or an OpenSSH private key file.
+
+### Commands
+
+| CLI after `--state DIR` | Local API | Behavior |
+| --- | --- | --- |
+| `network delegate-admin --network ID --person PERSON [--root-key PATH]` | `POST /v1/networks/{id}/admins` | Root only. `PERSON` is a person ID or a label, resolved with an error on ambiguity. Signs and submits a delegation. Returns 201. |
+| `network remove-admin --network ID --person PERSON [--revoke-admitted] [--root-key PATH]` | `POST /v1/networks/{id}/admin-removals` | Root only. It is sticky and local-first, like a revocation. Returns 201 in the revocation shape. |
+| `network group set --network ID --group NAME [--person PERSON ...]` | `POST /v1/networks/{id}/groups` | Administrator or root. Resolves labels to person IDs, with an error on ambiguity. Signs the next version, one higher than the newest this host has verified, and submits it. Giving no `--person` deletes the group. Returns 201 with the group. |
+| `network groups ID` | `GET /v1/networks/{id}/groups` | Current groups sorted by name: `{name, version, members, signer}`. |
+| `network rotate-root ID --to-ssh --root-key PATH` | `POST /v1/networks/{id}/rotate` | Rotates to the SSH key named by `PATH`. The CLI signs the new root's admissions, attestations, and delegations through `PATH`. After the rotation is accepted, this host deletes its root seed. Later root actions use `--root-key`. Rotating from an SSH root to another SSH root works the same way. |
+
+`network persons` reports `administrator` (bool) for each person. A network record keeps `administrator` with its old meaning: this host holds the root seed. The record gains `root_ssh` (bool), which is true when the current root is an SSH key.
+
+**Default.** When `network create` admits the creator's person (see One-command flows), the root also delegates that person as an administrator. `--no-person` skips both. The creator can then administer from any of their machines with their SSH key, and can move the root offline with `rotate-root --to-ssh` whenever they choose.
+
+**Coordinator.** The map gains `admins`, the current delegations, and `groups`, the current group definitions. `revocations` gains the kind `admin`. The coordinator accepts administrator-signed statements on the existing endpoints, plus `POST .../admins`, `POST .../admin-removals`, and `POST .../groups`, verifying signers against its own view. The rotation endpoint's `admissions` also carries delegations.
+
+**Storage.** Hosts store the statements in `network_statements` under the kinds `admin` (subject: person key), `admin_removal` (subject: person key), and `group` (subject: name, holding the newest verified version). A pending rotation to an SSH root stores no seed. New activity kinds: `network.admin_delegated`, `network.admin_removed`, and `network.group_updated` (subject: group name).
+
 ## Relay
 
 Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
@@ -426,6 +504,19 @@ Each language reproduces the test vectors, including the `SSHSIG` blobs.
 - the person part of the same token is then redeemable with `network redeem-person`;
 - a taken label is skipped without undoing the host join;
 - `--host-only` invites behave as before.
+
+`conformance/admins.py` runs the Go coordinator with Go and Rust hosts in every pairing, using real `ssh-agent`s. It covers:
+
+- `network create` delegating the creator, who then administers from a second machine with only their SSH key;
+- an administrator admitting hosts and persons and issuing invites;
+- a non-administrator refused with 403;
+- the root delegating and removing administrators;
+- removal with and without `--revoke-admitted`, including a group reverting and members dropping;
+- groups: version increase, a stale version refused, deletion, and label resolution failing on ambiguity;
+- `rotate-root --to-ssh`, after which the host holds no seed, administrators keep working, and further root actions work through `--root-key`;
+- a forged administrator signature, or one by a removed administrator, injected into the coordinator database and ignored by hosts.
+
+Each language reproduces the new test vectors.
 
 `conformance/revocation.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing:
 
