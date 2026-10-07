@@ -206,6 +206,10 @@ pub enum NetworkCommand {
         /// Issue a host-only invite
         #[arg(long)]
         host_only: bool,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Join a network with an invite token or, if an administrator admitted
     /// this host's key, a network descriptor
@@ -243,6 +247,10 @@ pub enum NetworkCommand {
         host: Option<String>,
         #[arg(long)]
         member: String,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Issue a one-time person invite token (administrator only)
     InvitePerson {
@@ -252,6 +260,10 @@ pub enum NetworkCommand {
         member: String,
         #[arg(long, value_name = "TIME")]
         expires_at: String,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Redeem a person invite for your person key, on a member host
     RedeemPerson {
@@ -282,6 +294,10 @@ pub enum NetworkCommand {
         network: String,
         #[arg(long, value_name = "PERSON_ID")]
         person: String,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// List a network's persons and the hosts bound to them
     Persons { id: String },
@@ -297,6 +313,10 @@ pub enum NetworkCommand {
         network: String,
         #[arg(long, value_name = "HOST_ID")]
         host: String,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Revoke an invite, and any host that joined with it (administrator only)
     RevokeInvite {
@@ -304,11 +324,71 @@ pub enum NetworkCommand {
         network: String,
         #[arg(long, value_name = "INVITE_PUBLIC_KEY")]
         invite: String,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Leave a network; takes effect locally even if coordination is down
     Leave { id: String },
-    /// Rotate the network root key and re-attest current members (administrator only)
-    RotateRoot { id: String },
+    /// Rotate the network root key and re-attest current members (root only)
+    RotateRoot {
+        id: String,
+        /// Rotate to the SSH key named by --root-key; this host then deletes its root seed
+        #[arg(long, requires = "root_key")]
+        to_ssh: bool,
+        /// The root's SSH key: an OpenSSH public key (select an ssh-agent
+        /// identity) or unencrypted private key file
+        #[arg(long, value_name = "PATH")]
+        root_key: Option<PathBuf>,
+    },
+    /// Make a person an administrator (root only)
+    DelegateAdmin {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        /// Person ID or label
+        #[arg(long)]
+        person: String,
+        /// The SSH root key, when this host does not hold the root seed
+        #[arg(long, value_name = "PATH")]
+        root_key: Option<PathBuf>,
+    },
+    /// Remove an administrator, permanently (root only)
+    RemoveAdmin {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        /// Person ID or label
+        #[arg(long)]
+        person: String,
+        /// Also invalidate everything that administrator signed
+        #[arg(long)]
+        revoke_admitted: bool,
+        /// The SSH root key, when this host does not hold the root seed
+        #[arg(long, value_name = "PATH")]
+        root_key: Option<PathBuf>,
+    },
+    /// Define groups of persons (administrator or root)
+    #[command(subcommand)]
+    Group(GroupCommand),
+    /// List a network's current groups
+    Groups { id: String },
+}
+#[derive(Debug, Subcommand)]
+pub enum GroupCommand {
+    /// Set a group's persons; with no --person, delete the group
+    Set {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "NAME")]
+        group: String,
+        /// Person ID or label; repeat for each member
+        #[arg(long)]
+        person: Vec<String>,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum GrantCommand {
@@ -592,6 +672,7 @@ impl Command {
                 member,
                 expires_at,
                 host_only,
+                ..
             }) => (
                 Method::POST,
                 format!("/v1/networks/{}/invites", encoded(&network)),
@@ -612,6 +693,7 @@ impl Command {
                 person,
                 host,
                 member,
+                ..
             }) => match (person, host) {
                 (Some(person), _) => {
                     // A path to an OpenSSH public key file is read here; a
@@ -635,12 +717,15 @@ impl Command {
                 network,
                 member,
                 expires_at,
+                ..
             }) => (
                 Method::POST,
                 format!("/v1/networks/{}/person-invites", encoded(&network)),
                 Some(json!({"member": member, "expires_at": expires_at})),
             ),
-            Self::Network(NetworkCommand::RemovePerson { network, person }) => (
+            Self::Network(NetworkCommand::RemovePerson {
+                network, person, ..
+            }) => (
                 Method::POST,
                 format!("/v1/networks/{}/person-removals", encoded(&network)),
                 Some(json!({"person_id": person})),
@@ -662,12 +747,14 @@ impl Command {
                 format!("/v1/networks/{}/sync", encoded(&id)),
                 None,
             ),
-            Self::Network(NetworkCommand::Revoke { network, host }) => (
+            Self::Network(NetworkCommand::Revoke { network, host, .. }) => (
                 Method::POST,
                 format!("/v1/networks/{}/revocations", encoded(&network)),
                 Some(json!({"host_id": host})),
             ),
-            Self::Network(NetworkCommand::RevokeInvite { network, invite }) => (
+            Self::Network(NetworkCommand::RevokeInvite {
+                network, invite, ..
+            }) => (
                 Method::POST,
                 format!("/v1/networks/{}/revocations", encoded(&network)),
                 Some(json!({"invite_public_key": invite})),
@@ -677,9 +764,41 @@ impl Command {
                 format!("/v1/networks/{}/leave", encoded(&id)),
                 None,
             ),
-            Self::Network(NetworkCommand::RotateRoot { id }) => (
+            Self::Network(NetworkCommand::RotateRoot { id, .. }) => (
                 Method::POST,
                 format!("/v1/networks/{}/rotate", encoded(&id)),
+                None,
+            ),
+            Self::Network(NetworkCommand::DelegateAdmin {
+                network, person, ..
+            }) => (
+                Method::POST,
+                format!("/v1/networks/{}/admins", encoded(&network)),
+                Some(json!({"person": person})),
+            ),
+            Self::Network(NetworkCommand::RemoveAdmin {
+                network,
+                person,
+                revoke_admitted,
+                ..
+            }) => (
+                Method::POST,
+                format!("/v1/networks/{}/admin-removals", encoded(&network)),
+                Some(json!({"person": person, "revoke_admitted": revoke_admitted})),
+            ),
+            Self::Network(NetworkCommand::Group(GroupCommand::Set {
+                network,
+                group,
+                person,
+                ..
+            })) => (
+                Method::POST,
+                format!("/v1/networks/{}/groups", encoded(&network)),
+                Some(json!({"name": group, "members": person})),
+            ),
+            Self::Network(NetworkCommand::Groups { id }) => (
+                Method::GET,
+                format!("/v1/networks/{}/groups", encoded(&id)),
                 None,
             ),
             Self::Adapter(AdapterCommand::Rotate { id }) => (

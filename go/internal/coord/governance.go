@@ -21,8 +21,22 @@ const (
 	kindAttestation = "attestation"
 )
 
-// chainOf returns the network's verified root chain, or errNotFound.
+// chainOf returns the network's verified root chain, accepting the signatures
+// of its administrators, or errNotFound.
 func chainOf(ctx context.Context, tx *sql.Tx, network string) (membership.Chain, error) {
+	chain, err := rootChainOf(ctx, tx, network)
+	if err != nil {
+		return chain, err
+	}
+	state, err := adminStateOf(ctx, tx, chain)
+	if err != nil {
+		return chain, err
+	}
+	return chain.WithAdminState(state), nil
+}
+
+// rootChainOf returns the network's verified root chain, or errNotFound.
+func rootChainOf(ctx context.Context, tx *sql.Tx, network string) (membership.Chain, error) {
 	var genesisKey string
 	err := tx.QueryRowContext(ctx, `SELECT root_public_key FROM networks WHERE id = ?`, network).Scan(&genesisKey)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -66,28 +80,34 @@ func statementsOf(ctx context.Context, tx *sql.Tx, network, kind string) ([]json
 	return out, rows.Err()
 }
 
-// revokedOf collects stored revocations; they were verified on acceptance.
+// revokedOf collects stored revocations. They were verified on acceptance;
+// those an administrator signed are verified again, since a removal with
+// revoke_admitted invalidates them.
 func revokedOf(ctx context.Context, tx *sql.Tx, chain membership.Chain) (membership.Revoked, error) {
 	revoked := membership.NewRevoked()
-	rows, err := tx.QueryContext(ctx, `SELECT kind, subject FROM statements WHERE network_id = ? AND kind IN ('host', 'invite', 'leave', 'person', 'unbind')`, chain.NetworkID)
+	rows, err := tx.QueryContext(ctx, `SELECT kind, subject, statement FROM statements WHERE network_id = ? AND kind IN ('host', 'invite', 'leave', 'person', 'unbind')`, chain.NetworkID)
 	if err != nil {
 		return revoked, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var kind, subject string
-		if err = rows.Scan(&kind, &subject); err != nil {
+		var kind, subject, statement string
+		if err = rows.Scan(&kind, &subject, &statement); err != nil {
 			return revoked, err
+		}
+		if chain.AdminSigned(signatureOf(json.RawMessage(statement))) {
+			if _, _, err := chain.VerifyRevocation(membership.Revocation{Kind: kind, Statement: json.RawMessage(statement)}); err != nil {
+				continue
+			}
 		}
 		revoked.Add(kind, subject)
 	}
 	return revoked, rows.Err()
 }
 
-func revokedHost(ctx context.Context, tx *sql.Tx, network, hostKey string) (bool, error) {
-	var n int
-	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM statements WHERE network_id = ? AND kind IN ('host', 'leave') AND subject = ?`, network, hostKey).Scan(&n)
-	return n > 0, err
+func revokedHost(ctx context.Context, tx *sql.Tx, chain membership.Chain, hostKey string) (bool, error) {
+	revoked, err := revokedOf(ctx, tx, chain)
+	return revoked.ExcludesHost(hostKey, ""), err
 }
 
 func isMember(ctx context.Context, tx *sql.Tx, network, caller string) error {
@@ -112,8 +132,9 @@ func putStatement(ctx context.Context, tx *sql.Tx, network, kind, subject string
 	return n > 0, err
 }
 
-// dropExcluded removes members that a revocation or departure excludes, so
-// they are no longer served, synced, or relayed.
+// dropExcluded removes members that a revocation or departure excludes, or
+// whose invite or admission an administrator removed with revoke_admitted
+// signed, so they are no longer served, synced, or relayed.
 func dropExcluded(ctx context.Context, tx *sql.Tx, chain membership.Chain) error {
 	revoked, err := revokedOf(ctx, tx, chain)
 	if err != nil {
@@ -132,13 +153,13 @@ func dropExcluded(ctx context.Context, tx *sql.Tx, chain membership.Chain) error
 		}
 		if data == "" {
 			var a membership.HostAdmission
-			if json.Unmarshal([]byte(admission), &a) != nil || revoked.ExcludesHost(a.HostPublicKey, "") {
+			if json.Unmarshal([]byte(admission), &a) != nil || revoked.ExcludesHost(a.HostPublicKey, "") || !chain.SignerValid(a.Message(), a.Signature) {
 				drop = append(drop, host)
 			}
 			continue
 		}
 		var m membership.Membership
-		if json.Unmarshal([]byte(data), &m) != nil || revoked.Excludes(m) {
+		if json.Unmarshal([]byte(data), &m) != nil || revoked.Excludes(m) || !chain.SignerValid(m.InviteMessage(), m.InviteSignature) {
 			drop = append(drop, host)
 		}
 	}
@@ -173,7 +194,7 @@ func addStatements(ctx context.Context, tx *sql.Tx, m *membership.Map) error {
 		return err
 	}
 	m.Attestations = append(m.Attestations, attestations...)
-	for _, kind := range []string{membership.KindHost, membership.KindInvite, membership.KindLeave, membership.KindPerson, membership.KindUnbind} {
+	for _, kind := range []string{membership.KindHost, membership.KindInvite, membership.KindLeave, membership.KindPerson, membership.KindUnbind, membership.KindAdmin} {
 		raw, err := statementsOf(ctx, tx, m.NetworkID, kind)
 		if err != nil {
 			return err
@@ -207,10 +228,13 @@ type leaveRequest struct {
 type rotationRequest struct {
 	Rotation     membership.Rotation      `json:"rotation"`
 	Attestations []membership.Attestation `json:"attestations"`
-	// Admissions are host and person admissions re-signed by the new root,
-	// each a bare statement told apart by host_public_key or
-	// person_public_key.
+	// Admissions are host and person admissions and administrator
+	// delegations re-signed by the new root, each a bare statement told
+	// apart by host_public_key, delegated_at, or person_public_key.
 	Admissions []json.RawMessage `json:"admissions"`
+	// Groups renew the current root-signed groups under the new root, at
+	// the same version and members. Absent is empty.
+	Groups []membership.GroupDefinition `json:"groups"`
 }
 
 func (s *Server) governanceRoutes(mux *http.ServeMux) {
@@ -244,7 +268,16 @@ func (s *Server) governanceRoutes(mux *http.ServeMux) {
 			return
 		}
 		var req rotationRequest
-		if !decode(w, r, &req, "rotation", "attestations", "admissions") {
+		data, ok := readBody(w, r)
+		if !ok {
+			return
+		}
+		fields := []string{"rotation", "attestations", "admissions", "groups"}
+		if raw, err := rawFields(data); err == nil && raw["groups"] == nil {
+			fields = fields[:3]
+		}
+		if err := membership.Strict(data, &req, fields...); err != nil {
+			respond(w, 0, nil, fmt.Errorf("%w: %v", errInvalid, err))
 			return
 		}
 		m, err := s.rotate(r.Context(), caller, r.PathValue("network"), req)
@@ -254,9 +287,9 @@ func (s *Server) governanceRoutes(mux *http.ServeMux) {
 
 func (s *Server) revoke(ctx context.Context, caller, network string, req revocationRequest) (*membership.Map, error) {
 	switch req.Kind {
-	case membership.KindHost, membership.KindInvite, membership.KindPerson, membership.KindUnbind:
+	case membership.KindHost, membership.KindInvite, membership.KindPerson, membership.KindUnbind, membership.KindAdmin:
 	default:
-		return nil, fmt.Errorf("%w: kind must be host, invite, person, or unbind", errInvalid)
+		return nil, fmt.Errorf("%w: kind must be host, invite, person, unbind, or admin", errInvalid)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -274,8 +307,33 @@ func (s *Server) revoke(ctx context.Context, caller, network string, req revocat
 	if err != nil {
 		return nil, err
 	}
-	if _, err = putStatement(ctx, tx, network, kind, subject, req.Statement); err != nil {
-		return nil, err
+	if kind == membership.KindAdmin {
+		if err = putAdminRemoval(ctx, tx, network, subject, req.Statement); err != nil {
+			return nil, err
+		}
+		// The removal may invalidate what the administrator signed.
+		if chain, err = chainOf(ctx, tx, network); err != nil {
+			return nil, err
+		}
+	} else {
+		if kind == membership.KindPerson {
+			// An administrator's role is removed explicitly first.
+			current, err := currentAdmins(ctx, tx, chain)
+			if err != nil {
+				return nil, err
+			}
+			if current[subject] {
+				return nil, fmt.Errorf("%w: that person is a current administrator; remove the administrator role first", errConflict)
+			}
+		}
+		if kind != membership.KindUnbind {
+			if err = requireCurrent(ctx, tx, chain, signatureOf(req.Statement)); err != nil {
+				return nil, err
+			}
+		}
+		if _, err = putStatement(ctx, tx, network, kind, subject, req.Statement); err != nil {
+			return nil, err
+		}
 	}
 	if err = dropExcluded(ctx, tx, chain); err != nil {
 		return nil, err
@@ -341,8 +399,10 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 	if err != nil {
 		return nil, err
 	}
-	// Attestations must cover exactly the current members, under the new root.
-	members, err := memberKeys(ctx, tx, network)
+	next.Admins, next.Kept = chain.Admins, chain.Kept
+	// Attestations must cover the current members whose invite a root
+	// signed, under the new root; those an administrator invited stay valid.
+	members, invites, err := memberKeys(ctx, tx, network)
 	if err != nil {
 		return nil, err
 	}
@@ -357,11 +417,36 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 		}
 		attested[a.HostPublicKey] = true
 	}
-	if len(attested) != len(members) {
-		return nil, fmt.Errorf("%w: attestations must cover every current member", errInvalid)
+	for key, signature := range invites {
+		if !attested[key] && !chain.AdminSigned(signature) {
+			return nil, fmt.Errorf("%w: attestations must cover every current member", errInvalid)
+		}
 	}
-	hostAdmissions, personAdmissions, err := s.rotationAdmissions(ctx, tx, chain, next, req.Admissions)
+	var admissions []json.RawMessage
+	var delegations []membership.AdminDelegation
+	for _, data := range req.Admissions {
+		fields, err := rawFields(data)
+		if err != nil {
+			return nil, err
+		}
+		if fields["delegated_at"] == nil {
+			admissions = append(admissions, data)
+			continue
+		}
+		var d membership.AdminDelegation
+		if err = json.Unmarshal(data, &d); err != nil {
+			return nil, fmt.Errorf("%w: %v", errInvalid, err)
+		}
+		delegations = append(delegations, d)
+	}
+	if err = rotationDelegations(ctx, tx, chain, next, delegations); err != nil {
+		return nil, err
+	}
+	hostAdmissions, personAdmissions, err := s.rotationAdmissions(ctx, tx, chain, next, admissions)
 	if err != nil {
+		return nil, err
+	}
+	if err = rotationGroups(ctx, tx, chain, next, req.Groups); err != nil {
 		return nil, err
 	}
 	rotation, err := json.Marshal(req.Rotation)
@@ -383,8 +468,18 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 			return nil, err
 		}
 	}
-	if err = replaceAdmissions(ctx, tx, network, hostAdmissions, personAdmissions); err != nil {
+	if err = replaceAdmissions(ctx, tx, chain, hostAdmissions, personAdmissions); err != nil {
 		return nil, err
+	}
+	for _, d := range delegations {
+		if err = putDelegation(ctx, tx, network, d); err != nil {
+			return nil, err
+		}
+	}
+	for _, g := range req.Groups {
+		if err = putGroup(ctx, tx, network, g); err != nil {
+			return nil, err
+		}
 	}
 	m, err := networkMap(ctx, tx, network)
 	if err != nil {
@@ -394,25 +489,27 @@ func (s *Server) rotate(ctx context.Context, caller, network string, req rotatio
 }
 
 // memberKeys maps each current invite-chain member's host key to its member
-// label; members admitted by public key are covered by admissions instead.
-func memberKeys(ctx context.Context, tx *sql.Tx, network string) (map[string]string, error) {
+// label and invite signature; members admitted by public key are covered by
+// admissions instead.
+func memberKeys(ctx context.Context, tx *sql.Tx, network string) (map[string]string, map[string]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT membership FROM members WHERE network_id = ? AND membership != ''`, network)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	keys := map[string]string{}
+	keys, invites := map[string]string{}, map[string]string{}
 	for rows.Next() {
 		var data string
 		if err = rows.Scan(&data); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var m membership.Membership
 		if json.Unmarshal([]byte(data), &m) == nil {
 			keys[m.HostPublicKey] = m.Member
+			invites[m.HostPublicKey] = m.InviteSignature
 		}
 	}
-	return keys, rows.Err()
+	return keys, invites, rows.Err()
 }
 
 // mapNotFound turns an unknown network into 403, as for sync, so the

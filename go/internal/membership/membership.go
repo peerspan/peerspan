@@ -216,6 +216,11 @@ func Invite(root ed25519.PrivateKey, member, expiresAt string) (Token, error) {
 // from its genesis root, so a rotated root can still issue invites. The token
 // carries the signing root's key.
 func InviteFor(network string, root ed25519.PrivateKey, member, expiresAt string) (Token, error) {
+	return InviteWith(network, RawSigner{Key: root}, member, expiresAt)
+}
+
+// newInviteToken generates a one-time invite key for member, unsigned.
+func newInviteToken(network, member, expiresAt string) (Token, error) {
 	if !ValidLabel(member) {
 		return Token{}, fmt.Errorf("%w: invalid member label", ErrInvalid)
 	}
@@ -226,9 +231,7 @@ func InviteFor(network string, root ed25519.PrivateKey, member, expiresAt string
 	if err != nil {
 		return Token{}, err
 	}
-	t := Token{NetworkID: network, RootPublicKey: PublicKey(root), Member: member, InvitePublicKey: PublicKey(invite), InviteSeed: Seed(invite), InviteExpiresAt: expiresAt}
-	t.InviteSignature = sign(root, InviteStatement(network, t.InvitePublicKey, member, expiresAt))
-	return t, nil
+	return Token{NetworkID: network, Member: member, InvitePublicKey: PublicKey(invite), InviteSeed: Seed(invite), InviteExpiresAt: expiresAt}, nil
 }
 
 // Join signs host's key with the token's invite key.
@@ -251,6 +254,19 @@ func (m Membership) Verify(root ed25519.PublicKey) (string, error) {
 // VerifyUnder checks the chain for network against root, which may be a
 // rotated root, and returns the host ID.
 func (m Membership) VerifyUnder(network string, root ed25519.PublicKey) (string, error) {
+	return m.verifyWith(network, func(message []byte, signature string) error { return verifyRoot(root, message, signature) })
+}
+
+// VerifyMembership checks an invite chain whose invite is signed by the
+// current root or an acceptable administrator, and returns the host ID.
+func (c Chain) VerifyMembership(m Membership) (string, error) {
+	return m.verifyWith(c.NetworkID, func(message []byte, signature string) error {
+		_, _, err := c.signerKey(message, signature, true)
+		return err
+	})
+}
+
+func (m Membership) verifyWith(network string, invited func([]byte, string) error) (string, error) {
 	if m.NetworkID != network {
 		return "", fmt.Errorf("%w: membership is for a different network", ErrInvalid)
 	}
@@ -273,7 +289,7 @@ func (m Membership) VerifyUnder(network string, root ed25519.PublicKey) (string,
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid join time", ErrInvalid)
 	}
-	if err = verify(root, InviteStatement(m.NetworkID, m.InvitePublicKey, m.Member, m.InviteExpiresAt), m.InviteSignature); err != nil {
+	if err = invited(InviteStatement(m.NetworkID, m.InvitePublicKey, m.Member, m.InviteExpiresAt), m.InviteSignature); err != nil {
 		return "", err
 	}
 	if err = verify(invite, MemberStatement(m.NetworkID, m.InvitePublicKey, m.HostPublicKey, m.JoinedAt), m.HostSignature); err != nil {
@@ -354,7 +370,9 @@ func checkToken(t Token, now time.Time) error {
 	if !expires.After(now) {
 		return fmt.Errorf("%w: invite has expired", ErrInvalid)
 	}
-	if err = verify(root, InviteStatement(t.NetworkID, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.InviteSignature); err != nil {
+	// The signer is a root or an administrator; whether it is acceptable is
+	// checked against the network's chain once joined.
+	if err = verifyRoot(root, InviteStatement(t.NetworkID, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.InviteSignature); err != nil {
 		return err
 	}
 	return nil
@@ -403,6 +421,11 @@ type Map struct {
 	Revocations  []json.RawMessage `json:"revocations"`
 	// Persons are admitted persons, each with exactly one non-null proof.
 	Persons []MapPerson `json:"persons"`
+	// Admins are administrator delegations, the latest per key, including
+	// those of removed administrators so their earlier statements verify.
+	Admins []json.RawMessage `json:"admins"`
+	// Groups are the current group definitions, one per name.
+	Groups []json.RawMessage `json:"groups"`
 }
 
 type MapPerson struct {

@@ -148,7 +148,7 @@ func TestRevocationLeaveAndRotation(t *testing.T) {
 	if err = alice.db.QueryRow("SELECT root_seed FROM networks WHERE id = ?", id).Scan(&genesisSeed); err != nil {
 		t.Fatal(err)
 	}
-	rotated, err := alice.RotateRoot(ctx, id)
+	rotated, err := alice.RotateRoot(ctx, id, nil)
 	if err != nil || rotated.RootEpoch != 1 || rotated.CurrentRootPublicKey == rotated.RootPublicKey {
 		t.Fatalf("rotate: %+v %v", rotated, err)
 	}

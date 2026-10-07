@@ -148,21 +148,21 @@ func TestRootRotation(t *testing.T) {
 		}
 		return out
 	}
-	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin), nil}); !errors.Is(err, errInvalid) {
+	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin), nil, nil}); !errors.Is(err, errInvalid) {
 		t.Fatalf("rotation missing an attestation: %v", err)
 	}
-	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(g.root, 1, admin, bob), nil}); err == nil {
+	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(g.root, 1, admin, bob), nil, nil}); err == nil {
 		t.Fatal("attestations by the old root accepted")
 	}
-	m, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob), nil})
+	m, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob), nil, nil})
 	if err != nil || len(m.Rotations) != 1 || len(m.Attestations) != 2 || len(m.Members) != 2 {
 		t.Fatalf("rotation: %v %+v", err, m)
 	}
-	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob), nil}); err != nil {
+	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest(next, 1, admin, bob), nil, nil}); err != nil {
 		t.Fatalf("repeat rotation: %v", err)
 	}
 	forked := membership.SignRotation(g.root, g.network, 1, fork.Public().(ed25519.PublicKey), now)
-	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{forked, attest(fork, 1, admin, bob), nil}); !errors.Is(err, errConflict) {
+	if _, err = g.s.rotate(ctx, id(admin), g.network, rotationRequest{forked, attest(fork, 1, admin, bob), nil, nil}); !errors.Is(err, errConflict) {
 		t.Fatalf("forked rotation: %v", err)
 	}
 	// Invites signed by the old root are refused; the new root's are accepted.

@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,13 +18,17 @@ import (
 // Persons and host binding (milestone 2b, slice 1). The daemon never holds a
 // person key: the CLI signs bindings and unbindings and hands them over.
 
+// AdmitPerson and AdmitHost carry a key and label for this host to sign with
+// the root seed, or an admission an administrator signed through the CLI.
 type AdmitPerson struct {
-	PersonPublicKey string `json:"person_public_key"`
-	Member          string `json:"member"`
+	PersonPublicKey string                      `json:"person_public_key,omitempty"`
+	Member          string                      `json:"member,omitempty"`
+	Admission       *membership.PersonAdmission `json:"admission,omitempty"`
 }
 type AdmitHost struct {
-	HostPublicKey string `json:"host_public_key"`
-	Member        string `json:"member"`
+	HostPublicKey string                    `json:"host_public_key,omitempty"`
+	Member        string                    `json:"member,omitempty"`
+	Admission     *membership.HostAdmission `json:"admission,omitempty"`
 }
 
 // Admitted is {person_id, descriptor} or {host_id, descriptor}.
@@ -51,14 +56,17 @@ type UnbindHost struct {
 	Unbinding membership.HostUnbinding `json:"unbinding"`
 }
 type RemovePerson struct {
-	PersonID string `json:"person_id"`
+	PersonID string                    `json:"person_id,omitempty"`
+	Removal  *membership.PersonRemoval `json:"removal,omitempty"`
 }
 type Person struct {
-	PersonID      string   `json:"person_id"`
-	PublicKey     string   `json:"public_key"`
-	Member        string   `json:"member"`
-	Hosts         []string `json:"hosts"`
-	LabelConflict bool     `json:"label_conflict"`
+	PersonID  string   `json:"person_id"`
+	PublicKey string   `json:"public_key"`
+	Member    string   `json:"member"`
+	Hosts     []string `json:"hosts"`
+	// Administrator is true for a current administrator of the network.
+	Administrator bool `json:"administrator"`
+	LabelConflict bool `json:"label_conflict"`
 }
 
 // labelTaken reports whether a current person other than exceptKey holds a
@@ -84,8 +92,45 @@ func networkPath(n Network, suffix string) string {
 	return "/coord/v1/networks/" + url.PathEscape(n.ID) + suffix
 }
 
-// AdmitPerson signs a person admission with the current root and submits it.
+// presigned checks a statement an administrator (or a root key held by the
+// CLI) signed: the signer must be the current root or a current
+// administrator, and the statement must verify at the current epoch.
+func (s *Store) presigned(ctx context.Context, id, signature string, verify func(membership.Chain) error) (Network, error) {
+	g, err := s.loadGovernance(ctx, s.db, id)
+	if err != nil {
+		return g.network, err
+	}
+	if err = g.acceptSignature(signature); err != nil {
+		return g.network, err
+	}
+	if err = verify(g.chain); err != nil {
+		return g.network, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	return g.network, nil
+}
+
+// AdmitPerson signs a person admission with the current root, or takes one an
+// administrator signed, and submits it.
 func (s *Store) AdmitPerson(ctx context.Context, id string, r AdmitPerson) (Admitted, error) {
+	var n Network
+	var admission membership.PersonAdmission
+	if r.Admission != nil {
+		if r.PersonPublicKey != "" || r.Member != "" {
+			return Admitted{}, fmt.Errorf("%w: give an admission or a key and label, not both", ErrInvalid)
+		}
+		admission = *r.Admission
+		var err error
+		n, err = s.presigned(ctx, id, admission.Signature, func(c membership.Chain) error {
+			if admission.Epoch != c.Epoch() {
+				return errors.New("admission is not at the current epoch")
+			}
+			return c.VerifyPersonAdmission(admission)
+		})
+		if err != nil {
+			return Admitted{}, err
+		}
+		r.PersonPublicKey, r.Member = admission.PersonPublicKey, admission.Member
+	}
 	if normalized, err := membership.NormalizePersonKey(r.PersonPublicKey); err == nil {
 		r.PersonPublicKey = normalized
 	}
@@ -93,14 +138,16 @@ func (s *Store) AdmitPerson(ctx context.Context, id string, r AdmitPerson) (Admi
 	if err != nil || !membership.ValidLabel(r.Member) {
 		return Admitted{}, fmt.Errorf("%w: person key must be canonical Base64 and member a valid label", ErrInvalid)
 	}
-	n, root, err := s.administeredNetwork(ctx, s.db, id)
-	if err != nil {
-		return Admitted{}, err
+	if r.Admission == nil {
+		var root ed25519.PrivateKey
+		if n, root, err = s.administeredNetwork(ctx, s.db, id); err != nil {
+			return Admitted{}, err
+		}
+		admission = membership.SignPersonAdmission(root, n.ID, n.RootEpoch, r.PersonPublicKey, r.Member, timestamp(time.Now()))
 	}
 	if err = s.labelTaken(ctx, id, r.Member, r.PersonPublicKey); err != nil {
 		return Admitted{}, err
 	}
-	admission := membership.SignPersonAdmission(root, n.ID, n.RootEpoch, r.PersonPublicKey, r.Member, timestamp(time.Now()))
 	if _, err = s.callCoordinator(ctx, n, networkPath(n, "/persons"), map[string]any{"admission": admission}); err != nil {
 		return Admitted{}, err
 	}
@@ -114,16 +161,38 @@ func (s *Store) AdmitPerson(ctx context.Context, id string, r AdmitPerson) (Admi
 // AdmitHost signs a host admission with the current root and submits it; the
 // host then joins with the descriptor.
 func (s *Store) AdmitHost(ctx context.Context, id string, r AdmitHost) (Admitted, error) {
+	var n Network
+	var admission membership.HostAdmission
+	now := timestamp(time.Now())
+	if r.Admission != nil {
+		if r.HostPublicKey != "" || r.Member != "" {
+			return Admitted{}, fmt.Errorf("%w: give an admission or a key and label, not both", ErrInvalid)
+		}
+		admission = *r.Admission
+		var err error
+		n, err = s.presigned(ctx, id, admission.Signature, func(c membership.Chain) error {
+			if admission.Epoch != c.Epoch() {
+				return errors.New("admission is not at the current epoch")
+			}
+			_, err := c.VerifyHostAdmission(admission)
+			return err
+		})
+		if err != nil {
+			return Admitted{}, err
+		}
+		r.HostPublicKey, r.Member = admission.HostPublicKey, admission.Member
+	}
 	key, err := membership.DecodeKey(r.HostPublicKey)
 	if err != nil || !membership.ValidLabel(r.Member) {
 		return Admitted{}, fmt.Errorf("%w: host key must be canonical Base64 and member a valid label", ErrInvalid)
 	}
-	n, root, err := s.administeredNetwork(ctx, s.db, id)
-	if err != nil {
-		return Admitted{}, err
+	if r.Admission == nil {
+		var root ed25519.PrivateKey
+		if n, root, err = s.administeredNetwork(ctx, s.db, id); err != nil {
+			return Admitted{}, err
+		}
+		admission = membership.SignHostAdmission(root, n.ID, n.RootEpoch, r.HostPublicKey, r.Member, now)
 	}
-	now := timestamp(time.Now())
-	admission := membership.SignHostAdmission(root, n.ID, n.RootEpoch, r.HostPublicKey, r.Member, now)
 	if _, err = s.callCoordinator(ctx, n, networkPath(n, "/hosts"), map[string]any{"admission": admission}); err != nil {
 		return Admitted{}, err
 	}
@@ -149,8 +218,12 @@ func (s *Store) AdmitHost(ctx context.Context, id string, r AdmitHost) (Admitted
 	return Admitted{HostID: membership.HostID(key), Descriptor: descriptor}, err
 }
 
-// CreatePersonInvite issues a one-time person invite signed by the current root.
+// CreatePersonInvite issues a one-time person invite signed by the current
+// root, or records one an administrator signed through the CLI.
 func (s *Store) CreatePersonInvite(ctx context.Context, id string, r CreateInvite) (Invite, error) {
+	if r.Token != "" {
+		return s.recordSignedInvite(ctx, id, r)
+	}
 	n, root, err := s.administeredNetwork(ctx, s.db, id)
 	if err != nil {
 		return Invite{}, err
@@ -371,14 +444,11 @@ func (s *Store) storeRevocation(ctx context.Context, n Network, record statement
 // endBindings clears local bindings ended by a persisted person removal or
 // unbinding.
 func (s *Store) endBindings(ctx context.Context, tx *sql.Tx, network, now string) error {
-	persisted, err := loadStatements(ctx, tx, network)
+	g, err := s.loadGovernance(ctx, tx, network)
 	if err != nil {
 		return err
 	}
-	revoked := membership.NewRevoked()
-	for _, r := range persisted.revocations {
-		revoked.Add(revocationKind(r.kind), r.subject)
-	}
+	revoked := g.revoked
 	rows, err := tx.QueryContext(ctx, "SELECT record FROM network_statements WHERE network_id = ? AND kind = ?", network, kindBinding)
 	if err != nil {
 		return err
@@ -443,8 +513,30 @@ func (s *Store) Unbind(ctx context.Context, id string, r UnbindHost) (Revocation
 	return s.storeRevocation(ctx, n, statementRecord{membership.KindUnbind, subject, data}, "network.host_unbound", membership.HostID(key))
 }
 
-// RemovePerson signs a person removal with the current root.
+// RemovePerson signs a person removal with the current root, or records one
+// an administrator signed.
 func (s *Store) RemovePerson(ctx context.Context, id string, r RemovePerson) (RevocationResult, error) {
+	if r.Removal != nil {
+		if r.PersonID != "" {
+			return RevocationResult{}, fmt.Errorf("%w: give person_id or removal, not both", ErrInvalid)
+		}
+		removal := *r.Removal
+		data, err := json.Marshal(removal)
+		if err != nil {
+			return RevocationResult{}, err
+		}
+		n, err := s.presigned(ctx, id, removal.Signature, func(c membership.Chain) error {
+			_, _, err := c.VerifyRevocation(membership.Revocation{Kind: membership.KindPerson, Statement: data})
+			return err
+		})
+		if err != nil {
+			return RevocationResult{}, err
+		}
+		if err = s.refuseRemovingAdmin(ctx, id, removal.PersonPublicKey); err != nil {
+			return RevocationResult{}, err
+		}
+		return s.storeRevocation(ctx, n, statementRecord{kindPersonRemoval, removal.PersonPublicKey, data}, "network.person_removed", personIDOf(removal.PersonPublicKey))
+	}
 	n, root, err := s.administeredNetwork(ctx, s.db, id)
 	if err != nil {
 		return RevocationResult{}, err
@@ -471,6 +563,9 @@ func (s *Store) RemovePerson(ctx context.Context, id string, r RemovePerson) (Re
 	if err != nil {
 		return RevocationResult{}, err
 	}
+	if err = s.refuseRemovingAdmin(ctx, id, key); err != nil {
+		return RevocationResult{}, err
+	}
 	return s.storeRevocation(ctx, n, statementRecord{kindPersonRemoval, key, data}, "network.person_removed", r.PersonID)
 }
 
@@ -484,19 +579,13 @@ func personIDOf(key string) string {
 
 // Persons lists valid persons with their bound hosts.
 func (s *Store) Persons(ctx context.Context, id string) ([]Person, error) {
-	if _, err := s.Network(ctx, id); err != nil {
-		return nil, err
-	}
-	persisted, err := loadStatements(ctx, s.db, id)
+	g, err := s.loadGovernance(ctx, s.db, id)
 	if err != nil {
 		return nil, err
 	}
-	removed := map[string]bool{}
-	for _, r := range persisted.revocations {
-		if r.kind == kindPersonRemoval {
-			removed[r.subject] = true
-		}
-	}
+	removed := g.revoked.Persons
+	admins := g.currentAdmins()
+	persisted := g.persisted
 	members, err := s.NetworkMembers(ctx, id)
 	if err != nil {
 		return nil, err
@@ -507,7 +596,10 @@ func (s *Store) Persons(ctx context.Context, id string) ([]Person, error) {
 		if removed[key] || json.Unmarshal(data, &proof) != nil || (proof.Admission == nil) == (proof.Membership == nil) {
 			continue
 		}
-		p := Person{PersonID: personIDOf(key), PublicKey: key, Member: personLabel(proof), Hosts: []string{}}
+		if _, _, err := g.chain.VerifyPerson(proof); err != nil {
+			continue // signed by an administrator removed with revoke_admitted
+		}
+		p := Person{PersonID: personIDOf(key), PublicKey: key, Member: personLabel(proof), Hosts: []string{}, Administrator: admins[key]}
 		for _, m := range members {
 			if m.PersonID != nil && *m.PersonID == p.PersonID {
 				p.Hosts = append(p.Hosts, m.HostID)
@@ -531,7 +623,7 @@ func (s *Store) Persons(ctx context.Context, id string) ([]Person, error) {
 func localPersonRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/networks/{id}/persons", func(w http.ResponseWriter, r *http.Request) {
 		var req AdmitPerson
-		if !decode(w, r, &req, "person_public_key", "member") {
+		if !decode(w, r, &req, "person_public_key", "member", "admission") {
 			return
 		}
 		result, err := store.AdmitPerson(r.Context(), r.PathValue("id"), req)
@@ -543,7 +635,7 @@ func localPersonRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/hosts", func(w http.ResponseWriter, r *http.Request) {
 		var req AdmitHost
-		if !decode(w, r, &req, "host_public_key", "member") {
+		if !decode(w, r, &req, "host_public_key", "member", "admission") {
 			return
 		}
 		result, err := store.AdmitHost(r.Context(), r.PathValue("id"), req)
@@ -551,7 +643,7 @@ func localPersonRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/person-invites", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateInvite
-		if !decode(w, r, &req, "member", "expires_at") {
+		if !decode(w, r, &req, "member", "expires_at", "token") {
 			return
 		}
 		result, err := store.CreatePersonInvite(r.Context(), r.PathValue("id"), req)
@@ -583,10 +675,18 @@ func localPersonRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/person-removals", func(w http.ResponseWriter, r *http.Request) {
 		var req RemovePerson
-		if !decode(w, r, &req, "person_id") {
+		if !decode(w, r, &req, "person_id", "removal") {
 			return
 		}
 		result, err := store.RemovePerson(r.Context(), r.PathValue("id"), req)
 		respond(w, http.StatusCreated, result, err)
 	})
+}
+
+func (s *Store) refuseRemovingAdmin(ctx context.Context, id, personKey string) error {
+	g, err := s.loadGovernance(ctx, s.db, id)
+	if err != nil {
+		return err
+	}
+	return g.refuseAdminRemoval(personKey)
 }

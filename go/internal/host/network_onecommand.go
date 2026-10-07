@@ -89,6 +89,12 @@ func (s *Store) createWithPerson(ctx context.Context, r CreateNetwork) (JoinResu
 	// The network ID exists only now, so binding is a second request; the CLI
 	// makes it, and an API-only caller is pointed at it.
 	next := bindCommand(n.ID)
+	// The creator's person also becomes the first administrator, so they can
+	// administer from any of their machines.
+	if _, err = s.DelegateAdmin(ctx, n.ID, DelegateAdmin{Person: id}); err != nil {
+		out.skip("the person was not made an administrator: "+err.Error(), fmt.Sprintf("capsule-host network delegate-admin --network %s --person %s, then %s", n.ID, id, next))
+		return result, nil
+	}
 	out.Next = &next
 	return result, nil
 }

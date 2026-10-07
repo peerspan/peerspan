@@ -152,6 +152,12 @@ type Chain struct {
 	NetworkID string
 	Roots     []ed25519.PublicKey
 	Rotations []Rotation
+	// Admins are the administrator keys whose signatures are accepted on the
+	// statements an administrator may sign (see AdminState.Signers).
+	Admins map[string]bool
+	// Kept limits administrators removed without revoke_admitted to the
+	// digests their removal lists.
+	Kept map[string]map[string]bool
 }
 
 // VerifyChain checks that each rotation is signed by the previous root,
@@ -170,7 +176,7 @@ func VerifyChain(genesis ed25519.PublicKey, rotations []Rotation) (Chain, error)
 		if err = validTime(r.RotatedAt); err != nil {
 			return c, err
 		}
-		if err = verify(previous, r.Message(), r.Signature); err != nil {
+		if err = verifyRoot(previous, r.Message(), r.Signature); err != nil {
 			return c, err
 		}
 		c.Roots = append(c.Roots, next)
@@ -220,7 +226,7 @@ func (c Chain) VerifyAttestation(a Attestation) error {
 	if err := validTime(a.AttestedAt); err != nil {
 		return err
 	}
-	return verify(c.Current(), a.Message(), a.Signature)
+	return verifyRoot(c.Current(), a.Message(), a.Signature)
 }
 
 // VerifyRevocation checks a map revocation entry and returns its kind and
@@ -268,6 +274,12 @@ func (c Chain) VerifyRevocation(entry Revocation) (string, string, error) {
 			return "", "", err
 		}
 		return KindUnbind, UnbindSubject(u.PersonPublicKey, u.HostPublicKey), VerifyHostUnbinding(c.NetworkID, u)
+	case KindAdmin:
+		var r AdminRemoval
+		if err := json.Unmarshal(entry.Statement, &r); err != nil {
+			return "", "", err
+		}
+		return KindAdmin, r.PersonPublicKey, c.VerifyAdminRemoval(r)
 	}
 	return "", "", fmt.Errorf("%w: unknown revocation kind", ErrInvalid)
 }
@@ -282,23 +294,22 @@ func (c Chain) verifyByAnyRoot(network, subject, at string, message []byte, sign
 	if err := validTime(at); err != nil {
 		return err
 	}
-	for _, root := range c.Roots {
-		if verify(root, message, signature) == nil {
-			return nil
-		}
+	// Any root in the chain, or an acceptable administrator.
+	if _, _, err := c.signerKey(message, signature, false); err != nil {
+		return fmt.Errorf("%w: revocation is not signed by a root or administrator of this network", ErrInvalid)
 	}
-	return fmt.Errorf("%w: revocation is not signed by a root of this network", ErrInvalid)
+	return nil
 }
 
 // Revoked is the set of revoked host keys, revoked invite keys, departed
 // host keys, removed person keys, and unbound person-host pairs for one
 // network.
 type Revoked struct {
-	Hosts, Invites, Left, Persons, Unbound map[string]bool
+	Hosts, Invites, Left, Persons, Unbound, Admins map[string]bool
 }
 
 func NewRevoked() Revoked {
-	return Revoked{Hosts: map[string]bool{}, Invites: map[string]bool{}, Left: map[string]bool{}, Persons: map[string]bool{}, Unbound: map[string]bool{}}
+	return Revoked{Hosts: map[string]bool{}, Invites: map[string]bool{}, Left: map[string]bool{}, Persons: map[string]bool{}, Unbound: map[string]bool{}, Admins: map[string]bool{}}
 }
 
 func (r Revoked) Add(kind, subject string) {
@@ -313,6 +324,8 @@ func (r Revoked) Add(kind, subject string) {
 		r.Persons[subject] = true
 	case KindUnbind:
 		r.Unbound[subject] = true
+	case KindAdmin:
+		r.Admins[subject] = true
 	}
 }
 
@@ -340,9 +353,9 @@ func (r Revoked) Excludes(m Membership) bool {
 // current-epoch attestations.
 func (c Chain) ValidMember(m Membership, attestations map[string]Attestation) (string, error) {
 	if c.Epoch() == 0 {
-		return m.VerifyUnder(c.NetworkID, c.Current())
+		return c.VerifyMembership(m)
 	}
-	if id, err := m.VerifyUnder(c.NetworkID, c.Current()); err == nil {
+	if id, err := c.VerifyMembership(m); err == nil {
 		return id, nil
 	}
 	a, ok := attestations[m.HostPublicKey]

@@ -362,12 +362,14 @@ These statements may carry either a root signature or an administrator signature
 
 Delegation, administrator removal, rotation, and attestation remain root-only.
 
+**Map `admins`** serves the latest verified delegation for every person key, including removed administrators, so their kept statements still verify on hosts that join later. A person who is a current administrator cannot be removed as a person until their administrator role has been removed, with either `revoke_admitted` choice. The person removal otherwise returns 409, so what happens to their statements is always explicit.
+
 ### Statements
 
 | Statement | Signed by | Lines |
 | --- | --- | --- |
 | Administrator delegation | root of `epoch` | `capsule-admin-delegate-v1`, `network_id`, `epoch`, `person_public_key`, `delegated_at` |
-| Administrator removal | any root in the chain | `capsule-admin-remove-v1`, `network_id`, `person_public_key`, `revoke_admitted` (`true` or `false`), `removed_at` |
+| Administrator removal | any root in the chain | `capsule-admin-remove-v1`, `network_id`, `person_public_key`, `revoke_admitted` (`true` or `false`), `removed_at`, then, only when `revoke_admitted` is `false`, one line per kept statement digest in ascending order |
 | Group definition | root or administrator | `capsule-group-v1`, `network_id`, `name`, `version`, `defined_at`, then one line per member person ID, in ascending byte order with no duplicates |
 
 Group names are 1–64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter or digit. `version` is a decimal integer of at least 1. A definition with no member lines deletes the group. Group members are always person IDs, never labels.
@@ -390,7 +392,7 @@ Group names are 1–64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `
   - no person removal of them exists.
 
   Removal is sticky and permanent for that key. A root rotation re-signs every current administrator's delegation at the new epoch, alongside the other admissions.
-- **Administrator-signed statements** are valid while their signer is a current administrator. They need no re-signing at a rotation. After a removal with `revoke_admitted: false`, statements the removed administrator signed stay valid. After a removal with `revoke_admitted: true`, every statement that administrator signed becomes invalid, as if never issued. This includes invites, so members who joined through them are dropped too. It also includes group versions, so each affected group reverts to its newest version signed by a signer that is still valid, or ceases to exist.
+- **Administrator-signed statements** are valid while their signer is a current administrator. They need no re-signing at a rotation. A **statement digest** is the lowercase hex SHA-256 of a statement's signed lines, joined with `\n` exactly as signed. A removal with `revoke_admitted: false` lists the digests of every statement that administrator had signed, as verified by the host issuing the removal. After it, only the listed statements stay valid. Signing times are asserted by the signer and cannot order statements, so without this list a removed key could keep signing backdated statements that a misbehaving coordinator might serve. After a removal with `revoke_admitted: true`, every statement that administrator signed becomes invalid, as if never issued. This includes invites, so members who joined through them are dropped too. It also includes group versions, so each affected group reverts to its newest version signed by a signer that is still valid, or ceases to exist.
 - **Groups.** For each name, the valid definition with the highest `version` applies. The coordinator refuses a definition whose version is not higher than the current one, with 409. Hosts persist the highest version they have verified and never accept a lower one, except for the revert caused by `revoke_admitted`. Members that are not current persons are ignored.
 
 ### Which key signs
@@ -410,6 +412,25 @@ The root-only commands sign with the root seed when this host holds it. Otherwis
 | `network group set --network ID --group NAME [--person PERSON ...]` | `POST /v1/networks/{id}/groups` | Administrator or root. Resolves labels to person IDs, with an error on ambiguity. Signs the next version, one higher than the newest this host has verified, and submits it. Giving no `--person` deletes the group. Returns 201 with the group. |
 | `network groups ID` | `GET /v1/networks/{id}/groups` | Current groups sorted by name: `{name, version, members, signer}`. |
 | `network rotate-root ID --to-ssh --root-key PATH` | `POST /v1/networks/{id}/rotate` | Rotates to the SSH key named by `PATH`. The CLI signs the new root's admissions, attestations, and delegations through `PATH`. After the rotation is accepted, this host deletes its root seed. Later root actions use `--root-key`. Rotating from an SSH root to another SSH root works the same way. |
+
+**Further rules:**
+- **Rotation:** a rotation renews only root-signed members, admissions, and person invites, plus the delegations of current administrators. Administrator-signed statements are kept as they are.
+- **SSH to SSH rotation:** when the current root is already an SSH key, the CLI finds it in `ssh-agent`.
+- **`root_ssh`** is true once the current root has signed any current-epoch statement as `SSHSIG`, or after this host's own `--to-ssh` rotation.
+- **Group versions:** the next version accounts for deleted versions too. `GET /v1/networks/{id}/groups?all=true` includes deleted groups.
+- **Ambiguous labels:** the error says `ambiguous` and lists the matching person IDs; key fingerprints are optional.
+- **Coordinator request bodies:** `POST .../admins` takes `{delegation}`, `POST .../admin-removals` takes `{statement}`, and `POST .../groups` takes `{group}`.
+
+- **Root-signed groups at a rotation:** the new root re-signs them at the same version, with the same members. The coordinator accepts such a renewal, and hosts treat it as the same version. Without renewal they would lapse. Accepting groups signed by old roots instead would let a compromised old root add members.
+- **One removal per administrator key:** a second plain removal returns 409. A removal with `revoke_admitted: true` may replace an earlier plain one, as an escalation that is sticky and recorded with another `network.admin_removed`. Kept lists are never merged.
+- **Epochs:** an administrator-signed admission's `epoch` must be at most the current epoch.
+- **Unjoined hosts:** hosts admitted by public key that have not joined yet are renewed at a rotation like other admissions. A host stores every host admission it issues under the kind `host_admission`, whether the host has joined or not, so either implementation can reopen the other's state.
+- **Group renewal format:** rotation plans list root-signed groups as `{name, version, members}`, including deleted ones. Both rotate requests, local and coordinator, carry the renewed definitions as a `groups` array, with `defined_at` set to the rotation time.
+- **Several person keys:** administrator-signed commands accept an optional `--person-key PATH` for choosing a key when the agent holds several. The default flows need no flag.
+- **Local API endpoints:**
+  - `GET /v1/networks/{id}/rotation-plan` returns what a rotation must re-sign.
+  - `GET /v1/networks/{id}/admin-removal-plan?person=ID` returns the kept-digest list a removal would carry.
+  - `POST /v1/networks/{id}/admins` returns `{network_id, person_id}`.
 
 `network persons` reports `administrator` (bool) for each person. A network record keeps `administrator` with its old meaning: this host holds the root seed. The record gains `root_ssh` (bool), which is true when the current root is an SSH key.
 

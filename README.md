@@ -16,6 +16,8 @@ capsule/
 
 Each implementation has its own dependency manifest and lock/checksum files. The shared contract and tests change alongside the implementations. The broader system design remains in the `mesh-new` design repository.
 
+New contributors can start with the [architecture and onboarding guide](docs/architecture-onboarding.md), which maps the Go and Rust source, deployment interfaces, durable data, and message, enrollment, retry, and recovery sequences.
+
 ## Implemented behavior
 
 Both host daemons provide a durable local identity, registered agents, separate session attachment records, and a transactional activity log. They start without coordination and expose owner-local administration over a private Unix socket.
@@ -110,6 +112,7 @@ python3 conformance/peer_messaging.py --go /tmp/capsule-host-go --rust rust/targ
 python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/revocation.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/persons.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+python3 conformance/admins.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/send_retry.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
@@ -141,6 +144,8 @@ That is the whole default flow: the administrator creates the network and sends 
 The token is a bearer secret, so deliver it out of band. Every host verifies the signed chain from root key to invite to host itself, so the coordinator cannot add hosts. While coordination has synced recently, grants work without `--allow-disconnected`.
 
 If an `ssh-ed25519` key is loaded in `ssh-agent`, `network create` and `network join` also record whose machine it is. They admit that SSH key as a person and bind the host to it, so a member's second machine joins with the same two steps. Each command's JSON `person` field reports what happened. Without an agent, or with several keys, the host still joins, and `person.skipped` and `person.next` give the reason and the exact command that finishes the step. `--person-key PATH` picks a key, `--no-person` skips persons, and `network invite --host-only` issues a host-only invite. The separate commands (`network admit`, `invite-person`, `redeem-person`, `bind`, `unbind`, `remove-person`, `persons`) remain for other setups. See the [coordination contract](docs/coordination-contract.md) and the [roadmap](docs/production-roadmap.md).
+
+The creator's SSH key also becomes the network's first administrator. On any of their machines, the same commands (`network invite`, `admit`, `revoke`, `remove-person`, and the new `network group set`) sign with that key from `ssh-agent` when the host does not hold the root seed. `network delegate-admin` and `network remove-admin [--revoke-admitted]` manage other administrators. `network rotate-root ID --to-ssh --root-key PATH` moves the root itself to an SSH key, so the creator's host no longer holds it; later root-only commands take `--root-key PATH`.
 
 ## Compare build times
 

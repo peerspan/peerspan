@@ -125,6 +125,10 @@ func Load(path string) (Signer, error) {
 	return fromAgent(nil)
 }
 
+// LoadKey returns the signer for one key in the agent, for keys the CLI
+// recognizes rather than discovers, such as a network's current SSH root.
+func LoadKey(want ed25519.PublicKey) (Signer, error) { return fromAgent(want) }
+
 func fromAgent(want ed25519.PublicKey) (Signer, error) {
 	socket := os.Getenv("SSH_AUTH_SOCK")
 	if socket == "" {

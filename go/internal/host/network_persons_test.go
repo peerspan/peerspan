@@ -177,7 +177,7 @@ func TestPersonsAdmissionBindingAndRemoval(t *testing.T) {
 		t.Fatalf("removal not resubmitted: %d %v", restored, err)
 	}
 	// Rotation renews the admitted host and the remaining person.
-	if _, err = alice.RotateRoot(ctx, id); err != nil {
+	if _, err = alice.RotateRoot(ctx, id, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []*Store{bob, carol} {

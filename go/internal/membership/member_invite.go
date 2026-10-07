@@ -27,13 +27,7 @@ var memberTokenFields = append(append([]string{}, tokenFields...), "invite_epoch
 // epoch e): as a host invite and as a person invite with the same label and
 // expiry.
 func MemberInvite(network string, root ed25519.PrivateKey, e int64, member, expiresAt string) (MemberToken, error) {
-	host, err := InviteFor(network, root, member, expiresAt)
-	if err != nil {
-		return MemberToken{}, err
-	}
-	t := MemberToken{Token: host, InviteEpoch: e}
-	t.PersonInviteSignature = sign(root, PersonInviteStatement(network, e, t.InvitePublicKey, member, expiresAt))
-	return t, nil
+	return MemberInviteWith(network, RawSigner{Key: root}, e, member, expiresAt)
 }
 
 // PersonToken returns the person half of the invite.
@@ -72,7 +66,7 @@ func DecodeMemberToken(value string, now time.Time) (MemberToken, error) {
 	if err != nil {
 		return t, err
 	}
-	if err = verify(root, PersonInviteStatement(t.NetworkID, t.InviteEpoch, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.PersonInviteSignature); err != nil {
+	if err = verifyRoot(root, PersonInviteStatement(t.NetworkID, t.InviteEpoch, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.PersonInviteSignature); err != nil {
 		return t, err
 	}
 	return t, nil

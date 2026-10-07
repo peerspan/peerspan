@@ -455,6 +455,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.governanceRoutes(mux)
 	s.personRoutes(mux)
+	s.adminRoutes(mux)
 	return mux
 }
 
@@ -519,11 +520,11 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 
 // verifyCaller checks a submitted chain against the network's current root
 // and that it belongs to the caller.
-func verifyCaller(caller, network string, root ed25519.PublicKey, m membership.Membership, address string, candidates []string) error {
+func verifyCaller(caller, network string, chain membership.Chain, m membership.Membership, address string, candidates []string) error {
 	if err := validEndpoints(address, candidates); err != nil {
 		return err
 	}
-	host, err := m.VerifyUnder(network, root)
+	host, err := chain.VerifyMembership(m)
 	if err != nil {
 		return err
 	}
@@ -571,7 +572,11 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 	if err != nil {
 		return 0, nil, err
 	}
-	if err := verifyCaller(caller, membership.NetworkID(root), root, req.Membership, req.Address, req.Candidates); err != nil {
+	genesis, err := membership.VerifyChain(root, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := verifyCaller(caller, genesis.NetworkID, genesis, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -588,7 +593,11 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 			return 0, nil, err
 		}
 		if exists == 0 {
-			if revoked, err := revokedHost(ctx, tx, req.Membership.NetworkID, req.Membership.HostPublicKey); err != nil || revoked {
+			chain, err := chainOf(ctx, tx, req.Membership.NetworkID)
+			if err != nil {
+				return 0, nil, err
+			}
+			if revoked, err := revokedHost(ctx, tx, chain, req.Membership.HostPublicKey); err != nil || revoked {
 				return 0, nil, errors.Join(err, fmt.Errorf("%w: host has been revoked or has left", errForbidden))
 			}
 			return 0, nil, fmt.Errorf("%w: network already registered", errConflict)
@@ -622,9 +631,9 @@ func (s *Server) join(ctx context.Context, caller, network string, req joinReque
 	if req.Membership.NetworkID != network {
 		return 0, nil, fmt.Errorf("%w: membership is for a different network", errInvalid)
 	}
-	// Joins verify under the current root: after a rotation, invites signed
-	// by an older root are refused.
-	if err = verifyCaller(caller, network, chain.Current(), req.Membership, req.Address, req.Candidates); err != nil {
+	// Joins verify under the current root or an administrator: after a
+	// rotation, invites signed by an older root are refused.
+	if err = verifyCaller(caller, network, chain, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err
 	}
 	revoked, err := revokedOf(ctx, tx, chain)
@@ -724,7 +733,10 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 	if err = addStatements(ctx, tx, m); err != nil {
 		return nil, err
 	}
-	return m, addPersons(ctx, tx, m)
+	if err = addPersons(ctx, tx, m); err != nil {
+		return nil, err
+	}
+	return m, addAdmins(ctx, tx, m)
 }
 
 // rawOrNull serves an empty stored column as JSON null.

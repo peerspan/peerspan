@@ -129,6 +129,12 @@ pub fn advertised(address: &str) -> Result<(), Error> {
     }
 }
 
+/// A statement digest: lowercase hex SHA-256 of the signed lines joined with
+/// `\n`, as an administrator removal lists the statements it keeps.
+pub fn statement_digest(lines: &[&str]) -> String {
+    hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
+}
+
 pub fn invite_statement(network: &str, invite: &str, member: &str, expires: &str) -> String {
     ["capsule-invite-v1", network, invite, member, expires].join("\n")
 }
@@ -162,16 +168,28 @@ pub fn sign_invite_for(
     member: &str,
     expires: &str,
 ) -> Invite {
+    sign_invite_with(network, &KeySigner::Raw(root), invite, member, expires)
+        .expect("raw signing cannot fail")
+}
+/// Signs an invite with a root or an administrator's SSH key.
+pub fn sign_invite_with(
+    network: &str,
+    signer: &KeySigner,
+    invite: &SigningKey,
+    member: &str,
+    expires: &str,
+) -> Result<Invite, Error> {
     let network = network.to_owned();
     let invite_public_key = STANDARD.encode(invite.verifying_key().as_bytes());
     let statement = invite_statement(&network, &invite_public_key, member, expires);
-    Invite {
-        invite_signature: STANDARD.encode(root.sign(statement.as_bytes()).to_bytes()),
+    let lines: Vec<&str> = statement.split('\n').collect();
+    Ok(Invite {
+        invite_signature: signer.sign(&lines)?,
         network_id: network,
         member: member.into(),
         invite_public_key,
         invite_expires_at: expires.into(),
-    }
+    })
 }
 pub fn sign_member(invite: Invite, key: &SigningKey, host: &[u8], joined: &str) -> Membership {
     let host_public_key = STANDARD.encode(host);
@@ -195,7 +213,7 @@ pub fn sign_member(invite: Invite, key: &SigningKey, host: &[u8], joined: &str) 
 /// Verifies an invite signed by a root that need not derive the network ID:
 /// after rotation, invites are signed by the current root of the chain.
 fn verify_invite_under(
-    root: &VerifyingKey,
+    root: &str,
     network: &str,
     invite: &str,
     member: &str,
@@ -205,14 +223,22 @@ fn verify_invite_under(
     label(member)?;
     time(expires)?;
     public_key(invite)?;
-    root.verify_strict(
-        invite_statement(network, invite, member, expires).as_bytes(),
-        &signature(sig)?,
-    )
-    .map_err(|_| invalid("invalid invite signature"))
+    let statement = invite_statement(network, invite, member, expires);
+    let lines: Vec<&str> = statement.split('\n').collect();
+    verify_lines(root, &lines, sig).map_err(|_| invalid("invalid invite signature"))
 }
 
 impl Membership {
+    /// The digest of the invite statement `invite_signature` signs.
+    pub fn digest(&self) -> String {
+        statement_digest(&[
+            "capsule-invite-v1",
+            &self.network_id,
+            &self.invite_public_key,
+            &self.member,
+            &self.invite_expires_at,
+        ])
+    }
     /// Verifies the full chain under the genesis root, which must derive the
     /// network ID; returns the member's host ID.
     pub fn verify(&self, root_public_key: &str) -> Result<String, Error> {
@@ -222,10 +248,12 @@ impl Membership {
         self.verify_under(root_public_key)
     }
     /// Verifies the chain under any root of the network's root chain.
+    /// The signer may also be an administrator's key, for an invite an
+    /// administrator signed with `SSHSIG`.
     pub fn verify_under(&self, root_public_key: &str) -> Result<String, Error> {
-        let root = public_key(root_public_key)?;
+        public_key(root_public_key)?;
         verify_invite_under(
-            &root,
+            root_public_key,
             &self.network_id,
             &self.invite_public_key,
             &self.member,
@@ -271,9 +299,13 @@ impl InviteToken {
         // After a root rotation the invite is signed by the current root, which
         // does not derive the network ID; the joiner checks it against the
         // coordinator's verified root chain before persisting anything.
-        let root = public_key(&token.root_public_key)?;
+        // An administrator may sign the invite with `SSHSIG`; the joiner checks
+        // the signature now and the signer's authority against the map.
+        public_key(&token.root_public_key)?;
+        let issuer = crate::persons::sshsig_signer(&token.invite_signature)
+            .unwrap_or_else(|| token.root_public_key.clone());
         verify_invite_under(
-            &root,
+            &issuer,
             &token.network_id,
             &token.invite_public_key,
             &token.member,
@@ -307,10 +339,45 @@ impl InviteToken {
 pub(crate) fn sign_lines(key: &SigningKey, lines: &[&str]) -> String {
     STANDARD.encode(key.sign(lines.join("\n").as_bytes()).to_bytes())
 }
+/// Verifies a signature by `key` over statement lines, in either form: raw
+/// Ed25519 (64 bytes) or an `SSHSIG` blob whose embedded key is `key`. Roots
+/// may sign either way; administrators always sign with `SSHSIG`.
 pub(crate) fn verify_lines(key: &str, lines: &[&str], sig: &str) -> Result<(), Error> {
-    public_key(key)?
-        .verify_strict(lines.join("\n").as_bytes(), &signature(sig)?)
-        .map_err(|_| invalid("invalid statement signature"))
+    match signature(sig) {
+        Ok(raw) => public_key(key)?
+            .verify_strict(lines.join("\n").as_bytes(), &raw)
+            .map_err(|_| invalid("invalid statement signature")),
+        Err(_) => crate::persons::verify_sshsig(key, lines, sig),
+    }
+}
+/// Verifies an issuer's signature without knowing yet whether the issuer is
+/// authorized: a raw signature must be by `root`; an `SSHSIG` is checked
+/// against its own embedded key, whose authority the network map settles.
+pub(crate) fn verify_issuer(root: &str, lines: &[&str], sig: &str) -> Result<(), Error> {
+    match crate::persons::sshsig_signer(sig) {
+        Some(signer) => verify_lines(&signer, lines, sig),
+        None => verify_lines(root, lines, sig),
+    }
+}
+/// What signs a root or administrator statement: a raw root seed held by this
+/// host, or an SSH key (an agent identity or key file) held by the CLI.
+pub enum KeySigner<'a> {
+    Raw(&'a SigningKey),
+    Ssh(&'a crate::persons::PersonSigner),
+}
+impl KeySigner<'_> {
+    pub fn sign(&self, lines: &[&str]) -> Result<String, Error> {
+        match self {
+            Self::Raw(key) => Ok(sign_lines(key, lines)),
+            Self::Ssh(signer) => signer.sign(lines),
+        }
+    }
+    pub fn public_key_b64(&self) -> String {
+        match self {
+            Self::Raw(key) => STANDARD.encode(key.verifying_key().as_bytes()),
+            Self::Ssh(signer) => signer.public_key_b64(),
+        }
+    }
 }
 pub(crate) fn check_network(network: &str, expected: &str) -> Result<(), Error> {
     if network != expected {
@@ -329,6 +396,9 @@ pub struct HostRevocation {
     pub signature: String,
 }
 impl HostRevocation {
+    pub fn digest(&self) -> String {
+        statement_digest(&self.lines())
+    }
     fn lines(&self) -> [&str; 4] {
         [
             "capsule-revoke-host-v1",
@@ -338,14 +408,22 @@ impl HostRevocation {
         ]
     }
     pub fn sign(root: &SigningKey, network: &str, host: &str, at: &str) -> Self {
+        Self::sign_with(&KeySigner::Raw(root), network, host, at).expect("raw signing")
+    }
+    pub fn sign_with(
+        signer: &KeySigner,
+        network: &str,
+        host: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
         let mut r = Self {
             network_id: network.into(),
             host_public_key: host.into(),
             revoked_at: at.into(),
             signature: String::new(),
         };
-        r.signature = sign_lines(root, &r.lines());
-        r
+        r.signature = signer.sign(&r.lines())?;
+        Ok(r)
     }
     /// Valid when signed by any root of the chain.
     pub fn verify(&self, network: &str, roots: &[String]) -> Result<(), Error> {
@@ -370,6 +448,9 @@ pub struct InviteRevocation {
     pub signature: String,
 }
 impl InviteRevocation {
+    pub fn digest(&self) -> String {
+        statement_digest(&self.lines())
+    }
     fn lines(&self) -> [&str; 4] {
         [
             "capsule-revoke-invite-v1",
@@ -379,14 +460,22 @@ impl InviteRevocation {
         ]
     }
     pub fn sign(root: &SigningKey, network: &str, invite: &str, at: &str) -> Self {
+        Self::sign_with(&KeySigner::Raw(root), network, invite, at).expect("raw signing")
+    }
+    pub fn sign_with(
+        signer: &KeySigner,
+        network: &str,
+        invite: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
         let mut r = Self {
             network_id: network.into(),
             invite_public_key: invite.into(),
             revoked_at: at.into(),
             signature: String::new(),
         };
-        r.signature = sign_lines(root, &r.lines());
-        r
+        r.signature = signer.sign(&r.lines())?;
+        Ok(r)
     }
     pub fn verify(&self, network: &str, roots: &[String]) -> Result<(), Error> {
         check_network(&self.network_id, network)?;
@@ -460,28 +549,45 @@ impl Rotation {
             &self.signature,
         )
     }
+    /// Checks a rotation to `epoch` signed by `previous`, the current root.
+    pub fn verify_from(&self, network: &str, epoch: u64, previous: &str) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
+        if self.epoch != epoch || self.previous_root_public_key != previous {
+            return Err(invalid("rotation does not follow the current root"));
+        }
+        public_key(&self.root_public_key)?;
+        time(&self.rotated_at)?;
+        self.verify_with(&epoch.to_string())
+    }
     pub fn sign(previous: &SigningKey, network: &str, epoch: u64, root: &str, at: &str) -> Self {
-        let previous_root_public_key = STANDARD.encode(previous.verifying_key().as_bytes());
+        Self::sign_with(&KeySigner::Raw(previous), network, epoch, root, at).expect("raw signing")
+    }
+    /// Signed by the previous root, raw or SSH.
+    pub fn sign_with(
+        previous: &KeySigner,
+        network: &str,
+        epoch: u64,
+        root: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
+        let previous_root_public_key = previous.public_key_b64();
         let epoch_text = epoch.to_string();
-        let signature = sign_lines(
-            previous,
-            &[
-                "capsule-root-rotate-v1",
-                network,
-                &epoch_text,
-                &previous_root_public_key,
-                root,
-                at,
-            ],
-        );
-        Self {
+        let signature = previous.sign(&[
+            "capsule-root-rotate-v1",
+            network,
+            &epoch_text,
+            &previous_root_public_key,
+            root,
+            at,
+        ])?;
+        Ok(Self {
             network_id: network.into(),
             epoch,
             previous_root_public_key,
             root_public_key: root.into(),
             rotated_at: at.into(),
             signature,
-        }
+        })
     }
 }
 
@@ -505,18 +611,26 @@ impl Attestation {
         member: &str,
         at: &str,
     ) -> Self {
+        Self::sign_with(&KeySigner::Raw(root), network, epoch, host, member, at)
+            .expect("raw signing")
+    }
+    pub fn sign_with(
+        root: &KeySigner,
+        network: &str,
+        epoch: u64,
+        host: &str,
+        member: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
         let epoch_text = epoch.to_string();
-        Self {
-            signature: sign_lines(
-                root,
-                &["capsule-attest-v1", network, &epoch_text, host, member, at],
-            ),
+        Ok(Self {
+            signature: root.sign(&["capsule-attest-v1", network, &epoch_text, host, member, at])?,
             network_id: network.into(),
             epoch,
             host_public_key: host.into(),
             member: member.into(),
             attested_at: at.into(),
-        }
+        })
     }
     pub fn verify(&self, network: &str, epoch: u64, root: &str) -> Result<(), Error> {
         check_network(&self.network_id, network)?;

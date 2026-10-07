@@ -195,10 +195,10 @@ func TestRotationRequiresAdmissions(t *testing.T) {
 	attest := []membership.Attestation{membership.SignAttestation(next, g.network, 1, membership.PublicKey(admin), "admin", now)}
 	hostRenewal := rawOf(t, membership.SignHostAdmission(next, g.network, 1, membership.PublicKey(carol), "carol", now))
 	personRenewal := rawOf(t, membership.SignPersonAdmission(next, g.network, 1, membership.PublicKey(person), "pat", now))
-	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest, []json.RawMessage{hostRenewal}}); !errors.Is(err, errInvalid) {
+	if _, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest, []json.RawMessage{hostRenewal}, nil}); !errors.Is(err, errInvalid) {
 		t.Fatalf("rotation without person admissions: %v", err)
 	}
-	m, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest, []json.RawMessage{hostRenewal, personRenewal}})
+	m, err := g.s.rotate(ctx, id(admin), g.network, rotationRequest{rotation, attest, []json.RawMessage{hostRenewal, personRenewal}, nil})
 	if err != nil {
 		t.Fatal(err)
 	}

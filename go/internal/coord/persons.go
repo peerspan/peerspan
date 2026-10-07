@@ -102,12 +102,12 @@ func (s *Server) joinByAdmission(ctx context.Context, caller, network string, ad
 	if err != nil {
 		return 0, nil, err
 	}
+	stored, err := hostAdmissionFor(ctx, tx, network, caller)
+	if err != nil {
+		return 0, nil, err
+	}
 	if admission == nil {
 		// Use the stored admission for the caller's key, if any.
-		stored, err := hostAdmissionFor(ctx, tx, network, caller)
-		if err != nil {
-			return 0, nil, err
-		}
 		if stored == nil {
 			return 0, nil, fmt.Errorf("%w: no administrator has admitted this host", errForbidden)
 		}
@@ -117,10 +117,16 @@ func (s *Server) joinByAdmission(ctx context.Context, caller, network string, ad
 	if err != nil {
 		return 0, nil, fmt.Errorf("%w: %v", errForbidden, err)
 	}
+	if stored == nil || *stored != *admission {
+		// A new administrator admission needs a current administrator.
+		if err = requireCurrent(ctx, tx, chain, admission.Signature); err != nil {
+			return 0, nil, err
+		}
+	}
 	if id != caller {
 		return 0, nil, fmt.Errorf("%w: admission is for a different host", errForbidden)
 	}
-	if revoked, err := revokedHost(ctx, tx, network, admission.HostPublicKey); err != nil || revoked {
+	if revoked, err := revokedHost(ctx, tx, chain, admission.HostPublicKey); err != nil || revoked {
 		return 0, nil, errors.Join(err, fmt.Errorf("%w: host has been revoked or has left", errForbidden))
 	}
 	var exists int
@@ -249,6 +255,11 @@ func (s *Server) admitPerson(ctx context.Context, caller, network string, data [
 	if err != nil {
 		return nil, err
 	}
+	if proof.Admission != nil {
+		if err = requireCurrent(ctx, tx, chain, proof.Admission.Signature); err != nil {
+			return nil, err
+		}
+	}
 	revoked, err := revokedOf(ctx, tx, chain)
 	if err != nil {
 		return nil, err
@@ -326,7 +337,10 @@ func (s *Server) admitHost(ctx context.Context, caller, network string, a member
 	if _, err = chain.VerifyHostAdmission(a); err != nil {
 		return nil, err
 	}
-	if revoked, err := revokedHost(ctx, tx, network, a.HostPublicKey); err != nil || revoked {
+	if err = requireCurrent(ctx, tx, chain, a.Signature); err != nil {
+		return nil, err
+	}
+	if revoked, err := revokedHost(ctx, tx, chain, a.HostPublicKey); err != nil || revoked {
 		return nil, errors.Join(err, fmt.Errorf("%w: host has been revoked or has left", errForbidden))
 	}
 	data, err := json.Marshal(a)
@@ -514,6 +528,8 @@ func (s *Server) rotationAdmissions(ctx context.Context, tx *sql.Tx, chain, next
 			storedHosts[a.HostPublicKey] = a.Member
 		}
 	}
+	// Administrator-signed admissions stay valid across a rotation; only
+	// root-signed ones must be renewed.
 	rows, err := tx.QueryContext(ctx, `SELECT admission FROM members WHERE network_id = ? AND membership = ''`, chain.NetworkID)
 	if err != nil {
 		return nil, nil, err
@@ -526,7 +542,7 @@ func (s *Server) rotationAdmissions(ctx context.Context, tx *sql.Tx, chain, next
 			return nil, nil, err
 		}
 		var a membership.HostAdmission
-		if json.Unmarshal([]byte(data), &a) == nil {
+		if json.Unmarshal([]byte(data), &a) == nil && !chain.AdminSigned(a.Signature) {
 			joined[a.HostPublicKey] = true
 		}
 	}
@@ -574,12 +590,20 @@ func (s *Server) rotationAdmissions(ctx context.Context, tx *sql.Tx, chain, next
 			return nil, nil, fmt.Errorf("%w: admissions must cover every host admitted by public key", errInvalid)
 		}
 	}
-	for key := range persons {
-		if !seen["p "+key] {
+	for key, proof := range persons {
+		if !seen["p "+key] && !chain.AdminSigned(personSignature(proof)) {
 			return nil, nil, fmt.Errorf("%w: admissions must cover every current person", errInvalid)
 		}
 	}
 	return hosts, people, nil
+}
+
+// personSignature is the root or administrator signature admitting a person.
+func personSignature(p membership.PersonProof) string {
+	if p.Admission != nil {
+		return p.Admission.Signature
+	}
+	return p.Membership.InviteSignature
 }
 
 func personLabel(p membership.PersonProof) string {
@@ -589,11 +613,56 @@ func personLabel(p membership.PersonProof) string {
 	return p.Membership.Member
 }
 
-// replaceAdmissions installs the new root's admissions. Host admissions not
-// renewed lapse; persons admitted by invite become admitted by public key.
-func replaceAdmissions(ctx context.Context, tx *sql.Tx, network string, hosts []membership.HostAdmission, people []membership.PersonAdmission) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM statements WHERE network_id = ? AND kind IN (?, ?)`, network, kindHostAdmission, kindPersonAdmission); err != nil {
-		return err
+// replaceAdmissions installs the new root's admissions. Root-signed host
+// admissions not renewed lapse; persons admitted by a root-signed invite
+// become admitted by public key. Administrator-signed admissions are kept
+// unless renewed.
+func replaceAdmissions(ctx context.Context, tx *sql.Tx, chain membership.Chain, hosts []membership.HostAdmission, people []membership.PersonAdmission) error {
+	network := chain.NetworkID
+	for _, kind := range []string{kindHostAdmission, kindPersonAdmission} {
+		rows, err := tx.QueryContext(ctx, `SELECT subject, statement FROM statements WHERE network_id = ? AND kind = ?`, network, kind)
+		if err != nil {
+			return err
+		}
+		var lapsed []string
+		for rows.Next() {
+			var subject, data string
+			if err = rows.Scan(&subject, &data); err != nil {
+				rows.Close()
+				return err
+			}
+			signature := signatureOf(json.RawMessage(data))
+			if kind == kindPersonAdmission {
+				var proof membership.PersonProof
+				if json.Unmarshal([]byte(data), &proof) != nil || (proof.Admission == nil && proof.Membership == nil) {
+					lapsed = append(lapsed, subject)
+					continue
+				}
+				signature = personSignature(proof)
+			}
+			if !chain.AdminSigned(signature) {
+				lapsed = append(lapsed, subject)
+			}
+		}
+		rows.Close()
+		if err = rows.Err(); err != nil {
+			return err
+		}
+		for _, subject := range lapsed {
+			if _, err = tx.ExecContext(ctx, `DELETE FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kind, subject); err != nil {
+				return err
+			}
+		}
+	}
+	for _, a := range hosts {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindHostAdmission, a.HostPublicKey); err != nil {
+			return err
+		}
+	}
+	for _, a := range people {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindPersonAdmission, a.PersonPublicKey); err != nil {
+			return err
+		}
 	}
 	for _, a := range hosts {
 		data, err := json.Marshal(a)

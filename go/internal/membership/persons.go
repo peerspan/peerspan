@@ -2,7 +2,6 @@ package membership
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -238,13 +237,13 @@ func VerifyHostUnbinding(network string, u HostUnbinding) error {
 // VerifyHostAdmission checks a host admission by the current root at the
 // current epoch and returns the host ID.
 func (c Chain) VerifyHostAdmission(a HostAdmission) (string, error) {
-	if a.NetworkID != c.NetworkID || a.Epoch != c.Epoch() || !ValidLabel(a.Member) {
-		return "", fmt.Errorf("%w: host admission is not for this network's current epoch", ErrInvalid)
+	if a.NetworkID != c.NetworkID || a.Epoch < 0 || a.Epoch > c.Epoch() || !ValidLabel(a.Member) {
+		return "", fmt.Errorf("%w: host admission is not for this network's root chain", ErrInvalid)
 	}
 	if err := checkKeyTime(a.HostPublicKey, a.AdmittedAt); err != nil {
 		return "", err
 	}
-	if err := verify(c.Current(), a.Message(), a.Signature); err != nil {
+	if err := c.verifyAdmitted(a.Epoch, a.Message(), a.Signature); err != nil {
 		return "", err
 	}
 	key, _ := DecodeKey(a.HostPublicKey)
@@ -254,21 +253,35 @@ func (c Chain) VerifyHostAdmission(a HostAdmission) (string, error) {
 // VerifyPersonAdmission checks a person admission by the current root at the
 // current epoch.
 func (c Chain) VerifyPersonAdmission(a PersonAdmission) error {
-	if a.NetworkID != c.NetworkID || a.Epoch != c.Epoch() || !ValidLabel(a.Member) {
-		return fmt.Errorf("%w: person admission is not for this network's current epoch", ErrInvalid)
+	if a.NetworkID != c.NetworkID || a.Epoch < 0 || a.Epoch > c.Epoch() || !ValidLabel(a.Member) {
+		return fmt.Errorf("%w: person admission is not for this network's root chain", ErrInvalid)
 	}
 	if err := checkKeyTime(a.PersonPublicKey, a.AdmittedAt); err != nil {
 		return err
 	}
-	return verify(c.Current(), a.Message(), a.Signature)
+	return c.verifyAdmitted(a.Epoch, a.Message(), a.Signature)
+}
+
+// verifyAdmitted accepts a statement signed by the current root at the
+// current epoch, or by an acceptable administrator at any epoch: an
+// administrator's statements need no re-signing at a rotation.
+func (c Chain) verifyAdmitted(e int64, message []byte, signature string) error {
+	_, root, err := c.signerKey(message, signature, true)
+	if err != nil {
+		return err
+	}
+	if root && e != c.Epoch() {
+		return fmt.Errorf("%w: a root-signed statement must be for the current epoch", ErrInvalid)
+	}
+	return nil
 }
 
 // VerifyPersonMembership checks a person admitted by invite: the invite is
 // signed by the current root at the current epoch, the invite key signs the
 // person key, and the person joined before the invite expired.
 func (c Chain) VerifyPersonMembership(m PersonMembership) error {
-	if m.NetworkID != c.NetworkID || m.InviteEpoch != c.Epoch() || !ValidLabel(m.Member) {
-		return fmt.Errorf("%w: person invite is not for this network's current epoch", ErrInvalid)
+	if m.NetworkID != c.NetworkID || m.InviteEpoch < 0 || m.InviteEpoch > c.Epoch() || !ValidLabel(m.Member) {
+		return fmt.Errorf("%w: person invite is not for this network's root chain", ErrInvalid)
 	}
 	invite, err := DecodeKey(m.InvitePublicKey)
 	if err != nil {
@@ -285,7 +298,7 @@ func (c Chain) VerifyPersonMembership(m PersonMembership) error {
 	if err != nil {
 		return fmt.Errorf("%w: invalid join time", ErrInvalid)
 	}
-	if err = verify(c.Current(), PersonInviteStatement(m.NetworkID, m.InviteEpoch, m.InvitePublicKey, m.Member, m.InviteExpiresAt), m.InviteSignature); err != nil {
+	if err = c.verifyAdmitted(m.InviteEpoch, PersonInviteStatement(m.NetworkID, m.InviteEpoch, m.InvitePublicKey, m.Member, m.InviteExpiresAt), m.InviteSignature); err != nil {
 		return err
 	}
 	if err = verify(invite, PersonMemberStatement(m.NetworkID, m.InvitePublicKey, m.PersonPublicKey, m.JoinedAt), m.PersonSignature); err != nil {
@@ -324,19 +337,7 @@ type PersonToken struct {
 
 // PersonInvite creates a person invite signed by root at epoch e.
 func PersonInvite(network string, root ed25519.PrivateKey, e int64, member, expiresAt string) (PersonToken, error) {
-	if !ValidLabel(member) {
-		return PersonToken{}, fmt.Errorf("%w: invalid member label", ErrInvalid)
-	}
-	if _, err := ParseTime(expiresAt); err != nil {
-		return PersonToken{}, fmt.Errorf("%w: invalid expiration", ErrInvalid)
-	}
-	_, invite, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return PersonToken{}, err
-	}
-	t := PersonToken{Token: Token{NetworkID: network, RootPublicKey: PublicKey(root), Member: member, InvitePublicKey: PublicKey(invite), InviteSeed: Seed(invite), InviteExpiresAt: expiresAt}, InviteEpoch: e}
-	t.InviteSignature = sign(root, PersonInviteStatement(network, e, t.InvitePublicKey, member, expiresAt))
-	return t, nil
+	return PersonInviteWith(network, RawSigner{Key: root}, e, member, expiresAt)
 }
 
 // Redeem signs the person key with the invite key.
@@ -397,7 +398,7 @@ func DecodePersonToken(value string, now time.Time) (PersonToken, error) {
 	if err != nil || !expires.After(now) {
 		return t, fmt.Errorf("%w: person invite has expired or is invalid", ErrInvalid)
 	}
-	if err = verify(root, PersonInviteStatement(t.NetworkID, t.InviteEpoch, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.InviteSignature); err != nil {
+	if err = verifyRoot(root, PersonInviteStatement(t.NetworkID, t.InviteEpoch, t.InvitePublicKey, t.Member, t.InviteExpiresAt), t.InviteSignature); err != nil {
 		return t, err
 	}
 	return t, nil

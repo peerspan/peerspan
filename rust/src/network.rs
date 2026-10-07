@@ -2,10 +2,11 @@
 //! membership chains and addresses; this host verifies every chain itself and
 //! persists the verified map so known members keep working during outages.
 use crate::{
+    admins::{self, AdminDelegation, AdminRemoval, Authority, Group, GroupView},
     api::{blocking, decode},
     membership::{
-        self, Attestation, ChainRelation, HostRevocation, InviteRevocation, InviteToken, Leave,
-        Membership, Rotation,
+        self, Attestation, ChainRelation, HostRevocation, InviteRevocation, InviteToken, KeySigner,
+        Leave, Membership, Rotation,
     },
     model::Error,
     peer::{https, pinned_client_config},
@@ -19,7 +20,7 @@ use crate::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State, rejection::BytesRejection},
+    extract::{Path, Query, State, rejection::BytesRejection},
     http::StatusCode,
     routing::{get, post},
 };
@@ -67,6 +68,10 @@ pub struct Network {
     /// attestations. `root_public_key` stays the genesis key that derives `id`.
     #[serde(default)]
     pub current_root_public_key: String,
+    /// True when the current root is an SSH key (it signs with `SSHSIG`), so
+    /// root actions go through the CLI's `--root-key`.
+    #[serde(default)]
+    pub root_ssh: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Member {
@@ -105,11 +110,17 @@ pub struct CreateNetwork {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateInvite {
+    #[serde(default)]
     pub member: String,
+    #[serde(default)]
     pub expires_at: String,
     /// Issue a host-only invite instead of the default member invite.
     #[serde(default)]
     pub host_only: bool,
+    /// A token an administrator signed through the CLI; the daemon checks the
+    /// signer, records the invite, and returns it.
+    #[serde(default)]
+    pub token: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -145,14 +156,24 @@ pub struct Joined {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdmitPerson {
+    #[serde(default)]
     pub person_public_key: String,
+    #[serde(default)]
     pub member: String,
+    /// Signed already, by an administrator's SSH key through the CLI.
+    #[serde(default)]
+    pub admission: Option<PersonAdmission>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdmitHost {
+    #[serde(default)]
     pub host_public_key: String,
+    #[serde(default)]
     pub member: String,
+    /// Signed already, by an administrator's SSH key through the CLI.
+    #[serde(default)]
+    pub admission: Option<HostAdmission>,
 }
 #[derive(Debug, Serialize)]
 pub struct AdmittedPerson {
@@ -193,7 +214,66 @@ pub struct Unbind {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemovePerson {
+    #[serde(default)]
     pub person_id: String,
+    /// A removal an administrator signed through the CLI.
+    #[serde(default)]
+    pub removal: Option<PersonRemoval>,
+}
+/// `network delegate-admin`: root only. Either the person to delegate (this
+/// host signs with the root seed) or a delegation the CLI signed with an SSH
+/// root key.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DelegateAdmin {
+    #[serde(default)]
+    pub person: Option<String>,
+    #[serde(default)]
+    pub delegation: Option<AdminDelegation>,
+}
+#[derive(Debug, Serialize)]
+pub struct Delegated {
+    pub network_id: String,
+    pub person_id: String,
+}
+/// `network remove-admin`: root only, sticky and local-first.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveAdmin {
+    #[serde(default)]
+    pub person: Option<String>,
+    #[serde(default)]
+    pub revoke_admitted: bool,
+    #[serde(default)]
+    pub removal: Option<AdminRemoval>,
+}
+/// `network group set`: the root (this host signs) or a group version an
+/// administrator signed through the CLI.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetGroup {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub members: Vec<String>,
+    #[serde(default)]
+    pub group: Option<Group>,
+}
+/// A rotation to an SSH root: the CLI signs everything the new root signs;
+/// the rotation itself is signed here with the root seed, or by the CLI with
+/// the current SSH root.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotateToSsh {
+    pub root_public_key: String,
+    #[serde(default)]
+    pub rotation: Option<Rotation>,
+    #[serde(default)]
+    pub attestations: Vec<Attestation>,
+    #[serde(default)]
+    pub admissions: Vec<Value>,
+    #[serde(default)]
+    pub groups: Vec<Group>,
 }
 /// A verified person: its admission or invite chain under the current root.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -254,6 +334,8 @@ pub struct PersonView {
     pub public_key: String,
     pub member: String,
     pub hosts: Vec<String>,
+    /// A current administrator of the network.
+    pub administrator: bool,
     /// Set when another current person holds a conflicting label, which only a
     /// misbehaving coordinator can produce; both persons stay valid.
     pub label_conflict: bool,
@@ -284,6 +366,10 @@ struct WireMap {
     revocations: Vec<Value>,
     #[serde(default)]
     persons: Vec<Value>,
+    #[serde(default)]
+    admins: Vec<Value>,
+    #[serde(default)]
+    groups: Vec<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -292,6 +378,9 @@ pub struct Revoke {
     pub host_id: Option<String>,
     #[serde(default)]
     pub invite_public_key: Option<String>,
+    /// A host or invite revocation an administrator signed through the CLI.
+    #[serde(default)]
+    pub revocation: Option<Value>,
 }
 #[derive(Debug, Serialize)]
 pub struct Revoked {
@@ -306,6 +395,92 @@ pub struct Left {
     pub submitted: bool,
 }
 
+/// What a removal without `revoke_admitted` keeps.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminRemovalPlan {
+    pub person_public_key: String,
+    pub kept: Vec<String>,
+}
+/// What a new root signs at a rotation, as `GET .../rotation-plan` serves it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RotationPlan {
+    pub network_id: String,
+    pub epoch: u64,
+    pub current_root_public_key: String,
+    pub attestations: Vec<PlannedItem>,
+    pub host_admissions: Vec<PlannedItem>,
+    pub person_admissions: Vec<PlannedItem>,
+    /// Current administrators' person keys, whose delegations are re-signed.
+    pub admins: Vec<String>,
+    /// Root-signed groups (deleted ones too), renewed at the same version.
+    #[serde(default)]
+    pub groups: Vec<PlannedGroup>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlannedGroup {
+    pub name: String,
+    pub version: u64,
+    pub members: Vec<String>,
+}
+/// What the next root signs for a rotation.
+pub struct SignedPlan {
+    pub attestations: Vec<Attestation>,
+    pub admissions: Vec<Value>,
+    pub groups: Vec<Group>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlannedItem {
+    pub public_key: String,
+    pub member: String,
+}
+impl RotationPlan {
+    /// Signs the plan with the next root: the attestations, and the
+    /// admissions and delegations for the rotation's `admissions`.
+    pub fn sign(&self, next: &KeySigner, at: &str) -> Result<SignedPlan, Error> {
+        let (id, epoch) = (self.network_id.as_str(), self.epoch);
+        let attestations = self
+            .attestations
+            .iter()
+            .map(|i| Attestation::sign_with(next, id, epoch, &i.public_key, &i.member, at))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut admissions = Vec::new();
+        for i in &self.host_admissions {
+            admissions.push(serde_json::to_value(HostAdmission::sign_with(
+                next,
+                id,
+                epoch,
+                &i.public_key,
+                &i.member,
+                at,
+            )?)?);
+        }
+        for i in &self.person_admissions {
+            admissions.push(serde_json::to_value(PersonAdmission::sign_with(
+                next,
+                id,
+                epoch,
+                &i.public_key,
+                &i.member,
+                at,
+            )?)?);
+        }
+        for key in &self.admins {
+            admissions.push(serde_json::to_value(AdminDelegation::sign(
+                next, id, epoch, key, at,
+            )?)?);
+        }
+        let groups = self
+            .groups
+            .iter()
+            .map(|g| Group::sign(next, id, &g.name, g.version, &g.members, at))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SignedPlan {
+            attestations,
+            admissions,
+            groups,
+        })
+    }
+}
 /// A signed rotation not yet accepted by the coordinator, persisted before
 /// submission as `network_statements` kind `pending_rotation` (subject: the
 /// epoch). `root_seed` is the new root's seed in standard Base64; the state
@@ -317,6 +492,9 @@ pub(crate) struct PendingRotation {
     /// Host and person admissions re-signed at the new epoch.
     #[serde(default)]
     admissions: Vec<Value>,
+    /// Root-signed groups renewed by the new root at the same version.
+    #[serde(default)]
+    groups: Vec<Group>,
     root_seed: String,
 }
 #[derive(Debug)]
@@ -324,7 +502,7 @@ enum PendingOutcome {
     None,
     Committed,
     Discarded,
-    Resubmit(PendingRotation),
+    Resubmit(Box<PendingRotation>),
 }
 
 /// Every verified statement this host holds for one network.
@@ -337,6 +515,12 @@ struct Statements {
     leaves: Vec<Leave>,
     person_removals: Vec<PersonRemoval>,
     unbindings: Vec<HostUnbinding>,
+    /// Current administrator delegations (replaced by each map).
+    admins: Vec<AdminDelegation>,
+    /// Sticky administrator removals.
+    admin_removals: Vec<AdminRemoval>,
+    /// The applicable version of each group, deleted ones included.
+    groups: Vec<Group>,
 }
 impl Statements {
     fn load(connection: &Connection, network: &str) -> Result<Self, Error> {
@@ -362,6 +546,9 @@ impl Statements {
                 "leave" => out.leaves.push(json(record)?),
                 "person_removal" => out.person_removals.push(json(record)?),
                 "unbind" => out.unbindings.push(json(record)?),
+                "admin" => out.admins.push(json(record)?),
+                "admin_removal" => out.admin_removals.push(json(record)?),
+                "group" => out.groups.push(json(record)?),
                 _ => {}
             }
         }
@@ -506,68 +693,78 @@ fn verify_map(
         }
     }
     statements.attestations = attestations;
+    // Administrator removals are root-only and sticky; they decide whose
+    // statements still count before anything an administrator signed.
+    let mut offered_revocations: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for entry in map.revocations {
         let kind = entry["kind"].as_str().unwrap_or_default().to_owned();
-        let statement = entry["statement"].clone();
-        match kind.as_str() {
-            "host" => {
-                if let Ok(r) = serde_json::from_value::<HostRevocation>(statement)
-                    && r.verify(&network.id, &roots).is_ok()
-                    && !statements
-                        .hosts
-                        .iter()
-                        .any(|h| h.host_public_key == r.host_public_key)
-                {
-                    statements.hosts.push(r);
-                }
-            }
-            "invite" => {
-                if let Ok(r) = serde_json::from_value::<InviteRevocation>(statement)
-                    && r.verify(&network.id, &roots).is_ok()
-                    && !statements
-                        .invites
-                        .iter()
-                        .any(|i| i.invite_public_key == r.invite_public_key)
-                {
-                    statements.invites.push(r);
-                }
-            }
-            "leave" => {
-                if let Ok(r) = serde_json::from_value::<Leave>(statement)
-                    && r.verify(&network.id).is_ok()
-                    && !statements
-                        .leaves
-                        .iter()
-                        .any(|l| l.host_public_key == r.host_public_key)
-                {
-                    statements.leaves.push(r);
-                }
-            }
-            "person" => {
-                if let Ok(r) = serde_json::from_value::<PersonRemoval>(statement)
-                    && r.verify(&network.id, &roots).is_ok()
-                    && !statements
-                        .person_removals
-                        .iter()
-                        .any(|p| p.person_public_key == r.person_public_key)
-                {
-                    statements.person_removals.push(r);
-                }
-            }
-            "unbind" => {
-                if let Ok(r) = serde_json::from_value::<HostUnbinding>(statement)
-                    && r.verify(&network.id).is_ok()
-                    && !statements
-                        .unbindings
-                        .iter()
-                        .any(|u| u.subject() == r.subject())
-                {
-                    statements.unbindings.push(r);
-                }
-            }
-            _ => {}
+        offered_revocations
+            .entry(kind)
+            .or_default()
+            .push(entry["statement"].clone());
+    }
+    for statement in offered_revocations.remove("admin").unwrap_or_default() {
+        let Ok(r) = serde_json::from_value::<AdminRemoval>(statement) else {
+            continue;
+        };
+        if r.verify(&network.id, &roots).is_err() {
+            continue;
+        }
+        // One removal per key; one with revoke_admitted supersedes one without.
+        match statements
+            .admin_removals
+            .iter_mut()
+            .find(|a| a.person_public_key == r.person_public_key)
+        {
+            None => statements.admin_removals.push(r),
+            Some(old) if r.revoke_admitted && !old.revoke_admitted => *old = r,
+            Some(_) => {}
         }
     }
+    let removed_admins: BTreeSet<String> = statements
+        .admin_removals
+        .iter()
+        .map(|r| r.person_public_key.clone())
+        .collect();
+    // Delegations are kept, like the coordinator serves them, even for
+    // removed administrators: a plain removal leaves their statements valid.
+    let delegations = admins::latest_delegations(
+        &network.id,
+        &roots,
+        std::mem::take(&mut statements.admins).into_iter().chain(
+            map.admins
+                .into_iter()
+                .filter_map(|v| serde_json::from_value::<AdminDelegation>(v).ok()),
+        ),
+    );
+    let mut authority = Authority::new(roots.clone(), &delegations, &statements.admin_removals);
+    // Statements signed by an administrator removed with revoke_admitted no
+    // longer count, including sticky revocations they signed.
+    statements
+        .hosts
+        .retain(|r| !authority.is_cascaded(&r.signature));
+    statements
+        .invites
+        .retain(|r| !authority.is_cascaded(&r.signature));
+    statements
+        .person_removals
+        .retain(|r| !authority.is_cascaded(&r.signature));
+    merge_revocations(network, &authority, &offered_revocations, &mut statements);
+    let persons = verify_persons(network, epoch, &authority, &map.persons, &statements);
+    let person_keys: BTreeSet<&str> = persons
+        .iter()
+        .map(|p| p.person_public_key.as_str())
+        .collect();
+    authority.admins = delegations
+        .iter()
+        .filter(|d| {
+            d.epoch == epoch
+                && !removed_admins.contains(&d.person_public_key)
+                && person_keys.contains(d.person_public_key.as_str())
+        })
+        .map(|d| d.person_public_key.clone())
+        .collect();
+    statements.admins = delegations;
     let revoked_hosts: BTreeSet<&str> = statements
         .hosts
         .iter()
@@ -584,72 +781,6 @@ fn verify_map(
         .iter()
         .map(|a| a.host_public_key.as_str())
         .collect();
-    let removed_persons: BTreeSet<&str> = statements
-        .person_removals
-        .iter()
-        .map(|p| p.person_public_key.as_str())
-        .collect();
-    // Persons: an admission or an invite chain under the current root at the
-    // current epoch; removal is sticky. A person invite used by more than one
-    // person key discredits all of them.
-    let mut person_candidates: Vec<PersonEntry> = Vec::new();
-    for entry in map.persons {
-        let admission = entry
-            .get("admission")
-            .filter(|v| !v.is_null())
-            .and_then(|v| serde_json::from_value::<PersonAdmission>(v.clone()).ok());
-        let membership = entry
-            .get("membership")
-            .filter(|v| !v.is_null())
-            .and_then(|v| serde_json::from_value::<PersonMembership>(v.clone()).ok());
-        let admission = admission.filter(|a| a.verify(&network.id, epoch, &current).is_ok());
-        let membership = membership.filter(|m| {
-            admission.is_none()
-                && m.verify(&network.id, epoch, &current).is_ok()
-                && !revoked_invites.contains(m.invite_public_key.as_str())
-        });
-        let (key, member) = match (&admission, &membership) {
-            (Some(a), _) => (a.person_public_key.clone(), a.member.clone()),
-            (None, Some(m)) => (m.person_public_key.clone(), m.member.clone()),
-            (None, None) => continue,
-        };
-        let Ok(person_id) = persons::person_id_of(&key) else {
-            continue;
-        };
-        if removed_persons.contains(key.as_str())
-            || entry["person_id"]
-                .as_str()
-                .is_some_and(|id| id != person_id)
-            || person_candidates.iter().any(|p| p.person_public_key == key)
-        {
-            continue;
-        }
-        person_candidates.push(PersonEntry {
-            person_id,
-            person_public_key: key,
-            member,
-            admission,
-            membership,
-        });
-    }
-    let mut person_invites: BTreeMap<String, usize> = BTreeMap::new();
-    for p in &person_candidates {
-        if let Some(m) = &p.membership
-            && p.admission.is_none()
-        {
-            *person_invites
-                .entry(m.invite_public_key.clone())
-                .or_default() += 1;
-        }
-    }
-    let mut persons: Vec<PersonEntry> = person_candidates
-        .into_iter()
-        .filter(|p| match (&p.admission, &p.membership) {
-            (None, Some(m)) => person_invites[&m.invite_public_key] == 1,
-            _ => true,
-        })
-        .collect();
-    persons.sort_by(|a, b| a.person_id.cmp(&b.person_id));
     let unbound: BTreeSet<String> = statements
         .unbindings
         .iter()
@@ -670,20 +801,26 @@ fn verify_map(
             {
                 continue;
             }
-            let verified = if epoch == 0 {
-                m.verify(&network.root_public_key)
-            } else {
-                m.verify_under(&current).or_else(|error| {
-                    if attested.contains(m.host_public_key.as_str()) {
-                        roots
-                            .iter()
-                            .find_map(|root| m.verify_under(root).ok())
-                            .ok_or(error)
-                    } else {
-                        Err(error)
-                    }
-                })
-            };
+            let verified =
+                if let Some(admin) = authority.admin_signer(&m.invite_signature, &m.digest()) {
+                    // An administrator's invite needs no re-signing at a rotation.
+                    m.verify_under(&admin)
+                } else if authority.is_cascaded(&m.invite_signature) {
+                    Err(Error::Forbidden)
+                } else if epoch == 0 {
+                    m.verify(&network.root_public_key)
+                } else {
+                    m.verify_under(&current).or_else(|error| {
+                        if attested.contains(m.host_public_key.as_str()) {
+                            roots
+                                .iter()
+                                .find_map(|root| m.verify_under(root).ok())
+                                .ok_or(error)
+                        } else {
+                            Err(error)
+                        }
+                    })
+                };
             let Ok(host_id) = verified else {
                 continue;
             };
@@ -695,7 +832,12 @@ fn verify_map(
                 None,
             )
         } else if let Some(a) = admission {
-            let Ok(host_id) = a.verify(&network.id, epoch, &current) else {
+            let verified = match authority.admin_signer(&a.signature, &a.digest()) {
+                Some(_) if a.epoch > epoch => Err(Error::Forbidden),
+                Some(admin) => a.verify_signed_by(&network.id, &admin),
+                None => a.verify(&network.id, epoch, &current),
+            };
+            let Ok(host_id) = verified else {
                 continue;
             };
             (
@@ -781,6 +923,12 @@ fn verify_map(
         .collect();
     members.sort_by(|a, b| a.host_id.cmp(&b.host_id));
     bindings.retain(|b| members.iter().any(|m| m.public_key == b.host_public_key));
+    statements.groups = verify_groups(
+        network,
+        &authority,
+        std::mem::take(&mut statements.groups),
+        map.groups,
+    );
     Ok(VerifiedMap {
         members,
         persons,
@@ -789,6 +937,234 @@ fn verify_map(
         roots,
         statements,
     })
+}
+
+/// Adds the map's revocations to the persisted ones (sticky) when they verify
+/// under any root of the chain or an acceptable administrator.
+fn merge_revocations(
+    network: &Network,
+    authority: &Authority,
+    offered: &BTreeMap<String, Vec<Value>>,
+    statements: &mut Statements,
+) {
+    let roots = &authority.roots;
+    for (kind, list) in offered {
+        for statement in list.iter().cloned() {
+            match kind.as_str() {
+                "host" => {
+                    if let Ok(r) = serde_json::from_value::<HostRevocation>(statement)
+                        && r.verify(
+                            &network.id,
+                            &authority.any_root_or_admin(&r.signature, &r.digest()),
+                        )
+                        .is_ok()
+                        && !statements
+                            .hosts
+                            .iter()
+                            .any(|h| h.host_public_key == r.host_public_key)
+                    {
+                        statements.hosts.push(r);
+                    }
+                }
+                "invite" => {
+                    if let Ok(r) = serde_json::from_value::<InviteRevocation>(statement)
+                        && r.verify(
+                            &network.id,
+                            &authority.any_root_or_admin(&r.signature, &r.digest()),
+                        )
+                        .is_ok()
+                        && !statements
+                            .invites
+                            .iter()
+                            .any(|i| i.invite_public_key == r.invite_public_key)
+                    {
+                        statements.invites.push(r);
+                    }
+                }
+                "leave" => {
+                    if let Ok(r) = serde_json::from_value::<Leave>(statement)
+                        && r.verify(&network.id).is_ok()
+                        && !statements
+                            .leaves
+                            .iter()
+                            .any(|l| l.host_public_key == r.host_public_key)
+                    {
+                        statements.leaves.push(r);
+                    }
+                }
+                "person" => {
+                    if let Ok(r) = serde_json::from_value::<PersonRemoval>(statement)
+                        && r.verify(
+                            &network.id,
+                            &authority.any_root_or_admin(&r.signature, &r.digest()),
+                        )
+                        .is_ok()
+                        && !statements
+                            .person_removals
+                            .iter()
+                            .any(|p| p.person_public_key == r.person_public_key)
+                    {
+                        statements.person_removals.push(r);
+                    }
+                }
+                "unbind" => {
+                    if let Ok(r) = serde_json::from_value::<HostUnbinding>(statement)
+                        && r.verify(&network.id).is_ok()
+                        && !statements
+                            .unbindings
+                            .iter()
+                            .any(|u| u.subject() == r.subject())
+                    {
+                        statements.unbindings.push(r);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let _ = roots;
+}
+
+/// Persons: an admission or an invite chain under the current root at the
+/// current epoch, or signed by an acceptable administrator at any epoch;
+/// removal is sticky. A person invite used by more than one person key
+/// discredits all of them.
+fn verify_persons(
+    network: &Network,
+    epoch: u64,
+    authority: &Authority,
+    offered: &[Value],
+    statements: &Statements,
+) -> Vec<PersonEntry> {
+    let current = authority.current().to_owned();
+    let revoked_invites: BTreeSet<&str> = statements
+        .invites
+        .iter()
+        .map(|i| i.invite_public_key.as_str())
+        .collect();
+    let removed_persons: BTreeSet<&str> = statements
+        .person_removals
+        .iter()
+        .map(|p| p.person_public_key.as_str())
+        .collect();
+    let mut person_candidates: Vec<PersonEntry> = Vec::new();
+    for entry in offered {
+        let admission = entry
+            .get("admission")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<PersonAdmission>(v.clone()).ok());
+        let membership = entry
+            .get("membership")
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<PersonMembership>(v.clone()).ok());
+        let admission =
+            admission.filter(
+                |a| match authority.admin_signer(&a.signature, &a.digest()) {
+                    Some(admin) => {
+                        a.epoch <= epoch && a.verify_signed_by(&network.id, &admin).is_ok()
+                    }
+                    None => a.verify(&network.id, epoch, &current).is_ok(),
+                },
+            );
+        let membership = membership.filter(|m| {
+            admission.is_none()
+                && !revoked_invites.contains(m.invite_public_key.as_str())
+                && match authority.admin_signer(&m.invite_signature, &m.digest()) {
+                    Some(admin) => {
+                        m.invite_epoch <= epoch && m.verify_signed_by(&network.id, &admin).is_ok()
+                    }
+                    None => m.verify(&network.id, epoch, &current).is_ok(),
+                }
+        });
+        let (key, member) = match (&admission, &membership) {
+            (Some(a), _) => (a.person_public_key.clone(), a.member.clone()),
+            (None, Some(m)) => (m.person_public_key.clone(), m.member.clone()),
+            (None, None) => continue,
+        };
+        let Ok(person_id) = persons::person_id_of(&key) else {
+            continue;
+        };
+        if removed_persons.contains(key.as_str())
+            || entry["person_id"]
+                .as_str()
+                .is_some_and(|id| id != person_id)
+            || person_candidates.iter().any(|p| p.person_public_key == key)
+        {
+            continue;
+        }
+        person_candidates.push(PersonEntry {
+            person_id,
+            person_public_key: key,
+            member,
+            admission,
+            membership,
+        });
+    }
+    let mut person_invites: BTreeMap<String, usize> = BTreeMap::new();
+    for p in &person_candidates {
+        if let Some(m) = &p.membership
+            && p.admission.is_none()
+        {
+            *person_invites
+                .entry(m.invite_public_key.clone())
+                .or_default() += 1;
+        }
+    }
+    let mut persons: Vec<PersonEntry> = person_candidates
+        .into_iter()
+        .filter(|p| match (&p.admission, &p.membership) {
+            (None, Some(m)) => person_invites[&m.invite_public_key] == 1,
+            _ => true,
+        })
+        .collect();
+    persons.sort_by(|a, b| a.person_id.cmp(&b.person_id));
+    persons
+}
+
+/// Picks each group's applicable version. A version counts while it is signed
+/// by the current root or an acceptable administrator (one not removed with
+/// `revoke_admitted`); a new version from the map must be higher than the
+/// persisted one. If the persisted version no longer counts, the map's version
+/// replaces it even when lower: the group reverts.
+fn verify_groups(
+    network: &Network,
+    authority: &Authority,
+    persisted: Vec<Group>,
+    offered: Vec<Value>,
+) -> Vec<Group> {
+    let valid = |g: &Group| {
+        authority
+            .current_or_admin(&g.signature, &g.digest())
+            .iter()
+            .any(|k| g.verify_signed_by(&network.id, k).is_ok())
+    };
+    let mut kept: BTreeMap<String, (Group, bool)> = BTreeMap::new();
+    for g in persisted {
+        let valid = valid(&g);
+        kept.insert(g.name.clone(), (g, valid));
+    }
+    for g in offered
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<Group>(v).ok())
+    {
+        if !valid(&g) {
+            continue;
+        }
+        match kept.get(&g.name) {
+            // A renewal at a rotation: same version, same members.
+            Some((old, true)) if old.version == g.version && old.members == g.members => {
+                kept.insert(g.name.clone(), (g, true));
+            }
+            Some((old, true)) if old.version >= g.version => {}
+            Some((old, false)) if old.version == g.version && *old == g => {}
+            _ => {
+                kept.insert(g.name.clone(), (g, true));
+            }
+        }
+    }
+    kept.into_values()
+        .filter_map(|(g, valid)| valid.then_some(g))
+        .collect()
 }
 
 fn time_after(a: &str, b: &str) -> bool {
@@ -1050,6 +1426,7 @@ impl Store {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: STANDARD.encode(root.verifying_key().as_bytes()),
+            root_ssh: false,
         };
         let me = Member {
             host_id: self.identity().id,
@@ -1083,6 +1460,9 @@ impl Store {
     }
 
     pub fn issue_invite(&self, id: &str, r: CreateInvite) -> Result<IssuedInvite, Error> {
+        if let Some(token) = r.token {
+            return self.record_signed_invite(id, &token, false);
+        }
         membership::label(&r.member)?;
         let expires = membership::time(&r.expires_at)?;
         let at = chrono::Utc::now();
@@ -1251,6 +1631,47 @@ impl Store {
             )?;
             Ok(old)
         };
+        for r in &statements.admin_removals {
+            if r.revoke_admitted {
+                // It may supersede a stored removal without revoke_admitted.
+                tx.execute(
+                    "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'admin_removal' AND subject = ?2 AND record NOT LIKE '%\"revoke_admitted\":true%'",
+                    params![id, r.person_public_key],
+                )?;
+            }
+            if insert_statement(&tx, &id, "admin_removal", &r.person_public_key, r)? {
+                append_event(
+                    &tx,
+                    "network.admin_removed",
+                    &crate::admins::person_of(&r.person_public_key),
+                    &at,
+                )?;
+            }
+        }
+        let old_admins = replace("admin")?;
+        for d in &statements.admins {
+            insert_statement(&tx, &id, "admin", &d.person_public_key, d)?;
+            if !old_admins.contains(&d.person_public_key) {
+                append_event(
+                    &tx,
+                    "network.admin_delegated",
+                    &crate::admins::person_of(&d.person_public_key),
+                    &at,
+                )?;
+            }
+        }
+        let old_groups: BTreeMap<String, u64> = Statements::load(&tx, &id)?
+            .groups
+            .into_iter()
+            .map(|g| (g.name, g.version))
+            .collect();
+        replace("group")?;
+        for g in &statements.groups {
+            insert_statement(&tx, &id, "group", &g.name, g)?;
+            if old_groups.get(&g.name) != Some(&g.version) {
+                append_event(&tx, "network.group_updated", &g.name, &at)?;
+            }
+        }
         let old_persons = replace("person")?;
         for p in &verified.persons {
             insert_statement(&tx, &id, "person", &p.person_public_key, &p.proof())?;
@@ -1258,11 +1679,23 @@ impl Store {
                 append_event(&tx, "network.person_admitted", &p.person_id, &at)?;
             }
         }
-        let old_admissions = replace("host_admission")?;
+        // Served admissions update the stored ones; admissions this host
+        // issued for hosts not joined yet stay, so a rotation renews them.
         for m in &members {
             if let Some(a) = &m.admission {
-                insert_statement(&tx, &id, "host_admission", &a.host_public_key, a)?;
-                if !old_admissions.contains(&a.host_public_key) {
+                let fresh = tx
+                    .query_row(
+                        "SELECT 1 FROM network_statements WHERE network_id = ?1 AND kind = 'host_admission' AND subject = ?2",
+                        params![id, a.host_public_key],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_none();
+                tx.execute(
+                    "INSERT OR REPLACE INTO network_statements VALUES (?1, 'host_admission', ?2, ?3)",
+                    params![id, a.host_public_key, serde_json::to_string(a)?],
+                )?;
+                if fresh {
                     append_event(&tx, "network.host_admitted", &m.host_id, &at)?;
                 }
             }
@@ -1308,6 +1741,14 @@ impl Store {
                 params![id, m.host_id, serde_json::to_string(&m)?],
             )?;
         }
+        let current_key = verified.roots.last().cloned().unwrap_or_default();
+        let by_current =
+            |sig: &str| crate::persons::sshsig_signer(sig).as_deref() == Some(current_key.as_str());
+        let admitted_by_ssh_root = members.iter().any(|m| {
+            m.admission
+                .as_ref()
+                .is_some_and(|a| by_current(&a.signature))
+        });
         let new: BTreeSet<String> = members.into_iter().map(|m| m.host_id).collect();
         for added in new.difference(&old).filter(|id| **id != own_id) {
             append_event(&tx, "network.member_added", added, &at)?;
@@ -1315,8 +1756,24 @@ impl Store {
         for removed in old.difference(&new).filter(|id| **id != own_id) {
             append_event(&tx, "network.member_removed", removed, &at)?;
         }
-        network.root_epoch = (verified.roots.len() - 1) as u64;
-        network.current_root_public_key = verified.roots.last().cloned().unwrap_or_default();
+        let epoch = (verified.roots.len() - 1) as u64;
+        // The current root signs with SSHSIG if any of its current statements
+        // does; a raw root never does. An unchanged epoch keeps what this host
+        // already knew (the administrator records it when committing).
+        let detected = statements.admins.iter().any(|d| by_current(&d.signature))
+            || statements
+                .attestations
+                .iter()
+                .any(|a| by_current(&a.signature))
+            || verified.persons.iter().any(|p| {
+                p.admission
+                    .as_ref()
+                    .is_some_and(|a| by_current(&a.signature))
+            })
+            || admitted_by_ssh_root;
+        network.root_ssh = detected || (network.root_ssh && network.root_epoch == epoch);
+        network.root_epoch = epoch;
+        network.current_root_public_key = current_key.clone();
         network.last_sync_at = Some(at);
         network.last_sync_error = None;
         tx.execute(
@@ -1417,24 +1874,134 @@ impl Store {
         Ok(SigningKey::from_bytes(&seed))
     }
 
+    /// The root chain this host has verified for a network, genesis first.
+    fn roots(&self, connection: &Connection, network: &Network) -> Result<Vec<String>, Error> {
+        let mut roots = vec![network.root_public_key.clone()];
+        roots.extend(
+            Statements::load(connection, &network.id)?
+                .rotations
+                .into_iter()
+                .map(|r| r.root_public_key),
+        );
+        Ok(roots)
+    }
+    /// The signers this host accepts for a network, from its verified state.
+    pub(crate) fn authority(
+        &self,
+        connection: &Connection,
+        network: &Network,
+    ) -> Result<Authority, Error> {
+        let statements = Statements::load(connection, &network.id)?;
+        let mut roots = vec![network.root_public_key.clone()];
+        roots.extend(
+            statements
+                .rotations
+                .iter()
+                .map(|r| r.root_public_key.clone()),
+        );
+        let removed: BTreeSet<&str> = statements
+            .admin_removals
+            .iter()
+            .map(|r| r.person_public_key.as_str())
+            .collect();
+        let persons: BTreeSet<String> = self
+            .stored_persons(connection, &network.id)?
+            .into_iter()
+            .map(|p| p.person_public_key)
+            .collect();
+        let mut authority = Authority::new(roots, &statements.admins, &statements.admin_removals);
+        authority.admins = statements
+            .admins
+            .iter()
+            .filter(|d| {
+                d.epoch == network.root_epoch
+                    && !removed.contains(d.person_public_key.as_str())
+                    && persons.contains(&d.person_public_key)
+            })
+            .map(|d| d.person_public_key.clone())
+            .collect();
+        Ok(authority)
+    }
+    /// The signer of a statement the CLI signed: a current administrator or
+    /// the current (SSH) root; anyone else is refused with 403.
+    fn accept_signer(
+        &self,
+        connection: &Connection,
+        network: &Network,
+        signature: &str,
+    ) -> Result<String, Error> {
+        let signer = persons::sshsig_signer(signature)
+            .ok_or_else(|| Error::Invalid("expected an SSHSIG signature".into()))?;
+        let authority = self.authority(connection, network)?;
+        if authority.admins.contains(&signer) || signer == authority.current() {
+            Ok(signer)
+        } else {
+            Err(Error::Forbidden)
+        }
+    }
+    /// The applicable version of every group, deleted ones included.
+    fn stored_groups(&self, connection: &Connection, id: &str) -> Result<Vec<Group>, Error> {
+        let mut groups = Statements::load(connection, id)?.groups;
+        groups.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(groups)
+    }
+
     /// Signs and persists a revocation with the current root, enforced locally
     /// at once. Returns the response and the `{kind, statement}` to submit.
     pub fn revoke(&self, id: &str, r: Revoke) -> Result<(Revoked, Value), Error> {
-        let (kind, subject) = match (r.host_id, r.invite_public_key) {
-            (Some(host), None) => ("host", host),
-            (None, Some(invite)) => ("invite", invite),
+        let mut connection = self.connection()?;
+        let presigned = match r.revocation {
+            Some(statement) => {
+                let network = self.network_record(&connection, id)?;
+                let signature = statement["signature"].as_str().unwrap_or_default();
+                let signer = self.accept_signer(&connection, &network, signature)?;
+                if statement.get("host_public_key").is_some() {
+                    let rev: HostRevocation = serde_json::from_value(statement.clone())
+                        .map_err(|_| Error::Invalid("invalid host revocation".into()))?;
+                    rev.verify(&network.id, std::slice::from_ref(&signer))?;
+                    Some((
+                        "host",
+                        key_id(&membership::canonical(&rev.host_public_key, 32)?),
+                        statement,
+                    ))
+                } else {
+                    let rev: InviteRevocation = serde_json::from_value(statement.clone())
+                        .map_err(|_| Error::Invalid("invalid invite revocation".into()))?;
+                    rev.verify(&network.id, std::slice::from_ref(&signer))?;
+                    Some(("invite", rev.invite_public_key.clone(), statement))
+                }
+            }
+            None => None,
+        };
+        let (kind, subject) = match (&presigned, r.host_id, r.invite_public_key) {
+            (Some((kind, subject, _)), None, None) => (*kind, subject.clone()),
+            (None, Some(host), None) => ("host", host),
+            (None, None, Some(invite)) => ("invite", invite),
             _ => {
                 return Err(Error::Invalid(
-                    "give exactly one of host_id or invite_public_key".into(),
+                    "give exactly one of host_id, invite_public_key, or revocation".into(),
                 ));
             }
         };
         let at = now();
         let own_id = self.identity().id;
-        let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let network = self.network_record(&tx, id)?;
-        let root = self.current_root(&tx, id)?;
+        // A pre-signed revocation needs no root seed on this host.
+        let root = match presigned {
+            Some(_) => None,
+            None => Some(self.current_root(&tx, id)?),
+        };
+        let sign = |kind: &str, key: &str| -> Result<Value, Error> {
+            let Some(root) = &root else {
+                return Ok(presigned.as_ref().map(|p| p.2.clone()).unwrap_or_default());
+            };
+            Ok(if kind == "host" {
+                serde_json::to_value(HostRevocation::sign(root, &network.id, key, &at))?
+            } else {
+                serde_json::to_value(InviteRevocation::sign(root, &network.id, key, &at))?
+            })
+        };
         let members: Vec<Member> = {
             let mut statement =
                 tx.prepare("SELECT record FROM network_members WHERE network_id = ?1")?;
@@ -1456,8 +2023,8 @@ impl Store {
                     .find(|k| membership::canonical(k, 32).is_ok_and(|b| key_id(&b) == subject))
                     .ok_or(Error::NotFound)?,
             };
-            let statement = HostRevocation::sign(&root, &network.id, &key, &at);
-            (key, serde_json::to_value(statement)?, vec![subject.clone()])
+            let statement = sign("host", &key)?;
+            (key, statement, vec![subject.clone()])
         } else {
             membership::public_key(&subject)?;
             if members.iter().any(|m| {
@@ -1470,7 +2037,7 @@ impl Store {
                     "cannot revoke the invite this host joined with".into(),
                 ));
             }
-            let statement = InviteRevocation::sign(&root, &network.id, &subject, &at);
+            let statement = sign("invite", &subject)?;
             let dropped = members
                 .iter()
                 .filter(|m| {
@@ -1491,7 +2058,7 @@ impl Store {
                     self.drop_person_locally(&tx, id, &person.person_public_key, &at)?;
                 }
             }
-            (subject.clone(), serde_json::to_value(statement)?, dropped)
+            (subject.clone(), statement, dropped)
         };
         let existing: Option<String> = tx
             .query_row(
@@ -1540,11 +2107,35 @@ impl Store {
         id: &str,
         r: AdmitPerson,
     ) -> Result<(Network, PersonAdmission), Error> {
-        membership::label(&r.member)?;
-        let key = persons::normalize_person_key(&r.person_public_key)?;
         let connection = self.connection()?;
         let network = self.network_record(&connection, id)?;
-        let root = self.current_root(&connection, id)?;
+        // An administrator signs through the CLI; otherwise this host signs
+        // with the root seed.
+        let (key, member, presigned) = match r.admission {
+            Some(a) => {
+                let signer = self.accept_signer(&connection, &network, &a.signature)?;
+                if signer == network.current_root_public_key {
+                    a.verify(&network.id, network.root_epoch, &signer)?;
+                } else if a.epoch > network.root_epoch {
+                    return Err(Error::Invalid(
+                        "an administrator's admission must be for at most the current epoch".into(),
+                    ));
+                } else {
+                    a.verify_signed_by(&network.id, &signer)?;
+                }
+                (a.person_public_key.clone(), a.member.clone(), Some(a))
+            }
+            None => {
+                // Only a host holding the root seed signs here.
+                self.current_root(&connection, id)?;
+                (
+                    persons::normalize_person_key(&r.person_public_key)?,
+                    r.member,
+                    None,
+                )
+            }
+        };
+        membership::label(&member)?;
         if Statements::load(&connection, id)?
             .person_removals
             .iter()
@@ -1552,15 +2143,18 @@ impl Store {
         {
             return Err(Error::Forbidden);
         }
-        self.check_label_free(&connection, id, &r.member, Some(&key))?;
-        let admission = PersonAdmission::sign(
-            &root,
-            &network.id,
-            network.root_epoch,
-            &key,
-            &r.member,
-            &now(),
-        );
+        self.check_label_free(&connection, id, &member, Some(&key))?;
+        let admission = match presigned {
+            Some(a) => a,
+            None => PersonAdmission::sign(
+                &self.current_root(&connection, id)?,
+                &network.id,
+                network.root_epoch,
+                &key,
+                &member,
+                &now(),
+            ),
+        };
         Ok((network, admission))
     }
     /// Signs a host admission with the current root (administrator only).
@@ -1569,11 +2163,37 @@ impl Store {
         id: &str,
         r: AdmitHost,
     ) -> Result<(Network, HostAdmission), Error> {
-        membership::label(&r.member)?;
-        let key = membership::public_key(&r.host_public_key)?;
         let connection = self.connection()?;
         let network = self.network_record(&connection, id)?;
-        let root = self.current_root(&connection, id)?;
+        let presigned = match r.admission.clone() {
+            Some(a) => {
+                let signer = self.accept_signer(&connection, &network, &a.signature)?;
+                if signer == network.current_root_public_key {
+                    a.verify(&network.id, network.root_epoch, &signer)?;
+                } else if a.epoch > network.root_epoch {
+                    return Err(Error::Invalid(
+                        "an administrator's admission must be for at most the current epoch".into(),
+                    ));
+                } else {
+                    a.verify_signed_by(&network.id, &signer)?;
+                }
+                Some(a)
+            }
+            None => {
+                self.current_root(&connection, id)?;
+                None
+            }
+        };
+        let r = match &presigned {
+            Some(a) => AdmitHost {
+                host_public_key: a.host_public_key.clone(),
+                member: a.member.clone(),
+                admission: None,
+            },
+            None => r,
+        };
+        membership::label(&r.member)?;
+        let key = membership::public_key(&r.host_public_key)?;
         if key_id(key.as_bytes()) == self.identity().id {
             return Err(Error::Conflict("this host is already a member".into()));
         }
@@ -1587,18 +2207,87 @@ impl Store {
         {
             return Err(Error::Forbidden);
         }
-        let admission = HostAdmission::sign(
-            &root,
-            &network.id,
-            network.root_epoch,
-            &r.host_public_key,
-            &r.member,
-            &now(),
-        );
+        let admission = match presigned {
+            Some(a) => a,
+            None => HostAdmission::sign(
+                &self.current_root(&connection, id)?,
+                &network.id,
+                network.root_epoch,
+                &r.host_public_key,
+                &r.member,
+                &now(),
+            ),
+        };
         Ok((network, admission))
+    }
+    /// Records an invite token an administrator signed through the CLI: the
+    /// daemon checks the token and its signer, then records the invite.
+    fn record_signed_invite(
+        &self,
+        id: &str,
+        token: &str,
+        person_only: bool,
+    ) -> Result<IssuedInvite, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let network = self.network_record(&tx, id)?;
+        let token = token.trim();
+        let (network_id, member, invite, expires, signatures) = if person_only {
+            let t = PersonInviteToken::decode(token)?;
+            self.check_label_free(&tx, id, &t.member, None)?;
+            (
+                t.network_id,
+                t.member,
+                t.invite_public_key,
+                t.invite_expires_at,
+                vec![t.invite_signature],
+            )
+        } else if token.starts_with(MEMBER_TOKEN_PREFIX) {
+            let t = MemberInviteToken::decode(token)?;
+            (
+                t.network_id,
+                t.member,
+                t.invite_public_key,
+                t.invite_expires_at,
+                vec![t.invite_signature, t.person_invite_signature],
+            )
+        } else {
+            let t = InviteToken::decode(token)?;
+            (
+                t.network_id,
+                t.member,
+                t.invite_public_key,
+                t.invite_expires_at,
+                vec![t.invite_signature],
+            )
+        };
+        if network_id != network.id {
+            return Err(Error::Invalid("token is for another network".into()));
+        }
+        let expiry = membership::time(&expires)?;
+        if expiry > chrono::Utc::now() + MAX_INVITE_LIFETIME {
+            return Err(Error::Invalid(
+                "invite expiry must be in the future and at most 30 days ahead".into(),
+            ));
+        }
+        for signature in &signatures {
+            self.accept_signer(&tx, &network, signature)?;
+        }
+        append_event(&tx, "network.invite_issued", &network.id, &now())?;
+        tx.commit()?;
+        Ok(IssuedInvite {
+            network_id: network.id,
+            member,
+            invite_public_key: invite,
+            invite_expires_at: expires,
+            token: token.to_owned(),
+        })
     }
     /// Issues a one-time person invite signed by the current root.
     pub fn issue_person_invite(&self, id: &str, r: CreateInvite) -> Result<IssuedInvite, Error> {
+        if let Some(token) = r.token {
+            return self.record_signed_invite(id, &token, true);
+        }
         membership::label(&r.member)?;
         let expires = membership::time(&r.expires_at)?;
         let at = chrono::Utc::now();
@@ -1641,7 +2330,20 @@ impl Store {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let network = self.network_record(&tx, id)?;
-        let root = self.current_root(&tx, id)?;
+        let r = match r.removal {
+            Some(removal) => {
+                let signer = self.accept_signer(&tx, &network, &removal.signature)?;
+                removal.verify(&network.id, std::slice::from_ref(&signer))?;
+                RemovePerson {
+                    person_id: persons::person_id_of(&removal.person_public_key)?,
+                    removal: Some(removal),
+                }
+            }
+            None => {
+                self.current_root(&tx, id)?;
+                r
+            }
+        };
         let stored = Statements::load(&tx, id)?;
         let existing = stored
             .person_removals
@@ -1656,8 +2358,27 @@ impl Store {
                     .into_iter()
                     .find(|p| p.person_id == r.person_id)
                     .ok_or(Error::NotFound)?;
-                let removal =
-                    PersonRemoval::sign(&root, &network.id, &person.person_public_key, &at);
+                // What happens to a current administrator's statements is
+                // decided by removing the administrator role first.
+                if self
+                    .authority(&tx, &network)?
+                    .admins
+                    .contains(&person.person_public_key)
+                {
+                    return Err(Error::Conflict(
+                        "that person is a current administrator; remove the administrator role first"
+                            .into(),
+                    ));
+                }
+                let removal = match r.removal {
+                    Some(removal) => removal,
+                    None => PersonRemoval::sign(
+                        &self.current_root(&tx, id)?,
+                        &network.id,
+                        &person.person_public_key,
+                        &at,
+                    ),
+                };
                 insert_statement(
                     &tx,
                     id,
@@ -1791,11 +2512,403 @@ impl Store {
         }
         Ok(())
     }
+    /// Signs (with the root seed) or checks (a statement the CLI signed with
+    /// an SSH root) a delegation of administrator rights to a current person.
+    pub fn sign_delegation(
+        &self,
+        id: &str,
+        r: DelegateAdmin,
+    ) -> Result<(Network, AdminDelegation), Error> {
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let persons = self.stored_persons(&connection, id)?;
+        let delegation = match (r.delegation, r.person) {
+            (Some(d), None) => {
+                d.verify(
+                    &network.id,
+                    network.root_epoch,
+                    &network.current_root_public_key,
+                )
+                .map_err(|_| Error::Forbidden)?;
+                d
+            }
+            (None, Some(person)) => {
+                let person = admins::resolve_person(&persons, &person)?;
+                AdminDelegation::sign(
+                    &KeySigner::Raw(&self.current_root(&connection, id)?),
+                    &network.id,
+                    network.root_epoch,
+                    &person.person_public_key,
+                    &now(),
+                )?
+            }
+            _ => {
+                return Err(Error::Invalid(
+                    "give exactly one of person or delegation".into(),
+                ));
+            }
+        };
+        if !persons
+            .iter()
+            .any(|p| p.person_public_key == delegation.person_public_key)
+        {
+            return Err(Error::Invalid(
+                "only a current person can be an administrator".into(),
+            ));
+        }
+        if Statements::load(&connection, id)?
+            .admin_removals
+            .iter()
+            .any(|r| r.person_public_key == delegation.person_public_key)
+        {
+            return Err(Error::Forbidden);
+        }
+        Ok((network, delegation))
+    }
+
+    /// Signs or checks an administrator removal and persists it at once:
+    /// sticky and enforced locally before the coordinator hears of it.
+    pub fn remove_admin(&self, id: &str, r: RemoveAdmin) -> Result<(Revoked, Value), Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let network = self.network_record(&tx, id)?;
+        let removal = match (r.removal, r.person) {
+            (Some(removal), None) => {
+                removal
+                    .verify(&network.id, &self.roots(&tx, &network)?)
+                    .map_err(|_| Error::Forbidden)?;
+                removal
+            }
+            (None, Some(person)) => {
+                let root = self.current_root(&tx, id)?;
+                let key = self.resolve_admin(&tx, id, &person)?;
+                let kept = if r.revoke_admitted {
+                    Vec::new()
+                } else {
+                    self.kept_digests(&tx, &network, &key)?
+                };
+                AdminRemoval::sign(
+                    &KeySigner::Raw(&root),
+                    &network.id,
+                    &key,
+                    r.revoke_admitted,
+                    &kept,
+                    &now(),
+                )?
+            }
+            _ => {
+                return Err(Error::Invalid(
+                    "give exactly one of person or removal".into(),
+                ));
+            }
+        };
+        let statements = Statements::load(&tx, id)?;
+        if !statements
+            .admins
+            .iter()
+            .any(|d| d.person_public_key == removal.person_public_key)
+        {
+            return Err(Error::NotFound);
+        }
+        let existing = statements
+            .admin_removals
+            .iter()
+            .find(|r| r.person_public_key == removal.person_public_key);
+        let removal = match existing {
+            // One removal per key: a second plain one is refused; a repeated
+            // revoke_admitted resubmits the stored one.
+            Some(_) if !removal.revoke_admitted => {
+                return Err(Error::Conflict(
+                    "that administrator has already been removed".into(),
+                ));
+            }
+            Some(old) if old.revoke_admitted => old.clone(),
+            Some(_) => {
+                // Escalation to revoke_admitted, recorded again.
+                append_event(
+                    &tx,
+                    "network.admin_removed",
+                    &admins::person_of(&removal.person_public_key),
+                    &now(),
+                )?;
+                tx.execute(
+                    "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'admin_removal' AND subject = ?2",
+                    params![id, removal.person_public_key],
+                )?;
+                insert_statement(
+                    &tx,
+                    id,
+                    "admin_removal",
+                    &removal.person_public_key,
+                    &removal,
+                )?;
+                removal
+            }
+            None => {
+                insert_statement(
+                    &tx,
+                    id,
+                    "admin_removal",
+                    &removal.person_public_key,
+                    &removal,
+                )?;
+                append_event(
+                    &tx,
+                    "network.admin_removed",
+                    &admins::person_of(&removal.person_public_key),
+                    &now(),
+                )?;
+                removal
+            }
+        };
+        if removal.revoke_admitted {
+            self.cascade_locally(&tx, id, &removal.person_public_key)?;
+        }
+        tx.commit()?;
+        Ok((
+            Revoked {
+                network_id: network.id,
+                kind: "admin".into(),
+                subject: removal.person_public_key.clone(),
+                submitted: false,
+            },
+            json_value!({"kind": "admin", "statement": removal}),
+        ))
+    }
+
+    /// Resolves a person ID, key, or label to a person key, including an
+    /// administrator who is no longer a current person.
+    fn resolve_admin(
+        &self,
+        connection: &Connection,
+        id: &str,
+        given: &str,
+    ) -> Result<String, Error> {
+        let persons = self.stored_persons(connection, id)?;
+        match admins::resolve_person(&persons, given) {
+            Ok(p) => Ok(p.person_public_key.clone()),
+            Err(Error::NotFound) => Statements::load(connection, id)?
+                .admins
+                .iter()
+                .map(|d| d.person_public_key.clone())
+                .find(|k| *k == given || persons::person_id_of(k).is_ok_and(|id| id == given))
+                .ok_or(Error::NotFound),
+            Err(e) => Err(e),
+        }
+    }
+    /// The digests of every statement this host has verified as signed by the
+    /// administrator `key`: members' invites and admissions, persons'
+    /// admissions and invites, revocations and person removals, and the newest
+    /// group versions. A removal without `revoke_admitted` keeps exactly these.
+    fn kept_digests(
+        &self,
+        connection: &Connection,
+        network: &Network,
+        key: &str,
+    ) -> Result<Vec<String>, Error> {
+        let id = &network.id;
+        let mut digests = BTreeSet::new();
+        let mut add = |signature: &str, digest: String| {
+            if persons::sshsig_signer(signature).as_deref() == Some(key) {
+                digests.insert(digest);
+            }
+        };
+        for m in self.stored_members(connection, id)? {
+            if let Some(c) = &m.membership {
+                add(&c.invite_signature, c.digest());
+            }
+            if let Some(a) = &m.admission {
+                add(&a.signature, a.digest());
+            }
+        }
+        for a in self.issued_admissions(connection, id)? {
+            add(&a.signature, a.digest());
+        }
+        let statements = Statements::load(connection, id)?;
+        for p in self.stored_persons(connection, id)? {
+            match (&p.admission, &p.membership) {
+                (Some(a), _) => add(&a.signature, a.digest()),
+                (None, Some(m)) => add(&m.invite_signature, m.digest()),
+                (None, None) => {}
+            }
+        }
+        for r in &statements.hosts {
+            add(&r.signature, r.digest());
+        }
+        for r in &statements.invites {
+            add(&r.signature, r.digest());
+        }
+        for r in &statements.person_removals {
+            add(&r.signature, r.digest());
+        }
+        for g in &statements.groups {
+            add(&g.signature, g.digest());
+        }
+        Ok(digests.into_iter().collect())
+    }
+    /// What a removal without `revoke_admitted` keeps, for the CLI to sign
+    /// with `--root-key`.
+    pub fn admin_removal_plan(&self, id: &str, person: &str) -> Result<AdminRemovalPlan, Error> {
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let key = self.resolve_admin(&connection, id, person)?;
+        Ok(AdminRemovalPlan {
+            kept: self.kept_digests(&connection, &network, &key)?,
+            person_public_key: key,
+        })
+    }
+
+    /// Enforces a removal with `revoke_admitted` at once: members and persons
+    /// the administrator admitted are dropped, with their bindings, and the
+    /// groups they signed. The next map restores any reverted group version.
+    fn cascade_locally(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+        admin: &str,
+    ) -> Result<(), Error> {
+        let by = |signature: &str| persons::sshsig_signer(signature).as_deref() == Some(admin);
+        let at = now();
+        for m in self.stored_members(tx, id)? {
+            let signed = m.admission.as_ref().is_some_and(|a| by(&a.signature))
+                || m.membership
+                    .as_ref()
+                    .is_some_and(|c| by(&c.invite_signature));
+            if signed {
+                tx.execute(
+                    "DELETE FROM network_members WHERE network_id = ?1 AND host_id = ?2",
+                    params![id, m.host_id],
+                )?;
+                append_event(tx, "network.member_removed", &m.host_id, &at)?;
+            }
+        }
+        let mut dropped = BTreeSet::new();
+        for p in self.stored_persons(tx, id)? {
+            let signed = p.admission.as_ref().is_some_and(|a| by(&a.signature))
+                || p.membership
+                    .as_ref()
+                    .is_some_and(|m| by(&m.invite_signature));
+            if signed {
+                tx.execute(
+                    "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'person' AND subject = ?2",
+                    params![id, p.person_public_key],
+                )?;
+                dropped.insert(p.person_public_key);
+            }
+        }
+        let bindings: Vec<(String, String)> = {
+            let mut statement = tx.prepare(
+                "SELECT subject, record FROM network_statements WHERE network_id = ?1 AND kind = 'binding'",
+            )?;
+            statement
+                .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?
+        };
+        for (host, record) in bindings {
+            let Ok(b) = json::<HostBinding>(record) else {
+                continue;
+            };
+            if dropped.contains(&b.person_public_key) {
+                tx.execute(
+                    "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'binding' AND subject = ?2",
+                    params![id, host],
+                )?;
+                if let Ok(key) = membership::canonical(&host, 32) {
+                    append_event(tx, "network.host_unbound", &key_id(&key), &at)?;
+                }
+            }
+        }
+        for g in self.stored_groups(tx, id)? {
+            if by(&g.signature) {
+                tx.execute(
+                    "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'group' AND subject = ?2",
+                    params![id, g.name],
+                )?;
+                append_event(tx, "network.group_updated", &g.name, &at)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Signs the next version of a group with the root seed, or checks one an
+    /// administrator (or SSH root) signed through the CLI. The version must
+    /// be higher than the newest this host has verified.
+    pub fn sign_group(&self, id: &str, r: SetGroup) -> Result<(Network, Group), Error> {
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let stored = self.stored_groups(&connection, id)?;
+        let group = match (r.group, r.name) {
+            (Some(g), None) => {
+                let signer = self.accept_signer(&connection, &network, &g.signature)?;
+                g.verify_signed_by(&network.id, &signer)?;
+                g
+            }
+            (None, Some(name)) => {
+                admins::group_name(&name)?;
+                let persons = self.stored_persons(&connection, id)?;
+                let members = r
+                    .members
+                    .iter()
+                    .map(|m| admins::resolve_person(&persons, m).map(|p| p.person_id.clone()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let version = stored
+                    .iter()
+                    .find(|g| g.name == name)
+                    .map_or(1, |g| g.version + 1);
+                Group::sign(
+                    &KeySigner::Raw(&self.current_root(&connection, id)?),
+                    &network.id,
+                    &name,
+                    version,
+                    &members,
+                    &now(),
+                )?
+            }
+            _ => {
+                return Err(Error::Invalid("give exactly one of name or group".into()));
+            }
+        };
+        if let Some(old) = stored.iter().find(|g| g.name == group.name)
+            && old.version >= group.version
+        {
+            return Err(Error::Conflict(format!(
+                "group {} is already at version {}",
+                group.name, old.version
+            )));
+        }
+        Ok((network, group))
+    }
+
+    /// Current groups sorted by name; deleted groups (no members) are left
+    /// out unless `all`, and so are members that are not current persons.
+    pub fn groups(&self, id: &str, all: bool) -> Result<Vec<GroupView>, Error> {
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let persons: BTreeSet<String> = self
+            .stored_persons(&connection, id)?
+            .into_iter()
+            .map(|p| p.person_id)
+            .collect();
+        let root = self.roots(&connection, &network)?;
+        let current = root.last().cloned().unwrap_or_default();
+        Ok(self
+            .stored_groups(&connection, id)?
+            .iter()
+            .filter(|g| all || !g.members.is_empty())
+            .map(|g| {
+                let mut view = GroupView::of(g, &current);
+                view.members.retain(|m| persons.contains(m));
+                view
+            })
+            .collect())
+    }
+
     pub fn persons(&self, id: &str) -> Result<Vec<PersonView>, Error> {
         let connection = self.connection()?;
-        self.network_record(&connection, id)?;
+        let network = self.network_record(&connection, id)?;
         let members = self.stored_members(&connection, id)?;
         let stored = self.stored_persons(&connection, id)?;
+        let admins = self.authority(&connection, &network)?.admins;
         let labels: Vec<String> = stored.iter().map(|p| p.member.clone()).collect();
         Ok(stored
             .into_iter()
@@ -1812,6 +2925,7 @@ impl Store {
                     .count()
                     > 1;
                 PersonView {
+                    administrator: admins.contains(&p.person_public_key),
                     person_id: p.person_id,
                     public_key: p.person_public_key,
                     member: p.member,
@@ -1830,7 +2944,7 @@ impl Store {
     ) -> Result<Vec<Value>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT kind, subject, record FROM network_statements WHERE network_id = ?1 AND kind IN ('host', 'invite', 'person_removal', 'unbind')",
+            "SELECT kind, subject, record FROM network_statements WHERE network_id = ?1 AND kind IN ('host', 'invite', 'person_removal', 'unbind', 'admin_removal')",
         )?;
         let rows = statement
             .query_map([id], |r| {
@@ -1846,7 +2960,9 @@ impl Store {
             .filter(|(kind, subject, _)| !listed.contains(&(kind.clone(), subject.clone())))
             .filter_map(|(kind, _, record)| {
                 let statement: Value = serde_json::from_str(&record).ok()?;
-                let kind = if kind == "person_removal" {
+                let kind = if kind == "admin_removal" {
+                    "admin"
+                } else if kind == "person_removal" {
                     "person"
                 } else {
                     kind.as_str()
@@ -1889,67 +3005,40 @@ impl Store {
     /// Returns the pending rotation, creating and persisting one first if none
     /// exists. The old root stays current locally until the coordinator
     /// accepts, so a crash after acceptance can always be completed.
-    fn prepare_rotation(&self, id: &str) -> Result<(Network, PendingRotation), Error> {
+    fn prepare_rotation(
+        &self,
+        id: &str,
+        ssh: Option<RotateToSsh>,
+    ) -> Result<(Network, PendingRotation), Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let network = self.network_record(&tx, id)?;
-        let root = self.current_root(&tx, id)?;
         if let Some(pending) = self.pending_rotation(&tx, id)? {
             return Ok((network, pending));
         }
         let epoch = Statements::load(&tx, id)?.rotations.len() as u64 + 1;
+        if let Some(r) = ssh {
+            let pending = self.ssh_rotation(&tx, &network, epoch, r)?;
+            insert_statement(&tx, id, "pending_rotation", &epoch.to_string(), &pending)?;
+            tx.commit()?;
+            return Ok((network, pending));
+        }
+        let root = self.current_root(&tx, id)?;
         let next = random_seed()?;
         let next_key = STANDARD.encode(next.verifying_key().as_bytes());
         let at = now();
         let rotation = Rotation::sign(&root, id, epoch, &next_key, &at);
-        let members: Vec<Member> = {
-            let mut statement = tx.prepare(
-                "SELECT record FROM network_members WHERE network_id = ?1 ORDER BY host_id",
-            )?;
-            statement
-                .query_map([id], |r| r.get::<_, String>(0))?
-                .map(|r| json::<Member>(r?))
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        // Invite-chain members are attested; hosts and persons admitted by
-        // public key or person invite are re-admitted at the new epoch.
-        let mut attestations = Vec::new();
-        let mut admissions = Vec::new();
-        for m in &members {
-            if m.admission.is_some() {
-                admissions.push(serde_json::to_value(HostAdmission::sign(
-                    &next,
-                    id,
-                    epoch,
-                    &m.public_key,
-                    &m.member,
-                    &at,
-                ))?);
-            } else {
-                attestations.push(Attestation::sign(
-                    &next,
-                    id,
-                    epoch,
-                    &m.public_key,
-                    &m.member,
-                    &at,
-                ));
-            }
-        }
-        for p in self.stored_persons(&tx, id)? {
-            admissions.push(serde_json::to_value(PersonAdmission::sign(
-                &next,
-                id,
-                epoch,
-                &p.person_public_key,
-                &p.member,
-                &at,
-            ))?);
-        }
+        let plan = self.plan_rotation(&tx, &network, epoch)?;
+        let SignedPlan {
+            attestations,
+            admissions,
+            groups,
+        } = plan.sign(&KeySigner::Raw(&next), &at)?;
         let pending = PendingRotation {
             rotation,
             attestations,
             admissions,
+            groups,
             root_seed: STANDARD.encode(next.to_bytes()),
         };
         insert_statement(&tx, id, "pending_rotation", &epoch.to_string(), &pending)?;
@@ -1957,21 +3046,250 @@ impl Store {
         Ok((network, pending))
     }
 
+    /// What the next root signs: attestations for invite-chain members,
+    /// host and person admissions, and current administrators' delegations.
+    /// Statements an administrator signed stay valid and are not renewed.
+    fn plan_rotation(
+        &self,
+        connection: &Connection,
+        network: &Network,
+        epoch: u64,
+    ) -> Result<RotationPlan, Error> {
+        let id = &network.id;
+        let authority = self.authority(connection, network)?;
+        let admin_signed = |signature: &str| {
+            persons::sshsig_signer(signature).is_some_and(|k| !authority.roots.contains(&k))
+        };
+        let item = |public_key: &str, member: &str| PlannedItem {
+            public_key: public_key.to_owned(),
+            member: member.to_owned(),
+        };
+        let mut plan = RotationPlan {
+            network_id: id.clone(),
+            epoch,
+            current_root_public_key: authority.current().to_owned(),
+            attestations: Vec::new(),
+            host_admissions: Vec::new(),
+            person_admissions: Vec::new(),
+            admins: authority.admins.iter().cloned().collect(),
+            groups: Vec::new(),
+        };
+        let statements = Statements::load(connection, id)?;
+        for g in &statements.groups {
+            if g.signer().is_none() || g.signer().as_deref() == Some(authority.current()) {
+                plan.groups.push(PlannedGroup {
+                    name: g.name.clone(),
+                    version: g.version,
+                    members: g.members.clone(),
+                });
+            }
+        }
+        let members: Vec<Member> = {
+            let mut statement = connection.prepare(
+                "SELECT record FROM network_members WHERE network_id = ?1 ORDER BY host_id",
+            )?;
+            statement
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .map(|r| json::<Member>(r?))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let revoked: BTreeSet<&str> = statements
+            .hosts
+            .iter()
+            .map(|r| r.host_public_key.as_str())
+            .chain(statements.leaves.iter().map(|l| l.host_public_key.as_str()))
+            .collect();
+        // Root-signed admissions this host issued for hosts not joined yet.
+        for a in self.issued_admissions(connection, id)? {
+            if !admin_signed(&a.signature)
+                && !revoked.contains(a.host_public_key.as_str())
+                && a.verify(id, network.root_epoch, authority.current())
+                    .is_ok()
+                && !members.iter().any(|m| m.public_key == a.host_public_key)
+            {
+                plan.host_admissions
+                    .push(item(&a.host_public_key, &a.member));
+            }
+        }
+        for m in &members {
+            match (&m.admission, &m.membership) {
+                (Some(a), _) if !admin_signed(&a.signature) => {
+                    plan.host_admissions.push(item(&m.public_key, &m.member))
+                }
+                (None, Some(chain)) if !admin_signed(&chain.invite_signature) => {
+                    plan.attestations.push(item(&m.public_key, &m.member))
+                }
+                // This host's own membership has no stored chain.
+                (None, None) => plan.attestations.push(item(&m.public_key, &m.member)),
+                _ => {}
+            }
+        }
+        for p in self.stored_persons(connection, id)? {
+            let signature = match (&p.admission, &p.membership) {
+                (Some(a), _) => a.signature.as_str(),
+                (None, Some(m)) => m.invite_signature.as_str(),
+                (None, None) => "",
+            };
+            if !admin_signed(signature) {
+                plan.person_admissions
+                    .push(item(&p.person_public_key, &p.member));
+            }
+        }
+        Ok(plan)
+    }
+    /// Stored host admissions (`network_statements` kind `host_admission`,
+    /// subject: host key): served ones and those this host issued, joined or
+    /// not, so a rotation can renew hosts that have not joined yet.
+    fn issued_admissions(
+        &self,
+        connection: &Connection,
+        id: &str,
+    ) -> Result<Vec<HostAdmission>, Error> {
+        let mut statement = connection.prepare(
+            "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'host_admission' ORDER BY subject",
+        )?;
+        statement
+            .query_map([id], |r| r.get::<_, String>(0))?
+            .map(|r| json::<HostAdmission>(r?))
+            .collect()
+    }
+    /// Records an admission the coordinator accepted, with
+    /// `network.host_admitted` the first time.
+    pub fn record_issued_admission(&self, id: &str, a: &HostAdmission) -> Result<(), Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let record = serde_json::to_string(a)?;
+        let fresh = tx.execute(
+            "INSERT OR IGNORE INTO network_statements VALUES (?1, 'host_admission', ?2, ?3)",
+            params![id, a.host_public_key, record],
+        )? > 0;
+        if fresh {
+            let host = key_id(&membership::canonical(&a.host_public_key, 32)?);
+            append_event(&tx, "network.host_admitted", &host, &now())?;
+        } else {
+            tx.execute(
+                "UPDATE network_statements SET record = ?3 WHERE network_id = ?1 AND kind = 'host_admission' AND subject = ?2",
+                params![id, a.host_public_key, record],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// The rotation plan, for the CLI to sign with an SSH root.
+    pub fn rotation_plan(&self, id: &str) -> Result<RotationPlan, Error> {
+        let connection = self.connection()?;
+        let network = self.network_record(&connection, id)?;
+        let epoch = Statements::load(&connection, id)?.rotations.len() as u64 + 1;
+        self.plan_rotation(&connection, &network, epoch)
+    }
+
+    /// A rotation to an SSH root. The CLI signed the new root's attestations,
+    /// admissions, and delegations; the rotation itself is signed here with
+    /// the root seed, or came signed by the current SSH root. No seed is
+    /// stored: `root_seed` stays empty.
+    fn ssh_rotation(
+        &self,
+        connection: &Connection,
+        network: &Network,
+        epoch: u64,
+        r: RotateToSsh,
+    ) -> Result<PendingRotation, Error> {
+        let root = persons::normalize_person_key(&r.root_public_key)?;
+        let rotation = match r.rotation {
+            Some(rotation) => {
+                rotation
+                    .verify_from(&network.id, epoch, &network.current_root_public_key)
+                    .map_err(|_| Error::Forbidden)?;
+                if rotation.root_public_key != root {
+                    return Err(Error::Invalid("rotation names a different root key".into()));
+                }
+                rotation
+            }
+            None => Rotation::sign(
+                &self.current_root(connection, &network.id)?,
+                &network.id,
+                epoch,
+                &root,
+                &now(),
+            ),
+        };
+        for a in &r.attestations {
+            a.verify(&network.id, epoch, &root)?;
+        }
+        for value in &r.admissions {
+            let checked = if value.get("delegated_at").is_some() {
+                serde_json::from_value::<AdminDelegation>(value.clone())
+                    .map_err(|_| Error::Invalid("invalid delegation".into()))?
+                    .verify(&network.id, epoch, &root)
+            } else if value.get("person_public_key").is_some() {
+                serde_json::from_value::<PersonAdmission>(value.clone())
+                    .map_err(|_| Error::Invalid("invalid person admission".into()))?
+                    .verify(&network.id, epoch, &root)
+            } else {
+                serde_json::from_value::<HostAdmission>(value.clone())
+                    .map_err(|_| Error::Invalid("invalid host admission".into()))?
+                    .verify(&network.id, epoch, &root)
+                    .map(drop)
+            };
+            checked?;
+        }
+        for g in &r.groups {
+            g.verify_signed_by(&network.id, &root)?;
+        }
+        Ok(PendingRotation {
+            rotation,
+            attestations: r.attestations,
+            admissions: r.admissions,
+            groups: r.groups,
+            root_seed: String::new(),
+        })
+    }
+
     /// Makes an accepted pending rotation current, atomically: the new root
     /// seed, the rotation, and the new epoch's attestations, with
     /// `network.root_rotated`. A no-op if the rotation is already current.
     fn commit_rotation(&self, id: &str, pending: &PendingRotation) -> Result<(), Error> {
-        let next: [u8; 32] = membership::canonical(&pending.root_seed, 32)?
-            .try_into()
-            .expect("checked length");
+        // An SSH root leaves no seed here: this host deletes the one it had.
+        let next: Option<Vec<u8>> = if pending.root_seed.is_empty() {
+            None
+        } else {
+            Some(membership::canonical(&pending.root_seed, 32)?)
+        };
         let rotation = &pending.rotation;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let mut network = self.network_record(&tx, id)?;
+        network.root_ssh = next.is_none();
         tx.execute(
             "UPDATE networks SET root_seed = ?1 WHERE id = ?2",
-            params![next.to_vec(), id],
+            params![next, id],
         )?;
+        for g in &pending.groups {
+            tx.execute(
+                "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'group' AND subject = ?2",
+                params![id, g.name],
+            )?;
+            insert_statement(&tx, id, "group", &g.name, g)?;
+        }
+        for value in &pending.admissions {
+            if value.get("host_public_key").is_some()
+                && let Ok(a) = serde_json::from_value::<HostAdmission>(value.clone())
+            {
+                tx.execute(
+                    "UPDATE network_statements SET record = ?3 WHERE network_id = ?1 AND kind = 'host_admission' AND subject = ?2",
+                    params![id, a.host_public_key, serde_json::to_string(&a)?],
+                )?;
+            }
+            if value.get("delegated_at").is_some()
+                && let Ok(d) = serde_json::from_value::<AdminDelegation>(value.clone())
+            {
+                tx.execute(
+                    "DELETE FROM network_statements WHERE network_id = ?1 AND kind = 'admin' AND subject = ?2",
+                    params![id, d.person_public_key],
+                )?;
+                insert_statement(&tx, id, "admin", &d.person_public_key, &d)?;
+            }
+        }
         insert_statement(&tx, id, "rotation", &rotation.epoch.to_string(), rotation)?;
         tx.execute(
             "DELETE FROM network_statements WHERE network_id = ?1 AND kind IN ('attestation', 'pending_rotation')",
@@ -2025,7 +3343,7 @@ impl Store {
                 Ok(PendingOutcome::Discarded)
             }
             None if offered.len() + 1 < epoch => Ok(PendingOutcome::None),
-            None => Ok(PendingOutcome::Resubmit(pending)),
+            None => Ok(PendingOutcome::Resubmit(Box::new(pending))),
         }
     }
 
@@ -2268,6 +3586,10 @@ fn listed_revocations(map: &WireMap) -> BTreeSet<(String, String)> {
                     "person_removal",
                     statement["person_public_key"].as_str()?.to_owned(),
                 ),
+                "admin" => (
+                    "admin_removal",
+                    statement["person_public_key"].as_str()?.to_owned(),
+                ),
                 "unbind" => (
                     "unbind",
                     format!(
@@ -2383,7 +3705,7 @@ async fn submit_rotation(
         &network.coordinator_address,
         &network.coordinator_public_key,
         format!("/coord/v1/networks/{}/rotations", network.id),
-        json_value!({"rotation": pending.rotation, "attestations": pending.attestations, "admissions": pending.admissions}),
+        json_value!({"rotation": pending.rotation, "attestations": pending.attestations, "admissions": pending.admissions, "groups": pending.groups}),
     )
     .await;
     match response {
@@ -2425,9 +3747,14 @@ async fn accept_rotation(
 /// are persisted as pending before submission, with the old root still
 /// current; they become current only once the coordinator accepts. A pending
 /// rotation is resubmitted by a repeated command and on every sync.
-pub async fn rotate(store: Arc<Store>, id: String) -> Result<Network, Error> {
+pub async fn rotate(
+    store: Arc<Store>,
+    id: String,
+    ssh: Option<RotateToSsh>,
+) -> Result<Network, Error> {
     let lookup = id.clone();
-    let (network, pending) = blocking(store.clone(), move |s| s.prepare_rotation(&lookup)).await?;
+    let (network, pending) =
+        blocking(store.clone(), move |s| s.prepare_rotation(&lookup, ssh)).await?;
     match submit_rotation(store.clone(), &network, &pending).await {
         Submitted::Accepted(map) => accept_rotation(store, id, pending, map).await,
         Submitted::Rejected(error) => {
@@ -2467,7 +3794,7 @@ async fn settle_rotation(
         }
         PendingOutcome::Resubmit(pending) => {
             match submit_rotation(store.clone(), &network, &pending).await {
-                Submitted::Accepted(map) => accept_rotation(store, id, pending, map).await,
+                Submitted::Accepted(map) => accept_rotation(store, id, *pending, map).await,
                 Submitted::Rejected(error) => {
                     let reason = error.to_string();
                     blocking(store, move |s| s.discard_rotation_with_error(&id, &reason)).await
@@ -2532,6 +3859,7 @@ async fn join_token(store: Arc<Store>, token: InviteToken) -> Result<Network, Er
         last_sync_error: None,
         root_epoch: 0,
         current_root_public_key: String::new(),
+        root_ssh: false,
     };
     blocking(store, move |s| s.apply_map(network, map, true)).await
 }
@@ -2597,6 +3925,60 @@ pub async fn admit_person(
         descriptor: descriptor(&network),
     })
 }
+/// Delegates administrator rights to a current person (root only).
+pub async fn delegate_admin(
+    store: Arc<Store>,
+    id: String,
+    request: DelegateAdmin,
+) -> Result<Delegated, Error> {
+    let (network, delegation) =
+        blocking(store.clone(), move |s| s.sign_delegation(&id, request)).await?;
+    let person_id = persons::person_id_of(&delegation.person_public_key)?;
+    let network = submit_statement(
+        store,
+        &network,
+        "admins",
+        json_value!({"delegation": delegation}),
+    )
+    .await?;
+    Ok(Delegated {
+        network_id: network.id,
+        person_id,
+    })
+}
+/// Removes an administrator (root only): persisted and enforced locally
+/// first, then submitted; a later sync resubmits it if needed.
+pub async fn remove_admin(
+    store: Arc<Store>,
+    id: String,
+    request: RemoveAdmin,
+) -> Result<Revoked, Error> {
+    let lookup = id.clone();
+    let (mut revoked, body) =
+        blocking(store.clone(), move |s| s.remove_admin(&lookup, request)).await?;
+    let network = blocking(store.clone(), {
+        let id = id.clone();
+        move |s| s.network(&id)
+    })
+    .await?;
+    revoked.submitted = submit_revocation(store.clone(), &network, body).await;
+    if revoked.submitted {
+        // Apply the cascade (dropped members, reverted groups) at once.
+        let _ = sync_network(store, id).await;
+    }
+    Ok(revoked)
+}
+/// Defines the next version of a group (the root or an administrator).
+pub async fn set_group(
+    store: Arc<Store>,
+    id: String,
+    request: SetGroup,
+) -> Result<GroupView, Error> {
+    let (network, group) = blocking(store.clone(), move |s| s.sign_group(&id, request)).await?;
+    let network =
+        submit_statement(store, &network, "groups", json_value!({"group": group})).await?;
+    Ok(GroupView::of(&group, &network.current_root_public_key))
+}
 /// Admits a host by public key (administrator only); it joins with the
 /// returned descriptor.
 pub async fn admit_host(
@@ -2608,12 +3990,14 @@ pub async fn admit_host(
         blocking(store.clone(), move |s| s.sign_host_admission(&id, request)).await?;
     let host_id = key_id(&membership::canonical(&admission.host_public_key, 32)?);
     let network = submit_statement(
-        store,
+        store.clone(),
         &network,
         "hosts",
         json_value!({"admission": admission}),
     )
     .await?;
+    let id = network.id.clone();
+    blocking(store, move |s| s.record_issued_admission(&id, &admission)).await?;
     Ok(AdmittedHost {
         host_id,
         descriptor: descriptor(&network),
@@ -2751,6 +4135,7 @@ pub async fn join_with_descriptor(store: Arc<Store>, text: String) -> Result<Net
         last_sync_error: None,
         root_epoch: 0,
         current_root_public_key: String::new(),
+        root_ssh: false,
     };
     blocking(store, move |s| s.apply_map(network, map, true)).await
 }
@@ -2914,11 +4299,12 @@ async fn create_person_step(
         return outcome;
     }
     match admit_person(
-        store,
+        store.clone(),
         network.id.clone(),
         AdmitPerson {
             person_public_key: key.clone(),
             member: network.member.clone(),
+            admission: None,
         },
     )
     .await
@@ -2926,6 +4312,19 @@ async fn create_person_step(
         Ok(_) => {
             outcome.admitted = true;
             outcome.next = Some(bind_command(&network.id));
+            // The creator's person is also the first administrator.
+            let delegated = delegate_admin(
+                store,
+                network.id.clone(),
+                DelegateAdmin {
+                    person: Some(key.clone()),
+                    delegation: None,
+                },
+            )
+            .await;
+            if let Err(e) = delegated {
+                eprintln!("administrator delegation failed: {e}");
+            }
         }
         Err(e) => {
             outcome.skipped = Some(format!("person admission failed: {e}"));
@@ -2982,6 +4381,84 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
             "/v1/networks/{id}/person-removals",
             post(remove_person_route),
         )
+        .route("/v1/networks/{id}/admins", post(delegate_admin_route))
+        .route("/v1/networks/{id}/rotation-plan", get(rotation_plan_route))
+        .route(
+            "/v1/networks/{id}/admin-removal-plan",
+            get(admin_removal_plan_route),
+        )
+        .route("/v1/networks/{id}/admin-removals", post(remove_admin_route))
+        .route(
+            "/v1/networks/{id}/groups",
+            get(groups_route).post(set_group_route),
+        )
+}
+#[derive(Deserialize)]
+struct PlanQuery {
+    person: String,
+}
+async fn admin_removal_plan_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    Query(query): Query<PlanQuery>,
+) -> Result<Json<AdminRemovalPlan>, Error> {
+    Ok(Json(
+        blocking(store, move |s| s.admin_removal_plan(&id, &query.person)).await?,
+    ))
+}
+async fn rotation_plan_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+) -> Result<Json<RotationPlan>, Error> {
+    Ok(Json(blocking(store, move |s| s.rotation_plan(&id)).await?))
+}
+async fn delegate_admin_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Delegated>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(delegate_admin(store, id, request).await?),
+    ))
+}
+async fn remove_admin_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<Revoked>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(remove_admin(store, id, request).await?),
+    ))
+}
+async fn set_group_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<(StatusCode, Json<GroupView>), Error> {
+    let request = decode(body)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(set_group(store, id, request).await?),
+    ))
+}
+#[derive(Deserialize)]
+struct GroupsQuery {
+    /// Include deleted groups, so the CLI can sign the next version.
+    #[serde(default)]
+    all: bool,
+}
+async fn groups_route(
+    State(store): State<Arc<Store>>,
+    Path(id): Path<String>,
+    Query(query): Query<GroupsQuery>,
+) -> Result<Json<Vec<GroupView>>, Error> {
+    Ok(Json(
+        blocking(store, move |s| s.groups(&id, query.all)).await?,
+    ))
 }
 async fn persons_route(
     State(store): State<Arc<Store>>,
@@ -3076,8 +4553,14 @@ async fn leave_route(
 async fn rotate_route(
     State(store): State<Arc<Store>>,
     Path(id): Path<String>,
+    body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<Network>, Error> {
-    Ok(Json(rotate(store, id).await?))
+    // An empty body rotates to a fresh raw root held here.
+    let ssh = match body {
+        Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => None,
+        body => Some(decode(body)?),
+    };
+    Ok(Json(rotate(store, id, ssh).await?))
 }
 async fn list(State(store): State<Arc<Store>>) -> Result<Json<Vec<Network>>, Error> {
     Ok(Json(blocking(store, Store::networks).await?))
@@ -3162,6 +4645,7 @@ mod tests {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: String::new(),
+            root_ssh: false,
         };
         let hosts: Vec<SigningKey> = (0..5).map(|_| random_seed().unwrap()).collect();
         let shared = random_seed().unwrap();
@@ -3171,6 +4655,8 @@ mod tests {
         let mut wrong_id = member_entry(&root, &hosts[4], &random_seed().unwrap());
         wrong_id["host_id"] = json_value!(key_id(hosts[0].verifying_key().as_bytes()));
         let map = WireMap {
+            admins: Vec::new(),
+            groups: Vec::new(),
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -3192,6 +4678,8 @@ mod tests {
         let ids: Vec<_> = members.iter().map(|m| m.host_id.clone()).collect();
         assert_eq!(ids, vec![key_id(hosts[0].verifying_key().as_bytes())]);
         let other = WireMap {
+            admins: Vec::new(),
+            groups: Vec::new(),
             network_id: network.id.clone(),
             root_public_key: STANDARD.encode(forger.verifying_key().as_bytes()),
             members: vec![],
@@ -3235,6 +4723,7 @@ mod tests {
             .issue_invite(
                 &network.id,
                 CreateInvite {
+                    token: None,
                     member: "bob".into(),
                     expires_at: expires.clone(),
                     host_only: true,
@@ -3250,6 +4739,7 @@ mod tests {
                 .issue_invite(
                     &network.id,
                     CreateInvite {
+                        token: None,
                         member: "bob".into(),
                         expires_at: too_late,
                         host_only: true,
@@ -3289,6 +4779,7 @@ mod tests {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: String::new(),
+            root_ssh: false,
         };
         let me = membership::sign_member(
             membership::sign_invite(&root, &invite, "bob", "2099-01-01T00:00:00Z"),
@@ -3297,6 +4788,8 @@ mod tests {
             "2026-10-05T00:00:00Z",
         );
         let map = || WireMap {
+            admins: Vec::new(),
+            groups: Vec::new(),
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -3335,6 +4828,7 @@ mod tests {
             store.issue_invite(
                 &network.id,
                 CreateInvite {
+                    token: None,
                     member: "x".into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
@@ -3396,6 +4890,8 @@ mod tests {
         revocations: Vec<Value>,
     ) -> WireMap {
         WireMap {
+            admins: Vec::new(),
+            groups: Vec::new(),
             network_id: network.id.clone(),
             root_public_key: network.root_public_key.clone(),
             members,
@@ -3445,6 +4941,7 @@ mod tests {
             .issue_invite(
                 &network.id,
                 CreateInvite {
+                    token: None,
                     member: "bob".into(),
                     expires_at: expires.clone(),
                     host_only: false,
@@ -3458,6 +4955,7 @@ mod tests {
             .issue_invite(
                 &network.id,
                 CreateInvite {
+                    token: None,
                     member: "bob".into(),
                     expires_at: expires,
                     host_only: true,
@@ -3492,6 +4990,7 @@ mod tests {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: String::new(),
+            root_ssh: false,
         };
         let at = "2026-10-08T00:00:00Z";
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
@@ -3669,6 +5168,7 @@ mod tests {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: String::new(),
+            root_ssh: false,
         };
         let at = "2026-10-08T00:00:00Z";
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
@@ -3739,6 +5239,7 @@ mod tests {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: String::new(),
+            root_ssh: false,
         };
         let at = "2026-10-08T00:00:00Z";
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
@@ -3990,6 +5491,7 @@ mod tests {
             store.sign_person_admission(
                 &id,
                 AdmitPerson {
+                    admission: None,
                     person_public_key: signer.public_key_b64(),
                     member: label.into(),
                 },
@@ -4020,6 +5522,7 @@ mod tests {
             store.issue_person_invite(
                 &id,
                 CreateInvite {
+                    token: None,
                     member: label.into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::hours(1)),
                     host_only: true,
@@ -4069,6 +5572,573 @@ mod tests {
         assert!(invite("BOB").is_ok());
     }
 
+    /// A network with an administrator `alice` (a person the root admitted
+    /// and delegated), who admitted the host `carol` and the person `bob` and
+    /// defined `backend` v2 over the root's v1.
+    struct AdminSetup {
+        store: Store,
+        network: Network,
+        root: SigningKey,
+        admin: persons::PersonSigner,
+        bob: persons::PersonSigner,
+        alice_admission: PersonAdmission,
+        bob_admission: PersonAdmission,
+        delegation: AdminDelegation,
+        carol: HostAdmission,
+        root_group: Group,
+        admin_group: Group,
+        own: Value,
+        _temporary: tempfile::TempDir,
+    }
+    impl AdminSetup {
+        fn new() -> Self {
+            let temporary = tempfile::tempdir().unwrap();
+            let store = Store::open(&temporary.path().join("host")).unwrap();
+            let network = store
+                .create_network(CreateNetwork {
+                    name: "team".into(),
+                    member: "host".into(),
+                    coordinator_address: "127.0.0.1:1".into(),
+                    coordinator_public_key: key(&random_seed().unwrap()),
+                    person_public_key: None,
+                })
+                .unwrap();
+            let id = network.id.clone();
+            let root = store
+                .current_root(&store.connection().unwrap(), &id)
+                .unwrap();
+            let admin = persons::PersonSigner::File(random_seed().unwrap());
+            let bob = persons::PersonSigner::File(random_seed().unwrap());
+            let ssh = KeySigner::Ssh(&admin);
+            let at = now();
+            let alice_admission =
+                PersonAdmission::sign(&root, &id, 0, &admin.public_key_b64(), "alice", &at);
+            let delegation =
+                AdminDelegation::sign(&KeySigner::Raw(&root), &id, 0, &admin.public_key_b64(), &at)
+                    .unwrap();
+            let bob_admission =
+                PersonAdmission::sign_with(&ssh, &id, 0, &bob.public_key_b64(), "bob", &at)
+                    .unwrap();
+            let carol =
+                HostAdmission::sign_with(&ssh, &id, 0, &key(&random_seed().unwrap()), "carol", &at)
+                    .unwrap();
+            let members = vec![
+                persons::person_id_of(&admin.public_key_b64()).unwrap(),
+                persons::person_id_of(&bob.public_key_b64()).unwrap(),
+            ];
+            let root_group = Group::sign(
+                &KeySigner::Raw(&root),
+                &id,
+                "backend",
+                1,
+                &members[..1],
+                &at,
+            )
+            .unwrap();
+            let admin_group = Group::sign(&ssh, &id, "backend", 2, &members, &at).unwrap();
+            let own = store.own_membership(&id).unwrap().unwrap();
+            let own = json_value!({"host_id": store.identity().id, "membership": own, "address": "", "updated_at": "2026-10-05T00:00:00Z"});
+            Self {
+                store,
+                network,
+                root,
+                admin,
+                bob,
+                alice_admission,
+                bob_admission,
+                delegation,
+                carol,
+                root_group,
+                admin_group,
+                own,
+                _temporary: temporary,
+            }
+        }
+        fn map(&self, revocations: Vec<Value>, groups: Vec<&Group>) -> WireMap {
+            WireMap {
+                admins: vec![json_value!(self.delegation)],
+                groups: groups.into_iter().map(|g| json_value!(g)).collect(),
+                persons: vec![
+                    person_entry(&self.alice_admission),
+                    person_entry(&self.bob_admission),
+                ],
+                ..wire(
+                    &self.network,
+                    vec![self.own.clone(), admitted_entry(&self.carol)],
+                    vec![],
+                    vec![],
+                    revocations,
+                )
+            }
+        }
+        fn apply(&self, map: WireMap) {
+            self.store
+                .apply_map(self.store.network(&self.network.id).unwrap(), map, false)
+                .unwrap();
+        }
+        fn hosts(&self) -> Vec<String> {
+            let mut members: Vec<String> = self
+                .store
+                .members(&self.network.id)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.member)
+                .collect();
+            members.sort();
+            members
+        }
+        fn persons(&self) -> Vec<(String, bool)> {
+            self.store
+                .persons(&self.network.id)
+                .unwrap()
+                .into_iter()
+                .map(|p| (p.member, p.administrator))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        }
+        fn group(&self) -> Option<(u64, usize)> {
+            self.store
+                .groups(&self.network.id, true)
+                .unwrap()
+                .into_iter()
+                .find(|g| g.name == "backend")
+                .map(|g| (g.version, g.members.len()))
+        }
+        fn removal(&self, revoke_admitted: bool) -> Value {
+            let removal = AdminRemoval::sign(
+                &KeySigner::Raw(&self.root),
+                &self.network.id,
+                &self.admin.public_key_b64(),
+                revoke_admitted,
+                &if revoke_admitted {
+                    Vec::new()
+                } else {
+                    self.store
+                        .admin_removal_plan(&self.network.id, "alice")
+                        .unwrap()
+                        .kept
+                },
+                &now(),
+            )
+            .unwrap();
+            json_value!({"kind": "admin", "statement": removal})
+        }
+    }
+
+    #[test]
+    fn administrator_statements_count_while_their_signer_does() {
+        let s = AdminSetup::new();
+        let id = s.network.id.clone();
+        s.apply(s.map(vec![], vec![&s.root_group, &s.admin_group]));
+        assert_eq!(s.hosts(), vec!["carol", "host"]);
+        assert_eq!(
+            s.persons(),
+            vec![("alice".into(), true), ("bob".into(), false)]
+        );
+        let view = s.store.groups(&id, false).unwrap();
+        assert_eq!(view.len(), 1);
+        assert_eq!((view[0].version, view[0].members.len()), (2, 2));
+        assert_eq!(view[0].signer, s.admin.public_key_b64());
+        // A lower version from the map never replaces a valid higher one.
+        s.apply(s.map(vec![], vec![&s.root_group]));
+        assert_eq!(s.group(), Some((2, 2)));
+        assert!(events(&s.store).contains(&(
+            "network.admin_delegated".into(),
+            persons::person_id_of(&s.admin.public_key_b64()).unwrap()
+        )));
+        assert!(events(&s.store).contains(&("network.group_updated".into(), "backend".into())));
+
+        // The daemon takes statements the administrator signed through the
+        // CLI, and refuses anyone else's with 403.
+        let ssh = KeySigner::Ssh(&s.admin);
+        let members = vec![persons::person_id_of(&s.bob.public_key_b64()).unwrap()];
+        let next = Group::sign(&ssh, &id, "backend", 3, &members, &now()).unwrap();
+        let (_, accepted) = s
+            .store
+            .sign_group(
+                &id,
+                SetGroup {
+                    name: None,
+                    members: vec![],
+                    group: Some(next.clone()),
+                },
+            )
+            .unwrap();
+        assert_eq!(accepted, next);
+        let stale = Group::sign(&ssh, &id, "backend", 2, &members, &now()).unwrap();
+        assert!(matches!(
+            s.store.sign_group(
+                &id,
+                SetGroup {
+                    name: None,
+                    members: vec![],
+                    group: Some(stale)
+                }
+            ),
+            Err(Error::Conflict(_))
+        ));
+        let by_bob =
+            Group::sign(&KeySigner::Ssh(&s.bob), &id, "backend", 3, &members, &now()).unwrap();
+        assert!(matches!(
+            s.store.sign_group(
+                &id,
+                SetGroup {
+                    name: None,
+                    members: vec![],
+                    group: Some(by_bob)
+                }
+            ),
+            Err(Error::Forbidden)
+        ));
+        let dana = persons::PersonSigner::File(random_seed().unwrap());
+        let admission =
+            PersonAdmission::sign_with(&ssh, &id, 0, &dana.public_key_b64(), "dana", &now())
+                .unwrap();
+        let (_, checked) = s
+            .store
+            .sign_person_admission(
+                &id,
+                AdmitPerson {
+                    person_public_key: String::new(),
+                    member: String::new(),
+                    admission: Some(admission.clone()),
+                },
+            )
+            .unwrap();
+        assert_eq!(checked, admission);
+        // The root signs the next version by name, resolving labels.
+        let (_, by_root) = s
+            .store
+            .sign_group(
+                &id,
+                SetGroup {
+                    name: Some("backend".into()),
+                    members: vec!["BOB".into()],
+                    group: None,
+                },
+            )
+            .unwrap();
+        assert_eq!((by_root.version, by_root.members.clone()), (3, members));
+        assert!(by_root.signer().is_none());
+
+        // A plain removal keeps what the administrator had signed, as listed
+        // in it: bob, carol, and backend v2.
+        let plain = s.removal(false);
+        assert_eq!(plain["statement"]["kept"].as_array().unwrap().len(), 3);
+        s.apply(s.map(vec![plain.clone()], vec![&s.admin_group]));
+        assert_eq!(s.hosts(), vec!["carol", "host"]);
+        // A statement the removed key signs afterwards is not listed: refused.
+        let late = HostAdmission::sign_with(
+            &ssh,
+            &id,
+            0,
+            &key(&random_seed().unwrap()),
+            "erin",
+            "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        let mut map = s.map(vec![plain], vec![&s.admin_group]);
+        map.members.push(admitted_entry(&late));
+        s.apply(map);
+        assert_eq!(s.hosts(), vec!["carol", "host"]);
+        assert_eq!(
+            s.persons(),
+            vec![("alice".into(), false), ("bob".into(), false)]
+        );
+        assert_eq!(s.group(), Some((2, 2)));
+        let after = Group::sign(&ssh, &id, "backend", 4, &[], &now()).unwrap();
+        assert!(matches!(
+            s.store.sign_group(
+                &id,
+                SetGroup {
+                    name: None,
+                    members: vec![],
+                    group: Some(after)
+                }
+            ),
+            Err(Error::Forbidden)
+        ));
+        assert!(matches!(
+            s.store.sign_delegation(
+                &id,
+                DelegateAdmin {
+                    person: Some("alice".into()),
+                    delegation: None
+                }
+            ),
+            Err(Error::Forbidden)
+        ));
+    }
+
+    #[test]
+    fn renewals_epochs_and_one_removal_per_administrator() {
+        let s = AdminSetup::new();
+        let id = s.network.id.clone();
+        s.apply(s.map(vec![], vec![&s.root_group]));
+        // A same-version definition with the same members replaces the stored
+        // one (a rotation's renewal); different members at that version do not.
+        let renewal = Group::sign(
+            &KeySigner::Ssh(&s.admin),
+            &id,
+            "backend",
+            1,
+            &s.root_group.members,
+            &now(),
+        )
+        .unwrap();
+        s.apply(s.map(vec![], vec![&renewal]));
+        assert_eq!(
+            s.store.groups(&id, false).unwrap()[0].signer,
+            s.admin.public_key_b64()
+        );
+        let other = Group::sign(&KeySigner::Raw(&s.root), &id, "backend", 1, &[], &now()).unwrap();
+        s.apply(s.map(vec![], vec![&other]));
+        assert_eq!(s.group(), Some((1, 1)));
+        // An administrator's admission for a future epoch is refused.
+        let future = PersonAdmission::sign_with(
+            &KeySigner::Ssh(&s.admin),
+            &id,
+            1,
+            &persons::PersonSigner::File(random_seed().unwrap()).public_key_b64(),
+            "zed",
+            &now(),
+        )
+        .unwrap();
+        assert!(matches!(
+            s.store.sign_person_admission(
+                &id,
+                AdmitPerson {
+                    person_public_key: String::new(),
+                    member: String::new(),
+                    admission: Some(future.clone()),
+                },
+            ),
+            Err(Error::Invalid(_))
+        ));
+        let mut map = s.map(vec![], vec![]);
+        map.persons.push(person_entry(&future));
+        s.apply(map);
+        assert!(!s.persons().iter().any(|(m, _)| m == "zed"));
+        // A current administrator cannot be removed as a person.
+        let alice = persons::person_id_of(&s.admin.public_key_b64()).unwrap();
+        assert!(matches!(
+            s.store.remove_person(
+                &id,
+                RemovePerson {
+                    person_id: alice.clone(),
+                    removal: None
+                }
+            ),
+            Err(Error::Conflict(_))
+        ));
+        // One removal per key: a second plain one is 409; revoke_admitted
+        // escalates once, recorded again.
+        let plain = RemoveAdmin {
+            person: Some("alice".into()),
+            revoke_admitted: false,
+            removal: None,
+        };
+        s.store.remove_admin(&id, plain).unwrap();
+        let again = RemoveAdmin {
+            person: Some("alice".into()),
+            revoke_admitted: false,
+            removal: None,
+        };
+        assert!(matches!(
+            s.store.remove_admin(&id, again),
+            Err(Error::Conflict(_))
+        ));
+        let escalate = || RemoveAdmin {
+            person: Some("alice".into()),
+            revoke_admitted: true,
+            removal: None,
+        };
+        let (_, body) = s.store.remove_admin(&id, escalate()).unwrap();
+        assert_eq!(body["statement"]["revoke_admitted"], true);
+        let (_, repeat) = s.store.remove_admin(&id, escalate()).unwrap();
+        assert_eq!(repeat, body);
+        let removed = events(&s.store)
+            .into_iter()
+            .filter(|e| *e == ("network.admin_removed".to_owned(), alice.clone()))
+            .count();
+        assert_eq!(removed, 2);
+        assert_eq!(s.hosts(), vec!["host"], "the escalation applies at once");
+    }
+
+    #[test]
+    fn revoke_admitted_drops_members_and_reverts_groups() {
+        let s = AdminSetup::new();
+        let id = s.network.id.clone();
+        s.apply(s.map(vec![], vec![&s.admin_group]));
+        assert_eq!(s.group(), Some((2, 2)));
+        // Local-first: the removal is stored and its submission prepared.
+        let (revoked, body) = s
+            .store
+            .remove_admin(
+                &id,
+                RemoveAdmin {
+                    person: Some("alice".into()),
+                    revoke_admitted: true,
+                    removal: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(revoked.kind, "admin");
+        assert_eq!(body["kind"], "admin");
+        assert_eq!(body["statement"]["revoke_admitted"], true);
+        assert!(
+            s.store
+                .pending_revocations(&id, &BTreeSet::new())
+                .unwrap()
+                .contains(&body)
+        );
+        // Bob's admission, carol's admission, and backend v2 no longer count;
+        // the group reverts to the root's v1 even though it is lower.
+        s.apply(s.map(vec![body.clone()], vec![&s.root_group]));
+        assert_eq!(s.hosts(), vec!["host"]);
+        assert_eq!(s.persons(), vec![("alice".into(), false)]);
+        assert_eq!(s.group(), Some((1, 1)));
+        assert!(events(&s.store).contains(&(
+            "network.admin_removed".into(),
+            persons::person_id_of(&s.admin.public_key_b64()).unwrap()
+        )));
+        // Sticky: a later map without the removal changes nothing.
+        s.apply(s.map(vec![], vec![&s.admin_group]));
+        assert_eq!(s.hosts(), vec!["host"]);
+        assert_eq!(s.group(), Some((1, 1)));
+        assert!(
+            listed_revocations(&s.map(vec![body], vec![]))
+                .contains(&("admin_removal".into(), s.admin.public_key_b64()))
+        );
+    }
+
+    #[test]
+    fn rotation_resigns_delegations_and_an_ssh_root_keeps_no_seed() {
+        let s = AdminSetup::new();
+        let id = s.network.id.clone();
+        s.apply(s.map(vec![], vec![&s.root_group]));
+        // A host admitted by key that has not joined yet is renewed too.
+        let unjoined = HostAdmission::sign(
+            &s.root,
+            &id,
+            0,
+            &key(&random_seed().unwrap()),
+            "erin",
+            &now(),
+        );
+        // Stored as `host_admission` with no member, as either
+        // implementation records an admission it issued; a later map
+        // without that host keeps it.
+        s.store
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO network_statements VALUES (?1, 'host_admission', ?2, ?3)",
+                params![
+                    id,
+                    unjoined.host_public_key,
+                    serde_json::to_string(&unjoined).unwrap()
+                ],
+            )
+            .unwrap();
+        s.apply(s.map(vec![], vec![&s.root_group]));
+        let plan = s.store.rotation_plan(&id).unwrap();
+        assert!(
+            plan.host_admissions
+                .iter()
+                .any(|i| i.public_key == unjoined.host_public_key)
+        );
+        assert!(
+            !plan.host_admissions.iter().any(|i| i.member == "carol"),
+            "an administrator's admission is not renewed"
+        );
+        assert_eq!(
+            plan.groups,
+            vec![PlannedGroup {
+                name: "backend".into(),
+                version: 1,
+                members: s.root_group.members.clone(),
+            }]
+        );
+        let (_, pending) = s.store.prepare_rotation(&id, None).unwrap();
+        let next = membership::seed(&pending.root_seed).unwrap();
+        // Root-signed groups are renewed by the new root at the same version.
+        assert_eq!(pending.groups.len(), 1);
+        let renewed = &pending.groups[0];
+        assert_eq!(
+            (renewed.version, &renewed.members),
+            (1, &s.root_group.members)
+        );
+        renewed.verify_signed_by(&id, &key(&next)).unwrap();
+        assert!(
+            pending
+                .admissions
+                .iter()
+                .any(|v| v["host_public_key"] == unjoined.host_public_key.as_str())
+        );
+        let delegations: Vec<AdminDelegation> = pending
+            .admissions
+            .iter()
+            .filter(|v| v.get("delegated_at").is_some())
+            .map(|v| serde_json::from_value(v.clone()).unwrap())
+            .collect();
+        assert_eq!(delegations.len(), 1);
+        delegations[0].verify(&id, 1, &key(&next)).unwrap();
+        s.store.discard_rotation(&id).unwrap();
+
+        // To an SSH root: the CLI signs the new root's statements.
+        let ssh_root = persons::PersonSigner::File(random_seed().unwrap());
+        let signer = KeySigner::Ssh(&ssh_root);
+        let at = now();
+        let own_key = s.store.identity().public_key;
+        let request = RotateToSsh {
+            root_public_key: persons::ssh_public_line(&ssh_root.public_key()),
+            rotation: None,
+            attestations: vec![
+                Attestation::sign_with(&signer, &id, 1, &own_key, "host", &at).unwrap(),
+            ],
+            admissions: vec![json_value!(
+                AdminDelegation::sign(&signer, &id, 1, &s.admin.public_key_b64(), &at).unwrap()
+            )],
+            groups: vec![
+                Group::sign(&signer, &id, "backend", 1, &s.root_group.members, &at).unwrap(),
+            ],
+        };
+        let (_, pending) = s.store.prepare_rotation(&id, Some(request)).unwrap();
+        assert!(
+            pending.root_seed.is_empty(),
+            "no seed is stored for an SSH root"
+        );
+        assert_eq!(pending.rotation.root_public_key, ssh_root.public_key_b64());
+        pending
+            .rotation
+            .verify_from(&id, 1, &s.network.root_public_key)
+            .unwrap();
+        s.store.commit_rotation(&id, &pending).unwrap();
+        let network = s.store.network(&id).unwrap();
+        assert!(network.root_ssh);
+        let groups = s.store.groups(&id, false).unwrap();
+        assert_eq!(
+            (groups[0].version, &groups[0].signer),
+            (1, &ssh_root.public_key_b64())
+        );
+        assert!(!network.administrator, "the root seed is deleted");
+        assert!(matches!(
+            s.store.current_root(&s.store.connection().unwrap(), &id),
+            Err(Error::Forbidden)
+        ));
+        // A forged statement for the new root is refused.
+        let bad = RotateToSsh {
+            root_public_key: key(&random_seed().unwrap()),
+            rotation: None,
+            attestations: vec![Attestation::sign(&s.root, &id, 2, &own_key, "host", &at)],
+            admissions: vec![],
+            groups: vec![],
+        };
+        assert!(s.store.prepare_rotation(&id, Some(bad)).is_err());
+    }
+
     #[test]
     fn administrators_admit_persons_and_hosts_and_rotation_readmits_them() {
         let temporary = tempfile::tempdir().unwrap();
@@ -4089,6 +6159,7 @@ mod tests {
             .sign_person_admission(
                 &id,
                 AdmitPerson {
+                    admission: None,
                     person_public_key: format!("{ssh} bob@laptop"),
                     member: "bob".into(),
                 },
@@ -4101,6 +6172,7 @@ mod tests {
             .sign_host_admission(
                 &id,
                 AdmitHost {
+                    admission: None,
                     host_public_key: key(&carol),
                     member: "carol".into(),
                 },
@@ -4114,6 +6186,7 @@ mod tests {
             store.sign_host_admission(
                 &id,
                 AdmitHost {
+                    admission: None,
                     host_public_key: key(&store.signing_key),
                     member: "me".into(),
                 },
@@ -4124,6 +6197,7 @@ mod tests {
             .issue_person_invite(
                 &id,
                 CreateInvite {
+                    token: None,
                     member: "dana".into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
@@ -4138,6 +6212,8 @@ mod tests {
         // Persist the admitted person and host as a coordinator map would.
         let own = store.own_membership(&id).unwrap().unwrap();
         let map = WireMap {
+            admins: Vec::new(),
+            groups: Vec::new(),
             network_id: id.clone(),
             root_public_key: network.root_public_key.clone(),
             members: vec![
@@ -4152,7 +6228,7 @@ mod tests {
         store
             .apply_map(store.network(&id).unwrap(), map, false)
             .unwrap();
-        let (_, pending) = store.prepare_rotation(&id).unwrap();
+        let (_, pending) = store.prepare_rotation(&id, None).unwrap();
         assert_eq!(
             pending.attestations.len(),
             1,
@@ -4180,6 +6256,7 @@ mod tests {
             .remove_person(
                 &id,
                 RemovePerson {
+                    removal: None,
                     person_id: pid.clone(),
                 },
             )
@@ -4190,6 +6267,7 @@ mod tests {
             .remove_person(
                 &id,
                 RemovePerson {
+                    removal: None,
                     person_id: pid.clone(),
                 },
             )
@@ -4206,6 +6284,7 @@ mod tests {
             store.sign_person_admission(
                 &id,
                 AdmitPerson {
+                    admission: None,
                     person_public_key: ssh,
                     member: "bob".into(),
                 },
@@ -4232,6 +6311,7 @@ mod tests {
             last_sync_error: None,
             root_epoch: 0,
             current_root_public_key: String::new(),
+            root_ssh: false,
         };
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
         let [carol, dave, erin, frank] = [(); 4].map(|_| random_seed().unwrap());
@@ -4414,6 +6494,7 @@ mod tests {
             store.revoke(
                 &id,
                 Revoke {
+                    revocation: None,
                     host_id: host,
                     invite_public_key: invite,
                 },
@@ -4472,7 +6553,7 @@ mod tests {
 
         // Rotation persists the new seed, epoch, and attestations; new invites
         // are signed by the new root and still decode.
-        let (_, pending) = store.prepare_rotation(&id).unwrap();
+        let (_, pending) = store.prepare_rotation(&id, None).unwrap();
         let (rotation, attestations) = (pending.rotation.clone(), pending.attestations.clone());
         let next = membership::seed(&pending.root_seed).unwrap();
         assert_eq!(rotation.epoch, 1);
@@ -4493,6 +6574,7 @@ mod tests {
             .issue_invite(
                 &id,
                 CreateInvite {
+                    token: None,
                     member: "erin".into(),
                     expires_at: rfc3339(chrono::Utc::now() + chrono::TimeDelta::days(1)),
                     host_only: true,
@@ -4555,6 +6637,7 @@ mod tests {
             joined.revoke(
                 &id,
                 Revoke {
+                    revocation: None,
                     host_id: Some(store.identity().id),
                     invite_public_key: None
                 }
@@ -4590,8 +6673,8 @@ mod tests {
             )
             .unwrap();
         // Signed and persisted as pending; the old root stays current locally.
-        let (_, pending) = store.prepare_rotation(&id).unwrap();
-        let (_, again) = store.prepare_rotation(&id).unwrap();
+        let (_, pending) = store.prepare_rotation(&id, None).unwrap();
+        let (_, again) = store.prepare_rotation(&id, None).unwrap();
         assert_eq!(
             again.rotation, pending.rotation,
             "a repeated command resubmits the same rotation"
@@ -4681,7 +6764,7 @@ mod tests {
 
         // A pending rotation the coordinator has not seen is resubmitted; one
         // superseded by a different rotation at that epoch is discarded.
-        let (_, second) = store.prepare_rotation(&id).unwrap();
+        let (_, second) = store.prepare_rotation(&id, None).unwrap();
         assert_eq!(second.rotation.epoch, 2);
         assert!(matches!(
             store.resolve_rotation(&id, std::slice::from_ref(&pending.rotation)).unwrap(),
@@ -4724,7 +6807,7 @@ mod tests {
                 "{status}"
             );
         }
-        store.prepare_rotation(&id).unwrap();
+        store.prepare_rotation(&id, None).unwrap();
         let discarded = store
             .discard_rotation_with_error(&id, "invalid request: bad attestation")
             .unwrap();

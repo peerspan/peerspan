@@ -54,26 +54,34 @@ Usage:
   capsule-host [--state DIR] delivery inspect ID
 
   capsule-host [--state DIR] network create --name NAME --member LABEL --coordinator HOST:PORT --coordinator-key KEY [--person-key PATH | --no-person]
-  capsule-host [--state DIR] network invite --network ID --member LABEL --expires-at TIME [--host-only]
+  capsule-host [--state DIR] network invite --network ID --member LABEL --expires-at TIME [--host-only] [--person-key PATH]
   capsule-host [--state DIR] network join (--token TOKEN | --descriptor DESCRIPTOR) [--person-key PATH | --no-person]
   capsule-host [--state DIR] network list
   capsule-host [--state DIR] network members ID
   capsule-host [--state DIR] network sync ID
-  capsule-host [--state DIR] network revoke --network ID --host HOST_ID
-  capsule-host [--state DIR] network revoke-invite --network ID --invite INVITE_PUBLIC_KEY
+  capsule-host [--state DIR] network revoke --network ID --host HOST_ID [--person-key PATH]
+  capsule-host [--state DIR] network revoke-invite --network ID --invite INVITE_PUBLIC_KEY [--person-key PATH]
   capsule-host [--state DIR] network leave ID
-  capsule-host [--state DIR] network rotate-root ID
-  capsule-host [--state DIR] network admit --network ID (--person SSH_PUBLIC_KEY | --host HOST_PUBLIC_KEY) --member LABEL
-  capsule-host [--state DIR] network invite-person --network ID --member LABEL --expires-at TIME
+  capsule-host [--state DIR] network rotate-root ID [--to-ssh --root-key PATH]
+  capsule-host [--state DIR] network admit --network ID (--person SSH_PUBLIC_KEY | --host HOST_PUBLIC_KEY) --member LABEL [--person-key PATH]
+  capsule-host [--state DIR] network invite-person --network ID --member LABEL --expires-at TIME [--person-key PATH]
   capsule-host [--state DIR] network redeem-person --token TOKEN [--person-key PATH]
   capsule-host [--state DIR] network bind --network ID [--person-key PATH]
   capsule-host [--state DIR] network unbind --network ID --host HOST_ID [--person-key PATH]
-  capsule-host [--state DIR] network remove-person --network ID --person PERSON_ID
+  capsule-host [--state DIR] network remove-person --network ID --person PERSON_ID [--person-key PATH]
   capsule-host [--state DIR] network persons ID
+  capsule-host [--state DIR] network delegate-admin --network ID --person PERSON [--root-key PATH]
+  capsule-host [--state DIR] network remove-admin --network ID --person PERSON [--revoke-admitted] [--root-key PATH]
+  capsule-host [--state DIR] network group set --network ID --group NAME [--person PERSON ...] [--person-key PATH]
+  capsule-host [--state DIR] network groups ID
   capsule-host person show [--person-key PATH]
 
 Person keys are ssh-ed25519 keys in ssh-agent (SSH_AUTH_SOCK), or --person-key
 PATH naming a public key in the agent or an unencrypted OpenSSH private key file.
+A host holding the network's root seed signs administration as the root;
+otherwise the CLI signs with the person key in ssh-agent, which must be a
+current administrator. Root-only commands without the seed use --root-key PATH.
+PERSON is a person ID or label.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `
@@ -210,9 +218,18 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		return err
 	}
+	if len(args) >= 2 && args[0] == "network" && (administeredCommands[args[1]] || args[1] == "group") {
+		args, adminKey = takePersonKey(args)
+	}
 	method, path, body, err := request(args, errOut)
 	if errors.Is(err, errPersonCommand) {
 		method, path, body, err = personRequest(ctx, client, args, errOut)
+	}
+	if errors.Is(err, errAdminCommand) {
+		method, path, body, err = adminRequest(ctx, client, args, errOut)
+	}
+	if err == nil && args[0] == "network" && administeredCommands[args[1]] {
+		body, err = signAsAdministrator(ctx, client, path, body)
 	}
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -415,6 +432,8 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			return "POST", "/v1/networks/" + url.PathEscape(network) + "/invites", i, err
 		case "admit", "redeem-person", "bind", "unbind":
 			return "", "", nil, errPersonCommand
+		case "delegate-admin", "remove-admin", "group", "groups":
+			return "", "", nil, errAdminCommand
 		case "invite-person":
 			var network string
 			var i host.CreateInvite
@@ -449,6 +468,9 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			}
 			return "GET", "/v1/networks", nil, nil
 		case "members", "sync", "leave", "rotate-root":
+			if args[1] == "rotate-root" && len(args) > 3 {
+				return "", "", nil, errAdminCommand
+			}
 			if len(args) != 3 {
 				return invalid()
 			}

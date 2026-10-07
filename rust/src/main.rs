@@ -1,3 +1,4 @@
+mod admin;
 mod cli;
 mod integration;
 
@@ -64,6 +65,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         return run_daemon(directory, peer_listen, advertise, coordination_interval).await;
     }
     if let Some(value) = person_command(&command, &directory).await? {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    if let Some(value) = admin::command(&command, &directory.join("admin.sock")).await? {
         println!("{}", serde_json::to_string_pretty(&value)?);
         return Ok(());
     }

@@ -4,8 +4,8 @@
 //! Daemons only verify person signatures; the CLI produces them.
 use crate::{
     membership::{
-        self, check_network, invalid, label, public_key, sign_lines, split_host_port, time,
-        verify_lines,
+        self, KeySigner, check_network, invalid, label, public_key, sign_lines, split_host_port,
+        time, verify_issuer, verify_lines,
     },
     model::Error,
 };
@@ -186,6 +186,22 @@ pub fn verify_sshsig(person_key: &str, lines: &[&str], signature_b64: &str) -> R
         .map_err(|_| invalid("invalid person signature"))
 }
 
+/// The key embedded in an `SSHSIG` blob, as canonical standard Base64, or
+/// None if `signature_b64` is not a well-formed `SSHSIG` (for example a raw
+/// 64-byte Ed25519 signature). The embedded key still has to verify.
+pub fn sshsig_signer(signature_b64: &str) -> Option<String> {
+    let blob = STANDARD.decode(signature_b64).ok()?;
+    if STANDARD.encode(&blob) != signature_b64 {
+        return None;
+    }
+    let mut r = Reader(&blob);
+    if r.take(6).ok()? != b"SSHSIG" || r.u32().ok()? != 1 {
+        return None;
+    }
+    let key = parse_public_blob(r.string().ok()?).ok()?;
+    Some(STANDARD.encode(key))
+}
+
 /// Produces person `SSHSIG` signatures from an agent identity or a key file.
 pub enum PersonSigner {
     /// An `ssh-agent` identity, by its public key blob.
@@ -234,6 +250,20 @@ impl PersonSigner {
                 }
             }
         }
+    }
+    /// The `ssh-agent` identity holding `key` (standard Base64).
+    pub fn agent_with(key: &str) -> Result<Self, Error> {
+        let key: [u8; 32] = crate::membership::canonical(key, 32)?
+            .try_into()
+            .map_err(|_| invalid("invalid key"))?;
+        let socket = std::env::var_os("SSH_AUTH_SOCK")
+            .filter(|s| !s.is_empty())
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| invalid("no ssh-agent: SSH_AUTH_SOCK is not set"))?;
+        if !agent_identities(&socket)?.contains(&key) {
+            return Err(invalid("the ssh-agent does not hold that key"));
+        }
+        Ok(Self::Agent { socket, key })
     }
     pub fn public_key(&self) -> [u8; 32] {
         match self {
@@ -377,6 +407,10 @@ pub struct PersonAdmission {
     pub signature: String,
 }
 impl PersonAdmission {
+    pub fn digest(&self) -> String {
+        let epoch = self.epoch.to_string();
+        membership::statement_digest(&self.lines(&epoch))
+    }
     fn lines<'a>(&'a self, epoch: &'a str) -> [&'a str; 6] {
         [
             "capsule-person-admit-v1",
@@ -395,6 +429,17 @@ impl PersonAdmission {
         member: &str,
         at: &str,
     ) -> Self {
+        Self::sign_with(&KeySigner::Raw(root), network, epoch, person, member, at)
+            .expect("raw signing")
+    }
+    pub fn sign_with(
+        signer: &KeySigner,
+        network: &str,
+        epoch: u64,
+        person: &str,
+        member: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
         let mut s = Self {
             network_id: network.into(),
             epoch,
@@ -404,20 +449,25 @@ impl PersonAdmission {
             signature: String::new(),
         };
         let epoch_text = epoch.to_string();
-        s.signature = sign_lines(root, &s.lines(&epoch_text));
-        s
+        s.signature = signer.sign(&s.lines(&epoch_text))?;
+        Ok(s)
     }
     /// Valid only at the current epoch under the current root.
     pub fn verify(&self, network: &str, epoch: u64, root: &str) -> Result<(), Error> {
-        check_network(&self.network_id, network)?;
         if self.epoch != epoch {
             return Err(invalid("admission is for another epoch"));
         }
+        self.verify_signed_by(network, root)
+    }
+    /// Valid when signed by `key` (an administrator), at any epoch: an
+    /// administrator's statements need no re-signing at a rotation.
+    pub fn verify_signed_by(&self, network: &str, key: &str) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
         label(&self.member)?;
         time(&self.admitted_at)?;
         public_key(&self.person_public_key)?;
-        let epoch_text = epoch.to_string();
-        verify_lines(root, &self.lines(&epoch_text), &self.signature)
+        let epoch_text = self.epoch.to_string();
+        verify_lines(key, &self.lines(&epoch_text), &self.signature)
     }
 }
 
@@ -433,6 +483,10 @@ pub struct HostAdmission {
     pub signature: String,
 }
 impl HostAdmission {
+    pub fn digest(&self) -> String {
+        let epoch = self.epoch.to_string();
+        membership::statement_digest(&self.lines(&epoch))
+    }
     fn lines<'a>(&'a self, epoch: &'a str) -> [&'a str; 6] {
         [
             "capsule-host-admit-v1",
@@ -451,6 +505,17 @@ impl HostAdmission {
         member: &str,
         at: &str,
     ) -> Self {
+        Self::sign_with(&KeySigner::Raw(root), network, epoch, host, member, at)
+            .expect("raw signing")
+    }
+    pub fn sign_with(
+        signer: &KeySigner,
+        network: &str,
+        epoch: u64,
+        host: &str,
+        member: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
         let mut s = Self {
             network_id: network.into(),
             epoch,
@@ -460,20 +525,24 @@ impl HostAdmission {
             signature: String::new(),
         };
         let epoch_text = epoch.to_string();
-        s.signature = sign_lines(root, &s.lines(&epoch_text));
-        s
+        s.signature = signer.sign(&s.lines(&epoch_text))?;
+        Ok(s)
     }
     /// Returns the admitted host ID; valid only at the current epoch.
     pub fn verify(&self, network: &str, epoch: u64, root: &str) -> Result<String, Error> {
-        check_network(&self.network_id, network)?;
         if self.epoch != epoch {
             return Err(invalid("admission is for another epoch"));
         }
+        self.verify_signed_by(network, root)
+    }
+    /// Valid when signed by `key` (an administrator), at any epoch.
+    pub fn verify_signed_by(&self, network: &str, key: &str) -> Result<String, Error> {
+        check_network(&self.network_id, network)?;
         label(&self.member)?;
         time(&self.admitted_at)?;
         let host = public_key(&self.host_public_key)?;
-        let epoch_text = epoch.to_string();
-        verify_lines(root, &self.lines(&epoch_text), &self.signature)?;
+        let epoch_text = self.epoch.to_string();
+        verify_lines(key, &self.lines(&epoch_text), &self.signature)?;
         Ok(crate::peer_store::key_id(host.as_bytes()))
     }
 }
@@ -509,6 +578,17 @@ pub struct PersonMembership {
     pub person_signature: String,
 }
 impl PersonMembership {
+    /// The digest of the person invite statement `invite_signature` signs.
+    pub fn digest(&self) -> String {
+        let epoch = self.invite_epoch.to_string();
+        membership::statement_digest(&person_invite_lines(
+            &self.network_id,
+            &epoch,
+            &self.invite_public_key,
+            &self.member,
+            &self.invite_expires_at,
+        ))
+    }
     fn member_lines(&self) -> [&str; 5] {
         [
             "capsule-person-member-v1",
@@ -521,15 +601,20 @@ impl PersonMembership {
     /// Valid only when the invite was signed by the current root at the
     /// current epoch.
     pub fn verify(&self, network: &str, epoch: u64, root: &str) -> Result<(), Error> {
-        check_network(&self.network_id, network)?;
         if self.invite_epoch != epoch {
             return Err(invalid("person invite is for another epoch"));
         }
+        self.verify_signed_by(network, root)
+    }
+    /// Valid when the invite was signed by `key` (an administrator), at any
+    /// epoch.
+    pub fn verify_signed_by(&self, network: &str, key: &str) -> Result<(), Error> {
+        check_network(&self.network_id, network)?;
         label(&self.member)?;
         public_key(&self.person_public_key)?;
-        let epoch_text = epoch.to_string();
+        let epoch_text = self.invite_epoch.to_string();
         verify_lines(
-            root,
+            key,
             &person_invite_lines(
                 &self.network_id,
                 &epoch_text,
@@ -561,6 +646,9 @@ pub struct PersonRemoval {
     pub signature: String,
 }
 impl PersonRemoval {
+    pub fn digest(&self) -> String {
+        membership::statement_digest(&self.lines())
+    }
     fn lines(&self) -> [&str; 4] {
         [
             "capsule-person-remove-v1",
@@ -570,14 +658,22 @@ impl PersonRemoval {
         ]
     }
     pub fn sign(root: &SigningKey, network: &str, person: &str, at: &str) -> Self {
+        Self::sign_with(&KeySigner::Raw(root), network, person, at).expect("raw signing")
+    }
+    pub fn sign_with(
+        signer: &KeySigner,
+        network: &str,
+        person: &str,
+        at: &str,
+    ) -> Result<Self, Error> {
         let mut s = Self {
             network_id: network.into(),
             person_public_key: person.into(),
             removed_at: at.into(),
             signature: String::new(),
         };
-        s.signature = sign_lines(root, &s.lines());
-        s
+        s.signature = signer.sign(&s.lines())?;
+        Ok(s)
     }
     /// Valid when signed by any root of the chain.
     pub fn verify(&self, network: &str, roots: &[String]) -> Result<(), Error> {
@@ -771,16 +867,48 @@ impl PersonInviteToken {
         coordinator_address: &str,
         coordinator_public_key: &str,
     ) -> Self {
+        Self::issue_with(
+            &KeySigner::Raw(root),
+            &STANDARD.encode(root.verifying_key().as_bytes()),
+            invite,
+            network,
+            network_name,
+            epoch,
+            member,
+            expires,
+            coordinator_address,
+            coordinator_public_key,
+        )
+        .expect("raw signing")
+    }
+    /// Signs with a root or an administrator's SSH key. `root` is the
+    /// network's current root, recorded in the token either way.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_with(
+        signer: &KeySigner,
+        root: &str,
+        invite: &SigningKey,
+        network: &str,
+        network_name: &str,
+        epoch: u64,
+        member: &str,
+        expires: &str,
+        coordinator_address: &str,
+        coordinator_public_key: &str,
+    ) -> Result<Self, Error> {
         let invite_public_key = STANDARD.encode(invite.verifying_key().as_bytes());
         let epoch_text = epoch.to_string();
-        let invite_signature = sign_lines(
-            root,
-            &person_invite_lines(network, &epoch_text, &invite_public_key, member, expires),
-        );
-        Self {
+        let invite_signature = signer.sign(&person_invite_lines(
+            network,
+            &epoch_text,
+            &invite_public_key,
+            member,
+            expires,
+        ))?;
+        Ok(Self {
             network_id: network.into(),
             network_name: network_name.into(),
-            root_public_key: STANDARD.encode(root.verifying_key().as_bytes()),
+            root_public_key: root.into(),
             coordinator_address: coordinator_address.into(),
             coordinator_public_key: coordinator_public_key.into(),
             member: member.into(),
@@ -789,7 +917,7 @@ impl PersonInviteToken {
             invite_expires_at: expires.into(),
             invite_signature,
             invite_epoch: epoch,
-        }
+        })
     }
     pub fn encode(&self) -> String {
         encode_prefixed(PERSON_TOKEN_PREFIX, self)
@@ -801,7 +929,8 @@ impl PersonInviteToken {
         label(&t.member)?;
         label(&t.network_name)?;
         let epoch_text = t.invite_epoch.to_string();
-        verify_lines(
+        public_key(&t.root_public_key)?;
+        verify_issuer(
             &t.root_public_key,
             &person_invite_lines(
                 &t.network_id,
@@ -877,8 +1006,37 @@ impl MemberInviteToken {
         coordinator_address: &str,
         coordinator_public_key: &str,
     ) -> Self {
-        let host = membership::sign_invite_for(network, root, invite, member, expires);
-        let person = PersonInviteToken::issue(
+        Self::issue_with(
+            &KeySigner::Raw(root),
+            &STANDARD.encode(root.verifying_key().as_bytes()),
+            invite,
+            network,
+            network_name,
+            epoch,
+            member,
+            expires,
+            coordinator_address,
+            coordinator_public_key,
+        )
+        .expect("raw signing")
+    }
+    /// Signs both parts with a root or an administrator's SSH key.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_with(
+        signer: &KeySigner,
+        root: &str,
+        invite: &SigningKey,
+        network: &str,
+        network_name: &str,
+        epoch: u64,
+        member: &str,
+        expires: &str,
+        coordinator_address: &str,
+        coordinator_public_key: &str,
+    ) -> Result<Self, Error> {
+        let host = membership::sign_invite_with(network, signer, invite, member, expires)?;
+        let person = PersonInviteToken::issue_with(
+            signer,
             root,
             invite,
             network,
@@ -888,8 +1046,8 @@ impl MemberInviteToken {
             expires,
             coordinator_address,
             coordinator_public_key,
-        );
-        Self {
+        )?;
+        Ok(Self {
             network_id: network.into(),
             network_name: network_name.into(),
             root_public_key: person.root_public_key,
@@ -902,7 +1060,7 @@ impl MemberInviteToken {
             invite_signature: host.invite_signature,
             invite_epoch: epoch,
             person_invite_signature: person.invite_signature,
-        }
+        })
     }
     pub fn encode(&self) -> String {
         encode_prefixed(MEMBER_TOKEN_PREFIX, self)

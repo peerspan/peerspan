@@ -54,6 +54,9 @@ type Network struct {
 	// rotations.
 	RootEpoch            int64  `json:"root_epoch"`
 	CurrentRootPublicKey string `json:"current_root_public_key"`
+	// RootSSH is true when the current root is an SSH key, seen from its
+	// SSHSIG signatures or set by this host's rotation to it.
+	RootSSH bool `json:"root_ssh"`
 }
 
 // NetworkMember is a verified map entry. Exactly one of Membership (an invite
@@ -93,6 +96,9 @@ type CreateInvite struct {
 	ExpiresAt string `json:"expires_at"`
 	// HostOnly issues a host-only invite instead of the default member invite.
 	HostOnly bool `json:"host_only,omitempty"`
+	// Token is an invite an administrator signed through the CLI, given
+	// instead of the fields above; the daemon checks the signer and records it.
+	Token string `json:"token,omitempty"`
 }
 type Invite struct {
 	NetworkID       string `json:"network_id"`
@@ -273,6 +279,9 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 }
 
 func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (Invite, error) {
+	if r.Token != "" {
+		return s.recordSignedInvite(ctx, id, r)
+	}
 	var record string
 	var seed []byte
 	err := s.db.QueryRowContext(ctx, "SELECT record, root_seed FROM networks WHERE id = ?", id).Scan(&record, &seed)
@@ -392,6 +401,7 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Ne
 		}
 	}
 	n.RootEpoch, n.CurrentRootPublicKey = applied.chain.Epoch(), applied.chain.CurrentPublicKey()
+	n.RootSSH = applied.rootSSH()
 	synced := timestamp(time.Now())
 	n.LastSyncAt = &synced
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -446,7 +456,7 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 	}
 	// A rotation persisted before a crash or a lost response is resubmitted
 	// until the coordinator accepts or refuses it.
-	if n.Administrator && n.LastSyncAt != nil {
+	if n.LastSyncAt != nil {
 		pending, err := loadPendingRotation(ctx, s.db, id)
 		if err != nil {
 			return n, err
@@ -493,6 +503,7 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		n.LastSyncError = &message
 	} else {
 		n.LastSyncAt, n.LastSyncError = &now, nil
+		n.RootSSH = applied.rootSSH() || (n.RootSSH && n.RootEpoch == applied.chain.Epoch())
 		n.RootEpoch, n.CurrentRootPublicKey = applied.chain.Epoch(), applied.chain.CurrentPublicKey()
 		if txErr = s.replaceMembers(finishCtx, tx, n.ID, applied.members, now); txErr != nil {
 			return n, txErr
@@ -767,7 +778,7 @@ func localNetworkRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/invites", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateInvite
-		if !decode(w, r, &req, "member", "expires_at", "host_only") {
+		if !decode(w, r, &req, "member", "expires_at", "host_only", "token") {
 			return
 		}
 		invite, err := store.CreateInvite(r.Context(), r.PathValue("id"), req)
