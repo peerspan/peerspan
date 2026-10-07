@@ -34,7 +34,9 @@ pub struct OutboundRoute {
     pub name: String,
     pub peer_host_id: String,
     pub target_agent_id: String,
-    pub grant_id: String,
+    /// Null when the route sends under the target owner's policy.
+    #[serde(default)]
+    pub grant_id: Option<String>,
     pub expires_at: String,
     pub max_message_bytes: i64,
     pub max_messages: i64,
@@ -47,7 +49,8 @@ pub struct CreateOutboundRoute {
     pub name: String,
     pub peer_host_id: String,
     pub target_agent_id: String,
-    pub grant_id: String,
+    #[serde(default)]
+    pub grant_id: Option<String>,
     pub expires_at: String,
     pub max_message_bytes: i64,
     pub max_messages: i64,
@@ -144,7 +147,10 @@ impl Store {
         if exp <= Utc::now()
             || !valid_name(&r.name)
             || !valid_id(&r.target_agent_id, "agent", 16)
-            || !valid_id(&r.grant_id, "grant", 16)
+            || !r
+                .grant_id
+                .as_deref()
+                .is_none_or(|g| valid_id(g, "grant", 16))
             || !(1..=65536).contains(&r.max_message_bytes)
             || !(1..=10000).contains(&r.max_messages)
         {
@@ -331,11 +337,17 @@ impl Store {
         let deadline = (Utc::now() + chrono::Duration::minutes(5))
             .fixed_offset()
             .min(exp);
+        let policy = if route.grant_id.is_none() {
+            Some(self.policy_citation(&tx, &route.peer_host_id)?)
+        } else {
+            None
+        };
         let out = OutboundMessage {
             peer_host_id: route.peer_host_id,
             request: MessageRequest {
                 request_id: r.request_id,
                 grant_id: route.grant_id,
+                policy,
                 target_agent_id: route.target_agent_id,
                 deadline: crate::store::rfc3339(deadline.with_timezone(&Utc)),
                 content: r.content,
@@ -713,7 +725,7 @@ mod tests {
                 name: "reviewer".into(),
                 peer_host_id: peer.id,
                 target_agent_id: format!("agent_{}", "1".repeat(32)),
-                grant_id: format!("grant_{}", "1".repeat(32)),
+                grant_id: Some(format!("grant_{}", "1".repeat(32))),
                 expires_at: crate::store::rfc3339(Utc::now() + chrono::Duration::minutes(30)),
                 max_message_bytes: 100,
                 max_messages: 10,

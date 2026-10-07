@@ -26,7 +26,7 @@ use std::{
     time::Duration,
 };
 
-struct Local<'a>(&'a Path);
+pub(crate) struct Local<'a>(pub(crate) &'a Path);
 impl Local<'_> {
     async fn call(
         &self,
@@ -41,10 +41,10 @@ impl Local<'_> {
         .await
         .context("local host daemon request timed out")?
     }
-    async fn get(&self, path: String) -> anyhow::Result<Value> {
+    pub(crate) async fn get(&self, path: String) -> anyhow::Result<Value> {
         self.call(Method::GET, path, None).await
     }
-    async fn post(&self, path: String, body: Value) -> anyhow::Result<Value> {
+    pub(crate) async fn post(&self, path: String, body: Value) -> anyhow::Result<Value> {
         self.call(Method::POST, path, Some(body)).await
     }
     async fn network(&self, id: &str) -> anyhow::Result<Value> {
@@ -193,7 +193,7 @@ fn root_signer(network: &Value, path: Option<&Path>) -> anyhow::Result<PersonSig
 }
 
 /// Resolves a person ID or label to its public key, erroring on ambiguity.
-async fn person_key(local: &Local<'_>, id: &str, given: &str) -> anyhow::Result<String> {
+pub(crate) async fn person_key(local: &Local<'_>, id: &str, given: &str) -> anyhow::Result<String> {
     let persons = local.get(under(id, "persons")).await?;
     let persons: Vec<&Value> = persons.as_array().into_iter().flatten().collect();
     if let Some(p) = persons

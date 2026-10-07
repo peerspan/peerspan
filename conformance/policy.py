@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Exercise owner access policy (milestone 2b slice 3) with real hosts.
+
+Runs one Go coordinator with Go and Rust hosts in every owner/sender pairing,
+with real ssh-agents. The owner allows a person, a group, and `network`;
+senders send without grant IDs; denial applies at handoff; a stale policy
+injected into the coordinator database is ignored; a receiver behind the
+cited version answers 503 until it syncs; the block list overrides grants and
+policies without coordination; the daemon renews through its ssh-agent and
+access lapses without one; bounds hold with the coordinator stopped.
+
+Policies keep the 1-day minimum validity. Renewal and lapse use policies
+signed here with `ssh-keygen -Y sign` and backdated issue times, so less than
+a quarter of their validity, or only seconds, remain; no test hook is needed.
+Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen).
+"""
+import argparse
+from datetime import datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import sqlite3
+import tempfile
+import time
+
+from agent_adapter import adapter_call, credential
+from coordination import Coordinator, wait_for
+from host_service import stop_all
+from peer_messaging import fixture_context, request_id, set_probe, timestamp, wire
+from persons import Agent, PersonHost, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent
+
+
+class PolicyHost(PersonHost):
+    """A host whose daemon sees only the agent socket the suite chooses."""
+
+    def __init__(self, binary, state, interval=1):
+        super().__init__(binary, state)
+        self.daemon_args = (*self.daemon_args[:-2], '--coordination-interval', str(interval))
+        self.agent_socket = None
+
+    def daemon_env(self):
+        env = dict(os.environ)
+        env.pop('SSH_AUTH_SOCK', None)
+        if self.agent_socket:
+            env['SSH_AUTH_SOCK'] = self.agent_socket
+        return env
+
+    def restart(self, interval, agent_socket=None, flag_socket=None):
+        self.stop()
+        self.daemon_args = (*self.daemon_args[:2], '--coordination-interval', str(interval))
+        if flag_socket:
+            self.daemon_args = (*self.daemon_args, '--person-agent', flag_socket)
+        self.agent_socket = agent_socket
+        self.logs.close()
+        self.logs = tempfile.TemporaryFile()
+        return self.start()
+
+
+def rfc3339(moment):
+    return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def policy_lines(p):
+    lines = ['capsule-policy-v1', p['network_id'], p['person_public_key'], str(p['version']), p['issued_at'],
+             p['valid_until']]
+    for r in p['rules']:
+        lines += ['rule', r['agent'], ' '.join(r['principals']), ' '.join(r['actions']),
+                  f"{r['max_message_bytes']} {'true' if r['allow_disconnected'] else 'false'}"]
+    return lines
+
+
+def crafted(current, version, issued, until, key, directory):
+    """A policy signed here with OpenSSH, with chosen times."""
+    p = {'network_id': current['network_id'], 'person_public_key': current['person_public_key'], 'version': version,
+         'issued_at': rfc3339(issued), 'valid_until': rfc3339(until), 'rules': current['rules']}
+    p['signature'] = ssh_sign(policy_lines(p), key, directory)
+    return p
+
+
+def show(host, network, person=None):
+    args = ['access', 'show', '--network', network]
+    if person:
+        args += ['--person', person]
+    return host.cli(*args)
+
+
+def policy_of(value):
+    return {k: v for k, v in value.items() if k != 'expires_soon'}
+
+
+def send(sender, receiver_id, agent, content='hello', deadline=None, grant=None):
+    args = ['message', 'send', '--peer', receiver_id, '--agent', agent['id'], '--deadline', deadline or timestamp(),
+            '--content', content]
+    if grant:
+        args += ['--grant', grant['id']]
+    return sender.cli(*args)
+
+
+def expect(sender, receiver_id, agent, state, **kwargs):
+    out = send(sender, receiver_id, agent, **kwargs)
+    assert out['state'] == state, (sender.binary, state, out)
+    return out
+
+
+def check(coord_binary, owner_binary, sender_binary, label):
+    with tempfile.TemporaryDirectory(prefix='capsule-policy-') as temporary:
+        root = Path(temporary)
+        coord = Coordinator(coord_binary, root / 'coord')
+        # The owner's host syncs only when asked, so it can lag a sender.
+        alice = PolicyHost(owner_binary, root / 'alice', interval=3600)
+        bob, carol, dave = (PolicyHost(sender_binary, root / name) for name in ('bob', 'carol', 'dave'))
+        hosts = (alice, bob, carol, dave)
+        (root / 'keys').mkdir()
+        keys = {name: ssh_key(root / 'keys', name) for name in ('pat', 'quinn', 'rhea')}
+        agents = {}
+        saved_sock = os.environ.get('SSH_AUTH_SOCK')
+        try:
+            for name in keys:
+                (root / f'agent-{name}').mkdir()
+                agents[name] = Agent(root / f'agent-{name}')
+                agents[name].add(keys[name][0])
+            pat_key, pat_id = keys['pat'][2], person_id(keys['pat'][2])
+            quinn_id, rhea_id = person_id(keys['quinn'][2]), person_id(keys['rhea'][2])
+            coordinator = coord.start()
+            ids = {host: host.start() for host in hosts}
+            a = ids[alice]['id']
+
+            # Pat owns alice; quinn and rhea bind bob and carol; dave is unbound.
+            use_agent(agents['pat'])
+            net = alice.cli('network', 'create', '--name', 'team', '--member', 'pat', '--coordinator', coord.address,
+                            '--coordinator-key', coordinator['public_key'])['id']
+            for host, name in ((bob, 'quinn'), (carol, 'rhea')):
+                invite = alice.cli('network', 'invite', '--network', net, '--member', name, '--expires-at', timestamp())
+                use_agent(agents[name])
+                assert host.cli('network', 'join', '--token', invite['token'])['person']['bound']
+            invite = alice.cli('network', 'invite', '--network', net, '--member', 'dave', '--expires-at', timestamp(),
+                               '--host-only')
+            dave.cli('network', 'join', '--token', invite['token'], '--no-person')
+            for host in hosts:
+                host.cli('network', 'sync', net)
+            reviewer = alice.cli('agent', 'register', '--name', 'reviewer', '--owner', 'pat')
+            triage = alice.cli('agent', 'register', '--name', 'triage', '--owner', 'pat')
+            session = alice.cli('session', 'attach', '--agent', reviewer['id'], '--integration', 'test')
+            token = credential(alice, session)['token']
+
+            # No grant and no policy: refused locally with an explanation.
+            use_agent(agents['pat'])
+            refused = bob.cli('message', 'send', '--peer', a, '--agent', reviewer['id'], '--deadline', timestamp(),
+                              '--content', 'early', success=False)
+            assert 'policy' in refused and 'grant' in refused, refused
+            assert alice.call('GET', f'/v1/networks/{net}/policy')[0] == 404
+
+            # A person principal, signed by pat through the agent.
+            v1 = alice.cli('access', 'allow', '--network', net, '--agent', 'reviewer', '--principal', 'person:quinn',
+                           '--max-message-bytes', '100')
+            assert v1['version'] == 1 and v1['rules'][0]['principals'] == ['person:' + quinn_id], v1
+            ssh_verify(policy_lines(v1), v1['signature'], keys['pat'][1], root)
+            # An identical resubmission is accepted again; another version 1 is not.
+            assert alice.call('POST', f'/v1/networks/{net}/policy', {'policy': v1}) == (201, v1)
+            other = crafted(v1, 1, datetime.now(timezone.utc), datetime.now(timezone.utc) + timedelta(days=2), keys['pat'][0], root)
+            assert alice.call('POST', f'/v1/networks/{net}/policy', {'policy': other})[0] == 409
+            shown = show(alice, net)
+            assert policy_of(shown) == v1 and shown['expires_soon'] is False, shown
+            for host in (bob, carol, dave):
+                host.cli('network', 'sync', net)
+            assert policy_of(show(bob, net, 'pat')) == v1
+            out = expect(bob, a, reviewer, 'accepted')
+            # The outbound record shows the missing grant as null; the wire omits it.
+            assert out['request']['policy'] == {'person_id': pat_id, 'version': 1} and out['request']['grant_id'] is None, out
+            received = alice.cli('message', 'list')[-1]['request']
+            assert received['policy'] == {'person_id': pat_id, 'version': 1} and 'grant_id' not in received, received
+            # Exactly one authorization field, locally and on the wire.
+            body = {'peer_host_id': a, 'target_agent_id': reviewer['id'], 'deadline': timestamp(), 'content': 'null grant'}
+            status, sent = bob.call('POST', '/v1/outbound', {**body, 'grant_id': None})
+            assert status == 200 and sent['state'] == 'accepted' and sent['request']['grant_id'] is None, sent
+            assert bob.call('POST', '/v1/outbound', {**body, 'grant_id': ''})[0] == 400
+            context = fixture_context(bob)
+            wire_body = {'request_id': request_id(), 'target_agent_id': reviewer['id'], 'deadline': timestamp(),
+                         'content': 'wire', 'policy': {'person_id': pat_id, 'version': 1}}
+            for extra in ({'grant_id': ''}, {'grant_id': 'grant_' + '0' * 32}, {'grant_id': None}):
+                assert wire(alice, context, 'POST', '/peer/v1/messages', {**wire_body, **extra})[0] == 400, extra
+            assert wire(alice, context, 'POST', '/peer/v1/messages', wire_body)[0] == 200
+            for host in (carol, dave):
+                rejected = expect(host, a, reviewer, 'rejected')
+                assert 'HTTP 403' in rejected['error'], rejected
+            # Bounds: size and a deadline past valid_until.
+            expect(bob, a, reviewer, 'rejected', content='x' * 101)
+            expect(bob, a, reviewer, 'rejected', deadline=timestamp(8 * 86400))
+            expect(bob, a, triage, 'rejected')
+
+            # A group, then the network principal.
+            alice.cli('network', 'group', 'set', '--network', net, '--group', 'backend', '--person', 'rhea')
+            v2 = alice.cli('access', 'allow', '--network', net, '--agent', 'reviewer', '--principal', 'person:quinn',
+                           '--principal', 'group:backend', '--max-message-bytes', '100')
+            assert v2['version'] == 2
+            carol.cli('network', 'sync', net)
+            expect(carol, a, reviewer, 'accepted')
+            v3 = alice.cli('access', 'allow', '--network', net, '--agent', 'triage', '--principal', 'network',
+                           '--max-message-bytes', '50', '--allow-disconnected')
+            assert v3['version'] == 3 and len(v3['rules']) == 2
+            dave.cli('network', 'sync', net)
+            expect(dave, a, triage, 'accepted')
+            expect(dave, a, triage, 'rejected', content='x' * 51)
+            expect(dave, a, reviewer, 'rejected')
+
+            # Deny applies to new requests and at handoff.
+            pending = expect(bob, a, reviewer, 'accepted', content='pending')
+            v4 = alice.cli('access', 'deny', '--network', net, '--agent', 'reviewer', '--principal', 'person:quinn')
+            assert v4['version'] == 4 and v4['rules'][0]['principals'] == ['group:backend'], v4
+            bob.cli('network', 'sync', net)
+            expect(bob, a, reviewer, 'rejected')
+            while adapter_call(alice, token, 'POST', '/adapter/v1/next', {})[1] is not None:
+                pass
+            states = {(d['delivery']['sender_host_id'], d['delivery']['request_id']): d['delivery']['state']
+                      for d in alice.cli('delivery', 'list')}
+            assert states[(ids[bob]['id'], pending['request']['request_id'])] == 'blocked', states
+            assert {s for (sender, _), s in states.items() if sender == ids[carol]['id']} == {'unknown'}, states
+            assert all(s == 'blocked' for (sender, _), s in states.items() if sender == ids[bob]['id']), states
+
+            # A stale version injected into the coordinator database is ignored.
+            for host in hosts:
+                host.cli('network', 'sync', net)
+            with coord_db(coord) as db:
+                db.execute("UPDATE statements SET statement = ? WHERE network_id = ? AND kind = 'policy' AND subject = ?",
+                           (json.dumps(v1), net, pat_key))
+            for host in hosts:
+                host.cli('network', 'sync', net)
+                assert show(host, net, pat_id)['version'] == 4, host.binary
+            expect(bob, a, reviewer, 'rejected')
+            with coord_db(coord) as db:
+                db.execute("UPDATE statements SET statement = ? WHERE network_id = ? AND kind = 'policy' AND subject = ?",
+                           (json.dumps(v4), net, pat_key))
+
+            # Pat re-allows quinn from bob's host; alice, not yet synced, is
+            # behind the cited version and answers 503 until it syncs.
+            use_agent(agents['pat'])
+            v5 = bob.cli('access', 'allow', '--network', net, '--agent', 'reviewer', '--principal', 'person:quinn',
+                         '--principal', 'group:backend', '--max-message-bytes', '100')
+            assert v5['version'] == 5 and show(alice, net)['version'] == 4
+            ahead = expect(bob, a, reviewer, 'unknown', content='ahead')
+            assert ahead['request']['policy']['version'] == 5 and 'HTTP 503' in ahead['error'], ahead
+            alice.cli('network', 'sync', net)
+            rid = ahead['request']['request_id']
+            wait_for(lambda: bob.cli('message', 'retry', '--peer', a, rid)['state'] == 'accepted', message='cited retry')
+
+            # The block list overrides a grant and the policy, without coordination.
+            grant = alice.cli('grant', 'create', '--peer', ids[bob]['id'], '--agent', triage['id'], '--expires-at',
+                              timestamp(1200), '--max-message-bytes', '50', '--allow-disconnected')
+            expect(bob, a, triage, 'accepted', grant=grant)
+            coord.stop()
+            for block in (('--person', 'quinn'), ('--host', ids[bob]['id'])):
+                made = alice.cli('access', 'block', *block)
+                assert made['kind'] == block[0][2:] and alice.cli('access', 'block', *block) == made, made
+                assert alice.cli('access', 'blocks') == [made]
+                expect(bob, a, triage, 'rejected', grant=grant)
+                expect(bob, a, triage, 'rejected')
+                assert alice.cli('access', 'unblock', *block) == made
+                assert 'not' in alice.cli('access', 'unblock', *block, success=False)
+                expect(bob, a, triage, 'accepted', grant=grant)
+            assert alice.cli('access', 'blocks') == []
+            assert made['subject'] == ids[bob]['id']
+            coord.start()
+
+            # Renewal through the agent: the daemon's SSH_AUTH_SOCK by default.
+            # A backdated 1-day policy has an hour left, under a quarter.
+            now = datetime.now(timezone.utc)
+            soon = crafted(v5, 6, now - timedelta(hours=23), now + timedelta(hours=1), keys['pat'][0], root)
+            status, accepted = bob.call('POST', f'/v1/networks/{net}/policy', {'policy': soon})
+            assert status == 201, accepted
+            assert show(bob, net, 'pat')['expires_soon'] is True
+            alice.restart(1, agent_socket=agents['pat'].socket)
+
+            def renewed():
+                p = show(alice, net)
+                return p if p['version'] >= 7 else None
+            v7 = wait_for(renewed, timeout=15, message='renewal')
+            issued = datetime.fromisoformat(v7['issued_at'].replace('Z', '+00:00'))
+            until = datetime.fromisoformat(v7['valid_until'].replace('Z', '+00:00'))
+            assert v7['version'] == 7 and v7['expires_soon'] is False and until - issued == timedelta(days=1), v7
+            assert v7['rules'] == soon['rules'] and abs((issued - datetime.now(timezone.utc)).total_seconds()) < 60, v7
+            ssh_verify(policy_lines(v7), v7['signature'], keys['pat'][1], root)
+            for host in (bob, carol, dave):
+                host.cli('network', 'sync', net)
+            assert show(bob, net, 'pat')['version'] == 7
+
+            # allow_disconnected with the coordinator stopped: the connected-only
+            # rule is retryable (503); the triage rule keeps working.
+            coord.stop()
+            time.sleep(4)
+            unknown = expect(bob, a, reviewer, 'unknown', content='disconnected')
+            assert 'HTTP 503' in unknown['error'], unknown
+            expect(dave, a, triage, 'accepted', content='disconnected')
+            coord.start()
+            alice.cli('network', 'sync', net)
+            rid = unknown['request']['request_id']
+            wait_for(lambda: bob.cli('message', 'retry', '--peer', a, rid)['state'] == 'accepted', message='reconnected')
+
+            # Lapse without an agent (--person-agent given explicitly elsewhere):
+            # a policy with seconds left stops authorizing once it expires.
+            alice.restart(1)
+            now = datetime.now(timezone.utc)
+            until = now + timedelta(seconds=12)
+            short = crafted(v7, 8, until - timedelta(days=1), until, keys['pat'][0], root)
+            status, accepted = alice.call('POST', f'/v1/networks/{net}/policy', {'policy': short})
+            assert status == 201, accepted
+            dave.cli('network', 'sync', net)
+            expect(dave, a, triage, 'accepted', content='before lapse', deadline=timestamp(5))
+            time.sleep(max(0.0, (until - datetime.now(timezone.utc)).total_seconds()) + 1)
+            expect(dave, a, triage, 'rejected', content='after lapse', deadline=timestamp(5))
+            lapsed = show(alice, net)
+            assert lapsed['version'] == 8 and lapsed['expires_soon'] is True, lapsed
+
+            # --person-agent names the socket explicitly; renewal of a lapsed
+            # policy does not happen, and a fresh one is signed by the CLI.
+            alice.restart(1, flag_socket=agents['pat'].socket)
+            time.sleep(2)
+            assert show(alice, net)['version'] == 8
+            renewed_cli = alice.cli('access', 'renew', '--network', net)
+            assert renewed_cli['version'] == 9 and renewed_cli['rules'] == v7['rules'], renewed_cli
+            expect(dave, a, triage, 'accepted', content='renewed by the CLI')
+            # Activity records policy updates and blocks.
+            kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
+            assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
+            with sqlite3.connect(alice.state / 'host.db') as db:
+                assert db.execute('PRAGMA user_version').fetchone()[0] == 8
+        finally:
+            if saved_sock is None:
+                os.environ.pop('SSH_AUTH_SOCK', None)
+            else:
+                os.environ['SSH_AUTH_SOCK'] = saved_sock
+            stop_all(hosts)
+            for host in hosts:
+                host.logs.close()
+            coord.stop()
+            coord.logs.close()
+            for agent in agents.values():
+                agent.stop()
+    print(f'PASS {label}: person, group, and network principals without grant IDs; deny at handoff; stale '
+          'policy ignored; cited-version 503 then success; blocks over grants and policy offline; agent renewal; '
+          'lapse; size, deadline, and allow_disconnected bounds', flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--go', type=Path, required=True)
+    parser.add_argument('--rust', type=Path, required=True)
+    parser.add_argument('--coord', type=Path, required=True)
+    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--pairing', action='append', help='owner/senders, such as Go/Rust; default all')
+    args = parser.parse_args()
+    set_probe(args.probe)
+    binaries = {'Go': args.go.resolve(), 'Rust': args.rust.resolve()}
+    for owner in binaries:
+        for sender in binaries:
+            if args.pairing and f'{owner}/{sender}' not in args.pairing:
+                continue
+            check(args.coord.resolve(), binaries[owner], binaries[sender], f'{owner} owner, {sender} senders')
+
+
+if __name__ == '__main__':
+    main()

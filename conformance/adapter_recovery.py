@@ -845,6 +845,7 @@ def migration(original, replacement, label):
             )
             wait_for(lambda: sql(a, "SELECT record FROM outbound_replies"))
             a.stop(crash=True)
+            sql(a, "DROP TABLE access_blocks")
             sql(a, "DROP TABLE network_statements")
             sql(a, "DROP TABLE adapter_connections")
             sql(a, "PRAGMA user_version=5")
@@ -883,7 +884,7 @@ def migration(original, replacement, label):
             )
             a.binary = str(replacement)
             assert a.start() == ai
-            assert sql(a, "PRAGMA user_version")[0][0] == 7
+            assert sql(a, "PRAGMA user_version")[0][0] == 8
             for table, records in rows.items():
                 assert sql(a, "SELECT * FROM " + table) == records
             assert (
@@ -905,7 +906,7 @@ def migration(original, replacement, label):
             b.stop()
     print(
         label
-        + ": populated v5→v7 migration/rollback preserves original state without substituting a session",
+        + ": populated v5→v8 migration/rollback preserves original state without substituting a session",
         flush=True,
     )
 

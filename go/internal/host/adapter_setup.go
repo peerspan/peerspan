@@ -63,18 +63,22 @@ type AdapterSetupRequest struct {
 	Routes      []SetupRoute `json:"routes"`
 }
 type SetupRoute struct {
-	Name            string `json:"name"`
-	PeerHostID      string `json:"peer_host_id"`
-	TargetAgentID   string `json:"target_agent_id"`
-	GrantID         string `json:"grant_id"`
-	ExpiresAt       string `json:"expires_at"`
-	MaxMessageBytes int64  `json:"max_message_bytes"`
-	MaxMessages     int64  `json:"max_messages"`
+	Name            string  `json:"name"`
+	PeerHostID      string  `json:"peer_host_id"`
+	TargetAgentID   string  `json:"target_agent_id"`
+	GrantID         *string `json:"grant_id"`
+	ExpiresAt       string  `json:"expires_at"`
+	MaxMessageBytes int64   `json:"max_message_bytes"`
+	MaxMessages     int64   `json:"max_messages"`
 }
 
 func (r *SetupRoute) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil || len(fields) != 7 {
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return ErrInvalid
+	}
+	// grant_id may be missing or null: sends then cite the owner's policy.
+	if _, hasGrant := fields["grant_id"]; len(fields) != 7 && (hasGrant || len(fields) != 6) {
 		return ErrInvalid
 	}
 	for key, value := range fields {
@@ -83,7 +87,7 @@ func (r *SetupRoute) UnmarshalJSON(data []byte) error {
 		default:
 			return ErrInvalid
 		}
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if key != "grant_id" && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return ErrInvalid
 		}
 	}

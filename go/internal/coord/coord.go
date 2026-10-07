@@ -456,6 +456,7 @@ func (s *Server) Handler() http.Handler {
 	s.governanceRoutes(mux)
 	s.personRoutes(mux)
 	s.adminRoutes(mux)
+	s.policyRoutes(mux)
 	return mux
 }
 
@@ -736,7 +737,10 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 	if err = addPersons(ctx, tx, m); err != nil {
 		return nil, err
 	}
-	return m, addAdmins(ctx, tx, m)
+	if err = addAdmins(ctx, tx, m); err != nil {
+		return nil, err
+	}
+	return m, addPolicies(ctx, tx, m)
 }
 
 // rawOrNull serves an empty stored column as JSON null.

@@ -49,6 +49,9 @@ pub struct Store {
     pub(crate) peer_bound: RwLock<Option<std::net::SocketAddr>>,
     /// The candidates most recently published to a coordinator.
     pub(crate) candidates: RwLock<Vec<std::net::SocketAddr>>,
+    /// The owner's `ssh-agent` socket for policy renewal signatures. The
+    /// daemon asks the agent to sign and never holds the key.
+    pub(crate) person_agent: RwLock<Option<PathBuf>>,
 }
 
 impl Store {
@@ -73,7 +76,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=7).contains(&version) {
+        if !(0..=8).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -97,6 +100,9 @@ impl Store {
         }
         if version < 7 {
             tx.execute_batch(crate::network::STATEMENT_SCHEMA)?;
+        }
+        if version < 8 {
+            tx.execute_batch(crate::policy::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -174,6 +180,7 @@ impl Store {
             relay_wake: tokio::sync::Notify::new(),
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),
+            person_agent: RwLock::new(None),
         })
     }
 

@@ -93,7 +93,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             messages = receiver.cli('message', 'list')
             activity = receiver.cli('activity')
             receiver.stop()
-            for table in ['network_statements', 'adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
+            for table in ['access_blocks', 'network_statements', 'adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
                 sql(receiver, 'DROP TABLE ' + table)
             sql(receiver, 'PRAGMA user_version = 3')
             # Force failure after migration begins; no partial extension may persist.
@@ -107,7 +107,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             receiver.binary = str(replacement_binary)
             identity = receiver.start()
             assert identity['id'] == b['id'] and identity['public_key'] == b['public_key']
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 7
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 8
             assert receiver.cli('message', 'list') == messages
             assert receiver.cli('activity') == activity
             assert receiver.cli('grant', 'list') == [grant]
@@ -116,7 +116,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             assert sender.cli('message', 'inspect', '--peer', b['id'], sent['request']['request_id']) == sent
         finally:
             sender.stop(); receiver.stop()
-    print(label + ': v3→v7 migration/rollback passed', flush=True)
+    print(label + ': v3→v8 migration/rollback passed', flush=True)
 
 
 class Channel:
@@ -368,7 +368,7 @@ def check(sender_binary, receiver_binary, node, script, label):
                 assert actual['id'] == expected['id'] and actual['public_key'] == expected['public_key']
                 # Compare instants; state written before both used one spelling may differ.
                 assert datetime.fromisoformat(actual['created_at'].replace('Z', '+00:00')) == datetime.fromisoformat(expected['created_at'].replace('Z', '+00:00'))
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 7
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 8
             assert adapter_call(receiver, token, 'POST', '/adapter/v1/next', {})[0] == 503
             receiver.cli('session', 'detach', session['id'])
             assert receiver.cli('delivery', 'inspect', uncertain['id']) == uncertain

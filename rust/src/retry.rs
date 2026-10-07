@@ -262,7 +262,8 @@ mod tests {
             peer_host_id: format!("host_{}", "a".repeat(64)),
             request: MessageRequest {
                 request_id: format!("request_{}", "0".repeat(32)),
-                grant_id: format!("grant_{}", "0".repeat(32)),
+                grant_id: Some(format!("grant_{}", "0".repeat(32))),
+                policy: None,
                 target_agent_id: format!("agent_{}", "0".repeat(32)),
                 deadline: deadline.into(),
                 content: "hello".into(),

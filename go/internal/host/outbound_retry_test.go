@@ -220,7 +220,7 @@ func TestAutomaticRetryDeliversOnceTheReceiverIsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := sender.store.PrepareOutbound(ctx, SendMessage{PeerHostID: peer.ID, MessageRequest: MessageRequest{GrantID: grant.ID, TargetAgentID: agent.ID, Deadline: timestamp(time.Now().Add(time.Minute)), Content: "hello"}})
+	out, err := sender.store.PrepareOutbound(ctx, SendMessage{PeerHostID: peer.ID, MessageRequest: MessageRequest{GrantID: ref(grant.ID), TargetAgentID: agent.ID, Deadline: timestamp(time.Now().Add(time.Minute)), Content: "hello"}})
 	if err != nil {
 		t.Fatal(err)
 	}

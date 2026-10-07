@@ -113,6 +113,7 @@ python3 conformance/coordination.py --go /tmp/capsule-host-go --rust rust/target
 python3 conformance/revocation.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/persons.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/admins.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+python3 conformance/policy.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/send_retry.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
@@ -148,6 +149,15 @@ The token is a bearer secret, so deliver it out of band. Every host verifies the
 If an `ssh-ed25519` key is loaded in `ssh-agent`, `network create` and `network join` also record whose machine it is. They admit that SSH key as a person and bind the host to it, so a member's second machine joins with the same two steps. Each command's JSON `person` field reports what happened. Without an agent, or with several keys, the host still joins, and `person.skipped` and `person.next` give the reason and the exact command that finishes the step. `--person-key PATH` picks a key, `--no-person` skips persons, and `network invite --host-only` issues a host-only invite. The separate commands (`network admit`, `invite-person`, `redeem-person`, `bind`, `unbind`, `remove-person`, `persons`) remain for other setups. See the [coordination contract](docs/coordination-contract.md) and the [roadmap](docs/production-roadmap.md).
 
 The creator's SSH key also becomes the network's first administrator. On any of their machines, the same commands (`network invite`, `admit`, `revoke`, `remove-person`, and the new `network group set`) sign with that key from `ssh-agent` when the host does not hold the root seed. `network delegate-admin` and `network remove-admin [--revoke-admitted]` manage other administrators. `network rotate-root ID --to-ssh --root-key PATH` moves the root itself to an SSH key, so the creator's host no longer holds it; later root-only commands take `--root-key PATH`.
+
+Instead of a grant per sender, an owner can sign an access policy for their own agents with the same SSH key:
+
+```bash
+capsule-host access allow --network NETWORK_ID --agent reviewer --principal person:bob --principal group:backend
+capsule-host message send --peer ALICE_HOST_ID --agent ALICE_AGENT_ID --deadline FUTURE_RFC3339_TIME --content "hello"
+```
+
+Principals are `person:PERSON` (an ID or unambiguous label), `group:NAME`, or `network` for every member host. Without `--grant`, `message send` and adapter routes cite the receiving owner's policy, and a send with nothing to cite is refused locally with the reason. `access deny`, `renew`, and `show` change or display the policy. It is valid for 7 days by default (`--valid-days`, 1 to 90), and `run` renews it through `ssh-agent` once less than a quarter remains (`--person-agent SOCKET`, default `SSH_AUTH_SOCK`); without an agent, access lapses. `access block --person PERSON` or `--host HOST_ID` refuses a sender on this host at once, over both grants and policies.
 
 ## Compare build times
 

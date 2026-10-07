@@ -370,6 +370,8 @@ struct WireMap {
     admins: Vec<Value>,
     #[serde(default)]
     groups: Vec<Value>,
+    #[serde(default)]
+    policies: Vec<Value>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -521,6 +523,8 @@ struct Statements {
     admin_removals: Vec<AdminRemoval>,
     /// The applicable version of each group, deleted ones included.
     groups: Vec<Group>,
+    /// The newest verified policy of each person.
+    policies: Vec<crate::policy::Policy>,
 }
 impl Statements {
     fn load(connection: &Connection, network: &str) -> Result<Self, Error> {
@@ -549,6 +553,7 @@ impl Statements {
                 "admin" => out.admins.push(json(record)?),
                 "admin_removal" => out.admin_removals.push(json(record)?),
                 "group" => out.groups.push(json(record)?),
+                "policy" => out.policies.push(json(record)?),
                 _ => {}
             }
         }
@@ -929,6 +934,16 @@ fn verify_map(
         std::mem::take(&mut statements.groups),
         map.groups,
     );
+    let person_keys: Vec<String> = persons
+        .iter()
+        .map(|p| p.person_public_key.clone())
+        .collect();
+    statements.policies = crate::policy::verify_policies(
+        &network.id,
+        &person_keys,
+        std::mem::take(&mut statements.policies),
+        map.policies,
+    );
     Ok(VerifiedMap {
         members,
         persons,
@@ -1176,7 +1191,11 @@ fn time_after(a: &str, b: &str) -> bool {
 }
 
 impl Store {
-    fn network_record(&self, connection: &Connection, id: &str) -> Result<Network, Error> {
+    pub(crate) fn network_record(
+        &self,
+        connection: &Connection,
+        id: &str,
+    ) -> Result<Network, Error> {
         let (record, administrator): (String, bool) = connection.query_row(
             "SELECT record, root_seed IS NOT NULL FROM networks WHERE id = ?1",
             [id],
@@ -1672,6 +1691,18 @@ impl Store {
                 append_event(&tx, "network.group_updated", &g.name, &at)?;
             }
         }
+        let old_policies: BTreeMap<String, u64> = Statements::load(&tx, &id)?
+            .policies
+            .into_iter()
+            .map(|p| (p.person_public_key, p.version))
+            .collect();
+        replace("policy")?;
+        for p in &statements.policies {
+            insert_statement(&tx, &id, "policy", &p.person_public_key, p)?;
+            if old_policies.get(&p.person_public_key) != Some(&p.version) {
+                append_event(&tx, "network.policy_updated", &p.person_id(), &at)?;
+            }
+        }
         let old_persons = replace("person")?;
         for p in &verified.persons {
             insert_statement(&tx, &id, "person", &p.person_public_key, &p.proof())?;
@@ -1789,7 +1820,11 @@ impl Store {
     }
 
     /// The verified persons this host holds for a network.
-    fn stored_persons(&self, connection: &Connection, id: &str) -> Result<Vec<PersonEntry>, Error> {
+    pub(crate) fn stored_persons(
+        &self,
+        connection: &Connection,
+        id: &str,
+    ) -> Result<Vec<PersonEntry>, Error> {
         let mut statement = connection.prepare(
             "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'person' ORDER BY subject",
         )?;
@@ -1800,7 +1835,11 @@ impl Store {
         persons.sort_by(|a, b| a.person_id.cmp(&b.person_id));
         Ok(persons)
     }
-    fn stored_members(&self, connection: &Connection, id: &str) -> Result<Vec<Member>, Error> {
+    pub(crate) fn stored_members(
+        &self,
+        connection: &Connection,
+        id: &str,
+    ) -> Result<Vec<Member>, Error> {
         let mut statement =
             connection.prepare("SELECT record FROM network_members WHERE network_id = ?1")?;
         statement
@@ -1940,7 +1979,11 @@ impl Store {
         }
     }
     /// The applicable version of every group, deleted ones included.
-    fn stored_groups(&self, connection: &Connection, id: &str) -> Result<Vec<Group>, Error> {
+    pub(crate) fn stored_groups(
+        &self,
+        connection: &Connection,
+        id: &str,
+    ) -> Result<Vec<Group>, Error> {
         let mut groups = Statements::load(connection, id)?.groups;
         groups.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(groups)
@@ -3674,7 +3717,7 @@ pub async fn leave(store: Arc<Store>, id: String) -> Result<Left, Error> {
 /// What submitting a pending rotation achieved.
 enum Submitted {
     /// Accepted; carries the coordinator's map.
-    Accepted(WireMap),
+    Accepted(Box<WireMap>),
     /// Will never be accepted: the coordinator holds a different rotation at
     /// that epoch (409) or rejects the rotation as invalid (400).
     Rejected(Error),
@@ -3711,7 +3754,7 @@ async fn submit_rotation(
     match response {
         Ok((status, body)) => match rotation_response(status) {
             RotationResponse::Accept => match parse_map(&body) {
-                Ok(map) => Submitted::Accepted(map),
+                Ok(map) => Submitted::Accepted(Box::new(map)),
                 Err(error) => Submitted::Unsettled(error),
             },
             RotationResponse::Discard => Submitted::Rejected(coordinator_status(status, &body)),
@@ -3756,7 +3799,7 @@ pub async fn rotate(
     let (network, pending) =
         blocking(store.clone(), move |s| s.prepare_rotation(&lookup, ssh)).await?;
     match submit_rotation(store.clone(), &network, &pending).await {
-        Submitted::Accepted(map) => accept_rotation(store, id, pending, map).await,
+        Submitted::Accepted(map) => accept_rotation(store, id, pending, *map).await,
         Submitted::Rejected(error) => {
             let reason = error.to_string();
             blocking(store, move |s| s.discard_rotation_with_error(&id, &reason)).await?;
@@ -3794,7 +3837,7 @@ async fn settle_rotation(
         }
         PendingOutcome::Resubmit(pending) => {
             match submit_rotation(store.clone(), &network, &pending).await {
-                Submitted::Accepted(map) => accept_rotation(store, id, *pending, map).await,
+                Submitted::Accepted(map) => accept_rotation(store, id, *pending, *map).await,
                 Submitted::Rejected(error) => {
                     let reason = error.to_string();
                     blocking(store, move |s| s.discard_rotation_with_error(&id, &reason)).await
@@ -3978,6 +4021,41 @@ pub async fn set_group(
     let network =
         submit_statement(store, &network, "groups", json_value!({"group": group})).await?;
     Ok(GroupView::of(&group, &network.current_root_public_key))
+}
+/// Submits an owner policy the CLI or the renewal task signed: verified
+/// locally, accepted by the coordinator, then recorded.
+pub async fn submit_policy(
+    store: Arc<Store>,
+    id: String,
+    policy: crate::policy::Policy,
+) -> Result<crate::policy::Policy, Error> {
+    let (lookup, checked) = (id.clone(), policy.clone());
+    let network = blocking(store.clone(), move |s| {
+        s.check_policy(&lookup, &checked)?;
+        s.network(&lookup)
+    })
+    .await?;
+    let response = coordinator(
+        store.clone(),
+        &network.coordinator_address,
+        &network.coordinator_public_key,
+        format!("/coord/v1/networks/{}/policies", network.id),
+        json_value!({"policy": policy}),
+    )
+    .await
+    .map_err(|e| Error::Unavailable(format!("{e:#}")))?;
+    match response {
+        (200 | 201, body) => {
+            if let Ok(map) = parse_map(&body) {
+                let network = network.clone();
+                blocking(store.clone(), move |s| s.apply_map(network, map, false)).await?;
+            }
+        }
+        (status, body) => return Err(coordinator_status(status, &body)),
+    }
+    let recorded = policy.clone();
+    blocking(store, move |s| s.record_policy(&id, &recorded)).await?;
+    Ok(policy)
 }
 /// Admits a host by public key (administrator only); it joins with the
 /// returned descriptor.
@@ -4347,6 +4425,7 @@ pub async fn coordinate(store: Arc<Store>, mut shutdown: tokio::sync::watch::Rec
                 eprintln!("coordination sync error: {error}");
             }
         }
+        crate::policy::renew(store.clone()).await;
         let interval = store.coordination_interval.load(Ordering::Relaxed);
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(interval)) => {}
@@ -4657,6 +4736,7 @@ mod tests {
         let map = WireMap {
             admins: Vec::new(),
             groups: Vec::new(),
+            policies: Vec::new(),
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -4680,6 +4760,7 @@ mod tests {
         let other = WireMap {
             admins: Vec::new(),
             groups: Vec::new(),
+            policies: Vec::new(),
             network_id: network.id.clone(),
             root_public_key: STANDARD.encode(forger.verifying_key().as_bytes()),
             members: vec![],
@@ -4790,6 +4871,7 @@ mod tests {
         let map = || WireMap {
             admins: Vec::new(),
             groups: Vec::new(),
+            policies: Vec::new(),
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -4892,6 +4974,7 @@ mod tests {
         WireMap {
             admins: Vec::new(),
             groups: Vec::new(),
+            policies: Vec::new(),
             network_id: network.id.clone(),
             root_public_key: network.root_public_key.clone(),
             members,
@@ -6214,6 +6297,7 @@ mod tests {
         let map = WireMap {
             admins: Vec::new(),
             groups: Vec::new(),
+            policies: Vec::new(),
             network_id: id.clone(),
             root_public_key: network.root_public_key.clone(),
             members: vec![
@@ -6832,7 +6916,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -6844,11 +6928,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 8;")
+            .execute_batch("PRAGMA user_version = 9;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

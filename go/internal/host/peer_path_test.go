@@ -263,7 +263,7 @@ func TestDirectPathReplacesRelay(t *testing.T) {
 	}
 	send := func(content string) OutboundMessage {
 		t.Helper()
-		out, err := alice.PrepareOutbound(ctx, SendMessage{PeerHostID: bob.Identity().ID, MessageRequest: MessageRequest{GrantID: grant.ID, TargetAgentID: agent.ID, Deadline: timestamp(time.Now().Add(time.Minute)), Content: content}})
+		out, err := alice.PrepareOutbound(ctx, SendMessage{PeerHostID: bob.Identity().ID, MessageRequest: MessageRequest{GrantID: ref(grant.ID), TargetAgentID: agent.ID, Deadline: timestamp(time.Now().Add(time.Minute)), Content: content}})
 		if err != nil {
 			t.Fatal(err)
 		}

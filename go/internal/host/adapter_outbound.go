@@ -25,21 +25,21 @@ type OutboundRoute struct {
 	Name            string  `json:"name"`
 	PeerHostID      string  `json:"peer_host_id"`
 	TargetAgentID   string  `json:"target_agent_id"`
-	GrantID         string  `json:"grant_id"`
+	GrantID         *string `json:"grant_id"`
 	ExpiresAt       string  `json:"expires_at"`
 	MaxMessageBytes int64   `json:"max_message_bytes"`
 	MaxMessages     int64   `json:"max_messages"`
 	RevokedAt       *string `json:"revoked_at"`
 }
 type CreateOutboundRoute struct {
-	AdapterID       string `json:"adapter_id"`
-	Name            string `json:"name"`
-	PeerHostID      string `json:"peer_host_id"`
-	TargetAgentID   string `json:"target_agent_id"`
-	GrantID         string `json:"grant_id"`
-	ExpiresAt       string `json:"expires_at"`
-	MaxMessageBytes int64  `json:"max_message_bytes"`
-	MaxMessages     int64  `json:"max_messages"`
+	AdapterID       string  `json:"adapter_id"`
+	Name            string  `json:"name"`
+	PeerHostID      string  `json:"peer_host_id"`
+	TargetAgentID   string  `json:"target_agent_id"`
+	GrantID         *string `json:"grant_id,omitempty"`
+	ExpiresAt       string  `json:"expires_at"`
+	MaxMessageBytes int64   `json:"max_message_bytes"`
+	MaxMessages     int64   `json:"max_messages"`
 }
 type Destination struct {
 	Name              string `json:"name"`
@@ -121,7 +121,7 @@ func (s *Store) CreateOutboundRoute(ctx context.Context, r CreateOutboundRoute) 
 }
 func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOutboundRoute) (OutboundRoute, error) {
 	exp, err := parseTime(r.ExpiresAt)
-	if err != nil || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || !validID(r.GrantID, "grant", 16) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
+	if err != nil || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
 		return OutboundRoute{}, ErrInvalid
 	}
 	var known int
@@ -326,7 +326,14 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	if exp.Before(deadline) {
 		deadline = exp
 	}
-	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content}, State: "unknown", NextAttemptAt: s.initialAttempt()}
+	// A route without a grant cites the target host's owner's policy.
+	var citation *PolicyCitation
+	if route.GrantID == nil {
+		if citation, err = s.policyCitation(ctx, tx, route.PeerHostID); err != nil {
+			return old, err
+		}
+	}
+	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content}, State: "unknown", NextAttemptAt: s.initialAttempt()}
 	if err = insertOutbound(ctx, tx, out); err != nil {
 		return out, err
 	}

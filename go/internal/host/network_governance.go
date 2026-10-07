@@ -85,6 +85,7 @@ type persistedStatements struct {
 	hostAdmissions map[string]json.RawMessage
 	admins         map[string]json.RawMessage // delegations by person key
 	groups         map[string]json.RawMessage // newest version by name
+	policies       map[string]json.RawMessage // newest version by owner key
 }
 
 // appliedMap is a verified map: valid members under the root chain, plus the
@@ -100,6 +101,7 @@ type appliedMap struct {
 	bindings      map[string]membership.HostBinding // by host key
 	admins        membership.AdminState
 	groups        map[string]membership.GroupDefinition
+	policies      map[string]membership.Policy // by owner key
 }
 
 type queryer interface {
@@ -107,7 +109,7 @@ type queryer interface {
 }
 
 func loadStatements(ctx context.Context, q queryer, network string) (persistedStatements, error) {
-	p := persistedStatements{persons: map[string]json.RawMessage{}, hostAdmissions: map[string]json.RawMessage{}, admins: map[string]json.RawMessage{}, groups: map[string]json.RawMessage{}}
+	p := persistedStatements{persons: map[string]json.RawMessage{}, hostAdmissions: map[string]json.RawMessage{}, admins: map[string]json.RawMessage{}, groups: map[string]json.RawMessage{}, policies: map[string]json.RawMessage{}}
 	rows, err := q.QueryContext(ctx, "SELECT kind, subject, record FROM network_statements WHERE network_id = ?", network)
 	if err != nil {
 		return p, err
@@ -138,6 +140,8 @@ func loadStatements(ctx context.Context, q queryer, network string) (persistedSt
 			p.admins[r.subject] = r.statement
 		case kindGroup:
 			p.groups[r.subject] = r.statement
+		case kindPolicy:
+			p.policies[r.subject] = r.statement
 		default:
 			p.revocations = append(p.revocations, r)
 		}
@@ -257,6 +261,7 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 		a.persons[key] = proof
 	}
 	a.applyGroups(persisted, m)
+	a.applyPolicies(persisted, m)
 	a.bindings = map[string]membership.HostBinding{}
 	var candidates []NetworkMember
 	invites := map[string]map[string]bool{}
@@ -429,6 +434,9 @@ func (s *Store) persistStatements(ctx context.Context, tx *sql.Tx, network strin
 		return err
 	}
 	if err := s.persistAdmins(ctx, tx, network, a, now); err != nil {
+		return err
+	}
+	if err := s.persistPolicies(ctx, tx, network, a, now); err != nil {
 		return err
 	}
 	for _, r := range a.revocations {

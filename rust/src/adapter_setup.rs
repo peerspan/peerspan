@@ -32,7 +32,8 @@ pub struct SetupRoute {
     pub name: String,
     pub peer_host_id: String,
     pub target_agent_id: String,
-    pub grant_id: String,
+    #[serde(default)]
+    pub grant_id: Option<String>,
     pub expires_at: String,
     pub max_message_bytes: i64,
     pub max_messages: i64,

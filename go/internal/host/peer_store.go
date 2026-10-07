@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 )
 
 // The v2 schema is shared with Rust. All changes and their activity commit together.
@@ -47,13 +49,38 @@ type CreateGrant struct {
 	MaxMessageBytes   int64  `json:"max_message_bytes"`
 	AllowDisconnected bool   `json:"allow_disconnected"`
 }
+
+// MessageRequest names exactly one authorization: a grant, or the owner
+// policy it relies on.
 type MessageRequest struct {
-	RequestID     string `json:"request_id"`
-	GrantID       string `json:"grant_id"`
-	TargetAgentID string `json:"target_agent_id"`
-	Deadline      string `json:"deadline"`
-	Content       string `json:"content"`
+	RequestID     string          `json:"request_id"`
+	GrantID       *string         `json:"grant_id,omitempty"`
+	Policy        *PolicyCitation `json:"policy,omitempty"`
+	TargetAgentID string          `json:"target_agent_id"`
+	Deadline      string          `json:"deadline"`
+	Content       string          `json:"content"`
 }
+
+// same reports whether two requests are identical.
+func (r MessageRequest) same(o MessageRequest) bool {
+	if (r.Policy == nil) != (o.Policy == nil) || (r.Policy != nil && *r.Policy != *o.Policy) {
+		return false
+	}
+	if (r.GrantID == nil) != (o.GrantID == nil) || (r.GrantID != nil && *r.GrantID != *o.GrantID) {
+		return false
+	}
+	r.Policy, o.Policy, r.GrantID, o.GrantID = nil, nil, nil, nil
+	return r == o
+}
+
+// grantOf is a request's grant ID, or "".
+func grantOf(r MessageRequest) string {
+	if r.GrantID == nil {
+		return ""
+	}
+	return *r.GrantID
+}
+
 type SendMessage struct {
 	PeerHostID string `json:"peer_host_id"`
 	MessageRequest
@@ -85,6 +112,25 @@ type OutboundMessage struct {
 	// ReceiptQueries counts receipt queries made at or after the deadline,
 	// automatic or explicit; automatic retry stops after ten of them.
 	ReceiptQueries int64 `json:"receipt_queries,omitempty"`
+}
+
+// recordedRequest is a request as an outbound record shows it: grant_id is
+// null, rather than absent, when the request cites a policy.
+type recordedRequest struct {
+	RequestID     string          `json:"request_id"`
+	GrantID       *string         `json:"grant_id"`
+	Policy        *PolicyCitation `json:"policy,omitempty"`
+	TargetAgentID string          `json:"target_agent_id"`
+	Deadline      string          `json:"deadline"`
+	Content       string          `json:"content"`
+}
+
+func (o OutboundMessage) MarshalJSON() ([]byte, error) {
+	type plain OutboundMessage
+	return json.Marshal(struct {
+		plain
+		Request recordedRequest `json:"request"`
+	}{plain(o), recordedRequest(o.Request)})
 }
 
 func validID(id, prefix string, bytes int) bool {
@@ -245,8 +291,8 @@ func (s *Store) RevokeGrant(ctx context.Context, id string) (Grant, error) {
 // messageAuthority authorizes wire acceptance. A connected state that can
 // recover is reported as ErrUnavailable (503), so senders can retry the same
 // request once the receiver syncs again; final denials remain ErrForbidden.
-func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (Grant, error) {
-	g, err := grantBounds(ctx, tx, sender, r, requireDeadline)
+func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (authority, error) {
+	g, err := s.messageBounds(ctx, tx, sender, r, requireDeadline)
 	if err != nil {
 		return g, err
 	}
@@ -264,7 +310,7 @@ func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string,
 // grantBounds checks everything except coordination connectivity. Its denials
 // are final: revocation, expiry, a passed deadline, and size never recover.
 func grantBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (Grant, error) {
-	g, err := readJSON[Grant](tx.QueryRowContext(ctx, `SELECT record FROM grants WHERE id = ?`, r.GrantID))
+	g, err := readJSON[Grant](tx.QueryRowContext(ctx, `SELECT record FROM grants WHERE id = ?`, grantOf(r)))
 	if errors.Is(err, ErrNotFound) {
 		err = ErrForbidden
 	}
@@ -286,12 +332,12 @@ func grantBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageReques
 	return g, nil
 }
 
-// grantConnected reports whether the grant may be used now. Without
-// coordination, only a grant that opts in permits new work. When it may not,
+// grantConnected reports whether the grant or policy rule may be used now.
+// Without coordination, only one that opts in permits new work. When it may not,
 // recoverable is true only if the requester is a verified member of a network
 // this host has not synced recently, so resumed syncing can restore it.
-func (s *Store) grantConnected(ctx context.Context, tx *sql.Tx, sender string, g Grant) (usable, recoverable bool, err error) {
-	if g.AllowDisconnected {
+func (s *Store) grantConnected(ctx context.Context, tx *sql.Tx, sender string, g authority) (usable, recoverable bool, err error) {
+	if g.allowDisconnected {
 		return true, false, nil
 	}
 	if usable, err = s.connected(ctx, tx, sender, time.Now()); err != nil || usable {
@@ -301,7 +347,12 @@ func (s *Store) grantConnected(ctx context.Context, tx *sql.Tx, sender string, g
 	return false, recoverable, err
 }
 func validateMessage(r MessageRequest) error {
-	if !validID(r.RequestID, "request", 16) || !validID(r.GrantID, "grant", 16) || !validID(r.TargetAgentID, "agent", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
+	// Exactly one authorization: a grant ID, or a policy citation.
+	authorized := r.Policy == nil && validID(grantOf(r), "grant", 16)
+	if r.Policy != nil {
+		authorized = r.GrantID == nil && membership.ValidPersonID(r.Policy.PersonID) && r.Policy.Version >= 1
+	}
+	if !validID(r.RequestID, "request", 16) || !authorized || !validID(r.TargetAgentID, "agent", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
 		return ErrInvalid
 	}
 	if _, err := parseTime(r.Deadline); err != nil {
@@ -330,7 +381,7 @@ func (s *Store) AcceptMessage(ctx context.Context, sender string, r MessageReque
 		if err = json.Unmarshal([]byte(oldRequest), &old); err != nil {
 			return receipt, err
 		}
-		if old != r {
+		if !old.same(r) {
 			return receipt, ErrConflict
 		}
 		err = json.Unmarshal([]byte(oldReceipt), &receipt)
@@ -405,6 +456,14 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 		}
 		r.RequestID = id
 	}
+	// Without a grant, the send cites the target host's owner's policy.
+	if r.GrantID == nil && r.Policy == nil {
+		citation, err := s.policyCitation(ctx, s.db, r.PeerHostID)
+		if err != nil {
+			return OutboundMessage{}, err
+		}
+		r.Policy = citation
+	}
 	if err := validateMessage(r.MessageRequest); err != nil {
 		return OutboundMessage{}, err
 	}
@@ -418,7 +477,11 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 	defer tx.Rollback()
 	old, err := readJSON[OutboundMessage](tx.QueryRowContext(ctx, "SELECT record FROM outbound_messages WHERE peer = ? AND request_id = ?", r.PeerHostID, r.RequestID))
 	if err == nil {
-		if old.Request != r.MessageRequest {
+		// A resend keeps its original citation.
+		if r.GrantID == nil && old.Request.Policy != nil {
+			r.Policy = old.Request.Policy
+		}
+		if !old.Request.same(r.MessageRequest) {
 			return old, ErrConflict
 		}
 		return old, nil

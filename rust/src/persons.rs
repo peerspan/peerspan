@@ -265,6 +265,14 @@ impl PersonSigner {
         }
         Ok(Self::Agent { socket, key })
     }
+    /// The identity holding `key` in the agent at `socket`, for the daemon's
+    /// policy renewal. The daemon asks the agent to sign; it never holds keys.
+    pub fn agent_at(socket: std::path::PathBuf, key: [u8; 32]) -> Result<Self, Error> {
+        if !agent_identities(&socket)?.contains(&key) {
+            return Err(invalid("the ssh-agent does not hold that key"));
+        }
+        Ok(Self::Agent { socket, key })
+    }
     pub fn public_key(&self) -> [u8; 32] {
         match self {
             Self::Agent { key, .. } => *key,

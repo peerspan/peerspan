@@ -248,7 +248,7 @@ func readRoutes(path, expiry string) ([]host.SetupRoute, error) {
 			return nil, errors.New("invalid destination")
 		}
 		for key, value := range fields {
-			if string(value) == "null" {
+			if string(value) == "null" && key != "grant_id" {
 				return nil, errors.New("destination fields cannot be null")
 			}
 			switch key {

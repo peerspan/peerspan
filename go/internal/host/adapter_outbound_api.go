@@ -44,7 +44,7 @@ func localOutboundRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/adapter-routes", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateOutboundRoute
-		if !decode(w, r, &req, "adapter_id", "name", "peer_host_id", "target_agent_id", "grant_id", "expires_at", "max_message_bytes", "max_messages") {
+		if !decode(w, r, &req, "adapter_id", "name", "peer_host_id", "target_agent_id", "grant_id?", "expires_at", "max_message_bytes", "max_messages") {
 			return
 		}
 		route, err := store.CreateOutboundRoute(r.Context(), req)

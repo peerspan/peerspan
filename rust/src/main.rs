@@ -1,3 +1,4 @@
+mod access;
 mod admin;
 mod cli;
 mod integration;
@@ -60,9 +61,28 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         peer_listen,
         advertise,
         coordination_interval,
+        person_agent,
     } = command
     {
-        return run_daemon(directory, peer_listen, advertise, coordination_interval).await;
+        let person_agent = person_agent.or_else(|| {
+            env::var_os("SSH_AUTH_SOCK")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+        });
+        return run_daemon(
+            directory,
+            peer_listen,
+            advertise,
+            coordination_interval,
+            person_agent,
+        )
+        .await;
+    }
+    if let cli::Command::Access(access) = &command
+        && let Some(value) = access::command(access, &directory.join("admin.sock")).await?
+    {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
     }
     if let Some(value) = person_command(&command, &directory).await? {
         println!("{}", serde_json::to_string_pretty(&value)?);
@@ -360,9 +380,11 @@ async fn run_daemon(
     peer_listen: Option<std::net::SocketAddr>,
     advertise: Option<std::net::SocketAddr>,
     coordination_interval: u64,
+    person_agent: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let store = Arc::new(Store::open(&directory)?);
     store.set_coordination_interval(coordination_interval);
+    store.set_person_agent(person_agent);
     let path = store.socket_path();
     match fs::symlink_metadata(&path) {
         Ok(metadata) => {

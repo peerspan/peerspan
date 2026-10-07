@@ -31,6 +31,10 @@ pub enum Command {
         /// Seconds between coordination syncs
         #[arg(long, value_name = "SECONDS", default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..=3600))]
         coordination_interval: u64,
+        /// ssh-agent socket used to renew this host's person's access
+        /// policy; defaults to SSH_AUTH_SOCK
+        #[arg(long, value_name = "SOCKET")]
+        person_agent: Option<PathBuf>,
     },
     /// Show the local daemon's public identity
     Info,
@@ -46,6 +50,9 @@ pub enum Command {
     /// Manage receiver-owned message grants
     #[command(subcommand)]
     Grant(GrantCommand),
+    /// Manage the owner access policy and this host's block list
+    #[command(subcommand)]
+    Access(AccessCommand),
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
@@ -410,6 +417,68 @@ pub enum GrantCommand {
     },
 }
 #[derive(Debug, Subcommand)]
+pub enum AccessCommand {
+    /// Add or replace the rule for an agent in your policy
+    Allow {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "NAME")]
+        agent: String,
+        /// person:ID, person:LABEL, group:NAME, or network; repeat for each
+        #[arg(long, required = true)]
+        principal: Vec<String>,
+        #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
+        max_message_bytes: i64,
+        #[arg(long)]
+        allow_disconnected: bool,
+        #[arg(long, default_value_t = 7, value_parser = clap::value_parser!(i64).range(1..=90))]
+        valid_days: i64,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Remove principals from an agent's rule, or the whole rule
+    Deny {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "NAME")]
+        agent: String,
+        #[arg(long)]
+        principal: Vec<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Re-sign your current rules now
+    Renew {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Show a person's newest verified policy (yours by default)
+    Show {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        #[arg(long)]
+        person: Option<String>,
+    },
+    /// Refuse messages from a person or host on this host
+    Block {
+        #[arg(long, conflicts_with = "host", required_unless_present = "host")]
+        person: Option<String>,
+        #[arg(long, value_name = "HOST_ID")]
+        host: Option<String>,
+    },
+    /// Remove a block
+    Unblock {
+        #[arg(long, conflicts_with = "host", required_unless_present = "host")]
+        person: Option<String>,
+        #[arg(long, value_name = "HOST_ID")]
+        host: Option<String>,
+    },
+    /// List this host's blocks
+    Blocks,
+}
+#[derive(Debug, Subcommand)]
 pub enum MessageCommand {
     Origin {
         #[arg(long)]
@@ -419,8 +488,9 @@ pub enum MessageCommand {
     Send {
         #[arg(long)]
         peer: String,
+        /// Grant ID; otherwise cite the target owner's policy
         #[arg(long)]
-        grant: String,
+        grant: Option<String>,
         #[arg(long)]
         agent: String,
         #[arg(long)]
@@ -494,8 +564,9 @@ pub enum RouteCommand {
         peer: String,
         #[arg(long)]
         agent: String,
+        /// Grant ID; otherwise cite the target owner's policy
         #[arg(long)]
-        grant: String,
+        grant: Option<String>,
         #[arg(long)]
         expires_at: String,
         #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
@@ -541,6 +612,11 @@ impl Command {
                 | SessionCommand::Doctor { .. },
             )
             | Self::Person(_)
+            | Self::Access(
+                AccessCommand::Allow { .. }
+                | AccessCommand::Deny { .. }
+                | AccessCommand::Renew { .. },
+            )
             | Self::Network(
                 NetworkCommand::RedeemPerson { .. }
                 | NetworkCommand::Bind { .. }
@@ -625,9 +701,10 @@ impl Command {
             }) => (
                 Method::POST,
                 "/v1/outbound".into(),
-                Some(
-                    json!({"peer_host_id":peer,"grant_id":grant,"target_agent_id":agent,"deadline":deadline,"content":content,"request_id":request}),
-                ),
+                Some(with_grant(
+                    json!({"peer_host_id":peer,"target_agent_id":agent,"deadline":deadline,"content":content,"request_id":request}),
+                    grant,
+                )),
             ),
             Self::Message(MessageCommand::List { after, limit }) => (
                 Method::GET,
@@ -823,9 +900,10 @@ impl Command {
             })) => (
                 Method::POST,
                 "/v1/adapter-routes".into(),
-                Some(
-                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"grant_id":grant,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages}),
-                ),
+                Some(with_grant(
+                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages}),
+                    grant,
+                )),
             ),
             Self::Adapter(AdapterCommand::Route(RouteCommand::List { adapter })) => (
                 Method::GET,
@@ -869,6 +947,29 @@ impl Command {
                 format!("/v1/outbound/{}/{}/reply", encoded(&peer), encoded(&id)),
                 None,
             ),
+            Self::Access(AccessCommand::Show { network, person }) => (
+                Method::GET,
+                match person {
+                    Some(p) => format!(
+                        "/v1/networks/{}/policy?person={}",
+                        encoded(&network),
+                        encoded(&p)
+                    ),
+                    None => format!("/v1/networks/{}/policy", encoded(&network)),
+                },
+                None,
+            ),
+            Self::Access(AccessCommand::Block { person, host }) => (
+                Method::POST,
+                "/v1/access-blocks".into(),
+                Some(block_body(person, host)),
+            ),
+            Self::Access(AccessCommand::Unblock { person, host }) => (
+                Method::POST,
+                "/v1/access-blocks/remove".into(),
+                Some(block_body(person, host)),
+            ),
+            Self::Access(AccessCommand::Blocks) => (Method::GET, "/v1/access-blocks".into(), None),
             Self::Activity { after, limit } => (
                 Method::GET,
                 format!("/v1/activity?after={after}&limit={limit}"),
@@ -876,6 +977,20 @@ impl Command {
             ),
         };
         Some(AdminRequest { method, path, body })
+    }
+}
+
+/// Names a grant only when one is given; otherwise the daemon cites a policy.
+fn with_grant(mut body: Value, grant: Option<String>) -> Value {
+    if let Some(grant) = grant {
+        body["grant_id"] = json!(grant);
+    }
+    body
+}
+fn block_body(person: Option<String>, host: Option<String>) -> Value {
+    match (person, host) {
+        (Some(person), _) => json!({ "person": person }),
+        (None, host) => json!({ "host": host.unwrap_or_default() }),
     }
 }
 

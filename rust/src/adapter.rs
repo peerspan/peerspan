@@ -4,7 +4,7 @@ use crate::{
     adapter_connection::AdapterAuth,
     api::{blocking, decode},
     model::{Error, Session},
-    peer_store::{Connectivity, MessageRequest, Peer, grant_bounds, valid_id},
+    peer_store::{Connectivity, MessageRequest, Peer, valid_id},
     store::{Store, append_event, new_id, now},
 };
 use axum::{
@@ -359,7 +359,7 @@ impl Store {
         };
         let mut handoff = None;
         for (sender, request) in pending {
-            let state = match grant_bounds(&tx, &sender, &request, true) {
+            let state = match self.message_bounds(&tx, &sender, &request, true) {
                 Ok(g) => match self.grant_connected(&tx, &sender, &g)? {
                     Connectivity::Usable => "unknown",
                     // A recoverable connected state is not final: leave the
@@ -369,6 +369,9 @@ impl Store {
                     Connectivity::Absent => "blocked",
                 },
                 Err(Error::Forbidden) => "blocked",
+                // Behind the cited policy version: recoverable, like a stale
+                // connected state.
+                Err(Error::Unavailable(_)) => continue,
                 Err(e) => return Err(e),
             };
             let at = now();
@@ -468,7 +471,7 @@ impl Store {
         )?;
         // A reply answers content this host already delivered, so only final
         // bounds apply; a lapsed connected state does not strand it.
-        let g = grant_bounds(&tx, &d.sender_host_id, &request, false)?;
+        let g = self.message_bounds(&tx, &d.sender_host_id, &request, false)?;
         if content.len() as i64 > g.max_message_bytes {
             return Err(Error::Forbidden);
         }

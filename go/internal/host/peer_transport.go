@@ -90,7 +90,7 @@ func PeerHandler(store *Store) http.Handler {
 			return
 		}
 		var request MessageRequest
-		if !decode(w, r, &request, "request_id", "grant_id", "target_agent_id", "deadline", "content") {
+		if !decode(w, r, &request, "request_id", "grant_id", "policy", "target_agent_id", "deadline", "content") {
 			return
 		}
 		receipt, err := store.AcceptMessage(r.Context(), id, request)
@@ -157,7 +157,7 @@ func (s *Store) Exchange(ctx context.Context, out OutboundMessage, receiptOnly b
 		if !receiptOnly && (status == 400 || status == 403 || status == 404 || status == 409) {
 			out.State = "rejected"
 		}
-		err = fmt.Errorf("peer returned HTTP %d", status)
+		err = fmt.Errorf("peer returned HTTP %d%s", status, refusalHint(out.Request, status))
 	}
 	if err != nil {
 		message := err.Error()
@@ -219,7 +219,7 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/outbound", func(w http.ResponseWriter, r *http.Request) {
 		var request SendMessage
-		if !decode(w, r, &request, "peer_host_id", "request_id", "grant_id", "target_agent_id", "deadline", "content") {
+		if !decode(w, r, &request, "peer_host_id", "request_id", "grant_id?", "target_agent_id", "deadline", "content") {
 			return
 		}
 		out, err := store.PrepareOutbound(r.Context(), request)
@@ -241,4 +241,16 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 			respond(w, 200, out, err)
 		})
 	}
+}
+
+// refusalHint explains a peer's refusal of a policy-cited request.
+func refusalHint(r MessageRequest, status int) string {
+	switch {
+	case r.Policy == nil:
+	case status == http.StatusForbidden:
+		return ": the receiver's owner policy does not allow this host to message that agent within these bounds, or the receiver blocks this host or its person"
+	case status == http.StatusServiceUnavailable:
+		return ": the receiver has not yet verified the cited policy version, or is out of sync with coordination; it retries"
+	}
+	return ""
 }

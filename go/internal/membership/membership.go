@@ -426,6 +426,9 @@ type Map struct {
 	Admins []json.RawMessage `json:"admins"`
 	// Groups are the current group definitions, one per name.
 	Groups []json.RawMessage `json:"groups"`
+	// Policies are the newest valid owner access policy of every current
+	// person, visible to every member.
+	Policies []json.RawMessage `json:"policies"`
 }
 
 type MapPerson struct {

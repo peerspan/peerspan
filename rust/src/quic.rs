@@ -1281,7 +1281,7 @@ mod tests {
             .prepare_outbound(crate::peer_store::SendMessage {
                 peer_host_id: peer.clone(),
                 request_id: String::new(),
-                grant_id: format!("grant_{}", "1".repeat(32)),
+                grant_id: Some(format!("grant_{}", "1".repeat(32))),
                 target_agent_id: format!("agent_{}", "2".repeat(32)),
                 deadline: crate::store::rfc3339(chrono::Utc::now() + chrono::Duration::minutes(5)),
                 content: "hello".into(),

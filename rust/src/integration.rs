@@ -728,7 +728,7 @@ fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
     for row in rows {
         let mut row = row.as_object().context("invalid destination")?.clone();
         if row.iter().any(|(key, v)| {
-            v.is_null()
+            (v.is_null() && key != "grant_id")
                 || ![
                     "name",
                     "peer_host_id",
@@ -745,13 +745,7 @@ fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
         row.entry("expires_at").or_insert(json!(expiry));
         row.entry("max_message_bytes").or_insert(json!(65536));
         row.entry("max_messages").or_insert(json!(100));
-        for key in [
-            "name",
-            "peer_host_id",
-            "target_agent_id",
-            "grant_id",
-            "expires_at",
-        ] {
+        for key in ["name", "peer_host_id", "target_agent_id", "expires_at"] {
             if !row.get(key).is_some_and(Value::is_string) {
                 bail!("invalid destination")
             }
@@ -760,6 +754,13 @@ fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
             if !row.get(key).is_some_and(|v| v.as_i64().is_some()) {
                 bail!("invalid destination")
             }
+        }
+        // Without a grant, sends cite the target owner's policy.
+        if row
+            .get("grant_id")
+            .is_some_and(|v| !v.is_null() && !v.is_string())
+        {
+            bail!("invalid destination")
         }
         result.push(Value::Object(row));
     }

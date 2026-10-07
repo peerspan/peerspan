@@ -514,6 +514,24 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 | `access unblock --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks/remove` | Host-local. |
 | `access blocks` | `GET /v1/access-blocks` | Sorted list of `{kind, subject, created_at}`. |
 
+**Further rules:**
+- **Block requests:** a block takes `{person}` or `{host}`, exactly one. A person ID that no network knows may still be blocked. Blocking returns 201, and blocking again returns the existing entry. Unblocking returns the removed entry, or 404 if nothing was blocked.
+- **`access show`** returns the policy's fields plus a top-level `expires_soon`, or 404 when the owner has no policy.
+- **Policy submission:**
+  - An identical resubmission of the stored policy returns 200 from the coordinator, as for other statements, and 201 from the local API. A lower or equal different version returns 409, and a policy outside its validity window returns 400.
+  - The host records a policy as soon as the coordinator accepts it.
+- **Rule shape:** a rule has at least one principal and one action, and agent names must be valid labels. A policy with no rules is valid, and withdraws all access.
+- **Expired policies:** renewal skips a policy that has already expired; only `access renew` revives it.
+- **Several networks:**
+  - A receiver bound to the cited person in several networks evaluates each. A rule matches only if the message fits its own size limit. Matching rules combine, and `allow_disconnected` holds if any matching rule sets it.
+  - It returns 503 only when nothing authorizes and some network's policy is behind the cited version, or missing.
+  - A send without a grant cites the first network, by ID, in which the target's person has a policy.
+- **One authorization field:** a request carries exactly one of `grant_id` or `policy`, never both and never an empty `grant_id`, on the peer wire and in local send requests alike. A route or outbound record without a grant has `grant_id: null`.
+- **Durations:** `access allow` uses `--valid-days`, default 7. `access deny` and `access renew` keep the current policy's duration.
+- **`access deny`:** with no policy, or no rule for that agent, it is an error. If removing principals leaves a rule empty, the whole rule is removed.
+- **Persons named in `access` commands** are resolved with the same errors as other person arguments: unknown, or ambiguous with candidates.
+- **Refusal messages** for policy-cited requests may include an explanation. Their codes are as specified.
+
 **Sending without a grant ID.** `message send` and adapter routes no longer require a grant. Given `--grant`, a request names it, as before. Otherwise the daemon cites the target host's bound person's newest verified policy. With no bound person, or no policy, the send is refused locally with 400 before anything is persisted.
 
 **Storage.** Policies go in `network_statements` with kind `policy` (subject: person key), holding the newest version. Database version 8 adds `CREATE TABLE access_blocks (kind TEXT NOT NULL, subject TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(kind, subject))`, with `kind` either `person` or `host`, and older binaries reject version 8. New activity kinds:

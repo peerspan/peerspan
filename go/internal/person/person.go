@@ -1,5 +1,7 @@
 // Package person loads a person's OpenSSH ssh-ed25519 key for the CLI: from
-// ssh-agent by default, or from an OpenSSH key file. Daemons never use it.
+// ssh-agent by default, or from an OpenSSH key file. Daemons only ask an
+// ssh-agent for policy renewal signatures (LoadKeyAt), and never read key
+// files.
 package person
 
 import (
@@ -129,11 +131,20 @@ func Load(path string) (Signer, error) {
 // recognizes rather than discovers, such as a network's current SSH root.
 func LoadKey(want ed25519.PublicKey) (Signer, error) { return fromAgent(want) }
 
+// LoadKeyAt returns the signer for one key in the agent at socket.
+func LoadKeyAt(socket string, want ed25519.PublicKey) (Signer, error) {
+	return agentAt(socket, want)
+}
+
 func fromAgent(want ed25519.PublicKey) (Signer, error) {
 	socket := os.Getenv("SSH_AUTH_SOCK")
 	if socket == "" {
 		return nil, errors.New("no ssh-agent: SSH_AUTH_SOCK is not set; use --person-key PATH")
 	}
+	return agentAt(socket, want)
+}
+
+func agentAt(socket string, want ed25519.PublicKey) (Signer, error) {
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach ssh-agent: %w", err)

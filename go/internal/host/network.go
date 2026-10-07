@@ -656,7 +656,8 @@ func (s *Store) callCoordinator(ctx context.Context, n Network, path string, bod
 	return m, nil
 }
 
-// RunCoordination syncs every network each interval until ctx is cancelled.
+// RunCoordination syncs every network each interval, then renews policies
+// close to expiry, until ctx is cancelled.
 func (s *Store) RunCoordination(ctx context.Context, logf func(string, ...any)) {
 	_, interval := s.coordinationConfig()
 	ticker := time.NewTicker(interval)
@@ -674,6 +675,7 @@ func (s *Store) RunCoordination(ctx context.Context, logf func(string, ...any)) 
 				logf("coordination sync %s: %v", n.ID, err)
 			}
 		}
+		s.RenewPolicies(ctx, logf)
 		select {
 		case <-ctx.Done():
 			return

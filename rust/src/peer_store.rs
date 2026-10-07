@@ -1,5 +1,6 @@
 use crate::{
     model::Error,
+    policy::PolicyRef,
     store::{Store, append_event, new_id, now, rfc3339},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -49,7 +50,20 @@ pub struct CreateGrant {
 #[serde(deny_unknown_fields)]
 pub struct MessageRequest {
     pub request_id: String,
-    pub grant_id: String,
+    /// Exactly one of `grant_id` and `policy` names the authorization; on
+    /// the wire the other is absent, never null or empty.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub grant_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub policy: Option<crate::policy::PolicyRef>,
     pub target_agent_id: String,
     pub deadline: String,
     pub content: String,
@@ -60,7 +74,9 @@ pub struct SendMessage {
     pub peer_host_id: String,
     #[serde(default)]
     pub request_id: String,
-    pub grant_id: String,
+    /// Absent or null, the send cites the target owner's policy.
+    #[serde(default)]
+    pub grant_id: Option<String>,
     pub target_agent_id: String,
     pub deadline: String,
     pub content: String,
@@ -83,6 +99,7 @@ pub struct ReceivedMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutboundMessage {
     pub peer_host_id: String,
+    #[serde(with = "recorded")]
     pub request: MessageRequest,
     pub state: String,
     pub receipt: Option<Receipt>,
@@ -147,6 +164,31 @@ pub(crate) fn records<T: DeserializeOwned>(
         .map(|r| json(r?))
         .collect()
 }
+/// An outbound record shows a request without a grant as `grant_id: null`;
+/// the wire omits it.
+mod recorded {
+    use super::MessageRequest;
+    use serde::{
+        Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _,
+    };
+    use serde_json::Value;
+    pub fn serialize<S: Serializer>(r: &MessageRequest, s: S) -> Result<S::Ok, S::Error> {
+        let mut value = serde_json::to_value(r).map_err(S::Error::custom)?;
+        if let Some(object) = value.as_object_mut() {
+            object.entry("grant_id").or_insert(Value::Null);
+        }
+        value.serialize(s)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<MessageRequest, D::Error> {
+        let mut value = Value::deserialize(d)?;
+        if let Some(object) = value.as_object_mut()
+            && object.get("grant_id").is_some_and(Value::is_null)
+        {
+            object.remove("grant_id");
+        }
+        serde_json::from_value(value).map_err(D::Error::custom)
+    }
+}
 pub(crate) fn valid_id(id: &str, prefix: &str, bytes: usize) -> bool {
     id.strip_prefix(&format!("{prefix}_")).is_some_and(|v| {
         v.len() == bytes * 2
@@ -155,8 +197,13 @@ pub(crate) fn valid_id(id: &str, prefix: &str, bytes: usize) -> bool {
     })
 }
 fn validate_message(r: &MessageRequest) -> Result<(), Error> {
+    let authorization = match (&r.policy, &r.grant_id) {
+        (None, Some(grant)) => valid_id(grant, "grant", 16),
+        (Some(p), None) => p.version >= 1 && crate::policy::person_id_shape(&p.person_id),
+        _ => false,
+    };
     if !valid_id(&r.request_id, "request", 16)
-        || !valid_id(&r.grant_id, "grant", 16)
+        || !authorization
         || !valid_id(&r.target_agent_id, "agent", 16)
         || r.content.is_empty()
         || r.content.len() > 65536
@@ -178,7 +225,7 @@ pub(crate) fn grant_bounds(
     let g: Grant = read(
         conn,
         "SELECT record FROM grants WHERE id = ?1",
-        [&r.grant_id],
+        [r.grant_id.as_deref().unwrap_or_default()],
     )
     .map_err(|e| match e {
         Error::NotFound => Error::Forbidden,
@@ -202,6 +249,12 @@ pub(crate) fn grant_bounds(
     }
     Ok(g)
 }
+/// What an authorization allows: a grant's or a policy rule's bounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Bounds {
+    pub max_message_bytes: i64,
+    pub allow_disconnected: bool,
+}
 /// Whether a grant's connected-state requirement is met.
 pub(crate) enum Connectivity {
     Usable,
@@ -212,14 +265,38 @@ pub(crate) enum Connectivity {
     Absent,
 }
 impl Store {
+    /// Every final check: the block list, then a grant or the cited owner
+    /// policy and its bounds. A receiver behind a cited policy version is
+    /// `Unavailable` (recoverable); everything else denied is `Forbidden`.
+    pub(crate) fn message_bounds(
+        &self,
+        conn: &Connection,
+        sender: &str,
+        r: &MessageRequest,
+        require_deadline: bool,
+    ) -> Result<Bounds, Error> {
+        if self.blocked(conn, sender)? {
+            return Err(Error::Forbidden);
+        }
+        match &r.policy {
+            Some(cited) => self.policy_bounds(conn, sender, r, cited, require_deadline),
+            None => {
+                let g = grant_bounds(conn, sender, r, require_deadline)?;
+                Ok(Bounds {
+                    max_message_bytes: g.max_message_bytes,
+                    allow_disconnected: g.allow_disconnected,
+                })
+            }
+        }
+    }
     pub(crate) fn message_authority(
         &self,
         conn: &Connection,
         sender: &str,
         r: &MessageRequest,
         require_deadline: bool,
-    ) -> Result<Grant, Error> {
-        let g = grant_bounds(conn, sender, r, require_deadline)?;
+    ) -> Result<Bounds, Error> {
+        let g = self.message_bounds(conn, sender, r, require_deadline)?;
         match self.grant_connected(conn, sender, &g)? {
             Connectivity::Usable => Ok(g),
             // Retryable (503), unlike final denials.
@@ -234,7 +311,7 @@ impl Store {
         &self,
         conn: &Connection,
         sender: &str,
-        g: &Grant,
+        g: &Bounds,
     ) -> Result<Connectivity, Error> {
         if g.allow_disconnected || self.connected(conn, sender)? {
             return Ok(Connectivity::Usable);
@@ -430,19 +507,29 @@ impl Store {
         )
     }
     pub fn prepare_outbound(&self, r: SendMessage) -> Result<OutboundMessage, Error> {
-        let request = MessageRequest {
+        let policy = r.grant_id.is_none().then(|| PolicyRef {
+            person_id: format!("person_{}", "0".repeat(64)),
+            version: 1,
+        });
+        let mut request = MessageRequest {
             request_id: if r.request_id.is_empty() {
                 new_id("request")?
             } else {
                 r.request_id
             },
             grant_id: r.grant_id,
+            policy,
             target_agent_id: r.target_agent_id,
             deadline: r.deadline,
             content: r.content,
         };
         validate_message(&request)?;
         self.dial_target(&r.peer_host_id)?;
+        if request.policy.is_some() {
+            // Cite the target owner's newest verified policy; with none, the
+            // send is refused before anything is persisted.
+            request.policy = Some(self.policy_citation(&*self.connection()?, &r.peer_host_id)?);
+        }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let old: Option<String> = tx
@@ -454,7 +541,16 @@ impl Store {
             .optional()?;
         if let Some(old) = old {
             let old: OutboundMessage = json(old)?;
-            if old.request != request {
+            // A repeated send cites the owner's newest version, which may have
+            // moved on; the stored request with its original citation stands.
+            let same_owner = |a: &MessageRequest| MessageRequest {
+                policy: a.policy.as_ref().map(|p| crate::policy::PolicyRef {
+                    person_id: p.person_id.clone(),
+                    version: 0,
+                }),
+                ..a.clone()
+            };
+            if same_owner(&old.request) != same_owner(&request) {
                 return Err(Error::Conflict(
                     "request ID reused with different fields".into(),
                 ));

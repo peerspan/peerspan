@@ -22,7 +22,7 @@ import (
 const usage = `capsule-host runs and controls a local Capsule host daemon.
 
 Usage:
-  capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS]
+  capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS] [--person-agent SOCKET]
   capsule-host [--state DIR] info
   capsule-host [--state DIR] session setup --directory DIR --harness ID --agent ID --expires-at TIME [--integrations DIR --runner PROGRAM --option KEY=VALUE --routes FILE]
   capsule-host [--state DIR] session start --directory DIR [--workspace DIR] [-- HARNESS_ARGS]
@@ -42,12 +42,12 @@ Usage:
   capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected]
   capsule-host [--state DIR] grant list
   capsule-host [--state DIR] grant revoke ID
-  capsule-host [--state DIR] message send --peer HOST --grant ID --agent ID --deadline TIME --content TEXT [--request ID]
+  capsule-host [--state DIR] message send --peer HOST [--grant ID] --agent ID --deadline TIME --content TEXT [--request ID]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] message inspect|retry|refresh|reply|origin --peer HOST ID
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
   capsule-host [--state DIR] adapter list|inspect|revoke|rotate|connection [ID]
-  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET --grant ID --expires-at TIME [--max-message-bytes N --max-messages N]
+  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET [--grant ID] --expires-at TIME [--max-message-bytes N --max-messages N]
   capsule-host [--state DIR] adapter route list --adapter ID
   capsule-host [--state DIR] adapter route revoke ID
   capsule-host [--state DIR] delivery list [--after SEQUENCE --limit COUNT]
@@ -74,6 +74,12 @@ Usage:
   capsule-host [--state DIR] network remove-admin --network ID --person PERSON [--revoke-admitted] [--root-key PATH]
   capsule-host [--state DIR] network group set --network ID --group NAME [--person PERSON ...] [--person-key PATH]
   capsule-host [--state DIR] network groups ID
+  capsule-host [--state DIR] access allow --network ID --agent NAME --principal P [--principal P ...] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]
+  capsule-host [--state DIR] access deny --network ID --agent NAME [--principal P ...] [--person-key PATH]
+  capsule-host [--state DIR] access renew --network ID [--person-key PATH]
+  capsule-host [--state DIR] access show --network ID [--person PERSON]
+  capsule-host [--state DIR] access block|unblock (--person PERSON | --host HOST_ID)
+  capsule-host [--state DIR] access blocks
   capsule-host person show [--person-key PATH]
 
 Person keys are ssh-ed25519 keys in ssh-agent (SSH_AUTH_SOCK), or --person-key
@@ -81,7 +87,11 @@ PATH naming a public key in the agent or an unencrypted OpenSSH private key file
 A host holding the network's root seed signs administration as the root;
 otherwise the CLI signs with the person key in ssh-agent, which must be a
 current administrator. Root-only commands without the seed use --root-key PATH.
-PERSON is a person ID or label.
+PERSON is a person ID or label. An access policy, signed by the agents' owner,
+lets principals (person:PERSON, group:NAME, or network) message the owner's
+agents by name without a grant; the daemon renews it through the ssh-agent at
+--person-agent. Blocks are host-local and override grants and policies.
+Without --grant, message send and adapter routes cite the receiver owner's policy.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `
@@ -131,6 +141,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		peerListen := runFlags.String("peer-listen", "", "opt-in peer bind address, UDP IP:port")
 		advertise := runFlags.String("advertise", "", "peer address advertised to coordination, IP:port; defaults to a specific --peer-listen address")
 		interval := runFlags.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
+		personAgent := runFlags.String("person-agent", os.Getenv("SSH_AUTH_SOCK"), "ssh-agent socket for renewing the bound person's access policies; defaults to SSH_AUTH_SOCK")
 		if err := runFlags.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
@@ -178,6 +189,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		if err = store.ConfigureCoordination(*advertise, time.Duration(*interval)*time.Second); err != nil {
 			return err
 		}
+		store.ConfigurePersonAgent(*personAgent)
 		coordinationDone := make(chan struct{})
 		go func() {
 			defer close(coordinationDone)
@@ -221,7 +233,14 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if len(args) >= 2 && args[0] == "network" && (administeredCommands[args[1]] || args[1] == "group") {
 		args, adminKey = takePersonKey(args)
 	}
-	method, path, body, err := request(args, errOut)
+	var method, path string
+	var body any
+	var err error
+	if args[0] == "access" {
+		method, path, body, err = accessRequest(ctx, client, args, errOut)
+	} else {
+		method, path, body, err = request(args, errOut)
+	}
 	if errors.Is(err, errPersonCommand) {
 		method, path, body, err = personRequest(ctx, client, args, errOut)
 	}
@@ -383,14 +402,16 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		}
 		if args[1] == "send" {
 			var m host.SendMessage
+			var grant string
 			err := parse("message send", args[2:], func(fs *flag.FlagSet) {
 				fs.StringVar(&m.PeerHostID, "peer", "", "receiving host ID")
 				fs.StringVar(&m.RequestID, "request", "", "stable request ID; generated if omitted")
-				fs.StringVar(&m.GrantID, "grant", "", "receiver grant ID")
+				fs.StringVar(&grant, "grant", "", "receiver grant ID; without it, the send cites the receiver owner's access policy")
 				fs.StringVar(&m.TargetAgentID, "agent", "", "receiver agent ID")
 				fs.StringVar(&m.Deadline, "deadline", "", "UTC request deadline")
 				fs.StringVar(&m.Content, "content", "", "message text")
 			})
+			m.GrantID = optional(grant)
 			return "POST", "/v1/outbound", m, err
 		}
 		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" || args[1] == "reply" || args[1] == "origin" {
@@ -517,16 +538,18 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			}
 			if args[2] == "add" {
 				var req host.CreateOutboundRoute
+				var grant string
 				err := parse("adapter route add", args[3:], func(fs *flag.FlagSet) {
 					fs.StringVar(&req.AdapterID, "adapter", "", "local adapter credential ID")
 					fs.StringVar(&req.Name, "name", "", "destination name")
 					fs.StringVar(&req.PeerHostID, "peer", "", "receiving host ID")
 					fs.StringVar(&req.TargetAgentID, "agent", "", "remote agent ID")
-					fs.StringVar(&req.GrantID, "grant", "", "receiver's grant ID")
+					fs.StringVar(&grant, "grant", "", "receiver's grant ID; without it, sends cite the receiver owner's access policy")
 					fs.StringVar(&req.ExpiresAt, "expires-at", "", "route expiration")
 					fs.Int64Var(&req.MaxMessageBytes, "max-message-bytes", 65536, "maximum content bytes")
 					fs.Int64Var(&req.MaxMessages, "max-messages", 100, "lifetime message budget")
 				})
+				req.GrantID = optional(grant)
 				return "POST", "/v1/adapter-routes", req, err
 			}
 			if args[2] == "list" {
@@ -585,4 +608,12 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		return "GET", fmt.Sprintf("/v1/activity?after=%d&limit=%d", after, limit), nil, err
 	}
 	return invalid()
+}
+
+// optional is nil for an empty flag value: the field is then omitted.
+func optional(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }

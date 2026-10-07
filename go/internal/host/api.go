@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -76,10 +77,13 @@ func Handler(store *Store) http.Handler {
 	localGovernanceRoutes(mux, store)
 	localPersonRoutes(mux, store)
 	localAdminRoutes(mux, store)
+	localPolicyRoutes(mux, store)
 	localAdapterRoutes(mux, store)
 	return mux
 }
 
+// decode reads a strict JSON object of the allowed fields, without nulls;
+// a field named with a trailing "?" may be null.
 func decode(w http.ResponseWriter, r *http.Request, dst any, allowed ...string) bool {
 	defer r.Body.Close()
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -103,14 +107,14 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, allowed ...string) 
 		return false
 	}
 	for field, value := range fields {
-		known := false
+		known, nullable := false, false
 		for _, name := range allowed {
-			if field == name {
-				known = true
+			if field == strings.TrimSuffix(name, "?") {
+				known, nullable = true, strings.HasSuffix(name, "?")
 				break
 			}
 		}
-		if !known || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if !known || (!nullable && bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
 			respond(w, 0, nil, ErrInvalid)
 			return false
 		}

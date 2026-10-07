@@ -299,7 +299,10 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 	}
 	var result *Handoff
 	for _, p := range items {
-		g, err := grantBounds(ctx, tx, p.sender, p.request, true)
+		g, err := s.messageBounds(ctx, tx, p.sender, p.request, true)
+		if errors.Is(err, ErrUnavailable) {
+			continue // behind the cited policy version: recoverable
+		}
 		if err != nil && !errors.Is(err, ErrForbidden) {
 			return nil, err
 		}
@@ -438,11 +441,11 @@ func (s *Store) Reply(ctx context.Context, token AdapterAuth, id, content string
 	}
 	// A reply answers content this host already delivered, so only final
 	// bounds apply; a lapsed connected state does not strand it.
-	g, err := grantBounds(ctx, tx, d.SenderHostID, m, false)
+	g, err := s.messageBounds(ctx, tx, d.SenderHostID, m, false)
 	if err != nil {
 		return Reply{}, err
 	}
-	if int64(len(content)) > g.MaxMessageBytes {
+	if int64(len(content)) > g.maxMessageBytes {
 		return Reply{}, ErrForbidden
 	}
 	old, err := readJSON[Reply](tx.QueryRowContext(ctx, `SELECT record FROM received_replies WHERE sender = ? AND request_id = ?`, d.SenderHostID, d.RequestID))
