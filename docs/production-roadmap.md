@@ -13,9 +13,11 @@ The known-host messaging slice stores authenticated messages on hosts. It requir
 | 3 | QUIC peer transport, then encrypted relays ([proposal](quic-relay-proposal.md)) | 1 | Hosts behind NAT or firewalls cannot be reached. Implemented: QUIC transport (3a) and relays in `capsule-coord` (3b). |
 | 4 | Direct-path discovery and NAT traversal | 1, 3 | All traffic goes through the relay when a direct path would work. Implemented: STUN candidates and signed path discovery below QUIC; NATs that allocate a port per destination on both sides stay on the relay. |
 | 5 | Automatic retry of uncertain sends, owner and agent alike | — | Senders recover `unknown` outcomes by hand. |
-| 6 | Per-agent identity and delegation provenance | 2b | Requests are authenticated only as hosts, so a receiver cannot tell which agent originated a request or verify that delegated authority narrowed at each hop. |
+| 6 | Task delegation, agent origin, and delegation chains ([proposal](delegation-proposal.md)) | 2b | Requests are authenticated only as hosts, so a receiver cannot tell which agent originated a request or verify that delegated authority narrowed at each hop. |
+| 2c | Direct policy propagation among an owner's hosts (deferred from 2b) | 2b | A coordinator can delay a newer policy until it expires. |
+| 7 | Launch readiness: administration simplicity, status and onboarding | — | Too much administration surface for a first user. |
 
-Agent delivery into a live session (see the [integration investigation](agent-integration-investigation.md)) is a parallel track. It does not depend on these milestones.
+Next, as agreed on 2026-10-07: milestone 6, then 2c, then 7. Agent delivery into a live session (see the [integration investigation](agent-integration-investigation.md)) is a parallel track. It does not depend on these milestones.
 
 ## 1. Signed enrollment and coordination
 
