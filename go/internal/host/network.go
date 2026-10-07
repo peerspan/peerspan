@@ -185,7 +185,11 @@ func (s *Store) Networks(ctx context.Context) ([]Network, error) {
 }
 
 func (s *Store) Network(ctx context.Context, id string) (Network, error) {
-	return scanNetwork(s.db.QueryRowContext(ctx, networkColumns+" WHERE id = ?", id))
+	n, err := scanNetwork(s.db.QueryRowContext(ctx, networkColumns+" WHERE id = ?", id))
+	if errors.Is(err, ErrNotFound) {
+		return n, fmt.Errorf("%w: network id %s", ErrNotFound, id)
+	}
+	return n, err
 }
 
 func (s *Store) NetworkMembers(ctx context.Context, id string) ([]NetworkMember, error) {

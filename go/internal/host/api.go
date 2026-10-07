@@ -137,7 +137,7 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 		case errors.Is(err, ErrForbidden):
 			status, code, message = http.StatusForbidden, "forbidden", "forbidden"
 		case errors.Is(err, ErrNotFound):
-			status, code, message = http.StatusNotFound, "not_found", "not found"
+			status, code, message = http.StatusNotFound, "not_found", err.Error()
 		case errors.Is(err, ErrConflict):
 			status, code, message = http.StatusConflict, "conflict", err.Error()
 		case errors.Is(err, ErrUnavailable), errors.Is(err, ErrAdapterOffline):
