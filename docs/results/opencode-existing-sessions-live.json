@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-10-07T06:15:53.138545+00:00",
+  "mode": "two already-running OpenCode server conversations; real models; local Go/Rust daemons",
+  "opencode_versions": [
+    "1.18.31",
+    "1.18.31"
+  ],
+  "selected_sessions": [
+    "ses_eeb00b5ddffeKWTj4L9H0eCGgJ",
+    "ses_eeb002803ffeF1IOz6U0R65Dme"
+  ],
+  "forward_Go_to_Rust": {
+    "scoped_send": true,
+    "send_status": true,
+    "model_called_reply": true,
+    "model_observed_pre_attachment_phrase": true,
+    "rejected_model_calls_before_correction": [],
+    "sender_model_output": "before-capsule-d6b07f68e32bd970"
+  },
+  "reverse_after_daemon_swap_and_token_rotation": {
+    "scoped_send": true,
+    "send_status": true,
+    "model_called_reply": true,
+    "model_observed_pre_attachment_phrase": true,
+    "rejected_model_calls_before_correction": [],
+    "sender_model_output": "before-capsule-f1cd82d929e536b6"
+  },
+  "session_ids_preserved": true,
+  "native_permissions_unchanged": true,
+  "limits": [
+    "One machine; cross-host connectivity is not established by this run.",
+    "Existing server conversations tested; native TUI interaction is not separately verified."
+  ],
+  "models": [
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol"
+  ],
+  "machine": "192.0.2.10"
+}

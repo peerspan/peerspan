@@ -18,7 +18,7 @@ export const tools = [
   {
     name: 'send',
     description:
-      'Send to an owner-authorized destination. A reply arrives as a kind=reply event. If the outcome is unknown, the Capsule host retries automatically with the same request_id; follow it with send_status.',
+      'Send to an owner-authorized destination. Omit request_id for a new send; Capsule generates it. Reuse only the exact returned request_id when explicitly retrying identical destination/content. A reply arrives as a kind=reply event. If the outcome is unknown, the Capsule host retries automatically with the same request_id; follow it with send_status.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,

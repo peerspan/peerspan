@@ -87,9 +87,29 @@ python3 conformance/opencode_runtime.py --go GO_BINARY --rust RUST_BINARY \
 
 The shared suite uses pre-existing HTTP backend fixtures and the real plugin/sidecar
 across all Go/Rust pairings. The runtime suite uses real OpenCode processes and an
-explicit deterministic model fixture; it performs no real inference. Account-based
-live inference remains separate. OpenCode's free provider rejected API-driven turns
-in the tested installation, so it does not establish a working live model exchange.
+explicit deterministic model fixture; it performs no real inference. A separate
+[live check](../../docs/results/opencode-existing-sessions-live.json) used OpenAI
+ChatGPT login with two existing OpenCode server conversations. Models exchanged
+pre-attachment phrases in both directions, including after daemon replacement
+and token rotation, with unchanged session IDs and permissions. This was one
+Linux machine; native TUI interaction and macOS execution remain separate checks.
+
+To check two already-running, authenticated test conversations with real models:
+
+```sh
+python3 conformance/live_opencode_agents.py --go GO_BINARY --rust RUST_BINARY \
+  --node NODE_BINARY --server-a http://127.0.0.1:PORT_A --session-a EXISTING_SESSION_A \
+  --directory-a /absolute/project-a --bindings-a /absolute/bindings-a \
+  --server-b http://127.0.0.1:PORT_B --session-b EXISTING_SESSION_B \
+  --directory-b /absolute/project-b --bindings-b /absolute/bindings-b \
+  --output /absolute/opencode-live.json
+```
+
+Both conversations must already have a selected model and recorded message. The
+runner adds private validation phrases before attaching, then verifies scoped
+sends, model-observed replies, daemon replacement and token rotation. It starts
+only disposable Capsule daemons and sidecars; the native servers stay running.
+Optional `--auth-file-a` and `--auth-file-b` select private HTTP server auth files.
 
 See the official [server API](https://opencode.ai/docs/server/) and
 [plugin API](https://opencode.ai/docs/plugins/).
