@@ -32,7 +32,7 @@ These commands place the checkout at `~/capsule-test`. If yours is elsewhere,
 replace that path in the guide. Skip cloning if this checkout already exists.
 
 ```sh
-git clone https://github.com/Cerebral-Systems/capsule-v0.git ~/capsule-test
+git clone git@github.com:Cerebral-Systems/capsule-v0.git ~/capsule-test
 cd ~/capsule-test
 mkdir -p bin
 go -C go build -o "$PWD/bin/capsule-host" ./cmd/capsule-host
