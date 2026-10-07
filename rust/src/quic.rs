@@ -1055,7 +1055,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(status, 404);
-        assert_eq!(path_status(&sender.store, &id).unwrap().path, "relay");
+        // The connection was dialed through the relay. Discovery may already
+        // have validated the direct endpoint during that first round trip on
+        // loopback, so either path is acceptable at this instant.
+        let first = path_status(&sender.store, &id).unwrap().path;
+        assert!(first == "relay" || first == "direct", "{first}");
+        let key = peer_key(&relayed).unwrap();
+        let synthetic = SocketAddr::V4(crate::relay::synthetic(&raw_host(&id).unwrap()));
+        let before = transport(&sender.store)
+            .unwrap()
+            .cached(&id, &key, &[synthetic])
+            .unwrap()
+            .stable_id();
         // Discovery validates the candidate with a signed ping/pong and moves
         // the peer's packets onto it, below the unchanged QUIC connection.
         let deadline = std::time::Instant::now() + Duration::from_secs(8);
@@ -1069,13 +1080,6 @@ mod tests {
         assert_eq!(status.path, "direct", "{status:?}");
         assert_eq!(status.endpoint.as_deref(), Some(direct.as_str()));
         assert!(status.rtt_ms.is_some());
-        let key = peer_key(&relayed).unwrap();
-        let synthetic = SocketAddr::V4(crate::relay::synthetic(&raw_host(&id).unwrap()));
-        let before = transport(&sender.store)
-            .unwrap()
-            .cached(&id, &key, &[synthetic])
-            .unwrap()
-            .stable_id();
         for _ in 0..3 {
             let (status, _) = request(sender.store.clone(), &relayed, "GET", &receipt_path(), b"")
                 .await
