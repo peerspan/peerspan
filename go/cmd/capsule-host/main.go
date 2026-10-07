@@ -39,15 +39,19 @@ Usage:
   capsule-host [--state DIR] peer add --id HOST --public-key KEY --address IP:PORT
   capsule-host [--state DIR] peer list
   capsule-host [--state DIR] peer path HOST
-  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected] [--from-agent ID]
+  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--action message.append|task.submit] [--max-message-bytes N] [--allow-disconnected] [--from-agent ID]
   capsule-host [--state DIR] grant list
   capsule-host [--state DIR] grant revoke ID
   capsule-host [--state DIR] message send --peer HOST [--grant ID] --agent ID --deadline TIME --content TEXT [--request ID] [--from-agent ID [--from-session ID]]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] message inspect|retry|refresh|reply|origin --peer HOST ID
+  capsule-host [--state DIR] task submit --peer HOST --agent ID --input TEXT [--deadline TIME] [--grant ID] [--from-agent ID [--from-session ID]] [--task ID]
+  capsule-host [--state DIR] task list [--after SEQUENCE] [--limit COUNT]
+  capsule-host [--state DIR] task inspect|cancel --peer HOST ID
+  capsule-host [--state DIR] task events --peer HOST ID [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
   capsule-host [--state DIR] adapter list|inspect|revoke|rotate|connection [ID]
-  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET [--grant ID] --expires-at TIME [--max-message-bytes N --max-messages N]
+  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET [--grant ID] [--action message.append|task.submit] --expires-at TIME [--max-message-bytes N --max-messages N]
   capsule-host [--state DIR] adapter route list --adapter ID
   capsule-host [--state DIR] adapter route revoke ID
   capsule-host [--state DIR] delivery list [--after SEQUENCE --limit COUNT]
@@ -74,7 +78,7 @@ Usage:
   capsule-host [--state DIR] network remove-admin --network ID --person PERSON [--revoke-admitted] [--root-key PATH]
   capsule-host [--state DIR] network group set --network ID --group NAME [--person PERSON ...] [--person-key PATH]
   capsule-host [--state DIR] network groups ID
-  capsule-host [--state DIR] access allow --network ID --agent NAME --principal P [--principal P ...] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]
+  capsule-host [--state DIR] access allow --network ID --agent NAME --principal P [--principal P ...] [--action A ...] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]
   capsule-host [--state DIR] access deny --network ID --agent NAME [--principal P ...] [--person-key PATH]
   capsule-host [--state DIR] access renew --network ID [--person-key PATH]
   capsule-host [--state DIR] access show --network ID [--person PERSON]
@@ -91,7 +95,10 @@ PERSON is a person ID or label. An access policy, signed by the agents' owner,
 lets principals (person:PERSON, group:NAME, or network) message the owner's
 agents by name without a grant; the daemon renews it through the ssh-agent at
 --person-agent. Blocks are host-local and override grants and policies.
-Without --grant, message send and adapter routes cite the receiver owner's policy.
+Without --grant, message send, task submit, and adapter routes cite the receiver
+owner's policy. Grants, policy rules, and routes carry an action: message.append
+(the default) or task.submit. Task submissions are retried and their events
+polled automatically; task inspect and task events read the local record.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `
@@ -201,6 +208,13 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		retriesDone := make(chan struct{})
 		go func() { defer close(retriesDone); store.RunOutboundRetries(daemonCtx) }()
 		defer func() { cancel(); <-retriesDone }()
+		tasksDone := make(chan struct{})
+		go func() {
+			defer close(tasksDone)
+			go store.RunTaskExpiry(daemonCtx)
+			store.RunTaskWorkers(daemonCtx)
+		}()
+		defer func() { cancel(); <-tasksDone }()
 		defer func() { cancel(); <-repliesDone }()
 		adapterListener, err := store.ListenAdapter()
 		if err != nil {
@@ -387,8 +401,10 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				fs.StringVar(&g.ExpiresAt, "expires-at", "", "UTC grant expiration")
 				fs.Int64Var(&g.MaxMessageBytes, "max-message-bytes", 65536, "content byte limit")
 				fs.BoolVar(&g.AllowDisconnected, "allow-disconnected", false, "permit work without coordination")
+				fs.StringVar(&g.Action, "action", "message.append", "authorized action: message.append or task.submit")
 			})
 			g.RequesterAgentID = optional(fromAgent)
+			g.Action = defaultAction(g.Action)
 			return "POST", "/v1/grants", g, err
 		}
 	case "message":
@@ -443,6 +459,68 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				return "GET", path + "/origin", nil, nil
 			}
 			return "POST", path + "/" + args[1], nil, nil
+		}
+	case "task":
+		if len(args) < 2 {
+			return invalid()
+		}
+		switch args[1] {
+		case "submit":
+			var t host.SubmitTask
+			var grant, fromAgent, fromSession string
+			err := parse("task submit", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&t.PeerHostID, "peer", "", "receiving host ID")
+				fs.StringVar(&t.TargetAgentID, "agent", "", "receiver agent ID")
+				fs.StringVar(&t.Input, "input", "", "task input text")
+				fs.StringVar(&t.Deadline, "deadline", "", "UTC time by which an agent must accept; default 1 hour")
+				fs.StringVar(&grant, "grant", "", "receiver grant ID for task.submit; without it, the task cites the receiver owner's access policy")
+				fs.StringVar(&fromAgent, "from-agent", "", "local agent this task originates from")
+				fs.StringVar(&fromSession, "from-session", "", "one of that agent's sessions; needs --from-agent")
+				fs.StringVar(&t.TaskID, "task", "", "stable task ID; generated if omitted")
+			})
+			t.GrantID = optional(grant)
+			if fromSession != "" && fromAgent == "" && err == nil {
+				err = errors.New("--from-session needs --from-agent")
+			}
+			if fromAgent != "" {
+				t.Origin = &host.Origin{AgentID: fromAgent, SessionID: fromSession}
+			}
+			return "POST", "/v1/tasks", t, err
+		case "list":
+			var after, limit int64
+			err := parse("task list", args[2:], func(fs *flag.FlagSet) {
+				fs.Int64Var(&after, "after", 0, "read tasks after sequence")
+				fs.Int64Var(&limit, "limit", 100, "maximum records, 1 to 1000")
+			})
+			return "GET", fmt.Sprintf("/v1/tasks?after=%d&limit=%d", after, limit), nil, err
+		case "inspect", "cancel", "events":
+			fs := flag.NewFlagSet("task "+args[1], flag.ContinueOnError)
+			fs.SetOutput(errOut)
+			peer := fs.String("peer", "", "receiving host ID")
+			after := fs.Int64("after", 0, "read events after this sequence")
+			limit := fs.Int64("limit", 100, "maximum events, 1 to 1000")
+			// Flags may follow the task ID, as in task events --peer HOST ID --after N.
+			var positional []string
+			for rest := args[2:]; ; rest = fs.Args()[1:] {
+				if err := fs.Parse(rest); err != nil {
+					return "", "", nil, err
+				}
+				if fs.NArg() == 0 {
+					break
+				}
+				positional = append(positional, fs.Arg(0))
+			}
+			if *peer == "" || len(positional) != 1 {
+				return invalid()
+			}
+			path := "/v1/tasks/" + url.PathEscape(*peer) + "/" + url.PathEscape(positional[0])
+			switch args[1] {
+			case "inspect":
+				return "GET", path, nil, nil
+			case "cancel":
+				return "POST", path + "/cancel", nil, nil
+			}
+			return "GET", fmt.Sprintf("%s/events?after=%d&limit=%d", path, *after, *limit), nil, nil
 		}
 	case "network":
 		if len(args) < 2 {
@@ -558,9 +636,11 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 					fs.StringVar(&grant, "grant", "", "receiver's grant ID; without it, sends cite the receiver owner's access policy")
 					fs.StringVar(&req.ExpiresAt, "expires-at", "", "route expiration")
 					fs.Int64Var(&req.MaxMessageBytes, "max-message-bytes", 65536, "maximum content bytes")
-					fs.Int64Var(&req.MaxMessages, "max-messages", 100, "lifetime message budget")
+					fs.Int64Var(&req.MaxMessages, "max-messages", 100, "lifetime message and task budget")
+					fs.StringVar(&req.Action, "action", "message.append", "route action: message.append (send) or task.submit (delegate_task)")
 				})
 				req.GrantID = optional(grant)
+				req.Action = defaultAction(req.Action)
 				return "POST", "/v1/adapter-routes", req, err
 			}
 			if args[2] == "list" {
@@ -619,6 +699,14 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		return "GET", fmt.Sprintf("/v1/activity?after=%d&limit=%d", after, limit), nil, err
 	}
 	return invalid()
+}
+
+// defaultAction omits the default action, message.append, from a request.
+func defaultAction(action string) string {
+	if action == "message.append" {
+		return ""
+	}
+	return action
 }
 
 // optional is nil for an empty flag value: the field is then omitted.

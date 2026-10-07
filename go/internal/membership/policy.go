@@ -17,6 +17,7 @@ import (
 
 const (
 	PolicyActionMessage = "message.append"
+	PolicyActionTask    = "task.submit"
 	PolicyMaxRules      = 64
 	PolicyMaxPrincipals = 64
 	PolicyMinValidity   = 24 * time.Hour
@@ -129,8 +130,8 @@ func CheckPolicy(network string, p Policy) error {
 			return fmt.Errorf("%w: a rule needs an action", ErrInvalid)
 		}
 		for _, action := range r.Actions {
-			if action != PolicyActionMessage {
-				return fmt.Errorf("%w: the only action is %s", ErrInvalid, PolicyActionMessage)
+			if !ValidPolicyAction(action) {
+				return fmt.Errorf("%w: actions are %s and %s", ErrInvalid, PolicyActionMessage, PolicyActionTask)
 			}
 		}
 		if r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 {
@@ -224,4 +225,10 @@ func AgentPrincipal(p string) (host, agent string, ok bool) {
 	}
 	host, agent, found = strings.Cut(rest, "/")
 	return host, agent, found && hostIDs.MatchString(host) && agentIDs.MatchString(agent)
+}
+
+// ValidPolicyAction reports whether an action may appear in a policy rule or
+// grant: appending a message, or submitting a task.
+func ValidPolicyAction(action string) bool {
+	return action == PolicyActionMessage || action == PolicyActionTask
 }

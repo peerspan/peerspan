@@ -56,6 +56,9 @@ pub enum Command {
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
+    /// Delegate tasks to remote agents and follow their progress
+    #[command(subcommand)]
+    Task(TaskCommand),
     /// Create, join, and inspect coordinated networks
     #[command(subcommand)]
     Network(NetworkCommand),
@@ -413,6 +416,9 @@ pub enum GrantCommand {
         /// Authorize only requests whose origin is this agent of the peer
         #[arg(long, value_name = "AGENT_ID")]
         from_agent: Option<String>,
+        /// What the grant authorizes
+        #[arg(long, value_parser = ["message.append", "task.submit"], default_value = "message.append")]
+        action: String,
     },
     List,
     Revoke {
@@ -437,6 +443,9 @@ pub enum AccessCommand {
         allow_disconnected: bool,
         #[arg(long, default_value_t = 7, value_parser = clap::value_parser!(i64).range(1..=90))]
         valid_days: i64,
+        /// Action the rule allows; repeat for each (default message.append)
+        #[arg(long = "action", value_name = "ACTION", value_parser = ["message.append", "task.submit"])]
+        actions: Vec<String>,
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
@@ -539,6 +548,61 @@ pub enum MessageCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum TaskCommand {
+    /// Submit a task to an agent on a peer host
+    Submit {
+        #[arg(long)]
+        peer: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        input: String,
+        /// RFC3339 deadline for an agent to accept it; default one hour
+        #[arg(long)]
+        deadline: Option<String>,
+        /// Grant ID; otherwise cite the target owner's policy
+        #[arg(long)]
+        grant: Option<String>,
+        /// Submit as this registered local agent
+        #[arg(long, value_name = "AGENT_ID")]
+        from_agent: Option<String>,
+        /// Submit as this session of the --from-agent agent
+        #[arg(long, value_name = "SESSION_ID", requires = "from_agent")]
+        from_session: Option<String>,
+        /// Task ID; generated when omitted
+        #[arg(long = "task", value_name = "ID")]
+        task: Option<String>,
+    },
+    /// List submitted tasks in local order
+    List {
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
+        after: i64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
+        limit: i64,
+    },
+    /// Show a submitted task's local record
+    Inspect {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+    /// Show a submitted task's locally stored events
+    Events {
+        #[arg(long)]
+        peer: String,
+        id: String,
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
+        after: i64,
+    },
+    /// Ask the receiver to cancel a submitted task
+    Cancel {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum AdapterCommand {
     Rotate {
         id: String,
@@ -583,6 +647,9 @@ pub enum RouteCommand {
         max_message_bytes: i64,
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
         max_messages: i64,
+        /// What the route sends: messages or tasks
+        #[arg(long, value_parser = ["message.append", "task.submit"], default_value = "message.append")]
+        action: String,
     },
     List {
         #[arg(long)]
@@ -689,8 +756,9 @@ impl Command {
                 max_message_bytes,
                 allow_disconnected,
                 from_agent,
+                action,
             }) => {
-                let mut body = json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected});
+                let mut body = json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected,"action":action});
                 if let Some(agent) = from_agent {
                     body["requester_agent_id"] = json!(agent);
                 }
@@ -725,6 +793,59 @@ impl Command {
                 }
                 (Method::POST, "/v1/outbound".into(), Some(body))
             }
+            Self::Task(TaskCommand::Submit {
+                peer,
+                agent,
+                input,
+                deadline,
+                grant,
+                from_agent,
+                from_session,
+                task,
+            }) => {
+                let mut body = with_grant(
+                    json!({"peer_host_id":peer,"target_agent_id":agent,"input":input}),
+                    grant,
+                );
+                if let Some(deadline) = deadline {
+                    body["deadline"] = json!(deadline);
+                }
+                if let Some(task) = task {
+                    body["task_id"] = json!(task);
+                }
+                if let Some(agent) = from_agent {
+                    let mut origin = json!({ "agent_id": agent });
+                    if let Some(session) = from_session {
+                        origin["session_id"] = json!(session);
+                    }
+                    body["origin"] = origin;
+                }
+                (Method::POST, "/v1/tasks".into(), Some(body))
+            }
+            Self::Task(TaskCommand::List { after, limit }) => (
+                Method::GET,
+                format!("/v1/tasks?after={after}&limit={limit}"),
+                None,
+            ),
+            Self::Task(TaskCommand::Inspect { peer, id }) => (
+                Method::GET,
+                format!("/v1/tasks/{}/{}", encoded(&peer), encoded(&id)),
+                None,
+            ),
+            Self::Task(TaskCommand::Events { peer, id, after }) => (
+                Method::GET,
+                format!(
+                    "/v1/tasks/{}/{}/events?after={after}&limit=1000",
+                    encoded(&peer),
+                    encoded(&id)
+                ),
+                None,
+            ),
+            Self::Task(TaskCommand::Cancel { peer, id }) => (
+                Method::POST,
+                format!("/v1/tasks/{}/{}/cancel", encoded(&peer), encoded(&id)),
+                None,
+            ),
             Self::Message(MessageCommand::List { after, limit }) => (
                 Method::GET,
                 format!("/v1/messages?after={after}&limit={limit}"),
@@ -916,11 +1037,12 @@ impl Command {
                 expires_at,
                 max_message_bytes,
                 max_messages,
+                action,
             })) => (
                 Method::POST,
                 "/v1/adapter-routes".into(),
                 Some(with_grant(
-                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages}),
+                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action}),
                     grant,
                 )),
             ),
@@ -1091,9 +1213,106 @@ mod tests {
             "e",
         ];
         assert!(body(&create).get("requester_agent_id").is_none());
+        assert_eq!(body(&create)["action"], "message.append");
+        assert_eq!(
+            body(&[&create[..], &["--action", "task.submit"]].concat())["action"],
+            "task.submit"
+        );
+        assert!(
+            Cli::try_parse_from(
+                [&["capsule-host"], &create[..], &["--action", "shell.exec"]].concat()
+            )
+            .is_err()
+        );
         assert_eq!(
             body(&[&create[..], &["--from-agent", "agent_a"]].concat())["requester_agent_id"],
             "agent_a"
+        );
+    }
+
+    #[test]
+    fn task_commands_map_to_the_local_api() {
+        let submit = [
+            "task", "submit", "--peer", "host_x", "--agent", "agent_y", "--input", "do it",
+        ];
+        let cli = Cli::try_parse_from([&["capsule-host"], &submit[..]].concat()).unwrap();
+        let request = cli.command.unwrap().request().unwrap();
+        assert_eq!(request.path, "/v1/tasks");
+        let plain = request.body.unwrap();
+        assert_eq!(
+            plain,
+            json!({"peer_host_id": "host_x", "target_agent_id": "agent_y", "input": "do it"})
+        );
+        let full = body(
+            &[
+                &submit[..],
+                &[
+                    "--deadline",
+                    "2026-10-10T00:00:00Z",
+                    "--grant",
+                    "grant_g",
+                    "--from-agent",
+                    "agent_a",
+                    "--from-session",
+                    "session_s",
+                    "--task",
+                    "task_t",
+                ],
+            ]
+            .concat(),
+        );
+        assert_eq!(full["deadline"], "2026-10-10T00:00:00Z");
+        assert_eq!(full["grant_id"], "grant_g");
+        assert_eq!(full["task_id"], "task_t");
+        assert_eq!(
+            full["origin"],
+            json!({"agent_id": "agent_a", "session_id": "session_s"})
+        );
+        let path = |args: &[&str]| {
+            let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
+            let r = cli.command.unwrap().request().unwrap();
+            (r.method, r.path)
+        };
+        assert_eq!(
+            path(&["task", "inspect", "--peer", "host_x", "task_t"]),
+            (Method::GET, "/v1/tasks/host_x/task_t".into())
+        );
+        assert_eq!(
+            path(&[
+                "task", "events", "--peer", "host_x", "task_t", "--after", "3"
+            ]),
+            (
+                Method::GET,
+                "/v1/tasks/host_x/task_t/events?after=3&limit=1000".into()
+            )
+        );
+        assert_eq!(
+            path(&["task", "cancel", "--peer", "host_x", "task_t"]),
+            (Method::POST, "/v1/tasks/host_x/task_t/cancel".into())
+        );
+        assert_eq!(
+            path(&["task", "list"]),
+            (Method::GET, "/v1/tasks?after=0&limit=100".into())
+        );
+        let route = [
+            "adapter",
+            "route",
+            "add",
+            "--adapter",
+            "adapter_a",
+            "--name",
+            "r",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--expires-at",
+            "e",
+        ];
+        assert_eq!(body(&route)["action"], "message.append");
+        assert_eq!(
+            body(&[&route[..], &["--action", "task.submit"]].concat())["action"],
+            "task.submit"
         );
     }
 }

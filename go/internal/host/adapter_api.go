@@ -67,6 +67,7 @@ func AdapterHandler(store *Store) http.Handler {
 	})
 	adapterOutboundRoutes(mux, store, token)
 	adapterConnectionRoutes(mux, store, token)
+	adapterTaskRoutes(mux, store, token)
 	return mux
 }
 func localAdapterRoutes(mux *http.ServeMux, store *Store) {

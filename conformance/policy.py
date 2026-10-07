@@ -374,7 +374,7 @@ def check(coord_binary, owner_binary, sender_binary, label):
             kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
             assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
             with sqlite3.connect(alice.state / 'host.db') as db:
-                assert db.execute('PRAGMA user_version').fetchone()[0] == 8
+                assert db.execute('PRAGMA user_version').fetchone()[0] == 9
         finally:
             if saved_sock is None:
                 os.environ.pop('SSH_AUTH_SOCK', None)

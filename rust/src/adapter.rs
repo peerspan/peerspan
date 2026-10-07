@@ -181,7 +181,10 @@ fn owned(conn: &Connection, token: &AdapterAuth, id: &str) -> Result<Delivery, E
 }
 /// The person a host is bound to, and its label, in the first network by ID
 /// that binds it; both are `None` for an unbound host.
-fn sender_person(conn: &Connection, host: &str) -> Result<(Option<String>, Option<String>), Error> {
+pub(crate) fn sender_person(
+    conn: &Connection,
+    host: &str,
+) -> Result<(Option<String>, Option<String>), Error> {
     let mut stmt =
         conn.prepare("SELECT record FROM network_members WHERE host_id = ?1 ORDER BY network_id")?;
     let records = stmt
@@ -386,7 +389,7 @@ impl Store {
         };
         let mut handoff = None;
         for (sender, request) in pending {
-            let state = match self.message_bounds(&tx, &sender, &request, true) {
+            let state = match self.message_bounds(&tx, &sender, &request.authz(), true) {
                 Ok(g) => match self.grant_connected(&tx, &sender, &g)? {
                     Connectivity::Usable => "unknown",
                     // A recoverable connected state is not final: leave the
@@ -501,7 +504,7 @@ impl Store {
         )?;
         // A reply answers content this host already delivered, so only final
         // bounds apply; a lapsed connected state does not strand it.
-        let g = self.message_bounds(&tx, &d.sender_host_id, &request, false)?;
+        let g = self.message_bounds(&tx, &d.sender_host_id, &request.authz(), false)?;
         if content.len() as i64 > g.max_message_bytes {
             return Err(Error::Forbidden);
         }
@@ -631,6 +634,8 @@ pub fn router(store: Arc<Store>) -> Router {
     Router::new()
         .merge(crate::adapter_connection::adapter_routes())
         .merge(crate::adapter_outbound::adapter_routes())
+        .merge(crate::task::adapter_routes())
+        .merge(crate::task_outbound::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

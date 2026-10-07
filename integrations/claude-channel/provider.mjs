@@ -6,6 +6,7 @@ import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {isDeepStrictEqual} from 'node:util';
+import {tools} from '../shared/adapter.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const channel = join(directory, 'channel.mjs');
@@ -89,7 +90,7 @@ async function main(request) {
   response.launch = {
     program: state.executable,
     args: ['--mcp-config', join(context.directory, 'mcp.json'), '--dangerously-load-development-channels', 'server:capsule',
-      '--allowedTools', 'mcp__capsule__list_destinations,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply', ...extra],
+      '--allowedTools', tools.map(tool => 'mcp__capsule__' + tool.name).join(','), ...extra],
   };
   return response;
 }

@@ -586,6 +586,14 @@ fn shape(route: &Value) -> Value {
     ] {
         map.insert(key.into(), route[key].clone());
     }
+    // A destination without an action sends messages.
+    map.insert(
+        "action".into(),
+        match &route["action"] {
+            Value::Null => json!("message.append"),
+            action => action.clone(),
+        },
+    );
     Value::Object(map)
 }
 async fn recover(p: &mut Profile) -> anyhow::Result<()> {
@@ -737,6 +745,7 @@ fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
                     "expires_at",
                     "max_message_bytes",
                     "max_messages",
+                    "action",
                 ]
                 .contains(&key.as_str())
         }) {
@@ -749,6 +758,9 @@ fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
             if !row.get(key).is_some_and(Value::is_string) {
                 bail!("invalid destination")
             }
+        }
+        if row.get("action").is_some_and(|v| !v.is_string()) {
+            bail!("invalid destination")
         }
         for key in ["max_message_bytes", "max_messages"] {
             if !row.get(key).is_some_and(|v| v.as_i64().is_some()) {

@@ -34,6 +34,10 @@ pub struct OutboundRoute {
     pub name: String,
     pub peer_host_id: String,
     pub target_agent_id: String,
+    /// `message.append` (sends) or `task.submit` (delegations). Routes from
+    /// before tasks send messages.
+    #[serde(default = "message_action")]
+    pub action: String,
     /// Null when the route sends under the target owner's policy.
     #[serde(default)]
     pub grant_id: Option<String>,
@@ -42,6 +46,11 @@ pub struct OutboundRoute {
     pub max_messages: i64,
     pub revoked_at: Option<String>,
 }
+fn message_action() -> String {
+    crate::policy::ACTION.into()
+}
+/// SQL for a route `r`'s consumed budget: its messages and its tasks.
+pub(crate) const ROUTE_USED: &str = "((SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) + (SELECT COUNT(*) FROM outbound_tasks t WHERE json_extract(t.record, '$.route_id') = r.id))";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateOutboundRoute {
@@ -54,10 +63,13 @@ pub struct CreateOutboundRoute {
     pub expires_at: String,
     pub max_message_bytes: i64,
     pub max_messages: i64,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub action: Option<String>,
 }
 #[derive(Serialize)]
 pub struct Destination {
     pub name: String,
+    pub action: String,
     pub expires_at: String,
     pub max_message_bytes: i64,
     pub messages_remaining: i64,
@@ -108,7 +120,15 @@ pub struct OutboundOrigin {
 fn expiration(text: &str) -> Result<DateTime<chrono::FixedOffset>, Error> {
     DateTime::parse_from_rfc3339(text).map_err(|e| Error::Internal(e.into()))
 }
-fn valid_name(name: &str) -> bool {
+/// A route's consumed budget: messages and tasks sent through it.
+pub(crate) fn route_used(conn: &rusqlite::Connection, route: &str) -> Result<i64, Error> {
+    Ok(conn.query_row(
+        &format!("SELECT {ROUTE_USED} FROM adapter_routes r WHERE r.id = ?1"),
+        [route],
+        |row| row.get(0),
+    )?)
+}
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && name.bytes().enumerate().all(|(i, b)| {
@@ -153,6 +173,9 @@ impl Store {
                 .is_none_or(|g| valid_id(g, "grant", 16))
             || !(1..=65536).contains(&r.max_message_bytes)
             || !(1..=10000).contains(&r.max_messages)
+            || r.action
+                .as_deref()
+                .is_some_and(|a| !crate::policy::ACTIONS.contains(&a))
         {
             return Err(Error::Invalid("invalid route bounds".into()));
         }
@@ -190,6 +213,7 @@ impl Store {
             name: r.name,
             peer_host_id: r.peer_host_id,
             target_agent_id: r.target_agent_id,
+            action: r.action.unwrap_or_else(message_action),
             grant_id: r.grant_id,
             expires_at: r.expires_at,
             max_message_bytes: r.max_message_bytes,
@@ -238,7 +262,9 @@ impl Store {
     pub fn destinations(&self, token: &AdapterAuth) -> Result<Vec<Destination>, Error> {
         let conn = self.connection()?;
         let (a, _) = authority(&conn, token)?;
-        let mut stmt=conn.prepare("SELECT r.record,(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) FROM adapter_routes r WHERE adapter_id = ?1 ORDER BY name")?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT r.record,{ROUTE_USED} FROM adapter_routes r WHERE adapter_id = ?1 ORDER BY name"
+        ))?;
         let rows = stmt.query_map([a.id], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
         })?;
@@ -249,6 +275,7 @@ impl Store {
             if r.revoked_at.is_none() && expiration(&r.expires_at)? > Utc::now() {
                 result.push(Destination {
                     name: r.name,
+                    action: r.action,
                     expires_at: r.expires_at,
                     max_message_bytes: r.max_message_bytes,
                     messages_remaining: r.max_messages - used,
@@ -283,6 +310,7 @@ impl Store {
         })?;
         let exp = expiration(&route.expires_at)?;
         if route.revoked_at.is_some()
+            || route.action != crate::policy::ACTION
             || exp <= Utc::now()
             || r.content.len() as i64 > route.max_message_bytes
         {
@@ -326,12 +354,7 @@ impl Store {
             }
             return Ok(old);
         }
-        let used: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM adapter_outbound WHERE route_id = ?1",
-            [&route.id],
-            |row| row.get(0),
-        )?;
-        if used >= route.max_messages {
+        if route_used(&tx, &route.id)? >= route.max_messages {
             return Err(Error::Forbidden);
         }
         let deadline = (Utc::now() + chrono::Duration::minutes(5))
@@ -734,6 +757,7 @@ pub(crate) mod tests {
                 expires_at: crate::store::rfc3339(Utc::now() + chrono::Duration::minutes(30)),
                 max_message_bytes: 100,
                 max_messages: 10,
+                action: None,
             })
             .unwrap();
         let request_id = format!("request_{}", "2".repeat(32));

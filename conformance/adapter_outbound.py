@@ -10,6 +10,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, sql
+from host_service import TASK_TABLES
 from peer_messaging import PeerHost, request_id, timestamp, DropResponse
 from coordination import Coordinator, CoordHost
 
@@ -436,7 +437,7 @@ def check(go, rust, node, label):
             b.stop(crash=True)
             a.binary, b.binary = str(rust), str(go)
             assert a.start() == ai and b.start() == bi
-            assert sql(a, "PRAGMA user_version")[0][0] == 8
+            assert sql(a, "PRAGMA user_version")[0][0] == 9
             assert send(a, ac)[0] == 503
             a.cli("session", "detach", ass["id"])
             assert (
@@ -525,6 +526,8 @@ def migration_check(original_binary, replacement_binary, label):
             a.stop(crash=True)
             b.stop(crash=True)
             for host in (a, b):
+                for table in TASK_TABLES:
+                    sql(host, "DROP TABLE " + table)
                 sql(host, "DROP TABLE access_blocks")
                 sql(host, "DROP TABLE network_statements")
                 sql(host, "DROP TABLE adapter_connections")
@@ -549,7 +552,7 @@ def migration_check(original_binary, replacement_binary, label):
             assert (
                 sql(a, "PRAGMA user_version")[0][0]
                 == sql(b, "PRAGMA user_version")[0][0]
-                == 8
+                == 9
             )
             assert a.cli("adapter", "list") == [ac["adapter"]] and b.cli(
                 "adapter", "list"
@@ -585,7 +588,7 @@ def migration_check(original_binary, replacement_binary, label):
             a.stop()
             b.stop()
     print(
-        label + ": populated v4→v8 migration and partial-schema rollback passed",
+        label + ": populated v4→v9 migration and partial-schema rollback passed",
         flush=True,
     )
 

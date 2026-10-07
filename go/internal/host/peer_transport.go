@@ -105,6 +105,7 @@ func PeerHandler(store *Store) http.Handler {
 		respond(w, http.StatusOK, receipt, err)
 	})
 	adapterPeerRoutes(mux, store, sender)
+	taskPeerRoutes(mux, store, sender)
 	// A stream carries exactly one exchange.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "close")
@@ -187,7 +188,7 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/grants", func(w http.ResponseWriter, r *http.Request) {
 		var g CreateGrant
-		if !decode(w, r, &g, "requester_host_id", "target_agent_id", "expires_at", "max_message_bytes", "allow_disconnected", "requester_agent_id?") {
+		if !decode(w, r, &g, "requester_host_id", "target_agent_id", "expires_at", "max_message_bytes", "allow_disconnected", "requester_agent_id?", "action") {
 			return
 		}
 		grant, err := store.CreateGrant(r.Context(), g)

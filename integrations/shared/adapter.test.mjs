@@ -186,3 +186,128 @@ test('events without origin or person report null', async () => {
     await adapter.stop();
   }
 });
+
+test('task, cancellation, and task update events; only updates are acknowledged', async () => {
+  const taskId = 'task_' + '5'.repeat(32);
+  const origin = { agent_id: 'agent_' + '6'.repeat(32), session_id: 'session_' + '7'.repeat(32) };
+  const delivery = { id: 'delivery_' + '8'.repeat(32), session_id: sessionId, task_id: taskId, sender_host_id: 'host_z' };
+  const claimed = {
+    delivery,
+    task: { task_id: taskId, input: 'review it', deadline: '2099-01-01T00:00:00Z', origin },
+    status: { state: 'queued', cancel_requested: false },
+    sender_person_id: null,
+    sender_person: null
+  };
+  const update = {
+    delivery: { id: 'notification_' + '9'.repeat(32), session_id: sessionId, task_id: taskId, peer_host_id: 'host_w', sequence: 3 },
+    event: { sequence: 3, kind: 'succeeded', state: 'succeeded', message: null, output: 'all good' }
+  };
+  const counts = {};
+  const acknowledged = [];
+  const events = [];
+  const once = (path, value) => ((counts[path] = (counts[path] ?? 0) + 1) === 1 ? value : null);
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    leaseRenewMs: 1000,
+    pollMs: 5,
+    call: async (_method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      if (path === '/adapter/v1/tasks/next') return once(path, claimed);
+      if (path === '/adapter/v1/tasks/cancels/next') return once(path, { delivery, status: { state: 'running' } });
+      if (path === '/adapter/v1/task-updates/next') return once(path, update);
+      if (path.endsWith('/forwarded')) acknowledged.push(path);
+      return null;
+    },
+    notify: async (event) => {
+      events.push(event);
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    for (let i = 0; i < 100 && (events.length < 3 || !acknowledged.length); i++) await delay(10);
+    const task = events.find((e) => e.meta.kind === 'task');
+    assert.equal(task.content, 'review it');
+    assert.equal(task.meta.task_id, taskId);
+    assert.equal(task.meta.delivery_id, delivery.id);
+    assert.equal(task.meta.origin_agent_id, origin.agent_id);
+    assert.equal(task.meta.origin_session_id, origin.session_id);
+    assert.equal(task.meta.cancel_requested, false);
+    assert.equal(task.meta.sender_person, null);
+    const cancel = events.find((e) => e.meta.kind === 'task_cancel_requested');
+    assert.equal(cancel.meta.task_id, taskId);
+    const result = events.find((e) => e.meta.kind === 'task_update');
+    assert.equal(result.content, 'all good');
+    assert.equal(result.meta.state, 'succeeded');
+    assert.equal(result.meta.event_kind, 'succeeded');
+    assert.equal(result.meta.notification_id, update.delivery.id);
+    assert.deepEqual(acknowledged, [`/adapter/v1/task-updates/${update.delivery.id}/forwarded`]);
+    assert.equal(counts['/adapter/v1/tasks/next'] >= 2, true);
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('task tools call the scoped routes and validate their arguments', async () => {
+  const taskId = 'task_' + 'a'.repeat(32);
+  const calls = [];
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push([method, path, body]);
+      if (path === '/adapter/v1/delegations')
+        return { peer_host_id: 'host_p', submit_state: 'accepted', status: { state: 'queued' }, attempts: 1, next_attempt_at: null, error: null };
+      if (path.startsWith('/adapter/v1/delegations/')) throw Object.assign(new Error('not found'), { status: 404 });
+      if (path.endsWith('/cancelled')) throw Object.assign(new Error('conflict'), { status: 409 });
+      return { task_id: taskId, state: 'running' };
+    },
+    log: () => {}
+  });
+  try {
+    assert(!(await adapter.callTool('task_accept', { task_id: taskId })).isError);
+    assert(!(await adapter.callTool('task_reject', { task_id: taskId })).isError);
+    assert(!(await adapter.callTool('task_progress', { task_id: taskId, message: 'half' })).isError);
+    assert(!(await adapter.callTool('task_complete', { task_id: taskId, status: 'failed', output: 'no' })).isError);
+    const refused = await adapter.callTool('task_cancelled', { task_id: taskId });
+    assert(refused.isError && refused.content[0].text.includes('state'));
+    assert.deepEqual(
+      calls.map(([method, path, body]) => [method, path.replace(taskId, 'ID'), body]),
+      [
+        ['POST', '/adapter/v1/tasks/ID/accept', {}],
+        ['POST', '/adapter/v1/tasks/ID/reject', { reason: '' }],
+        ['POST', '/adapter/v1/tasks/ID/progress', { message: 'half' }],
+        ['POST', '/adapter/v1/tasks/ID/complete', { status: 'failed', output: 'no' }],
+        ['POST', '/adapter/v1/tasks/ID/cancelled', {}]
+      ]
+    );
+    calls.length = 0;
+    const delegated = JSON.parse((await adapter.callTool('delegate_task', { destination: 'review', input: 'please' })).content[0].text);
+    assert.match(delegated.task_id, /^task_[0-9a-f]{32}$/);
+    assert.equal(delegated.submit_state, 'accepted');
+    assert.equal(delegated.state, 'queued');
+    assert.deepEqual(calls[0][2], { destination: 'review', task_id: delegated.task_id, input: 'please' });
+    const status = JSON.parse((await adapter.callTool('task_status', { task_id: taskId })).content[0].text);
+    assert.equal(status.submit_state, 'not_recorded');
+    calls.length = 0;
+    for (const [name, args] of [
+      ['task_accept', {}],
+      ['task_accept', { task_id: 'task_bad' }],
+      ['task_progress', { task_id: taskId }],
+      ['task_progress', { task_id: taskId, message: '' }],
+      ['task_complete', { task_id: taskId, status: 'done', output: 'x' }],
+      ['task_reject', { task_id: taskId, extra: 1 }],
+      ['delegate_task', { destination: 'Bad', input: 'x' }],
+      ['delegate_task', { destination: 'review', input: 'x', task_id: 'request_' + 'a'.repeat(32) }],
+      ['task_status', { task_id: 5 }]
+    ]) {
+      assert((await adapter.callTool(name, args)).isError, name);
+    }
+    assert.equal(calls.length, 0);
+  } finally {
+    await adapter.stop();
+  }
+});

@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { tools } from '../shared/adapter.mjs';
 export async function inspect(client, config) {
   const health = await client.request('GET', '/global/health');
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(health.version ?? '');
@@ -30,9 +31,7 @@ export async function inspect(client, config) {
   const ids = await client.request('GET', '/experimental/tool/ids');
   if (
     !Array.isArray(ids) ||
-    !['list_destinations', 'send', 'send_status', 'reply'].every((name) =>
-      ids.includes('capsule_' + name)
-    )
+    !tools.every((tool) => ids.includes('capsule_' + tool.name))
   )
     throw new Error('The configured Capsule plugin tools are not loaded.');
   return session;

@@ -37,6 +37,9 @@ pub struct SetupRoute {
     pub expires_at: String,
     pub max_message_bytes: i64,
     pub max_messages: i64,
+    /// Absent, the route sends messages.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub action: Option<String>,
 }
 #[derive(Serialize)]
 pub struct AdapterSetup {
@@ -48,7 +51,10 @@ impl Store {
     pub fn route_status(&self, id: &str) -> Result<Vec<serde_json::Value>, Error> {
         self.adapter(id)?;
         let conn = self.connection()?;
-        let mut stmt = conn.prepare("SELECT r.record,(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) FROM adapter_routes r WHERE adapter_id = ?1 ORDER BY name")?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT r.record,{} FROM adapter_routes r WHERE adapter_id = ?1 ORDER BY name",
+            crate::adapter_outbound::ROUTE_USED
+        ))?;
         let mut result = Vec::new();
         for row in stmt.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
             let (encoded, used) = row?;
@@ -104,6 +110,7 @@ impl Store {
                     expires_at: route.expires_at,
                     max_message_bytes: route.max_message_bytes,
                     max_messages: route.max_messages,
+                    action: route.action,
                 },
             )?);
         }

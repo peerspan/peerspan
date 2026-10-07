@@ -93,27 +93,33 @@ func (s *Store) inflightOutbound(key string) bool {
 // scheduleAfterAttempt sets the next automatic attempt for a record whose
 // latest attempt left it unknown, or clears it for a final outcome.
 func (s *Store) scheduleAfterAttempt(out *OutboundMessage, refresh bool) {
-	out.NextAttemptAt = nil
+	out.NextAttemptAt = s.nextAttempt(out.State, out.Request.Deadline, out.Attempts, &out.ReceiptQueries, refresh)
+}
+
+// nextAttempt is the schedule shared by messages and tasks: the next attempt
+// after `attempts` attempts, or nil once the outcome is final or retries stop.
+// A query (refresh) at or after the deadline counts toward the query limit.
+func (s *Store) nextAttempt(state, deadlineText string, attempts int64, queries *int64, refresh bool) *string {
 	now := s.retryNow()
-	deadline, err := parseTime(out.Request.Deadline)
+	deadline, err := parseTime(deadlineText)
 	if err != nil {
-		return
+		return nil
 	}
 	if refresh && !now.Before(deadline) {
-		out.ReceiptQueries++
+		*queries++
 	}
-	if out.State != "unknown" || now.After(deadline.Add(retryGiveUp)) || out.ReceiptQueries >= retryRefreshLimit {
-		return
+	if state != "unknown" || now.After(deadline.Add(retryGiveUp)) || *queries >= retryRefreshLimit {
+		return nil
 	}
 	delay := retryMax
-	if out.Attempts >= 1 && out.Attempts <= 7 {
-		delay = retryFirst << (out.Attempts - 1)
+	if attempts >= 1 && attempts <= 7 {
+		delay = retryFirst << (attempts - 1)
 		if delay > retryMax {
 			delay = retryMax
 		}
 	}
 	at := timestamp(now.Add(time.Duration(float64(delay) * s.retryJitter())))
-	out.NextAttemptAt = &at
+	return &at
 }
 
 // initialAttempt is the fallback schedule for a newly queued request. It lies
@@ -126,13 +132,17 @@ func (s *Store) initialAttempt() *string {
 
 // due reports whether an unknown record should be attempted at now.
 func due(out OutboundMessage, now time.Time) bool {
-	if out.State != "unknown" {
+	return attemptDue(out.State, out.NextAttemptAt, out.Attempts, now)
+}
+
+func attemptDue(state string, next *string, attempts int64, now time.Time) bool {
+	if state != "unknown" {
 		return false
 	}
-	if out.NextAttemptAt == nil {
-		return out.Attempts == 0 // a record from before automatic retry
+	if next == nil {
+		return attempts == 0 // a record from before automatic retry
 	}
-	at, err := parseTime(*out.NextAttemptAt)
+	at, err := parseTime(*next)
 	return err == nil && !at.After(now)
 }
 

@@ -31,8 +31,8 @@ pub(crate) const PREPARE_GUARD: chrono::TimeDelta = chrono::TimeDelta::seconds(1
 /// At most this many automatic attempts run at once per daemon.
 pub(crate) const CONCURRENCY: usize = 4;
 /// Overdue records at startup are spread over this window instead of sent at once.
-const RESTART_SPREAD_MS: i64 = 10_000;
-const POLL: Duration = Duration::from_millis(250);
+pub(crate) const RESTART_SPREAD_MS: i64 = 10_000;
+pub(crate) const POLL: Duration = Duration::from_millis(250);
 
 /// The backoff after `attempts` transmissions: 1 s, doubling to 60 s, scaled
 /// by `1 + jitter`, where `jitter` is within ±0.2.
@@ -51,48 +51,77 @@ pub(crate) fn jitter() -> f64 {
     (u32::from_le_bytes(bytes) as f64 / u32::MAX as f64) * 0.4 - 0.2
 }
 
-fn deadline(out: &OutboundMessage) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(&out.request.deadline)
+/// A durable outbound record the daemon retries while its outcome is
+/// uncertain: an outbound message, or a task submission.
+pub(crate) trait Attempted {
+    /// Whether the outcome is still `unknown`.
+    fn uncertain(&self) -> bool;
+    fn deadline_text(&self) -> &str;
+    /// Attempts so far, the next attempt's time, and the post-deadline
+    /// receipt or status queries.
+    fn counters(&mut self) -> (&mut u32, &mut Option<String>, &mut u32);
+}
+impl Attempted for OutboundMessage {
+    fn uncertain(&self) -> bool {
+        self.state == "unknown"
+    }
+    fn deadline_text(&self) -> &str {
+        &self.request.deadline
+    }
+    fn counters(&mut self) -> (&mut u32, &mut Option<String>, &mut u32) {
+        (
+            &mut self.attempts,
+            &mut self.next_attempt_at,
+            &mut self.receipt_queries,
+        )
+    }
+}
+
+fn deadline<T: Attempted>(out: &T) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(out.deadline_text())
         .ok()
         .map(|d| d.with_timezone(&Utc))
 }
 
 /// Whether an attempt at `now` may only query the receipt: the receiver
 /// refuses resubmission once the deadline has passed.
-pub(crate) fn receipt_only(out: &OutboundMessage, now: DateTime<Utc>) -> bool {
+pub(crate) fn receipt_only<T: Attempted>(out: &T, now: DateTime<Utc>) -> bool {
     deadline(out).is_none_or(|d| now >= d)
 }
 
 /// Records one attempt's outcome: counts it, counts receipt queries made after
 /// the deadline, and sets `next_attempt_at`, or clears it when the outcome is
 /// final or the post-deadline limits are reached.
-pub(crate) fn schedule(
-    out: &mut OutboundMessage,
+pub(crate) fn schedule<T: Attempted>(
+    out: &mut T,
     receipt_only: bool,
     now: DateTime<Utc>,
     jitter: f64,
 ) {
-    out.attempts = out.attempts.saturating_add(1);
-    if out.state != "unknown" {
-        out.next_attempt_at = None;
+    let uncertain = out.uncertain();
+    let deadline = deadline(out);
+    let (attempts, next_attempt_at, receipt_queries) = out.counters();
+    *attempts = attempts.saturating_add(1);
+    if !uncertain {
+        *next_attempt_at = None;
         return;
     }
-    if let Some(deadline) = deadline(out)
+    if let Some(deadline) = deadline
         && now >= deadline
     {
         if receipt_only {
-            out.receipt_queries = out.receipt_queries.saturating_add(1);
+            *receipt_queries = receipt_queries.saturating_add(1);
         }
-        if out.receipt_queries >= MAX_RECEIPT_QUERIES || now >= deadline + GIVE_UP_AFTER_DEADLINE {
-            out.next_attempt_at = None;
+        if *receipt_queries >= MAX_RECEIPT_QUERIES || now >= deadline + GIVE_UP_AFTER_DEADLINE {
+            *next_attempt_at = None;
             return;
         }
     }
-    out.next_attempt_at = Some(rfc3339(now + backoff(out.attempts, jitter)));
+    *next_attempt_at = Some(rfc3339(now + backoff(*attempts, jitter)));
 }
 
-fn due_at(out: &OutboundMessage) -> Option<DateTime<Utc>> {
-    out.next_attempt_at
+pub(crate) fn due_at(next_attempt_at: &Option<String>) -> Option<DateTime<Utc>> {
+    next_attempt_at
         .as_deref()
         .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
         .map(|t| t.with_timezone(&Utc))
@@ -122,7 +151,7 @@ impl Store {
             let at = if legacy {
                 Some(DateTime::<Utc>::MIN_UTC)
             } else {
-                due_at(&out)
+                due_at(&out.next_attempt_at)
             };
             if let Some(at) = at.filter(|at| *at <= now) {
                 due.push((at, peer, id));
@@ -173,6 +202,11 @@ pub(crate) struct Claim {
     in_flight: Arc<Mutex<HashSet<(String, String)>>>,
     _permit: OwnedSemaphorePermit,
 }
+impl Claim {
+    pub(crate) fn key(&self) -> &(String, String) {
+        &self.key
+    }
+}
 impl Drop for Claim {
     fn drop(&mut self) {
         if let Ok(mut set) = self.in_flight.lock() {
@@ -217,7 +251,7 @@ async fn attempt(store: Arc<Store>, peer: String, id: String) {
         return;
     };
     // An explicit retry or refresh may have finished it or moved its schedule.
-    if out.state != "unknown" || due_at(&out).is_none_or(|at| at > Utc::now()) {
+    if out.state != "unknown" || due_at(&out.next_attempt_at).is_none_or(|at| at > Utc::now()) {
         return;
     }
     let receipt_only = receipt_only(&out, Utc::now());

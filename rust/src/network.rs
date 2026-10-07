@@ -6916,7 +6916,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -6928,11 +6928,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 9;")
+            .execute_batch("PRAGMA user_version = 10;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

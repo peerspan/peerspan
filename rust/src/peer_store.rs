@@ -50,6 +50,9 @@ pub struct CreateGrant {
     pub allow_disconnected: bool,
     #[serde(default)]
     pub requester_agent_id: Option<String>,
+    /// `message.append` (the default) or `task.submit`; never null.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub action: Option<String>,
 }
 /// The local agent, and optionally session, that originated a request,
 /// asserted by the authenticated sending host.
@@ -203,20 +206,22 @@ pub(crate) fn records<T: DeserializeOwned>(
 }
 /// An outbound record shows a request without a grant as `grant_id: null`;
 /// the wire omits it.
-mod recorded {
-    use super::MessageRequest;
+pub(crate) mod recorded {
     use serde::{
-        Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _,
+        Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned, de::Error as _,
+        ser::Error as _,
     };
     use serde_json::Value;
-    pub fn serialize<S: Serializer>(r: &MessageRequest, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<T: Serialize, S: Serializer>(r: &T, s: S) -> Result<S::Ok, S::Error> {
         let mut value = serde_json::to_value(r).map_err(S::Error::custom)?;
         if let Some(object) = value.as_object_mut() {
             object.entry("grant_id").or_insert(Value::Null);
         }
         value.serialize(s)
     }
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<MessageRequest, D::Error> {
+    pub fn deserialize<'de, T: DeserializeOwned, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<T, D::Error> {
         let mut value = Value::deserialize(d)?;
         if let Some(object) = value.as_object_mut()
             && object.get("grant_id").is_some_and(Value::is_null)
@@ -252,18 +257,44 @@ fn validate_message(r: &MessageRequest) -> Result<(), Error> {
         .map_err(|_| Error::Invalid("invalid deadline".into()))?;
     Ok(())
 }
+/// The authorization message and task requests share: who may perform which
+/// action on which local agent, until when, and with how large a body.
+#[derive(Clone, Copy)]
+pub(crate) struct Authz<'a> {
+    pub action: &'a str,
+    pub grant_id: Option<&'a str>,
+    pub policy: Option<&'a PolicyRef>,
+    pub target_agent_id: &'a str,
+    pub deadline: &'a str,
+    /// Bytes bounded by `max_message_bytes`: message content or task input.
+    pub size: usize,
+    pub origin: Option<&'a Origin>,
+}
+impl MessageRequest {
+    pub(crate) fn authz(&self) -> Authz<'_> {
+        Authz {
+            action: crate::policy::ACTION,
+            grant_id: self.grant_id.as_deref(),
+            policy: self.policy.as_ref(),
+            target_agent_id: &self.target_agent_id,
+            deadline: &self.deadline,
+            size: self.content.len(),
+            origin: self.origin.as_ref(),
+        }
+    }
+}
 /// Checks everything except coordination connectivity. Its denials are final:
 /// revocation, expiry, a passed deadline, and size never recover.
 pub(crate) fn grant_bounds(
     conn: &Connection,
     sender: &str,
-    r: &MessageRequest,
+    r: &Authz<'_>,
     require_deadline: bool,
 ) -> Result<Grant, Error> {
     let g: Grant = read(
         conn,
         "SELECT record FROM grants WHERE id = ?1",
-        [r.grant_id.as_deref().unwrap_or_default()],
+        [r.grant_id.unwrap_or_default()],
     )
     .map_err(|e| match e {
         Error::NotFound => Error::Forbidden,
@@ -272,19 +303,19 @@ pub(crate) fn grant_bounds(
     let expiration = chrono::DateTime::parse_from_rfc3339(&g.expires_at)
         .map_err(|e| Error::Internal(e.into()))?;
     let deadline =
-        chrono::DateTime::parse_from_rfc3339(&r.deadline).map_err(|e| Error::Internal(e.into()))?;
+        chrono::DateTime::parse_from_rfc3339(r.deadline).map_err(|e| Error::Internal(e.into()))?;
     let at = Utc::now();
     if g.requester_host_id != sender
         || g.target_agent_id != r.target_agent_id
-        || g.action != "message.append"
+        || g.action != r.action
         || g.revoked_at.is_some()
         || expiration <= at
         || deadline > expiration
         || (require_deadline && deadline <= at)
-        || r.content.len() as i64 > g.max_message_bytes
+        || r.size as i64 > g.max_message_bytes
         || g.requester_agent_id
             .as_deref()
-            .is_some_and(|agent| r.origin.as_ref().map(|o| o.agent_id.as_str()) != Some(agent))
+            .is_some_and(|agent| r.origin.map(|o| o.agent_id.as_str()) != Some(agent))
     {
         return Err(Error::Forbidden);
     }
@@ -313,13 +344,13 @@ impl Store {
         &self,
         conn: &Connection,
         sender: &str,
-        r: &MessageRequest,
+        r: &Authz<'_>,
         require_deadline: bool,
     ) -> Result<Bounds, Error> {
         if self.blocked(conn, sender)? {
             return Err(Error::Forbidden);
         }
-        match &r.policy {
+        match r.policy {
             Some(cited) => self.policy_bounds(conn, sender, r, cited, require_deadline),
             None => {
                 let g = grant_bounds(conn, sender, r, require_deadline)?;
@@ -334,7 +365,7 @@ impl Store {
         &self,
         conn: &Connection,
         sender: &str,
-        r: &MessageRequest,
+        r: &Authz<'_>,
         require_deadline: bool,
     ) -> Result<Bounds, Error> {
         let g = self.message_bounds(conn, sender, r, require_deadline)?;
@@ -425,7 +456,7 @@ impl Store {
             id: new_id("grant")?,
             requester_host_id: r.requester_host_id,
             target_agent_id: r.target_agent_id,
-            action: "message.append".into(),
+            action: r.action.unwrap_or_else(|| crate::policy::ACTION.to_owned()),
             expires_at: r.expires_at,
             max_message_bytes: r.max_message_bytes,
             allow_disconnected: r.allow_disconnected,
@@ -437,6 +468,11 @@ impl Store {
             .is_some_and(|a| !valid_id(a, "agent", 16))
         {
             return Err(Error::Invalid("invalid requester agent ID".into()));
+        }
+        if !crate::policy::ACTIONS.contains(&g.action.as_str()) {
+            return Err(Error::Invalid(
+                "action must be message.append or task.submit".into(),
+            ));
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -480,7 +516,7 @@ impl Store {
         validate_message(&r)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        self.message_authority(&tx, sender, &r, true)?;
+        self.message_authority(&tx, sender, &r.authz(), true)?;
         let old:Option<(String,String)>=tx.query_row("SELECT request,receipt FROM received_messages WHERE sender = ?1 AND request_id = ?2",params![sender,r.request_id],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
         if let Some((old, receipt)) = old {
             if json::<MessageRequest>(old)? != r {
@@ -739,6 +775,7 @@ pub(crate) mod tests {
                 max_message_bytes: 1000,
                 allow_disconnected: true,
                 requester_agent_id: from.map(Into::into),
+                action: None,
             })
             .unwrap()
     }
@@ -837,6 +874,7 @@ pub(crate) mod tests {
             max_message_bytes: 1000,
             allow_disconnected: true,
             requester_agent_id: Some("agent_bad".into()),
+            action: None,
         });
         assert!(matches!(bad, Err(Error::Invalid(_))));
         let g = grant_for(&store, &peer.id, &target, Some(&remote));

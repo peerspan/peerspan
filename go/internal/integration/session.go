@@ -201,12 +201,17 @@ func recoverSetup(ctx context.Context, p *Profile) error {
 		return err
 	}
 	wanted := append([]host.SetupRoute{}, p.Request.Routes...)
+	for i := range wanted {
+		if wanted[i].Action == "" {
+			wanted[i].Action = "message.append"
+		}
+	}
 	actual := []host.SetupRoute{}
 	for _, r := range routes {
 		if r.RevokedAt != nil {
 			return errors.New("recovery refused: preparing destinations were withdrawn")
 		}
-		actual = append(actual, host.SetupRoute{Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages})
+		actual = append(actual, host.SetupRoute{Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, Action: r.Action})
 	}
 	sort.Slice(wanted, func(i, j int) bool { return wanted[i].Name < wanted[j].Name })
 	sort.Slice(actual, func(i, j int) bool { return actual[i].Name < actual[j].Name })
@@ -252,7 +257,7 @@ func readRoutes(path, expiry string) ([]host.SetupRoute, error) {
 				return nil, errors.New("destination fields cannot be null")
 			}
 			switch key {
-			case "name", "peer_host_id", "target_agent_id", "grant_id", "expires_at", "max_message_bytes", "max_messages":
+			case "name", "peer_host_id", "target_agent_id", "grant_id", "expires_at", "max_message_bytes", "max_messages", "action":
 			default:
 				return nil, errors.New("unknown destination field")
 			}

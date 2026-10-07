@@ -53,6 +53,8 @@ type CreateGrant struct {
 	MaxMessageBytes   int64   `json:"max_message_bytes"`
 	AllowDisconnected bool    `json:"allow_disconnected"`
 	RequesterAgentID  *string `json:"requester_agent_id,omitempty"`
+	// Action is message.append (the default when empty) or task.submit.
+	Action string `json:"action,omitempty"`
 }
 
 // MessageRequest names exactly one authorization: a grant, or the owner
@@ -273,15 +275,18 @@ func (s *Store) Grant(ctx context.Context, id string) (Grant, error) {
 	return readJSON[Grant](s.db.QueryRowContext(ctx, "SELECT record FROM grants WHERE id = ?", id))
 }
 func (s *Store) CreateGrant(ctx context.Context, r CreateGrant) (Grant, error) {
+	if r.Action == "" {
+		r.Action = membership.PolicyActionMessage
+	}
 	expires, err := parseTime(r.ExpiresAt)
-	if err != nil || !expires.After(time.Now()) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || (r.RequesterAgentID != nil && !validID(*r.RequesterAgentID, "agent", 16)) {
+	if err != nil || !membership.ValidPolicyAction(r.Action) || !expires.After(time.Now()) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || (r.RequesterAgentID != nil && !validID(*r.RequesterAgentID, "agent", 16)) {
 		return Grant{}, ErrInvalid
 	}
 	id, err := newID("grant")
 	if err != nil {
 		return Grant{}, err
 	}
-	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: "message.append", ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, AllowDisconnected: r.AllowDisconnected, RequesterAgentID: r.RequesterAgentID}
+	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, AllowDisconnected: r.AllowDisconnected, RequesterAgentID: r.RequesterAgentID}
 	if _, err = s.KnownHost(ctx, r.RequesterHostID, nil); err != nil {
 		return g, err
 	}
@@ -341,7 +346,12 @@ func (s *Store) RevokeGrant(ctx context.Context, id string) (Grant, error) {
 // recover is reported as ErrUnavailable (503), so senders can retry the same
 // request once the receiver syncs again; final denials remain ErrForbidden.
 func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (authority, error) {
-	g, err := s.messageBounds(ctx, tx, sender, r, requireDeadline)
+	return s.actionAuthority(ctx, tx, sender, membership.PolicyActionMessage, r, requireDeadline)
+}
+
+// actionAuthority is messageAuthority for any action.
+func (s *Store) actionAuthority(ctx context.Context, tx *sql.Tx, sender, action string, r MessageRequest, requireDeadline bool) (authority, error) {
+	g, err := s.actionBounds(ctx, tx, sender, action, r, requireDeadline)
 	if err != nil {
 		return g, err
 	}
@@ -358,7 +368,7 @@ func (s *Store) messageAuthority(ctx context.Context, tx *sql.Tx, sender string,
 
 // grantBounds checks everything except coordination connectivity. Its denials
 // are final: revocation, expiry, a passed deadline, and size never recover.
-func grantBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (Grant, error) {
+func grantBounds(ctx context.Context, tx *sql.Tx, sender, action string, r MessageRequest, requireDeadline bool) (Grant, error) {
 	g, err := readJSON[Grant](tx.QueryRowContext(ctx, `SELECT record FROM grants WHERE id = ?`, grantOf(r)))
 	if errors.Is(err, ErrNotFound) {
 		err = ErrForbidden
@@ -375,7 +385,7 @@ func grantBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageReques
 		return g, err
 	}
 	now := time.Now()
-	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
+	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != action || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
 		return g, ErrForbidden
 	}
 	return g, nil

@@ -70,6 +70,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             max_message_bytes,
             allow_disconnected,
             valid_days,
+            actions,
             ..
         } => {
             let mut principals = Vec::new();
@@ -82,7 +83,17 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             let rule = Rule {
                 agent: agent.clone(),
                 principals,
-                actions: vec![ACTION.into()],
+                actions: if actions.is_empty() {
+                    vec![ACTION.into()]
+                } else {
+                    let mut unique = Vec::new();
+                    for a in actions {
+                        if !unique.contains(a) {
+                            unique.push(a.clone());
+                        }
+                    }
+                    unique
+                },
                 max_message_bytes: *max_message_bytes,
                 allow_disconnected: *allow_disconnected,
             };

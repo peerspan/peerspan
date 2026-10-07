@@ -93,7 +93,9 @@ Both native CLIs provide `session setup --harness ID` to create private configur
 
 The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential and define named outbound destinations with byte and lifetime message limits. The adapter uses a separate private `adapter.sock` interface to receive messages, initiate scoped sends, and reply. The daemon automatically retrieves responses to agent-initiated messages and returns them to the originating session. Owner-CLI sends use `message reply`. Unknown handoffs persist without automatic redelivery.
 
-The [adapter contract](docs/agent-adapter-contract.md) and [outbound extension](docs/adapter-outbound-contract.md) define scope, budgets, handoff, reply, and restart behavior. A [live experiment](docs/results/agent-exchange-live.json) verified two running Claude Code sessions initiating messages and observing automatic replies in both directions over Go↔Rust. Full conversations, tasks, remote tools, and host-managed sessions remain subsequent work.
+The [adapter contract](docs/agent-adapter-contract.md) and [outbound extension](docs/adapter-outbound-contract.md) define scope, budgets, handoff, reply, and restart behavior. A [live experiment](docs/results/agent-exchange-live.json) verified two running Claude Code sessions initiating messages and observing automatic replies in both directions over Go↔Rust. Full conversations, remote tools, and host-managed sessions remain subsequent work.
+
+[Single-hop tasks](docs/task-contract.md) let an agent or owner submit work to an agent on another host: `task submit|list|inspect|events|cancel`, grants and policy rules with the action `task.submit`, and adapter routes whose action is `task.submit` for the MCP `delegate_task` tool. The receiving agent accepts or rejects, reports progress, and finishes through the adapter; the submitting daemon retries uncertain submissions, polls events from a resumable cursor, and returns `task_update` events to the originating session.
 
 The [recovery extension](docs/adapter-recovery-contract.md) adds connection leases, recovery by the original running adapter after daemon restart, and token rotation that preserves authorization and budgets. `adapter connection ID` distinguishes registered, ready, offline, and withdrawn access. The [live recovery experiment](docs/results/agent-recovery-live.json) restarts each originating daemon and rotates its token while keeping the same two Claude sessions running.
 
@@ -118,6 +120,7 @@ python3 conformance/admins.py --go /tmp/capsule-host-go --rust rust/target/debug
 python3 conformance/policy.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/send_retry.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+python3 conformance/tasks.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe --node NODE_BINARY
 sudo python3 conformance/nat_lab.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord
 python3 conformance/agent_adapter.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --probe /tmp/capsule-peer-probe
 python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY --coord /tmp/capsule-coord

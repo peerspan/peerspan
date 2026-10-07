@@ -78,6 +78,7 @@ type Store struct {
 
 	retry outboundRetry // automatic retry state for uncertain sends
 	agent personAgent   // the ssh-agent for policy renewal
+	tasks taskWork      // the in-memory task poll schedule
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -132,7 +133,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 8 {
+	if version < 0 || version > 9 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -178,6 +179,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 8 {
 		if _, err = tx.ExecContext(ctx, accessBlocksSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 9 {
+		if _, err = tx.ExecContext(ctx, taskSchema); err != nil {
 			return nil, err
 		}
 	}

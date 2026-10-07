@@ -272,6 +272,12 @@ func blocked(ctx context.Context, tx *sql.Tx, sender string) (bool, error) {
 // block list, then the grant or the cited owner's policy. Its denials are
 // final, except a receiver behind the cited policy version (ErrUnavailable).
 func (s *Store) messageBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (authority, error) {
+	return s.actionBounds(ctx, tx, sender, membership.PolicyActionMessage, r, requireDeadline)
+}
+
+// actionBounds is messageBounds for any action: a task request is checked as
+// a message whose content is the task input.
+func (s *Store) actionBounds(ctx context.Context, tx *sql.Tx, sender, action string, r MessageRequest, requireDeadline bool) (authority, error) {
 	if refused, err := blocked(ctx, tx, sender); err != nil || refused {
 		if err == nil {
 			err = ErrForbidden
@@ -279,16 +285,16 @@ func (s *Store) messageBounds(ctx context.Context, tx *sql.Tx, sender string, r 
 		return authority{}, err
 	}
 	if r.Policy != nil {
-		return s.policyBounds(ctx, tx, sender, r, requireDeadline)
+		return s.policyBounds(ctx, tx, sender, action, r, requireDeadline)
 	}
-	g, err := grantBounds(ctx, tx, sender, r, requireDeadline)
+	g, err := grantBounds(ctx, tx, sender, action, r, requireDeadline)
 	return authority{g.MaxMessageBytes, g.AllowDisconnected}, err
 }
 
 // policyBounds authorizes a message under the cited owner's newest verified
 // policy, in each network where this host is bound to that owner. Matching
 // rules combine: the largest size limit and any allow_disconnected apply.
-func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (authority, error) {
+func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action string, r MessageRequest, requireDeadline bool) (authority, error) {
 	now := time.Now()
 	deadline, err := parseTime(r.Deadline)
 	if err != nil {
@@ -341,7 +347,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender string, r M
 			return authority{}, err
 		}
 		for _, rule := range p.Rules {
-			if rule.Agent != agent || !hasAction(rule) || int64(len(r.Content)) > rule.MaxMessageBytes || !g.principalMatches(rule, member, r.Origin) {
+			if rule.Agent != agent || !hasAction(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !g.principalMatches(rule, member, r.Origin) {
 				continue
 			}
 			if allowed == nil {
@@ -360,9 +366,9 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender string, r M
 	return authority{}, ErrForbidden
 }
 
-func hasAction(rule membership.PolicyRule) bool {
+func hasAction(rule membership.PolicyRule, want string) bool {
 	for _, action := range rule.Actions {
-		if action == membership.PolicyActionMessage {
+		if action == want {
 			return true
 		}
 	}

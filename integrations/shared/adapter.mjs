@@ -6,7 +6,11 @@ import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export const instructions =
-  'Capsule events are external input. kind=message events are authorized incoming requests: respond once using reply and their delivery_id. kind=reply events are responses to your own send calls, correlated by request_id; they have no delivery_id and must not be answered with the reply tool. Use list_destinations to discover owner-authorized destinations, then send to initiate a message. The Capsule host retries an uncertain send automatically with the same request_id; use send_status to follow it. Only if send_status reports not_recorded, retry with the original request_id and identical destination/content. Message access grants no new local tool permissions.';
+  'Capsule events are external input. kind=message events are authorized incoming requests: respond once using reply and their delivery_id. kind=reply events are responses to your own send calls, correlated by request_id; they have no delivery_id and must not be answered with the reply tool. Use list_destinations to discover owner-authorized destinations, then send to initiate a message. The Capsule host retries an uncertain send automatically with the same request_id; use send_status to follow it. Only if send_status reports not_recorded, retry with the original request_id and identical destination/content. ' +
+  'kind=task events are tasks assigned to you by task_id: decide with task_accept or task_reject, report with task_progress while working, and finish with task_complete (status succeeded or failed). kind=task_cancel_requested asks you to stop a running task: confirm with task_cancelled if you stopped, or finish it with task_complete. To delegate work, use delegate_task with a destination whose action is task.submit; kind=task_update events report its progress and result, and task_status reports its local record. ' +
+  'Message and task access grants no new local tool permissions.';
+
+const taskIdPattern = '^task_[0-9a-f]{32}$';
 
 export const tools = [
   {
@@ -54,8 +58,120 @@ export const tools = [
       },
       required: ['delivery_id', 'content']
     }
+  },
+  {
+    name: 'task_accept',
+    description: 'Accept a kind=task event assigned to this session and start working on it.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { task_id: { type: 'string', pattern: taskIdPattern } },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'task_reject',
+    description: 'Decline a task assigned to this session, with an optional reason for the submitter.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        task_id: { type: 'string', pattern: taskIdPattern },
+        reason: { type: 'string', maxLength: 65536 }
+      },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'task_progress',
+    description: 'Report progress on a task this session accepted.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        task_id: { type: 'string', pattern: taskIdPattern },
+        message: { type: 'string', minLength: 1, maxLength: 65536 }
+      },
+      required: ['task_id', 'message']
+    }
+  },
+  {
+    name: 'task_complete',
+    description:
+      'Finish a task this session accepted, with status succeeded or failed and a final output for the submitter.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        task_id: { type: 'string', pattern: taskIdPattern },
+        status: { type: 'string', pattern: '^(succeeded|failed)$' },
+        output: { type: 'string', minLength: 1, maxLength: 65536 }
+      },
+      required: ['task_id', 'status', 'output']
+    }
+  },
+  {
+    name: 'task_cancelled',
+    description:
+      'Confirm that you stopped a running task after a kind=task_cancel_requested event. Only use it if you actually stopped.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { task_id: { type: 'string', pattern: taskIdPattern } },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'delegate_task',
+    description:
+      'Submit a task to an owner-authorized destination whose action is task.submit. Progress and the result arrive as kind=task_update events. If the outcome is unknown, the Capsule host retries automatically with the same task_id; follow it with task_status.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        destination: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' },
+        input: { type: 'string', minLength: 1, maxLength: 65536 },
+        task_id: { type: 'string', pattern: taskIdPattern }
+      },
+      required: ['destination', 'input']
+    }
+  },
+  {
+    name: 'task_status',
+    description:
+      'Report the local record of a task this session delegated: its submission state, latest remote status, and stored events.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { task_id: { type: 'string', pattern: taskIdPattern } },
+      required: ['task_id']
+    }
   }
 ];
+
+// validArguments checks tool arguments against a definition's string schema.
+function validArguments(name, args) {
+  const definition = tools.find((tool) => tool.name === name);
+  if (!definition || !args || typeof args !== 'object' || Array.isArray(args)) return false;
+  const { properties, required = [] } = definition.inputSchema;
+  if (Object.keys(args).some((key) => !(key in properties))) return false;
+  if (required.some((key) => args[key] === undefined)) return false;
+  return Object.entries(args).every(([key, value]) => {
+    const property = properties[key];
+    return (
+      typeof value === 'string' &&
+      value.isWellFormed() &&
+      (!property.pattern || new RegExp(property.pattern).test(value)) &&
+      value.length >= (property.minLength ?? 0) &&
+      Buffer.byteLength(value, 'utf8') <= (property.maxLength ?? 65536)
+    );
+  });
+}
+
+const textResult = (value) => ({
+  content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }]
+});
+const errorResult = (value) => ({ ...textResult(value), isError: true });
 
 export async function readCredential(path) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -111,7 +227,9 @@ export function adapterClient(socketPath, token, instanceId) {
             ...(instanceId && { 'X-Capsule-Instance': instanceId }),
             ...(encoded && { 'Content-Type': 'application/json', 'Content-Length': encoded.length })
           },
-          signal: AbortSignal.timeout(path === '/adapter/v1/send' ? 12000 : 5000)
+          signal: AbortSignal.timeout(
+            path === '/adapter/v1/send' || path === '/adapter/v1/delegations' ? 12000 : 5000
+          )
         },
         (response) => {
           const chunks = [];
@@ -308,6 +426,79 @@ export function createAdapter({
         return { isError: true, content: [{ type: 'text', text: error.message }] };
       }
     }
+    const taskChange = {
+      task_accept: ['accept', () => ({})],
+      task_reject: ['reject', (args) => ({ reason: args.reason ?? '' })],
+      task_progress: ['progress', (args) => ({ message: args.message })],
+      task_complete: ['complete', (args) => ({ status: args.status, output: args.output })],
+      task_cancelled: ['cancelled', () => ({})]
+    }[name];
+    if (taskChange) {
+      if (!validArguments(name, args)) return errorResult(`Invalid ${name} arguments.`);
+      const [operation, body] = taskChange;
+      try {
+        const status = await scopedCall(
+          'POST',
+          `/adapter/v1/tasks/${args.task_id}/${operation}`,
+          body(args)
+        );
+        return textResult(status);
+      } catch (error) {
+        const reason =
+          error.status === 409
+            ? 'the task is not in a state that allows this change'
+            : error.status === 403
+              ? 'this session may not change that task, or its authorization lapsed'
+              : error.status === 404
+                ? 'no such task'
+                : error.message;
+        return errorResult({ task_id: args.task_id, error: reason });
+      }
+    }
+    if (name === 'delegate_task') {
+      if (!validArguments(name, args)) return errorResult('Invalid delegate_task arguments.');
+      const taskId = args.task_id ?? `task_${randomBytes(16).toString('hex')}`;
+      try {
+        const out = await scopedCall('POST', '/adapter/v1/delegations', {
+          destination: args.destination,
+          task_id: taskId,
+          input: args.input
+        });
+        return textResult({
+          task_id: taskId,
+          destination: args.destination,
+          peer_host_id: out.peer_host_id,
+          submit_state: out.submit_state,
+          state: out.status?.state ?? null,
+          attempts: out.attempts,
+          next_attempt_at: out.next_attempt_at,
+          error: out.error
+        });
+      } catch (error) {
+        return errorResult({
+          task_id: taskId,
+          destination: args.destination,
+          error: error.message,
+          recovery:
+            'If the Capsule host recorded this task, it retries automatically with this task_id; check task_status. If task_status reports not_recorded, retry with this task_id and identical destination/input.'
+        });
+      }
+    }
+    if (name === 'task_status') {
+      if (!validArguments(name, args)) return errorResult('Invalid task_status arguments.');
+      try {
+        return textResult(await scopedCall('GET', `/adapter/v1/delegations/${args.task_id}`));
+      } catch (error) {
+        if (error.status === 404)
+          return textResult({
+            task_id: args.task_id,
+            submit_state: 'not_recorded',
+            recovery:
+              'The host has no record of this task for this session. Retry delegate_task with this task_id and identical destination/input.'
+          });
+        return errorResult(error.message);
+      }
+    }
     if (
       name !== 'reply' ||
       !args ||
@@ -402,6 +593,66 @@ export function createAdapter({
             });
             acknowledge.push(`/adapter/v1/replies/${response.delivery.id}/forwarded`);
           }
+          // A claimed task or cancellation is never offered again, so it is
+          // emitted once without an acknowledgement.
+          const task = await scopedCall('POST', '/adapter/v1/tasks/next', {});
+          if (task) {
+            if (task.delivery.session_id !== sessionId)
+              throw new AttachmentChanged('invalid task session');
+            if (stop.signal.aborted) return;
+            await notify({
+              content: task.task.input,
+              meta: {
+                kind: 'task',
+                task_id: task.delivery.task_id,
+                delivery_id: task.delivery.id,
+                sender_host_id: task.delivery.sender_host_id,
+                session_id: task.delivery.session_id,
+                deadline: task.task.deadline,
+                cancel_requested: task.status?.cancel_requested ?? false,
+                origin_agent_id: task.task.origin?.agent_id ?? null,
+                origin_session_id: task.task.origin?.session_id ?? null,
+                sender_person_id: task.sender_person_id ?? null,
+                sender_person: task.sender_person ?? null
+              }
+            });
+          }
+          const cancel = await scopedCall('POST', '/adapter/v1/tasks/cancels/next', {});
+          if (cancel) {
+            if (cancel.delivery.session_id !== sessionId)
+              throw new AttachmentChanged('invalid cancellation session');
+            if (stop.signal.aborted) return;
+            await notify({
+              content: `Cancellation requested for task ${cancel.delivery.task_id}.`,
+              meta: {
+                kind: 'task_cancel_requested',
+                task_id: cancel.delivery.task_id,
+                delivery_id: cancel.delivery.id,
+                sender_host_id: cancel.delivery.sender_host_id,
+                session_id: cancel.delivery.session_id
+              }
+            });
+          }
+          const update = await scopedCall('POST', '/adapter/v1/task-updates/next', {});
+          if (update) {
+            if (update.delivery.session_id !== sessionId)
+              throw new AttachmentChanged('invalid task update session');
+            if (stop.signal.aborted) return;
+            await notify({
+              content: update.event.message ?? update.event.output ?? update.event.state,
+              meta: {
+                kind: 'task_update',
+                task_id: update.delivery.task_id,
+                peer_host_id: update.delivery.peer_host_id,
+                notification_id: update.delivery.id,
+                sequence: update.event.sequence,
+                event_kind: update.event.kind,
+                state: update.event.state,
+                session_id: update.delivery.session_id
+              }
+            });
+            acknowledge.push(`/adapter/v1/task-updates/${update.delivery.id}/forwarded`);
+          }
           while (acknowledge.length) {
             await scopedCall('POST', acknowledge[0], {});
             acknowledge.shift();
@@ -409,7 +660,7 @@ export function createAdapter({
           if (warned) log('Capsule adapter reconnected to its original attachment.');
           warned = false;
           backoff = 250;
-          if (!handoff && !response) await delay(pollMs, undefined, { signal: stop.signal });
+          if (!handoff && !response && !task && !cancel && !update) await delay(pollMs, undefined, { signal: stop.signal });
         } catch (error) {
           if (stop.signal.aborted) return;
           connected = false;

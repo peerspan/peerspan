@@ -9,7 +9,7 @@ use crate::{
     membership::{check_network, invalid, time},
     model::Error,
     network::Member,
-    peer_store::{Bounds, MessageRequest, json},
+    peer_store::{Authz, Bounds, json},
     persons::{PersonSigner, person_id_of, verify_sshsig},
     store::{Store, append_event, now, rfc3339},
 };
@@ -32,6 +32,10 @@ PRAGMA user_version = 8;
 ";
 
 pub const ACTION: &str = "message.append";
+/// Submitting a task (milestone 6) to an agent.
+pub const TASK_ACTION: &str = "task.submit";
+/// The actions grants and policy rules may name.
+pub const ACTIONS: [&str; 2] = [ACTION, TASK_ACTION];
 pub const DEFAULT_VALID_DAYS: i64 = 7;
 const MAX_RULES: usize = 64;
 const MAX_PRINCIPALS: usize = 64;
@@ -151,8 +155,8 @@ impl Rule {
         for p in &self.principals {
             principal(p)?;
         }
-        if self.actions.is_empty() || self.actions.iter().any(|a| a != ACTION) {
-            return Err(invalid("the only policy action is message.append"));
+        if self.actions.is_empty() || self.actions.iter().any(|a| !ACTIONS.contains(&a.as_str())) {
+            return Err(invalid("policy actions are message.append and task.submit"));
         }
         if !(1..=65536).contains(&self.max_message_bytes) {
             return Err(invalid("max_message_bytes must be 1-65536"));
@@ -372,19 +376,19 @@ impl Store {
         &self,
         connection: &Connection,
         sender: &str,
-        r: &MessageRequest,
+        r: &Authz<'_>,
         cited: &PolicyRef,
         require_deadline: bool,
     ) -> Result<Bounds, Error> {
         let at = Utc::now();
-        let deadline = time(&r.deadline)?;
+        let deadline = time(r.deadline)?;
         if require_deadline && deadline <= at {
             return Err(Error::Forbidden);
         }
         let agent: Option<String> = connection
             .query_row(
                 "SELECT name FROM agents WHERE id = ?1",
-                [&r.target_agent_id],
+                [r.target_agent_id],
                 |row| row.get(0),
             )
             .optional()?;
@@ -420,12 +424,11 @@ impl Store {
                 continue;
             };
             let groups = self.stored_groups(connection, &network)?;
-            let matches =
-                |p: &str| principal_matches(p, &sender_member, &groups, r.origin.as_ref());
+            let matches = |p: &str| principal_matches(p, &sender_member, &groups, r.origin);
             for rule in &policy.rules {
                 if rule.agent != agent
-                    || !rule.actions.iter().any(|a| a == ACTION)
-                    || r.content.len() as i64 > rule.max_message_bytes
+                    || !rule.actions.iter().any(|a| a == r.action)
+                    || r.size as i64 > rule.max_message_bytes
                     || !rule.principals.iter().any(|p| matches(p))
                 {
                     continue;
@@ -908,6 +911,14 @@ mod tests {
         assert!(sign("2026-10-10T00:00:00Z", "2027-01-08T00:00:01Z", rules()).is_err());
         sign("2026-10-10T00:00:00Z", "2027-01-08T00:00:00Z", rules()).unwrap();
         sign("2026-10-10T00:00:00Z", "2026-10-11T00:00:00Z", vec![]).unwrap();
+        // Rules may allow task submission, alone or with messages.
+        for actions in [vec![TASK_ACTION], vec![ACTION, TASK_ACTION]] {
+            let rule = Rule {
+                actions: actions.into_iter().map(Into::into).collect(),
+                ..rules()[0].clone()
+            };
+            sign("2026-10-10T00:00:00Z", "2026-10-17T00:00:00Z", vec![rule]).unwrap();
+        }
         for bad in [
             Rule {
                 principals: vec![],
@@ -1139,7 +1150,7 @@ mod tests {
 
     #[test]
     fn requests_carry_exactly_one_authorization() {
-        use crate::peer_store::OutboundMessage;
+        use crate::peer_store::{MessageRequest, OutboundMessage};
         let base = serde_json::json!({
             "request_id": format!("request_{}", "0".repeat(32)),
             "target_agent_id": format!("agent_{}", "0".repeat(32)),

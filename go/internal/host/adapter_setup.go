@@ -32,7 +32,7 @@ func (s *Store) RouteStatus(ctx context.Context, id string) ([]RouteStatus, erro
 	if _, err := s.Adapter(ctx, id); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT r.record,(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) FROM adapter_routes r WHERE adapter_id = ? ORDER BY name", id)
+	rows, err := s.db.QueryContext(ctx, "SELECT r.record,"+routeUsed+" FROM adapter_routes r WHERE adapter_id = ? ORDER BY name", id)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +70,7 @@ type SetupRoute struct {
 	ExpiresAt       string  `json:"expires_at"`
 	MaxMessageBytes int64   `json:"max_message_bytes"`
 	MaxMessages     int64   `json:"max_messages"`
+	Action          string  `json:"action,omitempty"`
 }
 
 func (r *SetupRoute) UnmarshalJSON(data []byte) error {
@@ -78,12 +79,20 @@ func (r *SetupRoute) UnmarshalJSON(data []byte) error {
 		return ErrInvalid
 	}
 	// grant_id may be missing or null: sends then cite the owner's policy.
-	if _, hasGrant := fields["grant_id"]; len(fields) != 7 && (hasGrant || len(fields) != 6) {
+	// action may be missing: the route then sends messages.
+	required := 7
+	if _, hasGrant := fields["grant_id"]; !hasGrant {
+		required--
+	}
+	if _, hasAction := fields["action"]; hasAction {
+		required++
+	}
+	if len(fields) != required {
 		return ErrInvalid
 	}
 	for key, value := range fields {
 		switch key {
-		case "name", "peer_host_id", "target_agent_id", "grant_id", "expires_at", "max_message_bytes", "max_messages":
+		case "name", "peer_host_id", "target_agent_id", "grant_id", "expires_at", "max_message_bytes", "max_messages", "action":
 		default:
 			return ErrInvalid
 		}
@@ -120,7 +129,7 @@ func (s *Store) SetupAdapter(ctx context.Context, r AdapterSetupRequest) (Adapte
 	}
 	routes := []OutboundRoute{}
 	for _, route := range r.Routes {
-		created, err := s.createOutboundRoute(ctx, tx, CreateOutboundRoute{AdapterID: credential.Adapter.ID, Name: route.Name, PeerHostID: route.PeerHostID, TargetAgentID: route.TargetAgentID, GrantID: route.GrantID, ExpiresAt: route.ExpiresAt, MaxMessageBytes: route.MaxMessageBytes, MaxMessages: route.MaxMessages})
+		created, err := s.createOutboundRoute(ctx, tx, CreateOutboundRoute{AdapterID: credential.Adapter.ID, Name: route.Name, PeerHostID: route.PeerHostID, TargetAgentID: route.TargetAgentID, GrantID: route.GrantID, ExpiresAt: route.ExpiresAt, MaxMessageBytes: route.MaxMessageBytes, MaxMessages: route.MaxMessages, Action: route.Action})
 		if err != nil {
 			return AdapterSetup{}, err
 		}

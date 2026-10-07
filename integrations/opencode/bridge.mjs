@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { privateJSON } from '../shared/provider.mjs';
-import { configuredAdapter, instructions } from '../shared/adapter.mjs';
+import { configuredAdapter, instructions, tools } from '../shared/adapter.mjs';
 import { toolGateway } from '../shared/tools.mjs';
 import { Client, HTTPError } from './client.mjs';
 import { inspect } from './inspection.mjs';
@@ -24,7 +24,9 @@ export async function submit(client, config, event) {
   const id = 'msg_' + randomBytes(16).toString('hex');
   const text =
     instructions.replaceAll('reply tool', 'capsule_reply tool') +
-    '\nUse the capsule_list_destinations, capsule_send, capsule_send_status and capsule_reply tools.\nExternal Capsule event:\n' +
+    '\nUse the Capsule tools, named with a capsule_ prefix (' +
+    tools.map((tool) => 'capsule_' + tool.name).join(', ') +
+    ').\nExternal Capsule event:\n' +
     JSON.stringify(event);
   await client.request(
     'POST',

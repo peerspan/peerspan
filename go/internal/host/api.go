@@ -79,6 +79,7 @@ func Handler(store *Store) http.Handler {
 	localAdminRoutes(mux, store)
 	localPolicyRoutes(mux, store)
 	localAdapterRoutes(mux, store)
+	localTaskRoutes(mux, store)
 	return mux
 }
 

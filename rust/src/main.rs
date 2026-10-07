@@ -454,6 +454,8 @@ async fn run_daemon(
     let reply_workers =
         capsule_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
     let retries = capsule_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
+    let tasks = capsule_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
+    let expiry = capsule_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
@@ -471,6 +473,14 @@ async fn run_daemon(
         },
         async {
             retries.await;
+            Ok(())
+        },
+        async {
+            tasks.await;
+            Ok(())
+        },
+        async {
+            expiry.await;
             Ok(())
         },
         async {

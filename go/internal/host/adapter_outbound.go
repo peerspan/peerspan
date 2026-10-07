@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 )
 
 const adapterOutboundSchema = `
@@ -25,12 +27,29 @@ type OutboundRoute struct {
 	Name            string  `json:"name"`
 	PeerHostID      string  `json:"peer_host_id"`
 	TargetAgentID   string  `json:"target_agent_id"`
+	Action          string  `json:"action"`
 	GrantID         *string `json:"grant_id"`
 	ExpiresAt       string  `json:"expires_at"`
 	MaxMessageBytes int64   `json:"max_message_bytes"`
 	MaxMessages     int64   `json:"max_messages"`
 	RevokedAt       *string `json:"revoked_at"`
 }
+
+// UnmarshalJSON reads a route from before task routes as a message route.
+func (r *OutboundRoute) UnmarshalJSON(data []byte) error {
+	type plain OutboundRoute
+	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
+		return err
+	}
+	if r.Action == "" {
+		r.Action = membership.PolicyActionMessage
+	}
+	return nil
+}
+
+// routeUsed counts a route's consumed budget: its messages and its tasks.
+const routeUsed = `(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) + (SELECT COUNT(*) FROM outbound_tasks t WHERE json_extract(t.record, '$.route_id') = r.id)`
+
 type CreateOutboundRoute struct {
 	AdapterID       string  `json:"adapter_id"`
 	Name            string  `json:"name"`
@@ -40,9 +59,12 @@ type CreateOutboundRoute struct {
 	ExpiresAt       string  `json:"expires_at"`
 	MaxMessageBytes int64   `json:"max_message_bytes"`
 	MaxMessages     int64   `json:"max_messages"`
+	// Action is message.append (the default when empty) or task.submit.
+	Action string `json:"action,omitempty"`
 }
 type Destination struct {
 	Name              string `json:"name"`
+	Action            string `json:"action"`
 	ExpiresAt         string `json:"expires_at"`
 	MaxMessageBytes   int64  `json:"max_message_bytes"`
 	MessagesRemaining int64  `json:"messages_remaining"`
@@ -120,8 +142,11 @@ func (s *Store) CreateOutboundRoute(ctx context.Context, r CreateOutboundRoute) 
 	return route, tx.Commit()
 }
 func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOutboundRoute) (OutboundRoute, error) {
+	if r.Action == "" {
+		r.Action = membership.PolicyActionMessage
+	}
 	exp, err := parseTime(r.ExpiresAt)
-	if err != nil || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
+	if err != nil || !membership.ValidPolicyAction(r.Action) || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
 		return OutboundRoute{}, ErrInvalid
 	}
 	var known int
@@ -160,7 +185,7 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if err != nil {
 		return OutboundRoute{}, err
 	}
-	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages}
+	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages}
 	data, err := json.Marshal(route)
 	if err != nil {
 		return route, err
@@ -229,7 +254,7 @@ func (s *Store) Destinations(ctx context.Context, token AdapterAuth) ([]Destinat
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT r.record,(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) FROM adapter_routes r WHERE adapter_id = ? ORDER BY name`, a.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT r.record,`+routeUsed+` FROM adapter_routes r WHERE adapter_id = ? ORDER BY name`, a.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +275,7 @@ func (s *Store) Destinations(ctx context.Context, token AdapterAuth) ([]Destinat
 			return nil, err
 		}
 		if r.RevokedAt == nil && exp.After(time.Now()) {
-			items = append(items, Destination{Name: r.Name, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MessagesRemaining: r.MaxMessages - used})
+			items = append(items, Destination{Name: r.Name, Action: r.Action, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MessagesRemaining: r.MaxMessages - used})
 		}
 	}
 	return items, rows.Err()
@@ -279,7 +304,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	if err != nil {
 		return OutboundMessage{}, err
 	}
-	if route.RevokedAt != nil || !exp.After(time.Now()) || int64(len(r.Content)) > route.MaxMessageBytes {
+	if route.RevokedAt != nil || route.Action != membership.PolicyActionMessage || !exp.After(time.Now()) || int64(len(r.Content)) > route.MaxMessageBytes {
 		return OutboundMessage{}, ErrForbidden
 	}
 	var reused int
@@ -316,7 +341,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 		return old, err
 	}
 	var used int64
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM adapter_outbound WHERE route_id = ?`, route.ID).Scan(&used); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT `+routeUsed+` FROM adapter_routes r WHERE r.id = ?`, route.ID).Scan(&used); err != nil {
 		return old, err
 	}
 	if used >= route.MaxMessages {

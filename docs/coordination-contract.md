@@ -469,7 +469,7 @@ The JSON is `{network_id, person_public_key, version, issued_at, valid_until, ru
   - `group:<name>`, a group defined by an administrator;
   - `network`, meaning every member host;
   - `agent:<host_id>/<agent_id>`, which matches only requests from that authenticated host whose asserted `origin.agent_id` is that agent (see Agent origin in the [messaging contract](peer-messaging-contract.md)).
-- **Actions:** only `message.append`.
+- **Actions:** `message.append` and `task.submit` (see the [task contract](task-contract.md)).
 - **`max_message_bytes`:** 1 to 65,536.
 - **Validity:** `valid_until` minus `issued_at` must be between 1 and 90 days. The CLI's default is 7 days, set with `--valid-days`.
 - **At most** 64 rules and 64 principals per rule.
@@ -486,7 +486,7 @@ Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTF
 
 A receiving host bound to person P authorizes a message to its local agent named N in either of two ways:
 - **Manual grant:** the request names a grant that this host holds, as before.
-- **Policy:** P's newest verified policy is within its window, and has a rule for agent N with action `message.append` whose principals match the sender. The sender matches `person:<id>` if it is bound to that person. It matches `group:<name>` if it is bound to a member of that group. It matches `network` if it is a member host.
+- **Policy:** P's newest verified policy is within its window, and has a rule for agent N with the requested action (`message.append` for messages) whose principals match the sender. The sender matches `person:<id>` if it is bound to that person. It matches `group:<name>` if it is bound to a member of that group. It matches `network` if it is a member host.
 
   Policy authorization also applies the rule's bounds:
   - the content is within `max_message_bytes`;
@@ -507,7 +507,7 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `access allow --network ID --agent NAME --principal P [--principal P ...] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]` | `POST /v1/networks/{id}/policy` with `{policy}` | The CLI fetches the owner's current policy from the daemon. It adds or replaces the rule for NAME, resolving `person:LABEL` to an ID with an error on ambiguity, and signs version + 1. The daemon verifies and submits it. Returns 201 with the policy. |
+| `access allow --network ID --agent NAME --principal P [--principal P ...] [--action A [--action A ...]] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]` | `POST /v1/networks/{id}/policy` with `{policy}` | The CLI fetches the owner's current policy from the daemon. It adds or replaces the rule for NAME, with actions from `--action` (default `message.append`), resolving `person:LABEL` to an ID with an error on ambiguity, and signs version + 1. The daemon verifies and submits it. Returns 201 with the policy. |
 | `access deny --network ID --agent NAME [--principal P ...] [--person-key PATH]` | same | Removes those principals, or the whole rule when none are given. It signs and submits a new version. |
 | `access renew --network ID [--person-key PATH]` | same | Re-signs the current rules now. |
 | `access show --network ID [--person PERSON]` | `GET /v1/networks/{id}/policy?person=ID` | The newest verified policy, mine by default, plus `expires_soon`. |
