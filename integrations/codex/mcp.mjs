@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { proxyTool } from './tools.mjs';
+import { proxyTool } from '../shared/tools.mjs';
 import { tools, instructions } from '../shared/adapter.mjs';
 const { values } = parseArgs({
   options: { socket: { type: 'string' }, thread: { type: 'string' } }

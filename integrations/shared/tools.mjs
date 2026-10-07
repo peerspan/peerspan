@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import { chmod, lstat } from 'node:fs/promises';
-export async function toolGateway(socket, threadId, adapter, emit = () => {}) {
+export async function toolGateway(socket, callerSession, adapter, emit = () => {}) {
   // A previous crashed bridge's private socket may remain. Never unlink an
   // arbitrary file or another account's socket.
   try {
@@ -32,7 +32,7 @@ export async function toolGateway(socket, threadId, adapter, emit = () => {}) {
         chunks.push(chunk);
       }
       const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      if (value.thread_id !== threadId) {
+      if (value.caller_session !== callerSession) {
         reply(403, {});
         return;
       }
@@ -63,7 +63,7 @@ export async function toolGateway(socket, threadId, adapter, emit = () => {}) {
       })
   };
 }
-export async function proxyTool(socket, threadId, name, args) {
+export async function proxyTool(socket, callerSession, name, args) {
   // Allocate at the harness side of this extra hop so a lost gateway response
   // still leaves the caller with the exact ID the Capsule host may have saved.
   const requestId =
@@ -76,7 +76,9 @@ export async function proxyTool(socket, threadId, name, args) {
       : args;
   try {
     return await new Promise((resolve, reject) => {
-      const encoded = Buffer.from(JSON.stringify({ thread_id: threadId, name, arguments: input }));
+      const encoded = Buffer.from(
+        JSON.stringify({ caller_session: callerSession, name, arguments: input })
+      );
       const request = http.request(
         {
           socketPath: socket,
@@ -97,7 +99,9 @@ export async function proxyTool(socket, threadId, name, args) {
           response.on('error', () => reject(new Error('Capsule tool response unavailable.')));
           response.on('end', () => {
             if (response.statusCode !== 200) {
-              reject(new Error('This Codex thread is not authorized for this Capsule attachment.'));
+              reject(
+                new Error('This harness session is not authorized for this Capsule attachment.')
+              );
               return;
             }
             try {

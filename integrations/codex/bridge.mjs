@@ -5,7 +5,7 @@ import { privateJSON } from '../shared/provider.mjs';
 import { configuredAdapter, instructions } from '../shared/adapter.mjs';
 import { Connection } from './connection.mjs';
 import { ExistingThread } from './thread.mjs';
-import { toolGateway } from './tools.mjs';
+import { toolGateway } from '../shared/tools.mjs';
 import { installEntry, removeEntry } from './configuration.mjs';
 export async function run(config, { emit = () => {} } = {}) {
   const rpc = new Connection(config.codex_socket);

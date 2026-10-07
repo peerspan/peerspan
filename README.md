@@ -87,7 +87,7 @@ The grant expiration and request deadline must be in the future, with the deadli
 
 ## Connect an opted-in agent session
 
-Both native CLIs provide `session setup --harness ID` to create private configuration and scoped destinations, `session start` to launch through a supported integration, and `session doctor` to inspect integration prerequisites, credentials, adapter leases, and destination budgets without changing state. Shipped [harness integrations](docs/harness-integration-contract.md) include [Claude Code](integrations/claude-channel/README.md#configure-one-session) and [Codex](integrations/codex/README.md). Codex attaches a sidecar to an already-running conversation through its existing app-server socket, with scoped MCP tools and queued input.
+Both native CLIs provide `session setup --harness ID` to create private configuration and scoped destinations, `session start` to launch through a supported integration, and `session doctor` to inspect integration prerequisites, credentials, adapter leases, and destination budgets without changing state. Shipped [harness integrations](docs/harness-integration-contract.md) include [Claude Code](integrations/claude-channel/README.md#configure-one-session) [Codex](integrations/codex/README.md), and [OpenCode](integrations/opencode/README.md). Codex attaches a sidecar to an already-running conversation through its existing app-server socket, with scoped MCP tools and queued input.
 
 The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential and define named outbound destinations with byte and lifetime message limits. The adapter uses a separate private `adapter.sock` interface to receive messages, initiate scoped sends, and reply. The daemon automatically retrieves responses to agent-initiated messages and returns them to the originating session. Owner-CLI sends use `message reply`. Unknown handoffs persist without automatic redelivery.
 
@@ -122,6 +122,7 @@ python3 conformance/adapter_recovery.py --go /tmp/capsule-host-go --rust rust/ta
 python3 conformance/claude_setup.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 python3 conformance/harness_setup.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 python3 conformance/codex_integration.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
+python3 conformance/opencode_integration.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 ```
 
 `nat_lab.py` needs root. It builds Linux network namespaces with nftables NAT routers between each host and the coordinator, and runs every Go/Rust pairing behind port-preserving, fully random, and UDP-blocking NATs. It removes everything it creates.

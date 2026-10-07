@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-10-07T04:29:15Z",
+  "opencode_version": "1.18.31",
+  "mode": "real OpenCode processes with explicit deterministic model fixture; not real inference",
+  "checks": {
+    "existing_session_ids_preserved": true,
+    "native_plugin_tools_executed": true,
+    "send_status_and_reply": true,
+    "native_permissions_unchanged": true,
+    "all_go_rust_pairings": true,
+    "native_permission_denial_and_other_session_fencing": true,
+    "capsule_daemon_swap_and_token_rotation": true,
+    "uncertain_submission_not_replayed": true
+  },
+  "live_model_check": {
+    "state": "pending",
+    "reason": "No configured provider credentials. The built-in free provider returned HTTP 403 for API-driven turns."
+  },
+  "limits": [
+    "One machine.",
+    "No real OpenCode inference or native TUI exchange is claimed.",
+    "Capsule plugin must be installed once before attachment."
+  ]
+}
