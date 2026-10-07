@@ -1,6 +1,6 @@
 # Task delegation, agent origin, and delegation chains
 
-Status: proposal for review (roadmap milestone 6). Nothing here is implemented. It builds on owner access policy (milestone 2b) and the [access model](access-model.md). The decisions to settle are listed under [Decisions to settle](#decisions-to-settle).
+Status: accepted; decisions settled on 2026-10-07 (see [Decisions](#decisions)). This is roadmap milestone 6, and nothing here is implemented yet. It builds on owner access policy (milestone 2b) and the [access model](access-model.md).
 
 ## Problem
 
@@ -26,6 +26,7 @@ Hosts exchange only messages today, and every request is authenticated and autho
 
 **Non-goals for milestone 6:**
 - **Remote tools and resources** (capability calls) and **conversations.** They reuse the envelope designed here, but are later operations.
+- **Streaming results.** Progress events and final artifacts cover milestone 6.
 - **Agent identity independent of the host.** Agents under one OS account cannot be told apart cryptographically. Agent origin is asserted by the authenticated host. Isolated runtimes are where agent-level keys become meaningful.
 - **Delegation across networks.**
 - **Host-launched sessions.** Tasks go to attached sessions, as messages do today.
@@ -40,12 +41,20 @@ This is exactly as strong as the sending host. A compromised host can assert any
 
 | Operation | Peer route | Notes |
 | --- | --- | --- |
-| Submit | `POST /peer/v1/tasks` | Idempotent by `(sender, task_id)`. The body carries `task_id`, `target_agent_id`, the authorization (grant or policy), `origin`, the optional `delegation` chain, a `deadline`, and `input`, bounded at first to 64 KiB of text. |
+| Submit | `POST /peer/v1/tasks` | Idempotent by `(sender, task_id)`. The body carries `task_id`, `target_agent_id`, the authorization (grant or policy), `origin`, the optional `delegation` chain, a `deadline`, `input` (at most 64 KiB of text), and an optional `artifacts` manifest. |
+| Artifacts | `GET /peer/v1/tasks/{task_id}/artifacts/{sha256}` | The host holding an artifact serves it only to the other party of that task: the submitter fetches result artifacts, and the receiver fetches input artifacts. The fetcher verifies the SHA-256 digest. |
 | Status | `GET /peer/v1/tasks/{task_id}` | Visible only to the authenticated submitter. |
 | Events | `GET /peer/v1/tasks/{task_id}/events?after=N` | Progress and result events with a durable sequence, so a disconnected submitter resumes from its last cursor. |
 | Cancel | `POST /peer/v1/tasks/{task_id}/cancel` | Records a cancellation request. Whether the agent actually stopped is reported as an outcome, never assumed. |
 
 **Task states:** `submitted` → `accepted` | `rejected` → `running` → `succeeded` | `failed` | `cancelled`, plus `unknown` on the submitting side. Acceptance means the receiving host has persisted responsibility for the task; execution may still be queued, as the design defines. Connection state and task state are separate. A disconnect does not fail a task.
+
+**Artifacts.** Both input and result artifacts are supported. A manifest is a list of `{name, size, sha256, media_type}`, and the host that holds the files serves them on demand over the peer connection, so the other party pulls them. Limits:
+- 100 MiB per artifact;
+- 1 GiB per task;
+- a 10 GiB quota per host.
+
+Artifacts are stored as private files in the state directory and pruned 7 days after the task reaches a final state; the owner can prune sooner. They are off unless allowed: a policy or grant rule for `task.submit` carries `max_artifact_bytes`, default 0. With 0, a task with artifacts in either direction is rejected. An agent attaching files to a result is an action under its own local permissions. A manipulated agent could otherwise exfiltrate files, so the owner must opt in. Fetching an artifact authorizes no new work, so it remains possible after a later revocation, as reply lookup does.
 
 The receiving host hands tasks to an attached session through the adapter. New MCP tools let the agent accept, report progress, and finish with a result, or reject. The sending side's adapter receives progress and results the way it receives replies today. Retries reuse the submission's `task_id` (milestone 5). A re-submitted task never creates duplicate work.
 
@@ -105,20 +114,23 @@ The format would be our own minimal line-encoded links, with Ed25519 host signat
    - cancellation;
    - adapter delivery and MCP tools;
    - automatic retry of uncertain submissions.
-3. **Delegation chains:** multi-hop, with attenuation, verification, and cancellation that propagates.
-4. **Live acceptance:** two or three real Claude sessions delegating across hosts. This extends the existing live experiments.
+3. **Artifacts:** manifests, content-addressed pull, quotas and pruning, and the `max_artifact_bytes` opt-in.
+4. **Delegation chains:** multi-hop, with attenuation, verification, and cancellation that propagates.
+5. **Live acceptance:** two or three real Claude sessions delegating across hosts. This extends the existing live experiments.
 
 Each slice ships in both host implementations with shared conformance, including adversarial cases: a widened scope, a spliced or reordered link, an expired link, a blocked middle hop, and replay of a task under a different chain.
 
-## Decisions to settle
+## Decisions
 
-| # | Decision | Recommendation | Alternatives |
-| --- | --- | --- | --- |
-| 1 | Whose authority the final receiver checks | **Originator and sender.** The receiver's grants or policy must allow the originator for the action, and the chain must reach the sender through valid narrowing. Authority can then never be laundered through an intermediary. | Originator only, with the sender as a conduit. Sender only, with the chain merely informational. |
-| 2 | Agent identity strength | Host-asserted origin now; agent keys with isolated runtimes later | Per-agent keys now, which adds little under one OS account |
-| 3 | Who may delegate | Only where the receiver's grant or policy rule includes `task.delegate`, and the incoming link allows it | Any authorized recipient may delegate within the chain |
-| 4 | Maximum chain depth | 3 hops past the originator | Configurable per rule; unlimited, bounded by expiry |
-| 5 | Chain format | Own minimal line-encoded links | Biscuit tokens (a Datalog policy language, plus a library dependency in each language) |
-| 6 | Cancellation | Best-effort downstream propagation, with the outcome reported, never assumed | Cancellation only at the immediate receiver |
-| 7 | Task results | Bounded text results (64 KiB) first; artifacts and streaming later | Large results and artifacts in milestone 6 |
-| 8 | Scope of milestone 6 | Tasks and chains; tools and conversations later on the same envelope | Include remote tools now |
+Settled on 2026-10-07.
+
+| # | Decision | Agreed |
+| --- | --- | --- |
+| 1 | Whose authority the final receiver checks | Originator **and** sender. The receiver's grants or policy must allow the originator for the action, and the chain must reach the sender through valid narrowing. |
+| 2 | Agent identity strength | Host-asserted origin now; agent keys come with isolated runtimes. |
+| 3 | Who may delegate | Only where the receiving owner's grant or policy rule includes `task.delegate`, and the incoming link allows further delegation. |
+| 4 | Maximum chain depth | 3 hops past the originator. |
+| 5 | Chain format | Our own minimal line-encoded links with Ed25519 host signatures. |
+| 6 | Cancellation | Best-effort propagation downstream; each hop reports the outcome rather than assuming it. |
+| 7 | Task results | Text input and results up to 64 KiB, plus input and result artifacts. Artifacts are pulled by content hash, limited to 100 MiB each, 1 GiB per task, and a 10 GiB quota per host, and kept 7 days after the task finishes. They are off unless a rule sets `max_artifact_bytes`. |
+| 8 | Scope of milestone 6 | Agent origin, tasks with artifacts, delegation chains, and live acceptance. Tools and conversations come later on the same envelope. |
