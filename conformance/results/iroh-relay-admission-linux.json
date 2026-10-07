@@ -1,0 +1,172 @@
+{
+  "binary_sha256": "0f6e941fa6ecfae67d0ccd240585fc2ba7868138d1d226c20212bb7c17324248",
+  "cases": [
+    {
+      "profile": "native",
+      "events": [
+        {
+          "endpoint": "alice",
+          "result": {
+            "attempts": [
+              {
+                "error": null,
+                "index": 0,
+                "seconds": 3.029967562,
+                "verified": true
+              }
+            ],
+            "concurrency": 1,
+            "content_bytes": 16,
+            "count": 1,
+            "failed": 0,
+            "succeeded": 1,
+            "wall_seconds": 3.029993925
+          }
+        },
+        {
+          "endpoint": "outsider",
+          "result": {
+            "attempts": [
+              {
+                "error": "deadline has elapsed",
+                "index": 0,
+                "seconds": 8.001495088,
+                "verified": false
+              }
+            ],
+            "concurrency": 1,
+            "content_bytes": 16,
+            "count": 1,
+            "failed": 1,
+            "succeeded": 0,
+            "wall_seconds": 8.001528758
+          }
+        },
+        {
+          "endpoint": "outsider",
+          "result": {
+            "attempts": [
+              {
+                "error": null,
+                "index": 0,
+                "seconds": 0.005054439,
+                "verified": true
+              }
+            ],
+            "concurrency": 1,
+            "content_bytes": 16,
+            "count": 1,
+            "failed": 0,
+            "succeeded": 1,
+            "wall_seconds": 0.005074878
+          }
+        }
+      ],
+      "status": "passed",
+      "scope": "local endpoint allowlist; no signed membership or cross-network equivalence claim",
+      "excluded_endpoint_failed": true,
+      "admitted_same_key_succeeded": true,
+      "identities": {
+        "alice": {
+          "id": "ecc736483a6bc39aa007e75bf578ecb6e5f507cdb7aef3e21e163b2992e32093",
+          "public_key": "ecc736483a6bc39aa007e75bf578ecb6e5f507cdb7aef3e21e163b2992e32093",
+          "address": ""
+        },
+        "bob": {
+          "id": "9ad69efef4da9ed24ef4a740bf122b35b87984cddd4f3142fddead942421048a",
+          "public_key": "9ad69efef4da9ed24ef4a740bf122b35b87984cddd4f3142fddead942421048a",
+          "address": ""
+        },
+        "outsider": {
+          "id": "07bf0f8e83af6735428eda48d724ce2becedd3d25c5f38f6ce6c21c80148f927",
+          "public_key": "07bf0f8e83af6735428eda48d724ce2becedd3d25c5f38f6ce6c21c80148f927",
+          "address": ""
+        }
+      }
+    },
+    {
+      "profile": "bounds",
+      "events": [
+        {
+          "endpoint": "alice",
+          "result": {
+            "attempts": [
+              {
+                "error": null,
+                "index": 0,
+                "seconds": 3.042831457,
+                "verified": true
+              }
+            ],
+            "concurrency": 1,
+            "content_bytes": 16,
+            "count": 1,
+            "failed": 0,
+            "succeeded": 1,
+            "wall_seconds": 3.042957263
+          }
+        },
+        {
+          "endpoint": "outsider",
+          "result": {
+            "attempts": [
+              {
+                "error": "deadline has elapsed",
+                "index": 0,
+                "seconds": 8.001682074,
+                "verified": false
+              }
+            ],
+            "concurrency": 1,
+            "content_bytes": 16,
+            "count": 1,
+            "failed": 1,
+            "succeeded": 0,
+            "wall_seconds": 8.001792243
+          }
+        },
+        {
+          "endpoint": "outsider",
+          "result": {
+            "attempts": [
+              {
+                "error": null,
+                "index": 0,
+                "seconds": 0.006617523,
+                "verified": true
+              }
+            ],
+            "concurrency": 1,
+            "content_bytes": 16,
+            "count": 1,
+            "failed": 0,
+            "succeeded": 1,
+            "wall_seconds": 0.006685879
+          }
+        }
+      ],
+      "status": "passed",
+      "scope": "local endpoint allowlist; no signed membership or cross-network equivalence claim",
+      "excluded_endpoint_failed": true,
+      "admitted_same_key_succeeded": true,
+      "identities": {
+        "alice": {
+          "id": "cf24896d608c5e00998c44a23c752c2c7a2cbab9fd4c06e29319d9411ee62ca6",
+          "public_key": "cf24896d608c5e00998c44a23c752c2c7a2cbab9fd4c06e29319d9411ee62ca6",
+          "address": ""
+        },
+        "bob": {
+          "id": "03e33e07e78a733b178ab5feb35d914a30c256a05ab274900500351dd8a70225",
+          "public_key": "03e33e07e78a733b178ab5feb35d914a30c256a05ab274900500351dd8a70225",
+          "address": ""
+        },
+        "outsider": {
+          "id": "7903936fc695ce6113e7fae2d23199475e6ea9150092304ea577ec5968969941",
+          "public_key": "7903936fc695ce6113e7fae2d23199475e6ea9150092304ea577ec5968969941",
+          "address": ""
+        }
+      }
+    }
+  ],
+  "status": "passed"
+}

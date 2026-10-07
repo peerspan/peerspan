@@ -734,6 +734,12 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
 }
 
 #[cfg(test)]
+mod connectivity_bench;
+
+#[cfg(test)]
+mod connectivity_network;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::peer::pinned_client_config;

@@ -157,6 +157,33 @@ python3 conformance/build_timings.py --go-repo go --rust-repo rust --output /tmp
 
 This uses disposable source copies and isolated build caches, with dependencies already downloaded. The [initial measurements](conformance/results/host-foundation-linux.json) compare this small implementation milestone, dependency choices, and compiler profiles rather than language performance in general.
 
+## Compare connectivity with iroh
+
+The [connectivity evaluation](docs/connectivity-evaluation.md) records why Capsule
+owns its transport, the tradeoffs against iroh, and the comparison matrix. The
+first controlled benchmark measures verified HTTP echoes over the production
+Capsule Go/Rust transport and pinned iroh 1.3.0, with raw samples and build logs:
+
+```sh
+python3 conformance/connectivity_bench.py --artifacts /tmp/capsule-vs-iroh-001 --count 500 --cold 30 --warmup 30 --repeats 3
+```
+
+This measures direct loopback connectivity; relay/NAT and deployed application
+performance need separate experiments. The artifact directory must be new.
+
+The full controlled Linux comparison uses separate endpoint processes, local
+TLS relays, kernel NAT/routing fixtures, checked data, failure/recovery controls,
+and retained packet/resource evidence. It requires root and the network tools
+listed in the [evaluation](docs/connectivity-evaluation.md):
+
+```sh
+python3 conformance/connectivity_suite.py --artifacts /tmp/connectivity-full-001 --count 100 --nat-repeats 3
+```
+
+This covers 108 laboratory trials across Capsule's four Go/Rust pairings and
+two iroh profiles. It does not establish real-world network coverage or replace
+Capsule's authorization and durable-messaging conformance.
+
 ## Compare peer transport performance
 
 ```bash

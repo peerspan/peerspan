@@ -1,0 +1,829 @@
+{
+  "loopback-native": {
+    "schema_version": 1,
+    "status": "complete",
+    "started_at_utc": "2026-10-07T05:10:50.375504+00:00",
+    "scope": "IPv4 loopback; both endpoints in one process; authenticated QUIC; one HTTP/1.1 verified echo per bidi stream",
+    "excluded": [
+      "relays",
+      "NAT traversal",
+      "production request authorization",
+      "durable SQLite writes",
+      "agent delivery"
+    ],
+    "platform": "Linux-6.1.0-53-amd64-x86_64-with-glibc2.36",
+    "cpu_count": 8,
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "host_isolation": "not enforced; inspect per-run host load; results are preliminary on a shared host",
+    "cpu_model": "Intel(R) Core(TM) i7-7700 CPU @ 3.60GHz",
+    "toolchains": {
+      "go": "go version go1.27.1 linux/amd64",
+      "rust": "rustc 1.99.0 (b940084d7 2026-09-28)"
+    },
+    "source_commit": "a6ee704280a3f7961d19ac1c8df269374d04af12",
+    "source_status": "M README.md\n M rust/src/quic.rs\n?? conformance/connectivity/\n?? conformance/connectivity_bench.py\n?? conformance/connectivity_report.py\n?? conformance/connectivity_suite.py\n?? conformance/iroh_relay_admission.py\n?? conformance/results/connectivity-loopback-linux-artifacts.tar.gz\n?? conformance/results/connectivity-loopback-linux.json\n?? conformance/test_connectivity_bench.py\n?? conformance/test_connectivity_suite.py\n?? docs/connectivity-evaluation.md\n?? go/internal/host/connectivity_bench_test.go\n?? go/internal/host/connectivity_network_test.go\n?? rust/src/quic/",
+    "parameters": {
+      "count": 2000,
+      "cold": 30,
+      "warmup": 30,
+      "concurrency": 8,
+      "repeats": 3
+    },
+    "workers": 4,
+    "resumption": "disabled",
+    "iroh_version": "1.3.0",
+    "iroh_gso_disabled": false,
+    "iroh_configuration": "default crate features; Minimal preset; only IPv4 loopback socket; explicit peer address; portmapper disabled; max_tls_tickets=0",
+    "capsule_configuration": "production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server",
+    "binary_sha256": {
+      "capsule-go": "6d49f392616ddf8eca84dd561fa6fbb1273b74c7767f44e78afca8ebb12057ee",
+      "capsule-rust": "dafc038fe944d2ff8c32acc5c7c0f4dd2945bdf29051a691a222eab415dac470",
+      "iroh-rust-1.3.0": "0f6e941fa6ecfae67d0ccd240585fc2ba7868138d1d226c20212bb7c17324248"
+    },
+    "lock_sha256": {
+      "go": "ab0d7a95c50d7c97d1033a9930283f21276672562a41db1c50a36e47340993de",
+      "capsule-rust": "e3ff71dc14f9cae74a37a20cf1181de40269e5d19393cdf81d50000f6e7c75d4",
+      "iroh": "2325716cea8100121e98172087b0b81fa13936816dd35da6c6b260d129464472"
+    },
+    "harness_sha256": {
+      "go/internal/host/connectivity_bench_test.go": "266b769faa2e0fc8bd5c17eb064dbb5c9048053ebac01c3a3e2a4326ab6d24bd",
+      "rust/src/quic.rs": "72c57b42dca2a755a9c399231eefff44b622f4ffbf96f4bdbd7c62961ad29e9a",
+      "rust/src/quic/connectivity_bench.rs": "1ff6a85ebbab312b00b46894859498f7ff9f50cddb0ea6dcd57f05aab521af65",
+      "conformance/connectivity_bench.py": "8dd2fd6d62db9a3698993e24c9d9c06623860dd8f8e776a4d6e6818c049506fc",
+      "conformance/connectivity/driver.rs": "88ba615a1e787c12e9428a350f5f3f38ce96f4a870dda8d8a5298527e1dfd13a",
+      "conformance/connectivity/iroh/src/main.rs": "00e93fa18d8c64ad899a0518ba9e787775b357e251b7f47ae21e18663338c6d8",
+      "conformance/connectivity/iroh/Cargo.toml": "66d4b314cb53248e7f86928d09bbcab0570b4d0d1af7513437c25932814eaad2"
+    },
+    "summary": {
+      "capsule-go": {
+        "cold_first_echo": {
+          "p50_ms": 2.3078,
+          "p90_ms": 3.9025,
+          "p99_ms": 6.0169,
+          "mean_ms": 2.6073,
+          "samples": 90
+        },
+        "workloads": {
+          "16": {
+            "sequential": {
+              "p50_ms": 0.1416,
+              "p90_ms": 0.1811,
+              "p99_ms": 0.3636,
+              "mean_ms": 0.1534,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 0.2877,
+              "p90_ms": 0.5701,
+              "p99_ms": 1.0602,
+              "mean_ms": 0.3427,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              21701.7,
+              22230.67,
+              25211.44
+            ],
+            "median_requests_per_second": 22230.67,
+            "median_payload_mib_per_second_each_direction": 0.34
+          },
+          "65536": {
+            "sequential": {
+              "p50_ms": 1.2033,
+              "p90_ms": 1.8429,
+              "p99_ms": 3.8126,
+              "mean_ms": 1.3418,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 6.8003,
+              "p90_ms": 9.5377,
+              "p99_ms": 13.7709,
+              "mean_ms": 6.7934,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              1288.75,
+              1078.63,
+              1157.51
+            ],
+            "median_requests_per_second": 1157.51,
+            "median_payload_mib_per_second_each_direction": 72.34
+          }
+        }
+      },
+      "capsule-rust": {
+        "cold_first_echo": {
+          "p50_ms": 1.7993,
+          "p90_ms": 5.8925,
+          "p99_ms": 9.3175,
+          "mean_ms": 2.9399,
+          "samples": 90
+        },
+        "workloads": {
+          "16": {
+            "sequential": {
+              "p50_ms": 0.1081,
+              "p90_ms": 0.1821,
+              "p99_ms": 0.3228,
+              "mean_ms": 0.1261,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 0.2266,
+              "p90_ms": 0.4104,
+              "p99_ms": 0.8176,
+              "mean_ms": 0.2666,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              35090.96,
+              21836.92,
+              36304.91
+            ],
+            "median_requests_per_second": 35090.96,
+            "median_payload_mib_per_second_each_direction": 0.54
+          },
+          "65536": {
+            "sequential": {
+              "p50_ms": 1.0073,
+              "p90_ms": 1.4247,
+              "p99_ms": 3.039,
+              "mean_ms": 1.1091,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 4.8444,
+              "p90_ms": 7.3666,
+              "p99_ms": 32.7162,
+              "mean_ms": 5.6996,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              1521.94,
+              1227.81,
+              1464.8
+            ],
+            "median_requests_per_second": 1464.8,
+            "median_payload_mib_per_second_each_direction": 91.55
+          }
+        }
+      },
+      "iroh-rust-1.3.0": {
+        "cold_first_echo": {
+          "p50_ms": 1.4238,
+          "p90_ms": 1.6739,
+          "p99_ms": 4.1353,
+          "mean_ms": 1.4934,
+          "samples": 90
+        },
+        "workloads": {
+          "16": {
+            "sequential": {
+              "p50_ms": 0.1147,
+              "p90_ms": 0.1635,
+              "p99_ms": 0.3365,
+              "mean_ms": 0.1284,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 0.2281,
+              "p90_ms": 0.357,
+              "p99_ms": 0.6865,
+              "mean_ms": 0.2555,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              34409.97,
+              26556.34,
+              32462.89
+            ],
+            "median_requests_per_second": 32462.89,
+            "median_payload_mib_per_second_each_direction": 0.5
+          },
+          "65536": {
+            "sequential": {
+              "p50_ms": 0.5383,
+              "p90_ms": 0.8846,
+              "p99_ms": 2.4371,
+              "mean_ms": 0.6485,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 3.1515,
+              "p90_ms": 5.3275,
+              "p99_ms": 18.7517,
+              "mean_ms": 3.7737,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              2640.93,
+              1975.6,
+              1840.8
+            ],
+            "median_requests_per_second": 1975.6,
+            "median_payload_mib_per_second_each_direction": 123.48
+          }
+        }
+      }
+    },
+    "run_summaries": [
+      {
+        "backend": "capsule-go",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 1,
+        "process_wall_seconds": 4.723762650042772,
+        "host_load_before": [
+          4.20947265625,
+          5.2060546875,
+          6.298828125
+        ],
+        "host_load_after": [
+          4.43310546875,
+          5.23583984375,
+          6.302734375
+        ]
+      },
+      {
+        "backend": "capsule-rust",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 1,
+        "process_wall_seconds": 3.974927094997838,
+        "host_load_before": [
+          4.43310546875,
+          5.23583984375,
+          6.302734375
+        ],
+        "host_load_after": [
+          4.31787109375,
+          5.1982421875,
+          6.28466796875
+        ]
+      },
+      {
+        "backend": "iroh-rust-1.3.0",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 1,
+        "process_wall_seconds": 2.219074042979628,
+        "host_load_before": [
+          4.31787109375,
+          5.1982421875,
+          6.28466796875
+        ],
+        "host_load_after": [
+          4.31787109375,
+          5.1982421875,
+          6.28466796875
+        ]
+      },
+      {
+        "backend": "capsule-rust",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 2,
+        "process_wall_seconds": 4.799345438135788,
+        "host_load_before": [
+          4.31787109375,
+          5.1982421875,
+          6.28466796875
+        ],
+        "host_load_after": [
+          4.37255859375,
+          5.19482421875,
+          6.27734375
+        ]
+      },
+      {
+        "backend": "iroh-rust-1.3.0",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 2,
+        "process_wall_seconds": 3.182203578064218,
+        "host_load_before": [
+          4.37255859375,
+          5.19482421875,
+          6.27734375
+        ],
+        "host_load_after": [
+          4.34228515625,
+          5.1748046875,
+          6.2646484375
+        ]
+      },
+      {
+        "backend": "capsule-go",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 2,
+        "process_wall_seconds": 5.695964847924188,
+        "host_load_before": [
+          4.34228515625,
+          5.1748046875,
+          6.2646484375
+        ],
+        "host_load_after": [
+          4.47509765625,
+          5.18896484375,
+          6.26318359375
+        ]
+      },
+      {
+        "backend": "iroh-rust-1.3.0",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 3,
+        "process_wall_seconds": 2.6276845331303775,
+        "host_load_before": [
+          4.47509765625,
+          5.18896484375,
+          6.26318359375
+        ],
+        "host_load_after": [
+          4.47509765625,
+          5.18896484375,
+          6.26318359375
+        ]
+      },
+      {
+        "backend": "capsule-go",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 3,
+        "process_wall_seconds": 4.7779502521734685,
+        "host_load_before": [
+          4.47509765625,
+          5.18896484375,
+          6.26318359375
+        ],
+        "host_load_after": [
+          4.59765625,
+          5.20263671875,
+          6.26171875
+        ]
+      },
+      {
+        "backend": "capsule-rust",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 3,
+        "process_wall_seconds": 3.9848890008870512,
+        "host_load_before": [
+          4.59765625,
+          5.20263671875,
+          6.26171875
+        ],
+        "host_load_after": [
+          4.54931640625,
+          5.1826171875,
+          6.24951171875
+        ]
+      }
+    ]
+  },
+  "loopback-gso-off": {
+    "schema_version": 1,
+    "status": "complete",
+    "started_at_utc": "2026-10-07T05:11:28.667811+00:00",
+    "scope": "IPv4 loopback; both endpoints in one process; authenticated QUIC; one HTTP/1.1 verified echo per bidi stream",
+    "excluded": [
+      "relays",
+      "NAT traversal",
+      "production request authorization",
+      "durable SQLite writes",
+      "agent delivery"
+    ],
+    "platform": "Linux-6.1.0-53-amd64-x86_64-with-glibc2.36",
+    "cpu_count": 8,
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "host_isolation": "not enforced; inspect per-run host load; results are preliminary on a shared host",
+    "cpu_model": "Intel(R) Core(TM) i7-7700 CPU @ 3.60GHz",
+    "toolchains": {
+      "go": "go version go1.27.1 linux/amd64",
+      "rust": "rustc 1.99.0 (b940084d7 2026-09-28)"
+    },
+    "source_commit": "a6ee704280a3f7961d19ac1c8df269374d04af12",
+    "source_status": "M README.md\n M rust/src/quic.rs\n?? conformance/connectivity/\n?? conformance/connectivity_bench.py\n?? conformance/connectivity_report.py\n?? conformance/connectivity_suite.py\n?? conformance/iroh_relay_admission.py\n?? conformance/results/connectivity-loopback-linux-artifacts.tar.gz\n?? conformance/results/connectivity-loopback-linux.json\n?? conformance/test_connectivity_bench.py\n?? conformance/test_connectivity_suite.py\n?? docs/connectivity-evaluation.md\n?? go/internal/host/connectivity_bench_test.go\n?? go/internal/host/connectivity_network_test.go\n?? rust/src/quic/",
+    "parameters": {
+      "count": 2000,
+      "cold": 30,
+      "warmup": 30,
+      "concurrency": 8,
+      "repeats": 3
+    },
+    "workers": 4,
+    "resumption": "disabled",
+    "iroh_version": "1.3.0",
+    "iroh_gso_disabled": true,
+    "iroh_configuration": "default crate features; Minimal preset; only IPv4 loopback socket; explicit peer address; portmapper disabled; max_tls_tickets=0",
+    "capsule_configuration": "production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server",
+    "binary_sha256": {
+      "capsule-go": "6d49f392616ddf8eca84dd561fa6fbb1273b74c7767f44e78afca8ebb12057ee",
+      "capsule-rust": "dafc038fe944d2ff8c32acc5c7c0f4dd2945bdf29051a691a222eab415dac470",
+      "iroh-rust-1.3.0": "0f6e941fa6ecfae67d0ccd240585fc2ba7868138d1d226c20212bb7c17324248"
+    },
+    "lock_sha256": {
+      "go": "ab0d7a95c50d7c97d1033a9930283f21276672562a41db1c50a36e47340993de",
+      "capsule-rust": "e3ff71dc14f9cae74a37a20cf1181de40269e5d19393cdf81d50000f6e7c75d4",
+      "iroh": "2325716cea8100121e98172087b0b81fa13936816dd35da6c6b260d129464472"
+    },
+    "harness_sha256": {
+      "go/internal/host/connectivity_bench_test.go": "266b769faa2e0fc8bd5c17eb064dbb5c9048053ebac01c3a3e2a4326ab6d24bd",
+      "rust/src/quic.rs": "72c57b42dca2a755a9c399231eefff44b622f4ffbf96f4bdbd7c62961ad29e9a",
+      "rust/src/quic/connectivity_bench.rs": "1ff6a85ebbab312b00b46894859498f7ff9f50cddb0ea6dcd57f05aab521af65",
+      "conformance/connectivity_bench.py": "8dd2fd6d62db9a3698993e24c9d9c06623860dd8f8e776a4d6e6818c049506fc",
+      "conformance/connectivity/driver.rs": "88ba615a1e787c12e9428a350f5f3f38ce96f4a870dda8d8a5298527e1dfd13a",
+      "conformance/connectivity/iroh/src/main.rs": "00e93fa18d8c64ad899a0518ba9e787775b357e251b7f47ae21e18663338c6d8",
+      "conformance/connectivity/iroh/Cargo.toml": "66d4b314cb53248e7f86928d09bbcab0570b4d0d1af7513437c25932814eaad2"
+    },
+    "summary": {
+      "capsule-go": {
+        "cold_first_echo": {
+          "p50_ms": 2.2867,
+          "p90_ms": 3.0927,
+          "p99_ms": 4.2068,
+          "mean_ms": 2.3807,
+          "samples": 90
+        },
+        "workloads": {
+          "16": {
+            "sequential": {
+              "p50_ms": 0.1556,
+              "p90_ms": 0.2272,
+              "p99_ms": 0.4357,
+              "mean_ms": 0.1711,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 0.3141,
+              "p90_ms": 0.6394,
+              "p99_ms": 1.5764,
+              "mean_ms": 0.4137,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              15156.15,
+              25487.3,
+              19148.96
+            ],
+            "median_requests_per_second": 19148.96,
+            "median_payload_mib_per_second_each_direction": 0.29
+          },
+          "65536": {
+            "sequential": {
+              "p50_ms": 1.122,
+              "p90_ms": 1.5848,
+              "p99_ms": 2.5792,
+              "mean_ms": 1.2038,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 6.5639,
+              "p90_ms": 9.3994,
+              "p99_ms": 13.9532,
+              "mean_ms": 6.6551,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              1169.78,
+              1179.66,
+              1231.75
+            ],
+            "median_requests_per_second": 1179.66,
+            "median_payload_mib_per_second_each_direction": 73.73
+          }
+        }
+      },
+      "capsule-rust": {
+        "cold_first_echo": {
+          "p50_ms": 2.2148,
+          "p90_ms": 2.9425,
+          "p99_ms": 3.8438,
+          "mean_ms": 2.0846,
+          "samples": 90
+        },
+        "workloads": {
+          "16": {
+            "sequential": {
+              "p50_ms": 0.1029,
+              "p90_ms": 0.1821,
+              "p99_ms": 0.3439,
+              "mean_ms": 0.1225,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 0.2098,
+              "p90_ms": 0.3312,
+              "p99_ms": 0.5024,
+              "mean_ms": 0.2293,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              38422.83,
+              29097.84,
+              36683.46
+            ],
+            "median_requests_per_second": 36683.46,
+            "median_payload_mib_per_second_each_direction": 0.56
+          },
+          "65536": {
+            "sequential": {
+              "p50_ms": 0.979,
+              "p90_ms": 1.2395,
+              "p99_ms": 2.6773,
+              "mean_ms": 1.0438,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 4.7171,
+              "p90_ms": 7.2056,
+              "p99_ms": 31.6824,
+              "mean_ms": 5.4964,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              1248.54,
+              1494.83,
+              1665.35
+            ],
+            "median_requests_per_second": 1494.83,
+            "median_payload_mib_per_second_each_direction": 93.43
+          }
+        }
+      },
+      "iroh-rust-1.3.0": {
+        "cold_first_echo": {
+          "p50_ms": 1.3842,
+          "p90_ms": 1.7837,
+          "p99_ms": 10.8034,
+          "mean_ms": 1.5506,
+          "samples": 90
+        },
+        "workloads": {
+          "16": {
+            "sequential": {
+              "p50_ms": 0.1101,
+              "p90_ms": 0.1507,
+              "p99_ms": 0.295,
+              "mean_ms": 0.1218,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 0.2209,
+              "p90_ms": 0.3305,
+              "p99_ms": 0.4522,
+              "mean_ms": 0.2357,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              34148.79,
+              31730.16,
+              34289.11
+            ],
+            "median_requests_per_second": 34148.79,
+            "median_payload_mib_per_second_each_direction": 0.52
+          },
+          "65536": {
+            "sequential": {
+              "p50_ms": 1.2647,
+              "p90_ms": 1.5839,
+              "p99_ms": 3.269,
+              "mean_ms": 1.3433,
+              "samples": 6000
+            },
+            "concurrent": {
+              "p50_ms": 5.6668,
+              "p90_ms": 7.7578,
+              "p99_ms": 12.6392,
+              "mean_ms": 5.9916,
+              "samples": 6000
+            },
+            "requests_per_second_each_run": [
+              1282.21,
+              1292.69,
+              1410.95
+            ],
+            "median_requests_per_second": 1292.69,
+            "median_payload_mib_per_second_each_direction": 80.79
+          }
+        }
+      }
+    },
+    "run_summaries": [
+      {
+        "backend": "capsule-go",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 1,
+        "process_wall_seconds": 4.991099374834448,
+        "host_load_before": [
+          4.3447265625,
+          5.12939453125,
+          6.2265625
+        ],
+        "host_load_after": [
+          4.5576171875,
+          5.16064453125,
+          6.23095703125
+        ]
+      },
+      {
+        "backend": "capsule-rust",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 1,
+        "process_wall_seconds": 4.1815623780712485,
+        "host_load_before": [
+          4.5576171875,
+          5.16064453125,
+          6.23095703125
+        ],
+        "host_load_after": [
+          4.5576171875,
+          5.16064453125,
+          6.23095703125
+        ]
+      },
+      {
+        "backend": "iroh-rust-1.3.0",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 1,
+        "process_wall_seconds": 4.726837984984741,
+        "host_load_before": [
+          4.5576171875,
+          5.16064453125,
+          6.23095703125
+        ],
+        "host_load_after": [
+          4.59326171875,
+          5.15771484375,
+          6.22412109375
+        ]
+      },
+      {
+        "backend": "capsule-rust",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 2,
+        "process_wall_seconds": 4.0253827990964055,
+        "host_load_before": [
+          4.59326171875,
+          5.15771484375,
+          6.22412109375
+        ],
+        "host_load_after": [
+          4.30517578125,
+          5.08837890625,
+          6.19580078125
+        ]
+      },
+      {
+        "backend": "iroh-rust-1.3.0",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 2,
+        "process_wall_seconds": 4.74156408617273,
+        "host_load_before": [
+          4.30517578125,
+          5.08837890625,
+          6.19580078125
+        ],
+        "host_load_after": [
+          4.36083984375,
+          5.08642578125,
+          6.18896484375
+        ]
+      },
+      {
+        "backend": "capsule-go",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 2,
+        "process_wall_seconds": 4.577828194014728,
+        "host_load_before": [
+          4.36083984375,
+          5.08642578125,
+          6.18896484375
+        ],
+        "host_load_after": [
+          4.25146484375,
+          5.0517578125,
+          6.17138671875
+        ]
+      },
+      {
+        "backend": "iroh-rust-1.3.0",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 3,
+        "process_wall_seconds": 4.4836739981547,
+        "host_load_before": [
+          4.25146484375,
+          5.0517578125,
+          6.17138671875
+        ],
+        "host_load_after": [
+          4.07080078125,
+          5.0009765625,
+          6.14892578125
+        ]
+      },
+      {
+        "backend": "capsule-go",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 3,
+        "process_wall_seconds": 4.875489877071232,
+        "host_load_before": [
+          4.07080078125,
+          5.0009765625,
+          6.14892578125
+        ],
+        "host_load_after": [
+          4.2255859375,
+          5.017578125,
+          6.14794921875
+        ]
+      },
+      {
+        "backend": "capsule-rust",
+        "cold": 30,
+        "concurrency": 8,
+        "count": 2000,
+        "warmup": 30,
+        "repeat": 3,
+        "process_wall_seconds": 3.777951043099165,
+        "host_load_before": [
+          4.2255859375,
+          5.017578125,
+          6.14794921875
+        ],
+        "host_load_after": [
+          4.20751953125,
+          5.00048828125,
+          6.13623046875
+        ]
+      }
+    ]
+  },
+  "control": "same optimized binaries; only iroh GSO disabled in second cohort; other defaults unchanged; sequential cohorts on shared host",
+  "raw_evidence": {
+    "file": "connectivity-controls-linux-artifacts.tar.gz",
+    "sha256": "0e9311df7141c7b0a4478f1437f932f50a1074b473d569c3f6f0f7785d17f8ed"
+  }
+}
