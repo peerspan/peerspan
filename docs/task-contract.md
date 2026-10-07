@@ -126,3 +126,5 @@ Each subject is the other host ID and the task ID.
 - status and events from a non-submitter returning 404;
 - an agent-initiated `delegate_task` through a route, with `task_update` events back to the originating session;
 - migration from version 8 to version 9.
+
+[Task artifacts](artifact-contract.md) extend tasks with input and result files (milestone 6 slice 3).
