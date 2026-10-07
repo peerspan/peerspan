@@ -467,7 +467,8 @@ The JSON is `{network_id, person_public_key, version, issued_at, valid_until, ru
 - **Principals:** each is one of:
   - `person:<person ID>`;
   - `group:<name>`, a group defined by an administrator;
-  - `network`, meaning every member host.
+  - `network`, meaning every member host;
+  - `agent:<host_id>/<agent_id>`, which matches only requests from that authenticated host whose asserted `origin.agent_id` is that agent (see Agent origin in the [messaging contract](peer-messaging-contract.md)).
 - **Actions:** only `message.append`.
 - **`max_message_bytes`:** 1 to 65,536.
 - **Validity:** `valid_until` minus `issued_at` must be between 1 and 90 days. The CLI's default is 7 days, set with `--valid-days`.

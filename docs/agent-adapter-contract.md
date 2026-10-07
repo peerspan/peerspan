@@ -48,3 +48,11 @@ Claude Code [Channels](https://code.claude.com/docs/en/channels) are a research 
 Wire acceptance, adapter handoff, and reply share the host's grant checks. The final bounds are requester, target, action, revocation, expiration, deadline (not checked for replies), and content size. Wire acceptance and handoff also check the connected state from the coordination contract: a grant without `allow_disconnected` needs the original sender to be a member of a network this host synced within three coordination intervals. The checks run again at handoff and reply, so authorization that lapses after acceptance stops delivery.
 
 The checks fall into two kinds. The final bounds: once one fails it never recovers, so handoff records the delivery as `blocked`. The connected state can recover when syncing resumes, but only while the sender is still a verified member of a network this host has not synced recently. A message failing only in that recoverable way therefore gets no delivery record or event. If the sender is no longer a member of any network, handoff records `blocked`. It stays unclaimed, and later claims skip past it to deliverable messages. It is handed off once the sender counts as connected again, or recorded as `blocked` once its deadline passes. While messages wait this way, handoff order is not strictly oldest-first. Each claim examines at most the 100 oldest unclaimed messages for the agent, so a larger backlog of waiting messages delays newer ones until syncing resumes. A reply answers content this host already delivered, so it needs only the final bounds: a coordination outage does not strand it, but revocation or expiry still stops it. On the wire, a message denied only for that recoverable connected state gets 503 `unavailable`, not 403, so the sender can retry the same request.
+
+## Agent origin in events
+
+Roadmap milestone 6, slice 1. An incoming message event's `meta` gains:
+- `origin_agent_id` and `origin_session_id` from the request's `origin`, null when absent;
+- `sender_person_id` and `sender_person`, the label, when the sending host is bound to a person, and null otherwise.
+
+A reply event's `meta` gains `origin_agent_id` and `origin_session_id`, naming the remote agent and session that replied. Adapter sends and replies set `origin` from the adapter's session automatically. Agents never supply it.
