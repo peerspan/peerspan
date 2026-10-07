@@ -440,6 +440,89 @@ The root-only commands sign with the root seed when this host holds it. Otherwis
 
 **Storage.** Hosts store the statements in `network_statements` under the kinds `admin` (subject: person key), `admin_removal` (subject: person key), and `group` (subject: name, holding the newest verified version). A pending rotation to an SSH root stores no seed. New activity kinds: `network.admin_delegated`, `network.admin_removed`, and `network.group_updated` (subject: group name).
 
+## Owner access policy
+
+Roadmap milestone 2b, slice 3. Decided on 2026-10-07:
+- **Policy and grants combine:** a request is authorized by a manual grant **or** by the target agent owner's policy. A host-local block list overrides both.
+- **Renewal:** daemons renew policies by asking the owner's `ssh-agent` for a signature, and never hold the key.
+- **Visibility:** every member sees every policy.
+- **Propagation:** direct propagation of policies among an owner's hosts is deferred.
+
+Policies name persons by ID, never by label, per the naming rules.
+
+### Policy statement
+
+A policy is signed by its owner (`SSHSIG`, namespace `capsule-person-v1`). Its lines are:
+- the header: `capsule-policy-v1`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`;
+- then, for each rule in order, five lines:
+  1. `rule`;
+  2. the agent name;
+  3. the principals, space-separated;
+  4. the actions, space-separated;
+  5. `max_message_bytes` and `allow_disconnected` (`true` or `false`), space-separated.
+
+The JSON is `{network_id, person_public_key, version, issued_at, valid_until, rules, signature}`, where each rule is `{agent, principals, actions, max_message_bytes, allow_disconnected}`. Lines follow the JSON order.
+
+- **Agent:** an agent name on any host bound to the owner. Names in rules must not contain control characters.
+- **Principals:** each is one of:
+  - `person:<person ID>`;
+  - `group:<name>`, a group defined by an administrator;
+  - `network`, meaning every member host.
+- **Actions:** only `message.append`.
+- **`max_message_bytes`:** 1 to 65,536.
+- **Validity:** `valid_until` minus `issued_at` must be between 1 and 90 days. The CLI's default is 7 days, set with `--valid-days`.
+- **At most** 64 rules and 64 principals per rule.
+
+**Test vector.** The person is the earlier one, as owner. Version 1, issued `2026-10-10T00:00:00Z`, valid until `2026-10-17T00:00:00Z`. It has two rules:
+- `reviewer` for `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2 group:backend`, `message.append`, `65536 false`;
+- `triage` for `network`, `message.append`, `4096 true`.
+
+Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy54wZKMJ5nBPfB3XakG7muQtkw2rjuhFVU+oWwluflHQKmEqNNa3l4MB1x5cdPmyXJduUMs9R24za8w4kW0bDg==`.
+
+**Versions.** A policy is valid if its owner is a current person, its signature verifies, and it falls within its validity window. Allow 5 minutes of clock skew before `issued_at`. For each owner, the highest valid version applies. The coordinator refuses a version that is not higher with 409. Hosts persist the highest version they have verified and never accept a lower one. A renewal is a new version with the same rules and a new validity window. The map gains `policies`: the newest valid policy of every person, visible to every member.
+
+### Authorization
+
+A receiving host bound to person P authorizes a message to its local agent named N in either of two ways:
+- **Manual grant:** the request names a grant that this host holds, as before.
+- **Policy:** P's newest verified policy is within its window, and has a rule for agent N with action `message.append` whose principals match the sender. The sender matches `person:<id>` if it is bound to that person. It matches `group:<name>` if it is bound to a member of that group. It matches `network` if it is a member host.
+
+  Policy authorization also applies the rule's bounds:
+  - the content is within `max_message_bytes`;
+  - the deadline is at most `valid_until`;
+  - the connected-state rule applies unless `allow_disconnected` is set, with 503 when it can recover, as for grants.
+
+The **block list** is host-local, set by the owner with the commands below. A sender host blocked by host ID, or bound to a person blocked by person ID, is refused with 403 under both kinds of authorization, at once and without coordination.
+
+Handoff and reply recheck authorization the same way. A lapsed or narrowed policy is final, like an expired or revoked grant. A recoverable connected state behaves as specified for grants.
+
+**Request form.** A message names either `grant_id`, as before, or `policy`, which is `{person_id, version}`: the owner and the newest version the sender has verified. If the receiver's newest verified version for that owner is lower than the cited one, it returns 503 `unavailable`, and the sender retries once the receiver syncs. Otherwise the receiver evaluates its own newest version. The citation therefore never lets an older policy apply after a withdrawal.
+
+### Renewal
+
+`run [--person-agent SOCKET]` gives the daemon an agent socket. It defaults to the `SSH_AUTH_SOCK` the daemon started with. When the agent holds the bound person's key, and that person's current policy has less than a quarter of its validity left, the daemon asks the agent to sign a renewal. A renewal has the same rules, version + 1, the same duration, and `issued_at` set to now. The daemon submits it, and never stores the key. If several of the owner's hosts renew at once, the coordinator accepts one and returns 409 to the rest, which keep the accepted one. If no agent is available, access lapses at `valid_until`. Hosts report `expires_soon` in `access show` once less than a quarter remains.
+
+### Commands
+
+| CLI after `--state DIR` | Local API | Behavior |
+| --- | --- | --- |
+| `access allow --network ID --agent NAME --principal P [--principal P ...] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]` | `POST /v1/networks/{id}/policy` with `{policy}` | The CLI fetches the owner's current policy from the daemon. It adds or replaces the rule for NAME, resolving `person:LABEL` to an ID with an error on ambiguity, and signs version + 1. The daemon verifies and submits it. Returns 201 with the policy. |
+| `access deny --network ID --agent NAME [--principal P ...] [--person-key PATH]` | same | Removes those principals, or the whole rule when none are given. It signs and submits a new version. |
+| `access renew --network ID [--person-key PATH]` | same | Re-signs the current rules now. |
+| `access show --network ID [--person PERSON]` | `GET /v1/networks/{id}/policy?person=ID` | The newest verified policy, mine by default, plus `expires_soon`. |
+| `access block --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks` | Host-local, immediate, persisted. Returns 201. |
+| `access unblock --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks/remove` | Host-local. |
+| `access blocks` | `GET /v1/access-blocks` | Sorted list of `{kind, subject, created_at}`. |
+
+**Sending without a grant ID.** `message send` and adapter routes no longer require a grant. Given `--grant`, a request names it, as before. Otherwise the daemon cites the target host's bound person's newest verified policy. With no bound person, or no policy, the send is refused locally with 400 before anything is persisted.
+
+**Storage.** Policies go in `network_statements` with kind `policy` (subject: person key), holding the newest version. Database version 8 adds `CREATE TABLE access_blocks (kind TEXT NOT NULL, subject TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(kind, subject))`, with `kind` either `person` or `host`, and older binaries reject version 8. New activity kinds:
+- `network.policy_updated` (subject: person ID);
+- `access.blocked` (subject: the blocked ID);
+- `access.unblocked` (subject: the unblocked ID).
+
+The coordinator gains `POST /coord/v1/networks/{network_id}/policies` with `{policy}`. The caller must be a member, and the owner must be a current person.
+
 ## Relay
 
 Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
@@ -538,6 +621,20 @@ Each language reproduces the test vectors, including the `SSHSIG` blobs.
 - a forged administrator signature, or one by a removed administrator, injected into the coordinator database and ignored by hosts.
 
 Each language reproduces the new test vectors.
+
+`conformance/policy.py` runs every pairing with real `ssh-agent`s. It covers:
+
+- an owner allowing a person, then a group, then `network`;
+- a sender with no grant ID authorized by policy;
+- denial after `access deny`, applied at handoff as well;
+- a stale policy injected into the coordinator database ignored;
+- a version below the cited one returning 503 and then succeeding;
+- the block list overriding both a grant and the policy without coordination;
+- automatic renewal through the agent before expiry, using a short validity in tests;
+- lapse without an agent;
+- bounds: size, deadline, and `allow_disconnected` with the coordinator stopped.
+
+Each language reproduces the policy vector.
 
 `conformance/revocation.py` runs the Go coordinator with Go and Rust hosts in every creator/joiner pairing:
 
