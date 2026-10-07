@@ -85,9 +85,9 @@ Read each daemon's `info`, then independently verify and configure the other's `
 
 The grant expiration and request deadline must be in the future, with the deadline no later than expiration. Manually configured peers are not network members, so their grants require explicit `--allow-disconnected`. Inspect the send's JSON `state`: `accepted` means durable host storage; `unknown` means the outcome is not yet confirmed, and the daemon retries it automatically with the same request ID until it is accepted, rejected, or past its deadline; `rejected` means the peer rejected the attempt. `message inspect` shows `attempts` and `next_attempt_at`. `message retry` and `message refresh` remain available with the original request ID. Delivery into an opted-in session uses the scoped adapter described below.
 
-## Connect an existing Claude Code session
+## Connect an opted-in agent session
 
-Both native CLIs provide `session setup --harness ID` to create private configuration and scoped destinations, `session start` to launch through a supported integration, and `session doctor` to inspect integration prerequisites, credentials, adapter leases, and destination budgets without changing state. Claude Code is the first shipped [harness integration](docs/harness-integration-contract.md). Follow the [setup guide](integrations/claude-channel/README.md#configure-one-session).
+Both native CLIs provide `session setup --harness ID` to create private configuration and scoped destinations, `session start` to launch through a supported integration, and `session doctor` to inspect integration prerequisites, credentials, adapter leases, and destination budgets without changing state. Shipped [harness integrations](docs/harness-integration-contract.md) include [Claude Code](integrations/claude-channel/README.md#configure-one-session) and [Codex](integrations/codex/README.md). Codex attaches a sidecar to an already-running conversation through its existing app-server socket, with scoped MCP tools and queued input.
 
 The [Claude Code channel](integrations/claude-channel/README.md) connects one opted-in interactive session to either daemon. Owners issue an expiring session credential and define named outbound destinations with byte and lifetime message limits. The adapter uses a separate private `adapter.sock` interface to receive messages, initiate scoped sends, and reply. The daemon automatically retrieves responses to agent-initiated messages and returns them to the originating session. Owner-CLI sends use `message reply`. Unknown handoffs persist without automatic redelivery.
 
@@ -121,6 +121,7 @@ python3 conformance/adapter_outbound.py --go /tmp/capsule-host-go --rust rust/ta
 python3 conformance/adapter_recovery.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 python3 conformance/claude_setup.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 python3 conformance/harness_setup.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
+python3 conformance/codex_integration.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 ```
 
 `nat_lab.py` needs root. It builds Linux network namespaces with nftables NAT routers between each host and the coordinator, and runs every Go/Rust pairing behind port-preserving, fully random, and UDP-blocking NATs. It removes everything it creates.

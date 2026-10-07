@@ -1,6 +1,6 @@
 # Session adapter contract
 
-This slice connects an explicitly opted-in Claude Code session to either host implementation. It adds a credential-scoped local interface; the owner-local admin socket and authenticated peer interface retain their separate authority.
+This slice connects explicitly opted-in harness sessions to either host implementation. It adds a credential-scoped local interface; the owner-local admin socket and authenticated peer interface retain their separate authority.
 
 The [outbound extension](adapter-outbound-contract.md) adds owner-defined destinations, agent-initiated sends, and automatic replies bound to the originating session.
 
@@ -18,12 +18,12 @@ Adapters call only `adapter.sock`, a private Unix socket with its own router. Ad
 | --- | --- |
 | `GET /adapter/v1/session` | Inspect only the credential's attached session. |
 | `POST /adapter/v1/next` with `{}` | Claim the oldest unclaimed message for this session's agent, or return `null`. Recheck its receiver-owned grant, deadline, content bounds, and connected or disconnected permission. |
-| `POST /adapter/v1/deliveries/{id}/forwarded` with `{}` | Record that the adapter successfully wrote the channel notification. Idempotent; this is not proof the model read or executed it. |
+| `POST /adapter/v1/deliveries/{id}/forwarded` with `{}` | Record that the harness accepted the input (a written Claude notification or an accepted Codex queued input). Idempotent; this is not proof the model read or executed it. |
 | `POST /adapter/v1/deliveries/{id}/reply` with `{ "content": "..." }` | Save one bounded final reply for this claimed message. Recheck the grant, credential, and session. Identical retries return the saved reply; changed content conflicts. |
 
-Before handing content to an adapter, persist the delivery and an activity event in one transaction. Its initial state is `unknown`: a lost response or crash can obscure whether the adapter received or forwarded it. The unique original sender/request pair prevents automatic redelivery, including to another session. Successful notification writes yield `forwarded`; a persisted reply yields `replied`. Messages denied at handoff for a final reason are recorded as `blocked`. A message whose only failing check is the connected state stays unclaimed instead (see below). Owners can inspect these records; resolving unknown handoffs or explicitly rerouting them is future work.
+Before handing content to an adapter, persist the delivery and an activity event in one transaction. Its initial state is `unknown`: a lost response or crash can obscure whether the adapter received or forwarded it. The unique original sender/request pair prevents automatic redelivery, including to another session. Successful harness submissions yield `forwarded`; a persisted reply yields `replied`. Messages denied at handoff for a final reason are recorded as `blocked`. A message whose only failing check is the connected state stays unclaimed instead (see below). Owners can inspect these records; resolving unknown handoffs or explicitly rerouting them is future work.
 
-Authorization at the handoff transaction is the boundary for starting delivery. Revocation blocks later handoffs, but cannot withdraw content already handed to an adapter. The adapter has no local message queue and forwards each claimed message immediately. Replies require a still-valid grant, but may follow the original delivery deadline. Reply size is bounded by the grant and 65,536 UTF-8 bytes. Permission to send a message does not constrain every action the existing agent can take under its own local permissions.
+Authorization at the handoff transaction is the boundary for starting delivery. Revocation blocks later handoffs, but cannot withdraw content already handed to an adapter. The adapter submits each claimed message immediately and has no durable local message queue. Its lease renews independently while awaiting harness acceptance. Replies require a still-valid grant, but may follow the original delivery deadline. Reply size is bounded by the grant and 65,536 UTF-8 bytes. Permission to send a message does not constrain every action the existing agent can take under its own local permissions.
 
 ## Return path and persistence
 

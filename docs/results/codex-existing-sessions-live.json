@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-10-07T03:25:55.798485+00:00",
+  "codex_version": "codex-cli 0.160.0",
+  "mode": "two already-running native Codex CLI conversations; real models; local Go/Rust daemons",
+  "selected_threads": [
+    "01a11459-4c5f-7523-b206-f0f1799b2894",
+    "01a11462-2f3c-7f40-a072-f48645f895b2"
+  ],
+  "models": [
+    "gpt-6.1-sol",
+    "gpt-6.1-sol"
+  ],
+  "forward_Go_to_Rust": {
+    "scoped_send": true,
+    "model_called_reply": true,
+    "send_status": true,
+    "model_observed_pre_attachment_phrase": true,
+    "receiver_phrase": "before-capsule-ab63bd31fd345ab6",
+    "sender_model_output": "I\u2019ll send the request through the specified Capsule server and check its status once.Sent to `remote`; status is `accepted`. Awaiting the reply event.before-capsule-ab63bd31fd345ab6"
+  },
+  "reverse_after_Go_to_Rust_daemon_swap_and_token_rotation": {
+    "scoped_send": true,
+    "model_called_reply": true,
+    "send_status": true,
+    "model_observed_pre_attachment_phrase": true,
+    "receiver_phrase": "before-capsule-ba212c2784484c3b",
+    "sender_model_output": "I\u2019ll return the phrase through Capsule.Replied through Capsule.I\u2019ll send the exact message to remote, check its status once, and wait for the reply.Sent to remote; status is accepted. Awaiting the incoming reply.before-capsule-ba212c2784484c3b"
+  },
+  "thread_ids_preserved": true,
+  "settings_on_attachment": [
+    {
+      "approval_policy": "never",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      }
+    },
+    {
+      "approval_policy": "never",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      }
+    }
+  ],
+  "limits": [
+    "One machine; this run does not establish cross-host connectivity.",
+    "Native CLI frontends tested; desktop UI attachment is not live-tested.",
+    "Embedded Codex backends without an exposed socket cannot be attached."
+  ]
+}

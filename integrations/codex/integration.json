@@ -1,0 +1,1 @@
+{"version":1,"id":"codex","command":["node","./provider.mjs"],"operations":["prepare","check","launch"]}

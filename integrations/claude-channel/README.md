@@ -199,3 +199,5 @@ The [two-host fixture report](../../docs/results/cross-host-runner-two-host-fixt
 The [two-host live report](../../docs/results/cross-host-runner-two-host-live.json) records two real Claude Code 2.1.291 sessions passing the full experiment on separate machines, with model-observed replies in both directions. Developer identities and the remaining task, conversation, and remote-tool capabilities were not tested.
 
 The [harness-interface live report](../../docs/results/harness-interface-two-host-live.json) records the revised native `session setup --harness claude-code` and `session start` flow passing the full two-machine experiment with Claude Code 2.1.292, Go↔Rust, profile v2, and helper protocol v1. The original sessions completed messages/replies, receiver and coordinator downtime, originating-daemon replacement, token rotation, and queued grant revocation.
+
+Installation must preserve the sibling `integrations/shared/` directory, which contains the harness-independent scoped adapter. The MCP transport and Claude launch configuration remain in this bundle.

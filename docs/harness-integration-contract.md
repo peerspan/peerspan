@@ -1,6 +1,6 @@
 # Harness integrations
 
-Both native CLIs own session profiles, credential issuance, destination scopes, recovery, and daemon diagnostics. A selected local integration handles harness configuration, prerequisite checks, message delivery, and an optional foreground launch plan. The generic CLI requires neither Node nor MCP. Claude Code is the first shipped integration; the Python/file fixture is a conformance fixture, not another product integration.
+Both native CLIs own session profiles, credential issuance, destination scopes, recovery, and daemon diagnostics. A selected local integration handles harness configuration, prerequisite checks, message delivery, and an optional foreground launch plan. The generic CLI requires neither Node nor MCP. Claude Code and Codex are shipped integrations; the Python/file fixture is a conformance fixture, not another product integration. The shared adapter library handles credentials, leases, tools, and handoff; each harness supplies its own delivery transport. Install the sibling `shared/` directory with the bundles.
 
 ## Owner commands
 
@@ -75,3 +75,5 @@ The experimental top-level `claude` commands and profile v1 from PR #37 are repl
 ## Verification
 
 `conformance/claude_setup.py` retains Claude prerequisite/launch and real MCP exchange coverage across all CLI/daemon pairings. `conformance/harness_setup.py` uses an explicit Python/file integration with Node absent from PATH; it covers cross-CLI profiles and recovery, optional launch, read-only inspection, literal arguments, malformed/oversized helper output, secret redaction, and artifact confinement. Live Claude runs use `conformance/live_cross_host_agents.py --setup-flow` separately.
+
+The [Codex integration](../integrations/codex/README.md) attaches to an existing, loaded app-server thread with scoped MCP tools and durable queued input. The foreground integration process is a sidecar; it creates no Codex conversation and leaves the native client running. `conformance/codex_integration.py` checks this protocol against real daemons across all pairings; `conformance/live_codex_agents.py` separately verifies real model exchange. Acceptance into Codex’s queue does not establish model consumption. The live report is [codex-existing-sessions-live.json](results/codex-existing-sessions-live.json).
