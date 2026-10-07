@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import { chmod, lstat } from 'node:fs/promises';
 export async function toolGateway(socket, threadId, adapter, emit = () => {}) {
@@ -63,44 +64,75 @@ export async function toolGateway(socket, threadId, adapter, emit = () => {}) {
   };
 }
 export async function proxyTool(socket, threadId, name, args) {
-  return new Promise((resolve, reject) => {
-    const encoded = Buffer.from(JSON.stringify({ thread_id: threadId, name, arguments: args }));
-    const request = http.request(
-      {
-        socketPath: socket,
-        path: '/tool',
-        method: 'POST',
-        agent: false,
-        headers: { 'Content-Type': 'application/json', 'Content-Length': encoded.length },
-        signal: AbortSignal.timeout(15000)
-      },
-      (response) => {
-        const chunks = [];
-        let size = 0;
-        response.on('data', (chunk) => {
-          size += chunk.length;
-          if (size > 1048576) response.destroy();
-          else chunks.push(chunk);
-        });
-        response.on('error', () => reject(new Error('Capsule tool response unavailable.')));
-        response.on('end', () => {
-          if (response.statusCode !== 200) {
-            reject(new Error('This Codex thread is not authorized for this Capsule attachment.'));
-            return;
-          }
-          try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-          } catch {
-            reject(new Error('Invalid Capsule tool response.'));
-          }
-        });
-      }
-    );
-    request.on('error', () =>
-      reject(
-        new Error('Capsule bridge unavailable; an uncertain send must be checked with send_status.')
-      )
-    );
-    request.end(encoded);
-  });
+  // Allocate at the harness side of this extra hop so a lost gateway response
+  // still leaves the caller with the exact ID the Capsule host may have saved.
+  const requestId =
+    name === 'send'
+      ? (args?.request_id ?? `request_${randomBytes(16).toString('hex')}`)
+      : undefined;
+  const input =
+    name === 'send' && args && typeof args === 'object' && !Array.isArray(args)
+      ? { ...args, request_id: requestId }
+      : args;
+  try {
+    return await new Promise((resolve, reject) => {
+      const encoded = Buffer.from(JSON.stringify({ thread_id: threadId, name, arguments: input }));
+      const request = http.request(
+        {
+          socketPath: socket,
+          path: '/tool',
+          method: 'POST',
+          agent: false,
+          headers: { 'Content-Type': 'application/json', 'Content-Length': encoded.length },
+          signal: AbortSignal.timeout(15000)
+        },
+        (response) => {
+          const chunks = [];
+          let size = 0;
+          response.on('data', (chunk) => {
+            size += chunk.length;
+            if (size > 1048576) response.destroy();
+            else chunks.push(chunk);
+          });
+          response.on('error', () => reject(new Error('Capsule tool response unavailable.')));
+          response.on('end', () => {
+            if (response.statusCode !== 200) {
+              reject(new Error('This Codex thread is not authorized for this Capsule attachment.'));
+              return;
+            }
+            try {
+              resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+            } catch {
+              reject(new Error('Invalid Capsule tool response.'));
+            }
+          });
+        }
+      );
+      request.on('error', () =>
+        reject(
+          new Error(
+            'Capsule bridge unavailable; an uncertain send must be checked with send_status.'
+          )
+        )
+      );
+      request.end(encoded);
+    });
+  } catch (error) {
+    if (name !== 'send') throw error;
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            request_id: requestId,
+            destination: args?.destination,
+            error: error.message,
+            recovery:
+              'The host may have saved this send and retries it automatically. Check send_status with this request_id; only if not_recorded, retry the identical destination/content with this same ID.'
+          })
+        }
+      ]
+    };
+  }
 }
