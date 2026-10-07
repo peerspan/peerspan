@@ -33,6 +33,10 @@ pub struct Grant {
     pub action: String,
     pub expires_at: String,
     pub max_message_bytes: i64,
+    /// The total input and result artifact bytes a task may carry; 0 allows
+    /// none. Older records read as 0.
+    #[serde(default)]
+    pub max_artifact_bytes: i64,
     pub allow_disconnected: bool,
     pub revoked_at: Option<String>,
     /// When set, only requests whose asserted `origin.agent_id` equals it.
@@ -46,6 +50,9 @@ pub struct CreateGrant {
     pub target_agent_id: String,
     pub expires_at: String,
     pub max_message_bytes: i64,
+    /// 0 (the default) through 1 GiB; nonzero only for `task.submit`.
+    #[serde(default)]
+    pub max_artifact_bytes: i64,
     #[serde(default)]
     pub allow_disconnected: bool,
     #[serde(default)]
@@ -269,6 +276,13 @@ pub(crate) struct Authz<'a> {
     /// Bytes bounded by `max_message_bytes`: message content or task input.
     pub size: usize,
     pub origin: Option<&'a Origin>,
+    /// A task's input artifact total, when it carries any; bounded by
+    /// `max_artifact_bytes`, where 0 refuses artifacts altogether.
+    pub artifacts: Option<i64>,
+}
+/// Whether an artifact bound admits a total (none at all under 0).
+pub(crate) fn artifacts_fit(total: Option<i64>, bound: i64) -> bool {
+    total.is_none_or(|t| bound > 0 && t <= bound)
 }
 impl MessageRequest {
     pub(crate) fn authz(&self) -> Authz<'_> {
@@ -280,6 +294,7 @@ impl MessageRequest {
             deadline: &self.deadline,
             size: self.content.len(),
             origin: self.origin.as_ref(),
+            artifacts: None,
         }
     }
 }
@@ -313,6 +328,7 @@ pub(crate) fn grant_bounds(
         || deadline > expiration
         || (require_deadline && deadline <= at)
         || r.size as i64 > g.max_message_bytes
+        || !artifacts_fit(r.artifacts, g.max_artifact_bytes)
         || g.requester_agent_id
             .as_deref()
             .is_some_and(|agent| r.origin.map(|o| o.agent_id.as_str()) != Some(agent))
@@ -325,6 +341,7 @@ pub(crate) fn grant_bounds(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Bounds {
     pub max_message_bytes: i64,
+    pub max_artifact_bytes: i64,
     pub allow_disconnected: bool,
 }
 /// Whether a grant's connected-state requirement is met.
@@ -356,6 +373,7 @@ impl Store {
                 let g = grant_bounds(conn, sender, r, require_deadline)?;
                 Ok(Bounds {
                     max_message_bytes: g.max_message_bytes,
+                    max_artifact_bytes: g.max_artifact_bytes,
                     allow_disconnected: g.allow_disconnected,
                 })
             }
@@ -459,6 +477,7 @@ impl Store {
             action: r.action.unwrap_or_else(|| crate::policy::ACTION.to_owned()),
             expires_at: r.expires_at,
             max_message_bytes: r.max_message_bytes,
+            max_artifact_bytes: r.max_artifact_bytes,
             allow_disconnected: r.allow_disconnected,
             revoked_at: None,
             requester_agent_id: r.requester_agent_id,
@@ -474,6 +493,7 @@ impl Store {
                 "action must be message.append or task.submit".into(),
             ));
         }
+        crate::artifact::check_bound(g.max_artifact_bytes, g.action == crate::policy::TASK_ACTION)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         if !self.known_host(&tx, &g.requester_host_id)? {
@@ -773,6 +793,7 @@ pub(crate) mod tests {
                 target_agent_id: agent.into(),
                 expires_at: rfc3339(Utc::now() + chrono::Duration::hours(1)),
                 max_message_bytes: 1000,
+                max_artifact_bytes: 0,
                 allow_disconnected: true,
                 requester_agent_id: from.map(Into::into),
                 action: None,
@@ -872,6 +893,7 @@ pub(crate) mod tests {
             target_agent_id: target.clone(),
             expires_at: rfc3339(Utc::now() + chrono::Duration::hours(1)),
             max_message_bytes: 1000,
+            max_artifact_bytes: 0,
             allow_disconnected: true,
             requester_agent_id: Some("agent_bad".into()),
             action: None,

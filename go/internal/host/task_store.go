@@ -71,18 +71,22 @@ type TaskRequest struct {
 	Deadline      string          `json:"deadline"`
 	Input         string          `json:"input"`
 	Origin        *Origin         `json:"origin,omitempty"`
+	// Artifacts is the input manifest, absent without inputs.
+	Artifacts []ArtifactEntry `json:"artifacts,omitempty"`
 }
 
 // asMessage is the request as authorization sees it: its input bounded like
-// message content.
+// message content, and its input artifacts by max_artifact_bytes.
 func (r TaskRequest) asMessage() MessageRequest {
-	return MessageRequest{GrantID: r.GrantID, Policy: r.Policy, TargetAgentID: r.TargetAgentID, Deadline: r.Deadline, Content: r.Input, Origin: r.Origin}
+	m := MessageRequest{GrantID: r.GrantID, Policy: r.Policy, TargetAgentID: r.TargetAgentID, Deadline: r.Deadline, Content: r.Input, Origin: r.Origin}
+	manifestAuthority(&m, r.Artifacts)
+	return m
 }
 
 func (r TaskRequest) same(o TaskRequest) bool {
 	a, b := r.asMessage(), o.asMessage()
 	a.RequestID, b.RequestID = r.TaskID, o.TaskID
-	return a.same(b)
+	return a.same(b) && sameManifest(r.Artifacts, o.Artifacts)
 }
 
 // TaskStatus is the status record a receiver keeps and serves to the submitter.
@@ -106,6 +110,9 @@ type TaskEvent struct {
 	Message   *string `json:"message"`
 	Output    *string `json:"output"`
 	CreatedAt string  `json:"created_at"`
+	// Artifacts is the result manifest of a final succeeded or failed event,
+	// otherwise null.
+	Artifacts []ArtifactEntry `json:"artifacts"`
 }
 
 // TaskDelivery binds a claimed task to one adapter session.
@@ -142,6 +149,8 @@ type TaskChange struct {
 	Message string
 	Status  string
 	Output  string
+	// Artifacts is a completion's result manifest; nil without results.
+	Artifacts []ArtifactEntry
 }
 
 func validText(text string, empty bool) bool {
@@ -151,6 +160,9 @@ func validText(text string, empty bool) bool {
 func validateTask(r TaskRequest) error {
 	if !validID(r.TaskID, "task", 16) {
 		return ErrInvalid
+	}
+	if r.Artifacts != nil && !validManifest(r.Artifacts) {
+		return fmt.Errorf("%w: invalid artifact manifest", ErrInvalid)
 	}
 	m := r.asMessage()
 	m.RequestID = "request_00000000000000000000000000000000"
@@ -163,17 +175,31 @@ func readTaskStatus(ctx context.Context, q dbQuerier, sender, id string) (TaskSt
 	return readJSON[TaskStatus](q.QueryRowContext(ctx, `SELECT record FROM received_tasks WHERE sender = ? AND task_id = ?`, sender, id))
 }
 
+// writeTaskStatus stores the status record, keeping the internal
+// max_artifact_bytes key that acceptance adds.
 func writeTaskStatus(ctx context.Context, tx *sql.Tx, st TaskStatus) error {
-	return putJSON(ctx, tx, `UPDATE received_tasks SET record = ? WHERE sender = ? AND task_id = ?`, st, st.SenderHostID, st.TaskID)
+	data, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE received_tasks SET record = CASE WHEN json_type(record, '$.max_artifact_bytes') IS NULL THEN ?1 ELSE json_set(?1, '$.max_artifact_bytes', json_extract(record, '$.max_artifact_bytes')) END WHERE sender = ?2 AND task_id = ?3`, string(data), st.SenderHostID, st.TaskID)
+	return err
+}
+
+// taskArtifactBound is the artifact bound stored when the task was accepted.
+func taskArtifactBound(ctx context.Context, tx *sql.Tx, sender, id string) (int64, error) {
+	var bound sql.NullInt64
+	err := tx.QueryRowContext(ctx, `SELECT json_extract(record, '$.max_artifact_bytes') FROM received_tasks WHERE sender = ? AND task_id = ?`, sender, id).Scan(&bound)
+	return bound.Int64, err
 }
 
 // appendTaskEvent records one change: the event, the updated status record,
 // and its activity, in the caller's transaction.
-func appendTaskEvent(ctx context.Context, tx *sql.Tx, st *TaskStatus, kind, state string, message, output *string, activity string, now time.Time) error {
+func appendTaskEvent(ctx context.Context, tx *sql.Tx, st *TaskStatus, kind, state string, message, output *string, activity string, now time.Time, artifacts ...ArtifactEntry) error {
 	at := timestamp(now)
 	st.LastEvent++
 	st.State, st.UpdatedAt = state, at
-	e := TaskEvent{Sequence: st.LastEvent, Kind: kind, State: state, Message: message, Output: output, CreatedAt: at}
+	e := TaskEvent{Sequence: st.LastEvent, Kind: kind, State: state, Message: message, Output: output, CreatedAt: at, Artifacts: emptyAsNone(artifacts)}
 	if err := putJSON(ctx, tx, `INSERT INTO task_events (record, sender, task_id, sequence) VALUES (?, ?, ?, ?)`, e, st.SenderHostID, st.TaskID, e.Sequence); err != nil {
 		return err
 	}
@@ -277,6 +303,9 @@ func (s *Store) AcceptTask(ctx context.Context, sender string, r TaskRequest) (T
 	if !errors.Is(err, ErrNotFound) {
 		return TaskStatus{}, err
 	}
+	if err = s.quotaFor(ctx, tx, r.Artifacts); err != nil {
+		return TaskStatus{}, err
+	}
 	at := timestamp(now)
 	st := TaskStatus{TaskID: r.TaskID, SenderHostID: sender, ReceiverHostID: s.identity.ID, TargetAgentID: r.TargetAgentID, State: TaskQueued, CreatedAt: at, UpdatedAt: at}
 	requestData, err := json.Marshal(r)
@@ -291,6 +320,9 @@ func (s *Store) AcceptTask(ctx context.Context, sender string, r TaskRequest) (T
 		return st, err
 	}
 	if err = appendTaskEvent(ctx, tx, &st, "queued", TaskQueued, nil, nil, "task.received", now); err != nil {
+		return st, err
+	}
+	if err = insertArtifacts(ctx, tx, sideReceived, sender, r.TaskID, directionInput, r.Artifacts, artifactPending); err != nil {
 		return st, err
 	}
 	return st, tx.Commit()
@@ -396,7 +428,7 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 	if err = expireTasks(ctx, tx, now); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ? AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) ORDER BY t.rowid LIMIT 100`, ss.AgentID)
+	rows, err := tx.QueryContext(ctx, `SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ? AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100`, ss.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +461,7 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 	}
 	var result *TaskHandoff
 	for _, p := range items {
-		final, err := s.taskHandoffAuthority(ctx, tx, p.sender, p.request)
+		final, _, err := s.taskHandoffAuthority(ctx, tx, p.sender, p.request)
 		if err != nil {
 			return nil, err
 		}
@@ -462,29 +494,30 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 
 // taskHandoffAuthority rechecks a queued task's authorization. It returns
 // nil when only a recoverable check fails, a pointer to true when the task is
-// authorized, and to false when authorization has lapsed for good.
-func (s *Store) taskHandoffAuthority(ctx context.Context, tx *sql.Tx, sender string, r TaskRequest) (*bool, error) {
+// authorized, and to false when authorization has lapsed for good. An
+// authorized task also returns its artifact bound.
+func (s *Store) taskHandoffAuthority(ctx context.Context, tx *sql.Tx, sender string, r TaskRequest) (*bool, int64, error) {
 	allowed, lapsed := true, false
 	g, err := s.actionBounds(ctx, tx, sender, membership.PolicyActionTask, r.asMessage(), true)
 	if errors.Is(err, ErrUnavailable) {
-		return nil, nil
+		return nil, 0, nil
 	}
 	if errors.Is(err, ErrForbidden) {
-		return &lapsed, nil
+		return &lapsed, 0, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	usable, recoverable, err := s.grantConnected(ctx, tx, sender, g)
 	switch {
 	case err != nil:
-		return nil, err
+		return nil, 0, err
 	case usable:
-		return &allowed, nil
+		return &allowed, g.maxArtifactBytes, nil
 	case recoverable:
-		return nil, nil
+		return nil, 0, nil
 	}
-	return &lapsed, nil
+	return &lapsed, 0, nil
 }
 
 // ownedTask resolves a task ID to this credential's delivery of it. A task
@@ -526,7 +559,7 @@ func validChange(c TaskChange) bool {
 	case "progress":
 		return validText(c.Message, false)
 	case "complete":
-		return (c.Status == TaskSucceeded || c.Status == TaskFailed) && validText(c.Output, false)
+		return (c.Status == TaskSucceeded || c.Status == TaskFailed) && validText(c.Output, false) && (c.Artifacts == nil || validManifest(c.Artifacts))
 	}
 	return false
 }
@@ -564,7 +597,7 @@ func (s *Store) ChangeTask(ctx context.Context, auth AdapterAuth, id string, c T
 		if st.State != TaskQueued {
 			return st, ErrConflict
 		}
-		final, err := s.taskHandoffAuthority(ctx, tx, d.SenderHostID, r)
+		final, bound, err := s.taskHandoffAuthority(ctx, tx, d.SenderHostID, r)
 		if err != nil {
 			return st, err
 		}
@@ -581,7 +614,11 @@ func (s *Store) ChangeTask(ctx context.Context, auth AdapterAuth, id string, c T
 			}
 			return st, ErrForbidden
 		}
-		err = appendTaskEvent(ctx, tx, &st, "accepted", TaskRunning, nil, nil, "task.accepted", now)
+		if err = appendTaskEvent(ctx, tx, &st, "accepted", TaskRunning, nil, nil, "task.accepted", now); err != nil {
+			return st, err
+		}
+		// The bound checked now limits the results; later revocation does not.
+		_, err = tx.ExecContext(ctx, `UPDATE received_tasks SET record = json_set(record, '$.max_artifact_bytes', ?) WHERE sender = ? AND task_id = ?`, bound, d.SenderHostID, d.TaskID)
 	case "reject":
 		if st.State == TaskRejected && last.Kind == "rejected" && last.Message != nil && *last.Message == c.Reason {
 			return unchanged()
@@ -599,13 +636,28 @@ func (s *Store) ChangeTask(ctx context.Context, auth AdapterAuth, id string, c T
 		}
 		err = appendTaskEvent(ctx, tx, &st, "progress", TaskRunning, &c.Message, nil, "task.progress", now)
 	case "complete":
-		if st.State == c.Status && last.Kind == c.Status && last.Output != nil && *last.Output == c.Output {
+		if st.State == c.Status && last.Kind == c.Status && last.Output != nil && *last.Output == c.Output && sameManifest(last.Artifacts, c.Artifacts) {
 			return unchanged()
 		}
 		if st.State != TaskRunning {
 			return st, ErrConflict
 		}
-		err = appendTaskEvent(ctx, tx, &st, c.Status, c.Status, nil, &c.Output, "task.completed", now)
+		if len(c.Artifacts) > 0 {
+			if err = requireStored(ctx, tx, c.Artifacts); err != nil {
+				return st, err
+			}
+			bound, err := taskArtifactBound(ctx, tx, d.SenderHostID, d.TaskID)
+			if err != nil {
+				return st, err
+			}
+			if bound == 0 || manifestTotal(r.Artifacts)+manifestTotal(c.Artifacts) > bound {
+				return st, fmt.Errorf("%w: the result artifacts exceed the task's max_artifact_bytes", ErrForbidden)
+			}
+		}
+		if err = appendTaskEvent(ctx, tx, &st, c.Status, c.Status, nil, &c.Output, "task.completed", now, c.Artifacts...); err != nil {
+			return st, err
+		}
+		err = insertArtifacts(ctx, tx, sideReceived, d.SenderHostID, d.TaskID, directionResult, c.Artifacts, artifactStored)
 	case "cancelled":
 		if st.State == TaskCancelled {
 			return unchanged()

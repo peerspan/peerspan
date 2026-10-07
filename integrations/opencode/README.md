@@ -28,7 +28,8 @@ idle. Keep `shared/` alongside the integration bundles. This installation enable
 the shared tools with a `capsule_` prefix: `capsule_list_destinations`, `capsule_send`,
 `capsule_send_status`, `capsule_reply`, and the task tools (`capsule_task_accept`,
 `capsule_task_reject`, `capsule_task_progress`, `capsule_task_complete`,
-`capsule_task_cancelled`, `capsule_delegate_task`, `capsule_task_status`). A conversation receives no Capsule authority until an owner
+`capsule_task_cancelled`, `capsule_delegate_task`, `capsule_task_status`, and
+`capsule_artifact_save` for [task artifacts](../../docs/artifact-contract.md)). A conversation receives no Capsule authority until an owner
 attaches it. The plugin uses OpenCode's trusted `context.sessionID` and honors
 native tool permission decisions. Model arguments cannot select another session.
 

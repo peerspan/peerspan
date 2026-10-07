@@ -12,7 +12,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
-from host_service import TASK_TABLES
+from host_service import ARTIFACT_TABLES, TASK_TABLES
 from adapter_outbound import route, send, wait_for
 from peer_messaging import PeerHost, timestamp
 
@@ -846,7 +846,7 @@ def migration(original, replacement, label):
             )
             wait_for(lambda: sql(a, "SELECT record FROM outbound_replies"))
             a.stop(crash=True)
-            for table in TASK_TABLES:
+            for table in [*ARTIFACT_TABLES, *TASK_TABLES]:
                 sql(a, "DROP TABLE " + table)
             sql(a, "DROP TABLE access_blocks")
             sql(a, "DROP TABLE network_statements")
@@ -887,7 +887,7 @@ def migration(original, replacement, label):
             )
             a.binary = str(replacement)
             assert a.start() == ai
-            assert sql(a, "PRAGMA user_version")[0][0] == 9
+            assert sql(a, "PRAGMA user_version")[0][0] == 10
             for table, records in rows.items():
                 assert sql(a, "SELECT * FROM " + table) == records
             assert (
@@ -909,7 +909,7 @@ def migration(original, replacement, label):
             b.stop()
     print(
         label
-        + ": populated v5→v9 migration/rollback preserves original state without substituting a session",
+        + ": populated v5→v10 migration/rollback preserves original state without substituting a session",
         flush=True,
     )
 

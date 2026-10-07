@@ -582,3 +582,64 @@ func PeerStreamRequest(ctx context.Context, conn *quic.Conn, address, method, pa
 	}
 	return response.StatusCode, data, nil
 }
+
+// peerDownload performs one GET whose 200 body is streamed to w, reading at
+// most limit+1 bytes so an oversized body is detected. Other responses are
+// read within the usual bound and discarded.
+func (s *Store) peerDownload(ctx context.Context, peer Peer, path string, w io.Writer, limit int64) (int, int64, error) {
+	conn, _, err := s.peerConn(ctx, peer)
+	if err != nil {
+		return 0, 0, err
+	}
+	host := peer.Address
+	if host == "" {
+		host = "relay.invalid"
+	}
+	status, n, err := PeerStreamDownload(ctx, conn, host, path, w, limit)
+	if err != nil {
+		s.evictPeerConn(peer.ID, conn)
+	}
+	s.releaseConn(conn)
+	return status, n, err
+}
+
+// PeerStreamDownload is PeerStreamRequest for a GET whose successful body is
+// copied to w rather than held in memory.
+func PeerStreamDownload(ctx context.Context, conn *quic.Conn, address, path string, w io.Writer, limit int64) (int, int64, error) {
+	stream, err := conn.OpenStreamSync(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	stop := context.AfterFunc(ctx, func() {
+		stream.CancelRead(0)
+		stream.CancelWrite(0)
+	})
+	defer stop()
+	defer stream.CancelRead(0)
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = stream.SetDeadline(deadline)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+address+path, nil)
+	if err != nil {
+		stream.CancelWrite(0)
+		return 0, 0, err
+	}
+	if err = request.Write(stream); err != nil {
+		stream.CancelWrite(0)
+		return 0, 0, err
+	}
+	if err = stream.Close(); err != nil {
+		return 0, 0, err
+	}
+	response, err := http.ReadResponse(bufio.NewReader(stream), request)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, err = io.Copy(io.Discard, io.LimitReader(response.Body, peerMaxBody))
+		return response.StatusCode, 0, err
+	}
+	n, err := io.Copy(w, io.LimitReader(response.Body, limit+1))
+	return response.StatusCode, n, err
+}

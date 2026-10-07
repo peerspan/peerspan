@@ -50,7 +50,14 @@ pub struct Rule {
     pub principals: Vec<String>,
     pub actions: Vec<String>,
     pub max_message_bytes: i64,
+    /// The total input and result artifact bytes a task may carry; 0 (the
+    /// default, omitted in JSON) allows none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub max_artifact_bytes: i64,
     pub allow_disconnected: bool,
+}
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 /// An owner-signed access policy.
@@ -161,7 +168,10 @@ impl Rule {
         if !(1..=65536).contains(&self.max_message_bytes) {
             return Err(invalid("max_message_bytes must be 1-65536"));
         }
-        Ok(())
+        crate::artifact::check_bound(
+            self.max_artifact_bytes,
+            self.actions.iter().any(|a| a == TASK_ACTION),
+        )
     }
 }
 
@@ -180,7 +190,13 @@ impl Policy {
             lines.push(r.agent.clone());
             lines.push(r.principals.join(" "));
             lines.push(r.actions.join(" "));
-            lines.push(format!("{} {}", r.max_message_bytes, r.allow_disconnected));
+            // A nonzero artifact bound is appended, so policies without one
+            // sign and verify unchanged.
+            let mut bounds = format!("{} {}", r.max_message_bytes, r.allow_disconnected);
+            if r.max_artifact_bytes != 0 {
+                bounds.push_str(&format!(" {}", r.max_artifact_bytes));
+            }
+            lines.push(bounds);
         }
         lines
     }
@@ -429,15 +445,18 @@ impl Store {
                 if rule.agent != agent
                     || !rule.actions.iter().any(|a| a == r.action)
                     || r.size as i64 > rule.max_message_bytes
+                    || !crate::peer_store::artifacts_fit(r.artifacts, rule.max_artifact_bytes)
                     || !rule.principals.iter().any(|p| matches(p))
                 {
                     continue;
                 }
                 let bounds = allowed.get_or_insert(Bounds {
                     max_message_bytes: 0,
+                    max_artifact_bytes: 0,
                     allow_disconnected: false,
                 });
                 bounds.max_message_bytes = bounds.max_message_bytes.max(rule.max_message_bytes);
+                bounds.max_artifact_bytes = bounds.max_artifact_bytes.max(rule.max_artifact_bytes);
                 bounds.allow_disconnected |= rule.allow_disconnected;
             }
         }
@@ -456,6 +475,15 @@ impl Store {
         connection: &Connection,
         peer: &str,
     ) -> Result<PolicyRef, Error> {
+        Ok(self.cited_policy(connection, peer)?.reference())
+    }
+    /// The policy a request to `peer` cites, whose `valid_until` also caps a
+    /// default deadline.
+    pub(crate) fn cited_policy(
+        &self,
+        connection: &Connection,
+        peer: &str,
+    ) -> Result<Policy, Error> {
         let mut owner = None;
         for (network, m) in self.members_of(connection, peer)? {
             let Some(person) = &m.person_id else {
@@ -466,7 +494,7 @@ impl Store {
                 continue;
             };
             if let Some(p) = self.stored_policy(connection, &network, &key)? {
-                return Ok(p.reference());
+                return Ok(p);
             }
         }
         Err(Error::Invalid(match owner {
@@ -836,6 +864,7 @@ mod tests {
                 actions: vec![ACTION.into()],
                 max_message_bytes: 65536,
                 allow_disconnected: false,
+                max_artifact_bytes: 0,
             },
             Rule {
                 agent: "triage".into(),
@@ -843,6 +872,7 @@ mod tests {
                 actions: vec![ACTION.into()],
                 max_message_bytes: 4096,
                 allow_disconnected: true,
+                max_artifact_bytes: 0,
             },
         ]
     }
@@ -895,6 +925,87 @@ mod tests {
         assert!(t.verify(NETWORK).is_err());
         assert!(p.verify(&format!("net_{}", "0".repeat(64))).is_err());
         assert!(serde_json::from_value::<Policy>(json_extra(&encoded)).is_err());
+    }
+    #[test]
+    fn artifact_bounds_extend_the_signed_rule_line_only_when_nonzero() {
+        const ARTIFACT_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGaZoSLXB4mfYtcitytb/FSRHPWfWO9ccCJCeCjSHNdTcKmOAqDW7dIY4AQIIaVkOU0M+rQMJGDYfvkT+5dnQBw==";
+        let rules = vec![
+            Rule {
+                agent: "reviewer".into(),
+                principals: vec![format!("person:{SECOND_ID}")],
+                actions: vec![ACTION.into(), TASK_ACTION.into()],
+                max_message_bytes: 65536,
+                max_artifact_bytes: 1_048_576,
+                allow_disconnected: false,
+            },
+            Rule {
+                agent: "triage".into(),
+                principals: vec!["network".into()],
+                actions: vec![TASK_ACTION.into()],
+                max_message_bytes: 4096,
+                max_artifact_bytes: 0,
+                allow_disconnected: true,
+            },
+        ];
+        let p = Policy::sign(
+            &owner(),
+            NETWORK,
+            2,
+            "2026-10-10T00:00:00Z",
+            "2026-10-17T00:00:00Z",
+            rules,
+        )
+        .unwrap();
+        let lines = p.lines();
+        assert_eq!(lines[10], "65536 false 1048576");
+        assert_eq!(lines[15], "4096 true");
+        assert_eq!(p.signature, ARTIFACT_SIG);
+        p.verify(NETWORK).unwrap();
+        let encoded = serde_json::to_string(&p.rules[0]).unwrap();
+        assert_eq!(
+            encoded,
+            format!(
+                r#"{{"agent":"reviewer","principals":["person:{SECOND_ID}"],"actions":["message.append","task.submit"],"max_message_bytes":65536,"max_artifact_bytes":1048576,"allow_disconnected":false}}"#
+            )
+        );
+        assert!(
+            serde_json::to_value(&p.rules[1])
+                .unwrap()
+                .get("max_artifact_bytes")
+                .is_none()
+        );
+        // An explicit 0 reads as absent; the bound is signed.
+        let mut zero = serde_json::to_value(&p.rules[1]).unwrap();
+        zero["max_artifact_bytes"] = serde_json::json!(0);
+        assert_eq!(serde_json::from_value::<Rule>(zero).unwrap(), p.rules[1]);
+        let mut t = p.clone();
+        t.rules[0].max_artifact_bytes = 1_048_575;
+        assert!(t.verify(NETWORK).is_err());
+        // Bounds are 0 to 1 GiB and need task.submit.
+        let sign = |rule: Rule| {
+            Policy::sign(
+                &owner(),
+                NETWORK,
+                1,
+                "2026-10-10T00:00:00Z",
+                "2026-10-17T00:00:00Z",
+                vec![rule],
+            )
+        };
+        for (actions, bound, ok) in [
+            (vec![TASK_ACTION], 1 << 30, true),
+            (vec![TASK_ACTION], (1 << 30) + 1, false),
+            (vec![TASK_ACTION], -1, false),
+            (vec![ACTION], 1, false),
+            (vec![ACTION], 0, true),
+        ] {
+            let rule = Rule {
+                actions: actions.into_iter().map(Into::into).collect(),
+                max_artifact_bytes: bound,
+                ..p.rules[0].clone()
+            };
+            assert_eq!(sign(rule).is_ok(), ok, "{bound}");
+        }
     }
     fn json_extra(v: &serde_json::Value) -> serde_json::Value {
         let mut v = v.clone();

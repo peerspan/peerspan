@@ -31,6 +31,13 @@ test('trusted session context fences calls; scopes and native permission decisio
       profile: '/private/credential.json'
     });
     const hooks = await Capsule({}, { bindings });
+    // Artifact path lists become array arguments.
+    const artifacts = hooks.tool.capsule_delegate_task.args.artifacts;
+    assert(artifacts.safeParse(['/w/a.txt']).success);
+    assert(artifacts.safeParse(undefined).success);
+    assert(!artifacts.safeParse('a.txt').success);
+    assert(!artifacts.safeParse(Array(65).fill('a')).success);
+    assert(hooks.tool.capsule_artifact_save.args.sha256.safeParse('d'.repeat(64)).success);
     const fn = hooks.tool.capsule_send.execute;
     const args = { destination: 'remote', content: 'hello' },
       context = {

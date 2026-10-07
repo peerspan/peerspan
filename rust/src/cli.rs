@@ -35,6 +35,9 @@ pub enum Command {
         /// policy; defaults to SSH_AUTH_SOCK
         #[arg(long, value_name = "SOCKET")]
         person_agent: Option<PathBuf>,
+        /// Bytes of storage for task artifacts: stored files plus pending fetches
+        #[arg(long, value_name = "BYTES", default_value_t = capsule_host::artifact::DEFAULT_QUOTA, value_parser = clap::value_parser!(i64).range(1..))]
+        artifact_quota: i64,
     },
     /// Show the local daemon's public identity
     Info,
@@ -59,6 +62,9 @@ pub enum Command {
     /// Delegate tasks to remote agents and follow their progress
     #[command(subcommand)]
     Task(TaskCommand),
+    /// Inspect and prune stored task artifacts
+    #[command(subcommand)]
+    Artifact(ArtifactCommand),
     /// Create, join, and inspect coordinated networks
     #[command(subcommand)]
     Network(NetworkCommand),
@@ -419,6 +425,9 @@ pub enum GrantCommand {
         /// What the grant authorizes
         #[arg(long, value_parser = ["message.append", "task.submit"], default_value = "message.append")]
         action: String,
+        /// Total input and result artifact bytes a task may carry (task.submit only)
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=capsule_host::artifact::MAX_BOUND))]
+        max_artifact_bytes: i64,
     },
     List,
     Revoke {
@@ -446,6 +455,9 @@ pub enum AccessCommand {
         /// Action the rule allows; repeat for each (default message.append)
         #[arg(long = "action", value_name = "ACTION", value_parser = ["message.append", "task.submit"])]
         actions: Vec<String>,
+        /// Total input and result artifact bytes a task may carry (task.submit only)
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=capsule_host::artifact::MAX_BOUND))]
+        max_artifact_bytes: i64,
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
@@ -572,6 +584,21 @@ pub enum TaskCommand {
         /// Task ID; generated when omitted
         #[arg(long = "task", value_name = "ID")]
         task: Option<String>,
+        /// File to attach as an input artifact; repeat for each
+        #[arg(long = "artifact", value_name = "PATH")]
+        artifacts: Vec<PathBuf>,
+        /// Media type of the artifact in the same position; repeat for each
+        #[arg(long = "artifact-type", value_name = "TYPE")]
+        artifact_types: Vec<String>,
+    },
+    /// Save an input or fetched result of a submitted task to a new file
+    Artifact {
+        #[arg(long)]
+        peer: String,
+        id: String,
+        sha256: String,
+        #[arg(long, value_name = "PATH")]
+        out: PathBuf,
     },
     /// List submitted tasks in local order
     List {
@@ -600,6 +627,14 @@ pub enum TaskCommand {
         peer: String,
         id: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ArtifactCommand {
+    /// Show stored artifact files, their sizes, and the quota
+    List,
+    /// Release the artifacts of every final task and of uploads now
+    Prune,
 }
 
 #[derive(Debug, Subcommand)]
@@ -689,6 +724,7 @@ impl Command {
                 | SessionCommand::Doctor { .. },
             )
             | Self::Person(_)
+            | Self::Task(TaskCommand::Artifact { .. })
             | Self::Access(
                 AccessCommand::Allow { .. }
                 | AccessCommand::Deny { .. }
@@ -757,8 +793,9 @@ impl Command {
                 allow_disconnected,
                 from_agent,
                 action,
+                max_artifact_bytes,
             }) => {
-                let mut body = json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected,"action":action});
+                let mut body = json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected,"action":action,"max_artifact_bytes":max_artifact_bytes});
                 if let Some(agent) = from_agent {
                     body["requester_agent_id"] = json!(agent);
                 }
@@ -802,7 +839,10 @@ impl Command {
                 from_agent,
                 from_session,
                 task,
+                artifacts: _,
+                artifact_types: _,
             }) => {
+                // Artifacts are uploaded first; see `task_submit` in main.
                 let mut body = with_grant(
                     json!({"peer_host_id":peer,"target_agent_id":agent,"input":input}),
                     grant,
@@ -821,6 +861,10 @@ impl Command {
                     body["origin"] = origin;
                 }
                 (Method::POST, "/v1/tasks".into(), Some(body))
+            }
+            Self::Artifact(ArtifactCommand::List) => (Method::GET, "/v1/artifacts".into(), None),
+            Self::Artifact(ArtifactCommand::Prune) => {
+                (Method::POST, "/v1/artifacts/prune".into(), Some(json!({})))
             }
             Self::Task(TaskCommand::List { after, limit }) => (
                 Method::GET,
@@ -1228,6 +1272,103 @@ mod tests {
             body(&[&create[..], &["--from-agent", "agent_a"]].concat())["requester_agent_id"],
             "agent_a"
         );
+    }
+
+    #[test]
+    fn artifact_flags_map_to_the_local_api() {
+        let create = [
+            "grant",
+            "create",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--expires-at",
+            "e",
+            "--action",
+            "task.submit",
+        ];
+        assert_eq!(body(&create)["max_artifact_bytes"], 0);
+        assert_eq!(
+            body(&[&create[..], &["--max-artifact-bytes", "1048576"]].concat())["max_artifact_bytes"],
+            1048576
+        );
+        for bad in ["-1", "1073741825"] {
+            assert!(
+                Cli::try_parse_from(
+                    [
+                        &["capsule-host"],
+                        &create[..],
+                        &["--max-artifact-bytes", bad]
+                    ]
+                    .concat()
+                )
+                .is_err()
+            );
+        }
+        let path = |args: &[&str]| {
+            let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
+            let request = cli.command.unwrap().request().unwrap();
+            (request.method, request.path)
+        };
+        assert_eq!(
+            path(&["artifact", "list"]),
+            (Method::GET, "/v1/artifacts".into())
+        );
+        assert_eq!(
+            path(&["artifact", "prune"]),
+            (Method::POST, "/v1/artifacts/prune".into())
+        );
+        let submit = Cli::try_parse_from([
+            "capsule-host",
+            "task",
+            "submit",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--input",
+            "i",
+            "--artifact",
+            "a.txt",
+            "--artifact",
+            "b.bin",
+            "--artifact-type",
+            "text/plain",
+        ])
+        .unwrap();
+        let Some(Command::Task(TaskCommand::Submit {
+            artifacts,
+            artifact_types,
+            ..
+        })) = submit.command
+        else {
+            panic!("not a submission")
+        };
+        assert_eq!(artifacts.len(), 2);
+        assert_eq!(artifact_types, ["text/plain"]);
+        let saved = Cli::try_parse_from([
+            "capsule-host",
+            "task",
+            "artifact",
+            "--peer",
+            "host_x",
+            "task_t",
+            "abc",
+            "--out",
+            "out.bin",
+        ])
+        .unwrap();
+        assert!(saved.command.unwrap().request().is_none());
+        let run = Cli::try_parse_from(["capsule-host", "run", "--artifact-quota", "1024"]).unwrap();
+        assert!(matches!(
+            run.command,
+            Some(Command::Run {
+                artifact_quota: 1024,
+                ..
+            })
+        ));
+        assert!(Cli::try_parse_from(["capsule-host", "run", "--artifact-quota", "0"]).is_err());
     }
 
     #[test]

@@ -18,10 +18,13 @@ export async function Capsule(_input, { bindings } = {}) {
       tools.map((definition) => {
         const required = definition.inputSchema.required ?? [];
         const args = Object.fromEntries(
-          Object.entries(definition.inputSchema.properties).map(([name, property]) => [
-            name,
-            required.includes(name) ? string(property) : string(property).optional()
-          ])
+          Object.entries(definition.inputSchema.properties).map(([name, property]) => {
+            const value =
+              property.type === 'array'
+                ? schema.array(string(property.items)).max(property.maxItems)
+                : string(property);
+            return [name, required.includes(name) ? value : value.optional()];
+          })
         );
         const name = 'capsule_' + definition.name;
         return [

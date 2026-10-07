@@ -71,6 +71,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             allow_disconnected,
             valid_days,
             actions,
+            max_artifact_bytes,
             ..
         } => {
             let mut principals = Vec::new();
@@ -96,6 +97,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
                 },
                 max_message_bytes: *max_message_bytes,
                 allow_disconnected: *allow_disconnected,
+                max_artifact_bytes: *max_artifact_bytes,
             };
             match rules.iter_mut().find(|r| r.agent == *agent) {
                 Some(existing) => *existing = rule,

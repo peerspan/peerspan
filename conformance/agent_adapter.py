@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 
-from host_service import TASK_TABLES, UnixHTTPConnection
+from host_service import ARTIFACT_TABLES, TASK_TABLES, UnixHTTPConnection
 from peer_messaging import PeerHost, fixture_context, set_probe, timestamp, wire
 
 
@@ -93,7 +93,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             messages = receiver.cli('message', 'list')
             activity = receiver.cli('activity')
             receiver.stop()
-            for table in [*TASK_TABLES, 'access_blocks', 'network_statements', 'adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
+            for table in [*ARTIFACT_TABLES, *TASK_TABLES, 'access_blocks', 'network_statements', 'adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
                 sql(receiver, 'DROP TABLE ' + table)
             sql(receiver, 'PRAGMA user_version = 3')
             # Force failure after migration begins; no partial extension may persist.
@@ -107,7 +107,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             receiver.binary = str(replacement_binary)
             identity = receiver.start()
             assert identity['id'] == b['id'] and identity['public_key'] == b['public_key']
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 9
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 10
             assert receiver.cli('message', 'list') == messages
             assert receiver.cli('activity') == activity
             assert receiver.cli('grant', 'list') == [grant]
@@ -116,7 +116,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             assert sender.cli('message', 'inspect', '--peer', b['id'], sent['request']['request_id']) == sent
         finally:
             sender.stop(); receiver.stop()
-    print(label + ': v3→v9 migration/rollback passed', flush=True)
+    print(label + ': v3→v10 migration/rollback passed', flush=True)
 
 
 class Channel:
@@ -254,7 +254,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert sender.cli('message', 'reply', '--peer', b['id'], rid)['state'] == 'pending'
             channel = Channel(node, script, receiver, secret, root)
             tools = channel.call('tools/list', {})['tools']
-            assert [tool['name'] for tool in tools] == ['list_destinations', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status']
+            assert [tool['name'] for tool in tools] == ['list_destinations', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
             event = channel.notification()
             assert event['content'] == first['request']['content']
             assert event['meta']['request_id'] == rid
@@ -376,7 +376,7 @@ def check(sender_binary, receiver_binary, node, script, label):
                 assert actual['id'] == expected['id'] and actual['public_key'] == expected['public_key']
                 # Compare instants; state written before both used one spelling may differ.
                 assert datetime.fromisoformat(actual['created_at'].replace('Z', '+00:00')) == datetime.fromisoformat(expected['created_at'].replace('Z', '+00:00'))
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 9
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 10
             assert adapter_call(receiver, token, 'POST', '/adapter/v1/next', {})[0] == 503
             receiver.cli('session', 'detach', session['id'])
             assert receiver.cli('delivery', 'inspect', uncertain['id']) == uncertain

@@ -28,7 +28,7 @@ func taskPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 			return
 		}
 		var request TaskRequest
-		if !decode(w, r, &request, "task_id", "grant_id", "policy", "target_agent_id", "deadline", "input", "origin") {
+		if !decode(w, r, &request, "task_id", "grant_id", "policy", "target_agent_id", "deadline", "input", "origin", "artifacts") {
 			return
 		}
 		st, err := store.AcceptTask(r.Context(), id, request)
@@ -66,18 +66,20 @@ func taskPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 		st, err := store.RequestTaskCancel(r.Context(), id, r.PathValue("id"))
 		respond(w, http.StatusOK, st, err)
 	})
+	peerArtifactRoutes(mux, store, sender)
 }
 
 func localTaskRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/tasks", func(w http.ResponseWriter, r *http.Request) {
 		var request SubmitTask
-		if !decode(w, r, &request, "peer_host_id", "task_id", "grant_id?", "target_agent_id", "deadline", "input", "origin") {
+		if !decode(w, r, &request, "peer_host_id", "task_id", "grant_id?", "target_agent_id", "deadline", "input", "origin", "artifacts") {
 			return
 		}
 		out, err := store.PrepareOutboundTask(r.Context(), request)
 		if err == nil && out.SubmitState == submitUnknown {
 			out, err = store.ExchangeTask(r.Context(), out.PeerHostID, out.Request.TaskID, false)
 		}
+		out, err = store.withArtifacts(r.Context(), out, err)
 		respond(w, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("GET /v1/tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +93,7 @@ func localTaskRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("GET /v1/tasks/{peer}/{id}", func(w http.ResponseWriter, r *http.Request) {
 		out, err := store.OutboundTask(r.Context(), r.PathValue("peer"), r.PathValue("id"))
+		out, err = store.withArtifacts(r.Context(), out, err)
 		respond(w, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("GET /v1/tasks/{peer}/{id}/events", func(w http.ResponseWriter, r *http.Request) {
@@ -104,8 +107,10 @@ func localTaskRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/tasks/{peer}/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		out, err := store.CancelOutboundTask(r.Context(), r.PathValue("peer"), r.PathValue("id"))
+		out, err = store.withArtifacts(r.Context(), out, err)
 		respond(w, http.StatusOK, out, err)
 	})
+	localArtifactRoutes(mux, store)
 }
 
 func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Request) AdapterAuth) {
@@ -124,15 +129,20 @@ func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Reques
 		respond(w, http.StatusOK, h, err)
 	})
 	type changeBody struct {
-		Reason  *string `json:"reason"`
-		Message *string `json:"message"`
-		Status  *string `json:"status"`
-		Output  *string `json:"output"`
+		Reason    *string         `json:"reason"`
+		Message   *string         `json:"message"`
+		Status    *string         `json:"status"`
+		Output    *string         `json:"output"`
+		Artifacts []ArtifactEntry `json:"artifacts"`
 	}
 	for op, fields := range map[string][]string{"accept": nil, "reject": {"reason"}, "progress": {"message"}, "complete": {"status", "output"}, "cancelled": nil} {
 		mux.HandleFunc("POST /adapter/v1/tasks/{id}/"+op, func(w http.ResponseWriter, r *http.Request) {
 			var body changeBody
-			if !decode(w, r, &body, fields...) {
+			allowed := fields
+			if op == "complete" {
+				allowed = append([]string{"artifacts"}, fields...)
+			}
+			if !decode(w, r, &body, allowed...) {
 				return
 			}
 			text := func(v *string) string {
@@ -148,23 +158,25 @@ func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Reques
 					return
 				}
 			}
-			st, err := store.ChangeTask(r.Context(), token(r), r.PathValue("id"), TaskChange{Op: op, Reason: text(body.Reason), Message: text(body.Message), Status: text(body.Status), Output: text(body.Output)})
+			st, err := store.ChangeTask(r.Context(), token(r), r.PathValue("id"), TaskChange{Op: op, Reason: text(body.Reason), Message: text(body.Message), Status: text(body.Status), Output: text(body.Output), Artifacts: emptyAsNone(body.Artifacts)})
 			respond(w, http.StatusOK, st, err)
 		})
 	}
 	mux.HandleFunc("POST /adapter/v1/delegations", func(w http.ResponseWriter, r *http.Request) {
 		var req AdapterDelegate
-		if !decode(w, r, &req, "destination", "task_id", "input") {
+		if !decode(w, r, &req, "destination", "task_id", "input", "artifacts") {
 			return
 		}
 		out, err := store.PrepareAdapterTask(r.Context(), token(r), req)
 		if err == nil && out.SubmitState == submitUnknown {
 			out, err = store.ExchangeTask(r.Context(), out.PeerHostID, out.Request.TaskID, false)
 		}
+		out, err = store.withArtifacts(r.Context(), out, err)
 		respond(w, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("GET /adapter/v1/delegations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		out, err := store.AdapterTask(r.Context(), token(r), r.PathValue("id"))
+		out, err = store.withArtifacts(r.Context(), out, err)
 		respond(w, http.StatusOK, out, err)
 	})
 	mux.HandleFunc("POST /adapter/v1/task-updates/next", func(w http.ResponseWriter, r *http.Request) {
@@ -181,4 +193,5 @@ func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Reques
 		d, err := store.TaskUpdateForwarded(r.Context(), token(r), r.PathValue("id"))
 		respond(w, http.StatusOK, d, err)
 	})
+	adapterArtifactRoutes(mux, store, token)
 }

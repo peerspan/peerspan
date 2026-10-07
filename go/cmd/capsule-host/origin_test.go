@@ -89,3 +89,37 @@ func TestTaskCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestArtifactCommands(t *testing.T) {
+	grant := []string{"grant", "create", "--peer", "host_x", "--agent", "agent_y", "--expires-at", "2099-01-01T00:00:00Z", "--action", "task.submit"}
+	if body, err := requestBody(t, grant...); err != nil || body["max_artifact_bytes"] != nil {
+		t.Fatalf("default artifact bound is sent: %v %v", body, err)
+	}
+	if body, err := requestBody(t, append(grant, "--max-artifact-bytes", "1024")...); err != nil || body["max_artifact_bytes"] != float64(1024) {
+		t.Fatalf("grant --max-artifact-bytes: %v %v", body, err)
+	}
+	submit := []string{"task", "submit", "--peer", "host_x", "--agent", "agent_y", "--input", "work"}
+	_, _, body, err := request(append(submit, "--artifact", "/tmp/a.txt", "--artifact", "/tmp/b.bin", "--artifact-type", "text/plain"), io.Discard)
+	upload, ok := body.(taskSubmission)
+	if err != nil || !ok || len(upload.files) != 2 || len(upload.types) != 1 || upload.Input != "work" {
+		t.Fatalf("task submit --artifact: %#v %v", body, err)
+	}
+	if _, _, _, err = request(append(submit, "--artifact-type", "text/plain"), io.Discard); err == nil {
+		t.Fatal("--artifact-type without --artifact accepted")
+	}
+	method, path, body, err := request(strings.Fields("task artifact --peer host_x task_1 abc --out /tmp/x"), io.Discard)
+	if download, ok := body.(artifactDownload); err != nil || !ok || download.out != "/tmp/x" || method+" "+path != "GET /v1/tasks/host_x/task_1/artifacts/abc" {
+		t.Fatalf("task artifact: %s %s %#v %v", method, path, body, err)
+	}
+	for _, args := range []string{"task artifact --peer host_x task_1 abc", "task artifact --peer host_x task_1 --out /tmp/x", "task inspect --peer host_x task_1 --out /tmp/x", "artifact show"} {
+		if _, _, _, err := request(strings.Fields(args), io.Discard); err == nil {
+			t.Errorf("%s accepted", args)
+		}
+	}
+	for args, want := range map[string]string{"artifact list": "GET /v1/artifacts", "artifact prune": "POST /v1/artifacts/prune"} {
+		method, path, _, err := request(strings.Fields(args), io.Discard)
+		if err != nil || method+" "+path != want {
+			t.Errorf("%s: %s %s %v", args, method, path, err)
+		}
+	}
+}

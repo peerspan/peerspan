@@ -8,6 +8,7 @@ use crate::{
     adapter_connection::AdapterAuth,
     adapter_outbound::{OutboundRoute, route_used, valid_name},
     api::{blocking, decode},
+    artifact::{ArtifactEntry, INPUT, LocalArtifact, RESULT, SENT, normalized, validate_manifest},
     model::Error,
     peer_store::{Origin, valid_id},
     retry::{Attempted, Dispatcher, due_at},
@@ -60,6 +61,9 @@ pub struct SubmitTask {
     pub input: String,
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub origin: Option<Origin>,
+    /// Stored uploads to attach as inputs.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub artifacts: Option<Vec<ArtifactEntry>>,
 }
 
 /// The submitter's local record of an outbound task.
@@ -85,6 +89,10 @@ pub struct OutboundTask {
     pub error: Option<String>,
     /// Status queries made at or after the deadline.
     pub status_queries: u32,
+    /// Inputs, then results, with their local state; read from the task's
+    /// artifacts whenever the record is returned.
+    #[serde(default)]
+    pub artifacts: Vec<LocalArtifact>,
 }
 impl Attempted for OutboundTask {
     fn uncertain(&self) -> bool {
@@ -123,6 +131,8 @@ pub struct Delegate {
     pub destination: String,
     pub task_id: String,
     pub input: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub artifacts: Option<Vec<ArtifactEntry>>,
 }
 /// A task update handed to the originating session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -144,36 +154,56 @@ pub struct TaskUpdate {
 }
 
 fn stored(conn: &Connection, peer: &str, id: &str) -> Result<OutboundTask, Error> {
-    read(
+    let mut out: OutboundTask = read(
         conn,
         "SELECT record FROM outbound_tasks WHERE peer = ?1 AND task_id = ?2",
         params![peer, id],
-    )
+    )?;
+    fill(conn, &mut out)?;
+    Ok(out)
+}
+/// Sets the record's artifacts from the task's stored references.
+fn fill(conn: &Connection, out: &mut OutboundTask) -> Result<(), Error> {
+    out.artifacts =
+        crate::artifact::task_artifacts(conn, SENT, &out.peer_host_id, &out.request.task_id)?;
+    Ok(())
+}
+/// The record as stored: without its derived artifacts.
+fn persisted(out: &OutboundTask) -> Result<String, Error> {
+    let mut value = serde_json::to_value(out)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("artifacts");
+    }
+    Ok(serde_json::to_string(&value)?)
 }
 fn save(tx: &Transaction<'_>, out: &OutboundTask) -> Result<(), Error> {
     tx.execute(
         "UPDATE outbound_tasks SET record = ?1 WHERE peer = ?2 AND task_id = ?3",
-        params![
-            serde_json::to_string(out)?,
-            out.peer_host_id,
-            out.request.task_id
-        ],
+        params![persisted(out)?, out.peer_host_id, out.request.task_id],
     )?;
     Ok(())
 }
 fn subject(out: &OutboundTask) -> String {
     format!("{}/{}", out.peer_host_id, out.request.task_id)
 }
-fn insert(tx: &Transaction<'_>, out: &OutboundTask) -> Result<(), Error> {
+fn insert(tx: &Transaction<'_>, out: &mut OutboundTask) -> Result<(), Error> {
     tx.execute(
         "INSERT INTO outbound_tasks VALUES (?1, ?2, ?3)",
-        params![
-            out.peer_host_id,
-            out.request.task_id,
-            serde_json::to_string(out)?
-        ],
+        params![out.peer_host_id, out.request.task_id, persisted(out)?],
     )?;
+    if let Some(inputs) = &out.request.artifacts {
+        crate::artifact::add_artifacts(
+            tx,
+            SENT,
+            &out.peer_host_id,
+            &out.request.task_id,
+            INPUT,
+            inputs,
+            crate::artifact::STORED,
+        )?;
+    }
     append_event(tx, "task.submitted", &subject(out), &now())?;
+    fill(tx, out)?;
     Ok(())
 }
 fn page(after: i64, limit: i64) -> Result<(), Error> {
@@ -207,9 +237,11 @@ impl Store {
         let mut items = Vec::new();
         let mut page_bytes = 2;
         while let Some(row) = rows.next()? {
+            let mut task: OutboundTask = serde_json::from_str(&row.get::<_, String>(1)?)?;
+            fill(&connection, &mut task)?;
             let item = TaskItem {
                 sequence: row.get(0)?,
-                task: serde_json::from_str(&row.get::<_, String>(1)?)?,
+                task,
             };
             // Like message pages, bounded so the CLI can read a full page.
             let encoded = serde_json::to_vec(&item)?.len() + 1;
@@ -244,9 +276,10 @@ impl Store {
     pub fn prepare_task(&self, r: SubmitTask) -> Result<OutboundTask, Error> {
         let given = r.deadline.filter(|d| !d.is_empty());
         let explicit_deadline = given.is_some();
+        let default_deadline = Utc::now() + DEFAULT_DEADLINE;
         let deadline = match given {
             Some(deadline) => deadline,
-            None => rfc3339(Utc::now() + DEFAULT_DEADLINE),
+            None => rfc3339(default_deadline),
         };
         let mut request = TaskRequest {
             task_id: if r.task_id.is_empty() {
@@ -263,6 +296,7 @@ impl Store {
             deadline,
             input: r.input,
             origin: r.origin,
+            artifacts: normalized(r.artifacts),
         };
         if let Some(origin) = &request.origin {
             if !origin.valid() {
@@ -273,7 +307,12 @@ impl Store {
         validate_task(&request)?;
         self.dial_target(&r.peer_host_id)?;
         if request.policy.is_some() {
-            request.policy = Some(self.policy_citation(&*self.connection()?, &r.peer_host_id)?);
+            let cited = self.cited_policy(&*self.connection()?, &r.peer_host_id)?;
+            request.policy = Some(cited.reference());
+            // A default deadline never outlives the cited policy.
+            if !explicit_deadline {
+                request.deadline = rfc3339(default_deadline.min(time(&cited.valid_until)?));
+            }
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -285,7 +324,8 @@ impl Store {
             )
             .optional()?
         {
-            let old: OutboundTask = serde_json::from_str(&old)?;
+            let mut old: OutboundTask = serde_json::from_str(&old)?;
+            fill(&tx, &mut old)?;
             // A repeat cites the owner's newest version, which may have moved
             // on, and a defaulted deadline moves with the clock; the stored
             // request stands.
@@ -308,7 +348,10 @@ impl Store {
             }
             return Ok(old);
         }
-        let out = OutboundTask {
+        if let Some(inputs) = &request.artifacts {
+            self.check_uploads(&tx, inputs)?;
+        }
+        let mut out = OutboundTask {
             peer_host_id: r.peer_host_id,
             request,
             submit_state: "unknown".into(),
@@ -322,8 +365,9 @@ impl Store {
             next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
             error: None,
             status_queries: 0,
+            artifacts: Vec::new(),
         };
-        insert(&tx, &out)?;
+        insert(&tx, &mut out)?;
         tx.commit()?;
         Ok(out)
     }
@@ -340,6 +384,10 @@ impl Store {
             || r.input.len() > MAX_TEXT
         {
             return Err(Error::Invalid("invalid delegation".into()));
+        }
+        let artifacts = normalized(r.artifacts);
+        if let Some(manifest) = &artifacts {
+            validate_manifest(manifest)?;
         }
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -379,7 +427,8 @@ impl Store {
             )
             .optional()?
         {
-            let old: OutboundTask = serde_json::from_str(&old)?;
+            let mut old: OutboundTask = serde_json::from_str(&old)?;
+            fill(&tx, &mut old)?;
             let Some(owner) = &old.adapter_id else {
                 return Err(Error::Conflict(
                     "task belongs to owner administration".into(),
@@ -393,7 +442,10 @@ impl Store {
             if *owner != a.id || session != Some(ss.id.as_str()) {
                 return Err(Error::Forbidden);
             }
-            if old.route_id.as_deref() != Some(route.id.as_str()) || old.request.input != r.input {
+            if old.route_id.as_deref() != Some(route.id.as_str())
+                || old.request.input != r.input
+                || old.request.artifacts != artifacts
+            {
                 return Err(Error::Conflict(
                     "task ID reused with different fields".into(),
                 ));
@@ -406,12 +458,19 @@ impl Store {
         if route_used(&tx, &route.id)? >= route.max_messages {
             return Err(Error::Forbidden);
         }
-        let deadline = (Utc::now() + DEFAULT_DEADLINE).min(expiry);
+        let mut deadline = (Utc::now() + DEFAULT_DEADLINE).min(expiry);
         let policy = match route.grant_id {
             Some(_) => None,
-            None => Some(self.policy_citation(&tx, &route.peer_host_id)?),
+            None => {
+                let cited = self.cited_policy(&tx, &route.peer_host_id)?;
+                deadline = deadline.min(time(&cited.valid_until)?);
+                Some(cited.reference())
+            }
         };
-        let out = OutboundTask {
+        if let Some(inputs) = &artifacts {
+            self.check_uploads(&tx, inputs)?;
+        }
+        let mut out = OutboundTask {
             peer_host_id: route.peer_host_id,
             request: TaskRequest {
                 task_id: r.task_id,
@@ -425,6 +484,7 @@ impl Store {
                     agent_id: ss.agent_id.clone(),
                     session_id: Some(ss.id.clone()),
                 }),
+                artifacts,
             },
             submit_state: "unknown".into(),
             status: None,
@@ -436,8 +496,9 @@ impl Store {
             next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
             error: None,
             status_queries: 0,
+            artifacts: Vec::new(),
         };
-        insert(&tx, &out)?;
+        insert(&tx, &mut out)?;
         tx.commit()?;
         Ok(out)
     }
@@ -445,11 +506,13 @@ impl Store {
     pub fn delegation(&self, auth: &AdapterAuth, task_id: &str) -> Result<OutboundTask, Error> {
         let conn = self.connection()?;
         let (a, _) = authority(&conn, auth)?;
-        read(
+        let mut out: OutboundTask = read(
             &conn,
             "SELECT record FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 ORDER BY rowid LIMIT 1",
             params![task_id, a.id],
-        )
+        )?;
+        fill(&conn, &mut out)?;
+        Ok(out)
     }
     /// Saves one submission attempt's outcome. An accepted submission is
     /// never downgraded by a concurrent uncertain attempt.
@@ -500,6 +563,18 @@ impl Store {
                 params![peer, id, event.sequence, serde_json::to_string(&event)?],
             )?;
             append_event(&tx, "task.updated", &subject(&out), &now())?;
+            // Results are fetched once the final event is stored.
+            if let Some(results) = &event.artifacts {
+                crate::artifact::add_artifacts(
+                    &tx,
+                    SENT,
+                    peer,
+                    id,
+                    RESULT,
+                    results,
+                    crate::artifact::PENDING,
+                )?;
+            }
             out.events_after = event.sequence;
             progressed = true;
         }
@@ -508,6 +583,7 @@ impl Store {
         }
         progressed |= out.status != before;
         save(&tx, &out)?;
+        fill(&tx, &mut out)?;
         tx.commit()?;
         Ok((out, progressed))
     }
@@ -825,6 +901,9 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
     let dispatcher = Dispatcher::new(crate::retry::CONCURRENCY);
     // In-memory poll backoff per task: when next due, and the current interval.
     let schedule: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
+    // In-memory fetch backoff per artifact row, from 1 second to 60 seconds;
+    // a restart retries at once.
+    let fetch_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
     loop {
         tokio::select! {
             _ = shutdown.changed() => return,
@@ -847,14 +926,46 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
             }
         }
         let polls: HashMap<(String, String), bool> = jobs.iter().cloned().collect();
-        for claim in dispatcher.claim(jobs.into_iter().map(|(k, _)| k).collect()) {
+        let mut keys: Vec<(String, String)> = jobs.into_iter().map(|(k, _)| k).collect();
+        // Artifact fetches share the same 4 slots.
+        let mut fetches: HashMap<(String, String), crate::artifact::RowKey> = HashMap::new();
+        if let Ok(pending) = blocking(store.clone(), |s| s.pending_fetches()).await
+            && let Ok(mut plan) = fetch_plan.lock()
+        {
+            let now = Instant::now();
+            let wanted: Vec<(String, String)> = pending.iter().map(|r| r.job()).collect();
+            plan.retain(|k, _| wanted.contains(k));
+            for row in pending {
+                let key = row.job();
+                if plan.get(&key).is_none_or(|(due, _)| *due <= now) {
+                    keys.push(key.clone());
+                    fetches.insert(key, row);
+                }
+            }
+        }
+        for claim in dispatcher.claim(keys) {
             let store = store.clone();
             let key = claim.key().clone();
             let is_poll = polls.get(&key).copied().unwrap_or(false);
+            let fetch = fetches.remove(&key);
             let schedule = schedule.clone();
+            let fetch_plan = fetch_plan.clone();
             tokio::spawn(async move {
                 let (peer, id) = key.clone();
-                if is_poll {
+                if let Some(row) = fetch {
+                    let done = crate::artifact::fetch(store, row).await;
+                    if let Ok(mut plan) = fetch_plan.lock() {
+                        if done {
+                            plan.remove(&key);
+                        } else {
+                            let interval = match plan.get(&key) {
+                                Some((_, last)) => (*last * 2).min(POLL_MAX),
+                                None => POLL_FIRST,
+                            };
+                            plan.insert(key, (Instant::now() + interval, interval));
+                        }
+                    }
+                } else if is_poll {
                     let progressed = poll(store, peer, id).await.unwrap_or(false);
                     if let Ok(mut plan) = schedule.lock() {
                         let interval = match plan.get(&key) {
@@ -1028,6 +1139,7 @@ mod tests {
             deadline: None,
             input: "review this".into(),
             origin: None,
+            artifacts: None,
         }
     }
     fn status(store: &Store, out: &OutboundTask, state: &str, last: i64) -> TaskStatus {
@@ -1051,6 +1163,7 @@ mod tests {
             message: None,
             output: None,
             created_at: now(),
+            artifacts: None,
         }
     }
     fn accepted(store: &Store, out: &OutboundTask) -> OutboundTask {
@@ -1314,6 +1427,7 @@ mod tests {
                     destination: destination.into(),
                     task_id: format!("task_{}", n.to_string().repeat(32)),
                     input: input.into(),
+                    artifacts: None,
                 },
             )
         };

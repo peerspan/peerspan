@@ -183,3 +183,64 @@ func TestAgentPrincipal(t *testing.T) {
 		t.Fatal("policy with a malformed agent principal")
 	}
 }
+
+// Policy vector with max_artifact_bytes, cross-checked with ssh-keygen -Y sign.
+const policyArtifactVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGaZoSLXB4mfYtcitytb/FSRHPWfWO9ccCJCeCjSHNdTcKmOAqDW7dIY4AQIIaVkOU0M+rQMJGDYfvkT+5dnQBw=="
+
+func TestPolicyArtifactVector(t *testing.T) {
+	owner := KeySigner{mustSeed(t, personSeed)}
+	issued, _ := ParseTime("2026-10-10T00:00:00Z")
+	p, err := SignPolicy(owner, vector.NetworkID, 2, issued, 7*24*time.Hour, []PolicyRule{
+		{Agent: "reviewer", Principals: []string{"person:" + otherIDVector}, Actions: []string{PolicyActionMessage, PolicyActionTask}, MaxMessageBytes: 65536, MaxArtifactBytes: 1048576},
+		{Agent: "triage", Principals: []string{PrincipalNetwork}, Actions: []string{PolicyActionTask}, MaxMessageBytes: 4096, AllowDisconnected: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{"capsule-policy-v1", vector.NetworkID, personPublic, "2", "2026-10-10T00:00:00Z", "2026-10-17T00:00:00Z",
+		"rule", "reviewer", "person:" + otherIDVector, "message.append task.submit", "65536 false 1048576",
+		"rule", "triage", "network", "task.submit", "4096 true"}, "\n")
+	if string(p.Message()) != want {
+		t.Fatalf("policy lines:\n%s", p.Message())
+	}
+	if p.Signature != policyArtifactVector {
+		t.Fatalf("policy signature %s, want %s", p.Signature, policyArtifactVector)
+	}
+	data, err := json.Marshal(p.Rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"max_message_bytes":65536,"max_artifact_bytes":1048576,"allow_disconnected":false`) || strings.Count(string(data), "max_artifact_bytes") != 1 {
+		t.Fatalf("rule JSON: %s", data)
+	}
+	encoded, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := DecodePolicy(encoded)
+	if err != nil || VerifyPolicy(vector.NetworkID, back) != nil || back.Rules[0].MaxArtifactBytes != 1048576 {
+		t.Fatalf("round trip: %v", err)
+	}
+	// The bound is signed: changing it breaks the signature.
+	back.Rules[0].MaxArtifactBytes = 1048577
+	if VerifyPolicy(vector.NetworkID, back) == nil {
+		t.Fatal("changed bound verified")
+	}
+	// An explicit 0 decodes; the bound needs task.submit and at most 1 GiB.
+	var r PolicyRule
+	if err = json.Unmarshal([]byte(`{"agent":"a","principals":["network"],"actions":["message.append"],"max_message_bytes":1,"max_artifact_bytes":0,"allow_disconnected":false}`), &r); err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal([]byte(`{"agent":"a","principals":["network"],"actions":["message.append"],"max_message_bytes":1,"max_artifact_bytes":null,"allow_disconnected":false}`), &r) == nil {
+		t.Fatal("null bound decoded")
+	}
+	for _, bad := range []PolicyRule{
+		{Agent: "a", Principals: []string{PrincipalNetwork}, Actions: []string{PolicyActionMessage}, MaxMessageBytes: 1, MaxArtifactBytes: 1},
+		{Agent: "a", Principals: []string{PrincipalNetwork}, Actions: []string{PolicyActionTask}, MaxMessageBytes: 1, MaxArtifactBytes: 1<<30 + 1},
+		{Agent: "a", Principals: []string{PrincipalNetwork}, Actions: []string{PolicyActionTask}, MaxMessageBytes: 1, MaxArtifactBytes: -1},
+	} {
+		if _, err = SignPolicy(owner, vector.NetworkID, 1, time.Now(), 24*time.Hour, []PolicyRule{bad}); err == nil {
+			t.Errorf("rule %+v accepted", bad)
+		}
+	}
+}

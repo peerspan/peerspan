@@ -78,7 +78,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 	}
 	var network, agent, personKey, who, hostID string
 	var principals, actions repeated
-	var maxBytes int64
+	var maxBytes, maxArtifactBytes int64
 	var allowDisconnected bool
 	var validDays int
 	fs := flag.NewFlagSet("access "+args[1], flag.ContinueOnError)
@@ -93,6 +93,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 		}
 		if args[1] == "allow" {
 			fs.Int64Var(&maxBytes, "max-message-bytes", 65536, "content byte limit, 1 to 65536")
+			fs.Int64Var(&maxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together, 0 to 1073741824; 0 refuses artifacts; needs --action task.submit")
 			fs.BoolVar(&allowDisconnected, "allow-disconnected", false, "permit messages while the receiver is out of sync with coordination")
 			fs.IntVar(&validDays, "valid-days", 7, "policy validity, 1 to 90 days")
 			fs.Var(&actions, "action", "message.append (the default) or task.submit; repeatable")
@@ -204,7 +205,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 			found = true
 			switch {
 			case args[1] == "allow":
-				rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, AllowDisconnected: allowDisconnected})
+				rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected})
 			case len(resolved) != 0:
 				rule.Principals = without(rule.Principals, resolved)
 				if len(rule.Principals) != 0 {
@@ -222,7 +223,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 		if args[1] == "deny" {
 			return "", "", nil, fmt.Errorf("your access policy has no rule for agent %q", agent)
 		}
-		rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, AllowDisconnected: allowDisconnected})
+		rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected})
 	}
 	p, err := membership.SignPolicy(signer, network, version, now, validFor, rules)
 	return "POST", policyPath(network), host.SubmitPolicy{Policy: &p}, err

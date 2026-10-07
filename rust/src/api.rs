@@ -32,6 +32,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::adapter::local_routes())
         .merge(crate::adapter_setup::local_routes())
         .merge(crate::task_outbound::local_routes())
+        .merge(crate::artifact::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
 }
@@ -154,6 +155,16 @@ impl IntoResponse for Error {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "unavailable",
                 format!("unavailable: {message}"),
+            ),
+            Self::TooLarge(message) => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "too_large",
+                format!("too large: {message}"),
+            ),
+            Self::InsufficientStorage(message) => (
+                StatusCode::INSUFFICIENT_STORAGE,
+                "insufficient_storage",
+                format!("insufficient storage: {message}"),
             ),
             Self::Internal(error) => {
                 eprintln!("host store error: {error}");

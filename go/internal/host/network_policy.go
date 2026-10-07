@@ -47,6 +47,14 @@ func (c *PolicyCitation) UnmarshalJSON(data []byte) error {
 type authority struct {
 	maxMessageBytes   int64
 	allowDisconnected bool
+	// maxArtifactBytes bounds a task's input and result artifacts together.
+	maxArtifactBytes int64
+}
+
+// artifactsAllowed reports whether a bound admits a request's input
+// artifacts: none, or a nonzero bound no smaller than their total.
+func artifactsAllowed(r MessageRequest, bound int64) bool {
+	return r.artifacts == 0 || (bound > 0 && r.artifactBytes <= bound)
 }
 
 // SubmitPolicy is {policy}, signed by its owner through the CLI.
@@ -288,7 +296,7 @@ func (s *Store) actionBounds(ctx context.Context, tx *sql.Tx, sender, action str
 		return s.policyBounds(ctx, tx, sender, action, r, requireDeadline)
 	}
 	g, err := grantBounds(ctx, tx, sender, action, r, requireDeadline)
-	return authority{g.MaxMessageBytes, g.AllowDisconnected}, err
+	return authority{g.MaxMessageBytes, g.AllowDisconnected, g.MaxArtifactBytes}, err
 }
 
 // policyBounds authorizes a message under the cited owner's newest verified
@@ -347,7 +355,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 			return authority{}, err
 		}
 		for _, rule := range p.Rules {
-			if rule.Agent != agent || !hasAction(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !g.principalMatches(rule, member, r.Origin) {
+			if rule.Agent != agent || !hasAction(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !artifactsAllowed(r, rule.MaxArtifactBytes) || !g.principalMatches(rule, member, r.Origin) {
 				continue
 			}
 			if allowed == nil {
@@ -355,6 +363,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 			}
 			allowed.maxMessageBytes = max(allowed.maxMessageBytes, rule.MaxMessageBytes)
 			allowed.allowDisconnected = allowed.allowDisconnected || rule.AllowDisconnected
+			allowed.maxArtifactBytes = max(allowed.maxArtifactBytes, rule.MaxArtifactBytes)
 		}
 	}
 	switch {
@@ -410,9 +419,15 @@ func (g governance) principalMatches(rule membership.PolicyRule, sender NetworkM
 // policyCitation is what a send without a grant cites: the target host's
 // bound person's newest verified policy, in the first network that has one.
 func (s *Store) policyCitation(ctx context.Context, q dbQuerier, peer string) (*PolicyCitation, error) {
+	citation, _, err := s.policyCitationUntil(ctx, q, peer)
+	return citation, err
+}
+
+// policyCitationUntil is policyCitation with the cited policy's valid_until.
+func (s *Store) policyCitationUntil(ctx context.Context, q dbQuerier, peer string) (*PolicyCitation, time.Time, error) {
 	memberships, err := membershipsOf(ctx, q, peer)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	owner := ""
 	for _, n := range memberships {
@@ -422,20 +437,24 @@ func (s *Store) policyCitation(ctx context.Context, q dbQuerier, peer string) (*
 		owner = *n.member.PersonID
 		g, err := s.loadGovernance(ctx, q, n.network)
 		if err != nil {
-			return nil, err
+			return nil, time.Time{}, err
 		}
 		key, ok := g.personKey(owner)
 		if !ok {
 			continue
 		}
 		if p, ok := g.storedPolicy(key); ok {
-			return &PolicyCitation{PersonID: owner, Version: p.Version}, nil
+			until, err := membership.ParseTime(p.ValidUntil)
+			if err != nil {
+				return nil, until, err
+			}
+			return &PolicyCitation{PersonID: owner, Version: p.Version}, until, nil
 		}
 	}
 	if owner == "" {
-		return nil, fmt.Errorf("%w: no grant given, and host %s is not bound to a person in any shared network; ask its owner for a grant", ErrInvalid, peer)
+		return nil, time.Time{}, fmt.Errorf("%w: no grant given, and host %s is not bound to a person in any shared network; ask its owner for a grant", ErrInvalid, peer)
 	}
-	return nil, fmt.Errorf("%w: no grant given, and the owner of host %s (%s) has no access policy; ask them to run access allow, or give a grant", ErrInvalid, peer, owner)
+	return nil, time.Time{}, fmt.Errorf("%w: no grant given, and the owner of host %s (%s) has no access policy; ask them to run access allow, or give a grant", ErrInvalid, peer, owner)
 }
 
 func (s *Store) AccessBlocks(ctx context.Context) ([]AccessBlock, error) {

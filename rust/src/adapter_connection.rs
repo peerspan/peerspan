@@ -24,6 +24,7 @@ INSERT INTO adapter_connections(adapter_id) SELECT id FROM adapter_credentials;
 PRAGMA user_version = 6;
 ";
 pub(crate) const LEASE_SECONDS: u64 = 15;
+#[derive(Clone)]
 pub struct AdapterAuth {
     pub token: String,
     pub instance: String,

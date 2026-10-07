@@ -20,8 +20,10 @@ const (
 	PolicyActionTask    = "task.submit"
 	PolicyMaxRules      = 64
 	PolicyMaxPrincipals = 64
-	PolicyMinValidity   = 24 * time.Hour
-	PolicyMaxValidity   = 90 * 24 * time.Hour
+	// PolicyMaxArtifactBytes bounds a rule's max_artifact_bytes (1 GiB).
+	PolicyMaxArtifactBytes = 1 << 30
+	PolicyMinValidity      = 24 * time.Hour
+	PolicyMaxValidity      = 90 * 24 * time.Hour
 	// PolicySkew is the clock skew allowed before issued_at.
 	PolicySkew = 5 * time.Minute
 	// PrincipalNetwork matches every member host of the policy's network.
@@ -29,11 +31,14 @@ const (
 )
 
 type PolicyRule struct {
-	Agent             string   `json:"agent"`
-	Principals        []string `json:"principals"`
-	Actions           []string `json:"actions"`
-	MaxMessageBytes   int64    `json:"max_message_bytes"`
-	AllowDisconnected bool     `json:"allow_disconnected"`
+	Agent           string   `json:"agent"`
+	Principals      []string `json:"principals"`
+	Actions         []string `json:"actions"`
+	MaxMessageBytes int64    `json:"max_message_bytes"`
+	// MaxArtifactBytes bounds a task's input and result artifacts together;
+	// 0, the default, refuses artifacts. It is omitted from JSON when 0.
+	MaxArtifactBytes  int64 `json:"max_artifact_bytes,omitempty"`
+	AllowDisconnected bool  `json:"allow_disconnected"`
 }
 
 type Policy struct {
@@ -46,9 +51,18 @@ type Policy struct {
 	Signature       string       `json:"signature"`
 }
 
+// UnmarshalJSON accepts exactly the rule's fields; max_artifact_bytes is
+// optional.
 func (r *PolicyRule) UnmarshalJSON(data []byte) error {
 	type plain PolicyRule
-	return Strict(data, (*plain)(r), "agent", "principals", "actions", "max_message_bytes", "allow_disconnected")
+	fields := []string{"agent", "principals", "actions", "max_message_bytes", "allow_disconnected"}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) == nil {
+		if _, ok := raw["max_artifact_bytes"]; ok {
+			fields = append(fields, "max_artifact_bytes")
+		}
+	}
+	return Strict(data, (*plain)(r), fields...)
 }
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type plain Policy
@@ -56,12 +70,16 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 }
 
 // Message is the policy's signed lines: a header, then five lines per rule
-// in JSON order.
+// in JSON order. A nonzero max_artifact_bytes is appended to the fifth line,
+// so policies without artifacts sign as before.
 func (p Policy) Message() []byte {
 	lines := []string{"capsule-policy-v1", p.NetworkID, p.PersonPublicKey, strconv.FormatInt(p.Version, 10), p.IssuedAt, p.ValidUntil}
 	for _, r := range p.Rules {
-		lines = append(lines, "rule", r.Agent, strings.Join(r.Principals, " "), strings.Join(r.Actions, " "),
-			strconv.FormatInt(r.MaxMessageBytes, 10)+" "+strconv.FormatBool(r.AllowDisconnected))
+		bounds := strconv.FormatInt(r.MaxMessageBytes, 10) + " " + strconv.FormatBool(r.AllowDisconnected)
+		if r.MaxArtifactBytes != 0 {
+			bounds += " " + strconv.FormatInt(r.MaxArtifactBytes, 10)
+		}
+		lines = append(lines, "rule", r.Agent, strings.Join(r.Principals, " "), strings.Join(r.Actions, " "), bounds)
 	}
 	return statement(lines...)
 }
@@ -136,6 +154,12 @@ func CheckPolicy(network string, p Policy) error {
 		}
 		if r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 {
 			return fmt.Errorf("%w: max_message_bytes must be 1 to 65536", ErrInvalid)
+		}
+		if r.MaxArtifactBytes < 0 || r.MaxArtifactBytes > PolicyMaxArtifactBytes {
+			return fmt.Errorf("%w: max_artifact_bytes must be 0 to %d", ErrInvalid, PolicyMaxArtifactBytes)
+		}
+		if r.MaxArtifactBytes != 0 && !hasPolicyAction(r.Actions, PolicyActionTask) {
+			return fmt.Errorf("%w: max_artifact_bytes needs the action %s", ErrInvalid, PolicyActionTask)
 		}
 	}
 	return nil
@@ -225,6 +249,15 @@ func AgentPrincipal(p string) (host, agent string, ok bool) {
 	}
 	host, agent, found = strings.Cut(rest, "/")
 	return host, agent, found && hostIDs.MatchString(host) && agentIDs.MatchString(agent)
+}
+
+func hasPolicyAction(actions []string, want string) bool {
+	for _, action := range actions {
+		if action == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidPolicyAction reports whether an action may appear in a policy rule or

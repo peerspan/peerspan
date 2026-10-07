@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -79,6 +80,8 @@ type Store struct {
 	retry outboundRetry // automatic retry state for uncertain sends
 	agent personAgent   // the ssh-agent for policy renewal
 	tasks taskWork      // the in-memory task poll schedule
+	// artifactQuota is the artifact quota in bytes; 0 means the default.
+	artifactQuota atomic.Int64
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -133,7 +136,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 9 {
+	if version < 0 || version > 10 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -184,6 +187,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 9 {
 		if _, err = tx.ExecContext(ctx, taskSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 10 {
+		if _, err = tx.ExecContext(ctx, artifactSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -262,6 +270,9 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err = s.prepareArtifactDir(ctx); err != nil {
 		return nil, err
 	}
 	s.adapterRecoveryUntil = make(map[string]time.Time, len(recovering))

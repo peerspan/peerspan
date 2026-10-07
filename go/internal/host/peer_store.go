@@ -34,12 +34,15 @@ type Peer struct {
 	Address   string `json:"address"`
 }
 type Grant struct {
-	ID                string  `json:"id"`
-	RequesterHostID   string  `json:"requester_host_id"`
-	TargetAgentID     string  `json:"target_agent_id"`
-	Action            string  `json:"action"`
-	ExpiresAt         string  `json:"expires_at"`
-	MaxMessageBytes   int64   `json:"max_message_bytes"`
+	ID              string `json:"id"`
+	RequesterHostID string `json:"requester_host_id"`
+	TargetAgentID   string `json:"target_agent_id"`
+	Action          string `json:"action"`
+	ExpiresAt       string `json:"expires_at"`
+	MaxMessageBytes int64  `json:"max_message_bytes"`
+	// MaxArtifactBytes bounds a task's input and result artifacts together;
+	// 0 refuses artifacts.
+	MaxArtifactBytes  int64   `json:"max_artifact_bytes"`
 	AllowDisconnected bool    `json:"allow_disconnected"`
 	RevokedAt         *string `json:"revoked_at"`
 	// RequesterAgentID, when set, limits the grant to requests whose asserted
@@ -55,6 +58,8 @@ type CreateGrant struct {
 	RequesterAgentID  *string `json:"requester_agent_id,omitempty"`
 	// Action is message.append (the default when empty) or task.submit.
 	Action string `json:"action,omitempty"`
+	// MaxArtifactBytes, when nonzero, needs the action task.submit.
+	MaxArtifactBytes int64 `json:"max_artifact_bytes,omitempty"`
 }
 
 // MessageRequest names exactly one authorization: a grant, or the owner
@@ -70,6 +75,10 @@ type MessageRequest struct {
 	// optionally which session, originated the request. It is exactly as
 	// strong as the authenticated host.
 	Origin *Origin `json:"origin,omitempty"`
+	// artifacts and artifactBytes describe a task's input manifest for
+	// authorization; messages have none.
+	artifacts     int
+	artifactBytes int64
 }
 
 // Origin names a local agent and, optionally, one of its sessions.
@@ -181,7 +190,7 @@ func (o OutboundMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		plain
 		Request recordedRequest `json:"request"`
-	}{plain(o), recordedRequest(o.Request)})
+	}{plain(o), recordedRequest{o.Request.RequestID, o.Request.GrantID, o.Request.Policy, o.Request.TargetAgentID, o.Request.Deadline, o.Request.Content, o.Request.Origin}})
 }
 
 func validID(id, prefix string, bytes int) bool {
@@ -282,11 +291,14 @@ func (s *Store) CreateGrant(ctx context.Context, r CreateGrant) (Grant, error) {
 	if err != nil || !membership.ValidPolicyAction(r.Action) || !expires.After(time.Now()) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || (r.RequesterAgentID != nil && !validID(*r.RequesterAgentID, "agent", 16)) {
 		return Grant{}, ErrInvalid
 	}
+	if r.MaxArtifactBytes < 0 || r.MaxArtifactBytes > membership.PolicyMaxArtifactBytes || (r.MaxArtifactBytes != 0 && r.Action != membership.PolicyActionTask) {
+		return Grant{}, fmt.Errorf("%w: max_artifact_bytes must be 0 to %d, and nonzero only for %s", ErrInvalid, membership.PolicyMaxArtifactBytes, membership.PolicyActionTask)
+	}
 	id, err := newID("grant")
 	if err != nil {
 		return Grant{}, err
 	}
-	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, AllowDisconnected: r.AllowDisconnected, RequesterAgentID: r.RequesterAgentID}
+	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxArtifactBytes: r.MaxArtifactBytes, AllowDisconnected: r.AllowDisconnected, RequesterAgentID: r.RequesterAgentID}
 	if _, err = s.KnownHost(ctx, r.RequesterHostID, nil); err != nil {
 		return g, err
 	}
@@ -385,7 +397,7 @@ func grantBounds(ctx context.Context, tx *sql.Tx, sender, action string, r Messa
 		return g, err
 	}
 	now := time.Now()
-	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != action || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
+	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != action || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || !artifactsAllowed(r, g.MaxArtifactBytes) || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
 		return g, ErrForbidden
 	}
 	return g, nil

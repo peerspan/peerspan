@@ -636,6 +636,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::adapter_outbound::adapter_routes())
         .merge(crate::task::adapter_routes())
         .merge(crate::task_outbound::adapter_routes())
+        .merge(crate::artifact::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

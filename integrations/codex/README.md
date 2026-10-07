@@ -36,7 +36,7 @@ On attachment, Capsule registers a uniquely named local MCP server in the
 backend's user configuration and requests a live MCP reload. It preauthorizes
 only the shared Capsule tools: `list_destinations`, `send`, `send_status`, `reply`,
 and the task tools `task_accept`, `task_reject`, `task_progress`, `task_complete`,
-`task_cancelled`, `delegate_task` and `task_status`. Native configuration
+`task_cancelled`, `delegate_task`, `task_status`, and `artifact_save`. Native configuration
 versions protect concurrent edits; shutdown removes its entry if it still matches.
 If cleanup cannot be confirmed, the bridge reports that and owners can inspect
 its `capsule_SESSION_SUFFIX` entry. A crashed bridge may leave a stale entry;

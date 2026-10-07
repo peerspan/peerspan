@@ -49,6 +49,8 @@ type SubmitTask struct {
 	Deadline      string  `json:"deadline,omitempty"`
 	Input         string  `json:"input"`
 	Origin        *Origin `json:"origin,omitempty"`
+	// Artifacts names stored uploads to attach as inputs.
+	Artifacts []ArtifactEntry `json:"artifacts,omitempty"`
 }
 
 // OutboundTask is the local record of a submitted task.
@@ -70,6 +72,9 @@ type OutboundTask struct {
 	Error         *string `json:"error"`
 	// StatusQueries counts status queries made at or after the deadline.
 	StatusQueries int64 `json:"status_queries"`
+	// Artifacts lists inputs, then results, with their local state. It is
+	// read from task_artifacts when the record is returned, never stored.
+	Artifacts []LocalArtifact `json:"artifacts"`
 }
 
 // recordedTaskRequest shows grant_id as null, rather than absent, when the
@@ -82,6 +87,7 @@ type recordedTaskRequest struct {
 	Deadline      string          `json:"deadline"`
 	Input         string          `json:"input"`
 	Origin        *Origin         `json:"origin,omitempty"`
+	Artifacts     []ArtifactEntry `json:"artifacts,omitempty"`
 }
 
 func (o OutboundTask) MarshalJSON() ([]byte, error) {
@@ -90,6 +96,12 @@ func (o OutboundTask) MarshalJSON() ([]byte, error) {
 		plain
 		Request recordedTaskRequest `json:"request"`
 	}{plain(o), recordedTaskRequest(o.Request)})
+}
+
+// persisted is the record as stored: without its derived artifacts.
+func (o OutboundTask) persisted() OutboundTask {
+	o.Artifacts = nil
+	return o
 }
 
 // needsPoll reports whether the receiver may still have events to fetch.
@@ -105,9 +117,10 @@ type OutboundTaskItem struct {
 
 // AdapterDelegate is an agent's task submission through a task.submit route.
 type AdapterDelegate struct {
-	Destination string `json:"destination"`
-	TaskID      string `json:"task_id"`
-	Input       string `json:"input"`
+	Destination string          `json:"destination"`
+	TaskID      string          `json:"task_id"`
+	Input       string          `json:"input"`
+	Artifacts   []ArtifactEntry `json:"artifacts,omitempty"`
 }
 
 // TaskUpdateDelivery is one task event handed to the originating session.
@@ -134,6 +147,8 @@ type TaskUpdateHandoff struct {
 type taskWork struct {
 	mu   sync.Mutex
 	poll map[string]taskPoll
+	// fetching holds the digests being downloaded.
+	fetching map[string]bool
 }
 type taskPoll struct {
 	at    time.Time
@@ -155,16 +170,29 @@ func (s *Store) OutboundTasks(ctx context.Context, after, limit int64) ([]Outbou
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	items := []OutboundTaskItem{}
-	pageBytes := 2
+	var all []OutboundTaskItem
 	for rows.Next() {
 		var item OutboundTaskItem
 		var record string
 		if err = rows.Scan(&item.Sequence, &record); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		if err = json.Unmarshal([]byte(record), &item.Task); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		all = append(all, item)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	items := []OutboundTaskItem{}
+	pageBytes := 2
+	for _, item := range all {
+		if item.Task, err = s.withArtifacts(ctx, item.Task, nil); err != nil {
 			return nil, err
 		}
 		encoded, err := json.Marshal(item)
@@ -177,7 +205,7 @@ func (s *Store) OutboundTasks(ctx context.Context, after, limit int64) ([]Outbou
 		pageBytes += len(encoded) + 1
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	return items, nil
 }
 
 // OutboundTaskEvents pages a local task's stored events.
@@ -204,7 +232,7 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 	if err := s.checkLocalOrigin(ctx, r.Origin); err != nil {
 		return OutboundTask{}, err
 	}
-	request := TaskRequest{TaskID: r.TaskID, GrantID: r.GrantID, TargetAgentID: r.TargetAgentID, Deadline: r.Deadline, Input: r.Input, Origin: r.Origin}
+	request := TaskRequest{TaskID: r.TaskID, GrantID: r.GrantID, TargetAgentID: r.TargetAgentID, Deadline: r.Deadline, Input: r.Input, Origin: r.Origin, Artifacts: emptyAsNone(r.Artifacts)}
 	old, err := s.OutboundTask(ctx, r.PeerHostID, r.TaskID)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return old, err
@@ -214,18 +242,22 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 	if exists && r.Deadline == "" {
 		request.Deadline = old.Request.Deadline
 	}
-	if request.Deadline == "" {
-		request.Deadline = timestamp(time.Now().Add(taskDefaultDeadline))
-	}
 	if exists && request.GrantID == nil {
 		request.Policy = old.Request.Policy
 	}
+	deadline := time.Now().Add(taskDefaultDeadline)
 	if request.GrantID == nil && request.Policy == nil {
-		citation, err := s.policyCitation(ctx, s.db, r.PeerHostID)
+		citation, until, err := s.policyCitationUntil(ctx, s.db, r.PeerHostID)
 		if err != nil {
 			return OutboundTask{}, err
 		}
 		request.Policy = citation
+		if until.Before(deadline) {
+			deadline = until
+		}
+	}
+	if request.Deadline == "" {
+		request.Deadline = timestamp(deadline)
 	}
 	if err := validateTask(request); err != nil {
 		return OutboundTask{}, err
@@ -244,6 +276,9 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 		return OutboundTask{}, err
 	}
 	defer tx.Rollback()
+	if err = requireStored(ctx, tx, request.Artifacts); err != nil {
+		return OutboundTask{}, err
+	}
 	out := OutboundTask{PeerHostID: r.PeerHostID, Request: request, SubmitState: submitUnknown, NextAttemptAt: s.initialAttempt()}
 	if err = insertOutboundTask(ctx, tx, out); err != nil {
 		if isUniqueViolation(err) {
@@ -259,7 +294,10 @@ func isUniqueViolation(err error) bool {
 }
 
 func insertOutboundTask(ctx context.Context, tx *sql.Tx, out OutboundTask) error {
-	if err := putJSON(ctx, tx, `INSERT INTO outbound_tasks (record, peer, task_id) VALUES (?, ?, ?)`, out, out.PeerHostID, out.Request.TaskID); err != nil {
+	if err := putJSON(ctx, tx, `INSERT INTO outbound_tasks (record, peer, task_id) VALUES (?, ?, ?)`, out.persisted(), out.PeerHostID, out.Request.TaskID); err != nil {
+		return err
+	}
+	if err := insertArtifacts(ctx, tx, sideSent, out.PeerHostID, out.Request.TaskID, directionInput, out.Request.Artifacts, artifactStored); err != nil {
 		return err
 	}
 	return appendEvent(ctx, tx, "task.submitted", taskSubject(out.PeerHostID, out.Request.TaskID), timestamp(time.Now()))
@@ -281,7 +319,7 @@ func (s *Store) updateOutboundTask(ctx context.Context, peer, id string, change 
 	if err != nil {
 		return out, err
 	}
-	if err = putJSON(ctx, tx, `UPDATE outbound_tasks SET record = ? WHERE peer = ? AND task_id = ?`, out, peer, id); err != nil {
+	if err = putJSON(ctx, tx, `UPDATE outbound_tasks SET record = ? WHERE peer = ? AND task_id = ?`, out.persisted(), peer, id); err != nil {
 		return out, err
 	}
 	at := timestamp(time.Now())
@@ -461,6 +499,10 @@ func (s *Store) pollTask(ctx context.Context, peerID, id string) (bool, error) {
 			if err := putJSON(storeCtx, tx, `INSERT INTO outbound_task_events (record, peer, task_id, sequence) VALUES (?, ?, ?, ?)`, e, peerID, id, e.Sequence); err != nil {
 				return 0, err
 			}
+			// Results are fetched once the final event is stored.
+			if err := insertArtifacts(storeCtx, tx, sideSent, peerID, id, directionResult, e.Artifacts, artifactPending); err != nil {
+				return 0, err
+			}
 			out.EventsAfter = e.Sequence
 			stored++
 		}
@@ -476,7 +518,8 @@ func (s *Store) pollTask(ctx context.Context, peerID, id string) (bool, error) {
 func validTaskEventRecord(e TaskEvent, sequence int64) bool {
 	_, err := parseTime(e.CreatedAt)
 	return err == nil && e.Sequence == sequence && validTaskEventKind(e.Kind) && validTaskState(e.State) &&
-		(e.Message == nil || validText(*e.Message, true)) && (e.Output == nil || validText(*e.Output, true))
+		(e.Message == nil || validText(*e.Message, true)) && (e.Output == nil || validText(*e.Output, true)) &&
+		(e.Artifacts == nil || ((e.Kind == TaskSucceeded || e.Kind == TaskFailed) && validManifest(e.Artifacts)))
 }
 
 // sendTaskCancel posts the cancellation request once; a confirmed status
@@ -683,13 +726,50 @@ func (s *Store) RunTaskWorkers(ctx context.Context) {
 				s.schedulePoll(key, progressed)
 			}(out)
 		}
+		for _, row := range s.fetchJobs(ctx) {
+			select {
+			case slots <- struct{}{}:
+			default:
+				continue
+			}
+			// Claimed before the job starts, so the next tick skips it.
+			if !s.beginFetch(row.SHA256) {
+				<-slots
+				continue
+			}
+			key := fetchKey(row)
+			running.Add(1)
+			go func(row taskArtifact) {
+				defer running.Done()
+				defer func() { <-slots }()
+				defer s.endFetch(row.SHA256)
+				stored, _ := s.fetchArtifact(ctx, row)
+				if !stored {
+					s.backoffFetch(key)
+				}
+			}(row)
+		}
 	}
+}
+
+// backoffFetch doubles a failed fetch's delay, from 1 second up to a minute.
+func (s *Store) backoffFetch(key string) {
+	s.tasks.mu.Lock()
+	defer s.tasks.mu.Unlock()
+	if s.tasks.poll == nil {
+		s.tasks.poll = map[string]taskPoll{}
+	}
+	p := s.tasks.poll[key]
+	p.delay = max(taskPollFirst, min(p.delay*2, taskPollMax))
+	p.at = time.Now().Add(p.delay)
+	s.tasks.poll[key] = p
 }
 
 // PrepareAdapterTask persists an agent's submission through a task.submit
 // route, bound to its credential and session, before any network attempt.
 func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r AdapterDelegate) (OutboundTask, error) {
-	if !validRouteName(r.Destination) || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) {
+	r.Artifacts = emptyAsNone(r.Artifacts)
+	if !validRouteName(r.Destination) || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) || (r.Artifacts != nil && !validManifest(r.Artifacts)) {
 		return OutboundTask{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -729,7 +809,7 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 			return old, ErrConflict
 		case *old.AdapterID != a.ID || old.Request.Origin == nil || old.Request.Origin.SessionID != ss.ID:
 			return old, ErrForbidden
-		case old.RouteID == nil || *old.RouteID != route.ID || old.Request.Input != r.Input:
+		case old.RouteID == nil || *old.RouteID != route.ID || old.Request.Input != r.Input || !sameManifest(old.Request.Artifacts, r.Artifacts):
 			return old, ErrConflict
 		}
 		return old, nil
@@ -750,12 +830,19 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 	}
 	var citation *PolicyCitation
 	if route.GrantID == nil {
-		if citation, err = s.policyCitation(ctx, tx, route.PeerHostID); err != nil {
+		var until time.Time
+		if citation, until, err = s.policyCitationUntil(ctx, tx, route.PeerHostID); err != nil {
 			return old, err
 		}
+		if until.Before(deadline) {
+			deadline = until
+		}
+	}
+	if err = requireStored(ctx, tx, r.Artifacts); err != nil {
+		return old, err
 	}
 	adapterID, routeID := a.ID, route.ID
-	out := OutboundTask{PeerHostID: route.PeerHostID, Request: TaskRequest{TaskID: r.TaskID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Input: r.Input, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}}, SubmitState: submitUnknown, AdapterID: &adapterID, RouteID: &routeID, NextAttemptAt: s.initialAttempt()}
+	out := OutboundTask{PeerHostID: route.PeerHostID, Request: TaskRequest{TaskID: r.TaskID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Input: r.Input, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}, Artifacts: r.Artifacts}, SubmitState: submitUnknown, AdapterID: &adapterID, RouteID: &routeID, NextAttemptAt: s.initialAttempt()}
 	if err = insertOutboundTask(ctx, tx, out); err != nil {
 		return out, err
 	}

@@ -17,6 +17,10 @@ var (
 	// ErrUnavailable means coordination could not be reached or answered
 	// unusably; nothing was persisted.
 	ErrUnavailable = errors.New("coordination unavailable")
+	// ErrTooLarge is an artifact upload over the per-artifact limit (413).
+	ErrTooLarge = errors.New("artifact exceeds 104857600 bytes")
+	// ErrInsufficientStorage is a refusal by the artifact quota (507).
+	ErrInsufficientStorage = errors.New("insufficient artifact storage")
 )
 
 // Identity identifies this installation. The private key stays in the local store.

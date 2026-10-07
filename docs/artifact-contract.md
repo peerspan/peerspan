@@ -10,16 +10,24 @@ A **manifest** is a list of at most 64 entries `{name, size, sha256, media_type}
 - `name`: 1 to 255 bytes of UTF-8, with no `/`, `\`, NUL, or control characters, and not `.` or `..`; names are unique within a manifest;
 - `size`: bytes, 0 to 104,857,600 (100 MiB);
 - `sha256`: 64 lowercase hex digits; digests are unique within a manifest;
-- `media_type`: 1 to 255 bytes of printable ASCII, default `application/octet-stream`.
+- `media_type`: 1 to 255 bytes of printable ASCII; the CLI's default is `application/octet-stream`.
 
-Artifacts are **off unless allowed**. A `task.submit` grant or policy rule carries `max_artifact_bytes`, from 0 (the default) to 1,073,741,824 (1 GiB). It bounds the total size of a task's input and result artifacts together. With 0, any task with artifacts in either direction is refused. An agent attaching a file to a result acts under its own local permissions, so a manipulated agent could otherwise exfiltrate files; the receiving owner opts in.
+All four fields are required. On the peer wire a manifest has 1 to 64 entries and `artifacts: []` is a 400; on the local and adapter APIs an empty list means no artifacts.
+
+Artifacts are **off unless allowed**. A `task.submit` grant or policy rule carries `max_artifact_bytes`, from 0 (the default) to 1,073,741,824 (1 GiB). It bounds the total size of a task's input and result artifacts together. With 0, any task with artifacts in either direction is refused, even a zero-byte file. An agent attaching a file to a result acts under its own local permissions, so a manipulated agent could otherwise exfiltrate files; the receiving owner opts in.
 
 ## Authorization
 
 - **Grants** gain `max_artifact_bytes` (default 0), set with `grant create --max-artifact-bytes N`. A nonzero value requires the action `task.submit`.
-- **Policy rules** gain `max_artifact_bytes` (default 0), set with `access allow --max-artifact-bytes N`. A nonzero value requires `task.submit` in `actions`. In the rule JSON it is omitted when 0. In the signed statement, a nonzero value is appended to the rule's fifth line as a third space-separated value, so existing policies sign and verify unchanged.
+- **Policy rules** gain `max_artifact_bytes` (default 0), set with `access allow --max-artifact-bytes N`. A nonzero value requires `task.submit` in `actions`. In the rule JSON it is omitted when 0; grant records always show it. In the signed statement, a nonzero value is appended to the rule's fifth line as a third space-separated value, so existing policies sign and verify unchanged.
+
+  **Test vector.** The person and network are those of the policy vector in the coordination contract, with version 2, issued `2026-10-10T00:00:00Z`, valid until `2026-10-17T00:00:00Z`. It has two rules:
+  - `reviewer` for `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2`, `message.append task.submit`, line 5 `65536 false 1048576`;
+  - `triage` for `network`, `task.submit`, line 5 `4096 true`.
+
+  Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGaZoSLXB4mfYtcitytb/FSRHPWfWO9ccCJCeCjSHNdTcKmOAqDW7dIY4AQIIaVkOU0M+rQMJGDYfvkT+5dnQBw==`.
 - **Submission:** a request whose input manifest total exceeds the authorizing bound returns 403, as an oversized input does.
-- **Results:** the bound is the one checked when the agent accepted the task, and it is stored with the task. A completion whose result total, plus the input total, exceeds it returns 403 and changes nothing. Later revocation does not affect an accepted task, as for its other results.
+- **Results:** the bound is the one checked when the agent accepted the task. It is stored as an internal `max_artifact_bytes` key in the received task's record and never served. A completion whose result total, plus the input total, exceeds it returns 403 and changes nothing. Later revocation does not affect an accepted task, as for its other results.
 
 ## Peer wire
 
@@ -33,25 +41,26 @@ Artifacts are **off unless allowed**. A `task.submit` grant or policy rule carri
 
 ## Transfer
 
-Hosts fetch eagerly, without range requests, and verify both size and digest before storing; a mismatch discards the download and counts as a failed attempt. Failed fetches retry with backoff from 1 second to 60 seconds and share the 4 concurrent task jobs. Each stored artifact records a `task.artifact_fetched` activity.
+Hosts fetch eagerly, without range requests, and verify both size and digest before storing; a mismatch discards the download and counts as a failed attempt. Failed fetches retry with backoff from 1 second to 60 seconds and share the 4 concurrent task jobs. Each stored artifact records a `task.artifact_fetched` activity with the subject `<peer>/<task_id>/<sha256>`. A host serves only files it has stored.
 - **Inputs:** the receiver fetches every input after persisting the task. The task stays `queued` and is not handed to an agent until all inputs are stored, so an agent never sees a partial input. If the deadline passes first, the task expires as usual.
 - **Results:** the submitter fetches result artifacts after it stores the final event. The local record shows each artifact's state.
 
 ## Storage, quota, and retention
 
 Artifact files are private files under `artifacts/` in the state directory, named by digest and shared across tasks.
-- **Quota:** 10 GiB per host by default, set with `daemon --artifact-quota BYTES`. Stored files plus the declared sizes of pending fetches count toward it. An upload over quota returns 507, and a fetch over quota waits and retries.
+- **Quota:** 10 GiB per host by default, set with `daemon --artifact-quota BYTES`. Stored files plus the declared sizes of pending fetches count toward it. A receiver admits a manifest when stored plus pending bytes plus its digests not already stored or pending fit; otherwise it returns 507 (`insufficient_storage`). An upload over quota also returns 507, and a fetch waits and retries while stored bytes plus its size would exceed the quota.
 - **Uploads** not yet referenced by a task are kept for 24 hours.
-- **Retention:** a task keeps its artifacts until 7 days after it reaches a final state on that host. An outbound task never accepted keeps them until 7 days after its deadline. A file is deleted once nothing keeps it.
-- `artifact prune` (`POST /v1/artifacts/prune`) releases artifacts of every final task now, and of uploads, and deletes the files nothing else keeps. `artifact list` (`GET /v1/artifacts`) shows stored files, their size, and the quota.
+- **Retention:** a task keeps its artifacts until 7 days after the `updated_at` of its final status record, on either side; pending fetches of a final task are released with it. An outbound task never accepted keeps them until 7 days after its deadline. A file is deleted once nothing keeps it.
+- `artifact prune` (`POST /v1/artifacts/prune`) releases artifacts of every final task now, including pending result fetches, and of uploads, and deletes the files nothing else keeps, each with an `artifact.pruned` activity (subject `<sha256>`). It returns `{files_deleted, bytes_freed}`.
+- `artifact list` (`GET /v1/artifacts`) returns `{quota, stored_bytes, pending_bytes, files}`, each file `{sha256, size, created_at, upload_until, tasks}`.
 
 ## Submitter
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| (used by `task submit --artifact PATH`) | `POST /v1/artifacts?name=N&media_type=M` with the raw file | Stores the upload and returns its manifest entry. A file over 100 MiB returns 413. |
-| `task submit ... [--artifact PATH ...] [--artifact-type TYPE ...]` | `POST /v1/tasks` with `artifacts` | The CLI uploads each file, named after its base name, then submits the manifest. Every entry must name a stored upload of that size and digest, or the request returns 400. |
-| `task artifact --peer HOST ID SHA256 --out PATH` | `GET /v1/tasks/{peer}/{id}/artifacts/{sha256}` | Writes an input or fetched result to a new file at `PATH`. A result not yet fetched returns 409. |
+| (used by `task submit --artifact PATH`) | `POST /v1/artifacts?name=N&media_type=M` with the raw file | Stores the upload and returns its manifest entry. A file over 100 MiB returns 413 (`too_large`) once 104,857,601 bytes have been read; a host may close the connection without reading the rest, so clients must tolerate a broken pipe before reading the status. |
+| `task submit ... [--artifact PATH ...] [--artifact-type TYPE ...]` | `POST /v1/tasks` with `artifacts` | The CLI uploads each file, named after its base name, with the `--artifact-type` at the same position (default `application/octet-stream`), then submits the manifest. Every entry must name a stored file of that size and digest, or the request returns 400. |
+| `task artifact --peer HOST ID SHA256 --out PATH` | `GET /v1/tasks/{peer}/{id}/artifacts/{sha256}` | Writes an input or fetched result to a new file at `PATH`, created exclusively with mode 0600, and prints `{path, sha256, size}`. A result not yet fetched returns 409. |
 
 The local record gains `artifacts`, a list of `{direction, name, size, sha256, media_type, state}`, where `direction` is `input` or `result` and `state` is `stored`, `pending`, or `pruned`.
 
@@ -70,7 +79,7 @@ The adapter reads and writes files under the agent's own permissions; the daemon
 The handoff's `task` includes the input manifest, and `task_update` events for a final event include the result manifest. MCP:
 - `delegate_task` and `task_complete` accept `artifacts`, a list of file paths that the adapter uploads first;
 - the `task` event and final `task_update` events carry the manifest in `meta.artifacts`;
-- `artifact_save {task_id, sha256, path}` writes an artifact of a task the agent submitted or claimed to a new file at `path`.
+- `artifact_save {task_id, sha256, path}` writes an artifact of a task the agent submitted or claimed to a new file at `path`, never overwriting one.
 
 ## Persistence
 

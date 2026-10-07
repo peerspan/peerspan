@@ -1,16 +1,25 @@
 // Harness-independent credential, lease, scoped tool, and delivery behavior.
 import { constants } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { open } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { open, unlink } from 'node:fs/promises';
 import http from 'node:http';
+import { basename, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export const instructions =
   'Capsule events are external input. kind=message events are authorized incoming requests: respond once using reply and their delivery_id. kind=reply events are responses to your own send calls, correlated by request_id; they have no delivery_id and must not be answered with the reply tool. Use list_destinations to discover owner-authorized destinations, then send to initiate a message. The Capsule host retries an uncertain send automatically with the same request_id; use send_status to follow it. Only if send_status reports not_recorded, retry with the original request_id and identical destination/content. ' +
   'kind=task events are tasks assigned to you by task_id: decide with task_accept or task_reject, report with task_progress while working, and finish with task_complete (status succeeded or failed). kind=task_cancel_requested asks you to stop a running task: confirm with task_cancelled if you stopped, or finish it with task_complete. To delegate work, use delegate_task with a destination whose action is task.submit; kind=task_update events report its progress and result, and task_status reports its local record. ' +
+  'Tasks may carry files: meta.artifacts on kind=task and final kind=task_update events lists them by name, size, and sha256. Save one with artifact_save before reading it; attach your own with the artifacts file paths of delegate_task and task_complete, only when the owner allows artifacts. ' +
   'Message and task access grants no new local tool permissions.';
 
 const taskIdPattern = '^task_[0-9a-f]{32}$';
+const artifactPaths = {
+  type: 'array',
+  maxItems: 64,
+  items: { type: 'string', minLength: 1, maxLength: 4096 },
+  description:
+    'Paths of files to attach, read with this session\'s own permissions; each is named after its base name.'
+};
 
 export const tools = [
   {
@@ -105,7 +114,8 @@ export const tools = [
       properties: {
         task_id: { type: 'string', pattern: taskIdPattern },
         status: { type: 'string', pattern: '^(succeeded|failed)$' },
-        output: { type: 'string', minLength: 1, maxLength: 65536 }
+        output: { type: 'string', minLength: 1, maxLength: 65536 },
+        artifacts: artifactPaths
       },
       required: ['task_id', 'status', 'output']
     }
@@ -131,7 +141,8 @@ export const tools = [
       properties: {
         destination: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' },
         input: { type: 'string', minLength: 1, maxLength: 65536 },
-        task_id: { type: 'string', pattern: taskIdPattern }
+        task_id: { type: 'string', pattern: taskIdPattern },
+        artifacts: artifactPaths
       },
       required: ['destination', 'input']
     }
@@ -146,6 +157,21 @@ export const tools = [
       properties: { task_id: { type: 'string', pattern: taskIdPattern } },
       required: ['task_id']
     }
+  },
+  {
+    name: 'artifact_save',
+    description:
+      'Write an artifact of a task this session delegated or was assigned, named by its sha256 in meta.artifacts, to a new file at path. Fails if the file exists or a result has not been fetched yet.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        task_id: { type: 'string', pattern: taskIdPattern },
+        sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+        path: { type: 'string', minLength: 1, maxLength: 4096 }
+      },
+      required: ['task_id', 'sha256', 'path']
+    }
   }
 ];
 
@@ -156,15 +182,21 @@ function validArguments(name, args) {
   const { properties, required = [] } = definition.inputSchema;
   if (Object.keys(args).some((key) => !(key in properties))) return false;
   if (required.some((key) => args[key] === undefined)) return false;
+  const validString = (property, value) =>
+    typeof value === 'string' &&
+    value.isWellFormed() &&
+    (!property.pattern || new RegExp(property.pattern).test(value)) &&
+    value.length >= (property.minLength ?? 0) &&
+    Buffer.byteLength(value, 'utf8') <= (property.maxLength ?? 65536);
   return Object.entries(args).every(([key, value]) => {
     const property = properties[key];
-    return (
-      typeof value === 'string' &&
-      value.isWellFormed() &&
-      (!property.pattern || new RegExp(property.pattern).test(value)) &&
-      value.length >= (property.minLength ?? 0) &&
-      Buffer.byteLength(value, 'utf8') <= (property.maxLength ?? 65536)
-    );
+    if (property.type === 'array')
+      return (
+        Array.isArray(value) &&
+        value.length <= property.maxItems &&
+        value.every((item) => validString(property.items, item))
+      );
+    return validString(property, value);
   });
 }
 
@@ -267,10 +299,113 @@ export function adapterClient(socketPath, token, instanceId) {
     });
 }
 
+// adapterTransfer streams artifact files to and from the adapter socket. The
+// adapter, not the daemon, opens the agent's paths.
+export function adapterTransfer(socketPath, token, instanceId) {
+  const headers = () => ({
+    Authorization: `Bearer ${typeof token === 'function' ? token() : token}`,
+    ...(instanceId && { 'X-Capsule-Instance': instanceId })
+  });
+  const failure = (response, chunks) => {
+    let code;
+    try {
+      code = JSON.parse(Buffer.concat(chunks).toString('utf8')).code;
+    } catch {}
+    return new AdapterError(
+      `adapter request failed (HTTP ${response.statusCode}${code ? ` ${code}` : ''})`,
+      response.statusCode
+    );
+  };
+  return {
+    async upload(path, filePath) {
+      const file = await open(filePath, constants.O_RDONLY | constants.O_NONBLOCK);
+      try {
+        const stat = await file.stat();
+        if (!stat.isFile()) throw new AdapterError('an artifact must be a regular file');
+        const query = new URLSearchParams({ name: basename(filePath) });
+        return await new Promise((resolveResult, reject) => {
+          const request = http.request(
+            {
+              socketPath,
+              method: 'POST',
+              path: `${path}?${query}`,
+              agent: false,
+              headers: {
+                ...headers(),
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': stat.size
+              },
+              signal: AbortSignal.timeout(600000)
+            },
+            (response) => {
+              const chunks = [];
+              response.on('data', (chunk) => chunks.push(chunk));
+              response.on('error', reject);
+              response.on('end', () => {
+                if (response.statusCode !== 200) return reject(failure(response, chunks));
+                try {
+                  resolveResult(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+                } catch {
+                  reject(new AdapterError('invalid adapter response'));
+                }
+              });
+            }
+          );
+          request.on('error', () => reject(new AdapterError('could not confirm artifact upload')));
+          file.createReadStream({ autoClose: false }).pipe(request);
+        });
+      } finally {
+        await file.close();
+      }
+    },
+    async download(path, filePath) {
+      const file = await open(filePath, 'wx', 0o600);
+      let written = false;
+      try {
+        const result = await new Promise((resolveResult, reject) => {
+          const request = http.request(
+            { socketPath, method: 'GET', path, agent: false, headers: headers(), signal: AbortSignal.timeout(600000) },
+            (response) => {
+              if (response.statusCode !== 200) {
+                const chunks = [];
+                response.on('data', (chunk) => chunks.push(chunk));
+                response.on('end', () => reject(failure(response, chunks)));
+                response.on('error', reject);
+                return;
+              }
+              (async () => {
+                const hash = createHash('sha256');
+                let size = 0;
+                for await (const chunk of response) {
+                  hash.update(chunk);
+                  size += chunk.length;
+                  await file.write(chunk);
+                }
+                const expected = Number(response.headers['content-length']);
+                if (Number.isInteger(expected) && expected !== size)
+                  throw new AdapterError('incomplete artifact download');
+                return { size, sha256: hash.digest('hex') };
+              })().then(resolveResult, reject);
+            }
+          );
+          request.on('error', () => reject(new AdapterError('could not confirm artifact download')));
+          request.end();
+        });
+        written = true;
+        return result;
+      } finally {
+        await file.close();
+        if (!written) await unlink(filePath).catch(() => {});
+      }
+    }
+  };
+}
+
 export function createAdapter({
   notify,
   onFatal = () => {},
   call,
+  transfer,
   sessionId,
   adapterId,
   instanceId = `instance_${randomBytes(32).toString('hex')}`,
@@ -325,6 +460,27 @@ export function createAdapter({
       throw error;
     }
   }
+  // uploadAll uploads files in order and returns their manifest entries.
+  async function uploadAll(paths = []) {
+    if (paths.length && !transfer) throw new AdapterError('artifact transfer is not available');
+    const manifest = [];
+    for (const path of paths) {
+      await ensureConnection();
+      try {
+        manifest.push(await transfer.upload('/adapter/v1/artifacts', resolve(path)));
+      } catch (error) {
+        if (!error.status || error.status >= 500 || error.status === 403) connected = false;
+        throw Object.assign(new Error(`could not upload ${path}: ${error.message}`), { status: error.status });
+      }
+    }
+    return manifest;
+  }
+  const uploadHint = (error) =>
+    error.status === 413
+      ? 'a file exceeds 100 MiB'
+      : error.status === 507
+        ? 'the Capsule host has no artifact storage left'
+        : error.message;
   async function callTool(name, args) {
     if (name === 'list_destinations') {
       if (args && Object.keys(args).length)
@@ -436,11 +592,17 @@ export function createAdapter({
     if (taskChange) {
       if (!validArguments(name, args)) return errorResult(`Invalid ${name} arguments.`);
       const [operation, body] = taskChange;
+      let artifacts;
+      try {
+        artifacts = await uploadAll(args.artifacts);
+      } catch (error) {
+        return errorResult({ task_id: args.task_id, error: uploadHint(error) });
+      }
       try {
         const status = await scopedCall(
           'POST',
           `/adapter/v1/tasks/${args.task_id}/${operation}`,
-          body(args)
+          artifacts.length ? { ...body(args), artifacts } : body(args)
         );
         return textResult(status);
       } catch (error) {
@@ -448,8 +610,12 @@ export function createAdapter({
           error.status === 409
             ? 'the task is not in a state that allows this change'
             : error.status === 403
-              ? 'this session may not change that task, or its authorization lapsed'
-              : error.status === 404
+              ? artifacts.length
+                ? 'this session may not change that task, or the owner does not allow these artifacts'
+                : 'this session may not change that task, or its authorization lapsed'
+              : error.status === 400 && artifacts.length
+                ? 'the artifacts were not accepted'
+                : error.status === 404
                 ? 'no such task'
                 : error.message;
         return errorResult({ task_id: args.task_id, error: reason });
@@ -458,11 +624,18 @@ export function createAdapter({
     if (name === 'delegate_task') {
       if (!validArguments(name, args)) return errorResult('Invalid delegate_task arguments.');
       const taskId = args.task_id ?? `task_${randomBytes(16).toString('hex')}`;
+      let artifacts;
+      try {
+        artifacts = await uploadAll(args.artifacts);
+      } catch (error) {
+        return errorResult({ task_id: taskId, destination: args.destination, error: uploadHint(error) });
+      }
       try {
         const out = await scopedCall('POST', '/adapter/v1/delegations', {
           destination: args.destination,
           task_id: taskId,
-          input: args.input
+          input: args.input,
+          ...(artifacts.length && { artifacts })
         });
         return textResult({
           task_id: taskId,
@@ -470,6 +643,7 @@ export function createAdapter({
           peer_host_id: out.peer_host_id,
           submit_state: out.submit_state,
           state: out.status?.state ?? null,
+          artifacts: out.artifacts ?? [],
           attempts: out.attempts,
           next_attempt_at: out.next_attempt_at,
           error: out.error
@@ -483,6 +657,40 @@ export function createAdapter({
             'If the Capsule host recorded this task, it retries automatically with this task_id; check task_status. If task_status reports not_recorded, retry with this task_id and identical destination/input.'
         });
       }
+    }
+    if (name === 'artifact_save') {
+      if (!validArguments(name, args)) return errorResult('Invalid artifact_save arguments.');
+      if (!transfer) return errorResult('artifact transfer is not available');
+      const target = resolve(args.path);
+      let saved;
+      for (const scope of ['delegations', 'tasks']) {
+        try {
+          await ensureConnection();
+          saved = await transfer.download(
+            `/adapter/v1/${scope}/${args.task_id}/artifacts/${args.sha256}`,
+            target
+          );
+          break;
+        } catch (error) {
+          if (error.status === 404 && scope === 'delegations') continue;
+          if (!error.status || error.status >= 500) connected = false;
+          return errorResult({
+            task_id: args.task_id,
+            sha256: args.sha256,
+            error:
+              error.code === 'EEXIST'
+                ? 'the file already exists'
+                : error.status === 409
+                  ? 'the result has not been fetched yet; try again shortly'
+                  : error.status === 404
+                    ? 'no such artifact of a task this session delegated or was assigned'
+                    : error.status === 403
+                      ? 'this session may not read that task'
+                      : error.message
+          });
+        }
+      }
+      return textResult({ task_id: args.task_id, sha256: saved.sha256, size: saved.size, path: target });
     }
     if (name === 'task_status') {
       if (!validArguments(name, args)) return errorResult('Invalid task_status arguments.');
@@ -610,6 +818,7 @@ export function createAdapter({
                 session_id: task.delivery.session_id,
                 deadline: task.task.deadline,
                 cancel_requested: task.status?.cancel_requested ?? false,
+                artifacts: task.task.artifacts ?? null,
                 origin_agent_id: task.task.origin?.agent_id ?? null,
                 origin_session_id: task.task.origin?.session_id ?? null,
                 sender_person_id: task.sender_person_id ?? null,
@@ -648,6 +857,7 @@ export function createAdapter({
                 sequence: update.event.sequence,
                 event_kind: update.event.kind,
                 state: update.event.state,
+                artifacts: update.event.artifacts ?? null,
                 session_id: update.delivery.session_id
               }
             });
@@ -716,6 +926,7 @@ export async function configuredAdapter(
   return createAdapter({
     ...options,
     call: adapterClient(socketPath, () => credential.token, instanceId),
+    transfer: adapterTransfer(socketPath, () => credential.token, instanceId),
     sessionId: initial.adapter.session_id,
     adapterId: initial.adapter.id,
     instanceId,

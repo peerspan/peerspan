@@ -62,6 +62,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         advertise,
         coordination_interval,
         person_agent,
+        artifact_quota,
     } = command
     {
         let person_agent = person_agent.or_else(|| {
@@ -75,8 +76,13 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             advertise,
             coordination_interval,
             person_agent,
+            artifact_quota,
         )
         .await;
+    }
+    if let Some(value) = artifact_command(&command, &directory.join("admin.sock")).await? {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
     }
     if let cli::Command::Access(access) = &command
         && let Some(value) = access::command(access, &directory.join("admin.sock")).await?
@@ -381,8 +387,10 @@ async fn run_daemon(
     advertise: Option<std::net::SocketAddr>,
     coordination_interval: u64,
     person_agent: Option<PathBuf>,
+    artifact_quota: i64,
 ) -> anyhow::Result<()> {
     let store = Arc::new(Store::open(&directory)?);
+    store.set_artifact_quota(artifact_quota);
     store.set_coordination_interval(coordination_interval);
     store.set_person_agent(person_agent);
     let path = store.socket_path();
@@ -456,6 +464,7 @@ async fn run_daemon(
     let retries = capsule_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
     let tasks = capsule_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = capsule_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
+    let retention = capsule_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
@@ -481,6 +490,10 @@ async fn run_daemon(
         },
         async {
             expiry.await;
+            Ok(())
+        },
+        async {
+            retention.await;
             Ok(())
         },
         async {
@@ -534,4 +547,234 @@ async fn call(
         .into());
     }
     Ok(value)
+}
+
+/// Artifact transfers through the local socket are bounded generously.
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(1800);
+
+/// `task submit` with artifacts uploads each file first, and `task artifact`
+/// saves one to a new file; both stream through the local socket.
+async fn artifact_command(command: &cli::Command, socket: &Path) -> anyhow::Result<Option<Value>> {
+    use cli::{Command, TaskCommand};
+    match command {
+        Command::Task(TaskCommand::Submit {
+            artifacts,
+            artifact_types,
+            ..
+        }) if !artifacts.is_empty() || !artifact_types.is_empty() => {
+            if artifact_types.len() > artifacts.len() {
+                bail!("more --artifact-type values than --artifact files");
+            }
+            let mut entries = Vec::new();
+            for (index, path) in artifacts.iter().enumerate() {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .with_context(|| format!("{} has no UTF-8 file name", path.display()))?
+                    .to_owned();
+                let media_type = artifact_types
+                    .get(index)
+                    .map(String::as_str)
+                    .unwrap_or(capsule_host::artifact::DEFAULT_MEDIA_TYPE);
+                let entry =
+                    tokio::time::timeout(TRANSFER_TIMEOUT, upload(socket, path, &name, media_type))
+                        .await
+                        .context("artifact upload timed out")??;
+                entries.push(entry);
+            }
+            let request = cli::Command::Task(clone_submit(command))
+                .request()
+                .expect("task submit is a local request");
+            let mut body = request.body.unwrap_or_default();
+            body["artifacts"] = Value::Array(entries);
+            let value = tokio::time::timeout(
+                Duration::from_secs(10),
+                call(
+                    socket.to_path_buf(),
+                    request.method,
+                    request.path,
+                    Some(body),
+                ),
+            )
+            .await
+            .context("local host daemon request timed out")??;
+            Ok(Some(value))
+        }
+        Command::Task(TaskCommand::Artifact {
+            peer,
+            id,
+            sha256,
+            out,
+        }) => {
+            let path = format!(
+                "/v1/tasks/{}/{}/artifacts/{}",
+                cli::encoded(peer),
+                cli::encoded(id),
+                cli::encoded(sha256)
+            );
+            let value = tokio::time::timeout(TRANSFER_TIMEOUT, download(socket, path, out))
+                .await
+                .context("artifact download timed out")??;
+            Ok(Some(value))
+        }
+        _ => Ok(None),
+    }
+}
+fn clone_submit(command: &cli::Command) -> cli::TaskCommand {
+    let cli::Command::Task(cli::TaskCommand::Submit {
+        peer,
+        agent,
+        input,
+        deadline,
+        grant,
+        from_agent,
+        from_session,
+        task,
+        ..
+    }) = command
+    else {
+        unreachable!("not a task submission")
+    };
+    cli::TaskCommand::Submit {
+        peer: peer.clone(),
+        agent: agent.clone(),
+        input: input.clone(),
+        deadline: deadline.clone(),
+        grant: grant.clone(),
+        from_agent: from_agent.clone(),
+        from_session: from_session.clone(),
+        task: task.clone(),
+        artifacts: Vec::new(),
+        artifact_types: Vec::new(),
+    }
+}
+
+/// The daemon's JSON error for a failed response.
+async fn failure(response: hyper::Response<hyper::body::Incoming>) -> anyhow::Error {
+    let status = response.status();
+    let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
+        .collect()
+        .await
+        .map(|b| b.to_bytes())
+        .unwrap_or_default();
+    let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    integration::DaemonError {
+        status: status.as_u16(),
+        message: value["error"]
+            .as_str()
+            .unwrap_or("request failed")
+            .to_owned(),
+    }
+    .into()
+}
+
+/// Streams a file to `POST /v1/artifacts` and returns its manifest entry.
+async fn upload(socket: &Path, path: &Path, name: &str, media_type: &str) -> anyhow::Result<Value> {
+    let source = path.to_path_buf();
+    let (file, len) = tokio::task::spawn_blocking(move || {
+        let file = fs::File::open(&source)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            anyhow::bail!("{} is not a regular file", source.display());
+        }
+        Ok((file, metadata.len()))
+    })
+    .await??;
+    let stream = UnixStream::connect(socket)
+        .await
+        .context("connect to local host daemon")?;
+    let (mut sender, connection) =
+        hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!(
+            "/v1/artifacts?name={}&media_type={}",
+            cli::encoded(name),
+            cli::encoded(media_type)
+        ))
+        .header("Host", "localhost")
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Length", len)
+        .body(capsule_host::artifact::FileBody::new(file, len))?;
+    let response = sender.send_request(request).await?;
+    if !response.status().is_success() {
+        return Err(failure(response).await);
+    }
+    let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
+        .collect()
+        .await
+        .map_err(|e| anyhow::anyhow!("read host response: {e}"))?
+        .to_bytes();
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Saves an artifact to a new private file at `out`.
+async fn download(socket: &Path, path: String, out: &Path) -> anyhow::Result<Value> {
+    use sha2::Digest;
+    let stream = UnixStream::connect(socket)
+        .await
+        .context("connect to local host daemon")?;
+    let (mut sender, connection) =
+        hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(path)
+        .header("Host", "localhost")
+        .body(Full::new(Bytes::new()))?;
+    let response = sender.send_request(request).await?;
+    if !response.status().is_success() {
+        return Err(failure(response).await);
+    }
+    let target = out.to_path_buf();
+    let mut file = Some(
+        tokio::task::spawn_blocking(move || {
+            use std::os::unix::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&target)
+                .with_context(|| format!("create {}", target.display()))
+        })
+        .await??,
+    );
+    let mut body = response.into_body();
+    let mut hasher = sha2::Sha256::new();
+    let mut size: u64 = 0;
+    let result: anyhow::Result<()> = async {
+        while let Some(frame) = body.frame().await {
+            let Ok(data) = frame?.into_data() else {
+                continue;
+            };
+            hasher.update(&data);
+            size += data.len() as u64;
+            let mut writer = file.take().context("output closed")?;
+            writer = tokio::task::spawn_blocking(move || {
+                use std::io::Write;
+                writer.write_all(&data).map(|_| writer)
+            })
+            .await??;
+            file = Some(writer);
+        }
+        let writer = file.take().context("output closed")?;
+        tokio::task::spawn_blocking(move || writer.sync_all()).await??;
+        Ok(())
+    }
+    .await;
+    if let Err(error) = result {
+        let target = out.to_path_buf();
+        let _ = tokio::task::spawn_blocking(move || fs::remove_file(target)).await;
+        return Err(error);
+    }
+    Ok(json!({
+        "path": out.display().to_string(),
+        "sha256": hex::encode(hasher.finalize()),
+        "size": size,
+    }))
 }

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -22,7 +24,7 @@ import (
 const usage = `capsule-host runs and controls a local Capsule host daemon.
 
 Usage:
-  capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS] [--person-agent SOCKET]
+  capsule-host [--state DIR] run [--peer-listen IP:PORT] [--advertise IP:PORT] [--coordination-interval SECONDS] [--person-agent SOCKET] [--artifact-quota BYTES]
   capsule-host [--state DIR] info
   capsule-host [--state DIR] session setup --directory DIR --harness ID --agent ID --expires-at TIME [--integrations DIR --runner PROGRAM --option KEY=VALUE --routes FILE]
   capsule-host [--state DIR] session start --directory DIR [--workspace DIR] [-- HARNESS_ARGS]
@@ -39,16 +41,18 @@ Usage:
   capsule-host [--state DIR] peer add --id HOST --public-key KEY --address IP:PORT
   capsule-host [--state DIR] peer list
   capsule-host [--state DIR] peer path HOST
-  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--action message.append|task.submit] [--max-message-bytes N] [--allow-disconnected] [--from-agent ID]
+  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--action message.append|task.submit] [--max-message-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--from-agent ID]
   capsule-host [--state DIR] grant list
   capsule-host [--state DIR] grant revoke ID
   capsule-host [--state DIR] message send --peer HOST [--grant ID] --agent ID --deadline TIME --content TEXT [--request ID] [--from-agent ID [--from-session ID]]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] message inspect|retry|refresh|reply|origin --peer HOST ID
-  capsule-host [--state DIR] task submit --peer HOST --agent ID --input TEXT [--deadline TIME] [--grant ID] [--from-agent ID [--from-session ID]] [--task ID]
+  capsule-host [--state DIR] task submit --peer HOST --agent ID --input TEXT [--deadline TIME] [--grant ID] [--from-agent ID [--from-session ID]] [--task ID] [--artifact PATH ...] [--artifact-type TYPE ...]
   capsule-host [--state DIR] task list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] task inspect|cancel --peer HOST ID
   capsule-host [--state DIR] task events --peer HOST ID [--after SEQUENCE] [--limit COUNT]
+  capsule-host [--state DIR] task artifact --peer HOST ID SHA256 --out PATH
+  capsule-host [--state DIR] artifact list|prune
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
   capsule-host [--state DIR] adapter list|inspect|revoke|rotate|connection [ID]
   capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET [--grant ID] [--action message.append|task.submit] --expires-at TIME [--max-message-bytes N --max-messages N]
@@ -78,7 +82,7 @@ Usage:
   capsule-host [--state DIR] network remove-admin --network ID --person PERSON [--revoke-admitted] [--root-key PATH]
   capsule-host [--state DIR] network group set --network ID --group NAME [--person PERSON ...] [--person-key PATH]
   capsule-host [--state DIR] network groups ID
-  capsule-host [--state DIR] access allow --network ID --agent NAME --principal P [--principal P ...] [--action A ...] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]
+  capsule-host [--state DIR] access allow --network ID --agent NAME --principal P [--principal P ...] [--action A ...] [--max-message-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]
   capsule-host [--state DIR] access deny --network ID --agent NAME [--principal P ...] [--person-key PATH]
   capsule-host [--state DIR] access renew --network ID [--person-key PATH]
   capsule-host [--state DIR] access show --network ID [--person PERSON]
@@ -99,6 +103,12 @@ Without --grant, message send, task submit, and adapter routes cite the receiver
 owner's policy. Grants, policy rules, and routes carry an action: message.append
 (the default) or task.submit. Task submissions are retried and their events
 polled automatically; task inspect and task events read the local record.
+Task artifacts are off unless the receiver's grant or policy rule for
+task.submit sets --max-artifact-bytes, which bounds a task's input and result
+files together. --artifact uploads a file named after its base name; the
+i-th --artifact-type is the i-th file's media type. Received files count
+toward the daemon's --artifact-quota (default 10 GiB) and are kept 7 days
+after their task finishes; artifact prune releases finished tasks now.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `
@@ -149,6 +159,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		advertise := runFlags.String("advertise", "", "peer address advertised to coordination, IP:port; defaults to a specific --peer-listen address")
 		interval := runFlags.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
 		personAgent := runFlags.String("person-agent", os.Getenv("SSH_AUTH_SOCK"), "ssh-agent socket for renewing the bound person's access policies; defaults to SSH_AUTH_SOCK")
+		artifactQuota := runFlags.Int64("artifact-quota", host.DefaultArtifactQuota, "bytes of task artifacts this host stores, including pending fetches")
 		if err := runFlags.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
@@ -163,6 +174,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		if *interval < 1 || *interval > 3600 {
 			return errors.New("--coordination-interval must be 1 to 3600 seconds")
+		}
+		if *artifactQuota < 1 {
+			return errors.New("--artifact-quota must be at least 1 byte")
 		}
 		store, err := host.Open(ctx, *state)
 		if err != nil {
@@ -197,6 +211,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			return err
 		}
 		store.ConfigurePersonAgent(*personAgent)
+		if err = store.ConfigureArtifacts(*artifactQuota); err != nil {
+			return err
+		}
 		coordinationDone := make(chan struct{})
 		go func() {
 			defer close(coordinationDone)
@@ -212,6 +229,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		go func() {
 			defer close(tasksDone)
 			go store.RunTaskExpiry(daemonCtx)
+			go store.RunArtifactRetention(daemonCtx)
 			store.RunTaskWorkers(daemonCtx)
 		}()
 		defer func() { cancel(); <-tasksDone }()
@@ -270,7 +288,18 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		return err
 	}
-	result, err := client.Call(ctx, method, path, body)
+	var result json.RawMessage
+	switch b := body.(type) {
+	case taskSubmission:
+		if b.SubmitTask.Artifacts, err = uploadArtifacts(ctx, client, b.files, b.types); err != nil {
+			return err
+		}
+		result, err = client.Call(ctx, method, path, b.SubmitTask)
+	case artifactDownload:
+		result, err = downloadArtifact(ctx, client, path, b.out)
+	default:
+		result, err = client.Call(ctx, method, path, body)
+	}
 	if err != nil {
 		return err
 	}
@@ -400,6 +429,7 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				fs.StringVar(&g.TargetAgentID, "agent", "", "target local agent ID")
 				fs.StringVar(&g.ExpiresAt, "expires-at", "", "UTC grant expiration")
 				fs.Int64Var(&g.MaxMessageBytes, "max-message-bytes", 65536, "content byte limit")
+				fs.Int64Var(&g.MaxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together; 0 refuses artifacts; needs --action task.submit")
 				fs.BoolVar(&g.AllowDisconnected, "allow-disconnected", false, "permit work without coordination")
 				fs.StringVar(&g.Action, "action", "message.append", "authorized action: message.append or task.submit")
 			})
@@ -468,7 +498,10 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		case "submit":
 			var t host.SubmitTask
 			var grant, fromAgent, fromSession string
+			var files, types repeated
 			err := parse("task submit", args[2:], func(fs *flag.FlagSet) {
+				fs.Var(&files, "artifact", "file to upload and attach as an input artifact; repeatable")
+				fs.Var(&types, "artifact-type", "media type of the corresponding --artifact; repeatable, default application/octet-stream")
 				fs.StringVar(&t.PeerHostID, "peer", "", "receiving host ID")
 				fs.StringVar(&t.TargetAgentID, "agent", "", "receiver agent ID")
 				fs.StringVar(&t.Input, "input", "", "task input text")
@@ -485,6 +518,12 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			if fromAgent != "" {
 				t.Origin = &host.Origin{AgentID: fromAgent, SessionID: fromSession}
 			}
+			if len(types) > len(files) && err == nil {
+				err = errors.New("each --artifact-type needs a corresponding --artifact")
+			}
+			if len(files) > 0 {
+				return "POST", "/v1/tasks", taskSubmission{t, files, types}, err
+			}
 			return "POST", "/v1/tasks", t, err
 		case "list":
 			var after, limit int64
@@ -493,10 +532,11 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				fs.Int64Var(&limit, "limit", 100, "maximum records, 1 to 1000")
 			})
 			return "GET", fmt.Sprintf("/v1/tasks?after=%d&limit=%d", after, limit), nil, err
-		case "inspect", "cancel", "events":
+		case "inspect", "cancel", "events", "artifact":
 			fs := flag.NewFlagSet("task "+args[1], flag.ContinueOnError)
 			fs.SetOutput(errOut)
 			peer := fs.String("peer", "", "receiving host ID")
+			out := fs.String("out", "", "new file to write the artifact to")
 			after := fs.Int64("after", 0, "read events after this sequence")
 			limit := fs.Int64("limit", 100, "maximum events, 1 to 1000")
 			// Flags may follow the task ID, as in task events --peer HOST ID --after N.
@@ -510,7 +550,13 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				}
 				positional = append(positional, fs.Arg(0))
 			}
-			if *peer == "" || len(positional) != 1 {
+			if args[1] == "artifact" {
+				if *peer == "" || len(positional) != 2 || *out == "" {
+					return invalid()
+				}
+				return "GET", "/v1/tasks/" + url.PathEscape(*peer) + "/" + url.PathEscape(positional[0]) + "/artifacts/" + url.PathEscape(positional[1]), artifactDownload{*out}, nil
+			}
+			if *peer == "" || len(positional) != 1 || *out != "" {
 				return invalid()
 			}
 			path := "/v1/tasks/" + url.PathEscape(*peer) + "/" + url.PathEscape(positional[0])
@@ -689,6 +735,13 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			})
 			return "GET", fmt.Sprintf("/v1/deliveries?after=%d&limit=%d", after, limit), nil, err
 		}
+	case "artifact":
+		if len(args) == 2 && args[1] == "list" {
+			return "GET", "/v1/artifacts", nil, nil
+		}
+		if len(args) == 2 && args[1] == "prune" {
+			return "POST", "/v1/artifacts/prune", nil, nil
+		}
 	case "activity":
 		var after int64
 		var limit int
@@ -715,4 +768,72 @@ func optional(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// taskSubmission is a task submit whose files are uploaded first.
+type taskSubmission struct {
+	host.SubmitTask
+	files, types []string
+}
+
+// artifactDownload writes an artifact to a new file.
+type artifactDownload struct{ out string }
+
+// uploadArtifacts uploads each file, named after its base name, and returns
+// the input manifest.
+func uploadArtifacts(ctx context.Context, client host.Client, files, types []string) ([]host.ArtifactEntry, error) {
+	var manifest []host.ArtifactEntry
+	for i, path := range files {
+		query := url.Values{"name": {filepath.Base(path)}}
+		if i < len(types) {
+			query.Set("media_type", types[i])
+		}
+		entry, err := uploadFile(ctx, client, path, query)
+		if err != nil {
+			return nil, fmt.Errorf("upload %s: %w", path, err)
+		}
+		manifest = append(manifest, entry)
+	}
+	return manifest, nil
+}
+
+func uploadFile(ctx context.Context, client host.Client, path string, query url.Values) (host.ArtifactEntry, error) {
+	var entry host.ArtifactEntry
+	f, err := os.Open(path)
+	if err != nil {
+		return entry, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return entry, err
+	}
+	if !info.Mode().IsRegular() {
+		return entry, errors.New("an artifact must be a regular file")
+	}
+	data, err := client.Upload(ctx, "/v1/artifacts?"+query.Encode(), f, info.Size())
+	if err != nil {
+		return entry, err
+	}
+	err = json.Unmarshal(data, &entry)
+	return entry, err
+}
+
+// downloadArtifact writes an artifact to a new private file at out; a
+// failed download removes the partial file.
+func downloadArtifact(ctx context.Context, client host.Client, path, out string) (json.RawMessage, error) {
+	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	hash := sha256.New()
+	n, err := client.Download(ctx, path, io.MultiWriter(f, hash))
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(out)
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"path": out, "sha256": hex.EncodeToString(hash.Sum(nil)), "size": n})
 }

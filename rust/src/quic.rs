@@ -42,6 +42,22 @@ const RELAY_REFRESH: Duration = Duration::from_secs(5);
 /// Connection setup (direct attempt, relay readiness, and handshake) fits in
 /// the 8-second request bound.
 const REQUEST_BOUND: Duration = Duration::from_secs(8);
+/// Peer requests are served within 15 seconds, except artifact transfers,
+/// whose stalls the connection's idle timeout bounds instead.
+const SERVE_BOUND: Duration = Duration::from_secs(15);
+const TRANSFER_BOUND: Duration = Duration::from_secs(3600);
+
+/// Set by a handler whose response may outlast the usual serve bound.
+#[derive(Clone, Default)]
+pub(crate) struct LongTransfer(Arc<std::sync::atomic::AtomicBool>);
+impl LongTransfer {
+    pub(crate) fn allow(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    fn allowed(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
 
 /// The daemon's single peer endpoint and its reusable outbound connections.
 pub struct Transport {
@@ -428,6 +444,132 @@ pub(crate) async fn request(
         }
     }
 }
+/// A response whose body is read incrementally: an artifact transfer, which
+/// may exceed the 1 MiB bound on other peer responses.
+pub(crate) struct Download {
+    pub status: u16,
+    /// The exact `Content-Length`, when given.
+    pub length: Option<u64>,
+    pending: Vec<u8>,
+    recv: quinn::RecvStream,
+}
+impl Download {
+    /// The next body bytes, or `None` at the end of the response.
+    pub(crate) async fn chunk(&mut self) -> anyhow::Result<Option<bytes::Bytes>> {
+        if !self.pending.is_empty() {
+            return Ok(Some(std::mem::take(&mut self.pending).into()));
+        }
+        match tokio::time::timeout(IDLE, self.recv.read_chunk(64 * 1024, true)).await {
+            Err(_) => anyhow::bail!("peer transfer stalled"),
+            Ok(Ok(Some(chunk))) => Ok(Some(chunk.bytes)),
+            Ok(Ok(None)) => Ok(None),
+            Ok(Err(e)) => anyhow::bail!("read peer response: {e}"),
+        }
+    }
+}
+/// Sends a GET request to a peer and returns once the response head
+/// arrives, leaving the body to be streamed.
+pub(crate) async fn download(
+    store: Arc<Store>,
+    peer: &Peer,
+    path: &str,
+) -> anyhow::Result<Download> {
+    let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let transport = transport(&store)?;
+    let paths = paths(&store, &transport, peer).await?;
+    let deadline = tokio::time::Instant::now() + REQUEST_BOUND;
+    let reused = transport.cached(&peer.id, &key, &paths.all()).is_some();
+    let connection = transport
+        .connection(&store, peer, &key, &paths, deadline)
+        .await?;
+    match open_download(&connection, path).await {
+        Ok(response) => Ok(response),
+        Err(failure) => {
+            transport.evict(&peer.id, &connection);
+            if !reused || failure.responded {
+                return Err(failure.error);
+            }
+            let connection = transport
+                .connection(&store, peer, &key, &paths, deadline)
+                .await?;
+            let retried = open_download(&connection, path).await;
+            if retried.is_err() {
+                transport.evict(&peer.id, &connection);
+            }
+            retried.map_err(|f| f.error)
+        }
+    }
+}
+async fn open_download(connection: &Connection, path: &str) -> Result<Download, Failure> {
+    let before = |error: anyhow::Error| Failure {
+        error,
+        responded: false,
+    };
+    let (mut send, mut recv) = connection.open_bi().await.map_err(|e| before(e.into()))?;
+    let head = format!("GET {path} HTTP/1.1\r\nHost: {SERVER_NAME}\r\nConnection: close\r\n\r\n");
+    send.write_all(head.as_bytes())
+        .await
+        .map_err(|e| before(e.into()))?;
+    send.finish().map_err(|e| before(e.into()))?;
+    let mut data = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    let read_head = async {
+        loop {
+            let mut headers = [httparse::EMPTY_HEADER; 64];
+            let mut response = httparse::Response::new(&mut headers);
+            if let httparse::Status::Complete(start) =
+                response.parse(&data).map_err(|e| Failure {
+                    error: e.into(),
+                    responded: true,
+                })?
+            {
+                let status = response.code.unwrap_or_default();
+                let header = |name: &str| {
+                    response
+                        .headers
+                        .iter()
+                        .find(|h| h.name.eq_ignore_ascii_case(name))
+                        .map(|h| String::from_utf8_lossy(h.value).trim().to_ascii_lowercase())
+                };
+                let length = header("content-length").and_then(|v| v.parse::<u64>().ok());
+                let pending = data[start..].to_vec();
+                return Ok((status, length, pending));
+            }
+            match recv.read(&mut chunk).await {
+                Ok(Some(n)) => {
+                    data.extend_from_slice(&chunk[..n]);
+                    if data.len() > MAX_HEADERS {
+                        return Err(Failure {
+                            error: anyhow::anyhow!("peer response head too large"),
+                            responded: true,
+                        });
+                    }
+                }
+                Ok(None) => {
+                    return Err(Failure {
+                        error: anyhow::anyhow!("incomplete peer response"),
+                        responded: !data.is_empty(),
+                    });
+                }
+                Err(e) => {
+                    return Err(Failure {
+                        error: anyhow::anyhow!("read peer response: {e}"),
+                        responded: !data.is_empty(),
+                    });
+                }
+            }
+        }
+    };
+    let (status, length, pending) = tokio::time::timeout(REQUEST_BOUND, read_head)
+        .await
+        .map_err(|_| before(anyhow::anyhow!("peer response timed out")))??;
+    Ok(Download {
+        status,
+        length,
+        pending,
+        recv,
+    })
+}
 /// Where a peer can be reached: its direct UDP address, and the relay of the
 /// lowest-ID network both hosts belong to with the peer's synthetic address.
 struct Paths {
@@ -714,8 +856,9 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
                 // connection stays open gets 403 for anything it submits or
                 // queries, as on a fresh request, and is never routed.
                 let known = store.knows(&key).unwrap_or(false);
+                let long = LongTransfer::default();
                 let service = TowerToHyperService::new(if known {
-                    router.clone()
+                    router.clone().layer(axum::Extension(long.clone()))
                 } else {
                     forbidden.clone()
                 });
@@ -725,7 +868,12 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
                         // The client finishes its send side after the request.
                         .half_close(true)
                         .serve_connection(TokioIo::new(Stream { send, recv }), service);
-                    let _ = tokio::time::timeout(Duration::from_secs(15), served).await;
+                    let mut served = std::pin::pin!(served);
+                    if tokio::time::timeout(SERVE_BOUND, served.as_mut()).await.is_err()
+                        && long.allowed()
+                    {
+                        let _ = tokio::time::timeout(TRANSFER_BOUND, served).await;
+                    }
                 });
             }
         }

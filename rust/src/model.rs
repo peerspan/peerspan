@@ -60,6 +60,10 @@ pub enum Error {
     Conflict(String),
     /// A required remote service (coordination) could not be reached.
     Unavailable(String),
+    /// A request body over its size limit (413).
+    TooLarge(String),
+    /// Not enough artifact storage quota (507).
+    InsufficientStorage(String),
     Internal(anyhow::Error),
 }
 
@@ -86,6 +90,8 @@ impl std::fmt::Display for Error {
             Self::NotFound => write!(f, "not found"),
             Self::Conflict(message) => write!(f, "conflict: {message}"),
             Self::Unavailable(message) => write!(f, "unavailable: {message}"),
+            Self::TooLarge(message) => write!(f, "too large: {message}"),
+            Self::InsufficientStorage(message) => write!(f, "insufficient storage: {message}"),
             Self::Internal(error) => write!(f, "{error}"),
         }
     }

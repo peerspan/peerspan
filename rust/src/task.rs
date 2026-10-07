@@ -7,8 +7,11 @@ use crate::{
     adapter::{authority, read},
     adapter_connection::AdapterAuth,
     api::{blocking, decode},
+    artifact::{
+        ArtifactEntry, INPUT, RECEIVED, RESULT, manifest_total, normalized, validate_manifest,
+    },
     model::Error,
-    peer_store::{Authz, Connectivity, Origin, valid_id},
+    peer_store::{Authz, Bounds, Connectivity, Origin, valid_id},
     policy::{PolicyRef, TASK_ACTION},
     store::{Store, append_event, new_id, now},
 };
@@ -96,6 +99,13 @@ pub struct TaskRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub origin: Option<Origin>,
+    /// The input artifact manifest (milestone 6 slice 3).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub artifacts: Option<Vec<ArtifactEntry>>,
 }
 impl TaskRequest {
     pub(crate) fn authz(&self) -> Authz<'_> {
@@ -107,6 +117,7 @@ impl TaskRequest {
             deadline: &self.deadline,
             size: self.input.len(),
             origin: self.origin.as_ref(),
+            artifacts: manifest_total(&self.artifacts),
         }
     }
 }
@@ -137,11 +148,17 @@ pub struct TaskEvent {
     pub message: Option<String>,
     pub output: Option<String>,
     pub created_at: String,
+    /// The result manifest on a final `succeeded` or `failed` event with
+    /// results; null otherwise.
+    #[serde(default)]
+    pub artifacts: Option<Vec<ArtifactEntry>>,
 }
 impl TaskEvent {
     /// The shape a submitter accepts from a receiver.
     pub(crate) fn well_formed(&self) -> bool {
-        EVENT_KINDS.contains(&self.kind.as_str())
+        self.artifacts.as_ref().is_none_or(|m| {
+            matches!(self.kind.as_str(), "succeeded" | "failed") && validate_manifest(m).is_ok()
+        }) && EVENT_KINDS.contains(&self.kind.as_str())
             && STATES.contains(&self.state.as_str())
             && self.message.as_ref().is_none_or(|m| m.len() <= MAX_TEXT)
             && self.output.as_ref().is_none_or(|o| o.len() <= MAX_TEXT)
@@ -183,7 +200,11 @@ pub enum Change {
     Accept,
     Reject(String),
     Progress(String),
-    Complete { status: String, output: String },
+    Complete {
+        status: String,
+        output: String,
+        artifacts: Option<Vec<ArtifactEntry>>,
+    },
     Cancelled,
 }
 
@@ -201,6 +222,9 @@ pub(crate) fn validate_task(r: &TaskRequest) -> Result<(), Error> {
         || r.input.len() > MAX_TEXT
     {
         return Err(Error::Invalid("invalid task".into()));
+    }
+    if let Some(manifest) = &r.artifacts {
+        validate_manifest(manifest)?;
     }
     DateTime::parse_from_rfc3339(&r.deadline)
         .map_err(|_| Error::Invalid("invalid deadline".into()))?;
@@ -232,6 +256,16 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
     }
     Ok(())
 }
+/// The stored record of a received task: the status record plus the
+/// artifact bound checked at acceptance, which is never served.
+const BOUND_KEY: &str = "max_artifact_bytes";
+pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
+    let mut value: serde_json::Value = serde_json::from_str(text)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove(BOUND_KEY);
+    }
+    Ok(serde_json::from_value(value)?)
+}
 fn received(
     conn: &Connection,
     sender: &str,
@@ -244,7 +278,7 @@ fn received(
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    row.map(|(r, s)| Ok((serde_json::from_str(&r)?, serde_json::from_str(&s)?)))
+    row.map(|(r, s)| Ok((serde_json::from_str(&r)?, status_record(&s)?)))
         .transpose()
 }
 fn last_event(conn: &Connection, sender: &str, status: &TaskStatus) -> Result<TaskEvent, Error> {
@@ -263,6 +297,7 @@ fn record(
     kind: &str,
     message: Option<String>,
     output: Option<String>,
+    artifacts: Option<Vec<ArtifactEntry>>,
 ) -> Result<TaskEvent, Error> {
     let at = now();
     let state = match kind {
@@ -278,6 +313,7 @@ fn record(
         message,
         output,
         created_at: at.clone(),
+        artifacts,
     };
     status.state = state;
     status.last_event = event.sequence;
@@ -294,8 +330,9 @@ fn record(
             serde_json::to_string(&event)?
         ],
     )?;
+    // The bound stored at acceptance stays with the record.
     tx.execute(
-        "UPDATE received_tasks SET record = ?1 WHERE sender = ?2 AND task_id = ?3",
+        "UPDATE received_tasks SET record = CASE WHEN json_extract(record, '$.max_artifact_bytes') IS NULL THEN json(?1) ELSE json_set(?1, '$.max_artifact_bytes', json_extract(record, '$.max_artifact_bytes')) END WHERE sender = ?2 AND task_id = ?3",
         params![serde_json::to_string(status)?, sender, status.task_id],
     )?;
     append_event(
@@ -317,26 +354,26 @@ fn expire(
     if status.state != "queued" || time(&request.deadline)? > Utc::now() {
         return Ok(false);
     }
-    record(tx, sender, status, "expired", None, None)?;
+    record(tx, sender, status, "expired", None, None, None)?;
     Ok(true)
 }
 /// The rejection reason when authorization lapses before an agent accepts.
 pub const LAPSED: &str = "authorization lapsed before acceptance";
-/// Rechecks a queued task's authorization. `Ok(None)` admits it,
-/// `Ok(Some(reason))` is a final lapse, and `Unavailable` can recover.
+/// Rechecks a queued task's authorization. `Ok(Ok(bounds))` admits it,
+/// `Ok(Err(reason))` is a final lapse, and `Unavailable` can recover.
 fn recheck(
     store: &Store,
     tx: &Transaction<'_>,
     sender: &str,
     request: &TaskRequest,
-) -> Result<Option<String>, Error> {
+) -> Result<Result<Bounds, String>, Error> {
     match store.message_bounds(tx, sender, &request.authz(), true) {
         Ok(bounds) => match store.grant_connected(tx, sender, &bounds)? {
-            Connectivity::Usable => Ok(None),
+            Connectivity::Usable => Ok(Ok(bounds)),
             Connectivity::Stale => Err(Error::Unavailable("coordination disconnected".into())),
-            Connectivity::Absent => Ok(Some(LAPSED.into())),
+            Connectivity::Absent => Ok(Err(LAPSED.into())),
         },
-        Err(Error::Forbidden) => Ok(Some(LAPSED.into())),
+        Err(Error::Forbidden) => Ok(Err(LAPSED.into())),
         Err(e) => Err(e),
     }
 }
@@ -359,6 +396,9 @@ impl Store {
             }
             return Ok(status);
         }
+        if let Some(manifest) = &r.artifacts {
+            self.reserve(&tx, manifest)?;
+        }
         let at = now();
         let mut status = TaskStatus {
             task_id: r.task_id.clone(),
@@ -380,7 +420,18 @@ impl Store {
                 serde_json::to_string(&status)?
             ],
         )?;
-        record(&tx, sender, &mut status, "queued", None, None)?;
+        record(&tx, sender, &mut status, "queued", None, None, None)?;
+        if let Some(manifest) = &r.artifacts {
+            crate::artifact::add_artifacts(
+                &tx,
+                RECEIVED,
+                sender,
+                &r.task_id,
+                INPUT,
+                manifest,
+                crate::artifact::PENDING,
+            )?;
+        }
         tx.commit()?;
         Ok(status)
     }
@@ -425,7 +476,15 @@ impl Store {
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
         expire(&tx, sender, &request, &mut status)?;
         if !status.cancel_requested && !is_final(&status.state) {
-            record(&tx, sender, &mut status, "cancel_requested", None, None)?;
+            record(
+                &tx,
+                sender,
+                &mut status,
+                "cancel_requested",
+                None,
+                None,
+                None,
+            )?;
         }
         tx.commit()?;
         Ok(status)
@@ -451,7 +510,7 @@ impl Store {
         let mut count = 0;
         for (sender, request, status) in queued {
             let request: TaskRequest = serde_json::from_str(&request)?;
-            let mut status: TaskStatus = serde_json::from_str(&status)?;
+            let mut status = status_record(&status)?;
             if expire(&tx, &sender, &request, &mut status)? {
                 count += 1;
             }
@@ -470,7 +529,7 @@ impl Store {
         let tx = conn.transaction()?;
         let (a, ss) = authority(&tx, auth)?;
         let pending = {
-            let mut stmt = tx.prepare("SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ?1 AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) ORDER BY t.rowid LIMIT 100")?;
+            let mut stmt = tx.prepare("SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ?1 AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100")?;
             stmt.query_map([&ss.agent_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -483,14 +542,22 @@ impl Store {
         let mut handoff = None;
         for (sender, request, status) in pending {
             let request: TaskRequest = serde_json::from_str(&request)?;
-            let mut status: TaskStatus = serde_json::from_str(&status)?;
+            let mut status = status_record(&status)?;
             if expire(&tx, &sender, &request, &mut status)? {
                 continue;
             }
             match recheck(self, &tx, &sender, &request) {
-                Ok(None) => {}
-                Ok(Some(reason)) => {
-                    record(&tx, &sender, &mut status, "rejected", Some(reason), None)?;
+                Ok(Ok(_)) => {}
+                Ok(Err(reason)) => {
+                    record(
+                        &tx,
+                        &sender,
+                        &mut status,
+                        "rejected",
+                        Some(reason),
+                        None,
+                        None,
+                    )?;
                     continue;
                 }
                 Err(Error::Unavailable(_)) => continue,
@@ -543,11 +610,20 @@ impl Store {
         match &change {
             Change::Reject(reason) => text(reason, true)?,
             Change::Progress(message) => text(message, false)?,
-            Change::Complete { status, output } => {
+            Change::Complete {
+                status,
+                output,
+                artifacts,
+            } => {
                 if status != "succeeded" && status != "failed" {
                     return Err(Error::Invalid("status is succeeded or failed".into()));
                 }
                 text(output, false)?;
+                if let Some(manifest) = artifacts
+                    && !manifest.is_empty()
+                {
+                    validate_manifest(manifest)?;
+                }
             }
             Change::Accept | Change::Cancelled => {}
         }
@@ -614,12 +690,17 @@ impl Store {
             Change::Accept => match status.state.as_str() {
                 "running" => Ok(None),
                 "queued" => match recheck(self, tx, sender, request)? {
-                    None => {
-                        record(tx, sender, status, "accepted", None, None)?;
+                    Ok(bounds) => {
+                        record(tx, sender, status, "accepted", None, None, None)?;
+                        // The artifact bound checked now governs the results.
+                        tx.execute(
+                            "UPDATE received_tasks SET record = json_set(record, '$.max_artifact_bytes', ?1) WHERE sender = ?2 AND task_id = ?3",
+                            params![bounds.max_artifact_bytes, sender, status.task_id],
+                        )?;
                         Ok(None)
                     }
-                    Some(reason) => {
-                        record(tx, sender, status, "rejected", Some(reason), None)?;
+                    Err(reason) => {
+                        record(tx, sender, status, "rejected", Some(reason), None, None)?;
                         Ok(Some(Error::Forbidden))
                     }
                 },
@@ -627,7 +708,7 @@ impl Store {
             },
             Change::Reject(reason) => match status.state.as_str() {
                 "queued" => {
-                    record(tx, sender, status, "rejected", Some(reason), None)?;
+                    record(tx, sender, status, "rejected", Some(reason), None, None)?;
                     Ok(None)
                 }
                 "rejected"
@@ -644,20 +725,59 @@ impl Store {
                 }
                 let last = last_event(tx, sender, status)?;
                 if last.kind != "progress" || last.message.as_deref() != Some(message.as_str()) {
-                    record(tx, sender, status, "progress", Some(message), None)?;
+                    record(tx, sender, status, "progress", Some(message), None, None)?;
                 }
                 Ok(None)
             }
             Change::Complete {
                 status: outcome,
                 output,
+                artifacts,
             } => {
+                let artifacts = normalized(artifacts);
                 if status.state == "running" {
-                    record(tx, sender, status, &outcome, None, Some(output))?;
+                    if let Some(results) = &artifacts {
+                        self.check_uploads(tx, results)?;
+                        // Inputs and results together stay within the bound
+                        // checked at acceptance.
+                        let bound: Option<i64> = tx.query_row(
+                            "SELECT json_extract(record, '$.max_artifact_bytes') FROM received_tasks WHERE sender = ?1 AND task_id = ?2",
+                            params![sender, status.task_id],
+                            |r| r.get(0),
+                        )?;
+                        let total = manifest_total(&request.artifacts).unwrap_or(0)
+                            + manifest_total(&artifacts).unwrap_or(0);
+                        if !crate::peer_store::artifacts_fit(Some(total), bound.unwrap_or(0)) {
+                            return Err(Error::Forbidden);
+                        }
+                    }
+                    let id = status.task_id.clone();
+                    record(
+                        tx,
+                        sender,
+                        status,
+                        &outcome,
+                        None,
+                        Some(output),
+                        artifacts.clone(),
+                    )?;
+                    if let Some(results) = &artifacts {
+                        crate::artifact::add_artifacts(
+                            tx,
+                            RECEIVED,
+                            sender,
+                            &id,
+                            RESULT,
+                            results,
+                            crate::artifact::STORED,
+                        )?;
+                    }
                     return Ok(None);
                 }
+                let last = last_event(tx, sender, status)?;
                 if status.state == outcome
-                    && last_event(tx, sender, status)?.output.as_deref() == Some(output.as_str())
+                    && last.output.as_deref() == Some(output.as_str())
+                    && last.artifacts == artifacts
                 {
                     return Ok(None);
                 }
@@ -666,7 +786,7 @@ impl Store {
             Change::Cancelled => match status.state.as_str() {
                 "cancelled" => Ok(None),
                 "running" if status.cancel_requested => {
-                    record(tx, sender, status, "cancelled", None, None)?;
+                    record(tx, sender, status, "cancelled", None, None, None)?;
                     Ok(None)
                 }
                 "running" => Err(Error::Conflict(
@@ -694,16 +814,14 @@ impl Store {
             return Ok(None);
         };
         let mut delivery: TaskDelivery = serde_json::from_str(&delivery)?;
+        let status = status_record(&status)?;
         delivery.cancel_claimed_at = Some(now());
         tx.execute(
             "UPDATE task_deliveries SET record = ?1 WHERE id = ?2",
             params![serde_json::to_string(&delivery)?, delivery.id],
         )?;
         tx.commit()?;
-        Ok(Some(CancelHandoff {
-            delivery,
-            status: serde_json::from_str(&status)?,
-        }))
+        Ok(Some(CancelHandoff { delivery, status }))
     }
 }
 
@@ -725,6 +843,8 @@ struct ProgressBody {
 struct CompleteBody {
     status: String,
     output: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    artifacts: Option<Vec<ArtifactEntry>>,
 }
 #[derive(Deserialize)]
 pub(crate) struct EventPage {
@@ -871,6 +991,7 @@ async fn complete(
         Change::Complete {
             status: r.status,
             output: r.output,
+            artifacts: r.artifacts,
         },
     )
     .await
@@ -912,6 +1033,7 @@ pub(crate) mod tests {
                 target_agent_id: agent.into(),
                 expires_at: rfc3339(Utc::now() + chrono::Duration::hours(2)),
                 max_message_bytes: 1000,
+                max_artifact_bytes: 0,
                 allow_disconnected: true,
                 requester_agent_id: None,
                 action: Some(action.into()),
@@ -927,6 +1049,7 @@ pub(crate) mod tests {
             deadline: rfc3339(Utc::now() + chrono::Duration::minutes(30)),
             input: "summarize the report".into(),
             origin: None,
+            artifacts: None,
         }
     }
     struct Fixture {
@@ -1143,6 +1266,7 @@ pub(crate) mod tests {
                 Change::Complete {
                     status: status.into(),
                     output: output.into(),
+                    artifacts: None,
                 },
             )
         };
@@ -1239,6 +1363,7 @@ pub(crate) mod tests {
                 Change::Complete {
                     status: "failed".into(),
                     output: "it broke".into(),
+                    artifacts: None,
                 },
             )
             .unwrap();
@@ -1348,6 +1473,7 @@ pub(crate) mod tests {
                 Change::Complete {
                     status: "succeeded".into(),
                     output: "done before stopping".into(),
+                    artifacts: None,
                 },
             )
             .unwrap();
@@ -1409,6 +1535,7 @@ pub(crate) mod tests {
                 Change::Complete {
                     status: "succeeded".into(),
                     output: "ok".into(),
+                    artifacts: None,
                 },
             )
             .unwrap();

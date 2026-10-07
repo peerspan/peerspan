@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createAdapter } from './adapter.mjs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { adapterTransfer, createAdapter } from './adapter.mjs';
 const adapterId = 'adapter_' + 'a'.repeat(32),
   sessionId = 'session_' + 'b'.repeat(32);
+const entry = (name, digit) => ({ name, size: 1, sha256: digit.repeat(64), media_type: 'application/octet-stream' });
 const handoff = {
   delivery: { id: 'delivery_' + 'c'.repeat(32), session_id: sessionId },
   request: { content: 'hello' }
@@ -193,14 +198,14 @@ test('task, cancellation, and task update events; only updates are acknowledged'
   const delivery = { id: 'delivery_' + '8'.repeat(32), session_id: sessionId, task_id: taskId, sender_host_id: 'host_z' };
   const claimed = {
     delivery,
-    task: { task_id: taskId, input: 'review it', deadline: '2099-01-01T00:00:00Z', origin },
+    task: { task_id: taskId, input: 'review it', deadline: '2099-01-01T00:00:00Z', origin, artifacts: [entry('in.txt', '1')] },
     status: { state: 'queued', cancel_requested: false },
     sender_person_id: null,
     sender_person: null
   };
   const update = {
     delivery: { id: 'notification_' + '9'.repeat(32), session_id: sessionId, task_id: taskId, peer_host_id: 'host_w', sequence: 3 },
-    event: { sequence: 3, kind: 'succeeded', state: 'succeeded', message: null, output: 'all good' }
+    event: { sequence: 3, kind: 'succeeded', state: 'succeeded', message: null, output: 'all good', artifacts: [entry('out.txt', '2')] }
   };
   const counts = {};
   const acknowledged = [];
@@ -235,6 +240,7 @@ test('task, cancellation, and task update events; only updates are acknowledged'
     assert.equal(task.meta.origin_session_id, origin.session_id);
     assert.equal(task.meta.cancel_requested, false);
     assert.equal(task.meta.sender_person, null);
+    assert.deepEqual(task.meta.artifacts, claimed.task.artifacts);
     const cancel = events.find((e) => e.meta.kind === 'task_cancel_requested');
     assert.equal(cancel.meta.task_id, taskId);
     const result = events.find((e) => e.meta.kind === 'task_update');
@@ -242,6 +248,7 @@ test('task, cancellation, and task update events; only updates are acknowledged'
     assert.equal(result.meta.state, 'succeeded');
     assert.equal(result.meta.event_kind, 'succeeded');
     assert.equal(result.meta.notification_id, update.delivery.id);
+    assert.deepEqual(result.meta.artifacts, update.event.artifacts);
     assert.deepEqual(acknowledged, [`/adapter/v1/task-updates/${update.delivery.id}/forwarded`]);
     assert.equal(counts['/adapter/v1/tasks/next'] >= 2, true);
   } finally {
@@ -309,5 +316,118 @@ test('task tools call the scoped routes and validate their arguments', async () 
     assert.equal(calls.length, 0);
   } finally {
     await adapter.stop();
+  }
+});
+
+test('artifact paths are uploaded before delegate_task and task_complete; artifact_save tries both scopes', async () => {
+  const taskId = 'task_' + 'c'.repeat(32);
+  const calls = [];
+  const transfers = [];
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    notify: async () => {},
+    call: async (method, path, body) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      calls.push([method, path, body]);
+      if (path === '/adapter/v1/delegations')
+        return { peer_host_id: 'host_p', submit_state: 'accepted', status: { state: 'queued' }, artifacts: [], attempts: 1 };
+      return { task_id: taskId, state: 'succeeded' };
+    },
+    transfer: {
+      upload: async (path, file) => {
+        transfers.push(['upload', path, file]);
+        if (file.endsWith('huge')) throw Object.assign(new Error('too large'), { status: 413 });
+        return entry(file.split('/').pop(), String(transfers.length));
+      },
+      download: async (path, file) => {
+        transfers.push(['download', path, file]);
+        if (path.includes('/delegations/')) throw Object.assign(new Error('not found'), { status: 404 });
+        if (file.endsWith('pending')) throw Object.assign(new Error('conflict'), { status: 409 });
+        return { size: 3, sha256: 'd'.repeat(64) };
+      }
+    },
+    log: () => {}
+  });
+  try {
+    const delegated = JSON.parse(
+      (await adapter.callTool('delegate_task', { destination: 'review', input: 'x', artifacts: ['/w/a.txt', '/w/b.bin'] })).content[0].text
+    );
+    assert.equal(delegated.submit_state, 'accepted');
+    assert.deepEqual(calls[0][2].artifacts, [entry('a.txt', '1'), entry('b.bin', '2')]);
+    assert.deepEqual(transfers.map((t) => t[1]), ['/adapter/v1/artifacts', '/adapter/v1/artifacts']);
+    const done = await adapter.callTool('task_complete', { task_id: taskId, status: 'succeeded', output: 'ok', artifacts: ['/w/r.md'] });
+    assert(!done.isError);
+    assert.deepEqual(calls[1], ['POST', `/adapter/v1/tasks/${taskId}/complete`, { status: 'succeeded', output: 'ok', artifacts: [entry('r.md', '3')] }]);
+    // Without artifacts, the body is unchanged.
+    await adapter.callTool('task_complete', { task_id: taskId, status: 'failed', output: 'no', artifacts: [] });
+    assert.deepEqual(calls[2][2], { status: 'failed', output: 'no' });
+    // A failed upload submits nothing.
+    calls.length = 0;
+    const refused = await adapter.callTool('delegate_task', { destination: 'review', input: 'x', artifacts: ['/w/huge'] });
+    assert(refused.isError && refused.content[0].text.includes('100 MiB'));
+    assert.equal(calls.length, 0);
+    transfers.length = 0;
+    const saved = JSON.parse((await adapter.callTool('artifact_save', { task_id: taskId, sha256: 'd'.repeat(64), path: '/w/out' })).content[0].text);
+    assert.deepEqual(saved, { task_id: taskId, sha256: 'd'.repeat(64), size: 3, path: '/w/out' });
+    assert.deepEqual(transfers.map((t) => t[1]), [
+      `/adapter/v1/delegations/${taskId}/artifacts/${'d'.repeat(64)}`,
+      `/adapter/v1/tasks/${taskId}/artifacts/${'d'.repeat(64)}`
+    ]);
+    const pending = await adapter.callTool('artifact_save', { task_id: taskId, sha256: 'd'.repeat(64), path: '/w/pending' });
+    assert(pending.isError && pending.content[0].text.includes('not been fetched'));
+    for (const [name, args] of [
+      ['delegate_task', { destination: 'review', input: 'x', artifacts: 'a.txt' }],
+      ['delegate_task', { destination: 'review', input: 'x', artifacts: [''] }],
+      ['delegate_task', { destination: 'review', input: 'x', artifacts: Array(65).fill('a') }],
+      ['task_complete', { task_id: taskId, status: 'succeeded', output: 'x', artifacts: [5] }],
+      ['artifact_save', { task_id: taskId, sha256: 'D'.repeat(64), path: '/w/x' }],
+      ['artifact_save', { task_id: taskId, sha256: 'd'.repeat(64) }]
+    ])
+      assert((await adapter.callTool(name, args)).isError, JSON.stringify(args));
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('adapterTransfer streams files over the socket and never overwrites', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'capsule-transfer-'));
+  const socket = join(directory, 'adapter.sock');
+  const seen = [];
+  const server = http.createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      seen.push([request.method, request.url, request.headers.authorization, Buffer.concat(chunks).toString()]);
+      if (request.method === 'POST') {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify(entry('in.txt', 'e')));
+      } else if (request.url.endsWith('/missing')) {
+        response.writeHead(409, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ code: 'conflict', error: 'pending' }));
+      } else {
+        response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': 3 });
+        response.end('abc');
+      }
+    });
+  });
+  await new Promise((resolve) => server.listen(socket, resolve));
+  try {
+    const transfer = adapterTransfer(socket, 'token_x', 'instance_y');
+    await writeFile(join(directory, 'in.txt'), 'hello');
+    assert.deepEqual(await transfer.upload('/adapter/v1/artifacts', join(directory, 'in.txt')), entry('in.txt', 'e'));
+    assert.deepEqual(seen[0], ['POST', '/adapter/v1/artifacts?name=in.txt', 'Bearer token_x', 'hello']);
+    const out = join(directory, 'out.bin');
+    const saved = await transfer.download('/adapter/v1/tasks/t/artifacts/d', out);
+    assert.equal(saved.size, 3);
+    assert.equal(await readFile(out, 'utf8'), 'abc');
+    await assert.rejects(transfer.download('/adapter/v1/tasks/t/artifacts/d', out), { code: 'EEXIST' });
+    const missing = join(directory, 'missing.bin');
+    await assert.rejects(transfer.download('/adapter/v1/tasks/t/missing', missing), { status: 409 });
+    await assert.rejects(readFile(missing), { code: 'ENOENT' });
+    await assert.rejects(transfer.upload('/adapter/v1/artifacts', directory), /regular file/);
+  } finally {
+    server.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

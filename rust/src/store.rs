@@ -10,7 +10,10 @@ use std::{
     fs::{self, DirBuilder, File, OpenOptions},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, RwLock, atomic::AtomicU64},
+    sync::{
+        Arc, Mutex, MutexGuard, RwLock,
+        atomic::{AtomicI64, AtomicU64},
+    },
     time::{Duration, Instant},
 };
 
@@ -52,6 +55,8 @@ pub struct Store {
     /// The owner's `ssh-agent` socket for policy renewal signatures. The
     /// daemon asks the agent to sign and never holds the key.
     pub(crate) person_agent: RwLock<Option<PathBuf>>,
+    /// Bytes of artifact storage this host allows (`run --artifact-quota`).
+    pub(crate) artifact_quota: AtomicI64,
 }
 
 impl Store {
@@ -76,7 +81,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=9).contains(&version) {
+        if !(0..=10).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -106,6 +111,9 @@ impl Store {
         }
         if version < 9 {
             tx.execute_batch(crate::task::SCHEMA)?;
+        }
+        if version < 10 {
+            tx.execute_batch(crate::artifact::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -168,7 +176,7 @@ impl Store {
         let deadline =
             Instant::now() + Duration::from_secs(crate::adapter_connection::LEASE_SECONDS);
         let adapter_recovery_until = recovering.into_iter().map(|id| (id, deadline)).collect();
-        Ok(Self {
+        let store = Self {
             connection: Mutex::new(connection),
             _lock: lock,
             directory,
@@ -184,7 +192,15 @@ impl Store {
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),
             person_agent: RwLock::new(None),
-        })
+            artifact_quota: AtomicI64::new(crate::artifact::DEFAULT_QUOTA),
+        };
+        store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
+        Ok(store)
+    }
+
+    /// The private state directory.
+    pub(crate) fn state_directory(&self) -> &Path {
+        &self.directory
     }
 
     pub fn identity(&self) -> Identity {

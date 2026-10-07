@@ -140,6 +140,10 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 			status, code, message = http.StatusNotFound, "not_found", err.Error()
 		case errors.Is(err, ErrConflict):
 			status, code, message = http.StatusConflict, "conflict", err.Error()
+		case errors.Is(err, ErrTooLarge):
+			status, code, message = http.StatusRequestEntityTooLarge, "too_large", err.Error()
+		case errors.Is(err, ErrInsufficientStorage):
+			status, code, message = http.StatusInsufficientStorage, "insufficient_storage", err.Error()
 		case errors.Is(err, ErrUnavailable), errors.Is(err, ErrAdapterOffline):
 			status, code, message = http.StatusServiceUnavailable, "unavailable", err.Error()
 		}

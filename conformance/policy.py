@@ -64,8 +64,10 @@ def policy_lines(p):
     lines = ['capsule-policy-v1', p['network_id'], p['person_public_key'], str(p['version']), p['issued_at'],
              p['valid_until']]
     for r in p['rules']:
-        lines += ['rule', r['agent'], ' '.join(r['principals']), ' '.join(r['actions']),
-                  f"{r['max_message_bytes']} {'true' if r['allow_disconnected'] else 'false'}"]
+        bounds = f"{r['max_message_bytes']} {'true' if r['allow_disconnected'] else 'false'}"
+        if r.get('max_artifact_bytes'):
+            bounds += f" {r['max_artifact_bytes']}"
+        lines += ['rule', r['agent'], ' '.join(r['principals']), ' '.join(r['actions']), bounds]
     return lines
 
 
@@ -374,7 +376,7 @@ def check(coord_binary, owner_binary, sender_binary, label):
             kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
             assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
             with sqlite3.connect(alice.state / 'host.db') as db:
-                assert db.execute('PRAGMA user_version').fetchone()[0] == 9
+                assert db.execute('PRAGMA user_version').fetchone()[0] == 10
         finally:
             if saved_sock is None:
                 os.environ.pop('SSH_AUTH_SOCK', None)

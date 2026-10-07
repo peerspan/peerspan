@@ -188,7 +188,7 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/grants", func(w http.ResponseWriter, r *http.Request) {
 		var g CreateGrant
-		if !decode(w, r, &g, "requester_host_id", "target_agent_id", "expires_at", "max_message_bytes", "allow_disconnected", "requester_agent_id?", "action") {
+		if !decode(w, r, &g, "requester_host_id", "target_agent_id", "expires_at", "max_message_bytes", "allow_disconnected", "requester_agent_id?", "action", "max_artifact_bytes") {
 			return
 		}
 		grant, err := store.CreateGrant(r.Context(), g)

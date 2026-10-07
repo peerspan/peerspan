@@ -618,9 +618,10 @@ func TestAdapterTaskHTTPBodies(t *testing.T) {
 	}
 }
 
-const dropTaskTables = "DROP TABLE received_tasks; DROP TABLE task_events; DROP TABLE outbound_tasks; DROP TABLE outbound_task_events; DROP TABLE task_deliveries; DROP TABLE task_update_notifications"
+const dropArtifactTables = "DROP TABLE artifact_files; DROP TABLE task_artifacts"
+const dropTaskTables = dropArtifactTables + "; DROP TABLE received_tasks; DROP TABLE task_events; DROP TABLE outbound_tasks; DROP TABLE outbound_task_events; DROP TABLE task_deliveries; DROP TABLE task_update_notifications"
 
-func TestTaskMigrationToVersion9(t *testing.T) {
+func TestTaskMigrationToVersion10(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "host")
 	s := must(Open(ctx, dir))
@@ -632,7 +633,7 @@ func TestTaskMigrationToVersion9(t *testing.T) {
 	s = must(Open(ctx, dir))
 	defer s.Close()
 	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 9 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 10 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if kept := must(s.Agent(ctx, agent.ID)); kept.Name != "kept" {
