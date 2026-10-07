@@ -86,9 +86,18 @@ pub(crate) fn person_id_shape(id: &str) -> bool {
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     })
 }
-/// `person:<person ID>`, `group:<name>`, or `network`.
+/// `agent:<host ID>/<agent ID>`, split into its host and agent.
+pub(crate) fn agent_principal(value: &str) -> Option<(&str, &str)> {
+    let (host, agent) = value.strip_prefix("agent:")?.split_once('/')?;
+    (crate::peer_store::valid_id(host, "host", 32)
+        && crate::peer_store::valid_id(agent, "agent", 16))
+    .then_some((host, agent))
+}
+/// `person:<person ID>`, `group:<name>`, `network`, or
+/// `agent:<host ID>/<agent ID>`.
 pub fn principal(value: &str) -> Result<(), Error> {
     let ok = value == "network"
+        || agent_principal(value).is_some()
         || value.strip_prefix("person:").is_some_and(person_id_shape)
         || value
             .strip_prefix("group:")
@@ -97,8 +106,34 @@ pub fn principal(value: &str) -> Result<(), Error> {
         Ok(())
     } else {
         Err(invalid(&format!(
-            "invalid principal {value:?}: use person:<person ID>, group:<name>, or network"
+            "invalid principal {value:?}: use person:<person ID>, group:<name>, network, or agent:<host ID>/<agent ID>"
         )))
+    }
+}
+/// Whether a principal matches an authenticated sender, its groups, and the
+/// origin it asserts.
+fn principal_matches(
+    p: &str,
+    sender: &Member,
+    groups: &[crate::admins::Group],
+    origin: Option<&crate::peer_store::Origin>,
+) -> bool {
+    if p == "network" {
+        true
+    } else if let Some(id) = p.strip_prefix("person:") {
+        sender.person_id.as_deref() == Some(id)
+    } else if let Some(name) = p.strip_prefix("group:") {
+        sender.person_id.as_ref().is_some_and(|person| {
+            groups
+                .iter()
+                .any(|g| g.name == name && g.members.contains(person))
+        })
+    } else if let Some((host, agent)) = agent_principal(p) {
+        // The authenticated host asserts which of its agents originated the
+        // request; it can never speak for another host's agents.
+        host == sender.host_id && origin.is_some_and(|o| o.agent_id == agent)
+    } else {
+        false
     }
 }
 /// Agent names in rules are valid labels.
@@ -385,22 +420,8 @@ impl Store {
                 continue;
             };
             let groups = self.stored_groups(connection, &network)?;
-            let matches = |p: &str| match p {
-                "network" => true,
-                _ => {
-                    if let Some(id) = p.strip_prefix("person:") {
-                        sender_member.person_id.as_deref() == Some(id)
-                    } else if let Some(name) = p.strip_prefix("group:") {
-                        sender_member.person_id.as_ref().is_some_and(|person| {
-                            groups
-                                .iter()
-                                .any(|g| g.name == name && g.members.contains(person))
-                        })
-                    } else {
-                        false
-                    }
-                }
-            };
+            let matches =
+                |p: &str| principal_matches(p, &sender_member, &groups, r.origin.as_ref());
             for rule in &policy.rules {
                 if rule.agent != agent
                     || !rule.actions.iter().any(|a| a == ACTION)
@@ -979,7 +1000,7 @@ mod tests {
     }
 
     #[test]
-    fn principals_have_three_shapes() {
+    fn principals_have_four_shapes() {
         principal("network").unwrap();
         principal(&format!("person:{SECOND_ID}")).unwrap();
         principal("group:backend").unwrap();
@@ -990,9 +1011,76 @@ mod tests {
             "group:-x",
             "host:x",
             "person:person_abc",
+            "agent:",
+            "agent:host_x/agent_y",
+            &format!("agent:host_{}", "a".repeat(64)),
+            &format!("agent:host_{}/agent_{}", "A".repeat(64), "b".repeat(32)),
+            &format!("agent:host_{}/agent_{}/x", "a".repeat(64), "b".repeat(32)),
+            &format!("agent:agent_{}", "b".repeat(32)),
         ] {
             assert!(principal(bad).is_err(), "{bad}");
         }
+        principal(&format!(
+            "agent:host_{}/agent_{}",
+            "a".repeat(64),
+            "b".repeat(32)
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn agent_principals_match_only_that_hosts_asserted_agent() {
+        use crate::peer_store::Origin;
+        let host = format!("host_{}", "a".repeat(64));
+        let agent = format!("agent_{}", "b".repeat(32));
+        let principal = format!("agent:{host}/{agent}");
+        let member = |id: &str| Member {
+            host_id: id.into(),
+            public_key: String::new(),
+            member: "m".into(),
+            address: String::new(),
+            candidates: vec![],
+            updated_at: String::new(),
+            membership: None,
+            admission: None,
+            person_id: Some(SECOND_ID.into()),
+            person_member: None,
+        };
+        let origin = |a: &str| Origin {
+            agent_id: a.into(),
+            session_id: None,
+        };
+        let sender = member(&host);
+        assert!(principal_matches(
+            &principal,
+            &sender,
+            &[],
+            Some(&origin(&agent))
+        ));
+        // No origin, another agent, or another host asserting the same agent.
+        assert!(!principal_matches(&principal, &sender, &[], None));
+        let other_agent = format!("agent_{}", "c".repeat(32));
+        assert!(!principal_matches(
+            &principal,
+            &sender,
+            &[],
+            Some(&origin(&other_agent))
+        ));
+        let other_host = member(&format!("host_{}", "d".repeat(64)));
+        assert!(!principal_matches(
+            &principal,
+            &other_host,
+            &[],
+            Some(&origin(&agent))
+        ));
+        // The other shapes ignore origin.
+        assert!(principal_matches("network", &sender, &[], None));
+        assert!(principal_matches(
+            &format!("person:{SECOND_ID}"),
+            &sender,
+            &[],
+            None
+        ));
     }
 
     #[test]

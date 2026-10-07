@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -65,11 +66,14 @@ func (p Policy) Message() []byte {
 }
 
 // ValidPrincipal reports whether a principal is person:<person ID>,
-// group:<name>, or network.
+// group:<name>, network, or agent:<host ID>/<agent ID>.
 func ValidPrincipal(p string) bool {
 	switch {
 	case p == PrincipalNetwork:
 		return true
+	case strings.HasPrefix(p, "agent:"):
+		_, _, ok := AgentPrincipal(p)
+		return ok
 	case strings.HasPrefix(p, "person:"):
 		return ValidPersonID(strings.TrimPrefix(p, "person:"))
 	case strings.HasPrefix(p, "group:"):
@@ -118,7 +122,7 @@ func CheckPolicy(network string, p Policy) error {
 		}
 		for _, principal := range r.Principals {
 			if !ValidPrincipal(principal) {
-				return fmt.Errorf("%w: invalid principal %q; use person:<person ID>, group:<name>, or network", ErrInvalid, principal)
+				return fmt.Errorf("%w: invalid principal %q; use person:<person ID>, group:<name>, network, or agent:<host ID>/<agent ID>", ErrInvalid, principal)
 			}
 		}
 		if len(r.Actions) == 0 {
@@ -204,4 +208,20 @@ func DecodePolicy(data []byte) (Policy, error) {
 	var p Policy
 	err := json.Unmarshal(data, &p)
 	return p, err
+}
+
+var (
+	hostIDs  = regexp.MustCompile(`^host_[0-9a-f]{64}$`)
+	agentIDs = regexp.MustCompile(`^agent_[0-9a-f]{32}$`)
+)
+
+// AgentPrincipal splits agent:<host ID>/<agent ID>. It matches only requests
+// from that authenticated host whose asserted origin is that agent.
+func AgentPrincipal(p string) (host, agent string, ok bool) {
+	rest, found := strings.CutPrefix(p, "agent:")
+	if !found {
+		return "", "", false
+	}
+	host, agent, found = strings.Cut(rest, "/")
+	return host, agent, found && hostIDs.MatchString(host) && agentIDs.MatchString(agent)
 }

@@ -341,7 +341,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender string, r M
 			return authority{}, err
 		}
 		for _, rule := range p.Rules {
-			if rule.Agent != agent || !hasAction(rule) || int64(len(r.Content)) > rule.MaxMessageBytes || !g.principalMatches(rule, member) {
+			if rule.Agent != agent || !hasAction(rule) || int64(len(r.Content)) > rule.MaxMessageBytes || !g.principalMatches(rule, member, r.Origin) {
 				continue
 			}
 			if allowed == nil {
@@ -370,9 +370,16 @@ func hasAction(rule membership.PolicyRule) bool {
 }
 
 // principalMatches reports whether a sender member matches any of a rule's
-// principals: bound to the person, bound to a group member, or any member.
-func (g governance) principalMatches(rule membership.PolicyRule, sender NetworkMember) bool {
+// principals: bound to the person, bound to a group member, any member, or
+// that host with that asserted origin agent.
+func (g governance) principalMatches(rule membership.PolicyRule, sender NetworkMember, origin *Origin) bool {
 	for _, principal := range rule.Principals {
+		if host, agent, ok := membership.AgentPrincipal(principal); ok {
+			if host == sender.HostID && origin != nil && origin.AgentID == agent {
+				return true
+			}
+			continue
+		}
 		switch {
 		case principal == membership.PrincipalNetwork:
 			return true

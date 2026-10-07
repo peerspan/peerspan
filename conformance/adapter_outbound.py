@@ -171,6 +171,11 @@ def check(go, rust, node, label):
                 request["meta"]["kind"] == "message"
                 and request["content"] == "from agent A"
             )
+            # The route's session is the origin; these hosts are unbound.
+            assert request["meta"]["origin_agent_id"] == aa["id"], request
+            assert request["meta"]["origin_session_id"] == ass["id"], request
+            assert request["meta"]["sender_person_id"] is None, request
+            assert request["meta"]["sender_person"] is None, request
             assert not cb.reply(
                 request["meta"]["delivery_id"], "reply from agent B"
             ).get("isError")
@@ -182,6 +187,9 @@ def check(go, rust, node, label):
             assert notification["meta"]["request_id"] == sent["request_id"]
             assert notification["meta"]["session_id"] == ass["id"]
             assert "delivery_id" not in notification["meta"]
+            # The reply names the remote agent and session that replied.
+            assert notification["meta"]["origin_agent_id"] == ba["id"], notification
+            assert notification["meta"]["origin_session_id"] == bss["id"], notification
             assert (
                 adapter_call(
                     a,
@@ -212,6 +220,8 @@ def check(go, rust, node, label):
             assert not result.get("isError")
             request = ca.notification()
             assert request["meta"]["kind"] == "message"
+            assert request["meta"]["origin_agent_id"] == ba["id"]
+            assert request["meta"]["origin_session_id"] == bss["id"]
             assert not ca.reply(request["meta"]["delivery_id"], "reply from A").get(
                 "isError"
             )

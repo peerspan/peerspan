@@ -54,6 +54,10 @@ type DeliveryRecord struct {
 type Handoff struct {
 	Delivery Delivery       `json:"delivery"`
 	Request  MessageRequest `json:"request"`
+	// SenderPersonID and SenderPerson name the person the sending host is
+	// bound to, if any, in the first network by ID that binds it.
+	SenderPersonID *string `json:"sender_person_id"`
+	SenderPerson   *string `json:"sender_person"`
 }
 type Reply struct {
 	SenderHostID   string `json:"sender_host_id"`
@@ -64,6 +68,9 @@ type Reply struct {
 	DeliveryID     string `json:"delivery_id"`
 	Content        string `json:"content"`
 	RepliedAt      string `json:"replied_at"`
+	// Origin is the agent and session that replied, as the replying host
+	// asserts it.
+	Origin *Origin `json:"origin,omitempty"`
 }
 type ReplyStatus struct {
 	State string  `json:"state"`
@@ -348,6 +355,9 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 		}
 		if state == "unknown" {
 			result = &Handoff{Delivery: d, Request: p.request}
+			if result.SenderPersonID, result.SenderPerson, e = senderPerson(ctx, tx, p.sender); e != nil {
+				return nil, e
+			}
 			break
 		}
 	}
@@ -459,7 +469,7 @@ func (s *Store) Reply(ctx context.Context, token AdapterAuth, id, content string
 		return old, err
 	}
 	at := timestamp(time.Now())
-	r := Reply{SenderHostID: d.SenderHostID, RequestID: d.RequestID, ReceiverHostID: s.identity.ID, TargetAgentID: d.TargetAgentID, SessionID: d.SessionID, DeliveryID: d.ID, Content: content, RepliedAt: at}
+	r := Reply{SenderHostID: d.SenderHostID, RequestID: d.RequestID, ReceiverHostID: s.identity.ID, TargetAgentID: d.TargetAgentID, SessionID: d.SessionID, DeliveryID: d.ID, Content: content, RepliedAt: at, Origin: &Origin{AgentID: d.TargetAgentID, SessionID: d.SessionID}}
 	data, err := json.Marshal(r)
 	if err != nil {
 		return r, err
@@ -506,4 +516,24 @@ func (s *Store) SaveOutboundReply(ctx context.Context, peer string, r Reply) (Re
 		return r, err
 	}
 	return r, tx.Commit()
+}
+
+// senderPerson is the person a host is bound to, and its label, in the first
+// network by ID that binds it; both are nil for an unbound host.
+func senderPerson(ctx context.Context, tx *sql.Tx, host string) (*string, *string, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT record FROM network_members WHERE host_id = ? ORDER BY network_id", host)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		member, err := readJSON[NetworkMember](rows)
+		if err != nil {
+			return nil, nil, err
+		}
+		if member.PersonID != nil {
+			return member.PersonID, member.PersonMember, nil
+		}
+	}
+	return nil, nil, rows.Err()
 }

@@ -333,7 +333,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 			return old, err
 		}
 	}
-	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content}, State: "unknown", NextAttemptAt: s.initialAttempt()}
+	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}}, State: "unknown", NextAttemptAt: s.initialAttempt()}
 	if err = insertOutbound(ctx, tx, out); err != nil {
 		return out, err
 	}

@@ -171,7 +171,7 @@ func TestOwnerAccessPolicy(t *testing.T) {
 		}
 	}
 	routed, err := bob.PrepareAdapterSend(ctx, auth, AdapterSend{Destination: "reviewer", RequestID: "request_" + strings.Repeat("1", 32), Content: "routed"})
-	if err != nil || routed.Request.Policy == nil {
+	if err != nil || routed.Request.Policy == nil || routed.Request.Origin == nil || *routed.Request.Origin != (Origin{AgentID: sender.ID, SessionID: session.ID}) {
 		t.Fatalf("route send: %v %+v", err, routed)
 	}
 	if routed = must(bob.Exchange(ctx, routed, false)); routed.State != "accepted" {

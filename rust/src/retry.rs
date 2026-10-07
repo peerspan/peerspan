@@ -267,6 +267,7 @@ mod tests {
                 target_agent_id: format!("agent_{}", "0".repeat(32)),
                 deadline: deadline.into(),
                 content: "hello".into(),
+                origin: None,
             },
             state: state.into(),
             receipt: None,

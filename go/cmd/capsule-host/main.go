@@ -39,10 +39,10 @@ Usage:
   capsule-host [--state DIR] peer add --id HOST --public-key KEY --address IP:PORT
   capsule-host [--state DIR] peer list
   capsule-host [--state DIR] peer path HOST
-  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected]
+  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--max-message-bytes N] [--allow-disconnected] [--from-agent ID]
   capsule-host [--state DIR] grant list
   capsule-host [--state DIR] grant revoke ID
-  capsule-host [--state DIR] message send --peer HOST [--grant ID] --agent ID --deadline TIME --content TEXT [--request ID]
+  capsule-host [--state DIR] message send --peer HOST [--grant ID] --agent ID --deadline TIME --content TEXT [--request ID] [--from-agent ID [--from-session ID]]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] message inspect|retry|refresh|reply|origin --peer HOST ID
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
@@ -379,13 +379,16 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		}
 		if args[1] == "create" {
 			var g host.CreateGrant
+			var fromAgent string
 			err := parse("grant create", args[2:], func(fs *flag.FlagSet) {
+				fs.StringVar(&fromAgent, "from-agent", "", "limit the grant to requests whose asserted origin is this agent of the requester host")
 				fs.StringVar(&g.RequesterHostID, "peer", "", "requester host ID")
 				fs.StringVar(&g.TargetAgentID, "agent", "", "target local agent ID")
 				fs.StringVar(&g.ExpiresAt, "expires-at", "", "UTC grant expiration")
 				fs.Int64Var(&g.MaxMessageBytes, "max-message-bytes", 65536, "content byte limit")
 				fs.BoolVar(&g.AllowDisconnected, "allow-disconnected", false, "permit work without coordination")
 			})
+			g.RequesterAgentID = optional(fromAgent)
 			return "POST", "/v1/grants", g, err
 		}
 	case "message":
@@ -402,7 +405,7 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		}
 		if args[1] == "send" {
 			var m host.SendMessage
-			var grant string
+			var grant, fromAgent, fromSession string
 			err := parse("message send", args[2:], func(fs *flag.FlagSet) {
 				fs.StringVar(&m.PeerHostID, "peer", "", "receiving host ID")
 				fs.StringVar(&m.RequestID, "request", "", "stable request ID; generated if omitted")
@@ -410,8 +413,16 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				fs.StringVar(&m.TargetAgentID, "agent", "", "receiver agent ID")
 				fs.StringVar(&m.Deadline, "deadline", "", "UTC request deadline")
 				fs.StringVar(&m.Content, "content", "", "message text")
+				fs.StringVar(&fromAgent, "from-agent", "", "local agent this send originates from")
+				fs.StringVar(&fromSession, "from-session", "", "one of that agent's sessions; needs --from-agent")
 			})
 			m.GrantID = optional(grant)
+			if fromSession != "" && fromAgent == "" && err == nil {
+				err = errors.New("--from-session needs --from-agent")
+			}
+			if fromAgent != "" {
+				m.Origin = &host.Origin{AgentID: fromAgent, SessionID: fromSession}
+			}
 			return "POST", "/v1/outbound", m, err
 		}
 		if args[1] == "inspect" || args[1] == "retry" || args[1] == "refresh" || args[1] == "reply" || args[1] == "origin" {

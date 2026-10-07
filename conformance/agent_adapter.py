@@ -260,6 +260,9 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert event['meta']['request_id'] == rid
             assert event['meta']['session_id'] == session['id']
             assert event['meta']['sender_host_id'] == a['id']
+            # An owner send without --from-agent, from an unbound host.
+            for field in ('origin_agent_id', 'origin_session_id', 'sender_person_id', 'sender_person'):
+                assert field in event['meta'] and event['meta'][field] is None, (field, event['meta'])
             delivery = event['meta']['delivery_id']
             deadline = time.monotonic() + 3
             while receiver.cli('delivery', 'inspect', delivery)['state'] == 'unknown':
@@ -288,6 +291,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             saved = sender.cli('message', 'reply', '--peer', b['id'], rid)
             assert saved['state'] == 'replied' and saved['reply']['content'] == 'response'
             assert saved['reply']['session_id'] == session['id']
+            assert saved['reply']['origin'] == {'agent_id': agent['id'], 'session_id': session['id']}, saved
             context = fixture_context(stranger, root)
             assert wire(receiver, context, 'GET', '/peer/v1/replies/' + rid)[0] == 404
             assert wire(receiver, context, 'POST', '/adapter/v1/next', {})[0] == 404
@@ -296,12 +300,16 @@ def check(sender_binary, receiver_binary, node, script, label):
 
             # Concurrent polling must claim a message only once.
             channel.close(); channel = None
-            second = sender.submit(b, agent, grant)
+            author = sender.cli('agent', 'register', '--name', 'author', '--owner', 'bob')
+            second = sender.cli('message', 'send', '--peer', b['id'], '--agent', agent['id'], '--grant', grant['id'],
+                                '--deadline', timestamp(), '--content', 'from an agent', '--from-agent', author['id'])
             with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
                 claims = list(executor.map(lambda _: adapter_call(receiver, token, 'POST', '/adapter/v1/next', {}), range(6)))
             assert all(status == 200 for status, _ in claims)
             handed = [value for _, value in claims if value is not None]
             assert len(handed) == 1
+            assert handed[0]['request']['origin'] == {'agent_id': author['id']}, handed
+            assert handed[0]['sender_person_id'] is None and handed[0]['sender_person'] is None, handed
             uncertain = handed[0]['delivery']
             assert uncertain['state'] == 'unknown'
             assert uncertain['request_id'] == second['request']['request_id']

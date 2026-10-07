@@ -53,6 +53,10 @@ The checks fall into two kinds. The final bounds: once one fails it never recove
 
 Roadmap milestone 6, slice 1. An incoming message event's `meta` gains:
 - `origin_agent_id` and `origin_session_id` from the request's `origin`, null when absent;
-- `sender_person_id` and `sender_person`, the label, when the sending host is bound to a person, and null otherwise.
+- `sender_person_id` and `sender_person`, when the sending host is bound to a person, and null otherwise. The label is the binding's `person_member` label from the first network, by ID, that binds the sender.
 
 A reply event's `meta` gains `origin_agent_id` and `origin_session_id`, naming the remote agent and session that replied. Adapter sends and replies set `origin` from the adapter's session automatically. Agents never supply it.
+
+**Adapter API payloads.**
+- A handoff (`POST /adapter/v1/next`) is `{delivery, request, sender_person_id, sender_person}`. `request` includes `origin`, and the two person fields are always present, null when the sender is unbound.
+- A reply notification (`POST /adapter/v1/replies/next`) is `{delivery, reply}`, with the replier in `reply.origin`.

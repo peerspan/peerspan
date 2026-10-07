@@ -184,5 +184,6 @@ func (s *Store) FetchReply(ctx context.Context, peerID, id string) (ReplyStatus,
 }
 func validReply(r Reply, sender, receiver string, m MessageRequest) bool {
 	_, err := parseTime(r.RepliedAt)
-	return err == nil && r.SenderHostID == sender && r.ReceiverHostID == receiver && r.RequestID == m.RequestID && r.TargetAgentID == m.TargetAgentID && validID(r.SessionID, "session", 16) && validID(r.DeliveryID, "delivery", 16) && r.Content != "" && len(r.Content) <= 65536
+	return err == nil && r.SenderHostID == sender && r.ReceiverHostID == receiver && r.RequestID == m.RequestID && r.TargetAgentID == m.TargetAgentID && validID(r.SessionID, "session", 16) && validID(r.DeliveryID, "delivery", 16) && r.Content != "" && len(r.Content) <= 65536 &&
+		(r.Origin == nil || (r.Origin.valid() && r.Origin.AgentID == r.TargetAgentID && r.Origin.SessionID == r.SessionID))
 }

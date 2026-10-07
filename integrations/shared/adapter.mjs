@@ -374,7 +374,11 @@ export function createAdapter({
                 delivery_id: handoff.delivery.id,
                 request_id: handoff.delivery.request_id,
                 sender_host_id: handoff.delivery.sender_host_id,
-                session_id: handoff.delivery.session_id
+                session_id: handoff.delivery.session_id,
+                origin_agent_id: handoff.request.origin?.agent_id ?? null,
+                origin_session_id: handoff.request.origin?.session_id ?? null,
+                sender_person_id: handoff.sender_person_id ?? null,
+                sender_person: handoff.sender_person ?? null
               }
             });
             acknowledge.push(`/adapter/v1/deliveries/${handoff.delivery.id}/forwarded`);
@@ -391,7 +395,9 @@ export function createAdapter({
                 notification_id: response.delivery.id,
                 request_id: response.delivery.request_id,
                 peer_host_id: response.delivery.peer_host_id,
-                session_id: response.delivery.session_id
+                session_id: response.delivery.session_id,
+                origin_agent_id: response.reply.origin?.agent_id ?? null,
+                origin_session_id: response.reply.origin?.session_id ?? null
               }
             });
             acknowledge.push(`/adapter/v1/replies/${response.delivery.id}/forwarded`);

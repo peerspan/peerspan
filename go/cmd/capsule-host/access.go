@@ -44,11 +44,17 @@ func currentPolicy(ctx context.Context, client host.Client, network, personID st
 	return &p, err
 }
 
-// resolvePrincipal accepts network, group:NAME, and person:PERSON, where
-// PERSON is a person ID, key, or unambiguous label.
+// resolvePrincipal accepts network, group:NAME, person:PERSON, and
+// agent:HOST_ID/AGENT_ID, where PERSON is a person ID, key, or unambiguous
+// label.
 func resolvePrincipal(persons []host.Person, given string) (string, error) {
 	switch {
 	case given == membership.PrincipalNetwork:
+		return given, nil
+	case strings.HasPrefix(given, "agent:"):
+		if _, _, ok := membership.AgentPrincipal(given); !ok {
+			return "", fmt.Errorf("invalid agent principal %q; use agent:HOST_ID/AGENT_ID", given)
+		}
 		return given, nil
 	case strings.HasPrefix(given, "group:"):
 		if !membership.ValidGroupName(strings.TrimPrefix(given, "group:")) {
@@ -62,7 +68,7 @@ func resolvePrincipal(persons []host.Person, given string) (string, error) {
 		}
 		return "person:" + p.PersonID, nil
 	}
-	return "", fmt.Errorf("invalid principal %q; use person:PERSON, group:NAME, or network", given)
+	return "", fmt.Errorf("invalid principal %q; use person:PERSON, group:NAME, network, or agent:HOST_ID/AGENT_ID", given)
 }
 
 func accessRequest(ctx context.Context, client host.Client, args []string, errOut io.Writer) (string, string, any, error) {
@@ -83,7 +89,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 		fs.StringVar(&personKey, "person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 		if args[1] != "renew" {
 			fs.StringVar(&agent, "agent", "", "local agent name the rule covers")
-			fs.Var(&principals, "principal", "person:PERSON, group:NAME, or network; repeatable")
+			fs.Var(&principals, "principal", "person:PERSON, group:NAME, network, or agent:HOST_ID/AGENT_ID; repeatable")
 		}
 		if args[1] == "allow" {
 			fs.Int64Var(&maxBytes, "max-message-bytes", 65536, "content byte limit, 1 to 65536")

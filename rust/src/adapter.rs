@@ -4,7 +4,7 @@ use crate::{
     adapter_connection::AdapterAuth,
     api::{blocking, decode},
     model::{Error, Session},
-    peer_store::{Connectivity, MessageRequest, Peer, valid_id},
+    peer_store::{Connectivity, MessageRequest, Origin, Peer, valid_id},
     store::{Store, append_event, new_id, now},
 };
 use axum::{
@@ -75,6 +75,10 @@ pub struct DeliveryRecord {
 pub struct Handoff {
     pub delivery: Delivery,
     pub request: MessageRequest,
+    /// The person the sending host is bound to, and its label, in the first
+    /// network by ID that binds it; null for an unbound host.
+    pub sender_person_id: Option<String>,
+    pub sender_person: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +91,13 @@ pub struct Reply {
     pub delivery_id: String,
     pub content: String,
     pub replied_at: String,
+    /// The agent and session that replied, as the replying host asserts it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub origin: Option<Origin>,
 }
 #[derive(Serialize)]
 pub struct ReplyStatus {
@@ -167,6 +178,22 @@ fn owned(conn: &Connection, token: &AdapterAuth, id: &str) -> Result<Delivery, E
         return Err(Error::Forbidden);
     }
     Ok(d)
+}
+/// The person a host is bound to, and its label, in the first network by ID
+/// that binds it; both are `None` for an unbound host.
+fn sender_person(conn: &Connection, host: &str) -> Result<(Option<String>, Option<String>), Error> {
+    let mut stmt =
+        conn.prepare("SELECT record FROM network_members WHERE host_id = ?1 ORDER BY network_id")?;
+    let records = stmt
+        .query_map([host], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for record in records {
+        let member: crate::network::Member = serde_json::from_str(&record)?;
+        if member.person_id.is_some() {
+            return Ok((member.person_id, member.person_member));
+        }
+    }
+    Ok((None, None))
 }
 fn update(tx: &Transaction<'_>, d: &Delivery, kind: &str) -> Result<(), Error> {
     tx.execute(
@@ -407,9 +434,12 @@ impl Store {
                 &d.created_at,
             )?;
             if state == "unknown" {
+                let (sender_person_id, sender_person) = sender_person(&tx, &d.sender_host_id)?;
                 handoff = Some(Handoff {
                     delivery: d,
                     request,
+                    sender_person_id,
+                    sender_person,
                 });
                 break;
             }
@@ -501,6 +531,10 @@ impl Store {
             delivery_id: d.id.clone(),
             content,
             replied_at: at.clone(),
+            origin: Some(Origin {
+                agent_id: d.target_agent_id.clone(),
+                session_id: Some(d.session_id.clone()),
+            }),
         };
         tx.execute(
             "INSERT INTO received_replies VALUES (?1,?2,?3)",
@@ -729,6 +763,12 @@ async fn fetch_reply(
     Ok(Json(fetch_reply_status(store, peer, id).await?))
 }
 
+/// A reply's origin, when present, names the replying agent and session.
+fn reply_origin_consistent(r: &Reply) -> bool {
+    r.origin.as_ref().is_none_or(|o| {
+        o.valid() && o.agent_id == r.target_agent_id && o.session_id.as_ref() == Some(&r.session_id)
+    })
+}
 pub(crate) async fn fetch_reply_status(
     store: Arc<Store>,
     peer: String,
@@ -775,6 +815,7 @@ pub(crate) async fn fetch_reply_status(
                 && !r.content.is_empty()
                 && r.content.len() <= 65536
                 && DateTime::parse_from_rfc3339(&r.replied_at).is_ok()
+                && reply_origin_consistent(&r)
             {
                 let r = blocking(store, move |s| s.save_outbound_reply(&peer, r)).await?;
                 status = ReplyStatus {
@@ -787,4 +828,175 @@ pub(crate) async fn fetch_reply_status(
         _ => {}
     }
     Ok(status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        adapter_outbound::tests::connected_adapter,
+        peer_store::tests::{add_test_peer, grant_for, request},
+    };
+
+    fn received(store: &Store, sender: &str, r: &MessageRequest) {
+        store.accept_message(sender, r.clone()).unwrap();
+    }
+
+    #[test]
+    fn handoffs_and_replies_carry_origin_and_the_sender_person() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let peer = add_test_peer(&store);
+        let auth = connected_adapter(&store, "a");
+        let session = store.adapter_session(&auth).unwrap();
+        let remote = Origin {
+            agent_id: format!("agent_{}", "c".repeat(32)),
+            session_id: Some(format!("session_{}", "d".repeat(32))),
+        };
+        let g = grant_for(&store, &peer.id, &session.agent_id, Some(&remote.agent_id));
+        received(
+            &store,
+            &peer.id,
+            &request(&g.id, &session.agent_id, Some(remote.clone())),
+        );
+        let handoff = store.next_delivery(&auth).unwrap().unwrap();
+        let shown = serde_json::to_value(&handoff).unwrap();
+        assert_eq!(
+            shown["request"]["origin"],
+            serde_json::to_value(&remote).unwrap()
+        );
+        // An unbound sender has no person, shown as null.
+        assert!(shown["sender_person_id"].is_null() && shown.get("sender_person_id").is_some());
+        assert!(shown["sender_person"].is_null() && shown.get("sender_person").is_some());
+        let reply = store
+            .reply(&auth, &handoff.delivery.id, "done".into())
+            .unwrap();
+        assert_eq!(
+            reply.origin,
+            Some(Origin {
+                agent_id: session.agent_id.clone(),
+                session_id: Some(session.id.clone()),
+            })
+        );
+        assert_eq!(
+            store.received_reply(&peer.id, &reply.request_id).unwrap(),
+            reply
+        );
+    }
+
+    #[test]
+    fn fetched_reply_origins_name_the_replying_session() {
+        let agent = format!("agent_{}", "a".repeat(32));
+        let session = format!("session_{}", "b".repeat(32));
+        let wire = serde_json::json!({
+            "sender_host_id": "h", "request_id": "r", "receiver_host_id": "h",
+            "target_agent_id": agent, "session_id": session, "delivery_id": "d",
+            "content": "c", "replied_at": "t",
+        });
+        let with = |origin: Option<serde_json::Value>| {
+            let mut v = wire.clone();
+            if let Some(o) = origin {
+                v["origin"] = o;
+            }
+            serde_json::from_value::<Reply>(v)
+        };
+        assert!(reply_origin_consistent(&with(None).unwrap()));
+        assert!(reply_origin_consistent(
+            &with(Some(
+                serde_json::json!({"agent_id": agent, "session_id": session})
+            ))
+            .unwrap()
+        ));
+        let other = format!("agent_{}", "c".repeat(32));
+        for bad in [
+            serde_json::json!({"agent_id": agent}),
+            serde_json::json!({"agent_id": other, "session_id": session}),
+        ] {
+            assert!(!reply_origin_consistent(&with(Some(bad)).unwrap()));
+        }
+        assert!(with(Some(serde_json::Value::Null)).is_err());
+        assert!(with(Some(serde_json::json!({"agent_id": agent, "x": 1}))).is_err());
+    }
+
+    #[test]
+    fn a_bound_sender_names_its_person_in_the_first_network() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let conn = store.connection().unwrap();
+        let host = format!("host_{}", "a".repeat(64));
+        let member = |person: Option<&str>, label: Option<&str>| {
+            serde_json::json!({
+                "host_id": host, "public_key": "", "member": "m", "address": "",
+                "updated_at": "", "person_id": person, "person_member": label,
+            })
+            .to_string()
+        };
+        assert_eq!(sender_person(&conn, &host).unwrap(), (None, None));
+        let person = format!("person_{}", "b".repeat(64));
+        for (network, record) in [
+            ("network_1", member(None, None)),
+            ("network_2", member(Some(&person), Some("pat"))),
+            ("network_3", member(Some("person_other"), Some("other"))),
+        ] {
+            conn.execute(
+                "INSERT INTO network_members VALUES (?1, ?2, ?3)",
+                params![network, host, record],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            sender_person(&conn, &host).unwrap(),
+            (Some(person), Some("pat".into()))
+        );
+    }
+
+    #[test]
+    fn agent_grants_are_rechecked_at_handoff_and_reply() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let peer = add_test_peer(&store);
+        let auth = connected_adapter(&store, "a");
+        let agent = store.adapter_session(&auth).unwrap().agent_id;
+        let remote = format!("agent_{}", "c".repeat(32));
+        let origin = Some(Origin {
+            agent_id: remote.clone(),
+            session_id: None,
+        });
+        let g = grant_for(&store, &peer.id, &agent, Some(&remote));
+        let set_requester = |agent: &str| {
+            let mut changed = g.clone();
+            changed.requester_agent_id = Some(agent.into());
+            store
+                .connection()
+                .unwrap()
+                .execute(
+                    "UPDATE grants SET record = ?1 WHERE id = ?2",
+                    params![serde_json::to_string(&changed).unwrap(), g.id],
+                )
+                .unwrap();
+        };
+        // Accepted, then the grant names another requester agent: blocked.
+        let first = request(&g.id, &agent, origin.clone());
+        received(&store, &peer.id, &first);
+        let other = format!("agent_{}", "d".repeat(32));
+        set_requester(&other);
+        assert!(store.next_delivery(&auth).unwrap().is_none());
+        let blocked = store.deliveries(0, 10).unwrap();
+        assert_eq!(blocked[0].delivery.state, "blocked");
+        // Handed off, then the grant changes before the reply: refused.
+        set_requester(&remote);
+        let mut second = request(&g.id, &agent, origin);
+        second.request_id = format!("request_{}", "2".repeat(32));
+        received(&store, &peer.id, &second);
+        let handoff = store.next_delivery(&auth).unwrap().unwrap();
+        set_requester(&other);
+        assert!(matches!(
+            store.reply(&auth, &handoff.delivery.id, "done".into()),
+            Err(Error::Forbidden)
+        ));
+        set_requester(&remote);
+        store
+            .reply(&auth, &handoff.delivery.id, "done".into())
+            .unwrap();
+    }
 }

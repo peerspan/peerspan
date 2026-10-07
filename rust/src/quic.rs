@@ -1285,6 +1285,7 @@ mod tests {
                 target_agent_id: format!("agent_{}", "2".repeat(32)),
                 deadline: crate::store::rfc3339(chrono::Utc::now() + chrono::Duration::minutes(5)),
                 content: "hello".into(),
+                origin: None,
             })
             .unwrap();
         let status =

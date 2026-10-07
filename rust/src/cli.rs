@@ -410,6 +410,9 @@ pub enum GrantCommand {
         max_message_bytes: i64,
         #[arg(long)]
         allow_disconnected: bool,
+        /// Authorize only requests whose origin is this agent of the peer
+        #[arg(long, value_name = "AGENT_ID")]
+        from_agent: Option<String>,
     },
     List,
     Revoke {
@@ -424,7 +427,8 @@ pub enum AccessCommand {
         network: String,
         #[arg(long, value_name = "NAME")]
         agent: String,
-        /// person:ID, person:LABEL, group:NAME, or network; repeat for each
+        /// person:ID, person:LABEL, group:NAME, network, or
+        /// agent:HOST_ID/AGENT_ID; repeat for each
         #[arg(long, required = true)]
         principal: Vec<String>,
         #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
@@ -499,6 +503,12 @@ pub enum MessageCommand {
         content: String,
         #[arg(long, default_value = "")]
         request: String,
+        /// Send as this registered local agent
+        #[arg(long, value_name = "AGENT_ID")]
+        from_agent: Option<String>,
+        /// Send as this session of the --from-agent agent
+        #[arg(long, value_name = "SESSION_ID", requires = "from_agent")]
+        from_session: Option<String>,
     },
     List {
         #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
@@ -678,13 +688,14 @@ impl Command {
                 expires_at,
                 max_message_bytes,
                 allow_disconnected,
-            }) => (
-                Method::POST,
-                "/v1/grants".into(),
-                Some(
-                    json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected}),
-                ),
-            ),
+                from_agent,
+            }) => {
+                let mut body = json!({"requester_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"allow_disconnected":allow_disconnected});
+                if let Some(agent) = from_agent {
+                    body["requester_agent_id"] = json!(agent);
+                }
+                (Method::POST, "/v1/grants".into(), Some(body))
+            }
             Self::Grant(GrantCommand::List) => (Method::GET, "/v1/grants".into(), None),
             Self::Grant(GrantCommand::Revoke { id }) => (
                 Method::POST,
@@ -698,14 +709,22 @@ impl Command {
                 deadline,
                 content,
                 request,
-            }) => (
-                Method::POST,
-                "/v1/outbound".into(),
-                Some(with_grant(
+                from_agent,
+                from_session,
+            }) => {
+                let mut body = with_grant(
                     json!({"peer_host_id":peer,"target_agent_id":agent,"deadline":deadline,"content":content,"request_id":request}),
                     grant,
-                )),
-            ),
+                );
+                if let Some(agent) = from_agent {
+                    let mut origin = json!({ "agent_id": agent });
+                    if let Some(session) = from_session {
+                        origin["session_id"] = json!(session);
+                    }
+                    body["origin"] = origin;
+                }
+                (Method::POST, "/v1/outbound".into(), Some(body))
+            }
             Self::Message(MessageCommand::List { after, limit }) => (
                 Method::GET,
                 format!("/v1/messages?after={after}&limit={limit}"),
@@ -1005,4 +1024,76 @@ pub fn encoded(value: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn body(args: &[&str]) -> Value {
+        let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
+        cli.command.unwrap().request().unwrap().body.unwrap()
+    }
+
+    #[test]
+    fn message_send_carries_origin_only_when_named() {
+        let send = [
+            "message",
+            "send",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--deadline",
+            "d",
+            "--content",
+            "c",
+        ];
+        assert!(body(&send).get("origin").is_none());
+        let with_agent = body(&[&send[..], &["--from-agent", "agent_a"]].concat());
+        assert_eq!(with_agent["origin"], json!({"agent_id": "agent_a"}));
+        let with_session = body(
+            &[
+                &send[..],
+                &["--from-agent", "agent_a", "--from-session", "session_s"],
+            ]
+            .concat(),
+        );
+        assert_eq!(
+            with_session["origin"],
+            json!({"agent_id": "agent_a", "session_id": "session_s"})
+        );
+        // A session alone names no agent.
+        assert!(
+            Cli::try_parse_from(
+                [
+                    &["capsule-host"],
+                    &send[..],
+                    &["--from-session", "session_s"]
+                ]
+                .concat()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn grant_create_names_a_requester_agent_only_when_given() {
+        let create = [
+            "grant",
+            "create",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--expires-at",
+            "e",
+        ];
+        assert!(body(&create).get("requester_agent_id").is_none());
+        assert_eq!(
+            body(&[&create[..], &["--from-agent", "agent_a"]].concat())["requester_agent_id"],
+            "agent_a"
+        );
+    }
 }

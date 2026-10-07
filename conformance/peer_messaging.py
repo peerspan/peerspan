@@ -328,9 +328,96 @@ def check(sender_binary, receiver_binary, label):
             assert set(large_ids) <= set(seen)
             for query in ['after=-1', 'after=bad', 'limit=0', 'limit=1001']:
                 assert receiver.call('GET', '/v1/messages?' + query)[0] == 400
+
+            check_origin(sender, receiver, a, b, sa, ra, valid_for_sender, context)
         finally:
             stop_all((sender, receiver, stranger))
-    print(f'PASS {label}: mTLS identity pins, directional grants, disconnected access, atomic acceptance, lost receipts, restart, deduplication, revocation', flush=True)
+    print(f'PASS {label}: mTLS identity pins, directional grants, disconnected access, atomic acceptance, lost receipts, restart, deduplication, revocation, agent origin', flush=True)
+
+
+def received(receiver, rid):
+    """The received request with this ID, or None."""
+    cursor = 0
+    while page := receiver.cli('message', 'list', '--after', str(cursor)):
+        for item in page:
+            if item['request']['request_id'] == rid:
+                return item['request']
+        cursor = page[-1]['sequence']
+    return None
+
+
+def check_origin(sender, receiver, a, b, sa, ra, grant, context):
+    """Agent origin: round trip, strict shape, deduplication, local IDs, scoped grants."""
+    session = sender.cli('session', 'attach', '--agent', sa['id'], '--integration', 'test')
+    second = sender.cli('agent', 'register', '--name', 'carol', '--owner', 'bob')
+    origin = {'agent_id': sa['id'], 'session_id': session['id']}
+    sent = sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
+                      '--deadline', timestamp(), '--content', 'from an agent', '--request', request_id(),
+                      '--from-agent', sa['id'], '--from-session', session['id'])
+    assert sent['state'] == 'accepted' and sent['request']['origin'] == origin, sent
+    rid = sent['request']['request_id']
+    assert received(receiver, rid)['origin'] == origin
+    # Agent only; session_id is omitted rather than null.
+    agent_only = sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
+                            '--deadline', timestamp(), '--content', 'agent only', '--from-agent', sa['id'])
+    assert agent_only['state'] == 'accepted' and agent_only['request']['origin'] == {'agent_id': sa['id']}, agent_only
+    assert received(receiver, agent_only['request']['request_id'])['origin'] == {'agent_id': sa['id']}
+    # Owner sends without --from-agent carry no origin.
+    plain = sender.submit(b, ra, grant)
+    assert 'origin' not in plain['request'] and 'origin' not in received(receiver, plain['request']['request_id'])
+
+    # Origin is part of the request: identical retries dedupe, changes conflict.
+    receipt = wire(receiver, context, 'POST', '/peer/v1/messages', sent['request'])
+    assert receipt == (200, sent['receipt']), receipt
+    for changed in [dict(sent['request'], origin={'agent_id': sa['id']}),
+                    dict(sent['request'], origin={'agent_id': second['id'], 'session_id': session['id']}),
+                    {k: v for k, v in sent['request'].items() if k != 'origin'}]:
+        assert wire(receiver, context, 'POST', '/peer/v1/messages', changed)[0] == 409, changed
+    added = dict(plain['request'], origin={'agent_id': sa['id']})
+    assert wire(receiver, context, 'POST', '/peer/v1/messages', added)[0] == 409
+    # Locally too, for the same request ID.
+    local = {k: v for k, v in sent['request'].items() if k != 'origin'}
+    status, _ = sender.call('POST', '/v1/outbound', dict(local, peer_host_id=b['id'], origin={'agent_id': second['id']}))
+    assert status == 409, status
+
+    # Strict shape: unknown fields, nulls, and malformed IDs are 400.
+    good = {k: v for k, v in sent['request'].items() if k != 'origin'}
+    for bad in [None, {}, [], 'agent', {'session_id': session['id']}, {'agent_id': None},
+                {'agent_id': sa['id'], 'session_id': None}, {'agent_id': sa['id'], 'session_id': ''},
+                {'agent_id': sa['id'], 'extra': 1}, {'agent_id': 'agent_bad'}, {'agent_id': session['id']},
+                {'agent_id': sa['id'], 'session_id': 'session_bad'}, {'agent_id': sa['id'].upper()}]:
+        body = dict(good, request_id=request_id(), origin=bad)
+        status, _ = wire(receiver, context, 'POST', '/peer/v1/messages', body)
+        assert status == 400, (bad, status)
+
+    # The owner may assert only registered local agents and their own sessions.
+    before = len(sender.cli('activity'))
+    unknown_agent = 'agent_' + secrets.token_hex(16)
+    for bad in [{'agent_id': unknown_agent},
+                {'agent_id': sa['id'], 'session_id': 'session_' + secrets.token_hex(16)},
+                {'agent_id': second['id'], 'session_id': session['id']}]:
+        unknown_id = request_id()
+        status, error = sender.call('POST', '/v1/outbound', dict(good, peer_host_id=b['id'], request_id=unknown_id, origin=bad))
+        assert status == 404, (bad, status, error)
+        assert sender.call('GET', f'/v1/outbound/{b["id"]}/{unknown_id}')[0] == 404
+    assert len(sender.cli('activity')) == before, 'refused origin persisted activity'
+    sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
+               '--deadline', timestamp(), '--content', 'x', '--from-agent', unknown_agent, success=False)
+    sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', grant['id'],
+               '--deadline', timestamp(), '--content', 'x', '--from-session', session['id'], success=False)
+
+    # A grant with requester_agent_id authorizes only that asserted agent.
+    scoped = receiver.cli('grant', 'create', '--peer', a['id'], '--agent', ra['id'], '--expires-at', timestamp(1200),
+                          '--allow-disconnected', '--from-agent', sa['id'])
+    assert scoped['requester_agent_id'] == sa['id'], scoped
+    assert receiver.cli('grant', 'create', '--peer', a['id'], '--agent', ra['id'], '--expires-at', timestamp(1200),
+                        '--from-agent', 'agent_bad', success=False)
+    send = lambda *extra: sender.cli('message', 'send', '--peer', b['id'], '--agent', ra['id'], '--grant', scoped['id'],
+                                     '--deadline', timestamp(), '--content', 'scoped', *extra)
+    assert send('--from-agent', sa['id'])['state'] == 'accepted'
+    assert send('--from-agent', sa['id'], '--from-session', session['id'])['state'] == 'accepted'
+    assert send()['state'] == 'rejected'
+    assert send('--from-agent', second['id'])['state'] == 'rejected'
 
 
 def main():

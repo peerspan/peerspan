@@ -102,6 +102,56 @@ def expect(sender, receiver_id, agent, state, **kwargs):
     return out
 
 
+def check_agent_principal(alice, bob, carol, ids, net, pat_id, quinn_id, agents):
+    """agent:<host_id>/<agent_id> and grants with requester_agent_id match only that asserted agent."""
+    a = ids[alice]['id']
+    author = bob.cli('agent', 'register', '--name', 'author', '--owner', 'quinn')
+    writer = bob.cli('agent', 'register', '--name', 'writer', '--owner', 'quinn')
+    session = bob.cli('session', 'attach', '--agent', author['id'], '--integration', 'test')
+    scribe = alice.cli('agent', 'register', '--name', 'scribe', '--owner', 'pat')
+    principal = f"agent:{ids[bob]['id']}/{author['id']}"
+    use_agent(agents['pat'])
+    for bad in (f"agent:{ids[bob]['id']}", 'agent:host_x/agent_y', f"agent:{author['id']}/{ids[bob]['id']}"):
+        alice.cli('access', 'allow', '--network', net, '--agent', 'scribe', '--principal', bad, success=False)
+    allowed = alice.cli('access', 'allow', '--network', net, '--agent', 'scribe', '--principal', principal,
+                        '--max-message-bytes', '100')
+    assert [r['principals'] for r in allowed['rules'] if r['agent'] == 'scribe'] == [[principal]], allowed
+    for host in (bob, carol):
+        host.cli('network', 'sync', net)
+
+    def from_agent(*extra, grant=None):
+        args = ['message', 'send', '--peer', a, '--agent', scribe['id'], '--deadline', timestamp(),
+                '--content', 'as an agent', *extra]
+        if grant:
+            args += ['--grant', grant['id']]
+        return bob.cli(*args)
+    sent = from_agent('--from-agent', author['id'], '--from-session', session['id'])
+    assert sent['state'] == 'accepted' and sent['request']['origin'] == {'agent_id': author['id'], 'session_id': session['id']}, sent
+    assert from_agent('--from-agent', author['id'])['state'] == 'accepted'
+    assert from_agent()['state'] == 'rejected'
+    assert from_agent('--from-agent', writer['id'])['state'] == 'rejected'
+    # Another member host asserting the same agent ID does not match.
+    body = {'request_id': request_id(), 'target_agent_id': scribe['id'], 'deadline': timestamp(), 'content': 'spoof',
+            'policy': {'person_id': pat_id, 'version': allowed['version']}, 'origin': {'agent_id': author['id']}}
+    assert wire(alice, fixture_context(carol), 'POST', '/peer/v1/messages', body)[0] == 403
+    assert wire(alice, fixture_context(bob), 'POST', '/peer/v1/messages', body)[0] == 200
+
+    # Handoff names the origin and the sender's person.
+    receiving = alice.cli('session', 'attach', '--agent', scribe['id'], '--integration', 'test')
+    token = credential(alice, receiving)['token']
+    status, handoff = adapter_call(alice, token, 'POST', '/adapter/v1/next', {})
+    assert status == 200 and handoff['request']['origin'] == sent['request']['origin'], handoff
+    assert handoff['sender_person_id'] == quinn_id and handoff['sender_person'] == 'quinn', handoff
+
+    # A grant with requester_agent_id authorizes only that asserted agent.
+    grant = alice.cli('grant', 'create', '--peer', ids[bob]['id'], '--agent', scribe['id'], '--expires-at',
+                      timestamp(1200), '--allow-disconnected', '--from-agent', writer['id'])
+    assert grant['requester_agent_id'] == writer['id'], grant
+    assert from_agent('--from-agent', writer['id'], grant=grant)['state'] == 'accepted'
+    assert from_agent('--from-agent', author['id'], grant=grant)['state'] == 'rejected'
+    assert from_agent(grant=grant)['state'] == 'rejected'
+
+
 def check(coord_binary, owner_binary, sender_binary, label):
     with tempfile.TemporaryDirectory(prefix='capsule-policy-') as temporary:
         root = Path(temporary)
@@ -318,6 +368,8 @@ def check(coord_binary, owner_binary, sender_binary, label):
             renewed_cli = alice.cli('access', 'renew', '--network', net)
             assert renewed_cli['version'] == 9 and renewed_cli['rules'] == v7['rules'], renewed_cli
             expect(dave, a, triage, 'accepted', content='renewed by the CLI')
+
+            check_agent_principal(alice, bob, carol, ids, net, pat_id, quinn_id, agents)
             # Activity records policy updates and blocks.
             kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
             assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
@@ -337,7 +389,7 @@ def check(coord_binary, owner_binary, sender_binary, label):
                 agent.stop()
     print(f'PASS {label}: person, group, and network principals without grant IDs; deny at handoff; stale '
           'policy ignored; cited-version 503 then success; blocks over grants and policy offline; agent renewal; '
-          'lapse; size, deadline, and allow_disconnected bounds', flush=True)
+          'lapse; size, deadline, and allow_disconnected bounds; agent principals and requester-agent grants', flush=True)
 
 
 def main():

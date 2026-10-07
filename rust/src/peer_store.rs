@@ -35,6 +35,9 @@ pub struct Grant {
     pub max_message_bytes: i64,
     pub allow_disconnected: bool,
     pub revoked_at: Option<String>,
+    /// When set, only requests whose asserted `origin.agent_id` equals it.
+    #[serde(default)]
+    pub requester_agent_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,6 +48,30 @@ pub struct CreateGrant {
     pub max_message_bytes: i64,
     #[serde(default)]
     pub allow_disconnected: bool,
+    #[serde(default)]
+    pub requester_agent_id: Option<String>,
+}
+/// The local agent, and optionally session, that originated a request,
+/// asserted by the authenticated sending host.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Origin {
+    pub agent_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub session_id: Option<String>,
+}
+impl Origin {
+    pub(crate) fn valid(&self) -> bool {
+        valid_id(&self.agent_id, "agent", 16)
+            && self
+                .session_id
+                .as_deref()
+                .is_none_or(|s| valid_id(s, "session", 16))
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +94,12 @@ pub struct MessageRequest {
     pub target_agent_id: String,
     pub deadline: String,
     pub content: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub origin: Option<Origin>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +113,10 @@ pub struct SendMessage {
     pub target_agent_id: String,
     pub deadline: String,
     pub content: String,
+    /// Owner sends may name a registered local agent, and optionally one of
+    /// its sessions, as the origin; absent otherwise, never null.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub origin: Option<Origin>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -204,6 +241,7 @@ fn validate_message(r: &MessageRequest) -> Result<(), Error> {
     };
     if !valid_id(&r.request_id, "request", 16)
         || !authorization
+        || r.origin.as_ref().is_some_and(|o| !o.valid())
         || !valid_id(&r.target_agent_id, "agent", 16)
         || r.content.is_empty()
         || r.content.len() > 65536
@@ -244,6 +282,9 @@ pub(crate) fn grant_bounds(
         || deadline > expiration
         || (require_deadline && deadline <= at)
         || r.content.len() as i64 > g.max_message_bytes
+        || g.requester_agent_id
+            .as_deref()
+            .is_some_and(|agent| r.origin.as_ref().map(|o| o.agent_id.as_str()) != Some(agent))
     {
         return Err(Error::Forbidden);
     }
@@ -389,7 +430,14 @@ impl Store {
             max_message_bytes: r.max_message_bytes,
             allow_disconnected: r.allow_disconnected,
             revoked_at: None,
+            requester_agent_id: r.requester_agent_id,
         };
+        if g.requester_agent_id
+            .as_deref()
+            .is_some_and(|a| !valid_id(a, "agent", 16))
+        {
+            return Err(Error::Invalid("invalid requester agent ID".into()));
+        }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         if !self.known_host(&tx, &g.requester_host_id)? {
@@ -522,7 +570,14 @@ impl Store {
             target_agent_id: r.target_agent_id,
             deadline: r.deadline,
             content: r.content,
+            origin: r.origin,
         };
+        if let Some(origin) = &request.origin {
+            if !origin.valid() {
+                return Err(Error::Invalid("invalid origin".into()));
+            }
+            self.check_local_origin(&*self.connection()?, origin)?;
+        }
         validate_message(&request)?;
         self.dial_target(&r.peer_host_id)?;
         if request.policy.is_some() {
@@ -585,6 +640,29 @@ impl Store {
         tx.commit()?;
         Ok(out)
     }
+    /// An owner-asserted origin names a registered local agent and, if given,
+    /// one of that agent's sessions.
+    pub(crate) fn check_local_origin(&self, conn: &Connection, o: &Origin) -> Result<(), Error> {
+        let agents: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM agents WHERE id = ?1",
+            [&o.agent_id],
+            |r| r.get(0),
+        )?;
+        if agents == 0 {
+            return Err(Error::NotFound);
+        }
+        if let Some(session) = &o.session_id {
+            let sessions: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE id = ?1 AND agent_id = ?2",
+                params![session, o.agent_id],
+                |r| r.get(0),
+            )?;
+            if sessions == 0 {
+                return Err(Error::NotFound);
+            }
+        }
+        Ok(())
+    }
     pub fn finish_outbound(&self, out: OutboundMessage) -> Result<OutboundMessage, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -614,5 +692,250 @@ impl Store {
         }
         tx.commit()?;
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::model::{AttachSession, RegisterAgent};
+
+    pub(crate) fn add_test_peer(store: &Store) -> Peer {
+        let mut seed = [0u8; 32];
+        getrandom::fill(&mut seed).unwrap();
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        store
+            .add_peer(Peer {
+                id: key_id(&key),
+                public_key: STANDARD.encode(key),
+                address: "127.0.0.1:9".into(),
+            })
+            .unwrap()
+    }
+    pub(crate) fn local_agent(store: &Store, name: &str) -> (String, String) {
+        let agent = store
+            .register_agent(RegisterAgent {
+                name: name.into(),
+                owner: name.into(),
+                capabilities: vec![],
+            })
+            .unwrap();
+        let session = store
+            .attach_session(AttachSession {
+                agent_id: agent.id.clone(),
+                integration: "test".into(),
+            })
+            .unwrap();
+        (agent.id, session.id)
+    }
+    pub(crate) fn grant_for(store: &Store, peer: &str, agent: &str, from: Option<&str>) -> Grant {
+        store
+            .create_grant(CreateGrant {
+                requester_host_id: peer.into(),
+                target_agent_id: agent.into(),
+                expires_at: rfc3339(Utc::now() + chrono::Duration::hours(1)),
+                max_message_bytes: 1000,
+                allow_disconnected: true,
+                requester_agent_id: from.map(Into::into),
+            })
+            .unwrap()
+    }
+    pub(crate) fn request(grant: &str, agent: &str, origin: Option<Origin>) -> MessageRequest {
+        MessageRequest {
+            request_id: format!("request_{}", "1".repeat(32)),
+            grant_id: Some(grant.into()),
+            policy: None,
+            target_agent_id: agent.into(),
+            deadline: rfc3339(Utc::now() + chrono::Duration::minutes(5)),
+            content: "hello".into(),
+            origin,
+        }
+    }
+    fn origin(agent: &str, session: Option<&str>) -> Option<Origin> {
+        Some(Origin {
+            agent_id: agent.into(),
+            session_id: session.map(Into::into),
+        })
+    }
+
+    #[test]
+    fn origin_is_strictly_shaped() {
+        let agent = format!("agent_{}", "a".repeat(32));
+        let session = format!("session_{}", "b".repeat(32));
+        let base = serde_json::json!({
+            "request_id": format!("request_{}", "0".repeat(32)),
+            "grant_id": format!("grant_{}", "0".repeat(32)),
+            "target_agent_id": agent,
+            "deadline": "2026-10-10T00:00:00Z",
+            "content": "hi",
+        });
+        let with = |o: serde_json::Value| {
+            let mut v = base.clone();
+            v["origin"] = o;
+            serde_json::from_value::<MessageRequest>(v)
+        };
+        let r = with(serde_json::json!({"agent_id": agent, "session_id": session})).unwrap();
+        validate_message(&r).unwrap();
+        assert_eq!(
+            serde_json::to_value(&r).unwrap()["origin"],
+            serde_json::json!({"agent_id": agent, "session_id": session})
+        );
+        let r = with(serde_json::json!({"agent_id": agent})).unwrap();
+        validate_message(&r).unwrap();
+        assert!(
+            serde_json::to_value(&r).unwrap()["origin"]
+                .get("session_id")
+                .is_none()
+        );
+        let absent: MessageRequest = serde_json::from_value(base.clone()).unwrap();
+        assert!(
+            serde_json::to_value(&absent)
+                .unwrap()
+                .get("origin")
+                .is_none()
+        );
+        for bad in [
+            serde_json::Value::Null,
+            serde_json::json!({}),
+            serde_json::json!({"session_id": session}),
+            serde_json::json!({"agent_id": null}),
+            serde_json::json!({"agent_id": agent, "session_id": null}),
+            serde_json::json!({"agent_id": agent, "host_id": "x"}),
+            serde_json::json!("agent"),
+        ] {
+            assert!(with(bad.clone()).is_err(), "{bad}");
+        }
+        for bad in [
+            serde_json::json!({"agent_id": "agent_x"}),
+            serde_json::json!({"agent_id": session}),
+            serde_json::json!({"agent_id": agent, "session_id": agent}),
+            serde_json::json!({"agent_id": agent.to_uppercase()}),
+        ] {
+            assert!(
+                matches!(
+                    validate_message(&with(bad.clone()).unwrap()),
+                    Err(Error::Invalid(_))
+                ),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_grants_admit_only_their_requester_agent_and_origin_is_deduplicated() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let peer = add_test_peer(&store);
+        let (target, _) = local_agent(&store, "target");
+        let remote = format!("agent_{}", "c".repeat(32));
+        let bad = store.create_grant(CreateGrant {
+            requester_host_id: peer.id.clone(),
+            target_agent_id: target.clone(),
+            expires_at: rfc3339(Utc::now() + chrono::Duration::hours(1)),
+            max_message_bytes: 1000,
+            allow_disconnected: true,
+            requester_agent_id: Some("agent_bad".into()),
+        });
+        assert!(matches!(bad, Err(Error::Invalid(_))));
+        let g = grant_for(&store, &peer.id, &target, Some(&remote));
+        assert_eq!(
+            serde_json::to_value(&g).unwrap()["requester_agent_id"],
+            serde_json::json!(remote)
+        );
+        let other = format!("agent_{}", "d".repeat(32));
+        for denied in [None, origin(&other, None)] {
+            assert!(matches!(
+                store.accept_message(&peer.id, request(&g.id, &target, denied)),
+                Err(Error::Forbidden)
+            ));
+        }
+        let session = format!("session_{}", "e".repeat(32));
+        let first = request(&g.id, &target, origin(&remote, Some(&session)));
+        let receipt = store.accept_message(&peer.id, first.clone()).unwrap();
+        let again = store.accept_message(&peer.id, first.clone()).unwrap();
+        assert_eq!(receipt.accepted_at, again.accepted_at);
+        let changed = MessageRequest {
+            origin: origin(&remote, None),
+            ..first
+        };
+        assert!(matches!(
+            store.accept_message(&peer.id, changed),
+            Err(Error::Conflict(_))
+        ));
+        let stored = store.messages(0, 10).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].request.origin, origin(&remote, Some(&session)));
+        // A grant without a requester agent ignores origin.
+        let open = grant_for(&store, &peer.id, &target, None);
+        let mut plain = request(&open.id, &target, None);
+        plain.request_id = format!("request_{}", "2".repeat(32));
+        store.accept_message(&peer.id, plain).unwrap();
+    }
+
+    #[test]
+    fn owner_sends_name_only_registered_local_origins() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let peer = add_test_peer(&store);
+        let (agent, session) = local_agent(&store, "sender");
+        let (_, foreign_session) = local_agent(&store, "other");
+        let send = |o: Option<Origin>| {
+            store.prepare_outbound(SendMessage {
+                peer_host_id: peer.id.clone(),
+                request_id: String::new(),
+                grant_id: Some(format!("grant_{}", "1".repeat(32))),
+                target_agent_id: format!("agent_{}", "2".repeat(32)),
+                deadline: rfc3339(Utc::now() + chrono::Duration::minutes(5)),
+                content: "hello".into(),
+                origin: o,
+            })
+        };
+        let unknown = format!("agent_{}", "9".repeat(32));
+        let unknown_session = format!("session_{}", "9".repeat(32));
+        for missing in [
+            origin(&unknown, None),
+            origin(&agent, Some(&unknown_session)),
+            origin(&agent, Some(&foreign_session)),
+        ] {
+            assert!(matches!(send(missing), Err(Error::NotFound)));
+        }
+        assert!(matches!(
+            send(origin("agent_bad", None)),
+            Err(Error::Invalid(_))
+        ));
+        let count = || -> i64 {
+            store
+                .connection()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM outbound_messages", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(count(), 0);
+        let out = send(origin(&agent, Some(&session))).unwrap();
+        assert_eq!(out.request.origin, origin(&agent, Some(&session)));
+        assert_eq!(
+            store
+                .outbound(&peer.id, &out.request.request_id)
+                .unwrap()
+                .request
+                .origin,
+            origin(&agent, Some(&session))
+        );
+        assert!(send(None).unwrap().request.origin.is_none());
+        assert_eq!(count(), 2);
+    }
+
+    #[test]
+    fn local_send_bodies_reject_a_null_origin() {
+        let body = serde_json::json!({
+            "peer_host_id": "host_x",
+            "target_agent_id": "agent_y",
+            "deadline": "d",
+            "content": "c",
+            "origin": null,
+        });
+        assert!(serde_json::from_value::<SendMessage>(body).is_err());
     }
 }

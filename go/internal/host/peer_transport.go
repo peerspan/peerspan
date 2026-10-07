@@ -90,7 +90,7 @@ func PeerHandler(store *Store) http.Handler {
 			return
 		}
 		var request MessageRequest
-		if !decode(w, r, &request, "request_id", "grant_id", "policy", "target_agent_id", "deadline", "content") {
+		if !decode(w, r, &request, "request_id", "grant_id", "policy", "target_agent_id", "deadline", "content", "origin") {
 			return
 		}
 		receipt, err := store.AcceptMessage(r.Context(), id, request)
@@ -187,7 +187,7 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/grants", func(w http.ResponseWriter, r *http.Request) {
 		var g CreateGrant
-		if !decode(w, r, &g, "requester_host_id", "target_agent_id", "expires_at", "max_message_bytes", "allow_disconnected") {
+		if !decode(w, r, &g, "requester_host_id", "target_agent_id", "expires_at", "max_message_bytes", "allow_disconnected", "requester_agent_id?") {
 			return
 		}
 		grant, err := store.CreateGrant(r.Context(), g)
@@ -219,7 +219,11 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/outbound", func(w http.ResponseWriter, r *http.Request) {
 		var request SendMessage
-		if !decode(w, r, &request, "peer_host_id", "request_id", "grant_id?", "target_agent_id", "deadline", "content") {
+		if !decode(w, r, &request, "peer_host_id", "request_id", "grant_id?", "target_agent_id", "deadline", "content", "origin") {
+			return
+		}
+		if err := store.checkLocalOrigin(r.Context(), request.Origin); err != nil {
+			respond(w, 0, nil, err)
 			return
 		}
 		out, err := store.PrepareOutbound(r.Context(), request)

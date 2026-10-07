@@ -351,6 +351,11 @@ impl Store {
                 target_agent_id: route.target_agent_id,
                 deadline: crate::store::rfc3339(deadline.with_timezone(&Utc)),
                 content: r.content,
+                // The route's session originates the send.
+                origin: Some(crate::peer_store::Origin {
+                    agent_id: ss.agent_id.clone(),
+                    session_id: Some(ss.id.clone()),
+                }),
             },
             state: "unknown".into(),
             receipt: None,
@@ -650,7 +655,7 @@ pub async fn reply_workers(store: Arc<Store>, shutdown: watch::Receiver<bool>) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         adapter::CreateAdapter,
@@ -659,7 +664,7 @@ mod tests {
     };
     use base64::{Engine, engine::general_purpose::STANDARD};
 
-    fn connected_adapter(store: &Store, name: &str) -> AdapterAuth {
+    pub(crate) fn connected_adapter(store: &Store, name: &str) -> AdapterAuth {
         let agent = store
             .register_agent(RegisterAgent {
                 name: name.into(),
@@ -732,7 +737,7 @@ mod tests {
             })
             .unwrap();
         let request_id = format!("request_{}", "2".repeat(32));
-        store
+        let out = store
             .prepare_adapter_send(
                 &alice,
                 AdapterSend {
@@ -742,6 +747,12 @@ mod tests {
                 },
             )
             .unwrap();
+        // The route's session originates the send.
+        let session = store.adapter_session(&alice).unwrap();
+        assert_eq!(
+            serde_json::to_value(&out.request).unwrap()["origin"],
+            serde_json::json!({"agent_id": session.agent_id, "session_id": session.id})
+        );
         let status = store.send_status(&alice, &request_id).unwrap();
         assert_eq!(
             (

@@ -93,14 +93,14 @@ The receiver checks its own grant on every append, including retries: requester,
 
 Roadmap milestone 6, slice 1 ([proposal](delegation-proposal.md)). A message request may carry `origin: {agent_id, session_id}`, where `session_id` is optional. It names the local agent, and optionally the session, on the sending host that originated the request. The authenticated sending host asserts it. It is exactly as strong as that host: a compromised host can assert any of its own agents, and never another host's. Agent keys come with isolated runtimes.
 
-- **Format:** `agent_id` and `session_id` use the usual ID shapes. Unknown fields, null values, and malformed IDs return 400, as for the rest of the request. The receiver does not check that the agent exists on the sender, since it cannot. `origin` is part of the request for deduplication: a retry must carry an identical `origin`.
+- **Format:** `agent_id` and `session_id` use the usual ID shapes. An absent `origin` or `session_id` is omitted. A null `origin`, a null or empty `session_id`, unknown fields, and malformed IDs return 400, as for the rest of the request. The receiver does not check that the agent exists on the sender, since it cannot. `origin` is part of the request for deduplication: a retry must carry an identical `origin`.
 - **Who sets it:**
   - Sends through an adapter route set `origin` to the route's session and its agent.
   - Owner CLI sends carry no `origin`, unless `message send --from-agent AGENT_ID [--from-session SESSION_ID]` names a registered local agent, and optionally one of its sessions. Unknown local IDs return 404 before anything is persisted.
-- **Replies:** a reply also carries `origin`, the agent and session that replied. The reply object served at `GET /peer/v1/replies/{request_id}` gains it.
+- **Replies:** a reply also carries `origin`, the agent and session that replied. The reply object served at `GET /peer/v1/replies/{request_id}` gains it. If present, it must equal the reply's `target_agent_id` and `session_id`. A reply without `origin`, from a host that predates this change, is accepted.
 - **Storage:** received messages and outbound records store the request, including `origin`, unchanged.
 
-**Agent principals.** Grants gain an optional `requester_agent_id`, and creation accepts it as `grant create --from-agent AGENT_ID`. A grant with `requester_agent_id` authorizes only requests from its requester host whose `origin.agent_id` equals it. Policy rules accept the principal `agent:<host_id>/<agent_id>` (see the [coordination contract](coordination-contract.md)).
+**Agent principals.** Grants gain `requester_agent_id`. It is always present on grant records, and null when unset. Creation accepts it as an optional field, set with `grant create --from-agent AGENT_ID`. A grant with `requester_agent_id` authorizes only requests from its requester host whose `origin.agent_id` equals it. Policy rules accept the principal `agent:<host_id>/<agent_id>` (see the [coordination contract](coordination-contract.md)).
 
 ## Messages and receipts
 

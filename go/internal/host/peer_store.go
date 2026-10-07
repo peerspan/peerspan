@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -41,13 +42,17 @@ type Grant struct {
 	MaxMessageBytes   int64   `json:"max_message_bytes"`
 	AllowDisconnected bool    `json:"allow_disconnected"`
 	RevokedAt         *string `json:"revoked_at"`
+	// RequesterAgentID, when set, limits the grant to requests whose asserted
+	// origin is that agent of the requester host.
+	RequesterAgentID *string `json:"requester_agent_id"`
 }
 type CreateGrant struct {
-	RequesterHostID   string `json:"requester_host_id"`
-	TargetAgentID     string `json:"target_agent_id"`
-	ExpiresAt         string `json:"expires_at"`
-	MaxMessageBytes   int64  `json:"max_message_bytes"`
-	AllowDisconnected bool   `json:"allow_disconnected"`
+	RequesterHostID   string  `json:"requester_host_id"`
+	TargetAgentID     string  `json:"target_agent_id"`
+	ExpiresAt         string  `json:"expires_at"`
+	MaxMessageBytes   int64   `json:"max_message_bytes"`
+	AllowDisconnected bool    `json:"allow_disconnected"`
+	RequesterAgentID  *string `json:"requester_agent_id,omitempty"`
 }
 
 // MessageRequest names exactly one authorization: a grant, or the owner
@@ -59,6 +64,46 @@ type MessageRequest struct {
 	TargetAgentID string          `json:"target_agent_id"`
 	Deadline      string          `json:"deadline"`
 	Content       string          `json:"content"`
+	// Origin is the sending host's assertion of which of its agents, and
+	// optionally which session, originated the request. It is exactly as
+	// strong as the authenticated host.
+	Origin *Origin `json:"origin,omitempty"`
+}
+
+// Origin names a local agent and, optionally, one of its sessions.
+type Origin struct {
+	AgentID   string `json:"agent_id"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// UnmarshalJSON accepts exactly agent_id and an optional session_id, never
+// null and never unknown fields.
+func (o *Origin) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
+		return ErrInvalid
+	}
+	for field, value := range raw {
+		if (field != "agent_id" && field != "session_id") || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return ErrInvalid
+		}
+	}
+	if _, ok := raw["agent_id"]; !ok {
+		return ErrInvalid
+	}
+	type plain Origin
+	if err := json.Unmarshal(data, (*plain)(o)); err != nil {
+		return err
+	}
+	// A present session ID must be a session ID; "" is not "absent".
+	if _, ok := raw["session_id"]; ok && o.SessionID == "" {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func (o *Origin) valid() bool {
+	return o == nil || (validID(o.AgentID, "agent", 16) && (o.SessionID == "" || validID(o.SessionID, "session", 16)))
 }
 
 // same reports whether two requests are identical.
@@ -69,7 +114,10 @@ func (r MessageRequest) same(o MessageRequest) bool {
 	if (r.GrantID == nil) != (o.GrantID == nil) || (r.GrantID != nil && *r.GrantID != *o.GrantID) {
 		return false
 	}
-	r.Policy, o.Policy, r.GrantID, o.GrantID = nil, nil, nil, nil
+	if (r.Origin == nil) != (o.Origin == nil) || (r.Origin != nil && *r.Origin != *o.Origin) {
+		return false
+	}
+	r.Policy, o.Policy, r.GrantID, o.GrantID, r.Origin, o.Origin = nil, nil, nil, nil, nil, nil
 	return r == o
 }
 
@@ -123,6 +171,7 @@ type recordedRequest struct {
 	TargetAgentID string          `json:"target_agent_id"`
 	Deadline      string          `json:"deadline"`
 	Content       string          `json:"content"`
+	Origin        *Origin         `json:"origin,omitempty"`
 }
 
 func (o OutboundMessage) MarshalJSON() ([]byte, error) {
@@ -225,14 +274,14 @@ func (s *Store) Grant(ctx context.Context, id string) (Grant, error) {
 }
 func (s *Store) CreateGrant(ctx context.Context, r CreateGrant) (Grant, error) {
 	expires, err := parseTime(r.ExpiresAt)
-	if err != nil || !expires.After(time.Now()) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 {
+	if err != nil || !expires.After(time.Now()) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || (r.RequesterAgentID != nil && !validID(*r.RequesterAgentID, "agent", 16)) {
 		return Grant{}, ErrInvalid
 	}
 	id, err := newID("grant")
 	if err != nil {
 		return Grant{}, err
 	}
-	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: "message.append", ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, AllowDisconnected: r.AllowDisconnected}
+	g := Grant{ID: id, RequesterHostID: r.RequesterHostID, TargetAgentID: r.TargetAgentID, Action: "message.append", ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, AllowDisconnected: r.AllowDisconnected, RequesterAgentID: r.RequesterAgentID}
 	if _, err = s.KnownHost(ctx, r.RequesterHostID, nil); err != nil {
 		return g, err
 	}
@@ -326,7 +375,7 @@ func grantBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageReques
 		return g, err
 	}
 	now := time.Now()
-	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes {
+	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != "message.append" || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
 		return g, ErrForbidden
 	}
 	return g, nil
@@ -352,7 +401,7 @@ func validateMessage(r MessageRequest) error {
 	if r.Policy != nil {
 		authorized = r.GrantID == nil && membership.ValidPersonID(r.Policy.PersonID) && r.Policy.Version >= 1
 	}
-	if !validID(r.RequestID, "request", 16) || !authorized || !validID(r.TargetAgentID, "agent", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
+	if !validID(r.RequestID, "request", 16) || !authorized || !validID(r.TargetAgentID, "agent", 16) || !r.Origin.valid() || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
 		return ErrInvalid
 	}
 	if _, err := parseTime(r.Deadline); err != nil {
@@ -533,4 +582,32 @@ func (s *Store) FinishOutbound(ctx context.Context, out OutboundMessage, refresh
 		}
 	}
 	return out, tx.Commit()
+}
+
+// checkLocalOrigin requires an owner-asserted origin to name a registered
+// local agent and, if given, one of that agent's sessions.
+func (s *Store) checkLocalOrigin(ctx context.Context, o *Origin) error {
+	if o == nil {
+		return nil
+	}
+	if !o.valid() {
+		return ErrInvalid
+	}
+	var found int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM agents WHERE id = ?", o.AgentID).Scan(&found); err != nil {
+		return err
+	}
+	if found == 0 {
+		return fmt.Errorf("%w: no local agent %s", ErrNotFound, o.AgentID)
+	}
+	if o.SessionID == "" {
+		return nil
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ? AND agent_id = ?", o.SessionID, o.AgentID).Scan(&found); err != nil {
+		return err
+	}
+	if found == 0 {
+		return fmt.Errorf("%w: no session %s of agent %s", ErrNotFound, o.SessionID, o.AgentID)
+	}
+	return nil
 }

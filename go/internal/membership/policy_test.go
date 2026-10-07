@@ -162,3 +162,24 @@ func TestPolicyWindowAndRenewal(t *testing.T) {
 		t.Error("another key renewed the policy")
 	}
 }
+
+func TestAgentPrincipal(t *testing.T) {
+	host, agent := "host_"+strings.Repeat("a", 64), "agent_"+strings.Repeat("b", 32)
+	if h, a, ok := AgentPrincipal("agent:" + host + "/" + agent); !ok || h != host || a != agent || !ValidPrincipal("agent:"+host+"/"+agent) {
+		t.Fatalf("agent principal: %q %q %v", h, a, ok)
+	}
+	for _, bad := range []string{"agent:" + host, "agent:/" + agent, "agent:" + agent + "/" + host, "agent:" + host + "/" + agent + "/x", "agent:" + strings.ToUpper(host) + "/" + agent, "agent:" + host + "/agent_x", "person:" + host + "/" + agent} {
+		if _, _, ok := AgentPrincipal(bad); ok || ValidPrincipal(bad) {
+			t.Errorf("principal %q accepted", bad)
+		}
+	}
+	rule := PolicyRule{Agent: "a", Principals: []string{"agent:" + host + "/" + agent}, Actions: []string{PolicyActionMessage}, MaxMessageBytes: 1}
+	owner := KeySigner{mustSeed(t, personSeed)}
+	if _, err := SignPolicy(owner, vector.NetworkID, 1, time.Now(), 24*time.Hour, []PolicyRule{rule}); err != nil {
+		t.Fatalf("policy with an agent principal: %v", err)
+	}
+	rule.Principals = []string{"agent:" + host}
+	if _, err := SignPolicy(owner, vector.NetworkID, 1, time.Now(), 24*time.Hour, []PolicyRule{rule}); err == nil {
+		t.Fatal("policy with a malformed agent principal")
+	}
+}
