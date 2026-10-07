@@ -1,13 +1,13 @@
 {
-  "timestamp": "2026-10-07T06:15:53.138545+00:00",
+  "timestamp": "2026-10-07T06:42:59.625550+00:00",
   "mode": "two already-running OpenCode server conversations; real models; local Go/Rust daemons",
   "opencode_versions": [
     "1.18.31",
     "1.18.31"
   ],
   "selected_sessions": [
-    "ses_eeb00b5ddffeKWTj4L9H0eCGgJ",
-    "ses_eeb002803ffeF1IOz6U0R65Dme"
+    "ses_eeae74e58ffeNfqxEVHlrAvcl6",
+    "ses_eeae6d41bffe5JfEl9UMFHabys"
   ],
   "forward_Go_to_Rust": {
     "scoped_send": true,
@@ -15,7 +15,7 @@
     "model_called_reply": true,
     "model_observed_pre_attachment_phrase": true,
     "rejected_model_calls_before_correction": [],
-    "sender_model_output": "before-capsule-d6b07f68e32bd970"
+    "sender_model_output": "before-capsule-ca5b2a53c81da94b"
   },
   "reverse_after_daemon_swap_and_token_rotation": {
     "scoped_send": true,
@@ -23,7 +23,7 @@
     "model_called_reply": true,
     "model_observed_pre_attachment_phrase": true,
     "rejected_model_calls_before_correction": [],
-    "sender_model_output": "before-capsule-f1cd82d929e536b6"
+    "sender_model_output": "before-capsule-31d2d36837a7fda6"
   },
   "session_ids_preserved": true,
   "native_permissions_unchanged": true,
@@ -35,5 +35,7 @@
     "openai/gpt-5.6-sol",
     "openai/gpt-5.6-sol"
   ],
-  "machine": "192.0.2.10"
+  "machine": "192.0.2.10",
+  "capsule_base_revision": "334da674bef17b6d599039cbf19b1dacaf1ee206",
+  "authorization_mode": "expiring per-peer grants; owner-signed policy authorization is a separate check"
 }
