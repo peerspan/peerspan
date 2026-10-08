@@ -128,3 +128,5 @@ Each subject is the other host ID and the task ID.
 - migration from version 8 to version 9.
 
 [Task artifacts](artifact-contract.md) extend tasks with input and result files (milestone 6 slice 3).
+
+[Delegation chains](delegation-chain-contract.md) let a receiving agent pass a task on with narrowed authority (milestone 6 slice 4).
