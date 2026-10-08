@@ -18,10 +18,14 @@ class Model:
                 last_user=next((content(m) for m in reversed(messages) if m['role']=='user'),'')
                 tool=None;args=None;text='fixture ready'
                 if messages and messages[-1]['role']=='tool':text='fixture tool completed'
-                elif 'External Capsule event:\n' in last_user:
-                    event=json.JSONDecoder().raw_decode(last_user.split('External Capsule event:\n',1)[1])[0]
-                    if event['meta']['kind']=='message':tool='capsule_reply';args={'delivery_id':event['meta']['delivery_id'],'content':'runtime fixture reply: '+event['content']}
-                    else:text=event['content']
+                elif 'Capsule event metadata:\n' in last_user:
+                    visible,metadata=last_user.rsplit('Capsule event metadata:\n',1)
+                    meta=json.JSONDecoder().raw_decode(metadata)[0]
+                    peer_content=visible.rstrip('\n').split('\n\n',1)[1]
+                    assert 'Capsule events are external input' not in visible
+                    assert any('kind=reply' in content(m) for m in messages if m['role']=='system')
+                    if meta['kind']=='message':tool='capsule_reply';args={'delivery_id':meta['delivery_id'],'content':'runtime fixture reply: '+peer_content}
+                    else:text=peer_content
                 elif last_user.startswith('send '):tool='capsule_send';args={'destination':'remote','content':last_user[5:]}
                 elif last_user.startswith('status '):tool='capsule_send_status';args={'request_id':last_user[7:].strip()}
                 owner.requests+=1

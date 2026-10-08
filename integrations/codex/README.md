@@ -57,6 +57,12 @@ existing client. Ambiguous submission is never automatically repeated.
 `forwarded` means Codex accepted the queued input, not that a model consumed it.
 Replies require an explicit `reply` tool call.
 
+Queued input shows a short Capsule request, reply, or task header and the peer's
+content. The protocol instructions come from the attachment's MCP server instead
+of being repeated in each message. A compact footer names that server and retains
+the event's correlation metadata. This footer remains visible in Codex because
+the queue API exposes plain text input.
+
 The original sidecar recovers after Capsule daemon restarts and reloads rotated
 tokens for the same adapter/session. Receiver grants, expiry, revocation and
 route budgets remain daemon-enforced. Restarting the sidecar cannot adopt a

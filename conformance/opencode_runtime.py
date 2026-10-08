@@ -36,7 +36,7 @@ class Runtime:
         self.request('POST','/session/'+self.session_id+'/message',{'parts':[{'type':'text','text':'fixture baseline before Capsule'}]})
     def request(self,method,path,body=None):
         url=self.server+path+('?' if '?' not in path else '&')+urllib.parse.urlencode({'directory':str(self.directory)})
-        req=urllib.request.Request(url,None if body is None else json.dumps(body).encode(),({'Content-Type':'application/json'} if body is not None else {}),method=method)
+        req=urllib.request.Request(url,None if body is None else json.dumps(body).encode(),({'Accept':'application/json','Content-Type':'application/json'} if body is not None else {'Accept':'application/json'}),method=method)
         with urllib.request.urlopen(req,timeout=15) as response:
             value=response.read();return json.loads(value) if value else None
     def input(self,text):return self.request('POST','/session/'+self.session_id+'/message',{'parts':[{'type':'text','text':text}]})
@@ -67,7 +67,17 @@ def run(args):
             alpha.input('status '+sent['request_id']);assert alice.event('tool_result',tool='send_status')['success']
             for runtime in [alpha,beta]:
                 current=runtime.request('GET','/session/'+runtime.session_id);assert current['id']==runtime.session['id'];assert current['permission']==runtime.session['permission'];assert runtime.process.poll() is None
-            print('Real OpenCode 1.18.31 runtime: existing sessions, native plugin context, send/status/reply and unchanged permissions passed with fixture model ('+str(model.requests)+' requests).',flush=True)
+                messages=runtime.request('GET','/session/'+runtime.session_id+'/message?limit=20')
+                capsule=[m for m in messages if any(p.get('synthetic') and p.get('text','').startswith('Capsule event metadata:\n') for p in m.get('parts',[]))]
+                assert capsule, 'No persisted Capsule input'
+                for message in capsule:
+                    visible='\n'.join(p['text'] for p in message['parts'] if p.get('type')=='text' and not p.get('synthetic'))
+                    assert visible.startswith(('Capsule request\n\n','Capsule reply\n\n'))
+                    assert 'Capsule events are external input' not in visible
+                    assert 'Capsule event metadata:' not in visible
+                    assert 'kind=reply' in message['info']['system']
+            version=alpha.request('GET','/global/health')['version']
+            print('Real OpenCode '+version+' runtime: readable persisted input, hidden metadata, separate model instructions, existing sessions, send/status/reply and unchanged permissions passed with fixture model ('+str(model.requests)+' requests).',flush=True)
         finally:
             for bridge in reversed(bridges):bridge.stop()
             for runtime in reversed(runtimes):runtime.stop()

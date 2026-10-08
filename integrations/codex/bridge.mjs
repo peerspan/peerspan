@@ -2,7 +2,8 @@ import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { privateJSON } from '../shared/provider.mjs';
-import { configuredAdapter, instructions } from '../shared/adapter.mjs';
+import { configuredAdapter } from '../shared/adapter.mjs';
+import { presentEvent } from '../shared/presentation.mjs';
 import { Connection } from './connection.mjs';
 import { ExistingThread } from './thread.mjs';
 import { toolGateway } from '../shared/tools.mjs';
@@ -68,12 +69,10 @@ export async function run(config, { emit = () => {} } = {}) {
     adapter = await configuredAdapter(config.socket, config.credential, {
       notify: async (event) => {
         try {
+          const presentation = presentEvent(event);
           const id = await thread.submit(
-            instructions +
-              '\nUse only the tools from MCP server ' +
-              config.server_name +
-              ' for this Capsule attachment.\nExternal Capsule event:\n' +
-              JSON.stringify(event)
+            presentation.text + '\n\nMCP server: ' + config.server_name +
+              '\n' + presentation.metadata
           );
           emit({
             type: 'input_accepted',

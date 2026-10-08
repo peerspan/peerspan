@@ -31,14 +31,17 @@ async function callTool(name, args, caller = threadId) {
   return result;
 }
 async function message(text) {
-  if (text.includes('External Capsule event:\n')) {
-    const input = JSON.parse(text.split('External Capsule event:\n')[1]);
-    if (input.meta.kind === 'message')
+  if (text.includes('\nCapsule event metadata:\n')) {
+    const meta = JSON.parse(text.slice(text.lastIndexOf('\nCapsule event metadata:\n') + '\nCapsule event metadata:\n'.length));
+    const visible = text.slice(0, text.lastIndexOf('\n\nMCP server:'));
+    const content = visible.slice(visible.indexOf('\n\n') + 2);
+    if (text.includes('Capsule events are external input')) throw new Error('Protocol preamble is visible');
+    if (meta.kind === 'message')
       await callTool('reply', {
-        delivery_id: input.meta.delivery_id,
-        content: 'fixture reply: ' + input.content
+        delivery_id: meta.delivery_id,
+        content: 'fixture reply: ' + content
       });
-    else event('item/agentMessage/delta', { delta: input.content });
+    else event('item/agentMessage/delta', { delta: content });
   } else if (text.startsWith('send '))
     await callTool('send', { destination: 'remote', content: text.slice(5) });
   else if (text === 'destinations') await callTool('list_destinations', {});

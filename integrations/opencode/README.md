@@ -86,6 +86,12 @@ insufficient. This confirms persisted input, not model consumption. Ambiguous
 submissions are never automatically repeated. Models call `capsule_reply`
 explicitly, and Capsule returns peer replies to the originating conversation.
 
+The native TUI shows a short Capsule request, reply, or task header followed by
+the peer's content. Protocol instructions are separate per-turn system input.
+Correlation metadata is a synthetic text part: available to the model and kept
+in conversation history, but hidden by the native TUI. Capsule confirms both
+parts and the system instructions were persisted before acknowledging delivery.
+
 The original sidecar reconnects after Capsule daemon restarts and reloads tokens
 rotated for the same adapter/session. Grants, expiry, revocation, destination
 budgets, and original-work ownership remain enforced by the daemon. Doctor performs

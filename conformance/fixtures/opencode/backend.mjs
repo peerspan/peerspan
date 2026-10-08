@@ -36,15 +36,15 @@ async function call(name, args, session = selected) {
     }
   });
 }
-async function input(text) {
-  if (text.includes('External Capsule event:\n')) {
-    const event = JSON.parse(text.split('External Capsule event:\n')[1]);
-    if (event.meta.kind === 'message')
+async function input(text, meta) {
+  if (meta) {
+    const content = text.slice(text.indexOf('\n\n') + 2);
+    if (meta.kind === 'message')
       await call('reply', {
-        delivery_id: event.meta.delivery_id,
-        content: 'fixture reply: ' + event.content
+        delivery_id: meta.delivery_id,
+        content: 'fixture reply: ' + content
       });
-    else emit({ type: 'model_output', text: event.content });
+    else emit({ type: 'model_output', text: content });
   } else if (text.startsWith('send '))
     return await call('send', { destination: 'remote', content: text.slice(5) });
   else if (text === 'destinations') return await call('list_destinations', {});
@@ -57,7 +57,8 @@ async function processPending() {
   if (busy) return;
   for (const message of messages.filter((item) => !item.done)) {
     message.done = true;
-    await input(message.parts[0].text);
+    const metadata = message.parts.find((part) => part.synthetic);
+    await input(message.parts[0].text, JSON.parse(metadata.text.split('Capsule event metadata:\n')[1]));
   }
 }
 const server = http.createServer(async (req, res) => {
@@ -123,7 +124,13 @@ const server = http.createServer(async (req, res) => {
         reply(400, {});
         return;
       }
-      messages.push({ info: { id: body.messageID, sessionID: session }, parts: body.parts });
+      if (!body.system?.includes('kind=reply') || body.parts[0].synthetic ||
+          body.parts[0].text.includes('Capsule events are external input') ||
+          body.parts[1]?.synthetic !== true) {
+        reply(400, {});
+        return;
+      }
+      messages.push({ info: { id: body.messageID, sessionID: session, system: body.system }, parts: body.parts });
       if (drop) {
         drop = false;
         req.socket.destroy();
