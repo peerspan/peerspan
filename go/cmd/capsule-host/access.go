@@ -71,7 +71,7 @@ func resolvePrincipal(persons []host.Person, given string) (string, error) {
 }
 
 func accessRequest(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet) (string, string, any, error) {
-	invalid := errors.New("invalid command; see capsule-host --help")
+	invalid := invalidCommand()
 	if len(args) < 2 {
 		return "", "", nil, invalid
 	}

@@ -1744,11 +1744,12 @@ mod tests {
                     peer_host_id: peer.clone(),
                     target_agent_id: format!("agent_{}", "1".repeat(32)),
                     grant_id: Some(format!("grant_{}", "1".repeat(32))),
-                    expires_at: rfc3339(Utc::now() + TimeDelta::minutes(30)),
+                    expires_at: Some(rfc3339(Utc::now() + TimeDelta::minutes(30))),
                     max_message_bytes: 100,
                     max_messages: budget,
                     action: action.map(Into::into),
                     delegation_depth: 0,
+                    follows_credential: false,
                 })
                 .unwrap()
         };

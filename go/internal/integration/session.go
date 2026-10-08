@@ -23,8 +23,10 @@ import (
 type Options struct {
 	Action, Directory, State, Harness, Integrations, Runner string
 	Agent, ExpiresAt, Routes, Workspace                     string
-	ProviderOptions                                         map[string]string
-	Args                                                    []string
+	// Program is the CLI name the next command uses.
+	Program         string
+	ProviderOptions map[string]string
+	Args            []string
 }
 type Profile struct {
 	Version       int                      `json:"version"`
@@ -40,6 +42,8 @@ type Profile struct {
 	ProviderState json.RawMessage          `json:"provider_state"`
 	Files         map[string]string        `json:"files"`
 	Request       host.AdapterSetupRequest `json:"request"`
+	// credential is the issued authorization, kept for the setup result.
+	credential host.Adapter
 }
 
 func validID(value, prefix string, bytes int) bool {
@@ -128,6 +132,7 @@ func finish(p *Profile, result host.AdapterSetup) error {
 		return errors.New("daemon response does not match the prepared attachment")
 	}
 	p.AdapterID = result.Credential.Adapter.ID
+	p.credential = result.Credential.Adapter
 	if err := writeJSON(filepath.Join(p.Directory, "credential.json"), result.Credential); err != nil {
 		return err
 	}
@@ -183,7 +188,9 @@ func recoverSetup(ctx context.Context, p *Profile) error {
 			matching = append(matching, a)
 		}
 	}
-	if len(matching) != 1 || matching[0].RevokedAt != nil || matching[0].ExpiresAt != p.Request.ExpiresAt || !future(matching[0].ExpiresAt) {
+	// A renewable request matches a renewable credential, whatever its
+	// current expiry; a fixed one matches its exact expiry.
+	if len(matching) != 1 || matching[0].RevokedAt != nil || matching[0].Renewable != (p.Request.ExpiresAt == "") || (!matching[0].Renewable && matching[0].ExpiresAt != p.Request.ExpiresAt) || !future(matching[0].ExpiresAt) {
 		return errors.New("recovery refused: preparing authorization is missing, changed, revoked, or expired")
 	}
 	p.AdapterID = matching[0].ID
@@ -211,7 +218,11 @@ func recoverSetup(ctx context.Context, p *Profile) error {
 		if r.RevokedAt != nil {
 			return errors.New("recovery refused: preparing destinations were withdrawn")
 		}
-		actual = append(actual, host.SetupRoute{Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, Action: r.Action})
+		expiry := r.ExpiresAt
+		if r.FollowsCredential {
+			expiry = "" // requested without an expiry
+		}
+		actual = append(actual, host.SetupRoute{Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, GrantID: r.GrantID, ExpiresAt: expiry, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, Action: r.Action})
 	}
 	sort.Slice(wanted, func(i, j int) bool { return wanted[i].Name < wanted[j].Name })
 	sort.Slice(actual, func(i, j int) bool { return actual[i].Name < actual[j].Name })
@@ -262,8 +273,10 @@ func readRoutes(path, expiry string) ([]host.SetupRoute, error) {
 				return nil, errors.New("unknown destination field")
 			}
 		}
+		// Without a setup expiry, a route without one follows the renewable
+		// credential.
 		for key, value := range map[string]any{"expires_at": expiry, "max_message_bytes": 65536, "max_messages": 100} {
-			if _, ok := fields[key]; !ok {
+			if _, ok := fields[key]; !ok && value != "" {
 				fields[key], _ = json.Marshal(value)
 			}
 		}
@@ -284,7 +297,7 @@ func prepare(ctx context.Context, o Options) (*Profile, error) {
 	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
 		return nil, errors.New("setup directory already exists; start or diagnose it, or choose a fresh directory")
 	}
-	if !validID(o.Agent, "agent", 16) || !future(o.ExpiresAt) {
+	if !validID(o.Agent, "agent", 16) || (o.ExpiresAt != "" && !future(o.ExpiresAt)) {
 		return nil, errors.New("use a registered agent ID and a future RFC3339 expiry")
 	}
 	m, err := loadManifest(o.Integrations, o.Harness, o.Runner)
@@ -506,6 +519,9 @@ func printJSON(out io.Writer, value any) error {
 // Run returns diagnostics through out; all authorization mutations remain in
 // the daemon's existing atomic setup/rotation API.
 func Run(ctx context.Context, o Options, out io.Writer) error {
+	if o.Program == "" {
+		o.Program = "capsule-host"
+	}
 	if o.Action == "setup" {
 		var p *Profile
 		var err error
@@ -536,7 +552,7 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		for _, route := range p.Request.Routes {
 			names = append(names, route.Name)
 		}
-		return printJSON(out, map[string]any{"state": "configured", "adapter_ready": false, "directory": p.Directory, "harness": p.Harness.ID, "agent_id": p.AgentID, "session_id": p.SessionID, "adapter_id": p.AdapterID, "expires_at": p.Request.ExpiresAt, "destinations": names, "launch_supported": p.Harness.supports("launch"), "next": []string{"capsule-host", "session", nextOperation(p), "--directory", p.Directory}})
+		return printJSON(out, map[string]any{"state": "configured", "adapter_ready": false, "directory": p.Directory, "harness": p.Harness.ID, "agent_id": p.AgentID, "session_id": p.SessionID, "adapter_id": p.AdapterID, "expires_at": p.credential.ExpiresAt, "renewable": p.credential.Renewable, "destinations": names, "launch_supported": p.Harness.supports("launch"), "next": []string{o.Program, "session", nextOperation(p), "--directory", p.Directory}})
 	}
 	p, err := loadProfile(o)
 	if err != nil {

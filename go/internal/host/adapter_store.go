@@ -26,11 +26,23 @@ type Adapter struct {
 	SessionID string  `json:"session_id"`
 	ExpiresAt string  `json:"expires_at"`
 	RevokedAt *string `json:"revoked_at"`
+	// Renewable credentials were created without an expiry: each connection
+	// or lease renewal moves expires_at to 24 hours ahead.
+	Renewable bool `json:"renewable"`
 }
+
+// CreateAdapter without ExpiresAt issues a renewable credential.
 type CreateAdapter struct {
 	SessionID string `json:"session_id"`
-	ExpiresAt string `json:"expires_at"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
+
+const (
+	adapterRenewal        = 24 * time.Hour
+	adapterRenewalMinimum = time.Minute
+	adapterRenewedEvery   = time.Hour
+)
+
 type AdapterCredential struct {
 	Adapter            Adapter  `json:"adapter"`
 	Token              string   `json:"token"`
@@ -95,6 +107,10 @@ func (s *Store) CreateAdapter(ctx context.Context, r CreateAdapter) (AdapterCred
 	return credential, tx.Commit()
 }
 func (s *Store) createAdapter(ctx context.Context, tx *sql.Tx, r CreateAdapter) (AdapterCredential, error) {
+	renewable := r.ExpiresAt == ""
+	if renewable {
+		r.ExpiresAt = timestamp(time.Now().Add(adapterRenewal))
+	}
 	expires, err := parseTime(r.ExpiresAt)
 	if err != nil || !expires.After(time.Now()) {
 		return AdapterCredential{}, ErrInvalid
@@ -196,7 +212,7 @@ func (s *Store) createAdapter(ctx context.Context, tx *sql.Tx, r CreateAdapter) 
 		return AdapterCredential{}, err
 	}
 	token := "token_" + hex.EncodeToString(random)
-	adapter := Adapter{ID: id, SessionID: r.SessionID, ExpiresAt: r.ExpiresAt}
+	adapter := Adapter{ID: id, SessionID: r.SessionID, ExpiresAt: r.ExpiresAt, Renewable: renewable}
 	data, err := json.Marshal(adapter)
 	if err != nil {
 		return AdapterCredential{}, err

@@ -4,7 +4,7 @@
 //! sees the key.
 use crate::{
     admin::{Local, person_key},
-    cli::{AccessCommand, encoded},
+    cli::{AccessCommand, encoded, resolved},
     integration::DaemonError,
 };
 use anyhow::{Context, bail};
@@ -38,6 +38,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
         } => (network, person_key),
         _ => return Ok(None),
     };
+    let network = resolved(network);
     let local = Local(socket);
     let signer = PersonSigner::open(person_key_path.as_deref()).map_err(failed)?;
     let me = persons::person_id(&signer.public_key());

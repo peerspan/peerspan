@@ -123,7 +123,8 @@ struct SetupOptions {
     state: Option<PathBuf>,
     harness: String,
     agent: String,
-    expiry: String,
+    /// None for a renewable credential.
+    expiry: Option<String>,
     integrations: Option<PathBuf>,
     runner: Option<PathBuf>,
     routes: Option<PathBuf>,
@@ -586,6 +587,11 @@ fn shape(route: &Value) -> Value {
     ] {
         map.insert(key.into(), route[key].clone());
     }
+    // A route that follows a renewable credential compares as if it had been
+    // requested without an expiry.
+    if route["follows_credential"] == true {
+        map.insert("expires_at".into(), Value::Null);
+    }
     // A destination without an action sends messages.
     map.insert(
         "action".into(),
@@ -636,9 +642,13 @@ async fn recover(p: &mut Profile) -> anyhow::Result<()> {
         .iter()
         .filter(|a| a["session_id"] == p.session_id)
         .collect::<Vec<_>>();
+    let same_expiry = match p.request.get("expires_at") {
+        Some(expiry) => matches.first().is_some_and(|m| m["expires_at"] == *expiry),
+        None => matches.first().is_some_and(|m| m["renewable"] == true),
+    };
     if matches.len() != 1
         || !matches[0]["revoked_at"].is_null()
-        || matches[0]["expires_at"] != p.request["expires_at"]
+        || !same_expiry
         || !future(matches[0]["expires_at"].as_str().unwrap_or(""))
     {
         bail!("recovery refused: preparing authorization is missing, changed, revoked, or expired")
@@ -723,7 +733,9 @@ fn parse_options(values: Vec<String>) -> anyhow::Result<BTreeMap<String, String>
     }
     Ok(result)
 }
-fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
+/// Destinations from a routes file. Without an expiry of their own they take
+/// a fixed credential's, or follow a renewable one.
+fn routes(path: Option<PathBuf>, expiry: Option<&str>) -> anyhow::Result<Value> {
     let Some(path) = path else {
         return Ok(json!([]));
     };
@@ -751,13 +763,18 @@ fn routes(path: Option<PathBuf>, expiry: &str) -> anyhow::Result<Value> {
         }) {
             bail!("unknown or null destination field")
         }
-        row.entry("expires_at").or_insert(json!(expiry));
+        if let Some(expiry) = expiry {
+            row.entry("expires_at").or_insert(json!(expiry));
+        }
         row.entry("max_message_bytes").or_insert(json!(65536));
         row.entry("max_messages").or_insert(json!(100));
-        for key in ["name", "peer_host_id", "target_agent_id", "expires_at"] {
+        for key in ["name", "peer_host_id", "target_agent_id"] {
             if !row.get(key).is_some_and(Value::is_string) {
                 bail!("invalid destination")
             }
+        }
+        if row.get("expires_at").is_some_and(|v| !v.is_string()) {
+            bail!("invalid destination")
         }
         if row.get("action").is_some_and(|v| !v.is_string()) {
             bail!("invalid destination")
@@ -783,7 +800,7 @@ async fn prepare(o: SetupOptions) -> anyhow::Result<Profile> {
     if fs::symlink_metadata(&directory).is_ok() {
         bail!("setup directory already exists; start or diagnose it, or choose a fresh directory")
     }
-    if !valid_id(&o.agent, "agent", 16) || !future(&o.expiry) {
+    if !valid_id(&o.agent, "agent", 16) || o.expiry.as_deref().is_some_and(|e| !future(e)) {
         bail!("use a registered agent ID and a future RFC3339 expiry")
     }
     let harness = load_manifest(o.integrations, &o.harness, o.runner)?;
@@ -806,7 +823,11 @@ async fn prepare(o: SetupOptions) -> anyhow::Result<Profile> {
         files: BTreeMap::new(),
         request: Value::Null,
     };
-    p.request = json!({"agent_id":o.agent,"session_id":p.session_id,"integration":p.harness.id,"expires_at":o.expiry,"routes":routes(o.routes,&o.expiry)?});
+    p.request = json!({"agent_id":o.agent,"session_id":p.session_id,"integration":p.harness.id,"routes":routes(o.routes,o.expiry.as_deref())?});
+    // Without an expiry the credential is renewable.
+    if let Some(expiry) = &o.expiry {
+        p.request["expires_at"] = json!(expiry);
+    }
     let result = provider(&p, "prepare", "", &[]).await?;
     if failed(&result.checks) {
         bail!("{}", check_errors(&result.checks))
@@ -922,9 +943,9 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
         } => {
             let p = if let Some(agent) = agent {
                 let expiry = match (expires_at, expires_in) {
-                    (Some(expiry), None) => expiry,
-                    (None, Some(duration)) => relative_expiry(&duration)?,
-                    (None, None) => bail!("--expires-at or --expires-in is required"),
+                    (Some(expiry), None) => Some(expiry),
+                    (None, Some(duration)) => Some(relative_expiry(&duration)?),
+                    (None, None) => None,
                     (Some(_), Some(_)) => {
                         bail!("--expires-at and --expires-in are mutually exclusive")
                     }
@@ -954,7 +975,8 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
                 recover(&mut p).await?;
                 p
             };
-            let value = json!({"state":"configured","adapter_ready":false,"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"expires_at":p.request["expires_at"],"destinations":p.request["routes"].as_array().unwrap().iter().map(|r|r["name"].clone()).collect::<Vec<_>>(),"launch_supported":p.harness.supports("launch"),"next":["capsule-host","session",if p.harness.supports("launch"){ "start" }else{ "doctor" },"--directory",p.directory]});
+            let adapter = credential(&p)?["adapter"].take();
+            let value = json!({"state":"configured","adapter_ready":false,"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"expires_at":adapter["expires_at"],"renewable":adapter["renewable"]==true,"destinations":p.request["routes"].as_array().unwrap().iter().map(|r|r["name"].clone()).collect::<Vec<_>>(),"launch_supported":p.harness.supports("launch"),"next":[crate::program(),"session",if p.harness.supports("launch"){ "start" }else{ "doctor" },"--directory",p.directory]});
             println!("{}", serde_json::to_string_pretty(&value)?);
             return Ok(());
         }
@@ -1025,7 +1047,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
     Err(Command::new(program).args(plan.args).exec()).context("harness launch failed")
 }
 
-fn relative_expiry(value: &str) -> anyhow::Result<String> {
+pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {
     let (number, unit) = if let Some(number) = value.strip_suffix('m') {
         (number, "m")
     } else if let Some(number) = value.strip_suffix('h') {

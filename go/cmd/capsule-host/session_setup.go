@@ -12,7 +12,7 @@ import (
 )
 
 func runSessionSetup(ctx context.Context, args []string, fs *pflag.FlagSet, state string, out io.Writer) error {
-	o := integration.Options{Action: args[0], State: state}
+	o := integration.Options{Action: args[0], State: state, Program: programName}
 	o.Directory, _ = fs.GetString("directory")
 	var values []string
 	var expiresIn string
@@ -44,8 +44,8 @@ func runSessionSetup(ctx context.Context, args []string, fs *pflag.FlagSet, stat
 		}
 		o.ExpiresAt = time.Now().UTC().Add(duration).Format(time.RFC3339)
 	}
-	if o.Action == "setup" && (o.Harness != "" || o.Agent != "" || o.ExpiresAt != "") && (o.Harness == "" || o.Agent == "" || o.ExpiresAt == "") {
-		return errors.New("session setup requires --harness, --agent, and exactly one of --expires-at or --expires-in")
+	if o.Action == "setup" && (o.Harness != "" || o.Agent != "" || o.ExpiresAt != "") && (o.Harness == "" || o.Agent == "") {
+		return errors.New("session setup requires --harness and --agent, and at most one of --expires-at or --expires-in")
 	}
 	if o.Action == "setup" && o.Agent == "" && (o.Integrations != "" || o.Runner != "" || o.Routes != "" || len(values) != 0) {
 		return errors.New("resume uses the saved integration and scopes; omit new setup options")

@@ -45,6 +45,10 @@ pub struct OutboundRoute {
     pub max_message_bytes: i64,
     pub max_messages: i64,
     pub revoked_at: Option<String>,
+    /// Created without an expiry on a renewable credential: `expires_at`
+    /// moves with the credential's. Older routes read as fixed.
+    #[serde(default)]
+    pub follows_credential: bool,
     /// For `task.submit` routes, 0 to 2: tasks carry link 0 allowing that
     /// many further hops. Older routes read as 0.
     #[serde(default)]
@@ -64,7 +68,9 @@ pub struct CreateOutboundRoute {
     pub target_agent_id: String,
     #[serde(default)]
     pub grant_id: Option<String>,
-    pub expires_at: String,
+    /// Absent, the route follows its renewable credential's expiry.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub expires_at: Option<String>,
     pub max_message_bytes: i64,
     pub max_messages: i64,
     #[serde(default, deserialize_with = "crate::policy::present")]
@@ -72,6 +78,10 @@ pub struct CreateOutboundRoute {
     /// 0 (the default) to 2; nonzero only for `task.submit`.
     #[serde(default)]
     pub delegation_depth: u64,
+    /// True is the same as omitting `expires_at`, so a route record can be
+    /// posted back as a request.
+    #[serde(default)]
+    pub follows_credential: bool,
 }
 #[derive(Serialize)]
 pub struct Destination {
@@ -167,11 +177,18 @@ impl Store {
     pub(crate) fn create_outbound_route_in(
         &self,
         tx: &rusqlite::Transaction<'_>,
-        r: CreateOutboundRoute,
+        mut r: CreateOutboundRoute,
     ) -> Result<OutboundRoute, Error> {
-        let exp = DateTime::parse_from_rfc3339(&r.expires_at)
+        if r.follows_credential {
+            r.expires_at = None;
+        }
+        let exp = r
+            .expires_at
+            .as_deref()
+            .map(DateTime::parse_from_rfc3339)
+            .transpose()
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
-        if exp <= Utc::now()
+        if exp.is_some_and(|exp| exp <= Utc::now())
             || !valid_name(&r.name)
             || !valid_id(&r.target_agent_id, "agent", 16)
             || !r
@@ -205,8 +222,17 @@ impl Store {
         if a.revoked_at.is_some() || state != "attached" || ae <= Utc::now() {
             return Err(Error::Forbidden);
         }
-        if exp > ae {
-            return Err(Error::Invalid("route outlives credential".into()));
+        let follows_credential = exp.is_none();
+        match exp {
+            Some(exp) if exp > ae => {
+                return Err(Error::Invalid("route outlives credential".into()));
+            }
+            None if !a.renewable => {
+                return Err(Error::Invalid(
+                    "a route without expires_at needs a renewable credential".into(),
+                ));
+            }
+            _ => {}
         }
         let count: i64 = tx.query_row(
             "SELECT COUNT(*) FROM adapter_routes WHERE adapter_id = ?1 AND name = ?2",
@@ -224,10 +250,11 @@ impl Store {
             target_agent_id: r.target_agent_id,
             action: r.action.unwrap_or_else(message_action),
             grant_id: r.grant_id,
-            expires_at: r.expires_at,
+            expires_at: r.expires_at.unwrap_or_else(|| a.expires_at.clone()),
             max_message_bytes: r.max_message_bytes,
             max_messages: r.max_messages,
             revoked_at: None,
+            follows_credential,
             delegation_depth: r.delegation_depth,
         };
         tx.execute(
@@ -714,7 +741,9 @@ pub(crate) mod tests {
         let credential = store
             .create_adapter(CreateAdapter {
                 session_id: session.id.clone(),
-                expires_at: crate::store::rfc3339(Utc::now() + chrono::Duration::hours(1)),
+                expires_at: Some(crate::store::rfc3339(
+                    Utc::now() + chrono::Duration::hours(1),
+                )),
             })
             .unwrap();
         let instance = format!(
@@ -764,11 +793,14 @@ pub(crate) mod tests {
                 peer_host_id: peer.id,
                 target_agent_id: format!("agent_{}", "1".repeat(32)),
                 grant_id: Some(format!("grant_{}", "1".repeat(32))),
-                expires_at: crate::store::rfc3339(Utc::now() + chrono::Duration::minutes(30)),
+                expires_at: Some(crate::store::rfc3339(
+                    Utc::now() + chrono::Duration::minutes(30),
+                )),
                 max_message_bytes: 100,
                 max_messages: 10,
                 action: None,
                 delegation_depth: 0,
+                follows_credential: false,
             })
             .unwrap();
         let request_id = format!("request_{}", "2".repeat(32));

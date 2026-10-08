@@ -22,7 +22,9 @@ pub struct AdapterSetupRequest {
     pub agent_id: String,
     pub session_id: String,
     pub integration: String,
-    pub expires_at: String,
+    /// Absent, the credential is renewable.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub expires_at: Option<String>,
     #[serde(default)]
     pub routes: Vec<SetupRoute>,
 }
@@ -34,7 +36,9 @@ pub struct SetupRoute {
     pub target_agent_id: String,
     #[serde(default)]
     pub grant_id: Option<String>,
-    pub expires_at: String,
+    /// Absent, the route follows the renewable credential.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub expires_at: Option<String>,
     pub max_message_bytes: i64,
     pub max_messages: i64,
     /// Absent, the route sends messages.
@@ -112,6 +116,7 @@ impl Store {
                     max_messages: route.max_messages,
                     action: route.action,
                     delegation_depth: 0,
+                    follows_credential: false,
                 },
             )?);
         }

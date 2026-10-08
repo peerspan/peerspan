@@ -5,7 +5,7 @@
 //! the key.
 use crate::{
     call,
-    cli::{Command, GroupCommand, NetworkCommand, encoded},
+    cli::{Command, GroupCommand, NetworkCommand, encoded, resolved},
 };
 use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -85,15 +85,16 @@ pub async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<
         NetworkCommand::Invite { network, .. }
         | NetworkCommand::InvitePerson { network, .. }
         | NetworkCommand::Admit { network, .. }
-        | NetworkCommand::Revoke { network, .. }
         | NetworkCommand::RevokeInvite { network, .. }
         | NetworkCommand::RemovePerson { network, .. }
         | NetworkCommand::DelegateAdmin { network, .. }
-        | NetworkCommand::RemoveAdmin { network, .. }
-        | NetworkCommand::Group(GroupCommand::Set { network, .. }) => network,
+        | NetworkCommand::Group(GroupCommand::Set { network, .. }) => resolved(network),
+        NetworkCommand::Revoke { network, .. } | NetworkCommand::RemoveAdmin { network, .. } => {
+            network.as_str()
+        }
         NetworkCommand::RotateRoot {
             id, to_ssh: true, ..
-        } => id,
+        } => id.as_str(),
         _ => return Ok(None),
     };
     let network = local.network(network_id).await?;
@@ -101,7 +102,7 @@ pub async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<
     if network["administrator"] == json!(true) && !to_ssh {
         return Ok(None);
     }
-    let id = network_id.as_str();
+    let id = network_id;
     let epoch = network["root_epoch"].as_u64().unwrap_or_default();
     let value = match command {
         NetworkCommand::DelegateAdmin {
@@ -245,8 +246,9 @@ async fn administer(
         } => {
             let invite = invite_key()?;
             let token = if *host_only {
-                let signed = membership::sign_invite_with(id, signer, &invite, member, expires_at)
-                    .map_err(failed)?;
+                let signed =
+                    membership::sign_invite_with(id, signer, &invite, member, resolved(expires_at))
+                        .map_err(failed)?;
                 membership::InviteToken {
                     network_id: id.into(),
                     network_name: name.into(),
@@ -269,7 +271,7 @@ async fn administer(
                     name,
                     epoch,
                     member,
-                    expires_at,
+                    resolved(expires_at),
                     coordinator,
                     coordinator_key,
                 )
@@ -291,7 +293,7 @@ async fn administer(
                 name,
                 epoch,
                 member,
-                expires_at,
+                resolved(expires_at),
                 coordinator,
                 coordinator_key,
             )

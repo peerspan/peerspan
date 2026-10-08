@@ -82,7 +82,7 @@ func personRequest(ctx context.Context, client host.Client, args []string, fs *p
 			hostID, _ = fs.GetString("host")
 		}
 		if network == "" || (args[1] == "unbind" && hostID == "") {
-			return "", "", nil, errors.New("invalid command; see capsule-host --help")
+			return "", "", nil, invalidCommand()
 		}
 		target := ""
 		if args[1] == "bind" {
@@ -124,5 +124,5 @@ func personRequest(ctx context.Context, client host.Client, args []string, fs *p
 		unbinding, err := membership.SignHostUnbinding(signer, network, target, now)
 		return "POST", base + "/unbindings", host.UnbindHost{Unbinding: unbinding}, err
 	}
-	return "", "", nil, errors.New("invalid command; see capsule-host --help")
+	return "", "", nil, invalidCommand()
 }

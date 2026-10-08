@@ -196,7 +196,7 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 			revokeAdmitted, _ = fs.GetBool("revoke-admitted")
 		}
 		if id == "" || given == "" {
-			return "", "", nil, errors.New("invalid command; see capsule-host --help")
+			return "", "", nil, invalidCommand()
 		}
 		n, err := networkOf(ctx, client, id)
 		if err != nil {
@@ -241,12 +241,12 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 		return "POST", path + "/admin-removals", host.RemoveAdmin{Removal: &r}, err
 	case "groups":
 		if len(args) != 3 {
-			return "", "", nil, errors.New("invalid command; see capsule-host --help")
+			return "", "", nil, invalidCommand()
 		}
 		return "GET", "/v1/networks/" + url.PathEscape(args[2]) + "/groups", nil, nil
 	case "group":
 		if len(args) < 3 || args[2] != "set" {
-			return "", "", nil, errors.New("invalid command; see capsule-host --help")
+			return "", "", nil, invalidCommand()
 		}
 		var name string
 		var members []string
@@ -254,7 +254,7 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 		name, _ = fs.GetString("group")
 		members, _ = fs.GetStringArray("person")
 		if id == "" || name == "" {
-			return "", "", nil, errors.New("invalid command; see capsule-host --help")
+			return "", "", nil, invalidCommand()
 		}
 		n, err := networkOf(ctx, client, id)
 		if err != nil {
@@ -296,7 +296,7 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 	case "rotate-root":
 		var toSSH bool
 		if len(args) < 3 {
-			return "", "", nil, errors.New("invalid command; see capsule-host --help")
+			return "", "", nil, invalidCommand()
 		}
 		id = args[2]
 		toSSH, _ = fs.GetBool("to-ssh")
@@ -306,7 +306,7 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 		}
 		return rotateToSSH(ctx, client, id, rootKey, now)
 	}
-	return "", "", nil, errors.New("invalid command; see capsule-host --help")
+	return "", "", nil, invalidCommand()
 }
 
 // rotateToSSH signs everything the new root signs with the key at path. The

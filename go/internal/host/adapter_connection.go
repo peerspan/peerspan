@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -133,6 +134,9 @@ func (s *Store) ConnectAdapter(ctx context.Context, token, instance, adapterID, 
 		return Connection{}, ErrConflict
 	}
 	now := time.Now()
+	if err = renewAdapter(ctx, tx, &a, now); err != nil {
+		return Connection{}, err
+	}
 	expiry, err := parseTime(a.ExpiresAt)
 	if err != nil {
 		return Connection{}, err
@@ -164,6 +168,46 @@ func (s *Store) ConnectAdapter(ctx context.Context, token, instance, adapterID, 
 		return c, err
 	}
 	return c, tx.Commit()
+}
+
+// renewAdapter moves a renewable credential's expiry to 24 hours from now,
+// with its following routes, when that gains at least a minute. The caller has
+// checked the credential is neither revoked nor expired. The first renewal,
+// then at most one an hour, is recorded as adapter.renewed.
+func renewAdapter(ctx context.Context, tx *sql.Tx, a *Adapter, now time.Time) error {
+	if !a.Renewable {
+		return nil
+	}
+	current, err := parseTime(a.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	next := now.Add(adapterRenewal)
+	if next.Sub(current) < adapterRenewalMinimum {
+		return nil
+	}
+	a.ExpiresAt = timestamp(next)
+	data, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_credentials SET record = ? WHERE id = ?`, string(data), a.ID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_routes SET record = json_set(record, '$.expires_at', ?) WHERE adapter_id = ? AND json_extract(record, '$.follows_credential') = 1 AND json_extract(record, '$.revoked_at') IS NULL`, a.ExpiresAt, a.ID); err != nil {
+		return err
+	}
+	var last sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT created_at FROM events WHERE kind = 'adapter.renewed' AND subject_id = ? ORDER BY sequence DESC LIMIT 1`, a.ID).Scan(&last)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if last.Valid {
+		if at, err := parseTime(last.String); err == nil && now.Sub(at) < adapterRenewedEvery {
+			return nil
+		}
+	}
+	return appendEvent(ctx, tx, "adapter.renewed", a.ID, timestamp(now))
 }
 
 func (s *Store) RotateAdapter(ctx context.Context, id string) (AdapterCredential, error) {

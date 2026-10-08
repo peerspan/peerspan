@@ -15,7 +15,7 @@ The known-host messaging slice stores authenticated messages on hosts. It requir
 | 5 | Automatic retry of uncertain sends, owner and agent alike | — | Senders recover `unknown` outcomes by hand. |
 | 6 | Task delegation, agent origin, and delegation chains ([proposal](delegation-proposal.md)) | 2b | Requests are authenticated only as hosts, so a receiver cannot tell which agent originated a request or verify that delegated authority narrowed at each hop. Implemented: agent origin (slice 1), [single-hop tasks](task-contract.md) (slice 2), [artifacts](artifact-contract.md) (slice 3), [delegation chains](delegation-chain-contract.md) (slice 4), and live acceptance (slice 5: [three Claude Code sessions over a two-link chain](results/delegation-live.json)). |
 | 2c | Direct policy propagation among an owner's hosts (deferred from 2b; [contract](coordination-contract.md#direct-propagation)) | 2b | A coordinator can delay a newer policy until it expires. |
-| 7 | Launch readiness: administration simplicity, status and onboarding | — | Too much administration surface for a first user. |
+| 7 | Launch readiness: administration simplicity, status and onboarding ([proposal](launch-proposal.md), [contract](launch-contract.md)) | — | Too much administration surface for a first user. In progress: CLI shape and status (slice 1). |
 
 Next, as agreed on 2026-10-07: milestone 6, then 2c, then 7. Agent delivery into a live session (see the [integration investigation](agent-integration-investigation.md)) is a parallel track. It does not depend on these milestones.
 

@@ -89,11 +89,11 @@ func networkCreateOrJoin(ctx context.Context, client host.Client, command string
 	}
 	if result["person"] == nil {
 		id, _ := result["id"].(string)
-		next := "capsule-host network bind --network " + id
+		next := programName + " network bind --network " + id
 		if strings.HasPrefix(join.Token, membership.MemberTokenPrefix) {
-			next = fmt.Sprintf("capsule-host network redeem-person --token %s, then %s", join.Token, next)
+			next = fmt.Sprintf("%s network redeem-person --token %s, then %s", programName, join.Token, next)
 		} else if command == "create" {
-			next = fmt.Sprintf("capsule-host network admit --network %s --person SSH_PUBLIC_KEY --member %s, then %s", id, create.Member, next)
+			next = fmt.Sprintf("%s network admit --network %s --person SSH_PUBLIC_KEY --member %s, then %s", programName, id, create.Member, next)
 		}
 		result["person"] = map[string]any{"person_id": nil, "admitted": false, "bound": false, "skipped": skipped, "next": next}
 	}
@@ -131,7 +131,7 @@ func bindAfterCreate(ctx context.Context, client host.Client, signer person.Sign
 	id, _ := result["id"].(string)
 	fail := func(err error) {
 		outcome["skipped"] = "this host was not bound: " + err.Error()
-		outcome["next"] = "capsule-host network bind --network " + id
+		outcome["next"] = programName + " network bind --network " + id
 	}
 	identity, err := call[host.Identity](ctx, client, "GET", "/v1/host")
 	if err != nil {
@@ -159,5 +159,5 @@ func withState(result map[string]any, state string) {
 	if next == "" || state == "" {
 		return
 	}
-	outcome["next"] = strings.ReplaceAll(next, "capsule-host network ", "capsule-host --state "+state+" network ")
+	outcome["next"] = strings.ReplaceAll(next, programName+" network ", programName+" --state "+state+" network ")
 }

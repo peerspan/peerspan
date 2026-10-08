@@ -56,18 +56,19 @@ func (s *Store) RouteStatus(ctx context.Context, id string) ([]RouteStatus, erro
 // Owner setup commits attachment, authorization, destinations and any offline
 // replacement together. No credential or instance is issued on the peer router.
 type AdapterSetupRequest struct {
-	AgentID     string       `json:"agent_id"`
-	SessionID   string       `json:"session_id"`
-	Integration string       `json:"integration"`
-	ExpiresAt   string       `json:"expires_at"`
-	Routes      []SetupRoute `json:"routes"`
+	AgentID     string `json:"agent_id"`
+	SessionID   string `json:"session_id"`
+	Integration string `json:"integration"`
+	// ExpiresAt, when empty, makes the credential renewable.
+	ExpiresAt string       `json:"expires_at,omitempty"`
+	Routes    []SetupRoute `json:"routes"`
 }
 type SetupRoute struct {
 	Name            string  `json:"name"`
 	PeerHostID      string  `json:"peer_host_id"`
 	TargetAgentID   string  `json:"target_agent_id"`
 	GrantID         *string `json:"grant_id"`
-	ExpiresAt       string  `json:"expires_at"`
+	ExpiresAt       string  `json:"expires_at,omitempty"`
 	MaxMessageBytes int64   `json:"max_message_bytes"`
 	MaxMessages     int64   `json:"max_messages"`
 	Action          string  `json:"action,omitempty"`
@@ -79,9 +80,13 @@ func (r *SetupRoute) UnmarshalJSON(data []byte) error {
 		return ErrInvalid
 	}
 	// grant_id may be missing or null: sends then cite the owner's policy.
-	// action may be missing: the route then sends messages.
+	// action may be missing: the route then sends messages. expires_at may
+	// be missing: the route then follows its renewable credential.
 	required := 7
 	if _, hasGrant := fields["grant_id"]; !hasGrant {
+		required--
+	}
+	if _, hasExpiry := fields["expires_at"]; !hasExpiry {
 		required--
 	}
 	if _, hasAction := fields["action"]; hasAction {

@@ -116,7 +116,9 @@ case "$implementation" in
       exit 1
     }
     GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
-      go -C "$repo/go" build -trimpath -o "$bundle/bin/capsule-host" ./cmd/capsule-host
+      go -C "$repo/go" build -trimpath \
+      -ldflags "-X github.com/Cerebral-Systems/capsule/go/internal/host.Version=$version" \
+      -o "$bundle/bin/capsule-host" ./cmd/capsule-host
     ;;
   rust)
     command -v cargo >/dev/null 2>&1 || {
@@ -137,6 +139,10 @@ case "$(file -b "$bundle/bin/capsule-host")" in
     exit 1
     ;;
 esac
+
+# capsule is the same binary under its short name; a relative link keeps the
+# bundle relocatable.
+ln -s capsule-host "$bundle/bin/capsule"
 
 integrations="$bundle/share/capsule/integrations"
 copy_integration() {
@@ -182,6 +188,7 @@ EOF
 
 for required in \
   "$bundle/bin/capsule-host" \
+  "$bundle/bin/capsule" \
   "$bundle/RELEASE.json" \
   "$bundle/share/capsule/integrations/shared/adapter.mjs" \
   "$bundle/share/capsule/integrations/claude-channel/integration.json" \

@@ -40,12 +40,24 @@ pub struct Adapter {
     pub session_id: String,
     pub expires_at: String,
     pub revoked_at: Option<String>,
+    /// Created without an expiry: connecting or renewing the lease moves
+    /// `expires_at` to a day ahead. Older records read as fixed.
+    #[serde(default)]
+    pub renewable: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateAdapter {
     pub session_id: String,
-    pub expires_at: String,
+    /// Absent, the credential is renewable.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub expires_at: Option<String>,
+}
+/// How far ahead a renewable credential's expiry is set.
+pub(crate) const RENEWAL_WINDOW: chrono::TimeDelta = chrono::TimeDelta::hours(24);
+/// A renewable credential's expiry a day from now.
+pub(crate) fn renewed_expiry() -> String {
+    crate::store::rfc3339(Utc::now() + RENEWAL_WINDOW)
 }
 #[derive(Serialize)]
 pub struct AdapterCredential {
@@ -218,7 +230,9 @@ impl Store {
         tx: &Transaction<'_>,
         r: CreateAdapter,
     ) -> Result<AdapterCredential, Error> {
-        let expiration = DateTime::parse_from_rfc3339(&r.expires_at)
+        let renewable = r.expires_at.is_none();
+        let expires_at = r.expires_at.unwrap_or_else(renewed_expiry);
+        let expiration = DateTime::parse_from_rfc3339(&expires_at)
             .map_err(|_| Error::Invalid("invalid expiration".into()))?;
         if expiration <= Utc::now() {
             return Err(Error::Invalid("invalid expiration".into()));
@@ -308,8 +322,9 @@ impl Store {
         let a = Adapter {
             id: new_id("adapter")?,
             session_id: r.session_id,
-            expires_at: r.expires_at,
+            expires_at,
             revoked_at: None,
+            renewable,
         };
         let mut random = [0u8; 32];
         getrandom::fill(&mut random)

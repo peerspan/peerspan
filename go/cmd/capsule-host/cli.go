@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 func newCommand(out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
-		Use: "capsule-host", Short: "Run and control a local Capsule host daemon",
+		Use: programName, Short: "Run and control a local Capsule host daemon",
 		Long: `Run and control a local Capsule host daemon.
 
 Person keys are ssh-ed25519 keys in ssh-agent (SSH_AUTH_SOCK), or --person-key
@@ -43,8 +44,15 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 `,
 		SilenceUsage: true, SilenceErrors: true,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
+	var leaves []*cobra.Command
+	root.RunE = func(cmd *cobra.Command, args []string) error {
+		if advanced, _ := cmd.Flags().GetBool("help-advanced"); advanced {
+			return printHelp(root, leaves, true)
+		}
+		return cmd.Help()
+	}
+	root.Flags().Bool("help-advanced", false, "list every command")
 	root.SetOut(out)
 	root.SetErr(errOut)
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -71,8 +79,10 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 		}
 		configureFlags(cmd, parts)
 		parent.AddCommand(cmd)
+		leaves = append(leaves, cmd)
 		return cmd
 	}
+	add("status", "status", "Show this host and what needs attention", 0)
 	add("run", "run", "Run the host daemon in the foreground", 0).Aliases = []string{"serve"}
 	add("info", "info", "Show the local daemon's public identity", 0)
 	add("agent register", "register", "Register a local agent", 0)
@@ -116,8 +126,8 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("network join", "join", "Join a coordinated network", 0)
 	add("network invite", "invite", "Issue a member or host invite", 0)
 	add("network list", "list", "List joined networks", 0)
-	add("network members", "members ID", "List network members", 1)
-	add("network sync", "sync ID", "Sync a network with coordination", 1)
+	add("network members", "members [ID]", "List network members", 0).Args = cobra.RangeArgs(0, 1)
+	add("network sync", "sync [ID]", "Sync a network with coordination", 0).Args = cobra.RangeArgs(0, 1)
 	add("network revoke", "revoke", "Revoke a host membership", 0)
 	add("network revoke-invite", "revoke-invite", "Revoke an invite", 0)
 	add("network leave", "leave ID", "Leave a network", 1)
@@ -128,11 +138,11 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("network bind", "bind", "Bind this host to a person", 0)
 	add("network unbind", "unbind", "Unbind a host from a person", 0)
 	add("network remove-person", "remove-person", "Remove a person", 0)
-	add("network persons", "persons ID", "List network persons", 1)
+	add("network persons", "persons [ID]", "List network persons", 0).Args = cobra.RangeArgs(0, 1)
 	add("network delegate-admin", "delegate-admin", "Delegate network administration", 0)
 	add("network remove-admin", "remove-admin", "Remove an administrator", 0)
 	add("network group set", "set", "Set or delete a group", 0)
-	add("network groups", "groups ID", "List network groups", 1)
+	add("network groups", "groups [ID]", "List network groups", 0).Args = cobra.RangeArgs(0, 1)
 	add("access allow", "allow", "Allow access to an owner's agent", 0)
 	add("access deny", "deny", "Withdraw access to an owner's agent", 0)
 	add("access renew", "renew", "Renew the owner access policy", 0)
@@ -154,7 +164,111 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("delivery list", "list", "List durable adapter handoffs", 0)
 	add("delivery inspect", "inspect ID", "Inspect an adapter handoff", 1)
 	add("activity", "activity", "Read the local activity log", 0)
+	shapeHelp(root, leaves)
 	return root
+}
+
+// rootCommands are the commands the root help lists, in order; the others
+// are hidden and listed by help advanced.
+var rootCommands = []string{
+	"status", "run",
+	"network create", "network join", "network invite", "network list", "network members",
+	"access allow", "access deny", "access show",
+	"session setup", "session start", "session doctor",
+	"message send", "task submit",
+}
+
+// shapeHelp hides every command outside rootCommands, and groups left with
+// no visible command, and installs the root and advanced help.
+func shapeHelp(root *cobra.Command, leaves []*cobra.Command) {
+	shown := map[string]bool{}
+	for _, path := range rootCommands {
+		shown[path] = true
+	}
+	for _, leaf := range leaves {
+		leaf.Hidden = !shown[commandPath(leaf)]
+	}
+	var hideGroups func(*cobra.Command) bool
+	hideGroups = func(cmd *cobra.Command) bool {
+		if !cmd.HasSubCommands() {
+			return !cmd.Hidden
+		}
+		visible := false
+		for _, child := range cmd.Commands() {
+			if hideGroups(child) {
+				visible = true
+			}
+		}
+		if cmd != root {
+			cmd.Hidden = !visible
+		}
+		return visible
+	}
+	hideGroups(root)
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if cmd != root {
+			defaultHelp(cmd, args)
+			return
+		}
+		_ = printHelp(root, leaves, false)
+	})
+	root.SetHelpCommand(&cobra.Command{
+		Use: "help [advanced | COMMAND]", Short: "Help about any command",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && args[0] == "advanced" {
+				return printHelp(root, leaves, true)
+			}
+			target, _, err := root.Find(args)
+			if err != nil || target == nil {
+				return fmt.Errorf("unknown help topic %q; see %s help advanced", strings.Join(args, " "), programName)
+			}
+			return target.Help()
+		},
+	})
+}
+
+// commandPath is a command's path without the program name.
+func commandPath(cmd *cobra.Command) string {
+	_, path, _ := strings.Cut(cmd.CommandPath(), " ")
+	return path
+}
+
+// printHelp prints the root help, or with advanced the full description and
+// every command. The Commands section is parsed by conformance/launch_cli.py:
+// one "  PATH  description" line per command.
+func printHelp(root *cobra.Command, leaves []*cobra.Command, advanced bool) error {
+	out := root.OutOrStdout()
+	root.InitDefaultHelpFlag()
+	paths := rootCommands
+	if advanced {
+		paths = nil
+		for _, leaf := range leaves {
+			paths = append(paths, commandPath(leaf))
+		}
+		fmt.Fprint(out, root.Long)
+	} else {
+		fmt.Fprintln(out, root.Short+".")
+	}
+	fmt.Fprintf(out, "\nUsage:\n  %s COMMAND [flags]\n\nCommands:\n", programName)
+	width := 0
+	for _, path := range paths {
+		width = max(width, len(path))
+	}
+	for _, path := range paths {
+		cmd, _, err := root.Find(strings.Fields(path))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "  %-*s  %s\n", width, path, cmd.Short)
+	}
+	fmt.Fprintf(out, "\nFlags:\n%s\n", root.LocalFlags().FlagUsages())
+	if advanced {
+		fmt.Fprintf(out, "Run '%s COMMAND --help' for a command's flags.\n", programName)
+	} else {
+		fmt.Fprintf(out, "Run '%s help advanced' for every command.\n", programName)
+	}
+	return nil
 }
 
 func configureFlags(cmd *cobra.Command, args []string) {
@@ -174,6 +288,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	}
 
 	switch strings.Join(args, " ") {
+	case "status":
+		fs.Bool("json", false, "print the daemon's status object")
 	case "agent register":
 		fs.String("name", "", "agent name")
 		fs.String("owner", "", "local owner label")
@@ -191,7 +307,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("from-agent", "", "limit the grant to requests whose asserted origin is this agent of the requester host")
 		fs.String("peer", "", "requester host ID")
 		fs.String("agent", "", "target local agent ID")
-		fs.String("expires-at", "", "UTC grant expiration")
+		fs.String("expires-at", "", "UTC grant expiration; default 30 days")
+		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
 		fs.Int64("max-message-bytes", 65536, "content byte limit")
 		fs.Int64("max-artifact-bytes", 0, "bound on a task's input and result artifacts together; 0 refuses artifacts; needs --action task.submit or task.delegate")
 		fs.Bool("allow-disconnected", false, "permit work without coordination")
@@ -204,7 +321,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("request", "", "stable request ID; generated if omitted")
 		fs.String("grant", "", "receiver grant ID; without it, the send cites the receiver owner's access policy")
 		fs.String("agent", "", "receiver agent ID")
-		fs.String("deadline", "", "UTC request deadline")
+		fs.String("deadline", "", "UTC request deadline; default 1 hour")
 		fs.String("content", "", "message text")
 		fs.String("from-agent", "", "local agent this send originates from")
 		fs.String("from-session", "", "one of that agent's sessions; needs --from-agent")
@@ -229,12 +346,14 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "network invite":
 		fs.String("network", "", "network ID")
 		fs.String("member", "", "invitee member label")
-		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead")
+		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead; default 7 days")
+		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
 		fs.Bool("host-only", false, "issue a host-only invite instead of a member invite")
 	case "network invite-person":
 		fs.String("network", "", "network ID")
 		fs.String("member", "", "invitee member label")
-		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead")
+		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead; default 7 days")
+		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
 	case "network remove-person":
 		fs.String("network", "", "network ID")
 		fs.String("person", "", "person ID to remove")
@@ -244,7 +363,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("peer", "", "receiving host ID")
 		fs.String("agent", "", "remote agent ID")
 		fs.String("grant", "", "receiver's grant ID; without it, sends cite the receiver owner's access policy")
-		fs.String("expires-at", "", "route expiration")
+		fs.String("expires-at", "", "route expiration; by default the route follows its renewable credential")
+		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
 		fs.Int64("max-message-bytes", 65536, "maximum content bytes")
 		fs.Int64("max-messages", 100, "lifetime message and task budget")
 		fs.String("action", "message.append", "route action: message.append (send) or task.submit (delegate_task)")
@@ -253,7 +373,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("adapter", "", "adapter credential ID")
 	case "adapter create":
 		fs.String("session", "", "one attached session ID")
-		fs.String("expires-at", "", "credential expiration")
+		fs.String("expires-at", "", "credential expiration; by default the credential is renewable, extended to 24 hours ahead whenever its adapter connects")
+		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
 	case "delivery list":
 		fs.Int64("after", 0, "read after this sequence")
 		fs.Int64("limit", 100, "maximum records")
@@ -298,7 +419,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 			fs.String("integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")
 			fs.String("runner", "", "integration helper executable override")
 			fs.String("agent", "", "registered agent ID")
-			fs.String("expires-at", "", "future RFC3339 authorization expiry")
+			fs.String("expires-at", "", "future RFC3339 authorization expiry; by default the authorization is renewable")
 			fs.String("expires-in", "", "relative authorization lifetime (1m to 720h)")
 			fs.String("routes", "", "owner destination JSON array")
 			fs.StringArray("option", nil, "integration-specific KEY=VALUE; repeatable")

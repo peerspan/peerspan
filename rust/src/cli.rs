@@ -1,3 +1,6 @@
+use crate::integration::relative_expiry;
+use anyhow::bail;
+use chrono::{SecondsFormat, TimeDelta, Utc};
 use clap::{Parser, Subcommand};
 use hyper::Method;
 use serde_json::{Value, json};
@@ -7,18 +10,28 @@ use std::path::PathBuf;
 #[command(
     name = "capsule-host",
     about = "Run and control a local Capsule host daemon",
-    after_help = "Session attachment records metadata; a scoped adapter connects an opted-in session."
+    after_help = "Session attachment records metadata; a scoped adapter connects an opted-in session.",
+    disable_help_subcommand = true
 )]
 pub struct Cli {
     /// Private state directory; otherwise use XDG_STATE_HOME or HOME
     #[arg(long, value_name = "DIR")]
     pub state: Option<PathBuf>,
+    /// Print help listing every command
+    #[arg(long, hide = true)]
+    pub help_advanced: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Show this host's networks, sessions, and what needs attention
+    Status {
+        /// Print the daemon's status object
+        #[arg(long)]
+        json: bool,
+    },
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
     Run {
@@ -86,6 +99,11 @@ pub enum Command {
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
         limit: i64,
     },
+    /// Print help for a command; `help advanced` lists every command
+    Help {
+        #[arg(value_name = "COMMAND")]
+        topic: Vec<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -117,10 +135,11 @@ pub enum SessionCommand {
         harness: Option<String>,
         #[arg(long, requires = "harness")]
         agent: Option<String>,
-        #[arg(long, requires_all=["agent","harness"], conflicts_with = "expires_in")]
+        /// Authorization expiry; without it or --expires-in, renewable
+        #[arg(long, requires_all=["agent","harness"])]
         expires_at: Option<String>,
         /// Relative authorization lifetime, from 1m to 720h
-        #[arg(long, requires_all=["agent","harness"], conflicts_with = "expires_at")]
+        #[arg(long, requires_all=["agent","harness"])]
         expires_in: Option<String>,
         #[arg(long, requires = "agent")]
         integrations: Option<PathBuf>,
@@ -217,11 +236,14 @@ pub enum NetworkCommand {
     /// invite, which also admits the joiner's person and binds the host.
     Invite {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long)]
         member: String,
         #[arg(long, value_name = "TIME")]
-        expires_at: String,
+        expires_at: Option<String>,
+        /// Relative lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
         /// Issue a host-only invite
         #[arg(long)]
         host_only: bool,
@@ -252,7 +274,7 @@ pub enum NetworkCommand {
     /// Admit a person or a host by public key (administrator only)
     Admit {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         /// ssh-ed25519 public key line, or a path to one
         #[arg(
             long,
@@ -274,11 +296,14 @@ pub enum NetworkCommand {
     /// Issue a one-time person invite token (administrator only)
     InvitePerson {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long)]
         member: String,
         #[arg(long, value_name = "TIME")]
-        expires_at: String,
+        expires_at: Option<String>,
+        /// Relative lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
         /// Person key for signing as an administrator, when this host does
         /// not hold the root seed and the agent holds several keys
         #[arg(long, value_name = "PATH")]
@@ -294,14 +319,14 @@ pub enum NetworkCommand {
     /// Bind this host to your person; signed with your person key
     Bind {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
     /// Unbind one of your hosts; signed with your person key
     Unbind {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "HOST_ID")]
         host: String,
         #[arg(long, value_name = "PATH")]
@@ -310,7 +335,7 @@ pub enum NetworkCommand {
     /// Remove a person and end its bindings (administrator only)
     RemovePerson {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "PERSON_ID")]
         person: String,
         /// Person key for signing as an administrator, when this host does
@@ -319,13 +344,13 @@ pub enum NetworkCommand {
         person_key: Option<PathBuf>,
     },
     /// List a network's persons and the hosts bound to them
-    Persons { id: String },
+    Persons { id: Option<String> },
     /// List networks
     List,
     /// List a network's verified members
-    Members { id: String },
+    Members { id: Option<String> },
     /// Register or sync a network now
-    Sync { id: String },
+    Sync { id: Option<String> },
     /// Revoke a member host's membership (administrator only)
     Revoke {
         #[arg(long, value_name = "ID")]
@@ -340,7 +365,7 @@ pub enum NetworkCommand {
     /// Revoke an invite, and any host that joined with it (administrator only)
     RevokeInvite {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "INVITE_PUBLIC_KEY")]
         invite: String,
         /// Person key for signing as an administrator, when this host does
@@ -364,7 +389,7 @@ pub enum NetworkCommand {
     /// Make a person an administrator (root only)
     DelegateAdmin {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         /// Person ID or label
         #[arg(long)]
         person: String,
@@ -390,14 +415,14 @@ pub enum NetworkCommand {
     #[command(subcommand)]
     Group(GroupCommand),
     /// List a network's current groups
-    Groups { id: String },
+    Groups { id: Option<String> },
 }
 #[derive(Debug, Subcommand)]
 pub enum GroupCommand {
     /// Set a group's persons; with no --person, delete the group
     Set {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "NAME")]
         group: String,
         /// Person ID or label; repeat for each member
@@ -416,8 +441,12 @@ pub enum GrantCommand {
         peer: String,
         #[arg(long)]
         agent: String,
-        #[arg(long)]
-        expires_at: String,
+        /// Grant expiry; default 30 days
+        #[arg(long, value_name = "TIME")]
+        expires_at: Option<String>,
+        /// Relative lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
         #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
         max_message_bytes: i64,
         #[arg(long)]
@@ -442,7 +471,7 @@ pub enum AccessCommand {
     /// Add or replace the rule for an agent in your policy
     Allow {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "NAME")]
         agent: String,
         /// person:ID, person:LABEL, group:NAME, network, or
@@ -467,7 +496,7 @@ pub enum AccessCommand {
     /// Remove principals from an agent's rule, or the whole rule
     Deny {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "NAME")]
         agent: String,
         #[arg(long)]
@@ -478,14 +507,14 @@ pub enum AccessCommand {
     /// Re-sign your current rules now
     Renew {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
     /// Show a person's newest verified policy (yours by default)
     Show {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         #[arg(long)]
         person: Option<String>,
     },
@@ -493,7 +522,7 @@ pub enum AccessCommand {
     /// or show its delivery status
     Sync {
         #[arg(long, value_name = "ID")]
-        network: String,
+        network: Option<String>,
         /// Show the status without syncing
         #[arg(long)]
         status: bool,
@@ -522,6 +551,7 @@ pub enum MessageCommand {
         peer: String,
         id: String,
     },
+    /// Send a message to an agent on a peer host
     Send {
         #[arg(long)]
         peer: String,
@@ -530,8 +560,9 @@ pub enum MessageCommand {
         grant: Option<String>,
         #[arg(long)]
         agent: String,
+        /// RFC3339 deadline; default one hour
         #[arg(long)]
-        deadline: String,
+        deadline: Option<String>,
         #[arg(long)]
         content: String,
         #[arg(long, default_value = "")]
@@ -677,8 +708,12 @@ pub enum AdapterCommand {
     Create {
         #[arg(long)]
         session: String,
-        #[arg(long)]
-        expires_at: String,
+        /// Credential expiry; without it or --expires-in, renewable
+        #[arg(long, value_name = "TIME")]
+        expires_at: Option<String>,
+        /// Relative lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
     },
     List,
     Inspect {
@@ -702,8 +737,12 @@ pub enum RouteCommand {
         /// Grant ID; otherwise cite the target owner's policy
         #[arg(long)]
         grant: Option<String>,
-        #[arg(long)]
-        expires_at: String,
+        /// Route expiry; without it or --expires-in, follows the credential
+        #[arg(long, value_name = "TIME")]
+        expires_at: Option<String>,
+        /// Relative lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
         #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(i64).range(1..=65536))]
         max_message_bytes: i64,
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
@@ -743,11 +782,200 @@ pub struct AdminRequest {
     pub body: Option<Value>,
 }
 
+/// The commands the root help lists, in order; `help advanced` lists all.
+pub const MAIN_COMMANDS: [&str; 15] = [
+    "status",
+    "run",
+    "network create",
+    "network join",
+    "network invite",
+    "network list",
+    "network members",
+    "access allow",
+    "access deny",
+    "access show",
+    "session setup",
+    "session start",
+    "session doctor",
+    "message send",
+    "task submit",
+];
+
+/// The command line under `name`, the base name the binary was invoked as.
+/// The root help lists only the main commands.
+pub fn command_line(name: &'static str) -> clap::Command {
+    let command = <Cli as clap::CommandFactory>::command()
+        .name(name)
+        .bin_name(name);
+    let entries = MAIN_COMMANDS
+        .iter()
+        .map(|path| (path.to_string(), about(&command, path)))
+        .collect::<Vec<_>>();
+    let help = format!(
+        "{}\n\nCommands:\n{}\n{}Run '{name} help advanced' to list every command.\n",
+        heading(&command, name),
+        listing(&entries),
+        OPTIONS,
+    );
+    command.override_help(help)
+}
+
+/// `help advanced`: every command, as the root help listed them before.
+pub fn advanced_help(name: &str) -> String {
+    let command = <Cli as clap::CommandFactory>::command();
+    let mut entries = Vec::new();
+    leaves(&command, "", &mut entries);
+    format!(
+        "{}\n\nCommands:\n{}\n{}{}\nRun '{name} help COMMAND' for a command's options.\n",
+        heading(&command, name),
+        listing(&entries),
+        OPTIONS,
+        command
+            .get_after_help()
+            .map(|text| format!("{text}\n"))
+            .unwrap_or_default(),
+    )
+}
+
+const OPTIONS: &str = "Options:\n      --state <DIR>  Private state directory; otherwise use XDG_STATE_HOME or HOME\n  -h, --help         Print help\n\n";
+
+fn heading(command: &clap::Command, name: &str) -> String {
+    format!(
+        "{}\n\nUsage: {name} [--state <DIR>] <COMMAND>",
+        command
+            .get_about()
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    )
+}
+fn about(command: &clap::Command, path: &str) -> String {
+    let mut found = command;
+    for word in path.split(' ') {
+        found = found
+            .find_subcommand(word)
+            .expect("a listed command exists");
+    }
+    found
+        .get_about()
+        .map(ToString::to_string)
+        .unwrap_or_default()
+}
+fn leaves(command: &clap::Command, prefix: &str, entries: &mut Vec<(String, String)>) {
+    for sub in command.get_subcommands().filter(|s| s.get_name() != "help") {
+        let path = format!("{prefix}{}", sub.get_name());
+        if sub.has_subcommands() {
+            leaves(sub, &format!("{path} "), entries);
+        } else {
+            let about = sub.get_about().map(ToString::to_string).unwrap_or_default();
+            entries.push((path, about));
+        }
+    }
+}
+fn listing(entries: &[(String, String)]) -> String {
+    let width = entries
+        .iter()
+        .map(|(path, _)| path.len())
+        .max()
+        .unwrap_or(0);
+    entries
+        .iter()
+        .map(|(path, about)| format!("  {path:width$}  {about}").trim_end().to_owned() + "\n")
+        .collect()
+}
+
 impl Command {
+    /// The network of a command that may omit it, for the CLI to fill in
+    /// when this host is in exactly one.
+    pub fn network_mut(&mut self) -> Option<&mut Option<String>> {
+        match self {
+            Self::Network(
+                NetworkCommand::Invite { network, .. }
+                | NetworkCommand::InvitePerson { network, .. }
+                | NetworkCommand::Admit { network, .. }
+                | NetworkCommand::Bind { network, .. }
+                | NetworkCommand::Unbind { network, .. }
+                | NetworkCommand::RemovePerson { network, .. }
+                | NetworkCommand::RevokeInvite { network, .. }
+                | NetworkCommand::DelegateAdmin { network, .. }
+                | NetworkCommand::Group(GroupCommand::Set { network, .. }),
+            )
+            | Self::Access(
+                AccessCommand::Allow { network, .. }
+                | AccessCommand::Deny { network, .. }
+                | AccessCommand::Renew { network, .. }
+                | AccessCommand::Show { network, .. }
+                | AccessCommand::Sync { network, .. },
+            ) => Some(network),
+            Self::Network(
+                NetworkCommand::Persons { id }
+                | NetworkCommand::Members { id }
+                | NetworkCommand::Sync { id }
+                | NetworkCommand::Groups { id },
+            ) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// Resolves `--expires-in` and fixed default expiries to RFC3339 times,
+    /// so the daemon APIs are unchanged. Without an expiry, an adapter
+    /// credential is renewable and a route follows its credential.
+    pub fn resolve_expiries(&mut self) -> anyhow::Result<()> {
+        let (expires_at, expires_in, default) = match self {
+            Self::Grant(GrantCommand::Create {
+                expires_at,
+                expires_in,
+                ..
+            }) => (expires_at, expires_in, Some(TimeDelta::days(30))),
+            Self::Network(
+                NetworkCommand::Invite {
+                    expires_at,
+                    expires_in,
+                    ..
+                }
+                | NetworkCommand::InvitePerson {
+                    expires_at,
+                    expires_in,
+                    ..
+                },
+            ) => (expires_at, expires_in, Some(TimeDelta::days(7))),
+            Self::Adapter(
+                AdapterCommand::Create {
+                    expires_at,
+                    expires_in,
+                    ..
+                }
+                | AdapterCommand::Route(RouteCommand::Add {
+                    expires_at,
+                    expires_in,
+                    ..
+                }),
+            )
+            | Self::Session(SessionCommand::Setup {
+                expires_at,
+                expires_in,
+                ..
+            }) => (expires_at, expires_in, None),
+            Self::Message(MessageCommand::Send { deadline, .. }) => {
+                deadline.get_or_insert_with(|| after(TimeDelta::hours(1)));
+                return Ok(());
+            }
+            _ => return Ok(()),
+        };
+        match (expires_at.is_some(), expires_in.take()) {
+            (true, Some(_)) => bail!("--expires-at and --expires-in are mutually exclusive"),
+            (false, Some(duration)) => *expires_at = Some(relative_expiry(&duration)?),
+            (false, None) => *expires_at = default.map(after),
+            (true, None) => {}
+        }
+        Ok(())
+    }
+
     /// Run starts the daemon; every other command uses its local control socket.
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Run { .. }
+            | Self::Status { .. }
+            | Self::Help { .. }
             | Self::Session(
                 SessionCommand::Setup { .. }
                 | SessionCommand::Start { .. }
@@ -819,6 +1047,7 @@ impl Command {
                 peer,
                 agent,
                 expires_at,
+                expires_in: _,
                 max_message_bytes,
                 allow_disconnected,
                 from_agent,
@@ -979,7 +1208,7 @@ impl Command {
                 ..
             }) => (
                 Method::POST,
-                format!("/v1/networks/{}/invites", encoded(&network)),
+                format!("/v1/networks/{}/invites", encoded(resolved(&network))),
                 Some(json!({"member":member,"expires_at":expires_at,"host_only":host_only})),
             ),
             Self::Network(NetworkCommand::Join {
@@ -1007,13 +1236,13 @@ impl Command {
                         .unwrap_or(person);
                     (
                         Method::POST,
-                        format!("/v1/networks/{}/persons", encoded(&network)),
+                        format!("/v1/networks/{}/persons", encoded(resolved(&network))),
                         Some(json!({"person_public_key": key, "member": member})),
                     )
                 }
                 (None, host) => (
                     Method::POST,
-                    format!("/v1/networks/{}/hosts", encoded(&network)),
+                    format!("/v1/networks/{}/hosts", encoded(resolved(&network))),
                     Some(json!({"host_public_key": host.unwrap_or_default(), "member": member})),
                 ),
             },
@@ -1024,31 +1253,37 @@ impl Command {
                 ..
             }) => (
                 Method::POST,
-                format!("/v1/networks/{}/person-invites", encoded(&network)),
+                format!(
+                    "/v1/networks/{}/person-invites",
+                    encoded(resolved(&network))
+                ),
                 Some(json!({"member": member, "expires_at": expires_at})),
             ),
             Self::Network(NetworkCommand::RemovePerson {
                 network, person, ..
             }) => (
                 Method::POST,
-                format!("/v1/networks/{}/person-removals", encoded(&network)),
+                format!(
+                    "/v1/networks/{}/person-removals",
+                    encoded(resolved(&network))
+                ),
                 Some(json!({"person_id": person})),
             ),
             Self::Network(NetworkCommand::Persons { id }) => (
                 Method::GET,
-                format!("/v1/networks/{}/persons", encoded(&id)),
+                format!("/v1/networks/{}/persons", encoded(resolved(&id))),
                 None,
             ),
 
             Self::Network(NetworkCommand::List) => (Method::GET, "/v1/networks".into(), None),
             Self::Network(NetworkCommand::Members { id }) => (
                 Method::GET,
-                format!("/v1/networks/{}/members", encoded(&id)),
+                format!("/v1/networks/{}/members", encoded(resolved(&id))),
                 None,
             ),
             Self::Network(NetworkCommand::Sync { id }) => (
                 Method::POST,
-                format!("/v1/networks/{}/sync", encoded(&id)),
+                format!("/v1/networks/{}/sync", encoded(resolved(&id))),
                 None,
             ),
             Self::Network(NetworkCommand::Revoke { network, host, .. }) => (
@@ -1060,7 +1295,7 @@ impl Command {
                 network, invite, ..
             }) => (
                 Method::POST,
-                format!("/v1/networks/{}/revocations", encoded(&network)),
+                format!("/v1/networks/{}/revocations", encoded(resolved(&network))),
                 Some(json!({"invite_public_key": invite})),
             ),
             Self::Network(NetworkCommand::Leave { id }) => (
@@ -1077,7 +1312,7 @@ impl Command {
                 network, person, ..
             }) => (
                 Method::POST,
-                format!("/v1/networks/{}/admins", encoded(&network)),
+                format!("/v1/networks/{}/admins", encoded(resolved(&network))),
                 Some(json!({"person": person})),
             ),
             Self::Network(NetworkCommand::RemoveAdmin {
@@ -1097,12 +1332,12 @@ impl Command {
                 ..
             })) => (
                 Method::POST,
-                format!("/v1/networks/{}/groups", encoded(&network)),
+                format!("/v1/networks/{}/groups", encoded(resolved(&network))),
                 Some(json!({"name": group, "members": person})),
             ),
             Self::Network(NetworkCommand::Groups { id }) => (
                 Method::GET,
-                format!("/v1/networks/{}/groups", encoded(&id)),
+                format!("/v1/networks/{}/groups", encoded(resolved(&id))),
                 None,
             ),
             Self::Adapter(AdapterCommand::Rotate { id }) => (
@@ -1126,12 +1361,16 @@ impl Command {
                 max_messages,
                 action,
                 delegation_depth,
+                ..
             })) => (
                 Method::POST,
                 "/v1/adapter-routes".into(),
-                Some(with_grant(
-                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action,"delegation_depth":delegation_depth}),
-                    grant,
+                Some(with_expiry(
+                    with_grant(
+                        json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action,"delegation_depth":delegation_depth}),
+                        grant,
+                    ),
+                    expires_at,
                 )),
             ),
             Self::Adapter(AdapterCommand::Route(RouteCommand::List { adapter })) => (
@@ -1147,10 +1386,11 @@ impl Command {
             Self::Adapter(AdapterCommand::Create {
                 session,
                 expires_at,
+                ..
             }) => (
                 Method::POST,
                 "/v1/adapters".into(),
-                Some(json!({"session_id":session,"expires_at":expires_at})),
+                Some(with_expiry(json!({ "session_id": session }), expires_at)),
             ),
             Self::Adapter(AdapterCommand::List) => (Method::GET, "/v1/adapters".into(), None),
             Self::Adapter(AdapterCommand::Inspect { id }) => {
@@ -1181,16 +1421,16 @@ impl Command {
                 match person {
                     Some(p) => format!(
                         "/v1/networks/{}/policy?person={}",
-                        encoded(&network),
+                        encoded(resolved(&network)),
                         encoded(&p)
                     ),
-                    None => format!("/v1/networks/{}/policy", encoded(&network)),
+                    None => format!("/v1/networks/{}/policy", encoded(resolved(&network))),
                 },
                 None,
             ),
             Self::Access(AccessCommand::Sync { network, status }) => (
                 if status { Method::GET } else { Method::POST },
-                format!("/v1/networks/{}/policy/sync", encoded(&network)),
+                format!("/v1/networks/{}/policy/sync", encoded(resolved(&network))),
                 None,
             ),
             Self::Access(AccessCommand::Block { person, host }) => (
@@ -1212,6 +1452,22 @@ impl Command {
         };
         Some(AdminRequest { method, path, body })
     }
+}
+
+/// Sends an expiry only when one is given; otherwise the credential is
+/// renewable, or the route follows it.
+fn with_expiry(mut body: Value, expires_at: Option<String>) -> Value {
+    if let Some(expires_at) = expires_at {
+        body["expires_at"] = json!(expires_at);
+    }
+    body
+}
+fn after(duration: TimeDelta) -> String {
+    (Utc::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+/// A network ID the CLI filled in before the request; see `network_mut`.
+pub fn resolved(network: &Option<String>) -> &str {
+    network.as_deref().unwrap_or_default()
 }
 
 /// Names a grant only when one is given; otherwise the daemon cites a policy.
@@ -1267,7 +1523,152 @@ mod tests {
             request(&["--network", "net_x", "--status"]),
             (Method::GET, "/v1/networks/net_x/policy/sync".into(), None)
         );
-        assert!(Cli::try_parse_from(["capsule-host", "access", "sync"]).is_err());
+        // Without --network the CLI fills in the only network first.
+        let mut omitted = Cli::try_parse_from(["capsule-host", "access", "sync"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert_eq!(omitted.network_mut(), Some(&mut None));
+    }
+
+    #[test]
+    fn networks_may_be_omitted_except_where_explicit() {
+        let parse = |args: &[&str]| Cli::try_parse_from([&["capsule-host"], args].concat());
+        for args in [
+            &["network", "members"][..],
+            &["network", "sync"],
+            &["network", "persons"],
+            &["network", "groups"],
+            &["network", "invite", "--member", "m"],
+            &["network", "bind"],
+            &["access", "show"],
+        ] {
+            let mut command = parse(args).unwrap().command.unwrap();
+            assert_eq!(command.network_mut(), Some(&mut None), "{args:?}");
+        }
+        let mut named = parse(&["network", "members", "net_x"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert_eq!(named.network_mut(), Some(&mut Some("net_x".into())));
+        for args in [
+            &["network", "leave"][..],
+            &["network", "rotate-root"],
+            &["network", "revoke", "--host", "h"],
+            &["network", "remove-admin", "--person", "p"],
+        ] {
+            assert!(parse(args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn expiries_resolve_before_requests() {
+        let resolved = |args: &[&str]| {
+            let mut command = Cli::try_parse_from([&["capsule-host"], args].concat())
+                .unwrap()
+                .command
+                .unwrap();
+            command.resolve_expiries().map(|_| command)
+        };
+        let within = |value: &Value, key: &str, expected: TimeDelta| {
+            let at = chrono::DateTime::parse_from_rfc3339(value[key].as_str().unwrap()).unwrap();
+            let off = at.with_timezone(&Utc) - (Utc::now() + expected);
+            assert!(off.abs() < TimeDelta::seconds(5), "{key}: {value}");
+        };
+        let grant = ["grant", "create", "--peer", "host_x", "--agent", "agent_y"];
+        let body = |command: Command| command.request().unwrap().body.unwrap();
+        within(
+            &body(resolved(&grant).unwrap()),
+            "expires_at",
+            TimeDelta::days(30),
+        );
+        within(
+            &body(resolved(&[&grant[..], &["--expires-in", "2h"]].concat()).unwrap()),
+            "expires_at",
+            TimeDelta::hours(2),
+        );
+        assert!(
+            resolved(&[&grant[..], &["--expires-in", "2h", "--expires-at", "t"]].concat()).is_err()
+        );
+        assert!(resolved(&[&grant[..], &["--expires-in", "721h"]].concat()).is_err());
+        let invite = [
+            "network",
+            "invite-person",
+            "--network",
+            "n",
+            "--member",
+            "m",
+        ];
+        within(
+            &body(resolved(&invite).unwrap()),
+            "expires_at",
+            TimeDelta::days(7),
+        );
+        let send = [
+            "message",
+            "send",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--content",
+            "c",
+        ];
+        within(
+            &body(resolved(&send).unwrap()),
+            "deadline",
+            TimeDelta::hours(1),
+        );
+        // Without an expiry, a credential is renewable and a route follows it.
+        let create = body(resolved(&["adapter", "create", "--session", "s"]).unwrap());
+        assert_eq!(create, json!({"session_id": "s"}));
+        let route = body(
+            resolved(&[
+                "adapter",
+                "route",
+                "add",
+                "--adapter",
+                "a",
+                "--name",
+                "r",
+                "--peer",
+                "h",
+                "--agent",
+                "g",
+            ])
+            .unwrap(),
+        );
+        assert!(route.get("expires_at").is_none());
+    }
+
+    #[test]
+    fn root_help_lists_the_main_commands() {
+        fn listed(help: &str) -> Vec<String> {
+            help.lines()
+                .skip_while(|l| *l != "Commands:")
+                .skip(1)
+                .take_while(|l| !l.is_empty())
+                .map(|l| l.trim().split("  ").next().unwrap().to_owned())
+                .collect()
+        }
+        let help = command_line("capsule").render_help().to_string();
+        assert_eq!(listed(&help), MAIN_COMMANDS);
+        assert!(!help.contains("capsule-host"));
+        assert!(
+            help.trim_end()
+                .lines()
+                .last()
+                .unwrap()
+                .contains("help advanced")
+        );
+        let advanced = listed(&advanced_help("capsule"));
+        for path in
+            MAIN_COMMANDS
+                .iter()
+                .chain(&["grant create", "network group set", "activity", "info"])
+        {
+            assert!(advanced.iter().any(|p| p == path), "{path}");
+        }
     }
 
     #[test]

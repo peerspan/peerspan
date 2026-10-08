@@ -18,6 +18,7 @@ pub mod policy_sync;
 pub mod quic;
 pub mod relay;
 pub mod retry;
+pub mod status;
 pub mod store;
 pub mod task;
 pub mod task_outbound;

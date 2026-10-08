@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,9 @@ type OutboundRoute struct {
 	// DelegationDepth, 0 to 2, makes tasks submitted through the route carry
 	// link 0 of a delegation chain with that depth; 0 creates no chain.
 	DelegationDepth int64 `json:"delegation_depth"`
+	// FollowsCredential routes were created without an expiry; they take
+	// their renewable credential's expires_at whenever it is renewed.
+	FollowsCredential bool `json:"follows_credential"`
 }
 
 // UnmarshalJSON reads a route from before task routes as a message route.
@@ -54,18 +58,22 @@ func (r *OutboundRoute) UnmarshalJSON(data []byte) error {
 const routeUsed = `(SELECT COUNT(*) FROM adapter_outbound o WHERE o.route_id = r.id) + (SELECT COUNT(*) FROM outbound_tasks t WHERE json_extract(t.record, '$.route_id') = r.id)`
 
 type CreateOutboundRoute struct {
-	AdapterID       string  `json:"adapter_id"`
-	Name            string  `json:"name"`
-	PeerHostID      string  `json:"peer_host_id"`
-	TargetAgentID   string  `json:"target_agent_id"`
-	GrantID         *string `json:"grant_id,omitempty"`
-	ExpiresAt       string  `json:"expires_at"`
-	MaxMessageBytes int64   `json:"max_message_bytes"`
-	MaxMessages     int64   `json:"max_messages"`
+	AdapterID     string  `json:"adapter_id"`
+	Name          string  `json:"name"`
+	PeerHostID    string  `json:"peer_host_id"`
+	TargetAgentID string  `json:"target_agent_id"`
+	GrantID       *string `json:"grant_id,omitempty"`
+	// ExpiresAt, when empty, makes the route follow its renewable credential.
+	ExpiresAt       string `json:"expires_at,omitempty"`
+	MaxMessageBytes int64  `json:"max_message_bytes"`
+	MaxMessages     int64  `json:"max_messages"`
 	// Action is message.append (the default when empty) or task.submit.
 	Action string `json:"action,omitempty"`
 	// DelegationDepth, nonzero only for task.submit, is link 0's depth.
 	DelegationDepth int64 `json:"delegation_depth,omitempty"`
+	// FollowsCredential true is the same as omitting ExpiresAt, so a route
+	// record can be posted back as a request.
+	FollowsCredential bool `json:"follows_credential,omitempty"`
 }
 type Destination struct {
 	Name              string `json:"name"`
@@ -150,7 +158,14 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if r.Action == "" {
 		r.Action = membership.PolicyActionMessage
 	}
+	follows := r.ExpiresAt == "" || r.FollowsCredential
+	if follows {
+		r.ExpiresAt = ""
+	}
 	exp, err := parseTime(r.ExpiresAt)
+	if follows {
+		exp, err = time.Now().Add(time.Hour), nil // checked against the credential below
+	}
 	if err != nil || !membership.ValidRouteAction(r.Action) || r.DelegationDepth < 0 || r.DelegationDepth > membership.DelegationMaxDepth || (r.DelegationDepth != 0 && r.Action != membership.PolicyActionTask) || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
 		return OutboundRoute{}, ErrInvalid
 	}
@@ -176,6 +191,12 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if a.RevokedAt != nil || ss.State != SessionAttached || !aExp.After(time.Now()) {
 		return OutboundRoute{}, ErrForbidden
 	}
+	if follows {
+		if !a.Renewable {
+			return OutboundRoute{}, fmt.Errorf("%w: a route without expires_at needs a renewable credential", ErrInvalid)
+		}
+		r.ExpiresAt, exp = a.ExpiresAt, aExp
+	}
 	if exp.After(aExp) {
 		return OutboundRoute{}, ErrInvalid
 	}
@@ -190,7 +211,7 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if err != nil {
 		return OutboundRoute{}, err
 	}
-	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, DelegationDepth: r.DelegationDepth}
+	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, DelegationDepth: r.DelegationDepth, FollowsCredential: follows}
 	data, err := json.Marshal(route)
 	if err != nil {
 		return route, err

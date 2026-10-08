@@ -18,7 +18,7 @@ The root help lists only these commands, in this order:
 5. `session setup`, `start`, and `doctor`;
 6. `message send` and `task submit`.
 
-It ends with one line pointing to `help advanced`. `help advanced` (and `--help-advanced` before any command) prints the full command list as the root help does today. Every hidden command still runs, and its own `--help` still works. Help wording is not a shared contract; the set of commands listed is, and `conformance/launch_cli.py` checks it.
+It ends with one line pointing to `help advanced`. `help advanced` (and `--help-advanced` before any command) prints the full command list as the root help does today. Every hidden command still runs, and its own `--help` still works. Help wording is not a shared contract; the set of commands listed is, and `conformance/launch_cli.py` checks it. It parses a `Commands:` header followed by one line per command: two spaces, the command path, at least two spaces, and a description. Bare invocation, `--help`, and `help` print identical root help, and root help invoked as `capsule` never mentions `capsule-host`.
 
 ### Network defaulting
 
@@ -52,7 +52,7 @@ The CLI resolves fixed defaults to an RFC3339 `expires_at` before calling the da
 ### Renewable credentials
 
 - **API.** `POST /v1/adapters` and `POST /v1/adapters/setup` accept a request without `expires_at`. The credential is then **renewable**, with `expires_at` 24 hours from creation. Credential records gain `renewable` (boolean, always shown); existing records read as `false`.
-- **Routes.** A route created without `expires_at`, by `POST /v1/adapters/{id}/routes` or within setup, takes its credential's `expires_at` and gains `follows_credential: true`. Route records always show `follows_credential`. It is allowed only when the credential is renewable; otherwise it is a 400.
+- **Routes.** A route created without `expires_at`, by `POST /v1/adapter-routes` or within setup, takes its credential's `expires_at` and gains `follows_credential: true`. Route records always show `follows_credential`, and the create request accepts it: `true` means the same as omitting `expires_at`, and `false` changes nothing. Following is allowed only when the credential is renewable; otherwise it is a 400. In a setup with an explicit expiry, routes without one take the setup's fixed expiry, as before.
 - **Renewal.** When a renewable credential, neither revoked nor expired, connects or renews its lease through `/adapter/v1/connect`, the daemon sets its `expires_at` to 24 hours from now. It does this only if that moves the expiry forward by at least 60 seconds. In the same transaction, every unrevoked route with `follows_credential` takes the new `expires_at`.
 - **Activity.** The first renewal of a credential, and then at most one per hour, records `adapter.renewed` with the adapter ID as subject.
 - **Expiry.** An expired renewable credential stays expired, exactly as a fixed one does. It is never renewed after expiry, including by recovery after a daemon restart.
@@ -92,7 +92,7 @@ No schema change is needed: these are fields of the JSON records.
   - `person` is this host's bound person, or null.
   - `policy` is that person's stored policy, or null.
   - `members` counts current, unrevoked members, this host included.
-- **`agents`:** sorted by name. `sessions` lists only attached sessions and sessions with an unrevoked, unexpired credential. `connection` uses the values of `adapter connection`: `registered`, `ready`, `offline`, `detached`, `revoked`, or `expired`.
+- **`agents`:** sorted by name, then ID. `sessions`, sorted by ID, lists only attached sessions and sessions with an unrevoked, unexpired credential. `connection` uses the values of `adapter connection`: `registered`, `ready`, `offline`, `detached`, `revoked`, or `expired`. A session without a credential shows null `adapter_id`, `connection`, and `expires_at`, and `renewable: false`.
 - **`version`:** the implementation's version string. Its wording is not shared.
 
 **Attention items**, in this order, each with its subject:
@@ -100,11 +100,11 @@ No schema change is needed: these are fields of the JSON records.
 2. `policy_expired`: this person's policy has passed `valid_until`. Command: `capsule access renew --network ID`.
 3. `policy_expiring`: this person's policy has less than a quarter of its validity window left. The daemon renews it at that point, so this means renewal is failing, for example because the daemon cannot reach the person's ssh-agent. Command: `capsule access renew --network ID`.
 4. `policy_delivery_failing`: a pending policy delivery that has failed at least once. Subject: `NETWORK/TARGET`; command: `capsule access sync --network ID`.
-5. `credential_expiring`: an unrevoked, non-renewable credential with an attached session, expiring within 24 hours. Subject: the adapter ID; command: `capsule session setup …`.
-6. `tasks_failed`: outbound tasks that became `failed`, `rejected`, or `expired` in the last 24 hours, as one item. Subject: the count; command: `capsule task list`.
-7. `artifact_quota`: stored plus pending bytes above 90% of the quota. Command: `capsule artifact prune`.
+5. `credential_expiring`: an unrevoked, non-renewable credential with an attached session, expiring within 24 hours and not yet expired. Subject: the adapter ID; command: `capsule session setup --agent ID --harness INTEGRATION`.
+6. `tasks_failed`: outbound tasks whose latest `task.updated` activity in the last 24 hours left them `failed`, `rejected`, or `expired`, including submissions the receiver refused. One item; subject: the count as a decimal string; command: `capsule task list`.
+7. `artifact_quota`: stored plus pending bytes above 90% of the quota. Subject: `artifacts`; command: `capsule artifact prune`.
 
-Within one kind, items are sorted by subject. `detail` is free text.
+Within one kind, items are sorted by subject. `detail` is free text. `policy_expiring` excludes a policy that has already expired, which is `policy_expired`.
 
 **`capsule status`** prints a readable summary; its layout is not shared. `--json` prints the daemon's object. Exit codes:
 - 0 when `attention` is empty;

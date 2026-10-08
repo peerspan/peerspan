@@ -6,7 +6,7 @@ mod integration;
 use anyhow::{Context, bail};
 use bytes::Bytes;
 use capsule_host::{api, membership, model, persons, store::Store};
-use clap::{CommandFactory, Parser};
+use clap::FromArgMatches;
 use cli::Cli;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request};
@@ -16,7 +16,7 @@ use std::{
     env, fs,
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 use tokio::{
@@ -24,20 +24,49 @@ use tokio::{
     signal::unix::{SignalKind, signal},
 };
 
+static PROGRAM: OnceLock<&'static str> = OnceLock::new();
+
+/// The base name this binary was invoked as, `capsule` or `capsule-host`;
+/// help and hints name it.
+pub(crate) fn program() -> &'static str {
+    PROGRAM.get().copied().unwrap_or("capsule-host")
+}
+
 #[tokio::main]
 async fn main() {
-    if let Err(error) = run(Cli::parse()).await {
+    let name = env::args_os()
+        .next()
+        .and_then(|arg| {
+            Path::new(&arg)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "capsule-host".into());
+    PROGRAM.get_or_init(|| Box::leak(name.into_boxed_str()));
+    let cli = cli::command_line(program())
+        .try_get_matches()
+        .and_then(|matches| Cli::from_arg_matches(&matches))
+        .unwrap_or_else(|e| e.exit());
+    if let Err(error) = run(cli).await {
         eprintln!("error: {error:#}");
         std::process::exit(1);
     }
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
-    let Some(command) = cli.command else {
-        Cli::command().print_help()?;
-        println!();
+    if cli.help_advanced {
+        print!("{}", cli::advanced_help(program()));
+        return Ok(());
+    }
+    let Some(mut command) = cli.command else {
+        cli::command_line(program()).print_help()?;
         return Ok(());
     };
+    if let cli::Command::Help { topic } = &command {
+        return help(topic);
+    }
+    command.resolve_expiries()?;
     if matches!(
         &command,
         cli::Command::Session(
@@ -55,6 +84,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(directory) => directory,
         None => default_directory()?,
     };
+    if let cli::Command::Status { json } = command {
+        return status(&directory, json).await;
+    }
+    if let Some(network) = command.network_mut()
+        && network.is_none()
+    {
+        *network = Some(only_network(&directory.join("admin.sock")).await?);
+    }
     // this binary currently either starts a host daemon or a local admin client
     // the daemon serves admin requests, peer-listeners etc
     if let cli::Command::Run {
@@ -112,6 +149,184 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     .context("local host daemon request timed out")??;
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+/// `help`, `help advanced`, or `help COMMAND...`, which prints that
+/// command's own help.
+fn help(topic: &[String]) -> anyhow::Result<()> {
+    match topic {
+        [] => cli::command_line(program()).print_help()?,
+        [advanced] if advanced == "advanced" => print!("{}", cli::advanced_help(program())),
+        path => {
+            let args = std::iter::once(program())
+                .chain(path.iter().map(String::as_str))
+                .chain(["--help"]);
+            if let Err(e) = cli::command_line(program()).try_get_matches_from(args) {
+                e.exit()
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The one network this host is in, for a command that omits it. Never
+/// chosen by name.
+async fn only_network(socket: &Path) -> anyhow::Result<String> {
+    let networks = admin::Local(socket).get("/v1/networks".into()).await?;
+    let networks = networks.as_array().context("invalid daemon response")?;
+    match networks.as_slice() {
+        [] => bail!("not a member of any network"),
+        [one] => Ok(one["id"].as_str().unwrap_or_default().to_owned()),
+        many => bail!(
+            "this host is in several networks; choose one with --network: {}",
+            many.iter()
+                .map(|n| format!(
+                    "{} ({})",
+                    n["id"].as_str().unwrap_or_default(),
+                    n["name"].as_str().unwrap_or_default()
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// `status`: exits 0 when nothing needs attention, 1 when something does,
+/// and 2 when the daemon cannot be reached.
+async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        call(
+            directory.join("admin.sock"),
+            Method::GET,
+            "/v1/status".into(),
+            None,
+        ),
+    )
+    .await;
+    let value = match result {
+        Ok(Ok(value)) => value,
+        Ok(Err(e)) if e.downcast_ref::<integration::DaemonError>().is_some() => return Err(e),
+        // Not listening, or not answering.
+        Ok(Err(_)) | Err(_) => {
+            let state = fs::canonicalize(directory).or_else(|_| std::path::absolute(directory))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &json!({"daemon": "not running", "state": state})
+                    )?
+                );
+            } else {
+                println!(
+                    "The host daemon is not running for state {}; start it with: {} run",
+                    state.display(),
+                    program()
+                );
+            }
+            exit(2);
+        }
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        print!("{}", summary(&value));
+    }
+    if value["attention"].as_array().is_some_and(|a| !a.is_empty()) {
+        exit(1);
+    }
+    Ok(())
+}
+fn exit(code: i32) -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    std::process::exit(code)
+}
+
+/// The readable `status` layout; not a shared format.
+fn summary(value: &Value) -> String {
+    let text = |v: &Value| match v {
+        Value::String(s) => s.clone(),
+        Value::Null => "-".into(),
+        other => other.to_string(),
+    };
+    let mut out = format!(
+        "Host {} (version {})\n",
+        text(&value["host_id"]),
+        text(&value["version"])
+    );
+    let networks = value["networks"].as_array().cloned().unwrap_or_default();
+    if networks.is_empty() {
+        out += "Networks: none\n";
+    } else {
+        out += "Networks:\n";
+    }
+    for n in &networks {
+        out += &format!(
+            "  {} {}: {} members, coordinator {}, last sync {}\n",
+            text(&n["id"]),
+            text(&n["name"]),
+            text(&n["members"]),
+            text(&n["coordinator"]),
+            text(&n["last_sync_at"]),
+        );
+        if !n["person"].is_null() {
+            out += &format!(
+                "    person {} ({}), policy version {} valid until {}, {} deliveries pending\n",
+                text(&n["person"]["label"]),
+                text(&n["person"]["id"]),
+                text(&n["policy"]["version"]),
+                text(&n["policy"]["valid_until"]),
+                text(&n["policy_deliveries_pending"]),
+            );
+        }
+    }
+    let agents = value["agents"].as_array().cloned().unwrap_or_default();
+    out += if agents.is_empty() {
+        "Agents: none\n"
+    } else {
+        "Agents:\n"
+    };
+    for a in &agents {
+        out += &format!("  {} ({})\n", text(&a["name"]), text(&a["id"]));
+        for s in a["sessions"].as_array().into_iter().flatten() {
+            out += &format!(
+                "    session {} {}: {}, expires {}{}\n",
+                text(&s["id"]),
+                text(&s["integration"]),
+                text(&s["connection"]),
+                text(&s["expires_at"]),
+                if s["renewable"] == true {
+                    " (renewable)"
+                } else {
+                    ""
+                },
+            );
+        }
+    }
+    out += &format!(
+        "Blocks: {}\nArtifacts: {} stored, {} pending of {} bytes\n",
+        text(&value["blocks"]),
+        text(&value["artifacts"]["stored_bytes"]),
+        text(&value["artifacts"]["pending_bytes"]),
+        text(&value["artifacts"]["quota"]),
+    );
+    let attention = value["attention"].as_array().cloned().unwrap_or_default();
+    if attention.is_empty() {
+        out += "Nothing needs attention.\n";
+    } else {
+        out += "Needs attention:\n";
+    }
+    for item in &attention {
+        out += &format!(
+            "  {} {}: {}\n    run: {}\n",
+            text(&item["kind"]),
+            text(&item["subject"]),
+            text(&item["detail"]),
+            text(&item["command"]),
+        );
+    }
+    out
 }
 
 /// Commands that sign with a person key. The key stays with the CLI (an
@@ -196,7 +411,8 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                 Err(reason) => {
                     let next = (!*no_person).then(|| {
                         format!(
-                            "an administrator runs: capsule-host network admit --network {network} --person '<your ssh-ed25519 public key>' --member {member}; then: {}",
+                            "an administrator runs: {} network admit --network {network} --person '<your ssh-ed25519 public key>' --member {member}; then: {}",
+                            program(),
                             bind_next(&network)
                         )
                     });
@@ -243,7 +459,8 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                     .is_some_and(|t| t.trim().starts_with(persons::MEMBER_TOKEN_PREFIX));
                 let next = (!*no_person).then(|| match token {
                     Some(token) if member_token => format!(
-                        "capsule-host network redeem-person --token {token} --person-key PATH; then: {} --person-key PATH",
+                        "{} network redeem-person --token {token} --person-key PATH; then: {} --person-key PATH",
+                        program(),
                         bind_next(&id)
                     ),
                     _ => format!(
@@ -268,6 +485,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             network,
             person_key,
         }) => {
+            let network = cli::resolved(network);
             let signer = signer(person_key)?;
             let host = local(Method::GET, "/v1/host".into(), None).await?;
             let key = host["public_key"]
@@ -287,6 +505,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             host,
             person_key,
         }) => {
+            let network = cli::resolved(network);
             let signer = signer(person_key)?;
             let members = local(
                 Method::GET,
@@ -348,7 +567,7 @@ fn token_network(token: &str) -> Option<String> {
         .ok()
 }
 fn bind_next(network: &str) -> String {
-    format!("capsule-host network bind --network {network}")
+    format!("{} network bind --network {network}", program())
 }
 fn skipped(reason: String, next: Option<String>) -> Value {
     json!({

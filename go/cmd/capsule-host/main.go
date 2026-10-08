@@ -21,10 +21,30 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// programName is the base name the CLI was invoked as, capsule or
+// capsule-host; help and diagnostics use it.
+var programName = "capsule-host"
+
+// exitStatus ends the CLI with a status code and no error message.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+
+func invalidCommand() error {
+	return errors.New("invalid command; see " + programName + " --help")
+}
+
 func main() {
+	if name := filepath.Base(os.Args[0]); name != "" && name != "." && name != string(filepath.Separator) {
+		programName = name
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
+		var code exitStatus
+		if errors.As(err, &code) {
+			os.Exit(int(code))
+		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -43,6 +63,9 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == "session" && (args[1] == "setup" || args[1] == "start" || args[1] == "doctor") {
 		return runSessionSetup(ctx, args[1:], fs, state, out)
 	}
+	if err := resolveExpiry(args, fs); err != nil {
+		return err
+	}
 	explicitState := state
 	if state == "" {
 		var err error
@@ -56,12 +79,18 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	}
 
 	client := host.Client{SocketPath: filepath.Join(state, "admin.sock")}
+	if args[0] == "status" {
+		return runStatus(ctx, client, fs, state, out)
+	}
+	args, err := defaultNetwork(ctx, client, args, fs)
+	if err != nil {
+		return err
+	}
 	if len(args) >= 2 && args[0] == "network" && (args[1] == "create" || args[1] == "join") {
 		return networkCreateOrJoin(ctx, client, args[1], fs, explicitState, out, errOut)
 	}
 	var method, path string
 	var body any
-	var err error
 	if args[0] == "access" {
 		method, path, body, err = accessRequest(ctx, client, args, fs)
 	} else {
@@ -105,7 +134,7 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 
 func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error) {
 	invalid := func() (string, string, any, error) {
-		return "", "", nil, errors.New("invalid command; see capsule-host --help")
+		return "", "", nil, invalidCommand()
 	}
 	switch args[0] {
 	case "info":
@@ -222,6 +251,9 @@ func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error)
 			grant, _ = fs.GetString("grant")
 			m.TargetAgentID, _ = fs.GetString("agent")
 			m.Deadline, _ = fs.GetString("deadline")
+			if m.Deadline == "" {
+				m.Deadline = expiryIn(messageDefaultDeadline)
+			}
 			m.Content, _ = fs.GetString("content")
 			fromAgent, _ = fs.GetString("from-agent")
 			fromSession, _ = fs.GetString("from-session")

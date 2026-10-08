@@ -109,10 +109,14 @@ remote acceptance and model execution. A successful diagnostic does not claim
 that a remote agent consumed a message. Use an explicit message and correlated
 reply to verify the complete round trip.
 
-Authorization expires at the timestamp selected during setup. Expiration is not
-silently renewed; create a fresh owner-authorized setup when needed. Keep the
-original attached process running across daemon restarts so it can recover its
-bound session.
+Without `--expires-in` or `--expires-at`, setup issues a renewable credential:
+it lasts 24 hours and the daemon extends it to 24 hours ahead while the adapter
+stays connected, recording an `adapter.renewed` activity at most hourly. An
+explicit expiry is fixed and never renewed. Either way, an expired credential
+stays expired; create a fresh owner-authorized setup when needed. Revoking the
+adapter or detaching the session ends it at once. `capsule-host status` shows
+each session's expiry. Keep the original attached process running across daemon
+restarts so it can recover its bound session.
 
 ## Build a shareable bundle
 

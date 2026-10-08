@@ -19,4 +19,6 @@ Build both binaries and run the appropriate shared conformance suites when exter
 
 Session-adapter changes require `conformance/agent_adapter.py` (also with `--probe`), `conformance/adapter_outbound.py`, and `conformance/adapter_recovery.py` across all Go/Rust pairings, with the Node adapter and Go coordinator. Live Claude experiments are separate from deterministic conformance; record model-observed behavior and limitations without claiming model execution from notification acknowledgments alone.
 
+CLI shape, expiry, credential renewal, or status changes (help, network defaulting, `--expires-in` and defaults, renewable credentials and following routes, or `GET /v1/status` and `status`) require `conformance/launch_cli.py` across all Go/Rust CLI/daemon pairings, with `--probe` and the Go coordinator; packaging changes require `conformance/installed_bundle.py` for both implementations (it needs Python 3.12 or newer).
+
 Integration setup or diagnostic changes also require `conformance/claude_setup.py` and `conformance/harness_setup.py` across all Go/Rust CLI/daemon pairings. The latter tests a non-Claude integration with Node absent from PATH, optional launch, and cross-CLI profile/recovery behavior. Claude checks use an explicit executable fixture and real MCP consumers; live model checks use `conformance/live_cross_host_agents.py --setup-flow` separately.

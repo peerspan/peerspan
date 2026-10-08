@@ -224,8 +224,8 @@ func readJSON[T any](row interface{ Scan(...any) error }) (T, error) {
 	err := json.Unmarshal([]byte(encoded), &value)
 	return value, err
 }
-func records[T any](ctx context.Context, db *sql.DB, query string) ([]T, error) {
-	rows, err := db.QueryContext(ctx, query)
+func records[T any](ctx context.Context, q queryer, query string, args ...any) ([]T, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

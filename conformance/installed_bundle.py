@@ -59,10 +59,14 @@ def check(archive_path, node):
         prefix = root / "moved capsule prefix"
         original.rename(prefix)
         binary = prefix / "bin/capsule-host"
+        short = prefix / "bin/capsule"
         metadata = json.loads((prefix / "RELEASE.json").read_text())
         assert metadata["implementation"] in {"go", "rust"}
         assert metadata["os"] == "linux" and metadata["node_requirement"] == ">=22"
         assert os.access(binary, os.X_OK)
+        # bin/capsule is the same binary under its short name, linked relatively.
+        assert short.is_symlink() and os.readlink(short) == "capsule-host", short
+        assert os.access(short, os.X_OK)
 
         runtime = root / "runtime bin"
         runtime.mkdir()
@@ -203,6 +207,39 @@ def check(archive_path, node):
                 str(profile),
             )
             assert ready["adapter_ready"]
+
+            # Through bin/capsule: the help names it capsule, and it finds the
+            # bundled integrations. Without an expiry the setup is renewable.
+            help_text = subprocess.run(["capsule", "--help"], capture_output=True, text=True, timeout=10,
+                                       check=True).stdout
+            assert "capsule-host" not in help_text and "capsule help advanced" in help_text, help_text
+            second = host.cli("agent", "register", "--name", "short-name", "--owner", "tester")
+            renewable = run(
+                "capsule",
+                host.state,
+                root,
+                "session",
+                "setup",
+                "--directory",
+                str(root / "short name profile"),
+                "--harness",
+                "claude-code",
+                "--option",
+                "executable=" + str(claude),
+                "--agent",
+                second["id"],
+            )
+            assert renewable["harness"] == "claude-code"
+            expiry = datetime.fromisoformat(renewable["expires_at"].replace("Z", "+00:00"))
+            remaining = (expiry - datetime.now(timezone.utc)).total_seconds()
+            assert 86000 <= remaining <= 86400, remaining
+            saved = json.loads((root / "short name profile/profile.json").read_text())
+            assert Path(saved["harness"]["command"][1]).is_relative_to(prefix)
+            status = subprocess.run(["capsule", "--state", str(host.state), "status", "--json"],
+                                    capture_output=True, text=True, timeout=10)
+            assert status.returncode in (0, 1), status
+            names = {a["name"]: a for a in json.loads(status.stdout)["agents"]}
+            assert names["short-name"]["sessions"][0]["renewable"] is True, names
         finally:
             if channel:
                 channel.close()
@@ -217,7 +254,7 @@ def check(archive_path, node):
 
         print(
             f"PASS {metadata['implementation']} installed bundle: relocated layout, "
-            "packaged MCP runtime, setup, doctor, launch, and private files"
+            "packaged MCP runtime, setup, doctor, launch, private files, and bin/capsule"
         )
 
 

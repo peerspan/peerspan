@@ -1,6 +1,10 @@
 //! Live adapter leases, recovery by the original instance, and token rotation.
 use crate::{
-    adapter::{Adapter, AdapterCredential, credential_authority, read, session, token, token_hash},
+    adapter::{
+        Adapter, AdapterCredential, credential_authority, read, renewed_expiry, session, token,
+        token_hash,
+    },
+    adapter_outbound::OutboundRoute,
     api::{blocking, decode},
     model::{Error, Session},
     peer_store::valid_id,
@@ -14,7 +18,7 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection as DB, params};
+use rusqlite::{Connection as DB, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -90,6 +94,54 @@ fn status(conn: &DB, a: &Adapter, ss: &Session) -> Result<Connection, Error> {
         last_seen_at: last,
     })
 }
+/// Moves a live renewable credential's expiry to a day ahead, with the routes
+/// that follow it, when that gains at least a minute. The first renewal, and
+/// then at most one an hour, is recorded.
+fn renew(tx: &Transaction<'_>, a: &mut Adapter) -> Result<(), Error> {
+    let old = DateTime::parse_from_rfc3339(&a.expires_at).map_err(|e| Error::Internal(e.into()))?;
+    let next = renewed_expiry();
+    let parsed = DateTime::parse_from_rfc3339(&next).map_err(|e| Error::Internal(e.into()))?;
+    if parsed - old < chrono::TimeDelta::seconds(60) {
+        return Ok(());
+    }
+    a.expires_at = next;
+    tx.execute(
+        "UPDATE adapter_credentials SET record = ?1 WHERE id = ?2",
+        params![serde_json::to_string(&a)?, a.id],
+    )?;
+    let routes = {
+        let mut stmt = tx.prepare("SELECT record FROM adapter_routes WHERE adapter_id = ?1")?;
+        stmt.query_map([&a.id], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for record in routes {
+        let mut route: OutboundRoute = serde_json::from_str(&record)?;
+        if route.follows_credential && route.revoked_at.is_none() {
+            route.expires_at = a.expires_at.clone();
+            tx.execute(
+                "UPDATE adapter_routes SET record = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&route)?, route.id],
+            )?;
+        }
+    }
+    let last: Option<String> = tx
+        .query_row(
+            "SELECT created_at FROM events WHERE kind = 'adapter.renewed' AND subject_id = ?1 ORDER BY sequence DESC LIMIT 1",
+            [&a.id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let due = match last {
+        None => true,
+        Some(at) => DateTime::parse_from_rfc3339(&at).map_or(true, |at| {
+            Utc::now() - at.with_timezone(&Utc) >= chrono::TimeDelta::hours(1)
+        }),
+    };
+    if due {
+        append_event(tx, "adapter.renewed", &a.id, &now())?;
+    }
+    Ok(())
+}
 impl Store {
     pub fn adapter_connection(&self, id: &str) -> Result<Connection, Error> {
         let conn = self.connection()?;
@@ -128,6 +180,10 @@ impl Store {
             return Err(Error::Conflict(
                 "authorization belongs to another adapter instance".into(),
             ));
+        }
+        let mut a = a;
+        if a.renewable {
+            renew(&tx, &mut a)?;
         }
         let current = Utc::now();
         let expiry = DateTime::parse_from_rfc3339(&a.expires_at)
@@ -228,4 +284,186 @@ async fn rotate(
     Path(id): Path<String>,
 ) -> Result<Json<AdapterCredential>, Error> {
     Ok(Json(blocking(store, move |s| s.rotate_adapter(&id)).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        adapter::CreateAdapter,
+        adapter_outbound::CreateOutboundRoute,
+        model::{AttachSession, RegisterAgent},
+        peer_store::tests::add_test_peer,
+    };
+
+    fn route(
+        adapter: &str,
+        peer: &str,
+        name: &str,
+        expires_at: Option<String>,
+    ) -> CreateOutboundRoute {
+        CreateOutboundRoute {
+            adapter_id: adapter.into(),
+            name: name.into(),
+            peer_host_id: peer.into(),
+            target_agent_id: format!("agent_{}", "1".repeat(32)),
+            grant_id: None,
+            expires_at,
+            max_message_bytes: 100,
+            max_messages: 10,
+            action: None,
+            delegation_depth: 0,
+            follows_credential: false,
+        }
+    }
+    /// Moves a stored expiry back, as if the credential were an hour from
+    /// its end.
+    fn age(store: &Store, a: &Adapter, routes: &[&OutboundRoute]) -> String {
+        let earlier = rfc3339(Utc::now() + chrono::TimeDelta::hours(1));
+        let conn = store.connection().unwrap();
+        let mut a = a.clone();
+        a.expires_at = earlier.clone();
+        conn.execute(
+            "UPDATE adapter_credentials SET record = ?1 WHERE id = ?2",
+            params![serde_json::to_string(&a).unwrap(), a.id],
+        )
+        .unwrap();
+        for r in routes {
+            let mut r = (*r).clone();
+            r.expires_at = earlier.clone();
+            conn.execute(
+                "UPDATE adapter_routes SET record = ?1 WHERE id = ?2",
+                params![serde_json::to_string(&r).unwrap(), r.id],
+            )
+            .unwrap();
+        }
+        earlier
+    }
+
+    #[test]
+    fn renewable_credentials_and_following_routes_move_on_connect() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let peer = add_test_peer(&store);
+        let agent = store
+            .register_agent(RegisterAgent {
+                name: "a".into(),
+                owner: "a".into(),
+                capabilities: vec![],
+            })
+            .unwrap();
+        let session = store
+            .attach_session(AttachSession {
+                agent_id: agent.id.clone(),
+                integration: "test".into(),
+            })
+            .unwrap();
+        let credential = store
+            .create_adapter(CreateAdapter {
+                session_id: session.id.clone(),
+                expires_at: None,
+            })
+            .unwrap();
+        let a = credential.adapter.clone();
+        assert!(a.renewable);
+        let expiry = DateTime::parse_from_rfc3339(&a.expires_at).unwrap();
+        assert!(expiry > Utc::now() + chrono::TimeDelta::hours(23));
+        let following = store
+            .create_outbound_route(route(&a.id, &peer.id, "follow", None))
+            .unwrap();
+        assert!(following.follows_credential);
+        assert_eq!(following.expires_at, a.expires_at);
+        let fixed_expiry = rfc3339(Utc::now() + chrono::TimeDelta::minutes(30));
+        let fixed = store
+            .create_outbound_route(route(&a.id, &peer.id, "fixed", Some(fixed_expiry.clone())))
+            .unwrap();
+        assert!(!fixed.follows_credential);
+        let renewals = || {
+            store
+                .events(0, 1000)
+                .unwrap()
+                .iter()
+                .filter(|e| e.kind == "adapter.renewed" && e.subject_id == a.id)
+                .count()
+        };
+        let instance = format!("instance_{}", "7".repeat(64));
+        let connect = || {
+            store
+                .connect_adapter(&credential.token, &instance, &a.id, &session.id)
+                .unwrap()
+        };
+        // Within a minute of a full day: unchanged and not recorded.
+        connect();
+        assert_eq!(store.adapter(&a.id).unwrap().expires_at, a.expires_at);
+        assert_eq!(renewals(), 0);
+        // An hour from its end, a lease renewal moves it a day ahead.
+        let earlier = age(&store, &a, &[&following]);
+        connect();
+        let renewed = store.adapter(&a.id).unwrap().expires_at;
+        assert!(renewed > earlier);
+        let routes = store.outbound_routes(&a.id).unwrap();
+        let by_name = |name: &str| routes.iter().find(|r| r.name == name).unwrap().clone();
+        assert_eq!(by_name("follow").expires_at, renewed);
+        assert_eq!(by_name("fixed").expires_at, fixed_expiry);
+        assert_eq!(renewals(), 1);
+        // Renewed again within the hour: moved, recorded once.
+        age(&store, &a, &[&following]);
+        connect();
+        assert!(store.adapter(&a.id).unwrap().expires_at > earlier);
+        assert_eq!(renewals(), 1);
+        // A revoked following route keeps its expiry.
+        store.revoke_outbound_route(&following.id).unwrap();
+        let earlier = age(&store, &a, &[]);
+        connect();
+        assert_ne!(store.adapter(&a.id).unwrap().expires_at, earlier);
+        assert_ne!(
+            store.outbound_routes(&a.id).unwrap()[1].expires_at,
+            store.adapter(&a.id).unwrap().expires_at
+        );
+    }
+
+    #[test]
+    fn fixed_credentials_never_move_and_refuse_following_routes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(&temporary.path().join("host")).unwrap();
+        let peer = add_test_peer(&store);
+        let agent = store
+            .register_agent(RegisterAgent {
+                name: "a".into(),
+                owner: "a".into(),
+                capabilities: vec![],
+            })
+            .unwrap();
+        let session = store
+            .attach_session(AttachSession {
+                agent_id: agent.id,
+                integration: "test".into(),
+            })
+            .unwrap();
+        let expiry = rfc3339(Utc::now() + chrono::TimeDelta::hours(1));
+        let credential = store
+            .create_adapter(CreateAdapter {
+                session_id: session.id.clone(),
+                expires_at: Some(expiry.clone()),
+            })
+            .unwrap();
+        assert!(!credential.adapter.renewable);
+        assert!(matches!(
+            store.create_outbound_route(route(&credential.adapter.id, &peer.id, "r", None)),
+            Err(Error::Invalid(_))
+        ));
+        let instance = format!("instance_{}", "7".repeat(64));
+        store
+            .connect_adapter(
+                &credential.token,
+                &instance,
+                &credential.adapter.id,
+                &session.id,
+            )
+            .unwrap();
+        assert_eq!(
+            store.adapter(&credential.adapter.id).unwrap().expires_at,
+            expiry
+        );
+    }
 }
