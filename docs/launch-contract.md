@@ -281,7 +281,7 @@ Decided with the owner on 2026-10-09:
 
 | Command | Behavior |
 | --- | --- |
-| `network create NAME [--as LABEL]` | `NAME` may be given positionally; `--name` still works, and giving both is an error. `--as` is the person and member label; it defaults to the login name, and `--member` remains as an alias. A person key is always used (below). Otherwise this is today's create, including admitting and binding the creator. |
+| `network create NAME [--as LABEL]` | `NAME` may be given positionally; `--name` still works, and giving both is an error. `--as` is the person and member label; it defaults to the login name (the user name of the effective user ID, else `$USER`), and `--member` remains as an alias. A person key is always used (below). Otherwise this is today's create, including admitting and binding the creator. |
 | `invite LABEL [--expires-in D \| --expires-at T] [--network ID]` | Issues a member invite, like `network invite --member LABEL` with the slice 1 default of 7 days. Prints `{network_id, member, invite_expires_at, token, join}`, where `join` is the string `capsule join TOKEN`. |
 | `join TOKEN` | Same as `network join --token TOKEN`, always with a person key (below). A person already admitted with this key (for example, on a second machine) is bound without a new admission, as today. |
 | `allow PRINCIPAL [--agent NAME] [--no-tasks] [--files SIZE] [--delegate] [--network ID]` | Sets PRINCIPAL's access (below) and signs the next policy version. |
@@ -306,11 +306,11 @@ Decided with the owner on 2026-10-09:
 3. the only `ssh-ed25519` identity in `ssh-agent`;
 4. otherwise, a newly generated key.
 
-With several `ssh-ed25519` identities in `ssh-agent` and no generated key, the command fails before any request. The error lists the keys' comments and fingerprints and says to pass `--person-key`. An existing generated key wins over an agent key, so a person's identity never changes because a key was later added to the agent. `--no-person` keeps today's host-only behavior and generates nothing.
+Every other command that signs as a person, such as `allow`, `deny`, `invite`, `network bind`, and `access renew`, uses steps 1 to 3 in the same order and never generates a key. With several `ssh-ed25519` identities in `ssh-agent` and no generated key, the command fails before any request. The error lists the keys' comments and fingerprints and says to pass `--person-key`. An existing generated key wins over an agent key, so a person's identity never changes because a key was later added to the agent. `--no-person` keeps today's host-only behavior and generates nothing.
 
 **The generated key** is an unencrypted OpenSSH `ssh-ed25519` private key at `person_ed25519`, mode 0600, with its public key beside it at `person_ed25519.pub`, mode 0644, in a 0700 directory. Its comment is `capsule LABEL@HOSTNAME`. It is created only when step 4 is reached and the command is about to succeed, after argument validation, so a refused command leaves no key behind. It is never overwritten. Signatures use the same `SSHSIG` format as any person key, so nothing on the wire or in other hosts changes.
 
-**Command output.** The response's `person` gains `key`: `{source, public_key, path}`.
+**Command output.** The response's `person` gains `key`: `{source, public_key, path}`, where `public_key` uses the same encoding as `person_public_key` in signed statements. With `--no-person`, `person` is as before slice 3.
 - `source` is `option`, `generated`, `agent`, or `new`.
 - `path` is the file, or null for an agent key.
 - When `source` is `new`, `next` also says to back up the key, and to copy it to the user's other machines to use the same identity there.
@@ -360,7 +360,7 @@ A label matching no current person, or more than one, is an error.
   3. drops rules left without principals.
 - It then signs version + 1, valid for 7 days, and submits it.
 - Allowing a principal that already has exactly these settings still signs a new version.
-- It prints `{policy, principal, agent, actions, max_artifact_bytes}`.
+- It prints `{policy, principal, agent, actions, max_artifact_bytes}`, where `policy` is the signed policy object and `principal` is the resolved principal, for example `person:person_…` or `network`.
 
 **`deny`.**
 - It removes PRINCIPAL from every rule naming the given `--agent` (with `*` naming only the `*` rules), or from every rule without `--agent`. It drops empty rules and signs the next version.
@@ -387,7 +387,7 @@ Blocks do not apply.
 
 **Rechecks.** It is checked at submission, at handoff, and at acceptance, like any authorization. Wherever a policy can authorize a chain's originator, self access can too, as described in the delegation chain contract.
 
-**Wire.** Peer message and task requests gain a third form of authorization: exactly one of `grant_id`, `policy`, or `self`, where `self` is `{person_id}`, the sender's bound person. The receiver returns 403 when either host is not bound to that person in a shared network. Older receivers reject `self` with 400.
+**Wire.** Peer message and task requests gain a third form of authorization: exactly one of `grant_id`, `policy`, or `self`, where `self` is `{person_id}`, the sender's bound person. In a request with a delegation chain of two or more links, the authorization is the originator's, as for policies: `person_id` is the originator host's bound person, and the check applies to the originator host instead of the sender. The receiver returns 403 when either host is not bound to that person in a shared network. Older receivers reject `self` with 400.
 
 **What senders cite.** Owner sends, owner task submissions, adapter routes, and delegations without `--grant` cite `self` when the target host is bound to this host's person in a shared network. Otherwise they cite the target owner's policy, as before. A route created this way records `authorization: "self"`. Route records always show `authorization`, which is `grant`, `policy`, or `self`.
 
