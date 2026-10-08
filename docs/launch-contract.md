@@ -318,7 +318,7 @@ Every other command that signs as a person, such as `allow`, `deny`, `invite`, `
 **Second machines.** A second machine with neither the same key in its agent nor a copy of the generated key creates a different person. Its join's person part then reports the member label as taken, as it does today, and the host joins without a person. `next` says to copy `person_ed25519` from the first machine and run `network bind`.
 
 **Renewal with a generated key.**
-- `run` gains `--person-key-file PATH`. By default it is the generated key's path, read when the daemon starts, if that file exists.
+- `run` gains `--person-key-file PATH`. By default it is the generated key's path. The daemon reads the file whenever it renews and the file exists, so a key generated after the daemon started also works.
 - The daemon renews a policy with that file when the file holds the bound person's key and the `--person-agent` socket does not.
 - This is the only person key a daemon reads, and it reads it from the user's own configuration, never from its state directory. Keys held in `ssh-agent` are still never read by a daemon.
 - Status item 10 (`person_agent_unreachable`) is not raised when this file holds the bound person's key.
@@ -333,7 +333,7 @@ Every other command that signs as a person, such as `allow`, `deny`, `invite`, `
 - `person:PERSON`, or a bare `PERSON`, where PERSON is a person ID or label, resolved as `access allow` does today;
 - `agent:HOST/AGENT`, unchanged.
 
-A label matching no current person, or more than one, is an error.
+A label matching no current person, or more than one, is an error, as is a person ID that is not a current person. `invite`, `allow`, `deny`, `block`, and `unblock` accept `--person-key PATH` like other signing commands.
 
 `SIZE` is a byte count with an optional suffix: `K`, `M`, or `G`, meaning powers of 1024. It must be from 1 to 1,073,741,824 bytes.
 
@@ -389,7 +389,7 @@ Blocks do not apply.
 
 **Wire.** Peer message and task requests gain a third form of authorization: exactly one of `grant_id`, `policy`, or `self`, where `self` is `{person_id}`, the sender's bound person. In a request with a delegation chain of two or more links, the authorization is the originator's, as for policies: `person_id` is the originator host's bound person, and the check applies to the originator host instead of the sender. The receiver returns 403 when either host is not bound to that person in a shared network. Older receivers reject `self` with 400.
 
-**What senders cite.** Owner sends, owner task submissions, adapter routes, and delegations without `--grant` cite `self` when the target host is bound to this host's person in a shared network. Otherwise they cite the target owner's policy, as before. A route created this way records `authorization: "self"`. Route records always show `authorization`, which is `grant`, `policy`, or `self`.
+**What senders cite.** Owner sends, owner task submissions, adapter routes, and delegations without `--grant` cite `self` when the target host is bound to this host's person in a shared network. Otherwise they cite the target owner's policy, as before. A route created this way records `authorization: "self"`. Route records always show `authorization`, which is `grant`, `policy`, or `self`, decided when the route is created. Each send through a route without a grant re-decides between `self` and policy from current bindings. `POST /v1/adapter-routes` accepts and ignores `authorization` in its request, as it does `follows_credential`. In `allow`, the rule settings compare actions as a set. The "first remaining rule" may be one that step 1 emptied, so re-allowing keeps a rule's position. `deny` keeps the current policy's validity duration.
 
 ### Verification
 
