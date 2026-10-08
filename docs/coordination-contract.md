@@ -198,7 +198,7 @@ Roadmap milestone 2b, slice 1. The design is in the [person identity proposal](p
 
 ### Person keys and signatures
 
-A person key is an OpenSSH `ssh-ed25519` key. Only the CLI uses it. Daemons never read or store person keys, and receive only signed statements.
+A person key is an OpenSSH `ssh-ed25519` key. Only the CLI uses it. Daemons never read or store person keys, and receive only signed statements. One exception: a person key that the CLI generated, as specified in slice 3 of the [launch contract](launch-contract.md), may be read from the user's configuration by the daemon to renew policies.
 
 - **Agent signing (default):** the CLI signs through `ssh-agent` at `SSH_AUTH_SOCK`, using the only `ssh-ed25519` identity in the agent. It is an error if there are none or several.
 - **Choosing a key:** `--person-key PATH` names either a public key file, which selects that identity in the agent, or an unencrypted OpenSSH private key file, which signs locally without an agent.
@@ -444,7 +444,7 @@ The root-only commands sign with the root seed when this host holds it. Otherwis
 
 Roadmap milestone 2b, slice 3. Decided on 2026-10-07:
 - **Policy and grants combine:** a request is authorized by a manual grant **or** by the target agent owner's policy. A host-local block list overrides both.
-- **Renewal:** daemons renew policies by asking the owner's `ssh-agent` for a signature, and never hold the key.
+- **Renewal:** daemons renew policies by asking the owner's `ssh-agent` for a signature, and never hold the key, except a CLI-generated key (see the [launch contract](launch-contract.md), slice 3).
 - **Visibility:** every member sees every policy.
 - **Propagation:** an owner's hosts also pass policies to each other directly (roadmap 2c; see [Direct propagation](#direct-propagation)).
 
