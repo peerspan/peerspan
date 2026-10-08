@@ -469,7 +469,7 @@ The JSON is `{network_id, person_public_key, version, issued_at, valid_until, ru
   - `group:<name>`, a group defined by an administrator;
   - `network`, meaning every member host;
   - `agent:<host_id>/<agent_id>`, which matches only requests from that authenticated host whose asserted `origin.agent_id` is that agent (see Agent origin in the [messaging contract](peer-messaging-contract.md)).
-- **Actions:** `message.append` and `task.submit` (see the [task contract](task-contract.md)).
+- **Actions:** `message.append`, `task.submit` (see the [task contract](task-contract.md)), and `task.delegate`, which implies `task.submit` (see the [delegation chain contract](delegation-chain-contract.md)).
 - **`max_message_bytes`:** 1 to 65,536.
 - **`max_artifact_bytes`:** optional, 0 to 1,073,741,824, for task artifacts; see the [artifact contract](artifact-contract.md), which also defines its signed encoding.
 - **Validity:** `valid_until` minus `issued_at` must be between 1 and 90 days. The CLI's default is 7 days, set with `--valid-days`.

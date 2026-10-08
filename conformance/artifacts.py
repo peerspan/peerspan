@@ -27,7 +27,7 @@ import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
 from coordination import Coordinator, wait_for
-from host_service import ARTIFACT_TABLES, Host, UnixHTTPConnection, stop_all
+from host_service import ARTIFACT_TABLES, DELEGATION_TABLES, Host, UnixHTTPConnection, stop_all
 from peer_messaging import PeerHost, fixture_context, set_probe, timestamp, wire
 from tasks import (EVENT_KEYS, LOCAL_KEYS, STATUS_KEYS, act, adapter_for, channel_event, claim, events, inspect,
                    task_id, tool, until_state)
@@ -557,25 +557,25 @@ def migration_check(original, replacement, label):
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
             host.stop()
-            for table in ARTIFACT_TABLES:
+            for table in [*DELEGATION_TABLES, *ARTIFACT_TABLES]:
                 sql(host, 'DROP TABLE ' + table)
             sql(host, 'PRAGMA user_version = 9')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 10
+            assert sql(host, 'PRAGMA user_version')[0][0] == 11
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(ARTIFACT_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('artifact', 'list')['files'] == []
             assert (host.state / 'artifacts').is_dir() and (host.state / 'artifacts').stat().st_mode & 0o077 == 0
             host.stop()
             # A newer version is refused, without changes.
-            sql(host, 'PRAGMA user_version = 11')
+            sql(host, 'PRAGMA user_version = 12')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 11
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 12
         finally:
             stop_all((host,))
-    print(f'PASS {label}: v9→v10 migration; version 11 refused', flush=True)
+    print(f'PASS {label}: v9→v11 migration; version 12 refused', flush=True)
 
 
 def main():

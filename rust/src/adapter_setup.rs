@@ -111,6 +111,7 @@ impl Store {
                     max_message_bytes: route.max_message_bytes,
                     max_messages: route.max_messages,
                     action: route.action,
+                    delegation_depth: 0,
                 },
             )?);
         }

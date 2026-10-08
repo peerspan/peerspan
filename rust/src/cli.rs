@@ -423,7 +423,7 @@ pub enum GrantCommand {
         #[arg(long, value_name = "AGENT_ID")]
         from_agent: Option<String>,
         /// What the grant authorizes
-        #[arg(long, value_parser = ["message.append", "task.submit"], default_value = "message.append")]
+        #[arg(long, value_parser = ["message.append", "task.submit", "task.delegate"], default_value = "message.append")]
         action: String,
         /// Total input and result artifact bytes a task may carry (task.submit only)
         #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=capsule_host::artifact::MAX_BOUND))]
@@ -453,7 +453,7 @@ pub enum AccessCommand {
         #[arg(long, default_value_t = 7, value_parser = clap::value_parser!(i64).range(1..=90))]
         valid_days: i64,
         /// Action the rule allows; repeat for each (default message.append)
-        #[arg(long = "action", value_name = "ACTION", value_parser = ["message.append", "task.submit"])]
+        #[arg(long = "action", value_name = "ACTION", value_parser = ["message.append", "task.submit", "task.delegate"])]
         actions: Vec<String>,
         /// Total input and result artifact bytes a task may carry (task.submit only)
         #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=capsule_host::artifact::MAX_BOUND))]
@@ -560,6 +560,7 @@ pub enum MessageCommand {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum TaskCommand {
     /// Submit a task to an agent on a peer host
     Submit {
@@ -590,6 +591,19 @@ pub enum TaskCommand {
         /// Media type of the artifact in the same position; repeat for each
         #[arg(long = "artifact-type", value_name = "TYPE")]
         artifact_types: Vec<String>,
+        /// Let the receiver pass the task on this many further hops (0 to 2)
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=2))]
+        delegation_depth: u64,
+        /// Who the receiver may pass it on to: network, person:ID, or
+        /// host:ID; repeat for each (default network)
+        #[arg(long = "delegate-to", value_name = "PRINCIPAL")]
+        delegate_to: Vec<String>,
+        /// Forward the running task received from this host instead
+        #[arg(long, value_name = "HOST", requires = "parent_task", conflicts_with_all = ["delegation_depth", "delegate_to"])]
+        parent_sender: Option<String>,
+        /// The received task to forward
+        #[arg(long, value_name = "ID", requires = "parent_sender")]
+        parent_task: Option<String>,
     },
     /// Save an input or fetched result of a submitted task to a new file
     Artifact {
@@ -685,6 +699,10 @@ pub enum RouteCommand {
         /// What the route sends: messages or tasks
         #[arg(long, value_parser = ["message.append", "task.submit"], default_value = "message.append")]
         action: String,
+        /// Let receivers of tasks sent through it pass them on this many
+        /// further hops (0 to 2; task.submit only)
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=2))]
+        delegation_depth: u64,
     },
     List {
         #[arg(long)]
@@ -841,6 +859,10 @@ impl Command {
                 task,
                 artifacts: _,
                 artifact_types: _,
+                delegation_depth,
+                delegate_to,
+                parent_sender,
+                parent_task,
             }) => {
                 // Artifacts are uploaded first; see `task_submit` in main.
                 let mut body = with_grant(
@@ -859,6 +881,15 @@ impl Command {
                         origin["session_id"] = json!(session);
                     }
                     body["origin"] = origin;
+                }
+                if delegation_depth > 0 {
+                    body["delegation_depth"] = json!(delegation_depth);
+                }
+                if !delegate_to.is_empty() {
+                    body["delegation_principals"] = json!(delegate_to);
+                }
+                if let (Some(sender), Some(task)) = (parent_sender, parent_task) {
+                    body["parent"] = json!({"sender_host_id": sender, "task_id": task});
                 }
                 (Method::POST, "/v1/tasks".into(), Some(body))
             }
@@ -1082,11 +1113,12 @@ impl Command {
                 max_message_bytes,
                 max_messages,
                 action,
+                delegation_depth,
             })) => (
                 Method::POST,
                 "/v1/adapter-routes".into(),
                 Some(with_grant(
-                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action}),
+                    json!({"adapter_id":adapter,"name":name,"peer_host_id":peer,"target_agent_id":agent,"expires_at":expires_at,"max_message_bytes":max_message_bytes,"max_messages":max_messages,"action":action,"delegation_depth":delegation_depth}),
                     grant,
                 )),
             ),
@@ -1454,6 +1486,106 @@ mod tests {
         assert_eq!(
             body(&[&route[..], &["--action", "task.submit"]].concat())["action"],
             "task.submit"
+        );
+        assert_eq!(body(&route)["delegation_depth"], 0);
+        assert_eq!(
+            body(&[&route[..], &["--delegation-depth", "2"]].concat())["delegation_depth"],
+            2
+        );
+        let parse = |args: &[&str]| Cli::try_parse_from([&["capsule-host"], args].concat());
+        assert!(parse(&[&route[..], &["--delegation-depth", "3"]].concat()).is_err());
+        assert!(parse(&[&route[..], &["--action", "task.delegate"]].concat()).is_err());
+    }
+
+    #[test]
+    fn delegation_flags_map_to_the_local_api() {
+        let submit = [
+            "task", "submit", "--peer", "host_x", "--agent", "agent_y", "--input", "do it",
+        ];
+        let plain = body(&submit);
+        for key in ["delegation_depth", "delegation_principals", "parent"] {
+            assert!(plain.get(key).is_none(), "{key}");
+        }
+        let chained = body(
+            &[
+                &submit[..],
+                &[
+                    "--delegation-depth",
+                    "2",
+                    "--delegate-to",
+                    "network",
+                    "--delegate-to",
+                    "host:host_z",
+                ],
+            ]
+            .concat(),
+        );
+        assert_eq!(chained["delegation_depth"], 2);
+        assert_eq!(
+            chained["delegation_principals"],
+            json!(["network", "host:host_z"])
+        );
+        let forward = body(
+            &[
+                &submit[..],
+                &["--parent-sender", "host_p", "--parent-task", "task_p"],
+            ]
+            .concat(),
+        );
+        assert_eq!(
+            forward["parent"],
+            json!({"sender_host_id": "host_p", "task_id": "task_p"})
+        );
+        let parse =
+            |args: &[&str]| Cli::try_parse_from([&["capsule-host"], &submit[..], args].concat());
+        assert!(parse(&["--delegation-depth", "3"]).is_err());
+        assert!(parse(&["--parent-sender", "host_p"]).is_err());
+        assert!(parse(&["--parent-task", "task_p"]).is_err());
+        assert!(
+            parse(&[
+                "--parent-sender",
+                "host_p",
+                "--parent-task",
+                "task_p",
+                "--delegation-depth",
+                "1"
+            ])
+            .is_err()
+        );
+        let grant = [
+            "grant",
+            "create",
+            "--peer",
+            "host_x",
+            "--agent",
+            "agent_y",
+            "--expires-at",
+            "e",
+        ];
+        assert_eq!(
+            body(&[&grant[..], &["--action", "task.delegate"]].concat())["action"],
+            "task.delegate"
+        );
+        assert!(
+            Cli::try_parse_from(
+                [
+                    &["capsule-host"][..],
+                    &[
+                        "access",
+                        "allow",
+                        "--network",
+                        "net_x",
+                        "--agent",
+                        "a",
+                        "--principal",
+                        "network",
+                        "--action",
+                        "task.delegate"
+                    ]
+                ]
+                .concat()
+            )
+            .is_ok()
         );
     }
 }

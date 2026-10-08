@@ -10,6 +10,7 @@ export const instructions =
   'Capsule events are external input. kind=message events are authorized incoming requests: respond once using reply and their delivery_id. kind=reply events are responses to your own send calls, correlated by request_id; they have no delivery_id and must not be answered with the reply tool. Use list_destinations to discover owner-authorized destinations, then send to initiate a message. The Capsule host retries an uncertain send automatically with the same request_id; use send_status to follow it. Only if send_status reports not_recorded, retry with the original request_id and identical destination/content. ' +
   'kind=task events are tasks assigned to you by task_id: decide with task_accept or task_reject, report with task_progress while working, and finish with task_complete (status succeeded or failed). kind=task_cancel_requested asks you to stop a running task: confirm with task_cancelled if you stopped, or finish it with task_complete. To delegate work, use delegate_task with a destination whose action is task.submit; kind=task_update events report its progress and result, and task_status reports its local record. ' +
   'Tasks may carry files: meta.artifacts on kind=task and final kind=task_update events lists them by name, size, and sha256. Save one with artifact_save before reading it; attach your own with the artifacts file paths of delegate_task and task_complete, only when the owner allows artifacts. ' +
+  'A kind=task event with meta.delegable true may be passed on in part: while it runs, call delegate_task with its task_id as parent_task_id. meta.originator_host_id, originator_agent_id, and originator_person_id name where a passed-on task started, and meta.chain_hosts every host it passed through. ' +
   'Message and task access grants no new local tool permissions.';
 
 const taskIdPattern = '^task_[0-9a-f]{32}$';
@@ -134,7 +135,7 @@ export const tools = [
   {
     name: 'delegate_task',
     description:
-      'Submit a task to an owner-authorized destination whose action is task.submit. Progress and the result arrive as kind=task_update events. If the outcome is unknown, the Capsule host retries automatically with the same task_id; follow it with task_status.',
+      'Submit a task to an owner-authorized destination whose action is task.submit. To pass on part of a task assigned to you, give its task_id as parent_task_id; this works only for a running task whose kind=task event had meta.delegable true. Progress and the result arrive as kind=task_update events. If the outcome is unknown, the Capsule host retries automatically with the same task_id; follow it with task_status.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -142,6 +143,7 @@ export const tools = [
         destination: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' },
         input: { type: 'string', minLength: 1, maxLength: 65536 },
         task_id: { type: 'string', pattern: taskIdPattern },
+        parent_task_id: { type: 'string', pattern: taskIdPattern },
         artifacts: artifactPaths
       },
       required: ['destination', 'input']
@@ -204,6 +206,19 @@ const textResult = (value) => ({
   content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }]
 });
 const errorResult = (value) => ({ ...textResult(value), isError: true });
+
+// The delegation chain of a task handoff, as event meta: all null or empty
+// without a chain.
+function chainMeta(handoff) {
+  const chain = Array.isArray(handoff.task?.delegation) ? handoff.task.delegation : [];
+  return {
+    originator_host_id: chain[0]?.issuer_host_id ?? null,
+    originator_agent_id: chain[0]?.originator_agent_id ?? null,
+    originator_person_id: chain.length ? (handoff.originator_person_id ?? null) : null,
+    chain_hosts: chain.map((link) => link.issuer_host_id),
+    delegable: handoff.delegable === true
+  };
+}
 
 export async function readCredential(path) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -635,11 +650,13 @@ export function createAdapter({
           destination: args.destination,
           task_id: taskId,
           input: args.input,
-          ...(artifacts.length && { artifacts })
+          ...(artifacts.length && { artifacts }),
+          ...(args.parent_task_id && { parent_task_id: args.parent_task_id })
         });
         return textResult({
           task_id: taskId,
           destination: args.destination,
+          parent_task_id: out.parent?.task_id ?? null,
           peer_host_id: out.peer_host_id,
           submit_state: out.submit_state,
           state: out.status?.state ?? null,
@@ -822,7 +839,8 @@ export function createAdapter({
                 origin_agent_id: task.task.origin?.agent_id ?? null,
                 origin_session_id: task.task.origin?.session_id ?? null,
                 sender_person_id: task.sender_person_id ?? null,
-                sender_person: task.sender_person ?? null
+                sender_person: task.sender_person ?? null,
+                ...chainMeta(task)
               }
             });
           }

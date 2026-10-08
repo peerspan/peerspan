@@ -9,6 +9,7 @@ use crate::{
     adapter_outbound::{OutboundRoute, route_used, valid_name},
     api::{blocking, decode},
     artifact::{ArtifactEntry, INPUT, LocalArtifact, RESULT, SENT, normalized, validate_manifest},
+    chain::{Link, MAX_DEPTH, MAX_LINKS, NETWORK, Unsigned, covered, normalized_principals},
     model::Error,
     peer_store::{Origin, valid_id},
     retry::{Attempted, Dispatcher, due_at},
@@ -64,6 +65,22 @@ pub struct SubmitTask {
     /// Stored uploads to attach as inputs.
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub artifacts: Option<Vec<ArtifactEntry>>,
+    /// 0 to 2; nonzero creates link 0 allowing that many further hops.
+    #[serde(default)]
+    pub delegation_depth: u64,
+    /// Link 0's principals, default `network`.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub delegation_principals: Option<Vec<String>>,
+    /// A running received task to forward instead.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub parent: Option<TaskParent>,
+}
+/// The received task an outbound task was forwarded from.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskParent {
+    pub sender_host_id: String,
+    pub task_id: String,
 }
 
 /// The submitter's local record of an outbound task.
@@ -93,6 +110,12 @@ pub struct OutboundTask {
     /// artifacts whenever the record is returned.
     #[serde(default)]
     pub artifacts: Vec<LocalArtifact>,
+    /// The received task this one was forwarded from, or null.
+    #[serde(default)]
+    pub parent: Option<TaskParent>,
+    /// The delegation chain this task carried, or null.
+    #[serde(default)]
+    pub delegation: Option<Vec<Link>>,
 }
 impl Attempted for OutboundTask {
     fn uncertain(&self) -> bool {
@@ -133,6 +156,37 @@ pub struct Delegate {
     pub input: String,
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub artifacts: Option<Vec<ArtifactEntry>>,
+    /// A task this session claimed, to forward.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub parent_task_id: Option<String>,
+}
+/// How a new task relates to delegation: no chain, a new chain from link 0,
+/// or a forward of a received task.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ChainSpec {
+    None,
+    Origin { depth: u64, principals: Vec<String> },
+    Forward(TaskParent),
+}
+impl ChainSpec {
+    fn of(out: &OutboundTask) -> Self {
+        match (&out.parent, out.delegation.as_ref().and_then(|c| c.first())) {
+            (Some(parent), _) => Self::Forward(parent.clone()),
+            (None, Some(first)) => Self::Origin {
+                depth: first.depth,
+                principals: first.principals.clone(),
+            },
+            (None, None) => Self::None,
+        }
+    }
+}
+/// A running received task that may be forwarded, as checked.
+struct Forwardable {
+    parent: TaskParent,
+    chain: Vec<Link>,
+    deadline: DateTime<Utc>,
+    /// The local agent the parent was submitted to.
+    agent_id: String,
 }
 /// A task update handed to the originating session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -274,6 +328,32 @@ impl Store {
     /// Persists an owner-submitted task before any network attempt. A repeat
     /// with identical fields returns the stored record.
     pub fn prepare_task(&self, r: SubmitTask) -> Result<OutboundTask, Error> {
+        let spec = match (r.parent, r.delegation_depth, r.delegation_principals) {
+            (Some(parent), 0, None) => {
+                if !valid_id(&parent.sender_host_id, "host", 32)
+                    || !valid_id(&parent.task_id, "task", 16)
+                {
+                    return Err(Error::Invalid("invalid parent task".into()));
+                }
+                ChainSpec::Forward(parent)
+            }
+            (Some(_), _, _) => {
+                return Err(Error::Invalid(
+                    "a forwarded task keeps its parent's chain; give no delegation depth or principals".into(),
+                ));
+            }
+            (None, 0, None) => ChainSpec::None,
+            (None, 0, Some(_)) => {
+                return Err(Error::Invalid(
+                    "delegation principals need a delegation depth of 1 or 2".into(),
+                ));
+            }
+            (None, depth, principals) if depth <= MAX_DEPTH => ChainSpec::Origin {
+                depth,
+                principals: normalized_principals(principals)?,
+            },
+            _ => return Err(Error::Invalid("delegation depth is 0 to 2".into())),
+        };
         let given = r.deadline.filter(|d| !d.is_empty());
         let explicit_deadline = given.is_some();
         let default_deadline = Utc::now() + DEFAULT_DEADLINE;
@@ -297,6 +377,7 @@ impl Store {
             input: r.input,
             origin: r.origin,
             artifacts: normalized(r.artifacts),
+            delegation: None,
         };
         if let Some(origin) = &request.origin {
             if !origin.valid() {
@@ -304,15 +385,25 @@ impl Store {
             }
             self.check_local_origin(&*self.connection()?, origin)?;
         }
+        // A chained task's deadline is the UTC string its link signs.
+        if spec != ChainSpec::None
+            && let Ok(at) = DateTime::parse_from_rfc3339(&request.deadline)
+        {
+            request.deadline = rfc3339(at.with_timezone(&Utc));
+        }
+        if matches!(spec, ChainSpec::Origin { .. }) && request.origin.is_none() {
+            return Err(Error::Invalid(
+                "a delegation chain names its originating agent; give an origin".into(),
+            ));
+        }
         validate_task(&request)?;
         self.dial_target(&r.peer_host_id)?;
+        let mut default_cap = default_deadline;
         if request.policy.is_some() {
             let cited = self.cited_policy(&*self.connection()?, &r.peer_host_id)?;
             request.policy = Some(cited.reference());
             // A default deadline never outlives the cited policy.
-            if !explicit_deadline {
-                request.deadline = rfc3339(default_deadline.min(time(&cited.valid_until)?));
-            }
+            default_cap = default_cap.min(time(&cited.valid_until)?);
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -328,7 +419,9 @@ impl Store {
             fill(&tx, &mut old)?;
             // A repeat cites the owner's newest version, which may have moved
             // on, and a defaulted deadline moves with the clock; the stored
-            // request stands.
+            // request stands. A forward's default origin is its claimer.
+            let defaulted_origin =
+                matches!(spec, ChainSpec::Forward(_)) && request.origin.is_none();
             let same_owner = |a: &TaskRequest| TaskRequest {
                 policy: a.policy.as_ref().map(|p| crate::policy::PolicyRef {
                     person_id: p.person_id.clone(),
@@ -339,18 +432,51 @@ impl Store {
                 } else {
                     String::new()
                 },
+                origin: if defaulted_origin {
+                    None
+                } else {
+                    a.origin.clone()
+                },
+                delegation: None,
                 ..a.clone()
             };
-            if old.adapter_id.is_some() || same_owner(&old.request) != same_owner(&request) {
+            if old.adapter_id.is_some()
+                || same_owner(&old.request) != same_owner(&request)
+                || ChainSpec::of(&old) != spec
+            {
                 return Err(Error::Conflict(
                     "task ID reused with different fields".into(),
                 ));
             }
             return Ok(old);
         }
+        let forward = match &spec {
+            ChainSpec::Forward(parent) => {
+                let f = self.forwardable(&tx, parent, &r.peer_host_id)?;
+                match &request.origin {
+                    // The forwarding agent is the one the parent was for.
+                    Some(o) if o.agent_id != f.agent_id => return Err(Error::Forbidden),
+                    Some(_) => {}
+                    None => {
+                        request.origin = Some(Origin {
+                            agent_id: f.agent_id.clone(),
+                            session_id: None,
+                        });
+                    }
+                }
+                default_cap = default_cap.min(f.deadline);
+                Some(f)
+            }
+            _ => None,
+        };
+        if !explicit_deadline {
+            request.deadline = rfc3339(default_cap);
+        }
         if let Some(inputs) = &request.artifacts {
             self.check_uploads(&tx, inputs)?;
         }
+        let delegation = self.chain_for(&tx, &r.peer_host_id, &request, &spec, forward.as_ref())?;
+        request.delegation = delegation.clone();
         let mut out = OutboundTask {
             peer_host_id: r.peer_host_id,
             request,
@@ -365,11 +491,109 @@ impl Store {
             next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
             error: None,
             status_queries: 0,
+            parent: forward.as_ref().map(|f| f.parent.clone()),
+            delegation,
             artifacts: Vec::new(),
         };
         insert(&tx, &mut out)?;
+        if let Some(f) = &forward {
+            record_forward(&tx, f, &out)?;
+        }
         tx.commit()?;
         Ok(out)
+    }
+    /// Checks that a received task may be forwarded to `peer`: no
+    /// cancellation was requested (409), and it is running, carried a chain
+    /// allowing another hop, and its acceptance allowed `task.delegate`
+    /// (403). An unknown parent is not found.
+    fn forwardable(
+        &self,
+        conn: &Connection,
+        parent: &TaskParent,
+        peer: &str,
+    ) -> Result<Forwardable, Error> {
+        let (request, status) =
+            crate::task::received(conn, &parent.sender_host_id, &parent.task_id)?
+                .ok_or(Error::NotFound)?;
+        if status.cancel_requested {
+            return Err(Error::Conflict(
+                "cancellation was requested for the parent task".into(),
+            ));
+        }
+        let Some(chain) = request.delegation.filter(|_| status.state == "running") else {
+            return Err(Error::Forbidden);
+        };
+        let last = chain.last().expect("validated chain").clone();
+        if last.depth < 1
+            || !crate::task::delegable(conn, &parent.sender_host_id, &parent.task_id)?
+            || chain.len() >= MAX_LINKS
+        {
+            return Err(Error::Forbidden);
+        }
+        let bindings = self.bindings(conn, &last.network_id)?;
+        if peer == self.identity().id
+            || crate::chain::member(conn, &last.network_id, peer)?.is_none()
+            || !covered(&last.principals, &format!("host:{peer}"), &|h| {
+                bindings.get(h).cloned()
+            })
+        {
+            return Err(Error::Forbidden);
+        }
+        Ok(Forwardable {
+            parent: parent.clone(),
+            deadline: time(&last.deadline)?,
+            chain,
+            agent_id: request.target_agent_id,
+        })
+    }
+    /// The chain a new task carries: none, a new link 0, or the parent's
+    /// chain plus a link to `peer`, which may not outlive the parent.
+    fn chain_for(
+        &self,
+        conn: &Connection,
+        peer: &str,
+        request: &TaskRequest,
+        spec: &ChainSpec,
+        forward: Option<&Forwardable>,
+    ) -> Result<Option<Vec<Link>>, Error> {
+        match (spec, forward) {
+            (ChainSpec::Origin { depth, principals }, _) => {
+                let network = self.shared_network(conn, peer)?;
+                let origin = request
+                    .origin
+                    .as_ref()
+                    .ok_or_else(|| Error::Invalid("a delegation chain needs an origin".into()))?;
+                Ok(Some(vec![self.sign_link(Unsigned {
+                    network_id: &network,
+                    previous: None,
+                    audience_host_id: peer,
+                    task_id: &request.task_id,
+                    originator_agent_id: &origin.agent_id,
+                    principals,
+                    deadline: &request.deadline,
+                    depth: *depth,
+                })]))
+            }
+            (ChainSpec::Forward(_), Some(f)) => {
+                if time(&request.deadline)? > f.deadline {
+                    return Err(Error::Forbidden);
+                }
+                let last = f.chain.last().expect("validated chain");
+                let mut chain = f.chain.clone();
+                chain.push(self.sign_link(Unsigned {
+                    network_id: &last.network_id,
+                    previous: Some(last),
+                    audience_host_id: peer,
+                    task_id: &request.task_id,
+                    originator_agent_id: &last.originator_agent_id,
+                    principals: &last.principals,
+                    deadline: &request.deadline,
+                    depth: last.depth - 1,
+                }));
+                Ok(Some(chain))
+            }
+            _ => Ok(None),
+        }
     }
     /// Persists an agent-initiated task through one of the credential's
     /// `task.submit` routes, consuming one unit of its budget.
@@ -382,6 +606,9 @@ impl Store {
             || !valid_id(&r.task_id, "task", 16)
             || r.input.is_empty()
             || r.input.len() > MAX_TEXT
+            || r.parent_task_id
+                .as_deref()
+                .is_some_and(|p| !valid_id(p, "task", 16))
         {
             return Err(Error::Invalid("invalid delegation".into()));
         }
@@ -445,6 +672,7 @@ impl Store {
             if old.route_id.as_deref() != Some(route.id.as_str())
                 || old.request.input != r.input
                 || old.request.artifacts != artifacts
+                || old.parent.as_ref().map(|p| p.task_id.as_str()) != r.parent_task_id.as_deref()
             {
                 return Err(Error::Conflict(
                     "task ID reused with different fields".into(),
@@ -458,7 +686,41 @@ impl Store {
         if route_used(&tx, &route.id)? >= route.max_messages {
             return Err(Error::Forbidden);
         }
+        // A forward names a task this session claimed.
+        let forward = match &r.parent_task_id {
+            Some(parent) => {
+                let sender: Option<String> = tx
+                    .query_row(
+                        "SELECT sender FROM task_deliveries WHERE task_id = ?1 AND session_id = ?2 AND json_extract(record, '$.adapter_id') = ?3 ORDER BY rowid LIMIT 1",
+                        params![parent, ss.id, a.id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                let Some(sender) = sender else {
+                    // As for task transitions: claimed elsewhere is 403.
+                    let known: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM received_tasks WHERE task_id = ?1)",
+                        [parent],
+                        |row| row.get(0),
+                    )?;
+                    return Err(if known {
+                        Error::Forbidden
+                    } else {
+                        Error::NotFound
+                    });
+                };
+                let parent = TaskParent {
+                    sender_host_id: sender,
+                    task_id: parent.clone(),
+                };
+                Some(self.forwardable(&tx, &parent, &route.peer_host_id)?)
+            }
+            None => None,
+        };
         let mut deadline = (Utc::now() + DEFAULT_DEADLINE).min(expiry);
+        if let Some(f) = &forward {
+            deadline = deadline.min(f.deadline);
+        }
         let policy = match route.grant_id {
             Some(_) => None,
             None => {
@@ -470,22 +732,35 @@ impl Store {
         if let Some(inputs) = &artifacts {
             self.check_uploads(&tx, inputs)?;
         }
+        let mut request = TaskRequest {
+            task_id: r.task_id,
+            grant_id: route.grant_id,
+            policy,
+            target_agent_id: route.target_agent_id,
+            deadline: rfc3339(deadline),
+            input: r.input,
+            // The route's session originates the task.
+            origin: Some(Origin {
+                agent_id: ss.agent_id.clone(),
+                session_id: Some(ss.id.clone()),
+            }),
+            artifacts,
+            delegation: None,
+        };
+        let spec = match &forward {
+            Some(f) => ChainSpec::Forward(f.parent.clone()),
+            None if route.delegation_depth > 0 => ChainSpec::Origin {
+                depth: route.delegation_depth,
+                principals: vec![NETWORK.into()],
+            },
+            None => ChainSpec::None,
+        };
+        let delegation =
+            self.chain_for(&tx, &route.peer_host_id, &request, &spec, forward.as_ref())?;
+        request.delegation = delegation.clone();
         let mut out = OutboundTask {
             peer_host_id: route.peer_host_id,
-            request: TaskRequest {
-                task_id: r.task_id,
-                grant_id: route.grant_id,
-                policy,
-                target_agent_id: route.target_agent_id,
-                deadline: rfc3339(deadline),
-                input: r.input,
-                // The route's session originates the task.
-                origin: Some(Origin {
-                    agent_id: ss.agent_id.clone(),
-                    session_id: Some(ss.id.clone()),
-                }),
-                artifacts,
-            },
+            request,
             submit_state: "unknown".into(),
             status: None,
             events_after: 0,
@@ -496,9 +771,14 @@ impl Store {
             next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
             error: None,
             status_queries: 0,
+            parent: forward.as_ref().map(|f| f.parent.clone()),
+            delegation,
             artifacts: Vec::new(),
         };
         insert(&tx, &mut out)?;
+        if let Some(f) = &forward {
+            record_forward(&tx, f, &out)?;
+        }
         tx.commit()?;
         Ok(out)
     }
@@ -592,16 +872,10 @@ impl Store {
     fn request_outbound_cancel(&self, peer: &str, id: &str) -> Result<OutboundTask, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        let mut out = stored(&tx, peer, id)?;
-        if out.submit_state == "rejected"
-            || out.status.as_ref().is_some_and(|s| is_final(&s.state))
-            || out.cancel_state.is_some()
-        {
-            return Ok(out);
+        let (out, marked) = mark_cancel(&tx, peer, id)?;
+        if marked {
+            tx.commit()?;
         }
-        out.cancel_state = Some("unknown".into());
-        save(&tx, &out)?;
-        tx.commit()?;
         Ok(out)
     }
     fn cancel_sent(&self, peer: &str, id: &str, status: TaskStatus) -> Result<OutboundTask, Error> {
@@ -736,6 +1010,71 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(n)
+    }
+}
+
+/// Marks a cancellation request to send, unless the task is already rejected
+/// or final or one is pending. Returns the record and whether it changed.
+fn mark_cancel(tx: &Transaction<'_>, peer: &str, id: &str) -> Result<(OutboundTask, bool), Error> {
+    let mut out = stored(tx, peer, id)?;
+    if out.submit_state == "rejected"
+        || out.status.as_ref().is_some_and(|s| is_final(&s.state))
+        || out.cancel_state.is_some()
+    {
+        return Ok((out, false));
+    }
+    out.cancel_state = Some("unknown".into());
+    save(tx, &out)?;
+    Ok((out, true))
+}
+/// Records a forward: the parent's child, and the `task.delegated` activity.
+fn record_forward(tx: &Transaction<'_>, f: &Forwardable, out: &OutboundTask) -> Result<(), Error> {
+    tx.execute(
+        "INSERT INTO task_children VALUES (?1, ?2, ?3, ?4)",
+        params![
+            f.parent.sender_host_id,
+            f.parent.task_id,
+            out.peer_host_id,
+            out.request.task_id
+        ],
+    )?;
+    append_event(tx, "task.delegated", &subject(out), &now())?;
+    Ok(())
+}
+/// Marks every task forwarded from a received task for cancellation, in
+/// the caller's transaction. Returns the children newly marked.
+pub(crate) fn cancel_children(
+    tx: &Transaction<'_>,
+    sender: &str,
+    id: &str,
+) -> Result<Vec<(String, String)>, Error> {
+    let children = {
+        let mut statement = tx.prepare(
+            "SELECT peer, child_task_id FROM task_children WHERE sender = ?1 AND task_id = ?2 ORDER BY rowid",
+        )?;
+        statement
+            .query_map(params![sender, id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<(String, String)>, _>>()?
+    };
+    let mut marked = Vec::new();
+    for (peer, child) in children {
+        if mark_cancel(tx, &peer, &child)?.1 {
+            marked.push((peer, child));
+        }
+    }
+    Ok(marked)
+}
+/// Sends the pending cancellation requests of submitted children now. An
+/// uncertain one, or one whose submission is not yet accepted, is left to
+/// the poll worker.
+pub(crate) async fn send_cancels(store: Arc<Store>, children: Vec<(String, String)>) {
+    for (peer, id) in children {
+        let Ok(out) = blocking(store.clone(), move |s| s.outbound_task(&peer, &id)).await else {
+            continue;
+        };
+        if out.submit_state == "accepted" && out.cancel_state.as_deref() == Some("unknown") {
+            let _ = send_cancel(&store, out).await;
+        }
     }
 }
 
@@ -1140,6 +1479,9 @@ mod tests {
             input: "review this".into(),
             origin: None,
             artifacts: None,
+            delegation_depth: 0,
+            delegation_principals: None,
+            parent: None,
         }
     }
     fn status(store: &Store, out: &OutboundTask, state: &str, last: i64) -> TaskStatus {
@@ -1406,6 +1748,7 @@ mod tests {
                     max_message_bytes: 100,
                     max_messages: budget,
                     action: action.map(Into::into),
+                    delegation_depth: 0,
                 })
                 .unwrap()
         };
@@ -1428,6 +1771,7 @@ mod tests {
                     task_id: format!("task_{}", n.to_string().repeat(32)),
                     input: input.into(),
                     artifacts: None,
+                    parent_task_id: None,
                 },
             )
         };

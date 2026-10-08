@@ -149,7 +149,7 @@ func CheckPolicy(network string, p Policy) error {
 		}
 		for _, action := range r.Actions {
 			if !ValidPolicyAction(action) {
-				return fmt.Errorf("%w: actions are %s and %s", ErrInvalid, PolicyActionMessage, PolicyActionTask)
+				return fmt.Errorf("%w: actions are %s, %s, and %s", ErrInvalid, PolicyActionMessage, PolicyActionTask, PolicyActionDelegate)
 			}
 		}
 		if r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 {
@@ -158,8 +158,8 @@ func CheckPolicy(network string, p Policy) error {
 		if r.MaxArtifactBytes < 0 || r.MaxArtifactBytes > PolicyMaxArtifactBytes {
 			return fmt.Errorf("%w: max_artifact_bytes must be 0 to %d", ErrInvalid, PolicyMaxArtifactBytes)
 		}
-		if r.MaxArtifactBytes != 0 && !hasPolicyAction(r.Actions, PolicyActionTask) {
-			return fmt.Errorf("%w: max_artifact_bytes needs the action %s", ErrInvalid, PolicyActionTask)
+		if r.MaxArtifactBytes != 0 && !hasPolicyAction(r.Actions, PolicyActionTask) && !hasPolicyAction(r.Actions, PolicyActionDelegate) {
+			return fmt.Errorf("%w: max_artifact_bytes needs the action %s or %s", ErrInvalid, PolicyActionTask, PolicyActionDelegate)
 		}
 	}
 	return nil
@@ -261,7 +261,19 @@ func hasPolicyAction(actions []string, want string) bool {
 }
 
 // ValidPolicyAction reports whether an action may appear in a policy rule or
-// grant: appending a message, or submitting a task.
+// grant: appending a message, submitting a task, or submitting one that the
+// receiving agent may pass on (task.delegate, which implies task.submit).
 func ValidPolicyAction(action string) bool {
+	return action == PolicyActionMessage || action == PolicyActionTask || action == PolicyActionDelegate
+}
+
+// TaskAction reports whether an action authorizes task submission.
+func TaskAction(action string) bool {
+	return action == PolicyActionTask || action == PolicyActionDelegate
+}
+
+// ValidRouteAction reports whether an action may appear on an adapter route:
+// a route sends messages or submits tasks, and never carries task.delegate.
+func ValidRouteAction(action string) bool {
 	return action == PolicyActionMessage || action == PolicyActionTask
 }

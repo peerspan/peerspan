@@ -45,6 +45,10 @@ pub struct OutboundRoute {
     pub max_message_bytes: i64,
     pub max_messages: i64,
     pub revoked_at: Option<String>,
+    /// For `task.submit` routes, 0 to 2: tasks carry link 0 allowing that
+    /// many further hops. Older routes read as 0.
+    #[serde(default)]
+    pub delegation_depth: u64,
 }
 fn message_action() -> String {
     crate::policy::ACTION.into()
@@ -65,6 +69,9 @@ pub struct CreateOutboundRoute {
     pub max_messages: i64,
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub action: Option<String>,
+    /// 0 (the default) to 2; nonzero only for `task.submit`.
+    #[serde(default)]
+    pub delegation_depth: u64,
 }
 #[derive(Serialize)]
 pub struct Destination {
@@ -175,7 +182,9 @@ impl Store {
             || !(1..=10000).contains(&r.max_messages)
             || r.action
                 .as_deref()
-                .is_some_and(|a| !crate::policy::ACTIONS.contains(&a))
+                .is_some_and(|a| !crate::policy::ROUTE_ACTIONS.contains(&a))
+            || r.delegation_depth > crate::chain::MAX_DEPTH
+            || (r.delegation_depth > 0 && r.action.as_deref() != Some(crate::policy::TASK_ACTION))
         {
             return Err(Error::Invalid("invalid route bounds".into()));
         }
@@ -219,6 +228,7 @@ impl Store {
             max_message_bytes: r.max_message_bytes,
             max_messages: r.max_messages,
             revoked_at: None,
+            delegation_depth: r.delegation_depth,
         };
         tx.execute(
             "INSERT INTO adapter_routes VALUES (?1,?2,?3,?4)",
@@ -758,6 +768,7 @@ pub(crate) mod tests {
                 max_message_bytes: 100,
                 max_messages: 10,
                 action: None,
+                delegation_depth: 0,
             })
             .unwrap();
         let request_id = format!("request_{}", "2".repeat(32));

@@ -81,7 +81,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=10).contains(&version) {
+        if !(0..=11).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -114,6 +114,9 @@ impl Store {
         }
         if version < 10 {
             tx.execute_batch(crate::artifact::SCHEMA)?;
+        }
+        if version < 11 {
+            tx.execute_batch(crate::chain::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(

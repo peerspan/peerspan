@@ -8,7 +8,7 @@ authorization for task.submit, duplicate and conflicting submission, a lost
 submit response recovered by automatic retry, the full lifecycle, rejection,
 expiry, failure, cancellation, restarts on either side, refusal of transitions
 by another session or credential, revocation before acceptance, submitter-only
-status and events, delegate_task with task_update events, and v8→v10 migration.
+status and events, delegate_task with task_update events, and v8→v11 migration.
 Needs the Go coordinator and capsule-peer-probe; policy cases need OpenSSH.
 """
 import argparse
@@ -22,18 +22,19 @@ import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
 from coordination import Coordinator, wait_for
-from host_service import ARTIFACT_TABLES, TASK_TABLES, Host, stop_all
+from host_service import ARTIFACT_TABLES, DELEGATION_TABLES, TASK_TABLES, Host, stop_all
 from peer_messaging import DropResponse, PeerHost, fixture_context, set_probe, timestamp, wire
 
 STATUS_KEYS = {'task_id', 'sender_host_id', 'receiver_host_id', 'target_agent_id', 'state', 'cancel_requested',
                'created_at', 'updated_at', 'last_event'}
 EVENT_KEYS = {'sequence', 'kind', 'state', 'message', 'output', 'created_at', 'artifacts'}
 LOCAL_KEYS = {'peer_host_id', 'request', 'submit_state', 'status', 'events_after', 'cancel_state', 'adapter_id',
-              'route_id', 'attempts', 'next_attempt_at', 'error', 'status_queries', 'artifacts'}
+              'route_id', 'attempts', 'next_attempt_at', 'error', 'status_queries', 'artifacts', 'parent', 'delegation'}
 DELIVERY_KEYS = {'id', 'sender_host_id', 'task_id', 'target_agent_id', 'session_id', 'adapter_id',
                  'cancel_claimed_at', 'created_at'}
 NOTIFICATION_KEYS = {'id', 'peer_host_id', 'task_id', 'sequence', 'adapter_id', 'session_id', 'state', 'created_at',
                      'updated_at'}
+HANDOFF_KEYS = {'delivery', 'task', 'status', 'sender_person_id', 'sender_person', 'originator_person_id', 'delegable'}
 LAPSED = 'authorization lapsed before acceptance'
 # Event polling backs off to a minute while nothing changes.
 POLL = 75
@@ -160,7 +161,8 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert out['status']['sender_host_id'] == a['id'] and out['status']['receiver_host_id'] == b['id'], out
             deadline = out['request']['deadline']
             handoff = claim(receiver, token)
-            assert set(handoff) == {'delivery', 'task', 'status', 'sender_person_id', 'sender_person'}, handoff
+            assert set(handoff) == HANDOFF_KEYS, handoff
+            assert handoff['originator_person_id'] is None and handoff['delegable'] is False, handoff
             assert set(handoff['delivery']) == DELIVERY_KEYS, handoff
             assert handoff['delivery']['task_id'] == tid and handoff['delivery']['session_id'] == session['id']
             assert handoff['delivery']['cancel_claimed_at'] is None
@@ -596,24 +598,24 @@ def migration_check(original, replacement, label):
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
             host.stop()
-            for table in [*ARTIFACT_TABLES, *TASK_TABLES]:
+            for table in [*DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
                 sql(host, 'DROP TABLE ' + table)
             sql(host, 'PRAGMA user_version = 8')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 10
+            assert sql(host, 'PRAGMA user_version')[0][0] == 11
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(TASK_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('task', 'list') == []
             host.stop()
             # A newer version is refused, without changes.
-            sql(host, 'PRAGMA user_version = 11')
+            sql(host, 'PRAGMA user_version = 12')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 11
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 12
         finally:
             stop_all((host,))
-    print(f'PASS {label}: v8→v10 migration; version 11 refused', flush=True)
+    print(f'PASS {label}: v8→v11 migration; version 12 refused', flush=True)
 
 
 def main():

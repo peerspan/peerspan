@@ -93,10 +93,10 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 		}
 		if args[1] == "allow" {
 			fs.Int64Var(&maxBytes, "max-message-bytes", 65536, "content byte limit, 1 to 65536")
-			fs.Int64Var(&maxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together, 0 to 1073741824; 0 refuses artifacts; needs --action task.submit")
+			fs.Int64Var(&maxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together, 0 to 1073741824; 0 refuses artifacts; needs --action task.submit or task.delegate")
 			fs.BoolVar(&allowDisconnected, "allow-disconnected", false, "permit messages while the receiver is out of sync with coordination")
 			fs.IntVar(&validDays, "valid-days", 7, "policy validity, 1 to 90 days")
-			fs.Var(&actions, "action", "message.append (the default) or task.submit; repeatable")
+			fs.Var(&actions, "action", "message.append (the default), task.submit, or task.delegate (task.submit, and the receiving agent may pass the task on); repeatable")
 		}
 	case "show":
 		fs.StringVar(&network, "network", "", "network ID")
@@ -147,7 +147,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 	}
 	for _, action := range actions {
 		if !membership.ValidPolicyAction(action) {
-			return "", "", nil, fmt.Errorf("--action must be %s or %s", membership.PolicyActionMessage, membership.PolicyActionTask)
+			return "", "", nil, fmt.Errorf("--action must be %s, %s, or %s", membership.PolicyActionMessage, membership.PolicyActionTask, membership.PolicyActionDelegate)
 		}
 	}
 	if validDays < 0 || (args[1] == "allow" && (validDays < 1 || validDays > 90)) {

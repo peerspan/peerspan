@@ -34,8 +34,22 @@ PRAGMA user_version = 8;
 pub const ACTION: &str = "message.append";
 /// Submitting a task (milestone 6) to an agent.
 pub const TASK_ACTION: &str = "task.submit";
+/// Submitting a task and letting the receiving agent pass it on (milestone
+/// 6 slice 4); implies `task.submit`.
+pub const DELEGATE_ACTION: &str = "task.delegate";
 /// The actions grants and policy rules may name.
-pub const ACTIONS: [&str; 2] = [ACTION, TASK_ACTION];
+pub const ACTIONS: [&str; 3] = [ACTION, TASK_ACTION, DELEGATE_ACTION];
+/// The actions adapter routes may name.
+pub const ROUTE_ACTIONS: [&str; 2] = [ACTION, TASK_ACTION];
+/// Whether a granted action authorizes a requested one: `task.delegate`
+/// implies `task.submit`.
+pub(crate) fn allows(granted: &str, requested: &str) -> bool {
+    granted == requested || (granted == DELEGATE_ACTION && requested == TASK_ACTION)
+}
+/// Whether actions include a task action, which artifact bounds need.
+pub(crate) fn task_actions<'a>(mut actions: impl Iterator<Item = &'a str>) -> bool {
+    actions.any(|a| a == TASK_ACTION || a == DELEGATE_ACTION)
+}
 pub const DEFAULT_VALID_DAYS: i64 = 7;
 const MAX_RULES: usize = 64;
 const MAX_PRINCIPALS: usize = 64;
@@ -163,14 +177,16 @@ impl Rule {
             principal(p)?;
         }
         if self.actions.is_empty() || self.actions.iter().any(|a| !ACTIONS.contains(&a.as_str())) {
-            return Err(invalid("policy actions are message.append and task.submit"));
+            return Err(invalid(
+                "policy actions are message.append, task.submit, and task.delegate",
+            ));
         }
         if !(1..=65536).contains(&self.max_message_bytes) {
             return Err(invalid("max_message_bytes must be 1-65536"));
         }
         crate::artifact::check_bound(
             self.max_artifact_bytes,
-            self.actions.iter().any(|a| a == TASK_ACTION),
+            task_actions(self.actions.iter().map(String::as_str)),
         )
     }
 }
@@ -443,7 +459,7 @@ impl Store {
             let matches = |p: &str| principal_matches(p, &sender_member, &groups, r.origin);
             for rule in &policy.rules {
                 if rule.agent != agent
-                    || !rule.actions.iter().any(|a| a == r.action)
+                    || !rule.actions.iter().any(|a| allows(a, r.action))
                     || r.size as i64 > rule.max_message_bytes
                     || !crate::peer_store::artifacts_fit(r.artifacts, rule.max_artifact_bytes)
                     || !rule.principals.iter().any(|p| matches(p))
@@ -454,7 +470,9 @@ impl Store {
                     max_message_bytes: 0,
                     max_artifact_bytes: 0,
                     allow_disconnected: false,
+                    delegate: false,
                 });
+                bounds.delegate |= rule.actions.iter().any(|a| a == DELEGATE_ACTION);
                 bounds.max_message_bytes = bounds.max_message_bytes.max(rule.max_message_bytes);
                 bounds.max_artifact_bytes = bounds.max_artifact_bytes.max(rule.max_artifact_bytes);
                 bounds.allow_disconnected |= rule.allow_disconnected;

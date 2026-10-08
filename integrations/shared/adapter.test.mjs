@@ -241,6 +241,11 @@ test('task, cancellation, and task update events; only updates are acknowledged'
     assert.equal(task.meta.cancel_requested, false);
     assert.equal(task.meta.sender_person, null);
     assert.deepEqual(task.meta.artifacts, claimed.task.artifacts);
+    assert.equal(task.meta.originator_host_id, null);
+    assert.equal(task.meta.originator_agent_id, null);
+    assert.equal(task.meta.originator_person_id, null);
+    assert.deepEqual(task.meta.chain_hosts, []);
+    assert.equal(task.meta.delegable, false);
     const cancel = events.find((e) => e.meta.kind === 'task_cancel_requested');
     assert.equal(cancel.meta.task_id, taskId);
     const result = events.find((e) => e.meta.kind === 'task_update');
@@ -251,6 +256,66 @@ test('task, cancellation, and task update events; only updates are acknowledged'
     assert.deepEqual(result.meta.artifacts, update.event.artifacts);
     assert.deepEqual(acknowledged, [`/adapter/v1/task-updates/${update.delivery.id}/forwarded`]);
     assert.equal(counts['/adapter/v1/tasks/next'] >= 2, true);
+  } finally {
+    await adapter.stop();
+  }
+});
+
+test('a delegated task names its originator and chain in meta', async () => {
+  const taskId = 'task_' + 'b'.repeat(32);
+  const link = (index, issuer) => ({
+    network_id: 'net_' + '0'.repeat(64),
+    index,
+    previous: index ? 'f'.repeat(64) : 'none',
+    issuer_host_id: issuer,
+    audience_host_id: 'host_' + String(index + 2).repeat(64),
+    task_id: index ? taskId : 'task_' + 'c'.repeat(32),
+    originator_agent_id: 'agent_' + '1'.repeat(32),
+    principals: ['network'],
+    deadline: '2099-01-01T00:00:00Z',
+    depth: 2 - index,
+    signature: 'A'.repeat(86) + '=='
+  });
+  const hosts = ['host_' + 'a'.repeat(64), 'host_' + 'b'.repeat(64)];
+  const claimed = {
+    delivery: { id: 'delivery_' + '8'.repeat(32), session_id: sessionId, task_id: taskId, sender_host_id: hosts[1] },
+    task: { task_id: taskId, input: 'part', deadline: '2099-01-01T00:00:00Z', delegation: [link(0, hosts[0]), link(1, hosts[1])] },
+    status: { state: 'queued', cancel_requested: false },
+    sender_person_id: null,
+    sender_person: null,
+    originator_person_id: 'person_' + '3'.repeat(64),
+    delegable: true
+  };
+  const events = [];
+  let served = false;
+  const adapter = createAdapter({
+    adapterId,
+    sessionId,
+    pollMs: 5,
+    call: async (_method, path) => {
+      if (path === '/adapter/v1/connect') return { adapter_id: adapterId, session_id: sessionId, state: 'ready' };
+      if (path === '/adapter/v1/tasks/next' && !served) {
+        served = true;
+        return claimed;
+      }
+      return null;
+    },
+    notify: async (event) => {
+      events.push(event);
+    },
+    log: () => {}
+  });
+  adapter.start();
+  try {
+    for (let i = 0; i < 100 && !events.length; i++) await delay(10);
+    const { meta } = events[0];
+    assert.equal(meta.kind, 'task');
+    assert.equal(meta.originator_host_id, hosts[0]);
+    assert.equal(meta.originator_agent_id, 'agent_' + '1'.repeat(32));
+    assert.equal(meta.originator_person_id, claimed.originator_person_id);
+    assert.deepEqual(meta.chain_hosts, hosts);
+    assert.equal(meta.delegable, true);
+    assert.equal(meta.sender_host_id, hosts[1]);
   } finally {
     await adapter.stop();
   }
@@ -297,6 +362,12 @@ test('task tools call the scoped routes and validate their arguments', async () 
     assert.equal(delegated.submit_state, 'accepted');
     assert.equal(delegated.state, 'queued');
     assert.deepEqual(calls[0][2], { destination: 'review', task_id: delegated.task_id, input: 'please' });
+    calls.length = 0;
+    const parentId = 'task_' + 'e'.repeat(32);
+    const forwarded = JSON.parse(
+      (await adapter.callTool('delegate_task', { destination: 'review', input: 'part', parent_task_id: parentId })).content[0].text
+    );
+    assert.deepEqual(calls[0][2], { destination: 'review', task_id: forwarded.task_id, input: 'part', parent_task_id: parentId });
     const status = JSON.parse((await adapter.callTool('task_status', { task_id: taskId })).content[0].text);
     assert.equal(status.submit_state, 'not_recorded');
     calls.length = 0;
@@ -309,6 +380,7 @@ test('task tools call the scoped routes and validate their arguments', async () 
       ['task_reject', { task_id: taskId, extra: 1 }],
       ['delegate_task', { destination: 'Bad', input: 'x' }],
       ['delegate_task', { destination: 'review', input: 'x', task_id: 'request_' + 'a'.repeat(32) }],
+      ['delegate_task', { destination: 'review', input: 'x', parent_task_id: 'task_x' }],
       ['task_status', { task_id: 5 }]
     ]) {
       assert((await adapter.callTool(name, args)).isError, name);

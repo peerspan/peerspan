@@ -630,6 +630,10 @@ fn clone_submit(command: &cli::Command) -> cli::TaskCommand {
         from_agent,
         from_session,
         task,
+        delegation_depth,
+        delegate_to,
+        parent_sender,
+        parent_task,
         ..
     }) = command
     else {
@@ -646,6 +650,10 @@ fn clone_submit(command: &cli::Command) -> cli::TaskCommand {
         task: task.clone(),
         artifacts: Vec::new(),
         artifact_types: Vec::new(),
+        delegation_depth: *delegation_depth,
+        delegate_to: delegate_to.clone(),
+        parent_sender: parent_sender.clone(),
+        parent_task: parent_task.clone(),
     }
 }
 

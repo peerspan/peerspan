@@ -10,6 +10,7 @@ use crate::{
     artifact::{
         ArtifactEntry, INPUT, RECEIVED, RESULT, manifest_total, normalized, validate_manifest,
     },
+    chain::{Carried, Link, Verified},
     model::Error,
     peer_store::{Authz, Bounds, Connectivity, Origin, valid_id},
     policy::{PolicyRef, TASK_ACTION},
@@ -106,6 +107,14 @@ pub struct TaskRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub artifacts: Option<Vec<ArtifactEntry>>,
+    /// The delegation chain (milestone 6 slice 4): 1 to 3 links, the last
+    /// naming this hop.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub delegation: Option<Vec<Link>>,
 }
 impl TaskRequest {
     pub(crate) fn authz(&self) -> Authz<'_> {
@@ -188,6 +197,12 @@ pub struct TaskHandoff {
     /// the sender is unbound.
     pub sender_person_id: Option<String>,
     pub sender_person: Option<String>,
+    /// The person the chain's originator host is bound to; null without a
+    /// chain or when unbound.
+    pub originator_person_id: Option<String>,
+    /// Whether the agent may pass this task on: the authorization includes
+    /// `task.delegate` and the chain allows another hop.
+    pub delegable: bool,
 }
 #[derive(Serialize)]
 pub struct CancelHandoff {
@@ -226,6 +241,9 @@ pub(crate) fn validate_task(r: &TaskRequest) -> Result<(), Error> {
     if let Some(manifest) = &r.artifacts {
         validate_manifest(manifest)?;
     }
+    if let Some(chain) = &r.delegation {
+        crate::chain::validate(chain)?;
+    }
     DateTime::parse_from_rfc3339(&r.deadline)
         .map_err(|_| Error::Invalid("invalid deadline".into()))?;
     Ok(())
@@ -256,17 +274,68 @@ fn text(value: &str, empty: bool) -> Result<(), Error> {
     }
     Ok(())
 }
-/// The stored record of a received task: the status record plus the
-/// artifact bound checked at acceptance, which is never served.
-const BOUND_KEY: &str = "max_artifact_bytes";
+/// The stored record of a received task: the status record plus what the
+/// authorization checked at acceptance allowed, which is never served: the
+/// artifact bound and whether the agent may pass the task on.
+const INTERNAL_KEYS: [&str; 2] = ["max_artifact_bytes", "delegable"];
 pub(crate) fn status_record(text: &str) -> Result<TaskStatus, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text)?;
     if let Some(object) = value.as_object_mut() {
-        object.remove(BOUND_KEY);
+        for key in INTERNAL_KEYS {
+            object.remove(key);
+        }
     }
     Ok(serde_json::from_value(value)?)
 }
-fn received(
+/// Whether a received task's acceptance allowed `task.delegate`.
+pub(crate) fn delegable(conn: &Connection, sender: &str, id: &str) -> Result<bool, Error> {
+    let value: Option<bool> = conn.query_row(
+        "SELECT json_extract(record, '$.delegable') FROM received_tasks WHERE sender = ?1 AND task_id = ?2",
+        params![sender, id],
+        |r| r.get(0),
+    )?;
+    Ok(value.unwrap_or(false))
+}
+/// Verifies a request's chain, then authorizes the request: the sender for a
+/// single hop, and the originator past one link. Returns the bounds, the
+/// authorized host, and what the chain established.
+pub(crate) fn task_bounds(
+    store: &Store,
+    conn: &Connection,
+    sender: &str,
+    r: &TaskRequest,
+    require_deadline: bool,
+) -> Result<(Bounds, String, Option<Verified>), Error> {
+    let verified = match &r.delegation {
+        Some(chain) => Some(store.verify_chain(
+            conn,
+            sender,
+            &Carried {
+                chain,
+                task_id: &r.task_id,
+                deadline: &r.deadline,
+                origin_agent_id: r.origin.as_ref().map(|o| o.agent_id.as_str()),
+            },
+            require_deadline,
+        )?),
+        None => None,
+    };
+    let (subject, origin) = match &verified {
+        Some(v) if v.chain_hosts.len() > 1 => (
+            v.originator_host_id.clone(),
+            Some(Origin {
+                agent_id: v.originator_agent_id.clone(),
+                session_id: None,
+            }),
+        ),
+        _ => (sender.to_owned(), r.origin.clone()),
+    };
+    let mut authz = r.authz();
+    authz.origin = origin.as_ref();
+    let bounds = store.message_bounds(conn, &subject, &authz, require_deadline)?;
+    Ok((bounds, subject, verified))
+}
+pub(crate) fn received(
     conn: &Connection,
     sender: &str,
     id: &str,
@@ -330,10 +399,22 @@ fn record(
             serde_json::to_string(&event)?
         ],
     )?;
-    // The bound stored at acceptance stays with the record.
+    // What acceptance allowed stays with the record.
+    let old: String = tx.query_row(
+        "SELECT record FROM received_tasks WHERE sender = ?1 AND task_id = ?2",
+        params![sender, status.task_id],
+        |r| r.get(0),
+    )?;
+    let old: serde_json::Value = serde_json::from_str(&old)?;
+    let mut new = serde_json::to_value(&*status)?;
+    for key in INTERNAL_KEYS {
+        if let (Some(value), Some(object)) = (old.get(key), new.as_object_mut()) {
+            object.insert(key.into(), value.clone());
+        }
+    }
     tx.execute(
-        "UPDATE received_tasks SET record = CASE WHEN json_extract(record, '$.max_artifact_bytes') IS NULL THEN json(?1) ELSE json_set(?1, '$.max_artifact_bytes', json_extract(record, '$.max_artifact_bytes')) END WHERE sender = ?2 AND task_id = ?3",
-        params![serde_json::to_string(status)?, sender, status.task_id],
+        "UPDATE received_tasks SET record = ?1 WHERE sender = ?2 AND task_id = ?3",
+        params![serde_json::to_string(&new)?, sender, status.task_id],
     )?;
     append_event(
         tx,
@@ -359,17 +440,24 @@ fn expire(
 }
 /// The rejection reason when authorization lapses before an agent accepts.
 pub const LAPSED: &str = "authorization lapsed before acceptance";
-/// Rechecks a queued task's authorization. `Ok(Ok(bounds))` admits it,
-/// `Ok(Err(reason))` is a final lapse, and `Unavailable` can recover.
+/// Whether an agent may pass a task on: its authorization includes
+/// `task.delegate`, and its chain allows another hop.
+fn may_delegate(bounds: &Bounds, verified: Option<&Verified>) -> bool {
+    bounds.delegate && verified.is_some_and(|v| v.depth >= 1)
+}
+/// Rechecks a queued task's authorization, chain included. `Ok(Ok(..))`
+/// admits it, `Ok(Err(reason))` is a final lapse, and `Unavailable` can
+/// recover.
+#[allow(clippy::type_complexity)]
 fn recheck(
     store: &Store,
     tx: &Transaction<'_>,
     sender: &str,
     request: &TaskRequest,
-) -> Result<Result<Bounds, String>, Error> {
-    match store.message_bounds(tx, sender, &request.authz(), true) {
-        Ok(bounds) => match store.grant_connected(tx, sender, &bounds)? {
-            Connectivity::Usable => Ok(Ok(bounds)),
+) -> Result<Result<(Bounds, Option<Verified>), String>, Error> {
+    match task_bounds(store, tx, sender, request, true) {
+        Ok((bounds, subject, verified)) => match store.grant_connected(tx, &subject, &bounds)? {
+            Connectivity::Usable => Ok(Ok((bounds, verified))),
             Connectivity::Stale => Err(Error::Unavailable("coordination disconnected".into())),
             Connectivity::Absent => Ok(Err(LAPSED.into())),
         },
@@ -384,7 +472,14 @@ impl Store {
         validate_task(&r)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        self.message_authority(&tx, sender, &r.authz(), true)?;
+        let (bounds, subject, _) = task_bounds(self, &tx, sender, &r, true)?;
+        match self.grant_connected(&tx, &subject, &bounds)? {
+            Connectivity::Usable => {}
+            Connectivity::Stale => {
+                return Err(Error::Unavailable("coordination disconnected".into()));
+            }
+            Connectivity::Absent => return Err(Error::Forbidden),
+        }
         if let Some((old, mut status)) = received(&tx, sender, &r.task_id)? {
             if old != r {
                 return Err(Error::Conflict(
@@ -471,10 +566,22 @@ impl Store {
     /// Records the submitter's cancellation request, once. The state changes
     /// only when the agent confirms or finishes.
     pub fn request_task_cancel(&self, sender: &str, id: &str) -> Result<TaskStatus, Error> {
+        Ok(self.cancel_received(sender, id)?.0)
+    }
+    /// Records a cancellation request, and marks every task forwarded from
+    /// this one for cancellation in the same transaction. Returns the
+    /// status and the children `(peer, task_id)` newly marked.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn cancel_received(
+        &self,
+        sender: &str,
+        id: &str,
+    ) -> Result<(TaskStatus, Vec<(String, String)>), Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
         expire(&tx, sender, &request, &mut status)?;
+        let mut children = Vec::new();
         if !status.cancel_requested && !is_final(&status.state) {
             record(
                 &tx,
@@ -485,9 +592,10 @@ impl Store {
                 None,
                 None,
             )?;
+            children = crate::task_outbound::cancel_children(&tx, sender, id)?;
         }
         tx.commit()?;
-        Ok(status)
+        Ok((status, children))
     }
     /// Expires every task still queued at its deadline. Returns how many.
     pub(crate) fn expire_tasks(&self) -> Result<usize, Error> {
@@ -546,8 +654,8 @@ impl Store {
             if expire(&tx, &sender, &request, &mut status)? {
                 continue;
             }
-            match recheck(self, &tx, &sender, &request) {
-                Ok(Ok(_)) => {}
+            let (delegable, verified) = match recheck(self, &tx, &sender, &request) {
+                Ok(Ok((bounds, verified))) => (may_delegate(&bounds, verified.as_ref()), verified),
                 Ok(Err(reason)) => {
                     record(
                         &tx,
@@ -562,7 +670,7 @@ impl Store {
                 }
                 Err(Error::Unavailable(_)) => continue,
                 Err(e) => return Err(e),
-            }
+            };
             let d = TaskDelivery {
                 id: new_id("delivery")?,
                 sender_host_id: sender,
@@ -585,12 +693,15 @@ impl Store {
             )?;
             let (sender_person_id, sender_person) =
                 crate::adapter::sender_person(&tx, &d.sender_host_id)?;
+            let verified = verified.as_ref();
             handoff = Some(TaskHandoff {
                 delivery: d,
                 task: request,
                 status,
                 sender_person_id,
                 sender_person,
+                originator_person_id: verified.and_then(|v| v.originator_person_id.clone()),
+                delegable,
             });
             break;
         }
@@ -690,12 +801,19 @@ impl Store {
             Change::Accept => match status.state.as_str() {
                 "running" => Ok(None),
                 "queued" => match recheck(self, tx, sender, request)? {
-                    Ok(bounds) => {
+                    Ok((bounds, verified)) => {
+                        let delegable = may_delegate(&bounds, verified.as_ref());
                         record(tx, sender, status, "accepted", None, None, None)?;
-                        // The artifact bound checked now governs the results.
+                        // The artifact bound checked now governs the results,
+                        // and `task.delegate` lets the agent pass it on.
                         tx.execute(
-                            "UPDATE received_tasks SET record = json_set(record, '$.max_artifact_bytes', ?1) WHERE sender = ?2 AND task_id = ?3",
-                            params![bounds.max_artifact_bytes, sender, status.task_id],
+                            "UPDATE received_tasks SET record = json_set(record, '$.max_artifact_bytes', ?1, '$.delegable', json(?2)) WHERE sender = ?3 AND task_id = ?4",
+                            params![
+                                bounds.max_artifact_bytes,
+                                if delegable { "true" } else { "false" },
+                                sender,
+                                status.task_id
+                            ],
                         )?;
                         Ok(None)
                     }
@@ -904,9 +1022,13 @@ async fn cancel(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<TaskStatus>, Error> {
     let _: Empty = decode(body)?;
-    Ok(Json(
-        blocking(store, move |s| s.request_task_cancel(&sender, &id)).await?,
-    ))
+    let (status, children) =
+        blocking(store.clone(), move |s| s.cancel_received(&sender, &id)).await?;
+    // Children are sent now; the poll worker resends any uncertain one.
+    if !children.is_empty() {
+        tokio::spawn(crate::task_outbound::send_cancels(store, children));
+    }
+    Ok(Json(status))
 }
 
 pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
@@ -1050,6 +1172,7 @@ pub(crate) mod tests {
             input: "summarize the report".into(),
             origin: None,
             artifacts: None,
+            delegation: None,
         }
     }
     struct Fixture {

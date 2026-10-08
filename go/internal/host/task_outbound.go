@@ -51,6 +51,12 @@ type SubmitTask struct {
 	Origin        *Origin `json:"origin,omitempty"`
 	// Artifacts names stored uploads to attach as inputs.
 	Artifacts []ArtifactEntry `json:"artifacts,omitempty"`
+	// DelegationDepth, 0 to 2, creates link 0 of a delegation chain with
+	// that depth and DelegationPrincipals (default network); 0 creates none.
+	DelegationDepth      int64    `json:"delegation_depth,omitempty"`
+	DelegationPrincipals []string `json:"delegation_principals,omitempty"`
+	// Parent forwards a running received task instead, extending its chain.
+	Parent *TaskParent `json:"parent,omitempty"`
 }
 
 // OutboundTask is the local record of a submitted task.
@@ -75,19 +81,24 @@ type OutboundTask struct {
 	// Artifacts lists inputs, then results, with their local state. It is
 	// read from task_artifacts when the record is returned, never stored.
 	Artifacts []LocalArtifact `json:"artifacts"`
+	// Parent is the received task this one was forwarded from, or null.
+	Parent *TaskParent `json:"parent"`
+	// Delegation is the chain this task was sent with, or null.
+	Delegation []membership.Link `json:"delegation"`
 }
 
 // recordedTaskRequest shows grant_id as null, rather than absent, when the
 // request cites a policy.
 type recordedTaskRequest struct {
-	TaskID        string          `json:"task_id"`
-	GrantID       *string         `json:"grant_id"`
-	Policy        *PolicyCitation `json:"policy,omitempty"`
-	TargetAgentID string          `json:"target_agent_id"`
-	Deadline      string          `json:"deadline"`
-	Input         string          `json:"input"`
-	Origin        *Origin         `json:"origin,omitempty"`
-	Artifacts     []ArtifactEntry `json:"artifacts,omitempty"`
+	TaskID        string            `json:"task_id"`
+	GrantID       *string           `json:"grant_id"`
+	Policy        *PolicyCitation   `json:"policy,omitempty"`
+	TargetAgentID string            `json:"target_agent_id"`
+	Deadline      string            `json:"deadline"`
+	Input         string            `json:"input"`
+	Origin        *Origin           `json:"origin,omitempty"`
+	Artifacts     []ArtifactEntry   `json:"artifacts,omitempty"`
+	Delegation    []membership.Link `json:"delegation,omitempty"`
 }
 
 func (o OutboundTask) MarshalJSON() ([]byte, error) {
@@ -121,6 +132,8 @@ type AdapterDelegate struct {
 	TaskID      string          `json:"task_id"`
 	Input       string          `json:"input"`
 	Artifacts   []ArtifactEntry `json:"artifacts,omitempty"`
+	// ParentTaskID forwards a task this session claimed and is running.
+	ParentTaskID string `json:"parent_task_id,omitempty"`
 }
 
 // TaskUpdateDelivery is one task event handed to the originating session.
@@ -220,7 +233,9 @@ func (s *Store) OutboundTaskEvents(ctx context.Context, peer, id string, after, 
 }
 
 // PrepareOutboundTask persists an owner submission before any network
-// attempt. Without a grant it cites the target host's owner's policy.
+// attempt. Without a grant it cites the target host's owner's policy. A
+// delegation depth creates link 0 of a chain; a parent forwards a running
+// received task, extending its chain.
 func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (OutboundTask, error) {
 	if r.TaskID == "" {
 		id, err := newID("task")
@@ -228,6 +243,20 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 			return OutboundTask{}, err
 		}
 		r.TaskID = id
+	}
+	forward := r.Parent != nil
+	if r.DelegationDepth < 0 || r.DelegationDepth > membership.DelegationMaxDepth || (r.DelegationDepth == 0 && r.DelegationPrincipals != nil) || (forward && r.DelegationDepth != 0) {
+		return OutboundTask{}, fmt.Errorf("%w: delegation_depth is 0 to 2, delegation_principals needs a nonzero depth, and a forwarded task takes neither", ErrInvalid)
+	}
+	var principals []string
+	if r.DelegationDepth > 0 {
+		if r.Origin == nil {
+			return OutboundTask{}, fmt.Errorf("%w: delegation needs an originating agent (--from-agent)", ErrInvalid)
+		}
+		var err error
+		if principals, err = delegationPrincipals(r.DelegationPrincipals); err != nil {
+			return OutboundTask{}, err
+		}
 	}
 	if err := s.checkLocalOrigin(ctx, r.Origin); err != nil {
 		return OutboundTask{}, err
@@ -245,9 +274,32 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 	if exists && request.GrantID == nil {
 		request.Policy = old.Request.Policy
 	}
+	if !exists {
+		if _, err := s.KnownHost(ctx, r.PeerHostID, nil); err != nil {
+			return OutboundTask{}, err
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return OutboundTask{}, err
+	}
+	defer tx.Rollback()
+	var parent TaskRequest
+	var parentStatus TaskStatus
+	if forward {
+		if parent, parentStatus, err = receivedTask(ctx, tx, r.Parent.SenderHostID, r.Parent.TaskID); err != nil {
+			return OutboundTask{}, err
+		}
+		// The forwarding agent is the one working on the parent task.
+		if request.Origin == nil {
+			request.Origin = &Origin{AgentID: parent.TargetAgentID}
+		} else if request.Origin.AgentID != parent.TargetAgentID {
+			return OutboundTask{}, fmt.Errorf("%w: a forwarded task originates from the parent task's agent", ErrForbidden)
+		}
+	}
 	deadline := time.Now().Add(taskDefaultDeadline)
 	if request.GrantID == nil && request.Policy == nil {
-		citation, until, err := s.policyCitationUntil(ctx, s.db, r.PeerHostID)
+		citation, until, err := s.policyCitationUntil(ctx, tx, r.PeerHostID)
 		if err != nil {
 			return OutboundTask{}, err
 		}
@@ -259,32 +311,66 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 	if request.Deadline == "" {
 		request.Deadline = timestamp(deadline)
 	}
+	switch {
+	case forward:
+		err = forwardDeadline(&request, parent, r.Deadline != "")
+	case r.DelegationDepth > 0:
+		request.Deadline, err = utcDeadline(request.Deadline)
+	}
+	if err != nil {
+		return OutboundTask{}, err
+	}
 	if err := validateTask(request); err != nil {
 		return OutboundTask{}, err
 	}
 	if exists {
-		if !old.Request.same(request) || old.AdapterID != nil {
+		if forward {
+			sent := old.Request
+			sent.Delegation = nil
+			if old.Parent == nil || *old.Parent != *r.Parent || !sent.same(request) || old.AdapterID != nil {
+				return old, ErrConflict
+			}
+			return old, nil
+		}
+		if r.DelegationDepth > 0 {
+			link, err := s.firstLink(ctx, tx, r.PeerHostID, request, r.DelegationDepth, principals)
+			if err != nil {
+				return old, err
+			}
+			request.Delegation = []membership.Link{link}
+		}
+		if !old.Request.same(request) || old.AdapterID != nil || old.Parent != nil {
 			return old, ErrConflict
 		}
 		return old, nil
 	}
-	if _, err := s.KnownHost(ctx, r.PeerHostID, nil); err != nil {
-		return OutboundTask{}, err
+	switch {
+	case forward:
+		if err = s.checkForward(ctx, tx, parent, parentStatus, r.PeerHostID); err != nil {
+			return OutboundTask{}, err
+		}
+		request.Delegation = append(append([]membership.Link{}, parent.Delegation...), s.nextLink(parent.Delegation, r.PeerHostID, request))
+	case r.DelegationDepth > 0:
+		link, err := s.firstLink(ctx, tx, r.PeerHostID, request, r.DelegationDepth, principals)
+		if err != nil {
+			return OutboundTask{}, err
+		}
+		request.Delegation = []membership.Link{link}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return OutboundTask{}, err
-	}
-	defer tx.Rollback()
 	if err = requireStored(ctx, tx, request.Artifacts); err != nil {
 		return OutboundTask{}, err
 	}
-	out := OutboundTask{PeerHostID: r.PeerHostID, Request: request, SubmitState: submitUnknown, NextAttemptAt: s.initialAttempt()}
+	out := OutboundTask{PeerHostID: r.PeerHostID, Request: request, SubmitState: submitUnknown, NextAttemptAt: s.initialAttempt(), Parent: r.Parent, Delegation: request.Delegation}
 	if err = insertOutboundTask(ctx, tx, out); err != nil {
 		if isUniqueViolation(err) {
 			return out, ErrConflict
 		}
 		return out, err
+	}
+	if forward {
+		if err = recordForward(ctx, tx, *r.Parent, out); err != nil {
+			return out, err
+		}
 	}
 	return out, tx.Commit()
 }
@@ -769,7 +855,7 @@ func (s *Store) backoffFetch(key string) {
 // route, bound to its credential and session, before any network attempt.
 func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r AdapterDelegate) (OutboundTask, error) {
 	r.Artifacts = emptyAsNone(r.Artifacts)
-	if !validRouteName(r.Destination) || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) || (r.Artifacts != nil && !validManifest(r.Artifacts)) {
+	if !validRouteName(r.Destination) || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) || (r.Artifacts != nil && !validManifest(r.Artifacts)) || (r.ParentTaskID != "" && !validID(r.ParentTaskID, "task", 16)) {
 		return OutboundTask{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -809,13 +895,26 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 			return old, ErrConflict
 		case *old.AdapterID != a.ID || old.Request.Origin == nil || old.Request.Origin.SessionID != ss.ID:
 			return old, ErrForbidden
-		case old.RouteID == nil || *old.RouteID != route.ID || old.Request.Input != r.Input || !sameManifest(old.Request.Artifacts, r.Artifacts):
+		case old.RouteID == nil || *old.RouteID != route.ID || old.Request.Input != r.Input || !sameManifest(old.Request.Artifacts, r.Artifacts) || (old.Parent == nil) != (r.ParentTaskID == "") || (old.Parent != nil && old.Parent.TaskID != r.ParentTaskID):
 			return old, ErrConflict
 		}
 		return old, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return old, err
+	}
+	// A forward names a task this session claimed, still running.
+	var parent *TaskParent
+	var parentRequest TaskRequest
+	if r.ParentTaskID != "" {
+		d, request, st, err := ownedTask(ctx, tx, auth, r.ParentTaskID)
+		if err != nil {
+			return old, err
+		}
+		if err = s.checkForward(ctx, tx, request, st, route.PeerHostID); err != nil {
+			return old, err
+		}
+		parent, parentRequest = &TaskParent{SenderHostID: d.SenderHostID, TaskID: d.TaskID}, request
 	}
 	var used int64
 	if err = tx.QueryRowContext(ctx, `SELECT `+routeUsed+` FROM adapter_routes r WHERE r.id = ?`, route.ID).Scan(&used); err != nil {
@@ -842,9 +941,28 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 		return old, err
 	}
 	adapterID, routeID := a.ID, route.ID
-	out := OutboundTask{PeerHostID: route.PeerHostID, Request: TaskRequest{TaskID: r.TaskID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Input: r.Input, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}, Artifacts: r.Artifacts}, SubmitState: submitUnknown, AdapterID: &adapterID, RouteID: &routeID, NextAttemptAt: s.initialAttempt()}
+	request := TaskRequest{TaskID: r.TaskID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Input: r.Input, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}, Artifacts: r.Artifacts}
+	switch {
+	case parent != nil:
+		if err = forwardDeadline(&request, parentRequest, false); err != nil {
+			return old, err
+		}
+		request.Delegation = append(append([]membership.Link{}, parentRequest.Delegation...), s.nextLink(parentRequest.Delegation, route.PeerHostID, request))
+	case route.DelegationDepth > 0:
+		link, err := s.firstLink(ctx, tx, route.PeerHostID, request, route.DelegationDepth, []string{membership.PrincipalNetwork})
+		if err != nil {
+			return old, err
+		}
+		request.Delegation = []membership.Link{link}
+	}
+	out := OutboundTask{PeerHostID: route.PeerHostID, Request: request, SubmitState: submitUnknown, AdapterID: &adapterID, RouteID: &routeID, NextAttemptAt: s.initialAttempt(), Parent: parent, Delegation: request.Delegation}
 	if err = insertOutboundTask(ctx, tx, out); err != nil {
 		return out, err
+	}
+	if parent != nil {
+		if err = recordForward(ctx, tx, *parent, out); err != nil {
+			return out, err
+		}
 	}
 	return out, tx.Commit()
 }

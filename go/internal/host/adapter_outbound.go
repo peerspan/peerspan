@@ -33,6 +33,9 @@ type OutboundRoute struct {
 	MaxMessageBytes int64   `json:"max_message_bytes"`
 	MaxMessages     int64   `json:"max_messages"`
 	RevokedAt       *string `json:"revoked_at"`
+	// DelegationDepth, 0 to 2, makes tasks submitted through the route carry
+	// link 0 of a delegation chain with that depth; 0 creates no chain.
+	DelegationDepth int64 `json:"delegation_depth"`
 }
 
 // UnmarshalJSON reads a route from before task routes as a message route.
@@ -61,6 +64,8 @@ type CreateOutboundRoute struct {
 	MaxMessages     int64   `json:"max_messages"`
 	// Action is message.append (the default when empty) or task.submit.
 	Action string `json:"action,omitempty"`
+	// DelegationDepth, nonzero only for task.submit, is link 0's depth.
+	DelegationDepth int64 `json:"delegation_depth,omitempty"`
 }
 type Destination struct {
 	Name              string `json:"name"`
@@ -146,7 +151,7 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 		r.Action = membership.PolicyActionMessage
 	}
 	exp, err := parseTime(r.ExpiresAt)
-	if err != nil || !membership.ValidPolicyAction(r.Action) || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
+	if err != nil || !membership.ValidRouteAction(r.Action) || r.DelegationDepth < 0 || r.DelegationDepth > membership.DelegationMaxDepth || (r.DelegationDepth != 0 && r.Action != membership.PolicyActionTask) || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
 		return OutboundRoute{}, ErrInvalid
 	}
 	var known int
@@ -185,7 +190,7 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if err != nil {
 		return OutboundRoute{}, err
 	}
-	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages}
+	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, DelegationDepth: r.DelegationDepth}
 	data, err := json.Marshal(route)
 	if err != nil {
 		return route, err

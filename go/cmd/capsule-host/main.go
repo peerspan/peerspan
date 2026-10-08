@@ -41,13 +41,13 @@ Usage:
   capsule-host [--state DIR] peer add --id HOST --public-key KEY --address IP:PORT
   capsule-host [--state DIR] peer list
   capsule-host [--state DIR] peer path HOST
-  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--action message.append|task.submit] [--max-message-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--from-agent ID]
+  capsule-host [--state DIR] grant create --peer HOST --agent ID --expires-at TIME [--action message.append|task.submit|task.delegate] [--max-message-bytes N] [--max-artifact-bytes N] [--allow-disconnected] [--from-agent ID]
   capsule-host [--state DIR] grant list
   capsule-host [--state DIR] grant revoke ID
   capsule-host [--state DIR] message send --peer HOST [--grant ID] --agent ID --deadline TIME --content TEXT [--request ID] [--from-agent ID [--from-session ID]]
   capsule-host [--state DIR] message list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] message inspect|retry|refresh|reply|origin --peer HOST ID
-  capsule-host [--state DIR] task submit --peer HOST --agent ID --input TEXT [--deadline TIME] [--grant ID] [--from-agent ID [--from-session ID]] [--task ID] [--artifact PATH ...] [--artifact-type TYPE ...]
+  capsule-host [--state DIR] task submit --peer HOST --agent ID --input TEXT [--deadline TIME] [--grant ID] [--from-agent ID [--from-session ID]] [--task ID] [--artifact PATH ...] [--artifact-type TYPE ...] [--delegation-depth N] [--delegate-to P ...] [--parent-sender HOST --parent-task ID]
   capsule-host [--state DIR] task list [--after SEQUENCE] [--limit COUNT]
   capsule-host [--state DIR] task inspect|cancel --peer HOST ID
   capsule-host [--state DIR] task events --peer HOST ID [--after SEQUENCE] [--limit COUNT]
@@ -55,7 +55,7 @@ Usage:
   capsule-host [--state DIR] artifact list|prune
   capsule-host [--state DIR] adapter create --session ID --expires-at TIME
   capsule-host [--state DIR] adapter list|inspect|revoke|rotate|connection [ID]
-  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET [--grant ID] [--action message.append|task.submit] --expires-at TIME [--max-message-bytes N --max-messages N]
+  capsule-host [--state DIR] adapter route add --adapter ID --name NAME --peer HOST --agent TARGET [--grant ID] [--action message.append|task.submit] [--delegation-depth N] --expires-at TIME [--max-message-bytes N --max-messages N]
   capsule-host [--state DIR] adapter route list --adapter ID
   capsule-host [--state DIR] adapter route revoke ID
   capsule-host [--state DIR] delivery list [--after SEQUENCE --limit COUNT]
@@ -429,9 +429,9 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 				fs.StringVar(&g.TargetAgentID, "agent", "", "target local agent ID")
 				fs.StringVar(&g.ExpiresAt, "expires-at", "", "UTC grant expiration")
 				fs.Int64Var(&g.MaxMessageBytes, "max-message-bytes", 65536, "content byte limit")
-				fs.Int64Var(&g.MaxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together; 0 refuses artifacts; needs --action task.submit")
+				fs.Int64Var(&g.MaxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together; 0 refuses artifacts; needs --action task.submit or task.delegate")
 				fs.BoolVar(&g.AllowDisconnected, "allow-disconnected", false, "permit work without coordination")
-				fs.StringVar(&g.Action, "action", "message.append", "authorized action: message.append or task.submit")
+				fs.StringVar(&g.Action, "action", "message.append", "authorized action: message.append, task.submit, or task.delegate (task.submit, and the receiving agent may pass the task on)")
 			})
 			g.RequesterAgentID = optional(fromAgent)
 			g.Action = defaultAction(g.Action)
@@ -497,9 +497,13 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 		switch args[1] {
 		case "submit":
 			var t host.SubmitTask
-			var grant, fromAgent, fromSession string
-			var files, types repeated
+			var grant, fromAgent, fromSession, parentSender, parentTask string
+			var files, types, delegateTo repeated
 			err := parse("task submit", args[2:], func(fs *flag.FlagSet) {
+				fs.Int64Var(&t.DelegationDepth, "delegation-depth", 0, "let the receiving agent pass the task on through up to N further hosts, 0 to 2; needs --from-agent")
+				fs.Var(&delegateTo, "delegate-to", "principal the task may be passed on to: network, person:<person ID>, or host:<host ID>; repeatable, default network; needs --delegation-depth")
+				fs.StringVar(&parentSender, "parent-sender", "", "sender host of a running received task to pass on; needs --parent-task")
+				fs.StringVar(&parentTask, "parent-task", "", "ID of that received task; needs --parent-sender")
 				fs.Var(&files, "artifact", "file to upload and attach as an input artifact; repeatable")
 				fs.Var(&types, "artifact-type", "media type of the corresponding --artifact; repeatable, default application/octet-stream")
 				fs.StringVar(&t.PeerHostID, "peer", "", "receiving host ID")
@@ -520,6 +524,15 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 			}
 			if len(types) > len(files) && err == nil {
 				err = errors.New("each --artifact-type needs a corresponding --artifact")
+			}
+			if len(delegateTo) > 0 {
+				t.DelegationPrincipals = delegateTo
+			}
+			if (parentSender == "") != (parentTask == "") && err == nil {
+				err = errors.New("--parent-sender and --parent-task go together")
+			}
+			if parentSender != "" {
+				t.Parent = &host.TaskParent{SenderHostID: parentSender, TaskID: parentTask}
 			}
 			if len(files) > 0 {
 				return "POST", "/v1/tasks", taskSubmission{t, files, types}, err
@@ -684,6 +697,7 @@ func request(args []string, errOut io.Writer) (string, string, any, error) {
 					fs.Int64Var(&req.MaxMessageBytes, "max-message-bytes", 65536, "maximum content bytes")
 					fs.Int64Var(&req.MaxMessages, "max-messages", 100, "lifetime message and task budget")
 					fs.StringVar(&req.Action, "action", "message.append", "route action: message.append (send) or task.submit (delegate_task)")
+					fs.Int64Var(&req.DelegationDepth, "delegation-depth", 0, "tasks through this route may be passed on through up to N further hosts, 0 to 2; needs --action task.submit")
 				})
 				req.GrantID = optional(grant)
 				req.Action = defaultAction(req.Action)

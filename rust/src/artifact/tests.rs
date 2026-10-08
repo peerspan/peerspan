@@ -98,6 +98,7 @@ impl Fixture {
             input: "summarize the attached report".into(),
             origin: None,
             artifacts: inputs,
+            delegation: None,
         }
     }
     fn input_key(&self, r: &TaskRequest, e: &ArtifactEntry) -> RowKey {
@@ -520,6 +521,9 @@ fn submitters_attach_uploads_and_fetch_results() {
         input: "review".into(),
         origin: None,
         artifacts,
+        delegation_depth: 0,
+        delegation_principals: None,
+        parent: None,
     };
     // Every entry must be a stored upload of that size.
     assert!(matches!(
@@ -755,6 +759,7 @@ fn restart_discards_partial_files_and_resumes_fetches() {
             input: "x".into(),
             origin: None,
             artifacts: Some(vec![input.clone()]),
+            delegation: None,
         };
         f_store.accept_task(&peer, r.clone()).unwrap();
         // A crash mid-download leaves a partial file and an unrecorded one.
@@ -787,7 +792,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     rusqlite::Connection::open(path.join("host.db"))
         .unwrap()
         .execute_batch(
-            "DROP TABLE task_artifacts; DROP TABLE artifact_files; PRAGMA user_version = 9;",
+            "DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; PRAGMA user_version = 9;",
         )
         .unwrap();
     let store = Store::open(&path).unwrap();
@@ -795,7 +800,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     let tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('artifact_files', 'task_artifacts')",
@@ -887,6 +892,9 @@ async fn receivers_fetch_inputs_over_quic_and_reject_corruption() {
             input: "process these".into(),
             origin: None,
             artifacts: Some(vec![large.clone(), small.clone()]),
+            delegation_depth: 0,
+            delegation_principals: None,
+            parent: None,
         })
         .unwrap();
     receiver

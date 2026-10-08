@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -73,6 +74,9 @@ type TaskRequest struct {
 	Origin        *Origin         `json:"origin,omitempty"`
 	// Artifacts is the input manifest, absent without inputs.
 	Artifacts []ArtifactEntry `json:"artifacts,omitempty"`
+	// Delegation is the chain of links from the originator, absent for a
+	// task that cannot be passed on.
+	Delegation []membership.Link `json:"delegation,omitempty"`
 }
 
 // asMessage is the request as authorization sees it: its input bounded like
@@ -86,7 +90,7 @@ func (r TaskRequest) asMessage() MessageRequest {
 func (r TaskRequest) same(o TaskRequest) bool {
 	a, b := r.asMessage(), o.asMessage()
 	a.RequestID, b.RequestID = r.TaskID, o.TaskID
-	return a.same(b) && sameManifest(r.Artifacts, o.Artifacts)
+	return a.same(b) && sameManifest(r.Artifacts, o.Artifacts) && sameChain(r.Delegation, o.Delegation)
 }
 
 // TaskStatus is the status record a receiver keeps and serves to the submitter.
@@ -134,6 +138,11 @@ type TaskHandoff struct {
 	Status         TaskStatus   `json:"status"`
 	SenderPersonID *string      `json:"sender_person_id"`
 	SenderPerson   *string      `json:"sender_person"`
+	// OriginatorPersonID is the person bound to the chain's originator host,
+	// or null; null without a chain.
+	OriginatorPersonID *string `json:"originator_person_id"`
+	// Delegable reports whether the receiving agent may pass the task on.
+	Delegable bool `json:"delegable"`
 }
 
 // TaskCancelHandoff is a claimed cancellation request.
@@ -164,6 +173,9 @@ func validateTask(r TaskRequest) error {
 	if r.Artifacts != nil && !validManifest(r.Artifacts) {
 		return fmt.Errorf("%w: invalid artifact manifest", ErrInvalid)
 	}
+	if !validChain(r.Delegation) {
+		return fmt.Errorf("%w: invalid delegation chain", ErrInvalid)
+	}
 	m := r.asMessage()
 	m.RequestID = "request_00000000000000000000000000000000"
 	return validateMessage(m)
@@ -176,15 +188,18 @@ func readTaskStatus(ctx context.Context, q dbQuerier, sender, id string) (TaskSt
 }
 
 // writeTaskStatus stores the status record, keeping the internal
-// max_artifact_bytes key that acceptance adds.
+// max_artifact_bytes and delegable keys that acceptance adds.
 func writeTaskStatus(ctx context.Context, tx *sql.Tx, st TaskStatus) error {
 	data, err := json.Marshal(st)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE received_tasks SET record = CASE WHEN json_type(record, '$.max_artifact_bytes') IS NULL THEN ?1 ELSE json_set(?1, '$.max_artifact_bytes', json_extract(record, '$.max_artifact_bytes')) END WHERE sender = ?2 AND task_id = ?3`, string(data), st.SenderHostID, st.TaskID)
+	_, err = tx.ExecContext(ctx, `UPDATE received_tasks SET record = CASE WHEN json_type(record, '$.delegable') IS NULL THEN `+keepBound+` ELSE json_set(`+keepBound+`, '$.delegable', json(record -> '$.delegable')) END WHERE sender = ?2 AND task_id = ?3`, string(data), st.SenderHostID, st.TaskID)
 	return err
 }
+
+// keepBound is the new record ?1 with the stored max_artifact_bytes, if any.
+const keepBound = `(CASE WHEN json_type(record, '$.max_artifact_bytes') IS NULL THEN ?1 ELSE json_set(?1, '$.max_artifact_bytes', json_extract(record, '$.max_artifact_bytes')) END)`
 
 // taskArtifactBound is the artifact bound stored when the task was accepted.
 func taskArtifactBound(ctx context.Context, tx *sql.Tx, sender, id string) (int64, error) {
@@ -282,10 +297,10 @@ func (s *Store) AcceptTask(ctx context.Context, sender string, r TaskRequest) (T
 		return TaskStatus{}, err
 	}
 	defer tx.Rollback()
-	if _, err = s.actionAuthority(ctx, tx, sender, membership.PolicyActionTask, r.asMessage(), true); err != nil {
+	now := time.Now()
+	if _, _, err = s.taskAuthority(ctx, tx, sender, r, now); err != nil {
 		return TaskStatus{}, err
 	}
-	now := time.Now()
 	if err = expireTasks(ctx, tx, now); err != nil {
 		return TaskStatus{}, err
 	}
@@ -402,13 +417,22 @@ func (s *Store) RequestTaskCancel(ctx context.Context, sender, id string) (TaskS
 	if err != nil {
 		return st, err
 	}
+	var children []string
 	if !taskFinal(st.State) && !st.CancelRequested {
 		st.CancelRequested = true
 		if err = appendTaskEvent(ctx, tx, &st, "cancel_requested", st.State, nil, nil, "task.cancel_requested", now); err != nil {
 			return st, err
 		}
+		// Every task passed on from this one is asked to stop too.
+		if children, err = cancelChildren(ctx, tx, sender, id); err != nil {
+			return st, err
+		}
 	}
-	return st, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return st, err
+	}
+	s.pollNow(children)
+	return st, nil
 }
 
 // NextTask claims the oldest queued task for this session's agent after
@@ -461,7 +485,7 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 	}
 	var result *TaskHandoff
 	for _, p := range items {
-		final, _, err := s.taskHandoffAuthority(ctx, tx, p.sender, p.request)
+		final, check, err := s.taskHandoffAuthority(ctx, tx, p.sender, p.request)
 		if err != nil {
 			return nil, err
 		}
@@ -487,37 +511,56 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 		if result.SenderPersonID, result.SenderPerson, err = senderPerson(ctx, tx, p.sender); err != nil {
 			return nil, err
 		}
+		if check.chain != nil {
+			result.OriginatorPersonID = check.chain.originatorPerson
+		}
+		result.Delegable = check.delegable
 		break
 	}
 	return result, tx.Commit()
 }
 
-// taskHandoffAuthority rechecks a queued task's authorization. It returns
-// nil when only a recoverable check fails, a pointer to true when the task is
-// authorized, and to false when authorization has lapsed for good. An
-// authorized task also returns its artifact bound.
-func (s *Store) taskHandoffAuthority(ctx context.Context, tx *sql.Tx, sender string, r TaskRequest) (*bool, int64, error) {
+// handoffCheck is what an authorized handoff or acceptance learned: the
+// artifact bound, the verified chain, and whether the task may be passed on.
+type handoffCheck struct {
+	bound     int64
+	chain     *chainFacts
+	delegable bool
+}
+
+// taskHandoffAuthority rechecks a queued task's chain and authorization. It
+// returns nil when only a recoverable check fails, a pointer to true when the
+// task is authorized, and to false when authorization has lapsed for good.
+func (s *Store) taskHandoffAuthority(ctx context.Context, tx *sql.Tx, sender string, r TaskRequest) (*bool, handoffCheck, error) {
 	allowed, lapsed := true, false
-	g, err := s.actionBounds(ctx, tx, sender, membership.PolicyActionTask, r.asMessage(), true)
-	if errors.Is(err, ErrUnavailable) {
-		return nil, 0, nil
-	}
+	chain, err := s.verifyChain(ctx, tx, sender, r, time.Now())
 	if errors.Is(err, ErrForbidden) {
-		return &lapsed, 0, nil
+		return &lapsed, handoffCheck{}, nil
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, handoffCheck{}, err
 	}
-	usable, recoverable, err := s.grantConnected(ctx, tx, sender, g)
+	requester, m := chain.requester(sender, r)
+	g, err := s.actionBounds(ctx, tx, requester, membership.PolicyActionTask, m, true)
+	if errors.Is(err, ErrUnavailable) {
+		return nil, handoffCheck{}, nil
+	}
+	if errors.Is(err, ErrForbidden) {
+		return &lapsed, handoffCheck{}, nil
+	}
+	if err != nil {
+		return nil, handoffCheck{}, err
+	}
+	usable, recoverable, err := s.grantConnected(ctx, tx, requester, g)
 	switch {
 	case err != nil:
-		return nil, 0, err
+		return nil, handoffCheck{}, err
 	case usable:
-		return &allowed, g.maxArtifactBytes, nil
+		return &allowed, handoffCheck{bound: g.maxArtifactBytes, chain: chain, delegable: chain.delegable(g)}, nil
 	case recoverable:
-		return nil, 0, nil
+		return nil, handoffCheck{}, nil
 	}
-	return &lapsed, 0, nil
+	return &lapsed, handoffCheck{}, nil
 }
 
 // ownedTask resolves a task ID to this credential's delivery of it. A task
@@ -597,7 +640,7 @@ func (s *Store) ChangeTask(ctx context.Context, auth AdapterAuth, id string, c T
 		if st.State != TaskQueued {
 			return st, ErrConflict
 		}
-		final, bound, err := s.taskHandoffAuthority(ctx, tx, d.SenderHostID, r)
+		final, check, err := s.taskHandoffAuthority(ctx, tx, d.SenderHostID, r)
 		if err != nil {
 			return st, err
 		}
@@ -617,8 +660,9 @@ func (s *Store) ChangeTask(ctx context.Context, auth AdapterAuth, id string, c T
 		if err = appendTaskEvent(ctx, tx, &st, "accepted", TaskRunning, nil, nil, "task.accepted", now); err != nil {
 			return st, err
 		}
-		// The bound checked now limits the results; later revocation does not.
-		_, err = tx.ExecContext(ctx, `UPDATE received_tasks SET record = json_set(record, '$.max_artifact_bytes', ?) WHERE sender = ? AND task_id = ?`, bound, d.SenderHostID, d.TaskID)
+		// The bound checked now limits the results, and whether the task may
+		// be passed on is settled; later revocation changes neither.
+		_, err = tx.ExecContext(ctx, `UPDATE received_tasks SET record = json_set(record, '$.max_artifact_bytes', ?, '$.delegable', json(?)) WHERE sender = ? AND task_id = ?`, check.bound, strconv.FormatBool(check.delegable), d.SenderHostID, d.TaskID)
 	case "reject":
 		if st.State == TaskRejected && last.Kind == "rejected" && last.Message != nil && *last.Message == c.Reason {
 			return unchanged()

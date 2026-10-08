@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -121,5 +122,32 @@ func TestArtifactCommands(t *testing.T) {
 		if err != nil || method+" "+path != want {
 			t.Errorf("%s: %s %s %v", args, method, path, err)
 		}
+	}
+}
+
+func TestDelegationCommands(t *testing.T) {
+	submit := []string{"task", "submit", "--peer", "host_x", "--agent", "agent_y", "--input", "work", "--from-agent", "agent_z"}
+	body, err := requestBody(t, append(submit, "--delegation-depth", "2", "--delegate-to", "network", "--delegate-to", "host:host_w")...)
+	if err != nil || body["delegation_depth"] != float64(2) || fmt.Sprint(body["delegation_principals"]) != "[network host:host_w]" || body["parent"] != nil {
+		t.Fatalf("task submit --delegation-depth: %v %v", body, err)
+	}
+	if body, err = requestBody(t, submit...); err != nil || body["delegation_depth"] != nil || body["delegation_principals"] != nil {
+		t.Fatalf("default delegation is sent: %v %v", body, err)
+	}
+	body, err = requestBody(t, append(submit, "--parent-sender", "host_p", "--parent-task", "task_q")...)
+	parent, _ := body["parent"].(map[string]any)
+	if err != nil || parent["sender_host_id"] != "host_p" || parent["task_id"] != "task_q" {
+		t.Fatalf("task submit --parent-sender: %v %v", body, err)
+	}
+	if _, _, _, err = request(append(submit, "--parent-task", "task_q"), io.Discard); err == nil {
+		t.Fatal("--parent-task without --parent-sender accepted")
+	}
+	route := []string{"adapter", "route", "add", "--adapter", "a", "--name", "n", "--peer", "host_x", "--agent", "agent_y", "--action", "task.submit", "--expires-at", "2099-01-01T00:00:00Z"}
+	if body, err = requestBody(t, append(route, "--delegation-depth", "1")...); err != nil || body["delegation_depth"] != float64(1) {
+		t.Fatalf("route --delegation-depth: %v %v", body, err)
+	}
+	grant := []string{"grant", "create", "--peer", "host_x", "--agent", "agent_y", "--expires-at", "2099-01-01T00:00:00Z", "--action", "task.delegate"}
+	if body, err = requestBody(t, grant...); err != nil || body["action"] != "task.delegate" {
+		t.Fatalf("grant --action task.delegate: %v %v", body, err)
 	}
 }

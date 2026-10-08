@@ -322,7 +322,7 @@ pub(crate) fn grant_bounds(
     let at = Utc::now();
     if g.requester_host_id != sender
         || g.target_agent_id != r.target_agent_id
-        || g.action != r.action
+        || !crate::policy::allows(&g.action, r.action)
         || g.revoked_at.is_some()
         || expiration <= at
         || deadline > expiration
@@ -343,6 +343,8 @@ pub(crate) struct Bounds {
     pub max_message_bytes: i64,
     pub max_artifact_bytes: i64,
     pub allow_disconnected: bool,
+    /// Whether the authorization includes `task.delegate`.
+    pub delegate: bool,
 }
 /// Whether a grant's connected-state requirement is met.
 pub(crate) enum Connectivity {
@@ -375,6 +377,7 @@ impl Store {
                     max_message_bytes: g.max_message_bytes,
                     max_artifact_bytes: g.max_artifact_bytes,
                     allow_disconnected: g.allow_disconnected,
+                    delegate: g.action == crate::policy::DELEGATE_ACTION,
                 })
             }
         }
@@ -490,10 +493,13 @@ impl Store {
         }
         if !crate::policy::ACTIONS.contains(&g.action.as_str()) {
             return Err(Error::Invalid(
-                "action must be message.append or task.submit".into(),
+                "action must be message.append, task.submit, or task.delegate".into(),
             ));
         }
-        crate::artifact::check_bound(g.max_artifact_bytes, g.action == crate::policy::TASK_ACTION)?;
+        crate::artifact::check_bound(
+            g.max_artifact_bytes,
+            crate::policy::task_actions(std::iter::once(g.action.as_str())),
+        )?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         if !self.known_host(&tx, &g.requester_host_id)? {

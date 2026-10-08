@@ -49,6 +49,8 @@ type authority struct {
 	allowDisconnected bool
 	// maxArtifactBytes bounds a task's input and result artifacts together.
 	maxArtifactBytes int64
+	// delegate is true when the grant or a matching rule has task.delegate.
+	delegate bool
 }
 
 // artifactsAllowed reports whether a bound admits a request's input
@@ -296,7 +298,7 @@ func (s *Store) actionBounds(ctx context.Context, tx *sql.Tx, sender, action str
 		return s.policyBounds(ctx, tx, sender, action, r, requireDeadline)
 	}
 	g, err := grantBounds(ctx, tx, sender, action, r, requireDeadline)
-	return authority{g.MaxMessageBytes, g.AllowDisconnected, g.MaxArtifactBytes}, err
+	return authority{g.MaxMessageBytes, g.AllowDisconnected, g.MaxArtifactBytes, g.Action == membership.PolicyActionDelegate}, err
 }
 
 // policyBounds authorizes a message under the cited owner's newest verified
@@ -355,7 +357,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 			return authority{}, err
 		}
 		for _, rule := range p.Rules {
-			if rule.Agent != agent || !hasAction(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !artifactsAllowed(r, rule.MaxArtifactBytes) || !g.principalMatches(rule, member, r.Origin) {
+			if rule.Agent != agent || !ruleAllows(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !artifactsAllowed(r, rule.MaxArtifactBytes) || !g.principalMatches(rule, member, r.Origin) {
 				continue
 			}
 			if allowed == nil {
@@ -364,6 +366,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 			allowed.maxMessageBytes = max(allowed.maxMessageBytes, rule.MaxMessageBytes)
 			allowed.allowDisconnected = allowed.allowDisconnected || rule.AllowDisconnected
 			allowed.maxArtifactBytes = max(allowed.maxArtifactBytes, rule.MaxArtifactBytes)
+			allowed.delegate = allowed.delegate || hasAction(rule, membership.PolicyActionDelegate)
 		}
 	}
 	switch {
@@ -373,6 +376,17 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 		return authority{}, fmt.Errorf("%w: this host has not yet verified the cited policy version", ErrUnavailable)
 	}
 	return authority{}, ErrForbidden
+}
+
+// ruleAllows reports whether a rule permits an action; task.delegate implies
+// task.submit.
+func ruleAllows(rule membership.PolicyRule, want string) bool {
+	for _, action := range rule.Actions {
+		if actionGranted(action, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasAction(rule membership.PolicyRule, want string) bool {

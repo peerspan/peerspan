@@ -28,7 +28,7 @@ func taskPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 			return
 		}
 		var request TaskRequest
-		if !decode(w, r, &request, "task_id", "grant_id", "policy", "target_agent_id", "deadline", "input", "origin", "artifacts") {
+		if !decode(w, r, &request, "task_id", "grant_id", "policy", "target_agent_id", "deadline", "input", "origin", "artifacts", "delegation") {
 			return
 		}
 		st, err := store.AcceptTask(r.Context(), id, request)
@@ -72,7 +72,7 @@ func taskPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 func localTaskRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/tasks", func(w http.ResponseWriter, r *http.Request) {
 		var request SubmitTask
-		if !decode(w, r, &request, "peer_host_id", "task_id", "grant_id?", "target_agent_id", "deadline", "input", "origin", "artifacts") {
+		if !decode(w, r, &request, "peer_host_id", "task_id", "grant_id?", "target_agent_id", "deadline", "input", "origin", "artifacts", "delegation_depth", "delegation_principals", "parent") {
 			return
 		}
 		out, err := store.PrepareOutboundTask(r.Context(), request)
@@ -164,7 +164,7 @@ func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Reques
 	}
 	mux.HandleFunc("POST /adapter/v1/delegations", func(w http.ResponseWriter, r *http.Request) {
 		var req AdapterDelegate
-		if !decode(w, r, &req, "destination", "task_id", "input", "artifacts") {
+		if !decode(w, r, &req, "destination", "task_id", "input", "artifacts", "parent_task_id") {
 			return
 		}
 		out, err := store.PrepareAdapterTask(r.Context(), token(r), req)

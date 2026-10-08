@@ -56,9 +56,10 @@ type CreateGrant struct {
 	MaxMessageBytes   int64   `json:"max_message_bytes"`
 	AllowDisconnected bool    `json:"allow_disconnected"`
 	RequesterAgentID  *string `json:"requester_agent_id,omitempty"`
-	// Action is message.append (the default when empty) or task.submit.
+	// Action is message.append (the default when empty), task.submit, or
+	// task.delegate.
 	Action string `json:"action,omitempty"`
-	// MaxArtifactBytes, when nonzero, needs the action task.submit.
+	// MaxArtifactBytes, when nonzero, needs a task action.
 	MaxArtifactBytes int64 `json:"max_artifact_bytes,omitempty"`
 }
 
@@ -291,8 +292,8 @@ func (s *Store) CreateGrant(ctx context.Context, r CreateGrant) (Grant, error) {
 	if err != nil || !membership.ValidPolicyAction(r.Action) || !expires.After(time.Now()) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || (r.RequesterAgentID != nil && !validID(*r.RequesterAgentID, "agent", 16)) {
 		return Grant{}, ErrInvalid
 	}
-	if r.MaxArtifactBytes < 0 || r.MaxArtifactBytes > membership.PolicyMaxArtifactBytes || (r.MaxArtifactBytes != 0 && r.Action != membership.PolicyActionTask) {
-		return Grant{}, fmt.Errorf("%w: max_artifact_bytes must be 0 to %d, and nonzero only for %s", ErrInvalid, membership.PolicyMaxArtifactBytes, membership.PolicyActionTask)
+	if r.MaxArtifactBytes < 0 || r.MaxArtifactBytes > membership.PolicyMaxArtifactBytes || (r.MaxArtifactBytes != 0 && !membership.TaskAction(r.Action)) {
+		return Grant{}, fmt.Errorf("%w: max_artifact_bytes must be 0 to %d, and nonzero only for %s or %s", ErrInvalid, membership.PolicyMaxArtifactBytes, membership.PolicyActionTask, membership.PolicyActionDelegate)
 	}
 	id, err := newID("grant")
 	if err != nil {
@@ -378,6 +379,12 @@ func (s *Store) actionAuthority(ctx context.Context, tx *sql.Tx, sender, action 
 	return g, err
 }
 
+// actionGranted reports whether a grant's or rule's action permits a request
+// for want: task.delegate implies task.submit.
+func actionGranted(have, want string) bool {
+	return have == want || (want == membership.PolicyActionTask && have == membership.PolicyActionDelegate)
+}
+
 // grantBounds checks everything except coordination connectivity. Its denials
 // are final: revocation, expiry, a passed deadline, and size never recover.
 func grantBounds(ctx context.Context, tx *sql.Tx, sender, action string, r MessageRequest, requireDeadline bool) (Grant, error) {
@@ -397,7 +404,7 @@ func grantBounds(ctx context.Context, tx *sql.Tx, sender, action string, r Messa
 		return g, err
 	}
 	now := time.Now()
-	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || g.Action != action || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || !artifactsAllowed(r, g.MaxArtifactBytes) || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
+	if g.RequesterHostID != sender || g.TargetAgentID != r.TargetAgentID || !actionGranted(g.Action, action) || g.RevokedAt != nil || !expires.After(now) || deadline.After(expires) || (requireDeadline && !deadline.After(now)) || int64(len(r.Content)) > g.MaxMessageBytes || !artifactsAllowed(r, g.MaxArtifactBytes) || (g.RequesterAgentID != nil && (r.Origin == nil || r.Origin.AgentID != *g.RequesterAgentID)) {
 		return g, ErrForbidden
 	}
 	return g, nil

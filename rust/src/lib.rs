@@ -5,6 +5,7 @@ pub mod adapter_setup;
 pub mod admins;
 pub mod api;
 pub mod artifact;
+pub mod chain;
 pub mod disco;
 pub mod membership;
 pub mod model;
