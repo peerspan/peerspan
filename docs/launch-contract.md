@@ -132,3 +132,129 @@ Within one kind, items are sorted by subject. `detail` is free text. `policy_exp
   - `tasks_failed`;
   - `artifact_quota`, with a small `--artifact-quota`.
 - **Exit codes:** 0, 1, and 2.
+
+## Slice 2: service and coordinator
+
+Decided with the owner on 2026-10-08:
+- builds take the hosted coordinator from build-time variables until the hosted instance exists;
+- `install` always enables systemd lingering on Linux;
+- the installed daemon listens for peers on UDP port 7401 on all interfaces by default.
+
+### Install
+
+`capsule install [--state DIR] [--peer-listen IP:PORT] [--no-start]` installs the daemon as a user service and, unless `--no-start` is given, starts it and waits up to 10 seconds for the admin socket. It prints `{service, unit, state, peer_listen, linger, started}`.
+
+- **Linux.** It writes `$XDG_CONFIG_HOME/systemd/user/capsule.service` (default `~/.config/systemd/user`), with:
+  - `ExecStart=` the binary's resolved real path, `--state`, `run`, and `--peer-listen`;
+  - `Restart=on-failure` and `WantedBy=default.target`;
+  - `Environment=SSH_AUTH_SOCK=` the installing shell's value, when set.
+
+  It then runs `systemctl --user daemon-reload`, then `systemctl --user enable --now capsule.service`, or `enable` alone with `--no-start`. Last, it runs `loginctl enable-linger` for the current user. A failed `loginctl` is not an error: `linger` is reported as `false`.
+- **macOS.** It writes `~/Library/LaunchAgents/dev.capsule.host.plist` with the same program arguments, `RunAtLoad`, and `KeepAlive`, then runs `launchctl bootstrap gui/UID` on it. `linger` is always `null`.
+- **Elsewhere,** or without `systemctl` or `launchctl` on `PATH`, it fails with `no supported service manager` and changes nothing.
+
+**Defaults:**
+- `--state` is the CLI's usual default.
+- `--peer-listen` is the address in an existing unit. Otherwise it is `0.0.0.0:7401`, or the first port from 7401 to 7499 that binds on UDP. If none binds, the install fails.
+
+**Behavior:**
+- Install is idempotent. With an identical unit it only ensures the service is enabled and running. With a changed unit it rewrites the unit and restarts the service.
+- It fails without changes when a daemon is already running on that state directory outside the service.
+- The CLI runs service tools found on `PATH`. Tests substitute recording stubs.
+
+`capsule uninstall` stops and disables the service:
+- **Linux:** `systemctl --user disable --now capsule.service`;
+- **macOS:** `launchctl bootout gui/UID/dev.capsule.host`.
+
+It then removes the unit and prints `{service, unit, removed}`. It keeps the state directory and lingering. Uninstalling with nothing installed succeeds with `removed: false`.
+
+### Status additions
+
+- **`service`.** The CLI adds `service` to `capsule status --json`: `{manager, unit, installed, active, linger}`.
+  - `manager` is `systemd`, `launchd`, or null.
+  - `active` comes from `systemctl --user is-active` or `launchctl print`.
+  - `linger` comes from `loginctl show-user --property=Linger`, and is null on macOS.
+  - It is present even when the daemon is not running.
+- **New attention items.** These follow the existing seven:
+  8. `service_not_installed`: no unit, while the daemon runs outside a service. Added by the CLI; subject `service`; command `capsule install`.
+  9. `linger_disabled`: Linux, unit installed, `linger` false. Added by the CLI; subject `service`; command `loginctl enable-linger`.
+  10. `person_agent_unreachable`: this host is bound to a person who has a stored policy, and the daemon's `--person-agent` socket is unset, cannot be connected, or does not hold that person's key. Added by the daemon; subject: the network ID; command `capsule install`, which refreshes `SSH_AUTH_SOCK`.
+  11. `coordinator_limit`: the network's coordinator reports a limit reached (below). Added by the daemon; subject `NETWORK/LIMIT`; command none (empty string).
+
+### Hosted coordinator default
+
+`network create` without `--coordinator` and `--coordinator-key` uses the build's default coordinator. Builds set it at compile time:
+- **Go:** `-ldflags "-X …/internal/host.DefaultCoordinator=HOST:PORT -X …/internal/host.DefaultCoordinatorKey=KEY"`;
+- **Rust:** the `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` environment variables at build time;
+- **Release script:** `scripts/package-release.sh` passes the same two variables to either build.
+
+A build without both values fails `network create` without the flags, with `this build has no default coordinator; pass --coordinator and --coordinator-key`. Giving only one of the two flags is a 400. `info` gains `default_coordinator`: `{address, public_key}`, or null.
+
+### Coordinator limits
+
+`capsule-coord run` gains three flags; 0 disables a limit.
+
+| Flag | Default | Limit |
+| --- | --- | --- |
+| `--max-members N` | 50 | current, unrevoked member hosts per network |
+| `--max-networks-per-ip N` | 20 | network registrations per source address in any 24 hours |
+| `--relay-bytes-per-month BYTES` | 10,000,000,000 | relayed datagram bytes per network per UTC calendar month |
+
+**Over a limit**, a request returns 429 with `{code: "limit", error, limit}`, where `limit` is `members`, `networks_per_ip`, or `relay_bytes`.
+
+**Members.** A join (`POST …/members`) of a new host to a network already at `--max-members` returns 429. Retrying a join that already succeeded still returns 200. Admissions and persons are not counted.
+
+**Registrations.**
+- `POST /coord/v1/networks` counts only new networks. The idempotent 200 for a network that already exists is not counted.
+- The source address is the TCP peer address: IPv4 in full, IPv6 by its /64.
+- Counts persist across restarts.
+
+**Relay bytes.**
+- Each forwarded send frame's datagram length is charged to the lowest-ID network the two hosts share, the same network hosts use to choose the relay.
+- Once that network's monthly total reaches the limit, the coordinator drops its frames and answers the sender with `unreachable`, at most once per second per destination.
+- Counters persist at least every 60 seconds and on orderly shutdown, so a crash may undercount by up to a minute of traffic.
+
+**Usage.** `GET /coord/v1/networks/{network_id}/usage` is for members only, and returns 403 otherwise. It returns `{members, max_members, relay_bytes, max_relay_bytes, month}`, with `month` as `YYYY-MM` and 0 for a disabled limit.
+
+**Host side.**
+- After each successful sync, hosts fetch usage. They treat 404 as an older coordinator without limits.
+- A host reports `coordinator_limit` for `members` when `members` ≥ `max_members`, and for `relay_bytes` when `relay_bytes` ≥ `max_relay_bytes`, for nonzero maxima.
+- A 429 from create, join, or sync is reported as `last_sync_error` with the limit's name, and as `coordinator_limit`.
+
+**Coordinator schema.** Version 5 adds:
+
+```sql
+CREATE TABLE registrations (source TEXT NOT NULL, network_id TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE relay_usage (network_id TEXT NOT NULL, month TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(network_id, month));
+PRAGMA user_version = 5;
+```
+
+### Verification
+
+`conformance/launch_service.py` is written from this contract by an author independent of both implementations. It runs across all Go/Rust CLI and daemon pairings with the Go coordinator. Service tools are recording stubs on `PATH` with `HOME` and `XDG_CONFIG_HOME` redirected; a real `systemd --user` run is attempted only when available. It covers:
+- **Install on Linux:**
+  - unit contents;
+  - the tool calls in order;
+  - the default port, and the next free port when 7401 is taken;
+  - `--peer-listen` kept from an existing unit;
+  - idempotence, and a changed unit restarting;
+  - a failing `loginctl` reported as `linger: false`;
+  - refusal while a foreground daemon runs;
+  - `no supported service manager`.
+- **Install on macOS,** with the plist and the `launchctl` calls, selected by stubbing `launchctl` without `systemctl`.
+- **Uninstall,** with and without a unit.
+- **`status`:** `service`, and attention items 8 to 11.
+- **Default coordinator:**
+  - a build with and without default values;
+  - one flag only;
+  - `info.default_coordinator`.
+
+  The suite builds Go and Rust test binaries with the variables set, using a coordinator it starts.
+- **Limits:**
+  - the member cap, including the idempotent rejoin;
+  - the registration cap per source and across a coordinator restart;
+  - the relay cap: a network over a small `--relay-bytes-per-month`, its frames dropped, `unreachable` sent, and the usage endpoint;
+  - the 429 body;
+  - each limit disabled with 0;
+  - migration from version 4 to 5;
+  - a host's `coordinator_limit` and `last_sync_error`.
