@@ -10,6 +10,15 @@ The administration API is owner-local over a private Unix socket. The opt-in pee
 
 Maintain behavior parity without mechanically translating module structure between languages. Implement working slices rather than empty packages. Record shared external behavior in `docs/host-service-contract.md`; record broader product decisions in the system design.
 
+## Tests
+
+Tests come from the specification, not from an implementation. Agent-written tests that restate an implementation add cost without catching errors.
+
+- **No new unit tests by default.** Implementers do not add unit or integration tests unless the contract or the owner asks for a specific one. Existing tests stay, and implementers keep running them.
+- **Conformance cases come from the contract.** Each contract's Verification section lists the cases, settled with the owner along with the rest of the spec. Write concrete cases there when intent is subtle.
+- **A separate author writes each new suite.** The suite's author works from the contract alone, never from either implementation, and is neither implementer. Ambiguities go back to the contract, not into one implementation's choices.
+- **End-to-end checks stay.** Live runs and installed-bundle checks are separate from this rule.
+
 From the repository root, run the appropriate language checks:
 
 - Go: `go -C go test -race ./internal/... ./cmd/...` and `go -C go vet ./internal/... ./cmd/...`. This covers the host daemon, the `capsule-coord` coordinator, the `capsule-peer-probe` test client, and their shared `membership` and `tlsid` packages.
