@@ -268,3 +268,127 @@ PRAGMA user_version = 5;
   - each limit disabled with 0;
   - migration from version 4 to 5;
   - a host's `coordinator_limit` and `last_sync_error`.
+
+## Slice 3: team onboarding
+
+Decided with the owner on 2026-10-09:
+- `network create` and `join` fail without a usable person key unless given `--no-person`;
+- `allow` sets a principal's access for an agent scope, rather than adding to it;
+- self access works while out of sync with coordination;
+- `deny` without `--agent` removes the principal from every rule.
+
+### Commands
+
+| Command | Behavior |
+| --- | --- |
+| `network create NAME [--as LABEL]` | `NAME` may be given positionally; `--name` still works, and giving both is an error. `--as` is the person and member label; it defaults to the login name, and `--member` remains as an alias. A person key is required (below). Otherwise this is today's create, including admitting and binding the creator. |
+| `invite LABEL [--expires-in D \| --expires-at T] [--network ID]` | Issues a member invite, like `network invite --member LABEL` with the slice 1 default of 7 days. Prints `{network_id, member, invite_expires_at, token, join}`, where `join` is the string `capsule join TOKEN`. |
+| `join TOKEN` | Same as `network join --token TOKEN`, with a person key required. A person already admitted with this key (for example, on a second machine) is bound without a new admission, as today. |
+| `allow PRINCIPAL [--agent NAME] [--no-tasks] [--files SIZE] [--delegate] [--network ID]` | Sets PRINCIPAL's access (below) and signs the next policy version. |
+| `deny PRINCIPAL [--agent NAME] [--network ID]` | Removes PRINCIPAL (below) and signs the next policy version. |
+| `block TARGET` / `unblock TARGET` | `TARGET` is a host ID (`host_…`), or else a person ID or label. Otherwise the same as `access block`/`unblock`. |
+
+**Root help** now lists, in order:
+1. `status` and `install`;
+2. `run`;
+3. `network create`, `join`, and `invite`;
+4. `allow`, `deny`, `block`, and `unblock`;
+5. `network list` and `network members`;
+6. `access show`;
+7. `session setup`, `start`, and `doctor`;
+8. `message send` and `task submit`.
+
+`network join`, `network invite`, `access allow`, and `access deny` move to `help advanced`, unchanged.
+
+**Person keys.** `network create`, `network join`, and `join` require a person key. They use `--person-key` if given, otherwise the only `ssh-ed25519` identity in `ssh-agent`. With no agent, no such key, or several, they fail before any request. The error says to run `ssh-add` or pass `--person-key`, or to use `--no-person` for a host-only membership. `--no-person` keeps today's host-only behavior. The member invite's person part and the rest of the one-command flows are unchanged.
+
+### Principals and sizes
+
+`PRINCIPAL` in `allow`, `deny`, and `block` is one of:
+- `everyone`, meaning the `network` principal;
+- `network`;
+- `group:NAME`;
+- `person:PERSON`, or a bare `PERSON`, where PERSON is a person ID or label, resolved as `access allow` does today;
+- `agent:HOST/AGENT`, unchanged.
+
+A label matching no current person, or more than one, is an error.
+
+`SIZE` is a byte count with an optional suffix: `K`, `M`, or `G`, meaning powers of 1024. It must be from 1 to 1,073,741,824 bytes.
+
+### Policy rules
+
+**The `*` agent.**
+- A rule's agent may be `*`, meaning every agent of the owner on any of their hosts.
+- For an agent named N, a receiver applies the rules naming N if there are any, and otherwise the `*` rules.
+- `*` is reserved: `agent register` refuses it with 400.
+- Older binaries read `*` as an ordinary name that matches no agent, so they apply less access, never more.
+
+**Several rules per agent.** A policy may hold several rules with the same agent name. A request is authorized if any applicable rule allows it, as both implementations already evaluate. The limit is still 64 rules.
+
+**`allow`.**
+- The rule's **settings** are:
+  - actions: `message.append`, then `task.submit` unless `--no-tasks` is given, and `task.delegate` with `--delegate` (which requires tasks);
+  - `max_message_bytes` 65,536;
+  - `max_artifact_bytes` from `--files`, default 0 (`--files` also requires tasks);
+  - `allow_disconnected` false.
+- The **scope** is `--agent NAME`, default `*`.
+- **Starting from the current policy, it:**
+  1. removes PRINCIPAL from every rule of that scope;
+  2. adds it to the first remaining rule of that scope with identical settings, or else appends a new rule;
+  3. drops rules left without principals.
+- It then signs version + 1, valid for 7 days, and submits it.
+- Allowing a principal that already has exactly these settings still signs a new version.
+- It prints `{policy, principal, agent, actions, max_artifact_bytes}`.
+
+**`deny`.**
+- It removes PRINCIPAL from every rule naming the given `--agent` (with `*` naming only the `*` rules), or from every rule without `--agent`. It drops empty rules and signs the next version.
+- It prints `{policy, removed}`, where `removed` counts the rules the principal was removed from.
+- When `removed` is 0, it also prints `note`. The note explains that access through a group or `everyone` is unaffected, and that `block` stops a person at once. It still exits 0 and signs no new version.
+
+`access allow` and `access deny` behave as before for agents with at most one rule. When an agent has several rules, `access allow --agent N` replaces them all with one rule.
+
+### Self access
+
+**Rule.** A host bound to person P authorizes a request to one of its own agents when both hold in a network they share:
+- the receiver is bound to P;
+- the sender is a current, unrevoked member also bound to P.
+
+It needs no grant or policy.
+
+**Scope.** Self access allows every action, with these effective bounds:
+- `max_message_bytes` 65,536;
+- `max_artifact_bytes` 1,073,741,824;
+- `delegable` true;
+- `allow_disconnected` true.
+
+Blocks do not apply.
+
+**Rechecks.** It is checked at submission, at handoff, and at acceptance, like any authorization. Wherever a policy can authorize a chain's originator, self access can too, as described in the delegation chain contract.
+
+**Wire.** Peer message and task requests gain a third form of authorization: exactly one of `grant_id`, `policy`, or `self`, where `self` is `{person_id}`, the sender's bound person. The receiver returns 403 when either host is not bound to that person in a shared network. Older receivers reject `self` with 400.
+
+**What senders cite.** Owner sends, owner task submissions, adapter routes, and delegations without `--grant` cite `self` when the target host is bound to this host's person in a shared network. Otherwise they cite the target owner's policy, as before. A route created this way records `authorization: "self"`. Route records always show `authorization`, which is `grant`, `policy`, or `self`.
+
+### Verification
+
+`conformance/launch_onboarding.py` is written from this contract by an author independent of both implementations. It runs across all Go/Rust CLI and daemon pairings, with the Go coordinator and OpenSSH. It covers:
+- **Create:** `network create NAME` with `--as` and its default, positional and `--name` forms, and both together refused.
+- **Person keys:** refusal without a usable key (no agent, no key, two keys) leaves no network and no membership; `--no-person` gives host-only behavior.
+- **Invite and join:** `invite` output and its `join` line, used verbatim by `join`; a second machine of the same person bound without a new admission.
+- **Root help:** the new command set; the moved commands still run.
+- **`allow`:**
+  - each principal form;
+  - `SIZE` parsing and its bounds;
+  - default and flag-set settings;
+  - the set semantics: moving a principal between rules of a scope, sharing a rule with identical settings, dropping empty rules, and leaving other scopes alone;
+  - flag dependencies (`--delegate` or `--files` with `--no-tasks` refused).
+- **`deny`:** with and without `--agent`, `removed` counts, the zero-removal note and no new version, and access through a group still working afterwards.
+- **`*` rules:** authorizing a message and a task to any agent; a named rule overriding `*` for its agent in both directions; `agent register` refusing `*`.
+- **Self access:**
+  - messages, tasks, delegation, and artifacts between two hosts of one person with no policy;
+  - while the coordinator is stopped;
+  - ended by unbinding a host;
+  - refused for a host bound to a different person;
+  - blocks not applying;
+  - the `self` citation by owner CLI and adapter routes.
+- **`block`/`unblock`:** by label and by host ID.
