@@ -12,11 +12,12 @@ The CLI is one binary that answers to `capsule` and `capsule-host`. Help and dia
 
 The root help lists only these commands, in this order:
 1. `status`;
-2. `run`;
-3. `network create`, `join`, `invite`, `list`, and `members`;
-4. `access allow`, `deny`, and `show`;
-5. `session setup`, `start`, and `doctor`;
-6. `message send` and `task submit`.
+2. `install` (added in slice 2);
+3. `run`;
+4. `network create`, `join`, `invite`, `list`, and `members`;
+5. `access allow`, `deny`, and `show`;
+6. `session setup`, `start`, and `doctor`;
+7. `message send` and `task submit`.
 
 It ends with one line pointing to `help advanced`. `help advanced` (and `--help-advanced` before any command) prints the full command list as the root help does today. Every hidden command still runs, and its own `--help` still works. Help wording is not a shared contract; the set of commands listed is, and `conformance/launch_cli.py` checks it. It parses a `Commands:` header followed by one line per command: two spaces, the command path, at least two spaces, and a description. Bare invocation, `--help`, and `help` print identical root help, and root help invoked as `capsule` never mentions `capsule-host`.
 
@@ -159,22 +160,31 @@ Decided with the owner on 2026-10-08:
 
 **Behavior:**
 - Install is idempotent. With an identical unit it only ensures the service is enabled and running. With a changed unit it rewrites the unit and restarts the service.
-- It fails without changes when a daemon is already running on that state directory outside the service.
-- The CLI runs service tools found on `PATH`. Tests substitute recording stubs.
+- It fails without changes when a daemon is already running on that state directory outside the service. It checks this only when the admin socket answers, by asking the manager whether the service is active.
+- The CLI runs service tools found on `PATH`. Tests substitute recording stubs. The manager is chosen by which tool is present, `systemctl` first, then `launchctl`, rather than by OS name.
+- **Output.** In the printed object, `service` is `systemd` or `launchd`, and `unit` is the unit file's path. `started` is true only if the admin socket answered within 10 seconds. A timeout is not an error.
+- **Sequences on Linux:**
+  - With an identical unit, it runs `enable --now` (or `enable`), then `loginctl enable-linger`.
+  - With a new or changed unit, it runs `daemon-reload` and `enable --now`, then `restart` if the unit changed, then `loginctl enable-linger`.
+  - `--no-start` never starts or restarts the service.
+- **Sequences on macOS:**
+  - With a changed plist, it runs `bootout`, then `bootstrap`.
+  - `--no-start` writes the plist without calling `launchctl`.
+  - The plist carries no `SSH_AUTH_SOCK`, since launchd provides it.
 
 `capsule uninstall` stops and disables the service:
 - **Linux:** `systemctl --user disable --now capsule.service`;
 - **macOS:** `launchctl bootout gui/UID/dev.capsule.host`.
 
-It then removes the unit and prints `{service, unit, removed}`. It keeps the state directory and lingering. Uninstalling with nothing installed succeeds with `removed: false`.
+It then removes the unit and prints `{service, unit, removed}`. It keeps the state directory and lingering. Uninstalling with nothing installed succeeds with `removed: false`. A failing `launchctl bootout` is ignored, but a failing `systemctl disable` is an error. With no manager on `PATH`, uninstall fails with `no supported service manager`.
 
 ### Status additions
 
 - **`service`.** The CLI adds `service` to `capsule status --json`: `{manager, unit, installed, active, linger}`.
   - `manager` is `systemd`, `launchd`, or null.
   - `active` comes from `systemctl --user is-active` or `launchctl print`.
-  - `linger` comes from `loginctl show-user --property=Linger`, and is null on macOS.
-  - It is present even when the daemon is not running.
+  - `linger` comes from `loginctl show-user USER --property=Linger`, and is null on macOS.
+  - It is present even when the daemon is not running, in which case there are no attention items.
 - **New attention items.** These follow the existing seven:
   8. `service_not_installed`: no unit, while the daemon runs outside a service. Added by the CLI; subject `service`; command `capsule install`.
   9. `linger_disabled`: Linux, unit installed, `linger` false. Added by the CLI; subject `service`; command `loginctl enable-linger`.
@@ -210,7 +220,7 @@ A build without both values fails `network create` without the flags, with `this
 - Counts persist across restarts.
 
 **Relay bytes.**
-- Each forwarded send frame's datagram length is charged to the lowest-ID network the two hosts share, the same network hosts use to choose the relay.
+- Each forwarded send frame's datagram length (only frames actually forwarded) is charged to the lowest-ID network the two hosts share, the same network hosts use to choose the relay.
 - Once that network's monthly total reaches the limit, the coordinator drops its frames and answers the sender with `unreachable`, at most once per second per destination.
 - Counters persist at least every 60 seconds and on orderly shutdown, so a crash may undercount by up to a minute of traffic.
 
@@ -219,7 +229,7 @@ A build without both values fails `network create` without the flags, with `this
 **Host side.**
 - After each successful sync, hosts fetch usage. They treat 404 as an older coordinator without limits.
 - A host reports `coordinator_limit` for `members` when `members` ≥ `max_members`, and for `relay_bytes` when `relay_bytes` ≥ `max_relay_bytes`, for nonzero maxima.
-- A 429 from create, join, or sync is reported as `last_sync_error` with the limit's name, and as `coordinator_limit`.
+- A 429 from create, join, or sync is reported as `last_sync_error` with the limit's name, and as `coordinator_limit`. The host remembers it until the next successful sync or join. A join refused with 429 stores no network, so it has no `last_sync_error`. The local API returns 429 `{code: "limit", limit}`, and status reports `coordinator_limit` under the network ID from the token. The default coordinator is applied by the daemon, so in a mixed pairing the daemon's build decides it.
 
 **Coordinator schema.** Version 5 adds:
 
