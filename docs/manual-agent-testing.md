@@ -221,17 +221,23 @@ OpenCode needs separate API access. See [Anthropic credential guidance](https://
 
 Install the Capsule plugin once by editing OpenCode's configuration file. In
 **Tab 4**, open the global config (or edit the project/custom config you already
-use):
+use). OpenCode accepts both `opencode.json` and `opencode.jsonc` (JSON with
+comments). Edit your existing file; the command below opens `opencode.jsonc` if
+present, otherwise `opencode.json`:
 
 ```sh
 mkdir -p ~/.config/opencode
-nano ~/.config/opencode/opencode.json
+if [ -f ~/.config/opencode/opencode.jsonc ]; then
+  nano ~/.config/opencode/opencode.jsonc
+else
+  nano ~/.config/opencode/opencode.json
+fi
 ```
 
 Use your preferred text editor if Nano is unavailable. The block below is **file
 contents**, not a shell command. For a new file, paste the whole block. In an
 existing file, add the Capsule entry to its `plugin` array, preserving other
-plugins and settings; add the array if it is absent.
+plugins, settings, and comments; add the array if it is absent.
 
 `ABSOLUTE_CAPSULE` means the repository checkout path (`$CAPSULE` in Tab 4).
 `ABSOLUTE_LAB_ROOT` means the test state path (`$LAB_ROOT`). You can print both in

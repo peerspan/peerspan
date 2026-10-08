@@ -11,9 +11,11 @@ OpenCode 1.18.31+.
 npm ci --ignore-scripts --prefix integrations/opencode
 ```
 
-Open the OpenCode configuration file you already use. The default global location
-is `~/.config/opencode/opencode.json`; project configuration lives in `opencode.json`
-in the project root. See [configuration locations](https://opencode.ai/docs/config/#locations).
+Open the OpenCode configuration file you already use. Global configuration lives
+in `~/.config/opencode/opencode.json` or `opencode.jsonc`; project configuration
+lives in `opencode.json` or `opencode.jsonc` in the project root. JSONC supports
+comments. Edit the existing file, preserving its comments and settings. See
+[configuration locations](https://opencode.ai/docs/config/#locations).
 
 The JSON below belongs in that file. Add the Capsule entry to its `plugin` array,
 preserving other plugins and settings; create the array if absent. Choose a
