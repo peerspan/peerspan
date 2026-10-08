@@ -96,12 +96,14 @@ type Identity struct {
 
 // Server owns one coordinator state directory.
 type Server struct {
-	db        *sql.DB
-	lock      *os.File
-	key       ed25519.PrivateKey
-	identity  Identity
-	Now       func() time.Time
-	relay     *relayServer
+	db       *sql.DB
+	lock     *os.File
+	key      ed25519.PrivateKey
+	identity Identity
+	Now      func() time.Time
+	relay    *relayServer
+	// Limits apply to new networks, joins, and relayed bytes; set before Serve.
+	Limits    Limits
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -198,7 +200,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{Now: time.Now}
+	s := &Server{Now: time.Now, Limits: DefaultLimits}
 	s.relay = newRelayServer(s)
 	defer func() {
 		if err != nil {
@@ -229,7 +231,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 4 {
+	if version < 0 || version > 5 {
 		return nil, fmt.Errorf("unsupported coordinator database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -261,6 +263,11 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	}
 	if version < 4 {
 		if _, err = tx.ExecContext(ctx, admissionSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 5 {
+		if _, err = tx.ExecContext(ctx, limitsSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -357,6 +364,11 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	}
 	defer stunConn.Close()
 	go serveSTUN(stunConn)
+	// Relay usage is persisted periodically and once more on shutdown.
+	flushCtx, stopFlush := context.WithCancel(context.Background())
+	flushed := make(chan struct{})
+	go s.runUsageFlush(flushCtx, flushed)
+	defer func() { stopFlush(); <-flushed }()
 	httpConns := newConnListener(listener.Addr())
 	serveCtx, cancelServe := context.WithCancel(ctx)
 	defer cancelServe()
@@ -426,7 +438,7 @@ func (s *Server) Handler() http.Handler {
 		if !decode(w, r, &req, "name", "root_public_key", "membership", "address", "candidates") {
 			return
 		}
-		status, m, err := s.register(r.Context(), caller, req)
+		status, m, err := s.registerFrom(r.Context(), caller, sourceOf(r.RemoteAddr), req)
 		respond(w, status, m, err)
 	})
 	mux.HandleFunc("POST /coord/v1/networks/{network}/members", func(w http.ResponseWriter, r *http.Request) {
@@ -457,6 +469,7 @@ func (s *Server) Handler() http.Handler {
 	s.personRoutes(mux)
 	s.adminRoutes(mux)
 	s.policyRoutes(mux)
+	s.limitRoutes(mux)
 	return mux
 }
 
@@ -496,6 +509,14 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 }
 
 func respond(w http.ResponseWriter, status int, value any, err error) {
+	var limited *limitError
+	if errors.As(err, &limited) {
+		status, value, err = http.StatusTooManyRequests, struct {
+			Code  string `json:"code"`
+			Error string `json:"error"`
+			Limit string `json:"limit"`
+		}{"limit", limited.message, limited.limit}, nil
+	}
 	if err != nil {
 		code, message := "internal", "internal error"
 		status = http.StatusInternalServerError
@@ -566,6 +587,12 @@ func putCandidates(ctx context.Context, tx *sql.Tx, network, host string, candid
 }
 
 func (s *Server) register(ctx context.Context, caller string, req registerRequest) (int, *membership.Map, error) {
+	return s.registerFrom(ctx, caller, "", req)
+}
+
+// registerFrom registers a network for a caller at a source address; only new
+// networks count toward the source's registration limit.
+func (s *Server) registerFrom(ctx context.Context, caller, source string, req registerRequest) (int, *membership.Map, error) {
 	if !membership.ValidLabel(req.Name) {
 		return 0, nil, fmt.Errorf("%w: invalid network name", errInvalid)
 	}
@@ -605,6 +632,9 @@ func (s *Server) register(ctx context.Context, caller string, req registerReques
 		}
 		m, err := networkMap(ctx, tx, req.Membership.NetworkID)
 		return http.StatusOK, m, err
+	}
+	if err = s.checkRegistration(ctx, tx, source, req.Membership.NetworkID); err != nil {
+		return 0, nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO networks VALUES (?, ?, ?, ?)`, req.Membership.NetworkID, req.Name, req.RootPublicKey, membership.Timestamp(s.Now())); err != nil {
 		return 0, nil, err
@@ -667,6 +697,9 @@ func (s *Server) join(ctx context.Context, caller, network string, req joinReque
 	}
 	if exists != 0 {
 		return 0, nil, fmt.Errorf("%w: host is already a member through another invite", errConflict)
+	}
+	if err = s.checkMembers(ctx, tx, network); err != nil {
+		return 0, nil, err
 	}
 	if err = s.insertMember(ctx, tx, caller, req.Membership, req.Address, req.Candidates); err != nil {
 		return 0, nil, err

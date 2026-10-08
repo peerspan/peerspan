@@ -178,8 +178,8 @@ func TestStatusWithoutDaemon(t *testing.T) {
 	if !errors.As(err, &code) || code != 2 {
 		t.Fatalf("exit %v", err)
 	}
-	var value map[string]string
-	if err := json.Unmarshal(out.Bytes(), &value); err != nil || value["daemon"] != "not running" || value["state"] != state {
+	var value map[string]any
+	if err := json.Unmarshal(out.Bytes(), &value); err != nil || value["daemon"] != "not running" || value["state"] != state || value["service"] == nil {
 		t.Fatalf("output %s: %v", out.String(), err)
 	}
 }

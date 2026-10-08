@@ -52,6 +52,21 @@ pub enum Command {
         #[arg(long, value_name = "BYTES", default_value_t = capsule_host::artifact::DEFAULT_QUOTA, value_parser = clap::value_parser!(i64).range(1..))]
         artifact_quota: i64,
     },
+    /// Install the daemon as a user service and start it
+    Install {
+        /// Private state directory; otherwise use XDG_STATE_HOME or HOME
+        #[arg(long, value_name = "DIR")]
+        state: Option<PathBuf>,
+        /// Peer bind address; defaults to the installed unit's, then 0.0.0.0:7401
+        /// or the next free UDP port up to 7499
+        #[arg(long, value_name = "IP:PORT")]
+        peer_listen: Option<std::net::SocketAddr>,
+        /// Enable the service without starting it
+        #[arg(long)]
+        no_start: bool,
+    },
+    /// Stop and remove the user service; the state directory stays
+    Uninstall,
     /// Show the local daemon's public identity
     Info,
     /// Manage local agent registrations
@@ -218,12 +233,12 @@ pub enum NetworkCommand {
         /// Member label for this host's own membership
         #[arg(long)]
         member: String,
-        /// Coordinator HOST:PORT
+        /// Coordinator HOST:PORT; defaults to the build's coordinator
         #[arg(long, value_name = "HOST:PORT")]
-        coordinator: String,
-        /// Independently verified coordinator public key
+        coordinator: Option<String>,
+        /// Independently verified coordinator public key; defaults to the build's
         #[arg(long, value_name = "BASE64")]
-        coordinator_key: String,
+        coordinator_key: Option<String>,
         /// Person key: an OpenSSH public key (select an ssh-agent identity) or
         /// unencrypted private key file; default is the agent's only ssh-ed25519 key
         #[arg(long, value_name = "PATH", conflicts_with = "no_person")]
@@ -783,8 +798,9 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 15] = [
+pub const MAIN_COMMANDS: [&str; 16] = [
     "status",
+    "install",
     "run",
     "network create",
     "network join",
@@ -975,6 +991,8 @@ impl Command {
         let (method, path, body) = match self {
             Self::Run { .. }
             | Self::Status { .. }
+            | Self::Install { .. }
+            | Self::Uninstall
             | Self::Help { .. }
             | Self::Session(
                 SessionCommand::Setup { .. }

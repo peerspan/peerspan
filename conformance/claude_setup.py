@@ -252,11 +252,12 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             paused = None
 
             # The new setup and diagnostic routes stay off the adapter router.
-            for method, path, body in [("POST", "/v1/adapters/setup", {}),
-                                       ("POST", f'/v1/adapters/{secret["adapter"]["id"]}/verify-credential', {"token": secret["token"]}),
-                                       ("GET", f'/v1/adapters/{secret["adapter"]["id"]}/route-status', None)]:
+            for method, path in [("POST", "/v1/adapters/setup"),
+                                 ("POST", f'/v1/adapters/{secret["adapter"]["id"]}/verify-credential'),
+                                 ("GET", f'/v1/adapters/{secret["adapter"]["id"]}/route-status')]:
+                # Without a body: the daemon may answer 404 and close before reading one.
                 c = UnixHTTPConnection(source.state / "adapter.sock")
-                c.request(method, path, json.dumps(body) if body is not None else None)
+                c.request(method, path)
                 response = c.getresponse()
                 assert response.status == 404
                 response.read(); c.close()

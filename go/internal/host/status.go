@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/Cerebral-Systems/capsule/go/internal/person"
 )
 
 // Version names this build; release builds set it with -ldflags -X.
@@ -80,8 +82,25 @@ type AttentionItem struct {
 	Command string `json:"command"`
 }
 
-// Attention kinds, in the order status reports them.
-var attentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota"}
+// Attention kinds, in the order status reports them. The CLI adds
+// service_not_installed and linger_disabled.
+var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit"}
+
+// SortAttention orders items by kind, then subject.
+func SortAttention(items []AttentionItem) {
+	rank := map[string]int{}
+	for i, kind := range AttentionOrder {
+		rank[kind] = i
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if a.Kind != b.Kind {
+			return rank[a.Kind] < rank[b.Kind]
+		}
+		return a.Subject < b.Subject
+	})
+}
 
 const (
 	credentialAttentionWindow = 24 * time.Hour
@@ -99,7 +118,10 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	attend := func(kind, subject, detail, command string) {
 		st.Attention = append(st.Attention, AttentionItem{kind, subject, detail, command})
 	}
-	if st.Networks, err = s.networkStatus(ctx, tx, now, attend); err != nil {
+	// owners maps networks to the key of this host's person, when that
+	// person has a stored policy the daemon renews.
+	owners := map[string]string{}
+	if st.Networks, err = s.networkStatus(ctx, tx, now, owners, attend); err != nil {
 		return st, err
 	}
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM access_blocks`).Scan(&st.Blocks); err != nil {
@@ -122,21 +144,13 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	if used := st.Artifacts.StoredBytes + st.Artifacts.PendingBytes; used*10 > st.Artifacts.Quota*9 {
 		attend("artifact_quota", "artifacts", fmt.Sprintf("%d of %d artifact bytes are stored or pending", used, st.Artifacts.Quota), "capsule artifact prune")
 	}
-	rank := map[string]int{}
-	for i, kind := range attentionOrder {
-		rank[kind] = i
-	}
-	sort.SliceStable(st.Attention, func(i, j int) bool {
-		a, b := st.Attention[i], st.Attention[j]
-		if a.Kind != b.Kind {
-			return rank[a.Kind] < rank[b.Kind]
-		}
-		return a.Subject < b.Subject
-	})
+	s.personAgentAttention(owners, attend)
+	s.limitAttention(st.Networks, attend)
+	SortAttention(st.Attention)
 	return st, nil
 }
 
-func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, attend func(kind, subject, detail, command string)) ([]NetworkStatus, error) {
+func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, owners map[string]string, attend func(kind, subject, detail, command string)) ([]NetworkStatus, error) {
 	rows, err := tx.QueryContext(ctx, networkColumns+" ORDER BY id")
 	if err != nil {
 		return nil, err
@@ -177,6 +191,7 @@ func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, at
 			if key, ok := g.personKey(person); ok {
 				if p, ok := g.storedPolicy(key); ok {
 					ns.Policy = &StatusPolicy{Version: p.Version, ValidUntil: p.ValidUntil}
+					owners[n.ID] = key
 					renew := "capsule access renew --network " + n.ID
 					until, _ := membership.ParseTime(p.ValidUntil)
 					switch {
@@ -341,6 +356,37 @@ func failedTasks(ctx context.Context, tx *sql.Tx, now time.Time) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+// personAgentAttention reports networks whose policy the daemon cannot
+// renew: its --person-agent is unset, unreachable, or lacks the person's key.
+func (s *Store) personAgentAttention(owners map[string]string, attend func(kind, subject, detail, command string)) {
+	if len(owners) == 0 {
+		return
+	}
+	s.agent.Lock()
+	socket := s.agent.socket
+	s.agent.Unlock()
+	networks := make([]string, 0, len(owners))
+	for network := range owners {
+		networks = append(networks, network)
+	}
+	sort.Strings(networks)
+	for _, network := range networks {
+		detail := "the daemon has no ssh-agent (--person-agent) to renew your access policy"
+		if socket != "" {
+			public, err := membership.DecodeKey(owners[network])
+			if err == nil {
+				var signer person.Signer
+				if signer, err = person.LoadKeyAt(socket, ed25519.PublicKey(public)); err == nil {
+					signer.Close()
+					continue
+				}
+			}
+			detail = "the daemon cannot renew your access policy through its ssh-agent " + socket + ": " + err.Error()
+		}
+		attend("person_agent_unreachable", network, detail, "capsule install")
+	}
 }
 
 func localStatusRoutes(mux *http.ServeMux, store *Store) {

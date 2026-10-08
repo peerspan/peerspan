@@ -77,6 +77,12 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == "run" {
 		return runDaemon(ctx, fs, state, errOut)
 	}
+	if args[0] == "install" {
+		return runInstall(ctx, fs, state, out)
+	}
+	if args[0] == "uninstall" {
+		return runUninstall(ctx, out)
+	}
 
 	client := host.Client{SocketPath: filepath.Join(state, "admin.sock")}
 	if args[0] == "status" {

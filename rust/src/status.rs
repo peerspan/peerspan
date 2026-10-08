@@ -20,7 +20,9 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
     (kind.to_owned(), subject, value)
 }
 
-const KINDS: [&str; 7] = [
+/// Every kind in order; the CLI adds `service_not_installed` and
+/// `linger_disabled`.
+const KINDS: [&str; 11] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -28,12 +30,35 @@ const KINDS: [&str; 7] = [
     "credential_expiring",
     "tasks_failed",
     "artifact_quota",
+    "service_not_installed",
+    "linger_disabled",
+    "person_agent_unreachable",
+    "coordinator_limit",
 ];
+
+/// Why the daemon's person agent cannot renew `key`'s policy, if it cannot:
+/// no socket, no answer, or no such key.
+fn agent_problem(socket: Option<std::path::PathBuf>, key: &str) -> Option<String> {
+    let Some(socket) = socket else {
+        return Some("the daemon has no ssh-agent socket".into());
+    };
+    let key: [u8; 32] = match crate::membership::canonical(key, 32)
+        .ok()
+        .and_then(|k| k.try_into().ok())
+    {
+        Some(key) => key,
+        None => return Some("the person key is invalid".into()),
+    };
+    crate::persons::PersonSigner::agent_at(socket.clone(), key)
+        .err()
+        .map(|e| format!("ssh-agent at {}: {e}", socket.display()))
+}
 
 impl Store {
     pub fn status(&self) -> Result<Value, Error> {
         let now = Utc::now();
         let own = self.identity().id;
+        let agent_socket = self.person_agent.read().ok().and_then(|s| s.clone());
         let mut attention = Vec::new();
         let mut networks = Vec::new();
         for network in self.networks()? {
@@ -94,6 +119,16 @@ impl Store {
                         renew,
                     ));
                 }
+            }
+            if let Some(p) = &policy
+                && let Some(problem) = agent_problem(agent_socket.clone(), &p.person_public_key)
+            {
+                attention.push(item(
+                    "person_agent_unreachable",
+                    id.clone(),
+                    format!("the daemon cannot renew this person's access policy: {problem}"),
+                    "capsule install".into(),
+                ));
             }
             for d in deliveries.iter().filter(|d| d.attempts >= 1) {
                 attention.push(item(
@@ -222,6 +257,18 @@ impl Store {
                     artifacts.quota
                 ),
                 "capsule artifact prune".into(),
+            ));
+        }
+        let joined: Vec<String> = networks
+            .iter()
+            .filter_map(|n| n["id"].as_str().map(str::to_owned))
+            .collect();
+        for (network, limit) in self.reached_limits(&joined) {
+            attention.push(item(
+                "coordinator_limit",
+                format!("{network}/{limit}"),
+                format!("the coordinator of network {network} reports its {limit} limit reached"),
+                String::new(),
             ));
         }
         attention.sort_by(|a, b| {

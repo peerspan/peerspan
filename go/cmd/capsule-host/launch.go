@@ -111,14 +111,18 @@ func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state
 	var unreachable *net.OpError
 	if err != nil && errors.As(err, &unreachable) {
 		dir, _ := filepath.Abs(state)
+		service := readServiceStatus(ctx)
 		if asJSON {
-			encoder := json.NewEncoder(out)
-			encoder.SetIndent("", "  ")
-			if err := encoder.Encode(map[string]string{"daemon": "not running", "state": dir}); err != nil {
+			if err := printJSON(out, map[string]any{"daemon": "not running", "state": dir, "service": service}); err != nil {
 				return err
 			}
 		} else {
-			fmt.Fprintf(out, "The host daemon is not running for state %s.\nStart it with: %s run\n", dir, programName)
+			fmt.Fprintf(out, "The host daemon is not running for state %s.\n", dir)
+			if service.Installed {
+				fmt.Fprintf(out, "Its %s service is installed at %s.\n", *service.Manager, *service.Unit)
+			} else {
+				fmt.Fprintf(out, "Start it with: %s install, or %s run in the foreground\n", programName, programName)
+			}
 		}
 		return exitStatus(2)
 	}
@@ -129,18 +133,22 @@ func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state
 	if err := json.Unmarshal(data, &st); err != nil {
 		return err
 	}
+	// The CLI adds the service and its attention items to the daemon's view.
+	service := readServiceStatus(ctx)
+	st.Attention = append(st.Attention, serviceAttention(service, true)...)
+	host.SortAttention(st.Attention)
 	if asJSON {
-		var value any
+		var value map[string]any
 		if err := json.Unmarshal(data, &value); err != nil {
 			return err
 		}
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(value); err != nil {
+		value["service"] = service
+		value["attention"] = st.Attention
+		if err := printJSON(out, value); err != nil {
 			return err
 		}
 	} else {
-		printStatus(out, st)
+		printStatus(out, st, service)
 	}
 	if len(st.Attention) > 0 {
 		return exitStatus(1)
@@ -148,8 +156,24 @@ func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state
 	return nil
 }
 
-func printStatus(out io.Writer, st host.Status) {
+func printStatus(out io.Writer, st host.Status, service serviceStatus) {
 	fmt.Fprintf(out, "Host %s (version %s)\n", st.HostID, st.Version)
+	switch {
+	case service.Manager == nil:
+		fmt.Fprintln(out, "Service: no supported service manager")
+	case !service.Installed:
+		fmt.Fprintf(out, "Service: not installed (%s)\n", *service.Manager)
+	default:
+		state := "inactive"
+		if service.Active {
+			state = "active"
+		}
+		line := fmt.Sprintf("Service: %s %s, %s", *service.Manager, *service.Unit, state)
+		if service.Linger != nil {
+			line += fmt.Sprintf(", lingering %t", *service.Linger)
+		}
+		fmt.Fprintln(out, line)
+	}
 	if len(st.Networks) == 0 {
 		fmt.Fprintln(out, "\nNetworks: none")
 	} else {
@@ -208,6 +232,9 @@ func printStatus(out io.Writer, st host.Status) {
 	}
 	fmt.Fprintln(out, "\nNeeds attention:")
 	for _, item := range st.Attention {
-		fmt.Fprintf(out, "  %s %s: %s\n    run: %s\n", item.Kind, item.Subject, item.Detail, item.Command)
+		fmt.Fprintf(out, "  %s %s: %s\n", item.Kind, item.Subject, item.Detail)
+		if item.Command != "" {
+			fmt.Fprintf(out, "    run: %s\n", item.Command)
+		}
 	}
 }

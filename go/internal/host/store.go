@@ -81,6 +81,7 @@ type Store struct {
 	agent    personAgent   // the ssh-agent for policy renewal
 	policies policySync    // direct policy propagation to sibling hosts
 	tasks    taskWork      // the in-memory task poll schedule
+	limits   coordinatorLimits
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
 }

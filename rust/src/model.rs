@@ -64,6 +64,12 @@ pub enum Error {
     TooLarge(String),
     /// Not enough artifact storage quota (507).
     InsufficientStorage(String),
+    /// A coordinator refused a request over one of its limits (429): the
+    /// limit's name and the message.
+    Limit {
+        limit: String,
+        message: String,
+    },
     Internal(anyhow::Error),
 }
 
@@ -92,6 +98,7 @@ impl std::fmt::Display for Error {
             Self::Unavailable(message) => write!(f, "unavailable: {message}"),
             Self::TooLarge(message) => write!(f, "too large: {message}"),
             Self::InsufficientStorage(message) => write!(f, "insufficient storage: {message}"),
+            Self::Limit { message, .. } => write!(f, "{message}"),
             Self::Internal(error) => write!(f, "{error}"),
         }
     }

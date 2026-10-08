@@ -84,6 +84,8 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	}
 	add("status", "status", "Show this host and what needs attention", 0)
 	add("run", "run", "Run the host daemon in the foreground", 0).Aliases = []string{"serve"}
+	add("install", "install", "Install and start the daemon as a user service", 0)
+	add("uninstall", "uninstall", "Stop and remove the daemon's user service", 0)
 	add("info", "info", "Show the local daemon's public identity", 0)
 	add("agent register", "register", "Register a local agent", 0)
 	add("agent list", "list", "List registered agents", 0)
@@ -171,7 +173,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 // rootCommands are the commands the root help lists, in order; the others
 // are hidden and listed by help advanced.
 var rootCommands = []string{
-	"status", "run",
+	"status", "install", "run",
 	"network create", "network join", "network invite", "network list", "network members",
 	"access allow", "access deny", "access show",
 	"session setup", "session start", "session doctor",
@@ -290,6 +292,9 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	switch strings.Join(args, " ") {
 	case "status":
 		fs.Bool("json", false, "print the daemon's status object")
+	case "install":
+		fs.String("peer-listen", "", "peer listen address, UDP IP:PORT; default the installed unit's, else 0.0.0.0:7401 or the next free port to 7499")
+		fs.Bool("no-start", false, "install and enable the service without starting it")
 	case "agent register":
 		fs.String("name", "", "agent name")
 		fs.String("owner", "", "local owner label")
@@ -400,8 +405,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		if command == "create" {
 			fs.String("name", "", "network name")
 			fs.String("member", "", "this host's member label")
-			fs.String("coordinator", "", "coordinator HOST:PORT")
-			fs.String("coordinator-key", "", "pinned coordinator public key")
+			fs.String("coordinator", "", "coordinator HOST:PORT; with --coordinator-key, overrides the build's default coordinator")
+			fs.String("coordinator-key", "", "pinned coordinator public key; given together with --coordinator")
 		} else {
 			fs.String("token", "", "invite token")
 			fs.String("descriptor", "", "network descriptor, for a host admitted by public key")

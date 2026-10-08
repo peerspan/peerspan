@@ -16,7 +16,7 @@ import (
 func Handler(store *Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/host", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, http.StatusOK, store.Identity(), nil)
+		respond(w, http.StatusOK, store.Info(), nil)
 	})
 	mux.HandleFunc("POST /v1/agents", func(w http.ResponseWriter, r *http.Request) {
 		var req RegisterAgent
@@ -133,7 +133,10 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 	if err != nil {
 		code, message := "internal", "internal error"
 		status = http.StatusInternalServerError
+		var limited *CoordinatorLimitError
 		switch {
+		case errors.As(err, &limited):
+			status, code, message = http.StatusTooManyRequests, "limit", err.Error()
 		case errors.Is(err, ErrInvalid):
 			status, code, message = http.StatusBadRequest, "invalid", err.Error()
 		case errors.Is(err, ErrForbidden):
@@ -153,6 +156,14 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 			Code  string `json:"code"`
 			Error string `json:"error"`
 		}{code, message}
+		if limited != nil {
+			// A coordinator's 429 names the limit that refused the request.
+			value = struct {
+				Code  string `json:"code"`
+				Error string `json:"error"`
+				Limit string `json:"limit"`
+			}{code, message, limited.Limit}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

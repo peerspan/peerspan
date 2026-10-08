@@ -63,6 +63,9 @@ pub struct Store {
     pub(crate) policy_sync_interval: AtomicU64,
     /// Policy deliveries and sibling syncs in progress, so each runs once.
     pub(crate) policy_inflight: Mutex<std::collections::BTreeSet<String>>,
+    /// Coordinator limits each network has reached, by network ID: from the
+    /// usage fetched after a sync and from the latest 429. Kept in memory.
+    pub(crate) coordinator_limits: Mutex<BTreeMap<String, crate::network::CoordinatorLimits>>,
 }
 
 impl Store {
@@ -208,6 +211,7 @@ impl Store {
             policy_wake: tokio::sync::Notify::new(),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),
+            coordinator_limits: Mutex::new(BTreeMap::new()),
         };
         store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
         Ok(store)

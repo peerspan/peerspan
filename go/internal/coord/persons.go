@@ -137,6 +137,9 @@ func (s *Server) joinByAdmission(ctx context.Context, caller, network string, ad
 		m, err := networkMap(ctx, tx, network)
 		return http.StatusOK, m, err
 	}
+	if err = s.checkMembers(ctx, tx, network); err != nil {
+		return 0, nil, err
+	}
 	data, err := json.Marshal(admission)
 	if err != nil {
 		return 0, nil, err

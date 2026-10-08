@@ -2,6 +2,7 @@ mod access;
 mod admin;
 mod cli;
 mod integration;
+mod service;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
@@ -79,6 +80,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             unreachable!()
         };
         return integration::run(operation, cli.state).await;
+    }
+    if let cli::Command::Uninstall = command {
+        println!("{}", serde_json::to_string_pretty(&service::uninstall()?)?);
+        return Ok(());
+    }
+    if let cli::Command::Install {
+        state,
+        peer_listen,
+        no_start,
+    } = command
+    {
+        let directory = match state.or(cli.state) {
+            Some(directory) => directory,
+            None => default_directory()?,
+        };
+        let value = service::install(&directory, peer_listen, no_start).await?;
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
     }
     let directory = match cli.state {
         Some(directory) => directory,
@@ -204,7 +223,8 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
         ),
     )
     .await;
-    let value = match result {
+    let service = service::status();
+    let mut value = match result {
         Ok(Ok(value)) => value,
         Ok(Err(e)) if e.downcast_ref::<integration::DaemonError>().is_some() => return Err(e),
         // Not listening, or not answering.
@@ -214,7 +234,7 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(
-                        &json!({"daemon": "not running", "state": state})
+                        &json!({"daemon": "not running", "state": state, "service": service})
                     )?
                 );
             } else {
@@ -227,6 +247,23 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
             exit(2);
         }
     };
+    // Items 8 and 9 come from the CLI; all kinds are then ordered together.
+    if let Some(items) = value["attention"].as_array_mut() {
+        items.extend(service::attention(&service));
+        let rank = |item: &Value| {
+            let kind = item["kind"].as_str().unwrap_or_default();
+            ATTENTION_ORDER
+                .iter()
+                .position(|k| *k == kind)
+                .unwrap_or(ATTENTION_ORDER.len())
+        };
+        items.sort_by(|a, b| {
+            rank(a)
+                .cmp(&rank(b))
+                .then_with(|| a["subject"].as_str().cmp(&b["subject"].as_str()))
+        });
+    }
+    value["service"] = service;
     if json {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
@@ -237,6 +274,20 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
     }
     Ok(())
 }
+const ATTENTION_ORDER: [&str; 11] = [
+    "coordination_error",
+    "policy_expired",
+    "policy_expiring",
+    "policy_delivery_failing",
+    "credential_expiring",
+    "tasks_failed",
+    "artifact_quota",
+    "service_not_installed",
+    "linger_disabled",
+    "person_agent_unreachable",
+    "coordinator_limit",
+];
+
 fn exit(code: i32) -> ! {
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -311,6 +362,25 @@ fn summary(value: &Value) -> String {
         text(&value["artifacts"]["pending_bytes"]),
         text(&value["artifacts"]["quota"]),
     );
+    let service = &value["service"];
+    out += &match service["manager"].as_str() {
+        None => "Service: no supported service manager\n".into(),
+        Some(manager) if service["installed"] == true => format!(
+            "Service: {manager} unit {}, {}{}\n",
+            text(&service["unit"]),
+            if service["active"] == true {
+                "active"
+            } else {
+                "inactive"
+            },
+            if service["linger"] == false {
+                ", lingering disabled"
+            } else {
+                ""
+            },
+        ),
+        Some(manager) => format!("Service: not installed ({manager})\n"),
+    };
     let attention = value["attention"].as_array().cloned().unwrap_or_default();
     if attention.is_empty() {
         out += "Nothing needs attention.\n";
@@ -319,12 +389,14 @@ fn summary(value: &Value) -> String {
     }
     for item in &attention {
         out += &format!(
-            "  {} {}: {}\n    run: {}\n",
+            "  {} {}: {}\n",
             text(&item["kind"]),
             text(&item["subject"]),
             text(&item["detail"]),
-            text(&item["command"]),
         );
+        if let Some(command) = item["command"].as_str().filter(|c| !c.is_empty()) {
+            out += &format!("    run: {command}\n");
+        }
     }
     out
 }
@@ -366,12 +438,15 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             no_person,
         }) => {
             let found = explicit_key(*no_person, person_key)?;
-            let mut body = json!({
-                "name": name,
-                "member": member,
-                "coordinator_address": coordinator,
-                "coordinator_public_key": coordinator_key,
-            });
+            // Without either coordinator flag, the daemon uses its build's
+            // default coordinator.
+            let mut body = json!({"name": name, "member": member});
+            if let Some(address) = coordinator {
+                body["coordinator_address"] = json!(address);
+            }
+            if let Some(key) = coordinator_key {
+                body["coordinator_public_key"] = json!(key);
+            }
             if let Ok(signer) = &found {
                 body["person_public_key"] = json!(signer.public_key_b64());
             }

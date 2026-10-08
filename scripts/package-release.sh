@@ -24,6 +24,15 @@ case "$version" in
     ;;
 esac
 
+# The hosted default coordinator, used by network create without
+# --coordinator; both or neither.
+coordinator=${CAPSULE_COORDINATOR:-}
+coordinator_key=${CAPSULE_COORDINATOR_KEY:-}
+if [ -n "$coordinator" ] && [ -z "$coordinator_key" ] || [ -z "$coordinator" ] && [ -n "$coordinator_key" ]; then
+  echo "set both CAPSULE_COORDINATOR and CAPSULE_COORDINATOR_KEY, or neither" >&2
+  exit 2
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo=$(dirname "$script_dir")
 
@@ -115,9 +124,10 @@ case "$implementation" in
       echo "missing required command: go" >&2
       exit 1
     }
+    go_host=github.com/Cerebral-Systems/capsule/go/internal/host
     GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
       go -C "$repo/go" build -trimpath \
-      -ldflags "-X github.com/Cerebral-Systems/capsule/go/internal/host.Version=$version" \
+      -ldflags "-X $go_host.Version=$version -X $go_host.DefaultCoordinator=$coordinator -X $go_host.DefaultCoordinatorKey=$coordinator_key" \
       -o "$bundle/bin/capsule-host" ./cmd/capsule-host
     ;;
   rust)
@@ -126,7 +136,8 @@ case "$implementation" in
       exit 1
     }
     cargo_target="$repo/rust/target/capsule-package-$rust_target"
-    CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
+    CAPSULE_COORDINATOR="$coordinator" CAPSULE_COORDINATOR_KEY="$coordinator_key" \
+      CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
       --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml"
     cp "$cargo_target/$rust_target/release/capsule-host" "$bundle/bin/capsule-host"
     ;;

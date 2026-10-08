@@ -52,8 +52,18 @@ pub(crate) fn decode<T: DeserializeOwned>(body: Result<Bytes, BytesRejection>) -
     serde_json::from_slice(&body).map_err(|_| Error::Invalid("invalid request".into()))
 }
 
-async fn identity(State(store): State<Arc<Store>>) -> Json<crate::model::Identity> {
-    Json(store.identity())
+/// This host's public identity, and the coordinator `network create` uses
+/// when given none.
+async fn identity(State(store): State<Arc<Store>>) -> Json<serde_json::Value> {
+    let identity = store.identity();
+    let default = crate::network::default_coordinator()
+        .map(|(address, key)| serde_json::json!({"address": address, "public_key": key}));
+    Json(serde_json::json!({
+        "id": identity.id,
+        "public_key": identity.public_key,
+        "created_at": identity.created_at,
+        "default_coordinator": default,
+    }))
 }
 async fn register(
     State(store): State<Arc<Store>>,
@@ -139,6 +149,7 @@ fn number(value: Option<String>, default: i64) -> Result<i64, Error> {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
+        let mut limit = None;
         let (status, code, message) = match self {
             Self::Invalid(message) => (
                 StatusCode::BAD_REQUEST,
@@ -167,6 +178,13 @@ impl IntoResponse for Error {
                 "insufficient_storage",
                 format!("insufficient storage: {message}"),
             ),
+            Self::Limit {
+                limit: name,
+                message,
+            } => {
+                limit = Some(name);
+                (StatusCode::TOO_MANY_REQUESTS, "limit", message)
+            }
             Self::Internal(error) => {
                 eprintln!("host store error: {error}");
                 (
@@ -176,10 +194,10 @@ impl IntoResponse for Error {
                 )
             }
         };
-        (
-            status,
-            Json(serde_json::json!({"code": code, "error": message})),
-        )
-            .into_response()
+        let mut body = serde_json::json!({"code": code, "error": message});
+        if let Some(limit) = limit {
+            body["limit"] = limit.into();
+        }
+        (status, Json(body)).into_response()
     }
 }

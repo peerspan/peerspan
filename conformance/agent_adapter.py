@@ -70,8 +70,16 @@ def adapter_call(host, token, method, path, body=None, raw=None, socket_name='ad
 
 
 def sql(host, statement, args=()):
-    with sqlite3.connect(host.state / 'host.db') as conn:
-        return conn.execute(statement, args).fetchall()
+    # A write that must upgrade a stale read snapshot fails at once while the
+    # running daemon commits, so retry briefly.
+    for attempt in range(50):
+        try:
+            with sqlite3.connect(host.state / 'host.db', timeout=10) as conn:
+                return conn.execute(statement, args).fetchall()
+        except sqlite3.OperationalError as error:
+            if 'locked' not in str(error) or attempt == 49:
+                raise
+            time.sleep(0.1)
 
 
 def credential(host, session):

@@ -42,6 +42,7 @@ type relayServer struct {
 	mu      sync.Mutex
 	conns   map[relay.HostID]*relayConn
 	members map[relay.HostID]cachedNetworks
+	usage   relayUsage
 }
 
 type cachedNetworks struct {
@@ -100,21 +101,24 @@ func (r *relayServer) networksOf(ctx context.Context, id relay.HostID) (map[stri
 	return networks, nil
 }
 
-func (r *relayServer) coMembers(ctx context.Context, a, b relay.HostID) bool {
+// sharedNetwork is the lowest-ID network both hosts belong to, the one hosts
+// use to choose the relay and the one relayed bytes are charged to.
+func (r *relayServer) sharedNetwork(ctx context.Context, a, b relay.HostID) (string, bool) {
 	first, err := r.networksOf(ctx, a)
 	if err != nil {
-		return false
+		return "", false
 	}
 	second, err := r.networksOf(ctx, b)
 	if err != nil {
-		return false
+		return "", false
 	}
+	lowest := ""
 	for network := range first {
-		if second[network] {
-			return true
+		if second[network] && (lowest == "" || network < lowest) {
+			lowest = network
 		}
 	}
-	return false
+	return lowest, lowest != ""
 }
 
 // serve runs one authenticated relay connection until it fails, goes idle,
@@ -177,7 +181,13 @@ func (r *relayServer) forward(ctx context.Context, src *relayConn, dest relay.Ho
 	r.mu.Lock()
 	target := r.conns[dest]
 	r.mu.Unlock()
-	if target == nil || dest == src.id || !r.coMembers(ctx, src.id, dest) {
+	network, shared := "", false
+	if target != nil && dest != src.id {
+		network, shared = r.sharedNetwork(ctx, src.id, dest)
+	}
+	// A network over its monthly relay bytes has its frames dropped, and the
+	// sender is told the destination is unreachable.
+	if !shared || !r.usage.charge(ctx, r.s.db, usageKey{network, monthOf(r.now())}, int64(len(datagram)), r.s.Limits.RelayBytesPerMonth) {
 		now := r.now()
 		if last, ok := src.refused[dest]; !ok || now.Sub(last) >= relayUnreachableGap {
 			src.refused[dest] = now

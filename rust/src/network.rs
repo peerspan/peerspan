@@ -100,13 +100,36 @@ pub struct Member {
 pub struct CreateNetwork {
     pub name: String,
     pub member: String,
+    /// With `coordinator_public_key`, the coordinator; both empty or absent
+    /// select the build's default coordinator.
+    #[serde(default, deserialize_with = "empty_if_null")]
     pub coordinator_address: String,
+    #[serde(default, deserialize_with = "empty_if_null")]
     pub coordinator_public_key: String,
     /// The creator's person key, found by the CLI; admitted with the new root
     /// under the creator's member label once the network is registered.
     #[serde(default)]
     pub person_public_key: Option<String>,
 }
+fn empty_if_null<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
+/// The coordinator this build uses when `network create` names none, from
+/// `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` at build time. A build
+/// with only one of the two has no default.
+pub fn default_coordinator() -> Option<(&'static str, &'static str)> {
+    match (
+        option_env!("CAPSULE_COORDINATOR"),
+        option_env!("CAPSULE_COORDINATOR_KEY"),
+    ) {
+        (Some(address), Some(key)) if !address.is_empty() && !key.is_empty() => {
+            Some((address, key))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateInvite {
@@ -1418,7 +1441,27 @@ impl Store {
         Ok((candidates, advertised))
     }
 
-    pub fn create_network(&self, r: CreateNetwork) -> Result<Network, Error> {
+    pub fn create_network(&self, mut r: CreateNetwork) -> Result<Network, Error> {
+        match (
+            r.coordinator_address.is_empty(),
+            r.coordinator_public_key.is_empty(),
+        ) {
+            (true, true) => {
+                let (address, key) = default_coordinator().ok_or_else(|| {
+                    Error::Invalid(
+                        "this build has no default coordinator; pass --coordinator and --coordinator-key".into(),
+                    )
+                })?;
+                r.coordinator_address = address.into();
+                r.coordinator_public_key = key.into();
+            }
+            (false, false) => {}
+            _ => {
+                return Err(Error::Invalid(
+                    "give both --coordinator and --coordinator-key, or neither".into(),
+                ));
+            }
+        }
         membership::label(&r.name)?;
         membership::label(&r.member)?;
         membership::split_host_port(&r.coordinator_address)?;
@@ -3452,6 +3495,133 @@ pub(crate) async fn coordinator(
     .await
     .map_err(|_| anyhow::anyhow!("coordinator request timed out"))?
 }
+/// A coordinator GET over the same pinned client.
+async fn coordinator_get(
+    store: Arc<Store>,
+    address: &str,
+    key: &str,
+    path: String,
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    let key = membership::canonical(key, 32).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let (host, _) = membership::split_host_port(address).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let config = pinned_client_config(store, key, b"http/1.1")?;
+    let name = rustls::pki_types::ServerName::try_from(host)?;
+    tokio::time::timeout(
+        Duration::from_secs(8),
+        https(config, address, name, Method::GET, &path, Vec::new()),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("coordinator request timed out"))?
+}
+
+/// Limits a coordinator reports a network has reached.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CoordinatorLimits {
+    /// From the usage fetched after the latest successful sync.
+    reached: Vec<String>,
+    /// From the latest 429, until the next successful sync or join.
+    refused: Option<String>,
+}
+
+/// The limit name and recorded message of a coordinator's 429 refusal.
+fn limit_refusal(status: u16, body: &[u8]) -> Option<(String, String)> {
+    if status != 429 {
+        return None;
+    }
+    let value: Value = serde_json::from_slice(body).ok()?;
+    let limit = value["limit"]
+        .as_str()
+        .filter(|l| !l.is_empty())?
+        .to_owned();
+    let error = value["error"].as_str().unwrap_or_default();
+    let message = format!("coordination unavailable: coordinator limit {limit} reached: {error}");
+    Some((limit, message))
+}
+
+impl Store {
+    fn update_limits(&self, network: &str, f: impl FnOnce(&mut CoordinatorLimits)) {
+        if let Ok(mut limits) = self.coordinator_limits.lock() {
+            let entry = limits.entry(network.to_owned()).or_default();
+            f(entry);
+            if entry.reached.is_empty() && entry.refused.is_none() {
+                limits.remove(network);
+            }
+        }
+    }
+    /// `(network, limit)` for every limit reached, sorted and without
+    /// repeats: from usage for the `joined` networks, and from any 429, which
+    /// may name a network a join was refused for.
+    pub(crate) fn reached_limits(&self, joined: &[String]) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = match self.coordinator_limits.lock() {
+            Ok(limits) => limits
+                .iter()
+                .flat_map(|(network, l)| {
+                    let usage = if joined.contains(network) {
+                        l.reached.as_slice()
+                    } else {
+                        &[]
+                    };
+                    usage
+                        .iter()
+                        .chain(l.refused.iter())
+                        .map(move |limit| (network.clone(), limit.clone()))
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        out.sort();
+        out.dedup();
+        out
+    }
+}
+
+/// After a successful sync or join: forgets a 429 and fetches the network's
+/// usage. A 404 is an older coordinator without limits; other failures keep
+/// the usage last seen.
+async fn refresh_usage(store: &Arc<Store>, network: &Network) {
+    store.update_limits(&network.id, |l| l.refused = None);
+    let response = coordinator_get(
+        store.clone(),
+        &network.coordinator_address,
+        &network.coordinator_public_key,
+        format!("/coord/v1/networks/{}/usage", network.id),
+    )
+    .await;
+    let reached = match response {
+        Ok((200, body)) => {
+            let Ok(usage) = serde_json::from_slice::<Value>(&body) else {
+                return;
+            };
+            let at = |count: &str, max: &str| {
+                let max = usage[max].as_u64().unwrap_or(0);
+                max > 0 && usage[count].as_u64().unwrap_or(0) >= max
+            };
+            let mut reached = Vec::new();
+            if at("members", "max_members") {
+                reached.push("members".to_owned());
+            }
+            if at("relay_bytes", "max_relay_bytes") {
+                reached.push("relay_bytes".to_owned());
+            }
+            reached
+        }
+        Ok((404, _)) => Vec::new(),
+        _ => return,
+    };
+    store.update_limits(&network.id, |l| l.reached = reached);
+}
+
+/// A rejected join: a 429 is remembered as the network's limit.
+fn join_refused(store: &Store, network: &str, status: u16, body: &[u8]) -> Error {
+    match limit_refusal(status, body) {
+        Some((limit, message)) => {
+            store.update_limits(network, |l| l.refused = Some(limit.clone()));
+            Error::Limit { limit, message }
+        }
+        None => coordinator_status(status, body),
+    }
+}
+
 pub(crate) fn coordinator_error(status: u16, body: &[u8]) -> String {
     let message = serde_json::from_slice::<Value>(body)
         .ok()
@@ -3590,11 +3760,18 @@ pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Erro
             }
             Err(error) => Err(error),
         },
-        Ok((status, body)) => Err(Error::Unavailable(coordinator_error(status, &body))),
+        Ok((status, body)) => match limit_refusal(status, &body) {
+            Some((limit, message)) => {
+                store.update_limits(&id, |l| l.refused = Some(limit));
+                Err(Error::Unavailable(message))
+            }
+            None => Err(Error::Unavailable(coordinator_error(status, &body))),
+        },
         Err(error) => Err(Error::Unavailable(format!("{error:#}"))),
     };
     match outcome {
         Ok(network) => {
+            refresh_usage(&store, &network).await;
             // Revocations this host made stay pending until the coordinator
             // lists them; they are resubmitted on every successful sync.
             if let Some(listed) = listed {
@@ -3895,7 +4072,7 @@ async fn join_token(store: Arc<Store>, token: InviteToken) -> Result<Network, Er
     .map_err(|e| Error::Unavailable(format!("{e:#}")))?;
     let map = match response {
         (200 | 201, body) => parse_map(&body)?,
-        (status, body) => return Err(coordinator_status(status, &body)),
+        (status, body) => return Err(join_refused(&store, &token.network_id, status, &body)),
     };
     // The token carries the root that signed the invite, which is the current
     // root after a rotation. The map's genesis root must derive the network ID,
@@ -4175,7 +4352,7 @@ pub async fn join_with_descriptor(store: Arc<Store>, text: String) -> Result<Net
     .map_err(|e| Error::Unavailable(format!("{e:#}")))?;
     let map = match response {
         (200 | 201, body) => parse_map(&body)?,
-        (status, body) => return Err(coordinator_status(status, &body)),
+        (status, body) => return Err(join_refused(&store, &d.network_id, status, &body)),
     };
     let own = store.identity().id;
     let member = map
@@ -4326,6 +4503,7 @@ pub async fn join_network(store: Arc<Store>, request: JoinNetwork) -> Result<Joi
             ));
         }
     };
+    refresh_usage(&store, &network).await;
     let person = match &request.person_public_key {
         Some(key) => Some(
             person_step(

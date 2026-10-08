@@ -228,13 +228,18 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 	if !membership.ValidLabel(r.Name) || !membership.ValidLabel(r.Member) {
 		return Network{}, fmt.Errorf("%w: name and member must be trimmed 1-128 byte labels without control characters", ErrInvalid)
 	}
+	r, err := withDefaultCoordinator(r)
+	if err != nil {
+		return Network{}, err
+	}
 	if !membership.ValidCoordinatorAddress(r.CoordinatorAddress) {
 		return Network{}, fmt.Errorf("%w: coordinator address must be HOST:PORT", ErrInvalid)
 	}
 	if _, err := membership.DecodeKey(r.CoordinatorPublicKey); err != nil {
 		return Network{}, fmt.Errorf("%w: coordinator key must be canonical Base64", ErrInvalid)
 	}
-	_, root, err := ed25519.GenerateKey(rand.Reader)
+	var root ed25519.PrivateKey
+	_, root, err = ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return Network{}, err
 	}
@@ -445,6 +450,7 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Ne
 		return n, err
 	}
 	s.wakeRelays()
+	s.refreshUsage(ctx, n)
 	return n, nil
 }
 
@@ -527,6 +533,7 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		// revocation not yet submitted, or one an omitting coordinator lost)
 		// are submitted on every sync until the coordinator serves them.
 		s.submitMissingRevocations(finishCtx, n, applied.missing)
+		s.refreshUsage(finishCtx, n)
 	}
 	return n, nil
 }
@@ -629,46 +636,68 @@ func (s *Store) coordinatorTLS(n Network, alpn string) (*tls.Config, error) {
 // callCoordinator posts to the pinned coordinator and decodes its map.
 func (s *Store) callCoordinator(ctx context.Context, n Network, path string, body any) (membership.Map, error) {
 	var m membership.Map
-	config, err := s.coordinatorTLS(n, "http/1.1")
+	data, err := s.coordinatorRequest(ctx, n, http.MethodPost, path, body)
 	if err != nil {
 		return m, err
-	}
-	transport := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true, TLSHandshakeTimeout: 5 * time.Second, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return m, err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+n.CoordinatorAddress+path, bytes.NewReader(encoded))
-	if err != nil {
-		return m, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
-	if err != nil {
-		return m, fmt.Errorf("%w: coordinator: %v", ErrUnavailable, err)
-	}
-	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, (16<<20)+1))
-	if err != nil || len(data) > 16<<20 {
-		return m, fmt.Errorf("%w: coordinator response unreadable or too large", ErrUnavailable)
-	}
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
-		var failure struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(data, &failure)
-		cause := map[int]error{400: ErrInvalid, 403: ErrForbidden, 404: ErrNotFound, 409: ErrConflict}[response.StatusCode]
-		if cause == nil {
-			cause = ErrUnavailable
-		}
-		return m, fmt.Errorf("%w: coordinator returned HTTP %d: %s", cause, response.StatusCode, failure.Error)
 	}
 	if err = json.Unmarshal(data, &m); err != nil {
 		return m, fmt.Errorf("%w: malformed coordinator map", ErrUnavailable)
 	}
 	return m, nil
+}
+
+// coordinatorRequest calls the pinned coordinator, with a JSON body unless
+// body is nil, and returns a successful response body. A 429 is remembered
+// for status as the network's reached limit.
+func (s *Store) coordinatorRequest(ctx context.Context, n Network, method, path string, body any) ([]byte, error) {
+	config, err := s.coordinatorTLS(n, "http/1.1")
+	if err != nil {
+		return nil, err
+	}
+	transport := &http.Transport{TLSClientConfig: config, DisableKeepAlives: true, TLSHandshakeTimeout: 5 * time.Second, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(encoded)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, "https://"+n.CoordinatorAddress+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("%w: coordinator: %v", ErrUnavailable, err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, (16<<20)+1))
+	if err != nil || len(data) > 16<<20 {
+		return nil, fmt.Errorf("%w: coordinator response unreadable or too large", ErrUnavailable)
+	}
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		var failure struct {
+			Error string `json:"error"`
+			Limit string `json:"limit"`
+		}
+		_ = json.Unmarshal(data, &failure)
+		if response.StatusCode == http.StatusTooManyRequests && failure.Limit != "" {
+			s.limitRefused(n.ID, failure.Limit)
+			return nil, &CoordinatorLimitError{Limit: failure.Limit, Message: failure.Error}
+		}
+		cause := map[int]error{400: ErrInvalid, 403: ErrForbidden, 404: ErrNotFound, 409: ErrConflict}[response.StatusCode]
+		if cause == nil {
+			cause = ErrUnavailable
+		}
+		return nil, fmt.Errorf("%w: coordinator returned HTTP %d: %s", cause, response.StatusCode, failure.Error)
+	}
+	return data, nil
 }
 
 // RunCoordination syncs every network each interval, then renews policies

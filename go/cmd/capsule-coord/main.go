@@ -39,6 +39,7 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 	root.SetErr(errOut)
 	root.CompletionOptions.DisableDefaultCmd = true
 	var state, listen string
+	limits := coord.DefaultLimits
 	root.PersistentFlags().StringVar(&state, "state", "", "private state directory")
 	resolveState := func(cmd *cobra.Command, args []string) error {
 		if state == "" {
@@ -69,11 +70,15 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 			if listen == "" {
 				return fmt.Errorf("run requires --listen HOST:PORT")
 			}
+			if limits.MaxMembers < 0 || limits.MaxNetworksPerIP < 0 || limits.RelayBytesPerMonth < 0 {
+				return fmt.Errorf("limits must be 0 (disabled) or positive")
+			}
 			server, err := coord.Open(cmd.Context(), state)
 			if err != nil {
 				return err
 			}
 			defer server.Close()
+			server.Limits = limits
 			listener, err := server.Listen(listen)
 			if err != nil {
 				return err
@@ -84,6 +89,9 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 		},
 	}
 	serve.Flags().StringVar(&listen, "listen", "", "bind address, HOST:PORT")
+	serve.Flags().Int64Var(&limits.MaxMembers, "max-members", limits.MaxMembers, "current member hosts per network; 0 disables")
+	serve.Flags().Int64Var(&limits.MaxNetworksPerIP, "max-networks-per-ip", limits.MaxNetworksPerIP, "network registrations per source address (IPv6 by /64) in any 24 hours; 0 disables")
+	serve.Flags().Int64Var(&limits.RelayBytesPerMonth, "relay-bytes-per-month", limits.RelayBytesPerMonth, "relayed datagram bytes per network per UTC calendar month; 0 disables")
 	root.AddCommand(info, serve)
 	return root
 }

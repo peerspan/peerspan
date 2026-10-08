@@ -48,7 +48,7 @@ from persons import Agent, person_id, ssh_key, use_agent
 from policy import PolicyHost, crafted
 
 ROOT_COMMANDS = [
-    'status', 'run',
+    'status', 'install', 'run',
     'network create', 'network join', 'network invite', 'network list', 'network members',
     'access allow', 'access deny', 'access show',
     'session setup', 'session start', 'session doctor',
@@ -71,16 +71,29 @@ HIDDEN_COMMANDS = [
     'person show',
     'adapter create', 'adapter list', 'adapter inspect', 'adapter revoke', 'adapter rotate', 'adapter connection',
     'adapter route add', 'adapter route list', 'adapter route revoke',
-    'delivery list', 'delivery inspect', 'activity',
+    'delivery list', 'delivery inspect', 'activity', 'uninstall',
 ]
 STATUS_KEYS = {'host_id', 'version', 'networks', 'blocks', 'agents', 'artifacts', 'attention'}
 NETWORK_KEYS = {'id', 'name', 'coordinator', 'last_sync_at', 'last_sync_error', 'members', 'person', 'policy',
                 'policy_deliveries_pending'}
 SESSION_KEYS = {'id', 'integration', 'adapter_id', 'connection', 'expires_at', 'renewable'}
 ATTENTION_ORDER = ['coordination_error', 'policy_expired', 'policy_expiring', 'policy_delivery_failing',
-                   'credential_expiring', 'tasks_failed', 'artifact_quota']
+                   'credential_expiring', 'tasks_failed', 'artifact_quota',
+                   # Slice 2's service and coordinator items; launch_service.py checks them.
+                   'service_not_installed', 'linger_disabled', 'person_agent_unreachable', 'coordinator_limit']
 QUOTA = 1000
 DAY = 24 * 3600
+
+# An installed, active, lingering user service as recording-free stubs, so the
+# CLI's service checks (slice 2) add no attention to the cases here.
+SERVICE_HOME = Path(tempfile.mkdtemp(prefix='launch-cli-service-'))
+(SERVICE_HOME / 'config/systemd/user').mkdir(parents=True)
+(SERVICE_HOME / 'config/systemd/user/capsule.service').write_text('[Service]\n')
+(SERVICE_HOME / 'bin').mkdir()
+for tool, script in {'systemctl': 'echo active', 'loginctl': 'echo Linger=yes'}.items():
+    stub = SERVICE_HOME / 'bin' / tool
+    stub.write_text(f'#!/bin/sh\n{script}\n')
+    stub.chmod(0o755)
 
 
 def parse_time(value):
@@ -116,6 +129,8 @@ class LaunchHost(PolicyHost):
         env = dict(os.environ)
         if not self.keep_agent:
             env.pop('SSH_AUTH_SOCK', None)
+        env['PATH'] = f"{SERVICE_HOME / 'bin'}:{env.get('PATH', '')}"
+        env['XDG_CONFIG_HOME'] = str(SERVICE_HOME / 'config')
         return subprocess.run([program or self.cli_binary, '--state', str(self.state), *args],
                               capture_output=True, text=True, timeout=20, env=env)
 
@@ -189,12 +204,13 @@ def check_not_running(host, program):
     result = host.run('status', '--json', program=program)
     assert result.returncode == 2, (result.returncode, result.stdout, result.stderr)
     value = json.loads(result.stdout)
+    value.pop('service', None)  # added by the CLI in slice 2
     assert value == {'daemon': 'not running', 'state': str(Path(host.state).resolve())}, value
     assert host.run('status', program=program).returncode == 2
 
 
 def check_shape(value):
-    assert set(value) == STATUS_KEYS, value
+    assert set(value) - {'service'} == STATUS_KEYS, value  # the CLI adds service in slice 2
     assert isinstance(value['host_id'], str) and value['host_id'].startswith('host_'), value
     assert isinstance(value['version'], str) and value['version'], value
     assert isinstance(value['blocks'], int)
@@ -440,7 +456,8 @@ def check(coord_binary, cli_binary, daemon_binary, label):
                 host.cli('network', 'sync')
             members = {m['host_id'] for m in alice.cli('network', 'members')}
             assert members == {a, b}, members
-            assert alice.cli('network', 'members', one) == alice.cli('network', 'members')
+            # Host IDs only: a background sync may change updated_at between the two reads.
+            assert {m['host_id'] for m in alice.cli('network', 'members', one)} == members
             pat = person_id(pat_key[2])
             assert {p['person_id'] for p in alice.cli('network', 'persons')} == {pat}
             assert isinstance(alice.cli('network', 'groups'), list)
