@@ -446,7 +446,7 @@ Roadmap milestone 2b, slice 3. Decided on 2026-10-07:
 - **Policy and grants combine:** a request is authorized by a manual grant **or** by the target agent owner's policy. A host-local block list overrides both.
 - **Renewal:** daemons renew policies by asking the owner's `ssh-agent` for a signature, and never hold the key.
 - **Visibility:** every member sees every policy.
-- **Propagation:** direct propagation of policies among an owner's hosts is deferred.
+- **Propagation:** an owner's hosts also pass policies to each other directly (roadmap 2c; see [Direct propagation](#direct-propagation)).
 
 Policies name persons by ID, never by label, per the naming rules.
 
@@ -502,7 +502,7 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 
 ### Renewal
 
-`run [--person-agent SOCKET]` gives the daemon an agent socket. It defaults to the `SSH_AUTH_SOCK` the daemon started with. When the agent holds the bound person's key, and that person's current policy has less than a quarter of its validity left, the daemon asks the agent to sign a renewal. A renewal has the same rules, version + 1, the same duration, and `issued_at` set to now. The daemon submits it, and never stores the key. If several of the owner's hosts renew at once, the coordinator accepts one and returns 409 to the rest, which keep the accepted one. If no agent is available, access lapses at `valid_until`. Hosts report `expires_soon` in `access show` once less than a quarter remains.
+`run [--person-agent SOCKET]` gives the daemon an agent socket. It defaults to the `SSH_AUTH_SOCK` the daemon started with. When the agent holds the bound person's key, and that person's current policy has less than a quarter of its validity left, the daemon asks the agent to sign a renewal. A renewal has the same rules, version + 1, the same duration, and `issued_at` set to now. The daemon submits it, and never stores the key. If several of the owner's hosts renew at once, they converge on one version by the tie-break in [Direct propagation](#direct-propagation). If no agent is available, access lapses at `valid_until`. Hosts report `expires_soon` in `access show` once less than a quarter remains.
 
 ### Commands
 
@@ -521,7 +521,7 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 - **`access show`** returns the policy's fields plus a top-level `expires_soon`, or 404 when the owner has no policy.
 - **Policy submission:**
   - An identical resubmission of the stored policy returns 200 from the coordinator, as for other statements, and 201 from the local API. A lower or equal different version returns 409, and a policy outside its validity window returns 400.
-  - The host records a policy as soon as the coordinator accepts it.
+  - The host records a verified policy before submitting it, then submits it to the coordinator and its sibling hosts (see [Direct propagation](#direct-propagation)), and returns 201 whether or not the coordinator is reachable.
 - **Rule shape:** a rule has at least one principal and one action, and agent names must be valid labels. A policy with no rules is valid, and withdraws all access.
 - **Expired policies:** renewal skips a policy that has already expired; only `access renew` revives it.
 - **Several networks:**
@@ -542,6 +542,57 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 - `access.unblocked` (subject: the unblocked ID).
 
 The coordinator gains `POST /coord/v1/networks/{network_id}/policies` with `{policy}`. The caller must be a member, and the owner must be a current person.
+
+### Direct propagation
+
+Roadmap 2c. Decided on 2026-10-08: only the owner's own hosts receive policies directly, by push plus periodic sync; block lists stay host-local.
+
+A coordinator could otherwise withhold a newer policy, such as a withdrawal, from the owner's other hosts until the older one expires. With direct propagation, withholding it also requires partitioning those hosts from one another.
+
+**Siblings.** In a network, the siblings of a host bound to person P are the other current, unrevoked member hosts bound to P in the host's membership view. A host propagates only policies of its own bound person, only to its siblings, and only over the peer transport.
+
+**Accepting a policy.** A host stores a policy delivered by the coordinator, by a peer, or by its owner's CLI when the policy verifies (owner a current person, valid signature, inside its validity window), and either:
+- its version is higher than the stored one; or
+- its version is equal and its signed statement has a lower lowercase hex SHA-256 than the stored one's.
+
+The tie-break lets hosts converge without coordination when siblings sign the same version concurrently, as simultaneous renewals do. The coordinator keeps refusing an equal version with 409, so it may hold the tie-break's loser; receivers always evaluate their own newest stored version. A host never accepts a lower version. Each stored policy records `network.policy_updated`.
+
+**Peer routes**, on the peer router:
+
+| Route | Body | Behavior |
+| --- | --- | --- |
+| `POST /peer/v1/networks/{network_id}/policies` | `{policy}` | The sender must be a sibling for the policy's owner, and so must the receiver; otherwise 403. The receiver applies the acceptance rule, and returns 200 with `{person_id, version, sha256}` for its stored policy afterwards, so the sender learns whether it is behind or ahead. An invalid policy returns 400. |
+| `GET /peer/v1/networks/{network_id}/policies/{person_id}` | none | The receiver's stored policy for that person, for a sibling of that person only; otherwise 403. 404 when it holds none. |
+
+**Push.** When a host stores a policy of its own bound person, from any source, it queues a delivery of that policy to each sibling and to the coordinator, superseding older queued deliveries. A delivery is done when the target reports the same or a higher version, the same policy, or, for the coordinator, 200, 201, or a 409 for an equal or lower version. It retries with backoff from 1 second to 5 minutes with ±20% jitter. A delivery to a host that is no longer a sibling is dropped. A sibling ahead of this host is handled by the next sync.
+
+**Sync.** On start, every 5 minutes, and when its membership view gains a sibling, a host asks each sibling for its stored policy of their person, and applies the acceptance rule to the answer. A reachable sibling therefore delivers a missed policy within one interval.
+
+**Commands:**
+
+| CLI after `--state DIR` | Local API | Behavior |
+| --- | --- | --- |
+| `access sync --network ID` | `POST /v1/networks/{id}/policy/sync` | Runs one sync with every sibling now and retries pending deliveries. Returns the status below. |
+| `access sync --network ID --status` | `GET /v1/networks/{id}/policy/sync` | `{person_id, version, sha256, deliveries}`, where each delivery is `{target, version, state, attempts, next_attempt_at, error, delivered_at}`, `target` is a sibling host ID or `coordinator`, and `state` is `pending` or `delivered`. |
+
+**Storage.** Database version 12 adds:
+
+```sql
+CREATE TABLE policy_deliveries (network_id TEXT NOT NULL, person_id TEXT NOT NULL, target TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, person_id, target));
+PRAGMA user_version = 12;
+```
+
+Older binaries reject version 12. New activity kinds:
+- `network.policy_delivered`, with the subject `<person_id>/<target>`;
+- `network.policy_synced`, recorded when a sync stored a newer policy, with the subject `<person_id>/<sibling>`.
+
+**Verification.** `conformance/policy_sync.py` runs every Go/Rust combination of an owner's two hosts, plus a third host as a sender. It covers:
+- a withdrawal signed on one host while the coordinator is stopped: the sibling stores it by direct push, refuses the sender under the withdrawn rule, and the coordinator receives it once restarted;
+- a sibling offline during the push, catching up on restart and by sync;
+- concurrent same-version policies from both siblings converging on the tie-break winner;
+- refusal of pushes and fetches from a non-sibling, and of lower versions;
+- `access sync` and its status;
+- migration from version 11 to version 12.
 
 ## Relay
 
