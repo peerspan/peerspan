@@ -421,7 +421,7 @@ def check_mcp(sender, receiver, a, b, node, script, root, channels):
     assert not failed and done['state'] == 'succeeded', done
     update = channel_event(origin, 'task_update')
     while update['meta']['state'] != 'succeeded':
-        assert update['meta']['artifacts'] is None, update
+        assert 'artifacts' not in update['meta'], update
         update = channel_event(origin, 'task_update')
     results = update['meta']['artifacts']
     assert [(x['name'], x['sha256']) for x in results] == [('answer.txt', sha(b'a heading and a question'))], update

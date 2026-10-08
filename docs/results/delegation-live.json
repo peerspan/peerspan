@@ -1,0 +1,63 @@
+{
+  "checked_at": "2026-10-08T02:55:33.149062+00:00",
+  "mode": "live",
+  "host_implementations": {
+    "alice": "Go",
+    "bob": "Rust",
+    "carol": "Go"
+  },
+  "chain": "alice → bob → carol (2 links, depth 1 then 0)",
+  "claude_version": "2.1.293 (Claude Code)",
+  "mcp_protocols": [
+    "2025-11-25",
+    "2025-11-25",
+    "2025-11-25"
+  ],
+  "model_observed": {
+    "alice_delegated_with_delegate_task": true,
+    "bob_accepted_and_forwarded_with_parent_task_id": true,
+    "carol_accepted_progressed_completed_with_artifact": true,
+    "bob_saved_artifact_with_artifact_save": true,
+    "alice_reported_final_result_in_terminal": true,
+    "tool_calls": {
+      "alice": {
+        "list_destinations": 1,
+        "delegate_task": 1,
+        "task_status": 1
+      },
+      "bob": {
+        "delegate_task": 1,
+        "task_accept": 1,
+        "task_complete": 1,
+        "artifact_save": 1
+      },
+      "carol": {
+        "task_accept": 1,
+        "task_progress": 1,
+        "task_complete": 1
+      }
+    }
+  },
+  "three_same_running_sessions": true,
+  "builtin_tools_enabled": false,
+  "permission_relay_enabled": false,
+  "harness_verified": {
+    "parent_submitted_by_alice_route": true,
+    "subtask_submitted_by_bob_route_with_parent": true,
+    "carol_received_two_link_chain_from_alice": true,
+    "carol_task_authorized_by_originator_grant": true,
+    "all_tasks_succeeded": true,
+    "carol_progress_and_output_recorded": true,
+    "bob_output_includes_carol_result": true,
+    "artifact_digest_matches_carol_bob_and_saved_file": true,
+    "no_owner_cli_task_command_in_flow": true,
+    "carol_event_meta_originator_fields": true
+  },
+  "evidence": "harness_verified comes from host databases, owner CLI records read after the flow, and the saved file; model_observed comes from each session's own transcript (its Capsule tool calls and terminal text).",
+  "limitations": [
+    "Three isolated hosts over loopback, not separate physical machines.",
+    "Hosts joined with host-only invites, so no person is bound and originator_person_id is null; person-bound originators are covered by conformance/delegation.py.",
+    "Each session followed explicit step-by-step instructions naming the tools, destinations, and paths; this shows the MCP surface is usable by the models, not that they plan delegation unaided.",
+    "Carol's event meta is checked in her session transcript as delivered channel attributes; the model's reading of it is not separately tested."
+  ]
+}

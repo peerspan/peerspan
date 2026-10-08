@@ -6,7 +6,30 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { readCredential, createChannel, AdapterError } from './channel.mjs';
+import { readCredential, createChannel, AdapterError, channelParams } from './channel.mjs';
+
+test('channel meta holds only strings, as Claude Code requires', () => {
+  const params = channelParams({
+    content: 'work',
+    meta: {
+      kind: 'task',
+      sequence: 4,
+      delegable: false,
+      chain_hosts: ['host_a', 'host_b'],
+      artifacts: [{ name: 'r.txt', size: 3 }],
+      originator_person_id: null,
+      origin_session_id: undefined
+    }
+  });
+  assert.equal(params.content, 'work');
+  assert.deepEqual(params.meta, {
+    kind: 'task',
+    sequence: '4',
+    delegable: 'false',
+    chain_hosts: '["host_a","host_b"]',
+    artifacts: '[{"name":"r.txt","size":3}]'
+  });
+});
 
 test('credentials must be private regular files; symlinks are refused', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'capsule-channel-'));

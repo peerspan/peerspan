@@ -175,8 +175,9 @@ def check(go, rust, node, label):
             # The route's session is the origin; these hosts are unbound.
             assert request["meta"]["origin_agent_id"] == aa["id"], request
             assert request["meta"]["origin_session_id"] == ass["id"], request
-            assert request["meta"]["sender_person_id"] is None, request
-            assert request["meta"]["sender_person"] is None, request
+            # Null fields are absent from Claude channel meta.
+            assert "sender_person_id" not in request["meta"], request
+            assert "sender_person" not in request["meta"], request
             assert not cb.reply(
                 request["meta"]["delivery_id"], "reply from agent B"
             ).get("isError")

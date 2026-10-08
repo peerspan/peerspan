@@ -41,6 +41,8 @@ Version 6 adds connection leases and instance digests. A bound adapter can recov
 
 The adapter uses the official MCP SDK over stdio, declares only `claude/channel`, and exposes `list_destinations`, `send`, and a correlated `reply` tool. It reads its credential from a private file, calls only the adapter socket, and never logs the token, instance secret, or message contents. It connects after MCP initialization and renews its lease while polling. Transient failures reconnect the original instance without redelivering uncertain content; owner withdrawal or a changed attachment stops access. Writing an MCP notification is distinct from receiving a model reply.
 
+Claude Code accepts only string values in a channel notification's `meta` and drops the MCP connection on any other. The channel therefore omits fields that are null and sends booleans, numbers, and lists (such as `delegable`, `sequence`, `chain_hosts`, and `artifacts`) as their JSON text. Other integrations receive the same fields with their JSON types.
+
 Claude Code [Channels](https://code.claude.com/docs/en/channels) are a research preview requiring explicit session opt-in and applicable organization policy. The [reference](https://code.claude.com/docs/en/channels-reference) describes development loading, message notifications, and reply tools. An unconfigured running process is not automatically attachable. Record the actual Claude version, negotiated MCP revision, observed behavior while busy, and live-test result separately from deterministic conformance.
 
 ## Grant predicate

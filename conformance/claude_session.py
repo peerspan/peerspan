@@ -25,8 +25,22 @@ def wait_for(check, seconds=60):
     raise AssertionError("live Claude condition timed out")
 
 
+def session_environment():
+    """The test session's environment, without an enclosing Claude session's
+    variables, which would otherwise attach it to that session's state."""
+    env = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith(("CLAUDE_CODE_", "CLAUDE_PID", "CLAUDE_EFFORT")) and key not in ("CLAUDECODE", "AI_AGENT")
+    }
+    return dict(env, TERM="xterm-256color")
+
+
+DEFAULT_TOOLS = ["list_destinations", "send", "send_status", "reply"]
+
+
 class ClaudeSession:
-    def __init__(self, claude, node, script, host, secret, directory, launch=None, credential_path=None):
+    def __init__(self, claude, node, script, host, secret, directory, launch=None, credential_path=None,
+                 allowed_tools=DEFAULT_TOOLS):
         self.directory = directory
         directory.mkdir(mode=0o700)
         self.sid = str(uuid.uuid4())
@@ -78,7 +92,7 @@ class ClaudeSession:
             "--tools",
             "",
             "--allowedTools",
-            "mcp__capsule__list_destinations,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply",
+            ",".join("mcp__capsule__" + name for name in allowed_tools),
             "--permission-mode",
             "dontAsk",
             "--disable-slash-commands",
@@ -100,7 +114,7 @@ class ClaudeSession:
             stdin=slave,
             stdout=slave,
             stderr=slave,
-            env=dict(os.environ, TERM="xterm-256color"),
+            env=session_environment(),
             preexec_fn=terminal,
         )
         os.close(slave)

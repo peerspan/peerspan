@@ -8,6 +8,18 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 export { readCredential, AdapterError, adapterClient } from '../shared/adapter.mjs';
 import { createAdapter, configuredAdapter, instructions } from '../shared/adapter.mjs';
 
+// Claude Code accepts only string meta values and drops the connection on any
+// other, so null fields are omitted and booleans, numbers, and lists are sent
+// as JSON text.
+export function channelParams(params) {
+  const meta = {};
+  for (const [key, value] of Object.entries(params.meta ?? {})) {
+    if (value === null || value === undefined) continue;
+    meta[key] = typeof value === 'string' ? value : JSON.stringify(value);
+  }
+  return { ...params, meta };
+}
+
 function channelServer(adapter) {
   const server = new Server(
     { name: 'capsule', version: '0.1.0' },
@@ -37,7 +49,10 @@ export function createChannel(options) {
   const adapter = createAdapter({
     ...options,
     notify: (params) =>
-      channel.server.notification({ method: 'notifications/claude/channel', params })
+      channel.server.notification({
+        method: 'notifications/claude/channel',
+        params: channelParams(params)
+      })
   });
   channel = channelServer(adapter);
   return channel;
@@ -47,7 +62,10 @@ export async function configuredChannel(socketPath, credentialPath, options = {}
   const adapter = await configuredAdapter(socketPath, credentialPath, {
     ...options,
     notify: (params) =>
-      channel.server.notification({ method: 'notifications/claude/channel', params })
+      channel.server.notification({
+        method: 'notifications/claude/channel',
+        params: channelParams(params)
+      })
   });
   channel = channelServer(adapter);
   return channel;

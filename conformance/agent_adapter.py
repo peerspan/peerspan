@@ -119,6 +119,18 @@ def check_v2_migration(original_binary, replacement_binary, label):
     print(label + ': v3→v11 migration/rollback passed', flush=True)
 
 
+# Channel meta fields the Claude channel sends as JSON text.
+JSON_META = {'cancel_requested', 'artifacts', 'chain_hosts', 'delegable', 'sequence'}
+
+
+def decoded(params):
+    """Check that meta holds only strings, as Claude Code requires, and decode
+    the JSON-text fields; null fields are absent."""
+    meta = params['meta']
+    assert all(isinstance(value, str) for value in meta.values()), meta
+    return {**params, 'meta': {key: json.loads(value) if key in JSON_META else value for key, value in meta.items()}}
+
+
 class Channel:
     def __init__(self, node, script, receiver, secret, directory):
         directory.mkdir(parents=True, exist_ok=True)
@@ -180,13 +192,13 @@ class Channel:
     def notification(self):
         for index, event in enumerate(self.notifications):
             if event.get('method') == 'notifications/claude/channel':
-                return self.notifications.pop(index)['params']
+                return decoded(self.notifications.pop(index)['params'])
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             event = self.events.get(timeout=max(.01, deadline - time.monotonic()))
             assert event is not None
             if event.get('method') == 'notifications/claude/channel':
-                return event['params']
+                return decoded(event['params'])
             self.notifications.append(event)
         raise AssertionError('channel notification timed out')
 
@@ -262,7 +274,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert event['meta']['sender_host_id'] == a['id']
             # An owner send without --from-agent, from an unbound host.
             for field in ('origin_agent_id', 'origin_session_id', 'sender_person_id', 'sender_person'):
-                assert field in event['meta'] and event['meta'][field] is None, (field, event['meta'])
+                assert field not in event['meta'], (field, event['meta'])
             delivery = event['meta']['delivery_id']
             deadline = time.monotonic() + 3
             while receiver.cli('delivery', 'inspect', delivery)['state'] == 'unknown':
