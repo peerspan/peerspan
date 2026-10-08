@@ -272,7 +272,7 @@ PRAGMA user_version = 5;
 ## Slice 3: team onboarding
 
 Decided with the owner on 2026-10-09:
-- `network create` and `join` fail without a usable person key unless given `--no-person`;
+- `network create` and `join` generate a person key when none is found (revised the same day from failing without one);
 - `allow` sets a principal's access for an agent scope, rather than adding to it;
 - self access works while out of sync with coordination;
 - `deny` without `--agent` removes the principal from every rule.
@@ -281,9 +281,9 @@ Decided with the owner on 2026-10-09:
 
 | Command | Behavior |
 | --- | --- |
-| `network create NAME [--as LABEL]` | `NAME` may be given positionally; `--name` still works, and giving both is an error. `--as` is the person and member label; it defaults to the login name, and `--member` remains as an alias. A person key is required (below). Otherwise this is today's create, including admitting and binding the creator. |
+| `network create NAME [--as LABEL]` | `NAME` may be given positionally; `--name` still works, and giving both is an error. `--as` is the person and member label; it defaults to the login name, and `--member` remains as an alias. A person key is always used (below). Otherwise this is today's create, including admitting and binding the creator. |
 | `invite LABEL [--expires-in D \| --expires-at T] [--network ID]` | Issues a member invite, like `network invite --member LABEL` with the slice 1 default of 7 days. Prints `{network_id, member, invite_expires_at, token, join}`, where `join` is the string `capsule join TOKEN`. |
-| `join TOKEN` | Same as `network join --token TOKEN`, with a person key required. A person already admitted with this key (for example, on a second machine) is bound without a new admission, as today. |
+| `join TOKEN` | Same as `network join --token TOKEN`, always with a person key (below). A person already admitted with this key (for example, on a second machine) is bound without a new admission, as today. |
 | `allow PRINCIPAL [--agent NAME] [--no-tasks] [--files SIZE] [--delegate] [--network ID]` | Sets PRINCIPAL's access (below) and signs the next policy version. |
 | `deny PRINCIPAL [--agent NAME] [--network ID]` | Removes PRINCIPAL (below) and signs the next policy version. |
 | `block TARGET` / `unblock TARGET` | `TARGET` is a host ID (`host_…`), or else a person ID or label. Otherwise the same as `access block`/`unblock`. |
@@ -300,7 +300,29 @@ Decided with the owner on 2026-10-09:
 
 `network join`, `network invite`, `access allow`, and `access deny` move to `help advanced`, unchanged.
 
-**Person keys.** `network create`, `network join`, and `join` require a person key. They use `--person-key` if given, otherwise the only `ssh-ed25519` identity in `ssh-agent`. With no agent, no such key, or several, they fail before any request. The error says to run `ssh-add` or pass `--person-key`, or to use `--no-person` for a host-only membership. `--no-person` keeps today's host-only behavior. The member invite's person part and the rest of the one-command flows are unchanged.
+**Person keys.** `network create`, `network join`, and `join` choose a person key in this order:
+1. `--person-key PATH`, as today; an unusable one is an error before any request;
+2. the **generated key**, if `$XDG_CONFIG_HOME/capsule/person_ed25519` exists (default `~/.config/capsule`);
+3. the only `ssh-ed25519` identity in `ssh-agent`;
+4. otherwise, a newly generated key.
+
+With several `ssh-ed25519` identities in `ssh-agent` and no generated key, the command fails before any request. The error lists the keys' comments and fingerprints and says to pass `--person-key`. An existing generated key wins over an agent key, so a person's identity never changes because a key was later added to the agent. `--no-person` keeps today's host-only behavior and generates nothing.
+
+**The generated key** is an unencrypted OpenSSH `ssh-ed25519` private key at `person_ed25519`, mode 0600, with its public key beside it at `person_ed25519.pub`, mode 0644, in a 0700 directory. Its comment is `capsule LABEL@HOSTNAME`. It is created only when step 4 is reached and the command is about to succeed, after argument validation, so a refused command leaves no key behind. It is never overwritten. Signatures use the same `SSHSIG` format as any person key, so nothing on the wire or in other hosts changes.
+
+**Command output.** The response's `person` gains `key`: `{source, public_key, path}`.
+- `source` is `option`, `generated`, `agent`, or `new`.
+- `path` is the file, or null for an agent key.
+- When `source` is `new`, `next` also says to back up the key, and to copy it to the user's other machines to use the same identity there.
+
+**Second machines.** A second machine with neither the same key in its agent nor a copy of the generated key creates a different person. Its join's person part then reports the member label as taken, as it does today, and the host joins without a person. `next` says to copy `person_ed25519` from the first machine and run `network bind`.
+
+**Renewal with a generated key.**
+- `run` gains `--person-key-file PATH`. By default it is the generated key's path, read when the daemon starts, if that file exists.
+- The daemon renews a policy with that file when the file holds the bound person's key and the `--person-agent` socket does not.
+- This is the only person key a daemon reads, and it reads it from the user's own configuration, never from its state directory. Keys held in `ssh-agent` are still never read by a daemon.
+- Status item 10 (`person_agent_unreachable`) is not raised when this file holds the bound person's key.
+- `install` passes no `--person-key-file`, relying on the default; the unit's `HOME` is the installing user's.
 
 ### Principals and sizes
 
@@ -373,7 +395,15 @@ Blocks do not apply.
 
 `conformance/launch_onboarding.py` is written from this contract by an author independent of both implementations. It runs across all Go/Rust CLI and daemon pairings, with the Go coordinator and OpenSSH. It covers:
 - **Create:** `network create NAME` with `--as` and its default, positional and `--name` forms, and both together refused.
-- **Person keys:** refusal without a usable key (no agent, no key, two keys) leaves no network and no membership; `--no-person` gives host-only behavior.
+- **Person keys:**
+  - generation with no agent and with an empty agent: file modes, comment, and `key.source` `new`;
+  - reuse of the generated key on the next command, `generated`, even after an agent key appears;
+  - the single agent key (`agent`) and `--person-key` (`option`);
+  - two agent keys with no generated key refused, leaving no network, no membership, and no key file;
+  - a refused command creating no key;
+  - `--no-person` generating nothing;
+  - a second machine with a different key reporting the taken label, then bound after copying the key;
+  - policy renewal by a daemon with only the generated key (crafted near-expiry policy, no agent), and item 10 absent.
 - **Invite and join:** `invite` output and its `join` line, used verbatim by `join`; a second machine of the same person bound without a new admission.
 - **Root help:** the new command set; the moved commands still run.
 - **`allow`:**
