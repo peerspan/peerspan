@@ -7,6 +7,9 @@ OpenCode 1.18.31+.
 
 ## Install the plugin once
 
+A Capsule release bundle already contains the pinned production dependencies.
+In a source checkout only, install them with:
+
 ```sh
 npm ci --ignore-scripts --prefix integrations/opencode
 ```

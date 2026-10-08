@@ -113,12 +113,15 @@ pub enum SessionCommand {
     Setup {
         #[arg(long)]
         directory: PathBuf,
-        #[arg(long, requires_all=["agent","expires_at"])]
+        #[arg(long, requires = "agent")]
         harness: Option<String>,
-        #[arg(long, requires_all=["harness","expires_at"])]
+        #[arg(long, requires = "harness")]
         agent: Option<String>,
-        #[arg(long, requires_all=["agent","harness"])]
+        #[arg(long, requires_all=["agent","harness"], conflicts_with = "expires_in")]
         expires_at: Option<String>,
+        /// Relative authorization lifetime, from 1m to 720h
+        #[arg(long, requires_all=["agent","harness"], conflicts_with = "expires_at")]
+        expires_in: Option<String>,
         #[arg(long, requires = "agent")]
         integrations: Option<PathBuf>,
         #[arg(long, requires = "agent")]

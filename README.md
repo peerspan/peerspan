@@ -18,6 +18,12 @@ Each implementation has its own dependency manifest and lock/checksum files. The
 
 New contributors can start with the [architecture and onboarding guide](docs/architecture-onboarding.md), which maps the Go and Rust source, deployment interfaces, durable data, and message, enrollment, retry, and recovery sequences.
 
+For an end-user-oriented path, see the [quick start](docs/quick-start.md). A
+maintainer can produce a self-contained installed-layout archive with pinned
+integration dependencies by running `scripts/package-release.sh go VERSION` (or
+selecting `rust`). The project has not yet selected or published one default OSS
+implementation, so that choice remains explicit during this preview.
+
 ## Implemented behavior
 
 Both host daemons provide a durable local identity, registered agents, separate session attachment records, and a transactional activity log. They start without coordination and expose owner-local administration over a private Unix socket.
@@ -135,6 +141,7 @@ python3 conformance/claude_setup.py --go /tmp/capsule-host-go --rust rust/target
 python3 conformance/harness_setup.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host
 python3 conformance/codex_integration.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
 python3 conformance/opencode_integration.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --node NODE_BINARY
+python3 conformance/installed_bundle.py --archive RELEASE_ARCHIVE --node NODE_BINARY
 ```
 
 `nat_lab.py` needs root. It builds Linux network namespaces with nftables NAT routers between each host and the coordinator, and runs every Go/Rust pairing behind port-preserving, fully random, and UDP-blocking NATs. It removes everything it creates.

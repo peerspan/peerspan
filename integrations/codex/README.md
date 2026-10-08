@@ -5,6 +5,9 @@ sidecar joins its existing local app-server socket and preserves the thread,
 history, model, sandbox and normal tool approvals. Requires Node 22+ and Codex
 CLI/backend 0.160.0+.
 
+Release bundles already contain the pinned production dependencies. In a source
+checkout, install them before attaching a session:
+
 ```sh
 npm ci --ignore-scripts --prefix integrations/codex
 capsule-host --state STATE session setup --harness codex \

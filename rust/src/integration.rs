@@ -1,7 +1,7 @@
 //! Native owner session lifecycle, independent of a harness or its runtime.
 use crate::cli::SessionCommand;
 use anyhow::{Context, bail};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use hyper::Method;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -914,18 +914,27 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
             harness,
             agent,
             expires_at,
+            expires_in,
             integrations,
             runner,
             routes,
             options,
         } => {
             let p = if let Some(agent) = agent {
+                let expiry = match (expires_at, expires_in) {
+                    (Some(expiry), None) => expiry,
+                    (None, Some(duration)) => relative_expiry(&duration)?,
+                    (None, None) => bail!("--expires-at or --expires-in is required"),
+                    (Some(_), Some(_)) => {
+                        bail!("--expires-at and --expires-in are mutually exclusive")
+                    }
+                };
                 prepare(SetupOptions {
                     directory,
                     state,
                     harness: harness.context("--harness is required")?,
                     agent,
-                    expiry: expires_at.context("--expires-at is required")?,
+                    expiry,
                     integrations,
                     runner,
                     routes,
@@ -1014,4 +1023,50 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
     }
     std::env::set_current_dir(workspace)?;
     Err(Command::new(program).args(plan.args).exec()).context("harness launch failed")
+}
+
+fn relative_expiry(value: &str) -> anyhow::Result<String> {
+    let (number, unit) = if let Some(number) = value.strip_suffix('m') {
+        (number, "m")
+    } else if let Some(number) = value.strip_suffix('h') {
+        (number, "h")
+    } else {
+        bail!("--expires-in must be a whole-minute or whole-hour duration from 1m to 720h")
+    };
+    let amount: i64 = number.parse().with_context(
+        || "--expires-in must be a whole-minute or whole-hour duration from 1m to 720h",
+    )?;
+    let duration = match unit {
+        "m" => TimeDelta::try_minutes(amount),
+        "h" => TimeDelta::try_hours(amount),
+        _ => None,
+    }
+    .filter(|duration| *duration >= TimeDelta::minutes(1) && *duration <= TimeDelta::days(30))
+    .context("--expires-in must be a whole-minute or whole-hour duration from 1m to 720h")?;
+    Ok((Utc::now() + duration).to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_expiry_is_bounded_and_uses_whole_minutes_or_hours() {
+        let before = Utc::now() + TimeDelta::minutes(59);
+        let expiry = DateTime::parse_from_rfc3339(&relative_expiry("1h").unwrap()).unwrap();
+        let after = Utc::now() + TimeDelta::minutes(61);
+        assert!(expiry > before && expiry < after);
+        for invalid in [
+            "",
+            "0m",
+            "30s",
+            "1h30m",
+            "721h",
+            "999999999999999999999h",
+            "1é",
+            "1💥",
+        ] {
+            assert!(relative_expiry(invalid).is_err(), "{invalid}");
+        }
+    }
 }

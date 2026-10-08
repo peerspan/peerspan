@@ -294,6 +294,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 			fs.String("runner", "", "integration helper executable override")
 			fs.String("agent", "", "registered agent ID")
 			fs.String("expires-at", "", "future RFC3339 authorization expiry")
+			fs.String("expires-in", "", "relative authorization lifetime (1m to 720h)")
 			fs.String("routes", "", "owner destination JSON array")
 			fs.StringArray("option", nil, "integration-specific KEY=VALUE; repeatable")
 		}

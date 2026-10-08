@@ -6,6 +6,7 @@
 /capsule
 /capsule-host
 /go/capsule-host
+/dist/
 
 __pycache__/
 node_modules/

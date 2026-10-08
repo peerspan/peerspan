@@ -1,0 +1,203 @@
+#!/bin/sh
+set -eu
+
+usage() {
+  echo "usage: $0 go|rust VERSION [OUTPUT_DIR]" >&2
+  exit 2
+}
+
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+
+implementation=$1
+version=$2
+output=${3:-dist}
+
+case "$implementation" in
+  go|rust) ;;
+  *) usage ;;
+esac
+
+case "$version" in
+  ''|*[!A-Za-z0-9._-]*)
+    echo "VERSION may contain only letters, numbers, dots, underscores, and hyphens" >&2
+    exit 2
+    ;;
+esac
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo=$(dirname "$script_dir")
+
+if git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  source_revision=$(git -C "$repo" rev-parse HEAD)
+  if [ -n "$(git -C "$repo" status --porcelain)" ]; then
+    source_dirty=true
+  else
+    source_dirty=false
+  fi
+else
+  source_revision=unknown
+  source_dirty=null
+fi
+
+for command in node npm tar file cut; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "missing required command: $command" >&2
+    exit 1
+  fi
+done
+
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum_command=sha256sum
+elif command -v shasum >/dev/null 2>&1; then
+  checksum_command="shasum -a 256"
+else
+  echo "neither sha256sum nor shasum is available" >&2
+  exit 1
+fi
+
+node_major=$(node -p "process.versions.node.split('.')[0]")
+if [ "$node_major" -lt 22 ]; then
+  echo "Node.js 22 or later is required; found $(node --version)" >&2
+  exit 1
+fi
+
+if [ "$(uname -s)" != Linux ]; then
+  echo "release packaging currently supports validated native Linux builds only" >&2
+  exit 1
+fi
+os=linux
+
+case "$(uname -m)" in
+  x86_64|amd64)
+    arch=amd64
+    go_arch=amd64
+    rust_target=x86_64-unknown-linux-gnu
+    file_arch='x86-64'
+    ;;
+  arm64|aarch64)
+    arch=arm64
+    go_arch=arm64
+    rust_target=aarch64-unknown-linux-gnu
+    file_arch='ARM aarch64'
+    ;;
+  *)
+    echo "unsupported architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+mkdir -p "$output"
+output=$(CDPATH= cd -- "$output" && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/capsule-package.XXXXXX")
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
+name="capsule-${version}-${os}-${arch}-${implementation}"
+bundle="$work/$name"
+mkdir -p "$bundle/bin" "$bundle/share/capsule"
+
+archive="$output/$name.tar.gz"
+checksum="$archive.sha256"
+if { [ -e "$archive" ] || [ -e "$checksum" ]; } && [ "${CAPSULE_PACKAGE_OVERWRITE:-}" != 1 ]; then
+  echo "package output already exists; remove it or set CAPSULE_PACKAGE_OVERWRITE=1" >&2
+  exit 1
+fi
+
+case "$implementation" in
+  go)
+    command -v go >/dev/null 2>&1 || {
+      echo "missing required command: go" >&2
+      exit 1
+    }
+    GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
+      go -C "$repo/go" build -trimpath -o "$bundle/bin/capsule-host" ./cmd/capsule-host
+    ;;
+  rust)
+    command -v cargo >/dev/null 2>&1 || {
+      echo "missing required command: cargo" >&2
+      exit 1
+    }
+    cargo_target="$repo/rust/target/capsule-package-$rust_target"
+    CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
+      --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml"
+    cp "$cargo_target/$rust_target/release/capsule-host" "$bundle/bin/capsule-host"
+    ;;
+esac
+
+case "$(file -b "$bundle/bin/capsule-host")" in
+  *ELF*"$file_arch"*) ;;
+  *)
+    echo "built capsule-host does not match linux/$arch" >&2
+    exit 1
+    ;;
+esac
+
+integrations="$bundle/share/capsule/integrations"
+copy_integration() {
+  integration=$1
+  shift
+  mkdir -p "$integrations/$integration"
+  for source in "$@"; do
+    if [ -L "$repo/integrations/$integration/$source" ] || [ ! -f "$repo/integrations/$integration/$source" ]; then
+      echo "missing or linked integration source: $integration/$source" >&2
+      exit 1
+    fi
+    cp "$repo/integrations/$integration/$source" "$integrations/$integration/$source"
+  done
+}
+
+copy_integration shared adapter.mjs presentation.mjs provider.mjs tools.mjs
+copy_integration claude-channel integration.json package.json package-lock.json README.md \
+  channel.mjs provider.mjs
+copy_integration codex integration.json package.json package-lock.json README.md \
+  bridge.mjs configuration.mjs connection.mjs mcp.mjs provider.mjs thread.mjs
+copy_integration opencode integration.json package.json package-lock.json README.md \
+  binding.mjs bridge.mjs client.mjs inspection.mjs plugin.mjs provider.mjs
+
+for integration in claude-channel codex opencode; do
+  npm ci --omit=dev --ignore-scripts \
+    --prefix "$bundle/share/capsule/integrations/$integration"
+done
+
+cp "$repo/docs/quick-start.md" "$bundle/README.md"
+
+cat > "$bundle/RELEASE.json" <<EOF
+{
+  "version": "$version",
+  "implementation": "$implementation",
+  "source_revision": "$source_revision",
+  "source_dirty": $source_dirty,
+  "os": "$os",
+  "architecture": "$arch",
+  "node_requirement": ">=22",
+  "rust_libc": "glibc (builder baseline; rust bundles only)"
+}
+EOF
+
+for required in \
+  "$bundle/bin/capsule-host" \
+  "$bundle/RELEASE.json" \
+  "$bundle/share/capsule/integrations/shared/adapter.mjs" \
+  "$bundle/share/capsule/integrations/claude-channel/integration.json" \
+  "$bundle/share/capsule/integrations/codex/integration.json" \
+  "$bundle/share/capsule/integrations/opencode/integration.json" \
+  "$bundle/share/capsule/integrations/claude-channel/node_modules/@modelcontextprotocol/sdk/package.json" \
+  "$bundle/share/capsule/integrations/codex/node_modules/ws/package.json" \
+  "$bundle/share/capsule/integrations/opencode/node_modules/@opencode-ai/plugin/package.json"
+do
+  if [ ! -e "$required" ]; then
+    echo "incomplete bundle; missing $required" >&2
+    exit 1
+  fi
+done
+
+archive_tmp=$(mktemp "$output/.${name}.archive.XXXXXX")
+checksum_tmp=$(mktemp "$output/.${name}.checksum.XXXXXX")
+trap 'rm -rf "$work"; rm -f "$archive_tmp" "$checksum_tmp"' EXIT HUP INT TERM
+tar -C "$work" -czf "$archive_tmp" "$name"
+digest=$($checksum_command "$archive_tmp" | cut -d ' ' -f 1)
+printf '%s  %s\n' "$digest" "$(basename "$archive")" > "$checksum_tmp"
+mv "$archive_tmp" "$archive"
+mv "$checksum_tmp" "$checksum"
+
+echo "$archive"
+echo "$checksum"

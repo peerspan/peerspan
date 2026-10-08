@@ -5,7 +5,7 @@ Both native CLIs own session profiles, credential issuance, destination scopes, 
 ## Owner commands
 
 ```sh
-capsule-host --state STATE session setup --harness claude-code --directory DIR --agent AGENT_ID --expires-at FUTURE_TIME --integrations /absolute/capsule/integrations --runner /absolute/node --option executable=/absolute/claude --routes /absolute/destinations.json
+capsule-host --state STATE session setup --harness claude-code --directory DIR --agent AGENT_ID --expires-in 24h --integrations /absolute/capsule/integrations --runner /absolute/node --option executable=/absolute/claude --routes /absolute/destinations.json
 capsule-host session start --directory DIR --workspace /absolute/project -- --name collaboration
 capsule-host session doctor --directory DIR
 ```

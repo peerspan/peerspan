@@ -4,7 +4,8 @@ One Node.js adapter connects an opted-in Claude Code session to either the Go or
 
 ## Configure one session
 
-Install Node.js 22 or later, then install the adapter dependencies:
+Install Node.js 22 or later. A Capsule release bundle already contains the pinned
+production dependencies. In a source checkout only, install them with:
 
 ```bash
 cd integrations/claude-channel
