@@ -1,6 +1,6 @@
 # Launch readiness: onboarding, status, and a smaller CLI
 
-Status: proposed; decisions settled with the owner on 2026-10-08 (see [Decisions](#decisions)). This is roadmap milestone 7, and nothing here is implemented yet. It builds on person identity and owner policy (milestone 2b), direct policy propagation (2c), and tasks (milestone 6).
+Status: proposed; decisions settled with the owner on 2026-10-08 (see [Decisions](#decisions)). This is roadmap milestone 7, and nothing here is implemented yet. It builds on person identity and owner policy (milestone 2b), direct policy propagation (2c), tasks (milestone 6), and the release bundle and [quick start](quick-start.md), which it replaces as the user path once slice 5 lands.
 
 ## Problem
 
@@ -23,7 +23,7 @@ Getting two Claude Code sessions on two machines to talk takes about 15 commands
 
 **Non-goals:**
 - Hosted accounts, billing, or a web console.
-- Package-manager distribution (Homebrew, apt). Launch ships release binaries plus the user-service installer.
+- Package-manager distribution (Homebrew, apt). Launch ships the existing release bundle (`scripts/package-release.sh`), plus the user-service installer.
 - Windows.
 - Changing the access model: administrators still control membership only, and owners control access to their own agents ([access model](access-model.md)).
 
@@ -64,7 +64,7 @@ Agents then reach each other by name: a Claude session asks to message `bob/clau
 
 ## Commands
 
-The CLI ships as `capsule`. The binary also answers to `capsule-host`, so existing scripts and suites keep working. The root help lists only the commands below; `capsule help advanced` lists everything else, unchanged.
+The CLI ships as `capsule`. The binary also answers to `capsule-host`, so existing scripts and suites keep working. The release bundle gains `bin/capsule` beside `bin/capsule-host`, and both find the bundled integrations as today. The root help lists only the commands below; `capsule help advanced` lists everything else, unchanged.
 
 | Command | Behavior |
 | --- | --- |
@@ -82,12 +82,14 @@ The CLI ships as `capsule`. The binary also answers to `capsule-host`, so existi
 
 **Network defaulting.** Every command that takes `--network` accepts it as optional when the host belongs to exactly one network. With more than one, the command fails and lists them.
 
-**Expiry defaults** (decision 5). `--expires-at` becomes optional everywhere:
+**Expiry defaults** (decision 5). `--expires-at` becomes optional everywhere, and every command that takes it also takes the relative `--expires-in` that `session setup` already accepts:
 - invites default to 7 days;
 - grants default to 30 days;
 - adapter routes default to their session's expiry.
 
-A session's adapter credential is issued for 24 hours, and the daemon extends it by 24 hours whenever the adapter has been connected within the current window. An explicit `--expires-at` is fixed and never extended. An expired session needs `attach` again, which reuses the agent.
+A session's adapter credential is issued for 24 hours, and the daemon extends it by 24 hours whenever the adapter has been connected within the current window. An explicit `--expires-at` or `--expires-in` is fixed and never extended. An expired session needs `attach` again, which reuses the agent.
+
+This reverses the quick start's current rule that expiry is never silently renewed. Renewal stays bounded: it needs a connected adapter, the first extension, and then at most one per hour, is recorded as an `adapter.renewed` activity, `status` shows each session's current expiry, and revoking the adapter or detaching the session ends it at once.
 
 ## Daemon service
 
@@ -95,7 +97,7 @@ A session's adapter credential is issued for 24 hours, and the daemon extends it
 - **Linux:** a systemd user unit at `~/.config/systemd/user/capsule.service` running `capsule run`, restarting on failure, and enabled for the user's login. It does not enable lingering; `status` says how if the user wants the daemon running while logged out.
 - **macOS:** a launchd agent at `~/Library/LaunchAgents/dev.capsule.host.plist` with `RunAtLoad` and `KeepAlive`.
 
-The service records the state directory, the peer listen address (default `0.0.0.0:7401`, chosen free if taken), and `--person-agent` from the installing shell's `SSH_AUTH_SOCK`. On Linux that socket changes between logins, so policy renewal can fail later. `status` reports this and `capsule install` refreshes it. `run` stays available for foreground use.
+The service records the state directory, the peer listen address (default `0.0.0.0:7401`, chosen free if taken), and `--person-agent` from the installing shell's `SSH_AUTH_SOCK`. On Linux that socket changes between logins, so policy renewal can fail later. `status` reports this and `capsule install` refreshes it. `run` stays available for foreground use. This fills the gap the quick start notes, that Capsule has no per-user service installer.
 
 ## Hosted coordinator
 
@@ -154,7 +156,7 @@ Each slice is implemented in Go and Rust with shared conformance, as in earlier 
 2. **Service and coordinator:** `install`/`uninstall`, the hosted default from build variables, and coordinator limits with 429.
 3. **Team onboarding:** `network create NAME`, `invite`, `join`, `allow`/`deny` with `everyone` and `*`, and self access.
 4. **Directory and addressing:** `GET /peer/v1/agents`, discovery, `capsule agents`, `send`/`task` by address, MCP `list_agents` and `to`, and `attach` without routes.
-5. **Acceptance:** a scripted run from empty machines for solo, pair, and three-person setups, counting commands, plus one live run with three Claude Code sessions. The README gains a quick start, and the manual testing guide moves to the advanced path.
+5. **Acceptance:** a scripted run from empty machines for solo, pair, and three-person setups, counting commands, plus one live run with three Claude Code sessions, all from installed release bundles. The [quick start](quick-start.md) is rewritten around the new path, and the manual testing guide moves to the advanced path.
 
 ## Decisions
 
@@ -164,7 +166,7 @@ Settled with the owner on 2026-10-08:
 - **Daemon:** installed as a user service; foreground `run` stays.
 - **CLI surface:** low-level commands stay, hidden behind `help advanced`.
 - **Addressing:** a directory derived from authorization, with `person/agent` names; explicit routes stay as an advanced option.
-- **Expiries** (5): optional everywhere, with defaults; sessions renew while live.
+- **Expiries** (5): optional everywhere, with defaults; sessions renew while live, reversing the quick start's no-renewal rule.
 - **Name:** `capsule`, with `capsule-host` as an alias.
 - **Agents:** `attach` registers the agent if needed.
 - **Allow default** (1): messages and tasks; files and delegation opt-in.
