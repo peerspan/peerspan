@@ -259,21 +259,39 @@ In Nano, save with **Ctrl+O**, Enter, then exit with **Ctrl+X**. See OpenCode's
 different config file.
 
 Load the configuration through OpenCode while idle. If starting a new native TUI,
-run `opencode --hostname 127.0.0.1 --port 4096` in **Tab 8**. Choose
-a model with `/models` and send a baseline prompt before attaching. Find its ID
-with `opencode session list`, then return to **Tab 4**:
+use **Tab 8** and start it in your test project:
+
+```sh
+cd /path/to/your/test-project
+opencode --hostname 127.0.0.1 --port 4096
+```
+
+Choose a model with `/models` and send a baseline prompt before attaching. Return
+to **Tab 4**, set `OPENCODE_PROJECT` to the full directory path used in Tab 8, and
+list its sessions:
+
+```sh
+OPENCODE_PROJECT=/absolute/path/to/your/test-project
+(cd "$OPENCODE_PROJECT" && opencode session list --format json --max-count 10)
+```
+
+Session listing is scoped to the current project. An empty result from the
+Capsule checkout does not mean the conversation is missing. For example, if
+OpenCode started in `/root`, use `OPENCODE_PROJECT=/root`. The subshell above
+preserves Tab 4's working directory. Match the conversation title and copy its
+`id` (starting with `ses_`) into `EXISTING_SESSION_ID` below:
 
 ```sh
 EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$HOST" --state "$B_STATE" session setup --harness opencode \
   --integrations "$CAPSULE/integrations" --runner "$(command -v node)" \
   --option server=http://127.0.0.1:4096 --option session=EXISTING_SESSION_ID \
-  --option directory=ABSOLUTE_PROJECT --option bindings="$BINDINGS" \
+  --option directory="$OPENCODE_PROJECT" --option bindings="$BINDINGS" \
   --directory "$B_PROFILE" --agent B_AGENT_ID \
   --expires-at "$EXPIRES" --routes "$LAB_ROOT/b/destinations.json"
 ```
 
-`ABSOLUTE_PROJECT` is the workspace of that OpenCode conversation. See the
+`OPENCODE_PROJECT` is the workspace of that OpenCode conversation. See the
 [OpenCode attachment guide](../integrations/opencode/README.md) for HTTP
 authentication and stale binding recovery.
 

@@ -50,6 +50,11 @@ Use the server URL and workspace of the existing TUI/server, and select its
 existing conversation ID. Starting `opencode serve` separately creates a different
 server; Capsule does not do that for you.
 
+Run `opencode session list --format json --max-count 10` from the native
+conversation's project directory. The list is scoped to that project, so running
+it from a different checkout can return nothing. Match the title and use its `id`
+(starting with `ses_`); use that conversation's `directory` for `--option directory`.
+
 ```sh
 capsule-host --state STATE session setup --harness opencode \
   --integrations /absolute/capsule/integrations --runner /absolute/node \
