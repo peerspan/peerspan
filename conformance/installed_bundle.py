@@ -226,6 +226,12 @@ def main():
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--node", type=Path, required=True)
     args = parser.parse_args()
+    if not hasattr(tarfile, "data_filter"):
+        parser.error(
+            "safe archive extraction requires Python 3.12+ or an older Python "
+            "release with tarfile.data_filter backported; use a supported "
+            "interpreter to run this maintainer check"
+        )
     check(args.archive.resolve(), args.node.resolve())
 
 

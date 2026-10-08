@@ -125,7 +125,8 @@ scripts/package-release.sh go 0.1.0
 
 Existing output is never overwritten implicitly. Set
 `CAPSULE_PACKAGE_OVERWRITE=1` only when intentionally replacing a local test
-bundle with the same version.
+bundle with the same version. Packaging uses `flock` from Linux util-linux to
+serialize builds of the same release name, including explicit replacements.
 
 The command writes an archive and checksum under `dist/`. It builds for the
 current Linux machine, installs production dependencies from the committed npm
@@ -133,7 +134,10 @@ lockfiles into fresh staging, and includes no coordinator or test probe. Network
 administrators currently build `capsule-coord` separately from the Go source,
 regardless of the selected host implementation.
 
-Maintainers can verify relocation and installed integration discovery with:
+Maintainers can verify relocation and installed integration discovery with
+Python 3.12 or newer (or an older release with `tarfile.data_filter` backported).
+The check requires safe archive extraction and reports a clear error if the
+interpreter lacks it:
 
 ```sh
 python3 conformance/installed_bundle.py \

@@ -146,6 +146,8 @@ python3 conformance/installed_bundle.py --archive RELEASE_ARCHIVE --node NODE_BI
 
 `nat_lab.py` needs root. It builds Linux network namespaces with nftables NAT routers between each host and the coordinator, and runs every Go/Rust pairing behind port-preserving, fully random, and UDP-blocking NATs. It removes everything it creates.
 
+`installed_bundle.py` needs Python 3.12+ or an older release with `tarfile.data_filter` backported for safe archive extraction. Packaging publication regressions run with `python3 -m unittest discover -s conformance -p 'test_package_release.py'`.
+
 The shared suites use temporary state directories. They check local persistence/migration and all four Go/Rust peer pairings, including authentication, grants, atomic acceptance, retry deduplication, dropped receipts, restart, and revocation. Peer raw-wire fixtures use the `capsule-peer-probe` QUIC test client, and the lost-receipt cases use a UDP proxy.
 
 ## Try signed enrollment

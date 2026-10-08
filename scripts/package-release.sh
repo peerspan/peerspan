@@ -39,7 +39,7 @@ else
   source_dirty=null
 fi
 
-for command in node npm tar file cut; do
+for command in node npm tar file cut flock; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "missing required command: $command" >&2
     exit 1
@@ -97,7 +97,14 @@ mkdir -p "$bundle/bin" "$bundle/share/capsule"
 
 archive="$output/$name.tar.gz"
 checksum="$archive.sha256"
-if { [ -e "$archive" ] || [ -e "$checksum" ]; } && [ "${CAPSULE_PACKAGE_OVERWRITE:-}" != 1 ]; then
+# Keep the lock file in place: removing it would let concurrent builders lock
+# different inodes. The kernel releases the lock when the processes exit.
+exec 9>"$output/.${name}.lock"
+if ! flock -n 9; then
+  echo "another packaging process is building this release: $name" >&2
+  exit 1
+fi
+if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$checksum" ]; } && [ "${CAPSULE_PACKAGE_OVERWRITE:-}" != 1 ]; then
   echo "package output already exists; remove it or set CAPSULE_PACKAGE_OVERWRITE=1" >&2
   exit 1
 fi
@@ -196,8 +203,26 @@ trap 'rm -rf "$work"; rm -f "$archive_tmp" "$checksum_tmp"' EXIT HUP INT TERM
 tar -C "$work" -czf "$archive_tmp" "$name"
 digest=$($checksum_command "$archive_tmp" | cut -d ' ' -f 1)
 printf '%s  %s\n' "$digest" "$(basename "$archive")" > "$checksum_tmp"
-mv "$archive_tmp" "$archive"
-mv "$checksum_tmp" "$checksum"
+if [ "${CAPSULE_PACKAGE_OVERWRITE:-}" = 1 ]; then
+  mv -T -- "$archive_tmp" "$archive"
+  mv -T -- "$checksum_tmp" "$checksum"
+else
+  # Hard links publish each complete file atomically without replacing an
+  # output that appeared during the build, including dangling symlinks.
+  if ! ln -T -- "$archive_tmp" "$archive"; then
+    echo "package output appeared during the build; refusing to overwrite it" >&2
+    exit 1
+  fi
+  if ! ln -T -- "$checksum_tmp" "$checksum"; then
+    # Roll back only our archive if checksum publication loses a race.
+    if [ "$archive_tmp" -ef "$archive" ]; then
+      rm -f -- "$archive"
+    fi
+    echo "checksum output appeared during the build; refusing to overwrite it" >&2
+    exit 1
+  fi
+  rm -f -- "$archive_tmp" "$checksum_tmp"
+fi
 
 echo "$archive"
 echo "$checksum"
