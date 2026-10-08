@@ -219,13 +219,38 @@ OpenCode supports [ChatGPT subscription login](https://opencode.ai/docs/provider
 Claude subscriptions work through native Claude Code; Anthropic access through
 OpenCode needs separate API access. See [Anthropic credential guidance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).
 
-Install the Capsule plugin once in the OpenCode configuration you use, preserving
-existing entries. Substitute absolute paths; `ABSOLUTE_LAB_ROOT` is the value of
-`$LAB_ROOT` from Tab 4:
+Install the Capsule plugin once by editing OpenCode's configuration file. In
+**Tab 4**, open the global config (or edit the project/custom config you already
+use):
+
+```sh
+mkdir -p ~/.config/opencode
+nano ~/.config/opencode/opencode.json
+```
+
+Use your preferred text editor if Nano is unavailable. The block below is **file
+contents**, not a shell command. For a new file, paste the whole block. In an
+existing file, add the Capsule entry to its `plugin` array, preserving other
+plugins and settings; add the array if it is absent.
+
+`ABSOLUTE_CAPSULE` means the repository checkout path (`$CAPSULE` in Tab 4).
+`ABSOLUTE_LAB_ROOT` means the test state path (`$LAB_ROOT`). You can print both in
+Tab 4 with `printf '%s\n' "$CAPSULE" "$LAB_ROOT"`. Substitute their full paths in
+the JSON; shell variables and `~` are not expanded there.
 
 ```json
-{"plugin":[["file:///ABSOLUTE_CAPSULE/integrations/opencode/plugin.mjs",{"bindings":"ABSOLUTE_LAB_ROOT/opencode-bindings"}]]}
+{
+  "plugin": [
+    ["file:///ABSOLUTE_CAPSULE/integrations/opencode/plugin.mjs", {
+      "bindings": "ABSOLUTE_LAB_ROOT/opencode-bindings"
+    }]
+  ]
+}
 ```
+
+In Nano, save with **Ctrl+O**, Enter, then exit with **Ctrl+X**. See OpenCode's
+[configuration locations](https://opencode.ai/docs/config/#locations) if you use a
+different config file.
 
 Load the configuration through OpenCode while idle. If starting a new native TUI,
 run `opencode --hostname 127.0.0.1 --port 4096` in **Tab 8**. Choose

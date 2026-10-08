@@ -11,8 +11,13 @@ OpenCode 1.18.31+.
 npm ci --ignore-scripts --prefix integrations/opencode
 ```
 
-Add the local plugin to the OpenCode configuration you already use, preserving
-existing entries. Choose a private, account-owned directory for bindings:
+Open the OpenCode configuration file you already use. The default global location
+is `~/.config/opencode/opencode.json`; project configuration lives in `opencode.json`
+in the project root. See [configuration locations](https://opencode.ai/docs/config/#locations).
+
+The JSON below belongs in that file. Add the Capsule entry to its `plugin` array,
+preserving other plugins and settings; create the array if absent. Choose a
+private, account-owned directory for bindings and substitute full absolute paths:
 
 ```json
 {
