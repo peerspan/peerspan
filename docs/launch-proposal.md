@@ -147,7 +147,7 @@ It exits 0 when nothing needs attention, 1 when something does, and 2 when the d
 
 ## Policy format change
 
-Rules accept the agent name `*`, meaning every agent of the owner on any of their hosts. The signed statement is unchanged apart from allowing `*` where an agent name goes. A receiver applies the rule for the agent's name if one exists, and the `*` rule otherwise; the two are never combined. Older binaries reject `*` as an invalid name, so they drop the whole policy. The upgrade note says to upgrade receivers before relying on `allow` without `--agent`. A conformance vector covers a policy with `*`.
+Rules accept the agent name `*`, meaning every agent of the owner on any of their hosts. The signed statement is unchanged apart from allowing `*` where an agent name goes. A receiver applies the rule for the agent's name if one exists, and the `*` rule otherwise; the two are never combined. Older binaries accept `*` as an ordinary agent name that matches no agent, so they apply less access, never more; `*` becomes a reserved agent name (corrected in slice 3 of the [launch contract](launch-contract.md)). A conformance case covers a policy with `*`.
 
 ## Slices
 
