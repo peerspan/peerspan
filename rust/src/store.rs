@@ -57,6 +57,12 @@ pub struct Store {
     pub(crate) person_agent: RwLock<Option<PathBuf>>,
     /// Bytes of artifact storage this host allows (`run --artifact-quota`).
     pub(crate) artifact_quota: AtomicI64,
+    /// Wakes the policy propagation worker when deliveries are queued.
+    pub(crate) policy_wake: tokio::sync::Notify,
+    /// Seconds between periodic policy syncs with siblings.
+    pub(crate) policy_sync_interval: AtomicU64,
+    /// Policy deliveries and sibling syncs in progress, so each runs once.
+    pub(crate) policy_inflight: Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl Store {
@@ -81,7 +87,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=11).contains(&version) {
+        if !(0..=12).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -117,6 +123,9 @@ impl Store {
         }
         if version < 11 {
             tx.execute_batch(crate::chain::SCHEMA)?;
+        }
+        if version < 12 {
+            tx.execute_batch(crate::policy_sync::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -196,6 +205,9 @@ impl Store {
             candidates: RwLock::new(Vec::new()),
             person_agent: RwLock::new(None),
             artifact_quota: AtomicI64::new(crate::artifact::DEFAULT_QUOTA),
+            policy_wake: tokio::sync::Notify::new(),
+            policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
+            policy_inflight: Mutex::new(Default::default()),
         };
         store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
         Ok(store)

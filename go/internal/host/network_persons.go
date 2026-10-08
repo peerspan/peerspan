@@ -402,7 +402,14 @@ func (s *Store) storeOwnBinding(ctx context.Context, network string, binding mem
 			return err
 		}
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	if !already {
+		// The person's other hosts, if any, are now siblings.
+		s.siblingGained(network)
+	}
+	return nil
 }
 
 // storeRevocation persists a sticky statement once, records its event, ends

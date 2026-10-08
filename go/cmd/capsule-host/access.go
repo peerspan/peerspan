@@ -78,7 +78,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 	var network, agent, personKey, who, hostID string
 	var principals, actions []string
 	var maxBytes, maxArtifactBytes int64
-	var allowDisconnected bool
+	var allowDisconnected, status bool
 	var validDays int
 	switch args[1] {
 	case "allow", "deny", "renew":
@@ -98,6 +98,9 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 	case "show":
 		network, _ = fs.GetString("network")
 		who, _ = fs.GetString("person")
+	case "sync":
+		network, _ = fs.GetString("network")
+		status, _ = fs.GetBool("status")
 	case "block", "unblock":
 		who, _ = fs.GetString("person")
 		hostID, _ = fs.GetString("host")
@@ -118,6 +121,14 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 			path += "/remove"
 		}
 		return "POST", path, host.BlockAccess{Person: who, Host: hostID}, nil
+	case "sync":
+		if network == "" {
+			return "", "", nil, errors.New("access sync needs --network")
+		}
+		if status {
+			return "GET", policyPath(network) + "/sync", nil, nil
+		}
+		return "POST", policyPath(network) + "/sync", nil, nil
 	case "show":
 		if network == "" {
 			return "", "", nil, errors.New("access show needs --network")

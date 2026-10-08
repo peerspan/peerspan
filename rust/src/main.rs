@@ -465,6 +465,7 @@ async fn run_daemon(
     let tasks = capsule_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = capsule_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let retention = capsule_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
+    let policy_sync = capsule_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
@@ -494,6 +495,10 @@ async fn run_daemon(
         },
         async {
             retention.await;
+            Ok(())
+        },
+        async {
+            policy_sync.await;
             Ok(())
         },
         async {

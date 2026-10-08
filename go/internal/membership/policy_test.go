@@ -1,6 +1,8 @@
 package membership
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -242,5 +244,32 @@ func TestPolicyArtifactVector(t *testing.T) {
 		if _, err = SignPolicy(owner, vector.NetworkID, 1, time.Now(), 24*time.Hour, []PolicyRule{bad}); err == nil {
 			t.Errorf("rule %+v accepted", bad)
 		}
+	}
+}
+
+// The tie-break hash covers the signed statement, not the JSON.
+func TestPolicyHashAndPreference(t *testing.T) {
+	p := vectorPolicy(t)
+	sum := sha256.Sum256(p.Message())
+	// The contract's policy vector hashes to this; Rust must agree.
+	if got := PolicyHash(p); got != hex.EncodeToString(sum[:]) || got != "fc64a927a0308568c0a24cb48cd4d659ed8efebc8816b086bba465067a74a834" {
+		t.Fatalf("policy hash %s", got)
+	}
+	other := p
+	other.IssuedAt = "2026-10-10T00:00:01Z"
+	if PolicyHash(other) == PolicyHash(p) {
+		t.Fatal("hash ignores the statement")
+	}
+	low, high := p, other
+	if PolicyHash(low) > PolicyHash(high) {
+		low, high = high, low
+	}
+	if !PolicyPreferred(low, high) || PolicyPreferred(high, low) || PolicyPreferred(p, p) {
+		t.Fatal("equal versions must prefer the lower hash only")
+	}
+	newer := high
+	newer.Version = 2
+	if !PolicyPreferred(newer, low) || PolicyPreferred(low, newer) {
+		t.Fatal("a higher version must win regardless of hash")
 	}
 }

@@ -78,6 +78,7 @@ func Handler(store *Store) http.Handler {
 	localPersonRoutes(mux, store)
 	localAdminRoutes(mux, store)
 	localPolicyRoutes(mux, store)
+	localPolicySyncRoutes(mux, store)
 	localAdapterRoutes(mux, store)
 	localTaskRoutes(mux, store)
 	return mux

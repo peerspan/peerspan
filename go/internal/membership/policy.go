@@ -2,6 +2,8 @@ package membership
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -226,6 +228,23 @@ func Renewal(owner PersonSigner, current Policy, now time.Time) (Policy, error) 
 func mustKey(value string) []byte {
 	key, _ := DecodeKey(value)
 	return key
+}
+
+// PolicyHash is the lowercase hex SHA-256 of the policy's signed statement.
+func PolicyHash(p Policy) string {
+	sum := sha256.Sum256(p.Message())
+	return hex.EncodeToString(sum[:])
+}
+
+// PolicyPreferred reports whether a verified candidate replaces the stored
+// policy of the same owner: it has a higher version, or the same version and
+// a lower statement hash. The tie-break lets an owner's hosts converge on one
+// of several policies signed concurrently at the same version.
+func PolicyPreferred(candidate, stored Policy) bool {
+	if candidate.Version != stored.Version {
+		return candidate.Version > stored.Version
+	}
+	return PolicyHash(candidate) < PolicyHash(stored)
 }
 
 // DecodePolicy parses one policy strictly.

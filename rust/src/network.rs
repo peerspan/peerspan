@@ -943,6 +943,7 @@ fn verify_map(
         &person_keys,
         std::mem::take(&mut statements.policies),
         map.policies,
+        chrono::Utc::now(),
     );
     Ok(VerifiedMap {
         members,
@@ -1691,16 +1692,18 @@ impl Store {
                 append_event(&tx, "network.group_updated", &g.name, &at)?;
             }
         }
-        let old_policies: BTreeMap<String, u64> = Statements::load(&tx, &id)?
+        let old_policies: BTreeMap<String, String> = Statements::load(&tx, &id)?
             .policies
             .into_iter()
-            .map(|p| (p.person_public_key, p.version))
+            .map(|p| (p.person_public_key.clone(), p.sha256()))
             .collect();
         replace("policy")?;
+        let mut stored_policies = Vec::new();
         for p in &statements.policies {
             insert_statement(&tx, &id, "policy", &p.person_public_key, p)?;
-            if old_policies.get(&p.person_public_key) != Some(&p.version) {
+            if old_policies.get(&p.person_public_key) != Some(&p.sha256()) {
                 append_event(&tx, "network.policy_updated", &p.person_id(), &at)?;
+                stored_policies.push(p.clone());
             }
         }
         let old_persons = replace("person")?;
@@ -1811,7 +1814,15 @@ impl Store {
             "UPDATE networks SET record = ?1 WHERE id = ?2",
             params![serde_json::to_string(&network)?, id],
         )?;
+        // Policies of this host's own person, newly stored from the map, go to
+        // its siblings (as now seen) and back to the coordinator.
+        for p in &stored_policies {
+            self.queue_policy_deliveries(&tx, &id, p)?;
+        }
         tx.commit()?;
+        if !stored_policies.is_empty() {
+            self.policy_wake.notify_one();
+        }
         self.refresh_member_pins(&connection)?;
         if first {
             self.relay_wake.notify_one();
@@ -3416,7 +3427,7 @@ impl Store {
 }
 
 /// Status and body of one coordinator call; transport failures are `Err`.
-async fn coordinator(
+pub(crate) async fn coordinator(
     store: Arc<Store>,
     address: &str,
     key: &str,
@@ -3441,7 +3452,7 @@ async fn coordinator(
     .await
     .map_err(|_| anyhow::anyhow!("coordinator request timed out"))?
 }
-fn coordinator_error(status: u16, body: &[u8]) -> String {
+pub(crate) fn coordinator_error(status: u16, body: &[u8]) -> String {
     let message = serde_json::from_slice::<Value>(body)
         .ok()
         .and_then(|v| v["error"].as_str().map(str::to_owned))
@@ -4022,40 +4033,17 @@ pub async fn set_group(
         submit_statement(store, &network, "groups", json_value!({"group": group})).await?;
     Ok(GroupView::of(&group, &network.current_root_public_key))
 }
-/// Submits an owner policy the CLI or the renewal task signed: verified
-/// locally, accepted by the coordinator, then recorded.
-pub async fn submit_policy(
+/// Applies a map the coordinator returned with an accepted statement; a
+/// malformed one is ignored.
+pub(crate) async fn apply_returned_map(
     store: Arc<Store>,
-    id: String,
-    policy: crate::policy::Policy,
-) -> Result<crate::policy::Policy, Error> {
-    let (lookup, checked) = (id.clone(), policy.clone());
-    let network = blocking(store.clone(), move |s| {
-        s.check_policy(&lookup, &checked)?;
-        s.network(&lookup)
-    })
-    .await?;
-    let response = coordinator(
-        store.clone(),
-        &network.coordinator_address,
-        &network.coordinator_public_key,
-        format!("/coord/v1/networks/{}/policies", network.id),
-        json_value!({"policy": policy}),
-    )
-    .await
-    .map_err(|e| Error::Unavailable(format!("{e:#}")))?;
-    match response {
-        (200 | 201, body) => {
-            if let Ok(map) = parse_map(&body) {
-                let network = network.clone();
-                blocking(store.clone(), move |s| s.apply_map(network, map, false)).await?;
-            }
-        }
-        (status, body) => return Err(coordinator_status(status, &body)),
+    network: Network,
+    body: &[u8],
+) -> Result<(), Error> {
+    if let Ok(map) = parse_map(body) {
+        blocking(store, move |s| s.apply_map(network, map, false)).await?;
     }
-    let recorded = policy.clone();
-    blocking(store, move |s| s.record_policy(&id, &recorded)).await?;
-    Ok(policy)
+    Ok(())
 }
 /// Admits a host by public key (administrator only); it joins with the
 /// returned descriptor.
@@ -6916,7 +6904,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -6928,11 +6916,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 12;")
+            .execute_batch("PRAGMA user_version = 13;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

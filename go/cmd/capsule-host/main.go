@@ -645,6 +645,12 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 	defer func() { cancel(); <-coordinationDone }()
 	repliesDone := make(chan struct{})
 	go func() { defer close(repliesDone); store.RunReplyWorkers(daemonCtx) }()
+	policiesDone := make(chan struct{})
+	go func() {
+		defer close(policiesDone)
+		store.RunPolicySync(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
+	}()
+	defer func() { cancel(); <-policiesDone }()
 	retriesDone := make(chan struct{})
 	go func() { defer close(retriesDone); store.RunOutboundRetries(daemonCtx) }()
 	defer func() { cancel(); <-retriesDone }()

@@ -14,6 +14,7 @@ pub mod peer;
 pub mod peer_store;
 pub mod persons;
 pub mod policy;
+pub mod policy_sync;
 pub mod quic;
 pub mod relay;
 pub mod retry;

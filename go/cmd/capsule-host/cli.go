@@ -23,7 +23,11 @@ current administrator. Root-only commands without the seed use --root-key PATH.
 PERSON is a person ID or label. An access policy, signed by the agents' owner,
 lets principals (person:PERSON, group:NAME, or network) message the owner's
 agents by name without a grant; the daemon renews it through the ssh-agent at
---person-agent. Blocks are host-local and override grants and policies.
+--person-agent. The owner's hosts in a network push their policies to one
+another and to the coordinator, and sync with each other at start, every 5
+minutes, and when another of the owner's hosts appears; access sync runs a sync
+now, and --status shows the deliveries. Blocks are host-local and override
+grants and policies.
 Without --grant, message send, task submit, and adapter routes cite the receiver
 owner's policy. Grants, policy rules, and routes carry an action: message.append
 (the default) or task.submit. Task submissions are retried and their events
@@ -133,6 +137,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("access deny", "deny", "Withdraw access to an owner's agent", 0)
 	add("access renew", "renew", "Renew the owner access policy", 0)
 	add("access show", "show", "Show an owner access policy", 0)
+	add("access sync", "sync", "Sync the owner's policies with sibling hosts now", 0)
 	add("access block", "block", "Block a person or host locally", 0)
 	add("access unblock", "unblock", "Remove a local access block", 0)
 	add("access blocks", "blocks", "List local access blocks", 0)
@@ -346,6 +351,9 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "access show":
 		fs.String("network", "", "network ID")
 		fs.String("person", "", "person ID or label; this host's person by default")
+	case "access sync":
+		fs.String("network", "", "network ID")
+		fs.Bool("status", false, "show the delivery status without syncing")
 	case "access block", "access unblock":
 		fs.String("person", "", "person ID or label to block")
 		fs.String("host", "", "host ID to block")

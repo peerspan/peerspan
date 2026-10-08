@@ -122,7 +122,12 @@ func TestOwnerAccessPolicy(t *testing.T) {
 	if _, err = bob.SubmitPolicy(ctx, id, v1); err != nil {
 		t.Fatalf("identical resubmission: %v", err)
 	}
-	if _, err = alice.SubmitPolicy(ctx, id, sign(1, time.Now().Add(time.Second), week, v1.Rules...)); !errors.Is(err, ErrConflict) {
+	// Another version 1 is refused unless its statement hash is lower.
+	another := sign(1, time.Now().Add(time.Second), week, v1.Rules...)
+	for i := 2; membership.PolicyHash(another) < membership.PolicyHash(v1); i++ {
+		another = sign(1, time.Now().Add(time.Duration(i)*time.Second), week, v1.Rules...)
+	}
+	if _, err = alice.SubmitPolicy(ctx, id, another); !errors.Is(err, ErrConflict) {
 		t.Fatalf("another version 1: %v", err)
 	}
 	if _, err = alice.SubmitPolicy(ctx, id, sign(2, time.Now().Add(-8*24*time.Hour), week, v1.Rules...)); !errors.Is(err, ErrInvalid) {
@@ -323,11 +328,32 @@ func TestOwnerAccessPolicy(t *testing.T) {
 	if issued, _ := membership.ParseTime(renewed.IssuedAt); time.Since(issued) > time.Minute {
 		t.Fatalf("renewal issued at %s", renewed.IssuedAt)
 	}
-	// A host that renews the same version concurrently gets 409 and keeps the
-	// accepted one.
-	race := must(membership.Renewal(pat, old, time.Now()))
-	if _, err = carol.SubmitPolicy(ctx, id, race); !errors.Is(err, ErrConflict) {
+	// A host that signs the same version concurrently stores its own first;
+	// the coordinator keeps the one it accepted first and answers 409, which
+	// completes the delivery. Seeing both, a host keeps the lower hash.
+	race := must(membership.Renewal(pat, old, time.Now().Add(time.Second)))
+	if _, err = carol.SubmitPolicy(ctx, id, race); err != nil {
 		t.Fatalf("racing renewal: %v", err)
+	}
+	var state string
+	if err = carol.db.QueryRowContext(ctx, "SELECT json_extract(record, '$.state') FROM policy_deliveries WHERE network_id = ? AND person_id = ? AND target = 'coordinator'", id, patID).Scan(&state); err != nil || state != "delivered" {
+		t.Fatalf("coordinator delivery after 409: %q %v", state, err)
+	}
+	mustSync(t, carol, id)
+	winner := renewed.Policy
+	if membership.PolicyHash(race) < membership.PolicyHash(winner) {
+		winner = race
+	}
+	if view := must(carol.Policy(ctx, id, patID)); view.Signature != winner.Signature {
+		t.Fatalf("carol kept %d %s, want the lower hash", view.Version, view.IssuedAt)
+	}
+	// The equal-version loser is refused locally.
+	loser := race
+	if winner.Signature == race.Signature {
+		loser = renewed.Policy
+	}
+	if _, err = carol.SubmitPolicy(ctx, id, loser); !errors.Is(err, ErrConflict) {
+		t.Fatalf("equal-version loser: %v", err)
 	}
 }
 
@@ -358,18 +384,18 @@ func TestAccessBlocksMigrationToVersion8(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err = s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 11 {
+	if err = s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 12 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if blocks, err := s.AccessBlocks(ctx); err != nil || len(blocks) != 0 {
 		t.Fatalf("blocks: %v %v", blocks, err)
 	}
-	if _, err = s.db.ExecContext(ctx, "PRAGMA user_version = 12"); err != nil {
+	if _, err = s.db.ExecContext(ctx, "PRAGMA user_version = 13"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
 	if _, err = Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version") {
-		t.Fatalf("version 12 opened: %v", err)
+		t.Fatalf("version 13 opened: %v", err)
 	}
 }
 

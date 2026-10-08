@@ -556,8 +556,19 @@ func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, 
 	if _, err = tx.ExecContext(ctx, "DELETE FROM network_members WHERE network_id = ?", network); err != nil {
 		return err
 	}
+	// A sibling is gained when a member is bound to this host's person and
+	// was not a sibling before; a sync with it follows.
+	own := ""
+	for _, member := range members {
+		if member.HostID == s.identity.ID && member.PersonID != nil {
+			own = *member.PersonID
+		}
+	}
 	current := map[string]bool{}
 	for _, member := range members {
+		if own != "" && member.HostID != s.identity.ID && member.PersonID != nil && *member.PersonID == own && (bound[s.identity.ID] != own || bound[member.HostID] != own) {
+			s.siblingGained(network)
+		}
 		current[member.HostID] = true
 		if err = putJSON(ctx, tx, "INSERT INTO network_members (record, network_id, host_id) VALUES (?, ?, ?)", member, network, member.HostID); err != nil {
 			return err

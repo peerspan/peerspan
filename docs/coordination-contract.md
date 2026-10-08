@@ -515,12 +515,13 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 | `access block --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks` | Host-local, immediate, persisted. Returns 201. |
 | `access unblock --person PERSON` / `--host HOST_ID` | `POST /v1/access-blocks/remove` | Host-local. |
 | `access blocks` | `GET /v1/access-blocks` | Sorted list of `{kind, subject, created_at}`. |
+| `access sync --network ID [--status]` | `/v1/networks/{id}/policy/sync` | Policy propagation among the owner's hosts; see [Direct propagation](#direct-propagation). |
 
 **Further rules:**
 - **Block requests:** a block takes `{person}` or `{host}`, exactly one. A person ID that no network knows may still be blocked. Blocking returns 201, and blocking again returns the existing entry. Unblocking returns the removed entry, or 404 if nothing was blocked.
 - **`access show`** returns the policy's fields plus a top-level `expires_soon`, or 404 when the owner has no policy.
 - **Policy submission:**
-  - An identical resubmission of the stored policy returns 200 from the coordinator, as for other statements, and 201 from the local API. A lower or equal different version returns 409, and a policy outside its validity window returns 400.
+  - An identical resubmission of the stored policy returns 200 from the coordinator, as for other statements, and 201 from the local API. A lower version returns 409. An equal, different version returns 409 from the coordinator; the local API returns 201 when it wins the tie-break in [Direct propagation](#direct-propagation) and 409 otherwise. A policy outside its validity window returns 400.
   - The host records a verified policy before submitting it, then submits it to the coordinator and its sibling hosts (see [Direct propagation](#direct-propagation)), and returns 201 whether or not the coordinator is reachable.
 - **Rule shape:** a rule has at least one principal and one action, and agent names must be valid labels. A policy with no rules is valid, and withdraws all access.
 - **Expired policies:** renewal skips a policy that has already expired; only `access renew` revives it.
@@ -553,7 +554,7 @@ A coordinator could otherwise withhold a newer policy, such as a withdrawal, fro
 
 **Accepting a policy.** A host stores a policy delivered by the coordinator, by a peer, or by its owner's CLI when the policy verifies (owner a current person, valid signature, inside its validity window), and either:
 - its version is higher than the stored one; or
-- its version is equal and its signed statement has a lower lowercase hex SHA-256 than the stored one's.
+- its version is equal and its signed statement has a lower lowercase hex SHA-256 than the stored one's. The hash covers the UTF-8 bytes of the signed statement's lines, not the JSON; the policy test vector above hashes to `fc64a927a0308568c0a24cb48cd4d659ed8efebc8816b086bba465067a74a834`.
 
 The tie-break lets hosts converge without coordination when siblings sign the same version concurrently, as simultaneous renewals do. The coordinator keeps refusing an equal version with 409, so it may hold the tie-break's loser; receivers always evaluate their own newest stored version. A host never accepts a lower version. Each stored policy records `network.policy_updated`.
 
@@ -561,19 +562,19 @@ The tie-break lets hosts converge without coordination when siblings sign the sa
 
 | Route | Body | Behavior |
 | --- | --- | --- |
-| `POST /peer/v1/networks/{network_id}/policies` | `{policy}` | The sender must be a sibling for the policy's owner, and so must the receiver; otherwise 403. The receiver applies the acceptance rule, and returns 200 with `{person_id, version, sha256}` for its stored policy afterwards, so the sender learns whether it is behind or ahead. An invalid policy returns 400. |
-| `GET /peer/v1/networks/{network_id}/policies/{person_id}` | none | The receiver's stored policy for that person, for a sibling of that person only; otherwise 403. 404 when it holds none. |
+| `POST /peer/v1/networks/{network_id}/policies` | `{policy}` | Malformed JSON, a policy for another network, or an unknown owner key returns 400. Then, unless both sender and receiver are siblings for the policy's owner, 403. A policy that fails verification returns 400. Otherwise the receiver applies the acceptance rule and returns 200 with `{person_id, version, sha256}` for its stored policy afterwards, also when it kept a newer one, so the sender learns whether it is behind or ahead. |
+| `GET /peer/v1/networks/{network_id}/policies/{person_id}` | none | The receiver's stored policy object for that person, for a sibling of that person only; otherwise 403. 404 when it holds none. |
 
-**Push.** When a host stores a policy of its own bound person, from any source, it queues a delivery of that policy to each sibling and to the coordinator, superseding older queued deliveries. A delivery is done when the target reports the same or a higher version, the same policy, or, for the coordinator, 200, 201, or a 409 for an equal or lower version. It retries with backoff from 1 second to 5 minutes with ±20% jitter. A delivery to a host that is no longer a sibling is dropped. A sibling ahead of this host is handled by the next sync.
+**Push.** When a host stores a policy of its own bound person, from any source, it queues a delivery of that policy to each sibling and to the coordinator, superseding older queued deliveries. A delivery is done when a sibling answers 200 with the same or a higher version, or when the coordinator answers 200, 201, or 409. Any other answer, including a coordinator 400 or 403, retries at the backoff cap until a newer policy supersedes the delivery. It retries with backoff from 1 second to 5 minutes with ±20% jitter. A delivery to a host that is no longer a sibling is dropped. A policy of a person other than the bound one, submitted through the local API, gets a coordinator delivery only, which the status below does not list. A sibling ahead of this host is handled by the next sync.
 
-**Sync.** On start, every 5 minutes, and when its membership view gains a sibling, a host asks each sibling for its stored policy of their person, and applies the acceptance rule to the answer. A reachable sibling therefore delivers a missed policy within one interval.
+**Sync.** On start, every 5 minutes (fixed), when its membership view gains a sibling, and when the host binds to a person, a host asks each sibling for its stored policy of their person, and applies the acceptance rule to the answer. A reachable sibling therefore delivers a missed policy within one interval.
 
 **Commands:**
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `access sync --network ID` | `POST /v1/networks/{id}/policy/sync` | Runs one sync with every sibling now and retries pending deliveries. Returns the status below. |
-| `access sync --network ID --status` | `GET /v1/networks/{id}/policy/sync` | `{person_id, version, sha256, deliveries}`, where each delivery is `{target, version, state, attempts, next_attempt_at, error, delivered_at}`, `target` is a sibling host ID or `coordinator`, and `state` is `pending` or `delivered`. |
+| `access sync --network ID` | `POST /v1/networks/{id}/policy/sync` | Runs one sync with every sibling now and retries pending deliveries, waiting for any attempt already in progress, so the status below reports their outcomes. |
+| `access sync --network ID --status` | `GET /v1/networks/{id}/policy/sync` | `{person_id, version, sha256, deliveries}`, where `version` and `sha256` are null without a stored policy, and deliveries are sorted by `target`. Each delivery is `{target, version, state, attempts, next_attempt_at, error, delivered_at}`, where `target` is a sibling host ID or `coordinator`, and `state` is `pending` or `delivered`. An unknown network, or a host not bound in it, returns 404. |
 
 **Storage.** Database version 12 adds:
 
@@ -582,7 +583,7 @@ CREATE TABLE policy_deliveries (network_id TEXT NOT NULL, person_id TEXT NOT NUL
 PRAGMA user_version = 12;
 ```
 
-Older binaries reject version 12. New activity kinds:
+A delivery's `record` is its status fields plus `policy`, the policy being delivered. Older binaries reject version 12. New activity kinds:
 - `network.policy_delivered`, with the subject `<person_id>/<target>`;
 - `network.policy_synced`, recorded when a sync stored a newer policy, with the subject `<person_id>/<sibling>`.
 

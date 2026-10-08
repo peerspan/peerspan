@@ -15,6 +15,7 @@ a quarter of their validity, or only seconds, remain; no test hook is needed.
 Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen).
 """
 import argparse
+import hashlib
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -69,6 +70,11 @@ def policy_lines(p):
             bounds += f" {r['max_artifact_bytes']}"
         lines += ['rule', r['agent'], ' '.join(r['principals']), ' '.join(r['actions']), bounds]
     return lines
+
+
+def statement_hash(p):
+    """The lowercase hex SHA-256 of a policy's signed statement."""
+    return hashlib.sha256('\n'.join(policy_lines(p)).encode()).hexdigest()
 
 
 def crafted(current, version, issued, until, key, directory):
@@ -207,9 +213,19 @@ def check(coord_binary, owner_binary, sender_binary, label):
                            '--max-message-bytes', '100')
             assert v1['version'] == 1 and v1['rules'][0]['principals'] == ['person:' + quinn_id], v1
             ssh_verify(policy_lines(v1), v1['signature'], keys['pat'][1], root)
-            # An identical resubmission is accepted again; another version 1 is not.
+            # An identical resubmission is accepted again; another version 1 is
+            # not, unless its statement hash is lower (the sibling tie-break).
             assert alice.call('POST', f'/v1/networks/{net}/policy', {'policy': v1}) == (201, v1)
-            other = crafted(v1, 1, datetime.now(timezone.utc), datetime.now(timezone.utc) + timedelta(days=2), keys['pat'][0], root)
+            # Search unsigned candidates for a higher hash, then sign only that
+            # one; a lower one would win the tie-break and be stored.
+            issued = datetime.now(timezone.utc)
+            higher = next((issued - timedelta(minutes=m), issued + timedelta(days=d))
+                          for d in range(2, 90) for m in range(60)
+                          if statement_hash({**v1, 'issued_at': rfc3339(issued - timedelta(minutes=m)),
+                                             'valid_until': rfc3339(issued + timedelta(days=d))})
+                          > statement_hash(v1))
+            other = crafted(v1, 1, *higher, keys['pat'][0], root)
+            assert statement_hash(other) > statement_hash(v1)
             assert alice.call('POST', f'/v1/networks/{net}/policy', {'policy': other})[0] == 409
             shown = show(alice, net)
             assert policy_of(shown) == v1 and shown['expires_soon'] is False, shown
@@ -331,9 +347,13 @@ def check(coord_binary, owner_binary, sender_binary, label):
             assert v7['version'] == 7 and v7['expires_soon'] is False and until - issued == timedelta(days=1), v7
             assert v7['rules'] == soon['rules'] and abs((issued - datetime.now(timezone.utc)).total_seconds()) < 60, v7
             ssh_verify(policy_lines(v7), v7['signature'], keys['pat'][1], root)
-            for host in (bob, carol, dave):
-                host.cli('network', 'sync', net)
-            assert show(bob, net, 'pat')['version'] == 7
+            # Alice stores the renewal before the coordinator accepts it, so
+            # poll until it reaches the map.
+            def synced():
+                for host in (bob, carol, dave):
+                    host.cli('network', 'sync', net)
+                return show(bob, net, 'pat')['version'] == 7
+            wait_for(synced, timeout=30, message='renewal reaches the map')
 
             # allow_disconnected with the coordinator stopped: the connected-only
             # rule is retryable (503); the triage rule keeps working.
@@ -376,7 +396,7 @@ def check(coord_binary, owner_binary, sender_binary, label):
             kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
             assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
             with sqlite3.connect(alice.state / 'host.db') as db:
-                assert db.execute('PRAGMA user_version').fetchone()[0] == 11
+                assert db.execute('PRAGMA user_version').fetchone()[0] == 12
         finally:
             if saved_sock is None:
                 os.environ.pop('SSH_AUTH_SOCK', None)

@@ -128,6 +128,7 @@ python3 conformance/revocation.py --go /tmp/capsule-host-go --rust rust/target/d
 python3 conformance/persons.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/admins.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/policy.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
+python3 conformance/policy_sync.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/relay.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/send_retry.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe
 python3 conformance/tasks.py --go /tmp/capsule-host-go --rust rust/target/debug/capsule-host --coord /tmp/capsule-coord --probe /tmp/capsule-peer-probe --node NODE_BINARY
@@ -177,7 +178,7 @@ capsule-host access allow --network NETWORK_ID --agent reviewer --principal pers
 capsule-host message send --peer ALICE_HOST_ID --agent ALICE_AGENT_ID --deadline FUTURE_RFC3339_TIME --content "hello"
 ```
 
-Principals are `person:PERSON` (an ID or unambiguous label), `group:NAME`, `network` for every member host, or `agent:HOST_ID/AGENT_ID` for one agent on one host. Without `--grant`, `message send` and adapter routes cite the receiving owner's policy, and a send with nothing to cite is refused locally with the reason. `access deny`, `renew`, and `show` change or display the policy. It is valid for 7 days by default (`--valid-days`, 1 to 90), and `run` renews it through `ssh-agent` once less than a quarter remains (`--person-agent SOCKET`, default `SSH_AUTH_SOCK`); without an agent, access lapses. `access block --person PERSON` or `--host HOST_ID` refuses a sender on this host at once, over both grants and policies.
+Principals are `person:PERSON` (an ID or unambiguous label), `group:NAME`, `network` for every member host, or `agent:HOST_ID/AGENT_ID` for one agent on one host. Without `--grant`, `message send` and adapter routes cite the receiving owner's policy, and a send with nothing to cite is refused locally with the reason. `access deny`, `renew`, and `show` change or display the policy. It is valid for 7 days by default (`--valid-days`, 1 to 90), and `run` renews it through `ssh-agent` once less than a quarter remains (`--person-agent SOCKET`, default `SSH_AUTH_SOCK`); without an agent, access lapses. `access block --person PERSON` or `--host HOST_ID` refuses a sender on this host at once, over both grants and policies. An owner's hosts in a network also pass their policies to one another directly, so a withdrawal applies on every one of them even while the coordinator is down: each host pushes a new policy to the others with retries, and syncs with them at start, every 5 minutes, and when another of the owner's hosts appears. `access sync --network ID` syncs now, and `--status` shows the deliveries.
 
 ## Compare build times
 

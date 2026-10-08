@@ -489,6 +489,15 @@ pub enum AccessCommand {
         #[arg(long)]
         person: Option<String>,
     },
+    /// Sync your policy with your other hosts now and retry its deliveries,
+    /// or show its delivery status
+    Sync {
+        #[arg(long, value_name = "ID")]
+        network: String,
+        /// Show the status without syncing
+        #[arg(long)]
+        status: bool,
+    },
     /// Refuse messages from a person or host on this host
     Block {
         #[arg(long, conflicts_with = "host", required_unless_present = "host")]
@@ -1179,6 +1188,11 @@ impl Command {
                 },
                 None,
             ),
+            Self::Access(AccessCommand::Sync { network, status }) => (
+                if status { Method::GET } else { Method::POST },
+                format!("/v1/networks/{}/policy/sync", encoded(&network)),
+                None,
+            ),
             Self::Access(AccessCommand::Block { person, host }) => (
                 Method::POST,
                 "/v1/access-blocks".into(),
@@ -1235,6 +1249,25 @@ mod tests {
     fn body(args: &[&str]) -> Value {
         let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
         cli.command.unwrap().request().unwrap().body.unwrap()
+    }
+
+    #[test]
+    fn access_sync_posts_or_reads_the_status() {
+        let request = |args: &[&str]| {
+            let cli =
+                Cli::try_parse_from([&["capsule-host", "access", "sync"], args].concat()).unwrap();
+            let r = cli.command.unwrap().request().unwrap();
+            (r.method, r.path, r.body)
+        };
+        assert_eq!(
+            request(&["--network", "net_x"]),
+            (Method::POST, "/v1/networks/net_x/policy/sync".into(), None)
+        );
+        assert_eq!(
+            request(&["--network", "net_x", "--status"]),
+            (Method::GET, "/v1/networks/net_x/policy/sync".into(), None)
+        );
+        assert!(Cli::try_parse_from(["capsule-host", "access", "sync"]).is_err());
     }
 
     #[test]

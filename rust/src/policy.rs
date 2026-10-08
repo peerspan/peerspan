@@ -294,6 +294,18 @@ impl Policy {
             self.rules.clone(),
         )
     }
+    /// The lowercase hex SHA-256 of the signed statement (its lines), which
+    /// breaks ties between equal versions.
+    pub fn sha256(&self) -> String {
+        use sha2::Digest;
+        hex::encode(sha2::Sha256::digest(self.lines().join("\n").as_bytes()))
+    }
+    /// The acceptance rule against a stored policy: a higher version, or an
+    /// equal version whose statement has a lower SHA-256.
+    pub fn supersedes(&self, stored: &Policy) -> bool {
+        self.version > stored.version
+            || (self.version == stored.version && self.sha256() < stored.sha256())
+    }
     pub fn reference(&self) -> PolicyRef {
         PolicyRef {
             person_id: self.person_id(),
@@ -317,6 +329,16 @@ pub struct BlockRequest {
     pub person: Option<String>,
     #[serde(default)]
     pub host: Option<String>,
+}
+
+/// The outcome of the acceptance rule.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Accepted {
+    Stored,
+    /// The same policy is already stored.
+    Identical,
+    /// The stored policy wins: a higher version, or the tie-break.
+    Kept(Box<Policy>),
 }
 
 /// The newest verified policy, plus whether it needs renewal soon.
@@ -346,7 +368,10 @@ impl Store {
             .transpose()
     }
     /// This host's member records, one per network.
-    fn own_members(&self, connection: &Connection) -> Result<Vec<(String, Member)>, Error> {
+    pub(crate) fn own_members(
+        &self,
+        connection: &Connection,
+    ) -> Result<Vec<(String, Member)>, Error> {
         self.members_of(connection, &self.identity().id)
     }
     fn members_of(
@@ -365,7 +390,7 @@ impl Store {
         rows.into_iter().map(|(n, m)| Ok((n, json(m)?))).collect()
     }
     /// The key of a current person in a network.
-    fn person_key(
+    pub(crate) fn person_key(
         &self,
         connection: &Connection,
         network: &str,
@@ -562,51 +587,40 @@ impl Store {
             expires_soon,
         })
     }
-    /// Checks a policy before submission: the owner's signature, a current
-    /// owner, and a version above the newest this host has verified.
-    pub fn check_policy(&self, network: &str, p: &Policy) -> Result<(), Error> {
-        let connection = self.connection()?;
-        self.network_record(&connection, network)?;
+    /// Applies the acceptance rule to a policy from any source (the
+    /// coordinator, a sibling, or the owner's CLI): it must verify, have a
+    /// current owner, and be inside its validity window, and is stored when
+    /// its version is higher than the stored one's, or equal with a lower
+    /// statement SHA-256. A stored policy of this host's own person is
+    /// queued for delivery to its siblings and the coordinator.
+    pub(crate) fn accept_policy(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        network: &str,
+        p: &Policy,
+        at: DateTime<Utc>,
+    ) -> Result<Accepted, Error> {
         p.verify(network)?;
-        if !p.in_window(Utc::now()) {
+        if !p.in_window(at) {
             return Err(invalid("the policy is not within its validity window"));
         }
-        if self
-            .person_key(&connection, network, &p.person_id())?
-            .as_deref()
+        if self.person_key(tx, network, &p.person_id())?.as_deref()
             != Some(p.person_public_key.as_str())
         {
             return Err(Error::Forbidden);
         }
-        // An identical resubmission is passed on; the coordinator accepts it
-        // again.
-        if let Some(old) = self.stored_policy(&connection, network, &p.person_public_key)?
-            && old.version >= p.version
-            && old != *p
-        {
-            return Err(Error::Conflict(format!(
-                "policy version {} is not above the newest verified version {}",
-                p.version, old.version
-            )));
-        }
-        Ok(())
-    }
-    /// Records a policy the coordinator accepted, unless a newer one is held.
-    pub(crate) fn record_policy(&self, network: &str, p: &Policy) -> Result<(), Error> {
-        let mut connection = self.connection()?;
-        let tx = connection.transaction()?;
-        if let Some(old) = self.stored_policy(&tx, network, &p.person_public_key)?
-            && old.version >= p.version
-        {
-            return Ok(());
+        match self.stored_policy(tx, network, &p.person_public_key)? {
+            Some(old) if old == *p => return Ok(Accepted::Identical),
+            Some(old) if !p.supersedes(&old) => return Ok(Accepted::Kept(Box::new(old))),
+            _ => {}
         }
         tx.execute(
             "INSERT OR REPLACE INTO network_statements VALUES (?1, 'policy', ?2, ?3)",
             params![network, p.person_public_key, serde_json::to_string(p)?],
         )?;
-        append_event(&tx, "network.policy_updated", &p.person_id(), &now())?;
-        tx.commit()?;
-        Ok(())
+        append_event(tx, "network.policy_updated", &p.person_id(), &rfc3339(at))?;
+        self.queue_policy_deliveries(tx, network, p)?;
+        Ok(Accepted::Stored)
     }
     /// The policies this host should renew: its own person's, in networks
     /// where less than a quarter of the validity remains.
@@ -726,7 +740,7 @@ impl Store {
 /// asking the owner's `ssh-agent` (`run --person-agent`, or the daemon's
 /// `SSH_AUTH_SOCK`) for a signature. Without an agent holding the key,
 /// access lapses at `valid_until`. Several of an owner's hosts may renew at
-/// once; the coordinator accepts one, and the others take it at the next sync.
+/// once; they converge on one version by the tie-break of the acceptance rule.
 pub(crate) async fn renew(store: Arc<Store>) {
     let socket = match store.person_agent.read() {
         Ok(guard) => guard.clone(),
@@ -757,12 +771,10 @@ pub(crate) async fn renew(store: Arc<Store>) {
             }
         };
         let network = policy.network_id.clone();
-        match crate::network::submit_policy(store.clone(), network.clone(), renewed).await {
-            Ok(_) => {}
-            Err(Error::Conflict(_)) => {
-                // Another of the owner's hosts renewed first.
-                let _ = crate::network::sync_network(store.clone(), network).await;
-            }
+        match crate::policy_sync::submit(store.clone(), network, renewed).await {
+            // A sibling's concurrent renewal of the same version may win the
+            // tie-break; this host keeps that one.
+            Ok(_) | Err(Error::Conflict(_)) => {}
             Err(e) => eprintln!("policy renewal failed: {e}"),
         }
     }
@@ -786,6 +798,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         )
         .route("/v1/access-blocks", get(blocks_route).post(block_route))
         .route("/v1/access-blocks/remove", post(unblock_route))
+        .merge(crate::policy_sync::local_routes())
 }
 async fn show_route(
     State(store): State<Arc<Store>>,
@@ -804,7 +817,7 @@ async fn submit_route(
     let request: SubmitPolicy = decode(body)?;
     Ok((
         StatusCode::CREATED,
-        Json(crate::network::submit_policy(store, id, request.policy).await?),
+        Json(crate::policy_sync::submit(store, id, request.policy).await?),
     ))
 }
 async fn blocks_route(State(store): State<Arc<Store>>) -> Result<Json<Vec<AccessBlock>>, Error> {
@@ -828,14 +841,16 @@ async fn unblock_route(
     Ok(Json(blocking(store, move |s| s.unblock(request)).await?))
 }
 
-/// Merges a map's offered policies into the persisted ones: for each current
-/// person, the highest version whose signature verifies. A lower version
-/// never replaces a higher one.
+/// Merges a map's offered policies into the persisted ones by the acceptance
+/// rule: an offered policy of a current person that verifies and is inside
+/// its window replaces the held one when its version is higher, or equal
+/// with a lower statement SHA-256. A lower version never replaces a higher one.
 pub(crate) fn verify_policies(
     network: &str,
     persons: &[String],
     persisted: Vec<Policy>,
     offered: Vec<serde_json::Value>,
+    at: DateTime<Utc>,
 ) -> Vec<Policy> {
     let mut best: std::collections::BTreeMap<String, Policy> = std::collections::BTreeMap::new();
     for p in persisted {
@@ -845,12 +860,13 @@ pub(crate) fn verify_policies(
         .into_iter()
         .filter_map(|v| serde_json::from_value::<Policy>(v).ok())
     {
-        if !persons.contains(&p.person_public_key) || p.verify(network).is_err() {
+        if !persons.contains(&p.person_public_key) || p.verify(network).is_err() || !p.in_window(at)
+        {
             continue;
         }
         if best
             .get(&p.person_public_key)
-            .is_none_or(|old| old.version < p.version)
+            .is_none_or(|old| p.supersedes(old))
         {
             best.insert(p.person_public_key.clone(), p);
         }
@@ -1102,41 +1118,87 @@ mod tests {
             .renewal(&owner(), time("2026-10-12T00:00:00Z").unwrap())
             .unwrap();
         let persons = vec![v1.person_public_key.clone()];
-        let kept = verify_policies(
-            NETWORK,
-            &persons,
-            vec![v2.clone()],
-            vec![serde_json::to_value(&v1).unwrap()],
-        );
+        let at = time("2026-10-13T00:00:00Z").unwrap();
+        let offer = |p: &Policy| vec![serde_json::to_value(p).unwrap()];
+        let kept = verify_policies(NETWORK, &persons, vec![v2.clone()], offer(&v1), at);
         assert_eq!(kept, vec![v2.clone()]);
-        let kept = verify_policies(
-            NETWORK,
-            &persons,
-            vec![v1.clone()],
-            vec![serde_json::to_value(&v2).unwrap()],
-        );
+        let kept = verify_policies(NETWORK, &persons, vec![v1.clone()], offer(&v2), at);
         assert_eq!(kept, vec![v2.clone()]);
         // A forged or non-person policy is ignored.
         let mut forged = v2.clone();
         forged.version = 3;
         assert_eq!(
-            verify_policies(
-                NETWORK,
-                &persons,
-                vec![],
-                vec![serde_json::to_value(&forged).unwrap()]
-            ),
+            verify_policies(NETWORK, &persons, vec![], offer(&forged), at),
             vec![]
         );
         assert_eq!(
-            verify_policies(
-                NETWORK,
-                &[],
-                vec![],
-                vec![serde_json::to_value(&v2).unwrap()]
-            ),
+            verify_policies(NETWORK, &[], vec![], offer(&v2), at),
             vec![]
         );
+        // An offered policy outside its window is not accepted.
+        let late = time("2026-10-20T00:00:00Z").unwrap();
+        assert_eq!(
+            verify_policies(NETWORK, &persons, vec![v1.clone()], offer(&v2), late),
+            vec![v1.clone()]
+        );
+        // An equal version replaces the held one only with a lower SHA-256.
+        let (low, high) = tie();
+        let kept = verify_policies(NETWORK, &persons, vec![high.clone()], offer(&low), at);
+        assert_eq!(kept, vec![low.clone()]);
+        let kept = verify_policies(NETWORK, &persons, vec![low.clone()], offer(&high), at);
+        assert_eq!(kept, vec![low]);
+    }
+
+    /// Two different policies of the same version, by statement SHA-256.
+    fn tie() -> (Policy, Policy) {
+        let a = Policy::sign(
+            &owner(),
+            NETWORK,
+            2,
+            "2026-10-12T00:00:00Z",
+            "2026-10-19T00:00:00Z",
+            rules(),
+        )
+        .unwrap();
+        let b = Policy::sign(
+            &owner(),
+            NETWORK,
+            2,
+            "2026-10-12T00:00:01Z",
+            "2026-10-19T00:00:01Z",
+            rules(),
+        )
+        .unwrap();
+        if a.sha256() < b.sha256() {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    #[test]
+    fn acceptance_rule_orders_versions_then_statement_hashes() {
+        let v1 = vector();
+        assert_eq!(
+            v1.sha256(),
+            hex::encode(<sha2::Sha256 as sha2::Digest>::digest(
+                v1.lines().join("\n").as_bytes()
+            ))
+        );
+        assert_eq!(v1.sha256().len(), 64);
+        assert!(v1.sha256().bytes().all(|b| !b.is_ascii_uppercase()));
+        let v2 = v1
+            .renewal(&owner(), time("2026-10-12T00:00:00Z").unwrap())
+            .unwrap();
+        assert!(v2.supersedes(&v1));
+        assert!(!v1.supersedes(&v2));
+        assert!(!v1.supersedes(&v1));
+        let (low, high) = tie();
+        assert_ne!(low.sha256(), high.sha256());
+        assert!(low.supersedes(&high));
+        assert!(!high.supersedes(&low));
+        // A higher version wins whatever its hash.
+        assert!(low.supersedes(&v1) && high.supersedes(&v1));
     }
 
     #[test]

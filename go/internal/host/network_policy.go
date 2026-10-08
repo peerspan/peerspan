@@ -92,56 +92,52 @@ type BlockAccess struct {
 	Host   string `json:"host,omitempty"`
 }
 
-// applyPolicies keeps, for each owner, the highest version whose signature
-// verifies: persisted versions always, served ones only from current persons.
-// A lower version never replaces a higher one.
+// applyPolicies keeps, for each owner, the preferred policy whose signature
+// verifies (the highest version, or of equal versions the lower statement
+// hash): persisted versions always, served ones only from current persons and
+// within their window. A lower version never replaces a higher one.
 func (a *appliedMap) applyPolicies(persisted persistedStatements, m membership.Map) {
 	a.policies = map[string]membership.Policy{}
-	consider := func(p membership.Policy) {
-		if membership.VerifyPolicy(a.chain.NetworkID, p) != nil {
+	now := time.Now()
+	consider := func(p membership.Policy, served bool) {
+		if membership.VerifyPolicy(a.chain.NetworkID, p) != nil || (served && !membership.PolicyActive(p, now)) {
 			return
 		}
-		if old, ok := a.policies[p.PersonPublicKey]; !ok || old.Version < p.Version {
+		if old, ok := a.policies[p.PersonPublicKey]; !ok || membership.PolicyPreferred(p, old) {
 			a.policies[p.PersonPublicKey] = p
 		}
 	}
 	for _, key := range sortedKeys(persisted.policies) {
 		var p membership.Policy
 		if json.Unmarshal(persisted.policies[key], &p) == nil && p.PersonPublicKey == key {
-			consider(p)
+			consider(p, false)
 		}
 	}
 	for _, p := range membership.DecodeRaw[membership.Policy](m.Policies) {
 		if _, ok := a.persons[p.PersonPublicKey]; ok {
-			consider(p)
+			consider(p, true)
 		}
 	}
 }
 
+// persistPolicies stores each policy the map application preferred over the
+// stored one, queuing deliveries of this host's own person's policy.
 func (s *Store) persistPolicies(ctx context.Context, tx *sql.Tx, network string, a appliedMap, now string) error {
 	stored, err := loadStatements(ctx, tx, network)
 	if err != nil {
 		return err
 	}
 	for _, key := range sortedKeys(a.policies) {
-		if err = recordPolicy(ctx, tx, network, stored, a.policies[key], now); err != nil {
+		p := a.policies[key]
+		var old membership.Policy
+		if data, ok := stored.policies[key]; ok && json.Unmarshal(data, &old) == nil && old.PersonPublicKey == key && !membership.PolicyPreferred(p, old) {
+			continue
+		}
+		if err = s.storePolicy(ctx, tx, network, p, now); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// recordPolicy stores a verified policy unless the same or a higher version
-// is stored.
-func recordPolicy(ctx context.Context, tx *sql.Tx, network string, stored persistedStatements, p membership.Policy, now string) error {
-	var old membership.Policy
-	if data, ok := stored.policies[p.PersonPublicKey]; ok && json.Unmarshal(data, &old) == nil && old.Version >= p.Version {
-		return nil
-	}
-	if err := putRecord(ctx, tx, network, kindPolicy, p.PersonPublicKey, p); err != nil {
-		return err
-	}
-	return appendEvent(ctx, tx, "network.policy_updated", personIDOf(p.PersonPublicKey), now)
 }
 
 // storedPolicy is the newest version of an owner's policy this host has
@@ -192,46 +188,56 @@ func membershipsOf(ctx context.Context, q queryer, host string) ([]networkRecord
 	return out, rows.Err()
 }
 
-// SubmitPolicy verifies an owner-signed policy, submits it to the network's
-// coordinator, and records it once accepted.
+// SubmitPolicy verifies an owner-signed policy from the CLI and stores it
+// under the acceptance rule before submitting it anywhere, so it applies here
+// at once. A policy of this host's own person is then delivered to its
+// siblings and the coordinator; another owner's goes to the coordinator only.
+// One coordinator attempt is made now; the delivery worker retries. An
+// identical resubmission changes nothing.
 func (s *Store) SubmitPolicy(ctx context.Context, id string, p membership.Policy) (membership.Policy, error) {
-	g, err := s.loadGovernance(ctx, s.db, id)
-	if err != nil {
-		return p, err
-	}
-	if err = membership.VerifyPolicy(id, p); err != nil {
-		return p, fmt.Errorf("%w: %v", ErrInvalid, err)
-	}
-	if !membership.PolicyActive(p, time.Now()) {
-		return p, fmt.Errorf("%w: the policy is not within its validity window", ErrInvalid)
-	}
-	if _, ok := g.persons()[p.PersonPublicKey]; !ok {
-		return p, fmt.Errorf("%w: the policy owner is not a current person of this network", ErrForbidden)
-	}
-	// An identical resubmission is passed on; the coordinator accepts it again.
-	if old, ok := g.storedPolicy(p.PersonPublicKey); ok && old.Version >= p.Version && (old.Version != p.Version || old.Signature != p.Signature) {
-		return p, fmt.Errorf("%w: policy version %d is not above the newest verified version %d", ErrConflict, p.Version, old.Version)
-	}
-	if _, err = s.callCoordinator(ctx, g.network, networkPath(g.network, "/policies"), map[string]any{"policy": p}); err != nil {
-		return p, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return p, err
 	}
 	defer tx.Rollback()
-	stored, err := loadStatements(ctx, tx, id)
+	g, err := s.loadGovernance(ctx, tx, id)
 	if err != nil {
 		return p, err
 	}
-	if err = recordPolicy(ctx, tx, id, stored, p, timestamp(time.Now())); err != nil {
+	if old, ok := g.storedPolicy(p.PersonPublicKey); ok && old.Version == p.Version && old.Signature == p.Signature {
+		return p, nil
+	}
+	now := time.Now()
+	stored, err := s.acceptPolicy(ctx, tx, id, p, now)
+	if err != nil {
 		return p, err
+	}
+	if !stored {
+		old, _ := g.storedPolicy(p.PersonPublicKey)
+		return p, fmt.Errorf("%w: policy version %d does not supersede the stored version %d", ErrConflict, p.Version, old.Version)
+	}
+	person := personIDOf(p.PersonPublicKey)
+	own, err := s.ownPerson(ctx, tx, id)
+	if err != nil {
+		return p, err
+	}
+	if own != person {
+		if err = queueDeliveries(ctx, tx, id, person, p, []string{policyTargetCoordinator}, timestamp(now)); err != nil {
+			return p, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return p, err
 	}
-	if _, err = s.SyncNetwork(ctx, id); err != nil {
+	s.wakePolicyDeliveries()
+	delivered, err := s.attemptDelivery(ctx, id, person, policyTargetCoordinator)
+	if err != nil {
 		return p, err
+	}
+	if delivered {
+		if _, err = s.SyncNetwork(ctx, id); err != nil {
+			return p, err
+		}
 	}
 	return p, nil
 }
@@ -581,8 +587,8 @@ func (s *Store) ConfigurePersonAgent(socket string) {
 // RenewPolicies renews this host's bound persons' policies that have less
 // than a quarter of their validity left, signing through the ssh-agent. Each
 // renewal keeps the rules and duration at version + 1, issued now. Several of
-// an owner's hosts may renew at once; the coordinator accepts one and returns
-// 409 to the rest, which keep the accepted one at the next sync.
+// an owner's hosts may renew at once; they converge on the renewal with the
+// lower statement hash by direct propagation.
 func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 	s.agent.Lock()
 	socket := s.agent.socket
@@ -631,8 +637,7 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		case err == nil:
 			logf("renewed access policy %d for %s", renewed.Version, n.network)
 		case errors.Is(err, ErrConflict):
-			// Another of the owner's hosts renewed first.
-			_, _ = s.SyncNetwork(ctx, n.network)
+			// Another of the owner's hosts renewed first, and its renewal won.
 		default:
 			logf("policy renewal for %s: %v", n.network, err)
 		}
