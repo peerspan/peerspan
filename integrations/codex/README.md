@@ -19,9 +19,11 @@ capsule-host session doctor --directory /absolute/codex-attachment
 ```
 
 Use the socket of the backend serving that conversation. For the shared local
-Codex daemon, `codex app-server daemon version` reports `socketPath`. Select the
-existing conversation ID through Codex. Capsule refuses stored but unloaded
-threads, rather than starting a replacement. The desktop/TUI continues running;
+Codex daemon, `codex app-server daemon version` reports `socketPath`. Inside the
+native Codex CLI conversation, enter `/status` and copy the **Session** UUID for
+`--option thread`. If that line is absent, send a message and run `/status` again.
+The daemon version command does not list conversation IDs. Capsule refuses stored
+but unloaded threads, rather than starting a replacement. The desktop/TUI continues running;
 `session start` starts only Capsule's sidecar. Optional `-- --json` produces JSONL
 progress. Ctrl-C stops the sidecar and disconnects Capsule, leaving Codex running.
 

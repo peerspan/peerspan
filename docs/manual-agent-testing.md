@@ -7,9 +7,9 @@ multiple agents; one daemon per agent is not a deployment requirement.
 
 ## Terminal layout
 
-Open six terminal tabs, SSH sessions, or tmux panes **on the same machine**. If
-using `192.0.2.10`, every tab connects to that box. Keep your native Codex and
-OpenCode conversations open in their own tabs as well.
+Use eight terminal tabs, SSH sessions, or tmux panes **on the same machine**. If
+using `192.0.2.10`, every tab connects to that box. Existing Codex and OpenCode
+conversation tabs can serve as Tabs 7 and 8.
 
 | Tab | Name | What runs here |
 | --- | --- | --- |
@@ -19,6 +19,8 @@ OpenCode conversations open in their own tabs as well.
 | 4 | Setup | Build, configuration, and diagnostic commands |
 | 5 | Attachment A | Foreground Capsule sidecar for conversation A |
 | 6 | Attachment B | Foreground Capsule sidecar for conversation B |
+| 7 | Codex conversation A | Native Codex CLI; prompts and `/status` run here |
+| 8 | OpenCode conversation B | Native OpenCode TUI; prompts run here |
 
 **Every configuration command runs in Tab 4.** Its variables belong to that tab
 only. Tabs 1–3 and 5–6 use explicit paths and need no variable setup. Their
@@ -156,13 +158,26 @@ per-peer grants. Policy-authorized destinations omit `grant_id`.
 ## Tab 4 prepare the attachments
 
 Before starting sidecars, give each native conversation a different phrase to
-remember. Keep both conversations running; Capsule attaches to those existing
-conversations.
+remember. Keep both conversations running in Tabs 7 and 8; Capsule attaches to
+those existing conversations.
 
 ### Codex on A
 
-Run `codex app-server daemon version`. Use its `socketPath` and the existing
-conversation's thread UUID in this command:
+In **Tab 7**, use the Codex CLI conversation you want to attach. If you need a
+new test conversation, start it in your project:
+
+```sh
+cd /path/to/your/test-project
+codex
+```
+
+Send your phrase to remember, then enter `/status` **inside Codex**. Copy the UUID
+on the **Session** line; this is the value for `EXISTING_THREAD_UUID` below. If
+the Session line is absent, send a short message first and run `/status` again.
+
+Return to **Tab 4** and run `codex app-server daemon version`. Its `socketPath`
+supplies `EXISTING_SOCKET`; this command does not list conversation IDs. Substitute
+both values in the setup command:
 
 ```sh
 codex app-server daemon version
@@ -199,7 +214,7 @@ existing entries. Substitute absolute paths; `ABSOLUTE_LAB_ROOT` is the value of
 ```
 
 Load the configuration through OpenCode while idle. If starting a new native TUI,
-run `opencode --hostname 127.0.0.1 --port 4096` in its own conversation tab. Choose
+run `opencode --hostname 127.0.0.1 --port 4096` in **Tab 8**. Choose
 a model with `/models` and send a baseline prompt before attaching. Find its ID
 with `opencode session list`, then return to **Tab 4**:
 
