@@ -146,12 +146,12 @@ Decided with the owner on 2026-10-08:
 `capsule install [--state DIR] [--peer-listen IP:PORT] [--no-start]` installs the daemon as a user service and, unless `--no-start` is given, starts it and waits up to 10 seconds for the admin socket. It prints `{service, unit, state, peer_listen, linger, started}`.
 
 - **Linux.** It writes `$XDG_CONFIG_HOME/systemd/user/capsule.service` (default `~/.config/systemd/user`), with:
-  - `ExecStart=` the binary's resolved real path, `--state`, `run`, and `--peer-listen`;
+  - `ExecStart=` exactly the binary's resolved real path, `--state DIR`, `run`, and `--peer-listen ADDR`;
   - `Restart=on-failure` and `WantedBy=default.target`;
   - `Environment=SSH_AUTH_SOCK=` the installing shell's value, when set.
 
   It then runs `systemctl --user daemon-reload`, then `systemctl --user enable --now capsule.service`, or `enable` alone with `--no-start`. Last, it runs `loginctl enable-linger` for the current user. A failed `loginctl` is not an error: `linger` is reported as `false`.
-- **macOS.** It writes `~/Library/LaunchAgents/dev.capsule.host.plist` with the same program arguments, `RunAtLoad`, and `KeepAlive`, then runs `launchctl bootstrap gui/UID` on it. `linger` is always `null`.
+- **macOS.** It writes `~/Library/LaunchAgents/dev.capsule.host.plist` with `Label` `dev.capsule.host`, the same program arguments, `RunAtLoad`, and `KeepAlive`, then runs `launchctl bootstrap gui/UID PATH`. `linger` is always `null`.
 - **Elsewhere,** or without `systemctl` or `launchctl` on `PATH`, it fails with `no supported service manager` and changes nothing.
 
 **Defaults:**
@@ -162,13 +162,13 @@ Decided with the owner on 2026-10-08:
 - Install is idempotent. With an identical unit it only ensures the service is enabled and running. With a changed unit it rewrites the unit and restarts the service.
 - It fails without changes when a daemon is already running on that state directory outside the service. It checks this only when the admin socket answers, by asking the manager whether the service is active.
 - The CLI runs service tools found on `PATH`. Tests substitute recording stubs. The manager is chosen by which tool is present, `systemctl` first, then `launchctl`, rather than by OS name.
-- **Output.** In the printed object, `service` is `systemd` or `launchd`, and `unit` is the unit file's path. `started` is true only if the admin socket answered within 10 seconds. A timeout is not an error.
+- **Output.** In the printed object, `service` is `systemd` or `launchd`, and `unit` is the unit file's path. `started` is true only if the admin socket answered within 10 seconds, so it is always false with `--no-start`. A timeout is not an error.
 - **Sequences on Linux:**
   - With an identical unit, it runs `enable --now` (or `enable`), then `loginctl enable-linger`.
   - With a new or changed unit, it runs `daemon-reload` and `enable --now`, then `restart` if the unit changed, then `loginctl enable-linger`.
   - `--no-start` never starts or restarts the service.
 - **Sequences on macOS:**
-  - With a changed plist, it runs `bootout`, then `bootstrap`.
+  - With a changed plist, it runs `bootout gui/UID/dev.capsule.host`, then `bootstrap`.
   - `--no-start` writes the plist without calling `launchctl`.
   - The plist carries no `SSH_AUTH_SOCK`, since launchd provides it.
 
@@ -224,7 +224,7 @@ A build without both values fails `network create` without the flags, with `this
 - Once that network's monthly total reaches the limit, the coordinator drops its frames and answers the sender with `unreachable`, at most once per second per destination.
 - Counters persist at least every 60 seconds and on orderly shutdown, so a crash may undercount by up to a minute of traffic.
 
-**Usage.** `GET /coord/v1/networks/{network_id}/usage` is for members only, and returns 403 otherwise. It returns `{members, max_members, relay_bytes, max_relay_bytes, month}`, with `month` as `YYYY-MM` and 0 for a disabled limit.
+**Usage.** `GET /coord/v1/networks/{network_id}/usage` is for members only, and returns 403 otherwise, including for an unknown network. It returns `{members, max_members, relay_bytes, max_relay_bytes, month}`, with `month` as `YYYY-MM` and 0 for a disabled limit.
 
 **Host side.**
 - After each successful sync, hosts fetch usage. They treat 404 as an older coordinator without limits.
