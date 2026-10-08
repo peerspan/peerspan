@@ -43,7 +43,7 @@ npm ci --ignore-scripts --prefix integrations/codex
 npm ci --ignore-scripts --prefix integrations/opencode
 ```
 
-Define these variables **once, in Tab 4**. A and B have separate state,
+Define these path variables **once, in Tab 4**. A and B have separate state,
 attachment profiles, and destination files:
 
 ```sh
@@ -55,8 +55,11 @@ B_STATE="$LAB_ROOT/b/host"
 A_PROFILE="$LAB_ROOT/a/profile"
 B_PROFILE="$LAB_ROOT/b/profile"
 BINDINGS="$LAB_ROOT/opencode-bindings"
-EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 ```
+
+The authorization commands below refresh `$EXPIRES` just before use. Each deadline
+is two hours from that command, so a pause during setup does not leave the next
+command using an old timestamp.
 
 On Apple Silicon, the Go host and coordinator compile; macOS runtime validation
 is still needed. Start with Go on the Mac and either daemon on Linux.
@@ -96,6 +99,7 @@ you do not switch shells or redefine a shared `LAB` variable.
 Read the coordinator's `public_key`, then create the network through A:
 
 ```sh
+EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$CAPSULE/bin/capsule-coord" --state "$LAB_ROOT/coord" info
 "$HOST" --state "$A_STATE" network create --name manual-test --member alice \
   --coordinator 127.0.0.1:7400 --coordinator-key COORD_PUBLIC_KEY --no-person
@@ -133,6 +137,7 @@ A grants B access to A's agent; B grants A access to B's agent. Record the retur
 grant IDs as `A_GRANT_ID` and `B_GRANT_ID`, respectively:
 
 ```sh
+EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$HOST" --state "$A_STATE" grant create --peer B_HOST_ID --agent A_AGENT_ID \
   --expires-at "$EXPIRES" --allow-disconnected
 "$HOST" --state "$B_STATE" grant create --peer A_HOST_ID --agent B_AGENT_ID \
@@ -140,6 +145,9 @@ grant IDs as `A_GRANT_ID` and `B_GRANT_ID`, respectively:
 ```
 
 These expiring grants explicitly allow communication during a coordinator outage.
+Refreshing `$EXPIRES` does not extend grants already created. If they expire during
+your walkthrough, create new grants with a fresh deadline and use their new IDs
+in the destination files below.
 Create A's destinations using **B's** host, agent, and grant IDs, then B's using
 **A's** IDs. Replace the placeholders before running:
 
@@ -161,6 +169,11 @@ Before starting sidecars, give each native conversation a different phrase to
 remember. Keep both conversations running in Tabs 7 and 8; Capsule attaches to
 those existing conversations.
 
+Replace `A_AGENT_ID` and `B_AGENT_ID` with the IDs returned by `agent register`,
+rather than the agent names. If setup reports "use a registered agent ID and a
+future RFC3339 expiry", check the agent ID and rerun the `$EXPIRES` assignment
+immediately before the setup command.
+
 ### Codex on A
 
 In **Tab 7**, use the Codex CLI conversation you want to attach. If you need a
@@ -181,6 +194,7 @@ both values in the setup command:
 
 ```sh
 codex app-server daemon version
+EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$HOST" --state "$A_STATE" session setup --harness codex \
   --integrations "$CAPSULE/integrations" --runner "$(command -v node)" \
   --option executable="$(command -v codex)" --option socket=EXISTING_SOCKET \
@@ -219,6 +233,7 @@ a model with `/models` and send a baseline prompt before attaching. Find its ID
 with `opencode session list`, then return to **Tab 4**:
 
 ```sh
+EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$HOST" --state "$B_STATE" session setup --harness opencode \
   --integrations "$CAPSULE/integrations" --runner "$(command -v node)" \
   --option server=http://127.0.0.1:4096 --option session=EXISTING_SESSION_ID \
