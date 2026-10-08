@@ -33,3 +33,10 @@ python3 conformance/coordination.py --go /tmp/capsule-host-go --coord /tmp/capsu
 ```
 
 Run `/tmp/capsule-host-go --state /tmp/capsule-go-state run` and use the CLI commands in the [repository guide](../README.md). The local Unix socket is an owner administration interface, not a peer API. Owner labels and capability metadata do not establish network access.
+
+The active Go CLIs (`capsule-host`, `capsule-coord`, and the conformance
+`capsule-peer-probe`) use Cobra. Run `--help` at any command level for its
+arguments and options, or `help COMMAND` for command help. Use `--` for long
+options; `--state` works before or after a host or coordinator subcommand.
+Repeated string options preserve each value, including commas. Pass harness
+arguments to `session start` after a `--` separator.

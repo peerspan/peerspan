@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -14,6 +12,7 @@ import (
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 	"github.com/Cerebral-Systems/capsule/go/internal/person"
+	"github.com/spf13/pflag"
 )
 
 // Owner access policy. The CLI signs each new version with the owner's
@@ -71,49 +70,42 @@ func resolvePrincipal(persons []host.Person, given string) (string, error) {
 	return "", fmt.Errorf("invalid principal %q; use person:PERSON, group:NAME, network, or agent:HOST_ID/AGENT_ID", given)
 }
 
-func accessRequest(ctx context.Context, client host.Client, args []string, errOut io.Writer) (string, string, any, error) {
+func accessRequest(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet) (string, string, any, error) {
 	invalid := errors.New("invalid command; see capsule-host --help")
 	if len(args) < 2 {
 		return "", "", nil, invalid
 	}
 	var network, agent, personKey, who, hostID string
-	var principals, actions repeated
+	var principals, actions []string
 	var maxBytes, maxArtifactBytes int64
 	var allowDisconnected bool
 	var validDays int
-	fs := flag.NewFlagSet("access "+args[1], flag.ContinueOnError)
-	fs.SetOutput(errOut)
 	switch args[1] {
 	case "allow", "deny", "renew":
-		fs.StringVar(&network, "network", "", "network ID")
-		fs.StringVar(&personKey, "person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
+		network, _ = fs.GetString("network")
+		personKey, _ = fs.GetString("person-key")
 		if args[1] != "renew" {
-			fs.StringVar(&agent, "agent", "", "local agent name the rule covers")
-			fs.Var(&principals, "principal", "person:PERSON, group:NAME, network, or agent:HOST_ID/AGENT_ID; repeatable")
+			agent, _ = fs.GetString("agent")
+			principals, _ = fs.GetStringArray("principal")
 		}
 		if args[1] == "allow" {
-			fs.Int64Var(&maxBytes, "max-message-bytes", 65536, "content byte limit, 1 to 65536")
-			fs.Int64Var(&maxArtifactBytes, "max-artifact-bytes", 0, "bound on a task's input and result artifacts together, 0 to 1073741824; 0 refuses artifacts; needs --action task.submit or task.delegate")
-			fs.BoolVar(&allowDisconnected, "allow-disconnected", false, "permit messages while the receiver is out of sync with coordination")
-			fs.IntVar(&validDays, "valid-days", 7, "policy validity, 1 to 90 days")
-			fs.Var(&actions, "action", "message.append (the default), task.submit, or task.delegate (task.submit, and the receiving agent may pass the task on); repeatable")
+			actions, _ = fs.GetStringArray("action")
+			maxBytes, _ = fs.GetInt64("max-message-bytes")
+			maxArtifactBytes, _ = fs.GetInt64("max-artifact-bytes")
+			allowDisconnected, _ = fs.GetBool("allow-disconnected")
+			validDays, _ = fs.GetInt("valid-days")
 		}
 	case "show":
-		fs.StringVar(&network, "network", "", "network ID")
-		fs.StringVar(&who, "person", "", "person ID or label; this host's person by default")
+		network, _ = fs.GetString("network")
+		who, _ = fs.GetString("person")
 	case "block", "unblock":
-		fs.StringVar(&who, "person", "", "person ID or label to block")
-		fs.StringVar(&hostID, "host", "", "host ID to block")
+		who, _ = fs.GetString("person")
+		hostID, _ = fs.GetString("host")
 	case "blocks":
 	default:
 		return "", "", nil, invalid
 	}
-	if err := fs.Parse(args[2:]); err != nil {
-		return "", "", nil, err
-	}
-	if fs.NArg() != 0 {
-		return "", "", nil, fmt.Errorf("unexpected arguments: %v", fs.Args())
-	}
+
 	switch args[1] {
 	case "blocks":
 		return "GET", "/v1/access-blocks", nil, nil
@@ -143,7 +135,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, errOu
 		return "", "", nil, errors.New("access allow needs at least one --principal")
 	}
 	if len(actions) == 0 {
-		actions = repeated{membership.PolicyActionMessage}
+		actions = []string{membership.PolicyActionMessage}
 	}
 	for _, action := range actions {
 		if !membership.ValidPolicyAction(action) {

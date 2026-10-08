@@ -24,7 +24,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -37,31 +36,29 @@ import (
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
 	"github.com/quic-go/quic-go"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	var err error
-	args := os.Args[1:]
-	switch {
-	case len(args) > 0 && args[0] == "sign-link":
-		err = signLink(args[1:])
-	case len(args) > 0 && args[0] == "link-hash":
-		err = linkHash()
-	case len(args) > 0 && args[0] == "submit-task":
-		err = submitTask(args[1:])
-	default:
-		err = run(args)
-	}
-	if err != nil {
+	cmd := newCommand()
+	cmd.SetArgs(os.Args[1:])
+	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-type repeated []string
-
-func (r *repeated) String() string         { return fmt.Sprint([]string(*r)) }
-func (r *repeated) Set(value string) error { *r = append(*r, value); return nil }
+func newCommand() *cobra.Command {
+	root := newExchangeCommand()
+	root.SetOut(os.Stdout)
+	root.SetErr(os.Stderr)
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.AddCommand(newSignLinkCommand(), newSubmitTaskCommand(), &cobra.Command{
+		Use: "link-hash", Short: "Hash a delegation link read from standard input", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return linkHash(cmd.InOrStdin(), cmd.OutOrStdout()) },
+	})
+	return root
+}
 
 // hostKey reads a host key from --seed-hex or from a state directory's
 // database; a running daemon may hold the directory.
@@ -94,12 +91,13 @@ func hostKey(seedHex, state string) (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-func signLink(args []string) error {
-	fs := flag.NewFlagSet("sign-link", flag.ContinueOnError)
+func newSignLinkCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "sign-link", Short: "Sign a delegation link with a host key", Args: cobra.NoArgs, SilenceErrors: true, SilenceUsage: true}
+	fs := cmd.Flags()
 	seedHex := fs.String("seed-hex", "", "32-byte Ed25519 seed, hex")
 	state := fs.String("state", "", "host state directory whose key signs")
 	var l membership.Link
-	var principals repeated
+	var principals []string
 	fs.StringVar(&l.NetworkID, "network-id", "", "network_id")
 	fs.Int64Var(&l.Index, "index", 0, "index")
 	fs.StringVar(&l.Previous, "previous", membership.DelegationNone, "previous")
@@ -107,31 +105,28 @@ func signLink(args []string) error {
 	fs.StringVar(&l.AudienceHostID, "audience", "", "audience_host_id")
 	fs.StringVar(&l.TaskID, "task-id", "", "task_id")
 	fs.StringVar(&l.OriginatorAgentID, "originator-agent", "", "originator_agent_id")
-	fs.Var(&principals, "principal", "principal, in the given order; repeatable")
+	fs.StringArrayVar(&principals, "principal", nil, "principal, in the given order; repeatable")
 	fs.StringVar(&l.Deadline, "deadline", "", "deadline")
 	fs.Int64Var(&l.Depth, "depth", 0, "depth")
-	if err := fs.Parse(args); err != nil {
-		return err
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		key, err := hostKey(*seedHex, *state)
+		if err != nil {
+			return err
+		}
+		if l.IssuerHostID == "" {
+			l.IssuerHostID = membership.HostID(key.Public().(ed25519.PublicKey))
+		}
+		l.Principals = []string(principals)
+		if l.Principals == nil {
+			l.Principals = []string{}
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(membership.SignLink(key, l))
 	}
-	if fs.NArg() != 0 {
-		return errors.New("sign-link takes no positional arguments")
-	}
-	key, err := hostKey(*seedHex, *state)
-	if err != nil {
-		return err
-	}
-	if l.IssuerHostID == "" {
-		l.IssuerHostID = membership.HostID(key.Public().(ed25519.PublicKey))
-	}
-	l.Principals = []string(principals)
-	if l.Principals == nil {
-		l.Principals = []string{}
-	}
-	return json.NewEncoder(os.Stdout).Encode(membership.SignLink(key, l))
+	return cmd
 }
 
-func linkHash() error {
-	data, err := io.ReadAll(os.Stdin)
+func linkHash(in io.Reader, out io.Writer) error {
+	data, err := io.ReadAll(in)
 	if err != nil {
 		return err
 	}
@@ -141,41 +136,43 @@ func linkHash() error {
 	if err = json.Unmarshal(data, &l); err != nil {
 		return err
 	}
-	_, err = fmt.Println(membership.Link(l).Hash())
+	_, err = fmt.Fprintln(out, membership.Link(l).Hash())
 	return err
 }
 
-func submitTask(args []string) error {
-	fs := flag.NewFlagSet("submit-task", flag.ContinueOnError)
+func newSubmitTaskCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "submit-task", Short: "Post a task with a supplied delegation chain", Args: cobra.NoArgs, SilenceErrors: true, SilenceUsage: true}
+	fs := cmd.Flags()
 	seedHex := fs.String("seed-hex", "", "32-byte Ed25519 seed, hex")
 	state := fs.String("state", "", "host state directory whose key authenticates")
 	address := fs.String("address", "", "peer IP:PORT")
 	request := fs.String("request", "", "task request JSON object, without delegation")
 	chain := fs.String("chain", "", "delegation chain JSON, sent verbatim")
-	if err := fs.Parse(args); err != nil {
-		return err
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(*request), &body); err != nil || body == nil {
+			return errors.New("--request must be a JSON object")
+		}
+		if !json.Valid([]byte(*chain)) {
+			return errors.New("--chain must be JSON")
+		}
+		body["delegation"] = json.RawMessage(*chain)
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		key, err := hostKey(*seedHex, *state)
+		if err != nil {
+			return err
+		}
+		return exchange(key, *address, host.PeerALPN, "POST", "/peer/v1/tasks", payload)
 	}
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(*request), &body); err != nil || body == nil {
-		return errors.New("--request must be a JSON object")
-	}
-	if !json.Valid([]byte(*chain)) {
-		return errors.New("--chain must be JSON")
-	}
-	body["delegation"] = json.RawMessage(*chain)
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	key, err := hostKey(*seedHex, *state)
-	if err != nil {
-		return err
-	}
-	return exchange(key, *address, host.PeerALPN, "POST", "/peer/v1/tasks", payload)
+	return cmd
 }
 
-func run(args []string) error {
-	fs := flag.NewFlagSet("capsule-peer-probe", flag.ContinueOnError)
+func newExchangeCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "capsule-peer-probe", Short: "Send a conformance request directly to a peer", Args: cobra.NoArgs, SilenceErrors: true, SilenceUsage: true}
+	fs := cmd.Flags()
 	seedHex := fs.String("seed-hex", "", "32-byte Ed25519 seed, hex")
 	state := fs.String("state", "", "host state directory whose key authenticates, instead of --seed-hex")
 	address := fs.String("address", "", "peer IP:PORT")
@@ -184,22 +181,22 @@ func run(args []string) error {
 	body := fs.String("body", "", "raw request body, sent verbatim")
 	stdin := fs.Bool("body-stdin", false, "read the raw request body from standard input")
 	alpn := fs.String("alpn", host.PeerALPN, "ALPN to offer")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	key, err := hostKey(*seedHex, *state)
-	if err != nil {
-		return err
-	}
-	var payload []byte
-	if *stdin {
-		if payload, err = io.ReadAll(os.Stdin); err != nil {
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		key, err := hostKey(*seedHex, *state)
+		if err != nil {
 			return err
 		}
-	} else if *body != "" {
-		payload = []byte(*body)
+		var payload []byte
+		if *stdin {
+			if payload, err = io.ReadAll(os.Stdin); err != nil {
+				return err
+			}
+		} else if *body != "" {
+			payload = []byte(*body)
+		}
+		return exchange(key, *address, *alpn, *method, *path, payload)
 	}
-	return exchange(key, *address, *alpn, *method, *path, payload)
+	return cmd
 }
 
 // exchange sends one request and prints {status, body}.

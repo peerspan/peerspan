@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,17 +10,8 @@ import (
 	"syscall"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/coord"
+	"github.com/spf13/cobra"
 )
-
-const usage = `capsule-coord runs the Capsule coordination service.
-
-Usage:
-  capsule-coord [--state DIR] run --listen HOST:PORT
-  capsule-coord [--state DIR] info
-
-Coordination stores signed membership chains and serves network maps. It
-carries no collaboration traffic, and hosts verify every chain it serves.
-`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -34,64 +23,67 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, out, errOut io.Writer) error {
-	flags := flag.NewFlagSet("capsule-coord", flag.ContinueOnError)
-	flags.SetOutput(errOut)
-	state := flags.String("state", "", "private state directory")
-	flags.Usage = func() { fmt.Fprint(out, usage) }
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
+	cmd := newCommand(out, errOut)
+	cmd.SetArgs(args)
+	return cmd.ExecuteContext(ctx)
+}
+
+func newCommand(out, errOut io.Writer) *cobra.Command {
+	root := &cobra.Command{
+		Use: "capsule-coord", Short: "Run the Capsule coordination service",
+		Long:         "Coordination stores signed membership chains and serves network maps. It carries no collaboration traffic, and hosts verify every chain it serves.",
+		SilenceUsage: true, SilenceErrors: true, Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	args = flags.Args()
-	if len(args) == 0 || args[0] == "help" {
-		fmt.Fprint(out, usage)
+	root.SetOut(out)
+	root.SetErr(errOut)
+	root.CompletionOptions.DisableDefaultCmd = true
+	var state, listen string
+	root.PersistentFlags().StringVar(&state, "state", "", "private state directory")
+	resolveState := func(cmd *cobra.Command, args []string) error {
+		if state == "" {
+			var err error
+			state, err = coord.DefaultStateDir()
+			return err
+		}
 		return nil
 	}
-	if *state == "" {
-		var err error
-		if *state, err = coord.DefaultStateDir(); err != nil {
-			return err
-		}
-	}
-	switch args[0] {
-	case "info":
-		if len(args) != 1 {
-			return errors.New("unexpected arguments")
-		}
-		identity, err := coord.ReadIdentity(ctx, *state)
-		if err != nil {
-			return err
-		}
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(identity)
-	case "run":
-		runFlags := flag.NewFlagSet("run", flag.ContinueOnError)
-		runFlags.SetOutput(errOut)
-		listen := runFlags.String("listen", "", "bind address, HOST:PORT")
-		if err := runFlags.Parse(args[1:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return nil
+
+	info := &cobra.Command{
+		Use: "info", Short: "Show the coordinator's public identity", Args: cobra.NoArgs,
+		PreRunE: resolveState,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			identity, err := coord.ReadIdentity(cmd.Context(), state)
+			if err != nil {
+				return err
 			}
-			return err
-		}
-		if runFlags.NArg() != 0 || *listen == "" {
-			return errors.New("run requires --listen HOST:PORT")
-		}
-		server, err := coord.Open(ctx, *state)
-		if err != nil {
-			return err
-		}
-		defer server.Close()
-		listener, err := server.Listen(*listen)
-		if err != nil {
-			return err
-		}
-		defer listener.Close()
-		fmt.Fprintf(errOut, "coordinator %s listening on %s\n", server.Identity().ID, listener.Addr())
-		return server.Serve(ctx, listener)
+			encoder := json.NewEncoder(cmd.OutOrStdout())
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(identity)
+		},
 	}
-	return errors.New("invalid command; see capsule-coord --help")
+	serve := &cobra.Command{
+		Use: "run", Short: "Run the coordinator in the foreground", Args: cobra.NoArgs,
+		PreRunE: resolveState,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if listen == "" {
+				return fmt.Errorf("run requires --listen HOST:PORT")
+			}
+			server, err := coord.Open(cmd.Context(), state)
+			if err != nil {
+				return err
+			}
+			defer server.Close()
+			listener, err := server.Listen(listen)
+			if err != nil {
+				return err
+			}
+			defer listener.Close()
+			fmt.Fprintf(cmd.ErrOrStderr(), "coordinator %s listening on %s\n", server.Identity().ID, listener.Addr())
+			return server.Serve(cmd.Context(), listener)
+		},
+	}
+	serve.Flags().StringVar(&listen, "listen", "", "bind address, HOST:PORT")
+	root.AddCommand(info, serve)
+	return root
 }

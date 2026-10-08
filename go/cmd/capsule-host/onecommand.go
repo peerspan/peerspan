@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net/url"
@@ -14,6 +13,7 @@ import (
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 	"github.com/Cerebral-Systems/capsule/go/internal/person"
+	"github.com/spf13/pflag"
 )
 
 // networkCreateOrJoin runs network create and network join. Unless
@@ -21,24 +21,21 @@ import (
 // ssh-ed25519 identity in ssh-agent) so the same command admits and binds the
 // person. A missing person key only skips that part, with the reason and the
 // command that finishes it.
-func networkCreateOrJoin(ctx context.Context, client host.Client, command string, args []string, state string, out, errOut io.Writer) error {
+func networkCreateOrJoin(ctx context.Context, client host.Client, command string, fs *pflag.FlagSet, state string, out, errOut io.Writer) error {
 	var create host.CreateNetwork
 	var join host.JoinNetwork
 	var noPerson bool
-	path, err := personFlags("network "+command, args, errOut, func(fs *flag.FlagSet) {
-		fs.BoolVar(&noPerson, "no-person", false, "do not admit or bind a person")
-		if command == "create" {
-			fs.StringVar(&create.Name, "name", "", "network name")
-			fs.StringVar(&create.Member, "member", "", "this host's member label")
-			fs.StringVar(&create.CoordinatorAddress, "coordinator", "", "coordinator HOST:PORT")
-			fs.StringVar(&create.CoordinatorPublicKey, "coordinator-key", "", "pinned coordinator public key")
-		} else {
-			fs.StringVar(&join.Token, "token", "", "invite token")
-			fs.StringVar(&join.Descriptor, "descriptor", "", "network descriptor, for a host admitted by public key")
-		}
-	})
-	if err != nil {
-		return err
+	path, _ := fs.GetString("person-key")
+	var err error
+	noPerson, _ = fs.GetBool("no-person")
+	if command == "create" {
+		create.Name, _ = fs.GetString("name")
+		create.Member, _ = fs.GetString("member")
+		create.CoordinatorAddress, _ = fs.GetString("coordinator")
+		create.CoordinatorPublicKey, _ = fs.GetString("coordinator-key")
+	} else {
+		join.Token, _ = fs.GetString("token")
+		join.Descriptor, _ = fs.GetString("descriptor")
 	}
 	if command == "join" && (join.Token == "") == (join.Descriptor == "") {
 		return errors.New("give exactly one of --token or --descriptor")

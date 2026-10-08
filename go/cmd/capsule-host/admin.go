@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -14,6 +12,7 @@ import (
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 	"github.com/Cerebral-Systems/capsule/go/internal/person"
+	"github.com/spf13/pflag"
 )
 
 // Administrators and groups. The signer is chosen automatically: a host that
@@ -21,28 +20,6 @@ import (
 // person key in ssh-agent, which must be a current administrator, and the
 // daemon checks and submits the signed statement. Root-only commands without
 // the seed sign with --root-key PATH.
-
-// adminKey is --person-key on an administrator-signed command: the key to
-// sign with when ssh-agent holds several. Empty means the only agent key.
-var adminKey string
-
-// takePersonKey removes --person-key PATH from an administrator-signed
-// command's arguments.
-func takePersonKey(args []string) ([]string, string) {
-	out, key := []string{}, ""
-	for i := 0; i < len(args); i++ {
-		switch {
-		case (args[i] == "--person-key" || args[i] == "-person-key") && i+1 < len(args):
-			key = args[i+1]
-			i++
-		case strings.HasPrefix(args[i], "--person-key="):
-			key = strings.TrimPrefix(args[i], "--person-key=")
-		default:
-			out = append(out, args[i])
-		}
-	}
-	return out, key
-}
 
 // errAdminCommand marks commands built here, which need the daemon's state.
 var errAdminCommand = errors.New("administrator command")
@@ -91,7 +68,7 @@ func resolvePerson(ctx context.Context, client host.Client, id, given string) (h
 // signAsAdministrator turns a request the daemon would sign with the root seed
 // into one signed here by the administrator's person key, when this host does
 // not hold the seed.
-func signAsAdministrator(ctx context.Context, client host.Client, path string, body any) (any, error) {
+func signAsAdministrator(ctx context.Context, client host.Client, path string, body any, keyPath string) (any, error) {
 	id := networkFromPath(path)
 	n, err := networkOf(ctx, client, id)
 	if err != nil {
@@ -100,7 +77,7 @@ func signAsAdministrator(ctx context.Context, client host.Client, path string, b
 	if n.Administrator {
 		return body, nil
 	}
-	loaded, err := person.Load(adminKey)
+	loaded, err := person.Load(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("forbidden: this host does not hold the network's root seed, and no administrator key was found: %w", err)
 	}
@@ -206,34 +183,17 @@ func rootSigner(n host.Network, path string) (person.Signer, error) {
 	return signer, nil
 }
 
-func adminRequest(ctx context.Context, client host.Client, args []string, errOut io.Writer) (string, string, any, error) {
-	parse := func(name string, args []string, configure func(*flag.FlagSet)) error {
-		fs := flag.NewFlagSet(name, flag.ContinueOnError)
-		fs.SetOutput(errOut)
-		configure(fs)
-		if err := fs.Parse(args); err != nil {
-			return err
-		}
-		if fs.NArg() != 0 {
-			return fmt.Errorf("unexpected arguments: %v", fs.Args())
-		}
-		return nil
-	}
+func adminRequest(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet) (string, string, any, error) {
 	var id, given, rootKey string
 	now := membership.Timestamp(time.Now())
 	switch args[1] {
 	case "delegate-admin", "remove-admin":
 		var revokeAdmitted bool
-		err := parse("network "+args[1], args[2:], func(fs *flag.FlagSet) {
-			fs.StringVar(&id, "network", "", "network ID")
-			fs.StringVar(&given, "person", "", "person ID or label")
-			fs.StringVar(&rootKey, "root-key", "", "the current SSH root: a .pub file selecting an ssh-agent identity, or an OpenSSH private key file")
-			if args[1] == "remove-admin" {
-				fs.BoolVar(&revokeAdmitted, "revoke-admitted", false, "also invalidate everything the administrator signed")
-			}
-		})
-		if err != nil {
-			return "", "", nil, err
+		id, _ = fs.GetString("network")
+		given, _ = fs.GetString("person")
+		rootKey, _ = fs.GetString("root-key")
+		if args[1] == "remove-admin" {
+			revokeAdmitted, _ = fs.GetBool("revoke-admitted")
 		}
 		if id == "" || given == "" {
 			return "", "", nil, errors.New("invalid command; see capsule-host --help")
@@ -289,15 +249,10 @@ func adminRequest(ctx context.Context, client host.Client, args []string, errOut
 			return "", "", nil, errors.New("invalid command; see capsule-host --help")
 		}
 		var name string
-		var members repeated
-		err := parse("network group set", args[3:], func(fs *flag.FlagSet) {
-			fs.StringVar(&id, "network", "", "network ID")
-			fs.StringVar(&name, "group", "", "group name")
-			fs.Var(&members, "person", "member person ID or label (repeatable; none deletes the group)")
-		})
-		if err != nil {
-			return "", "", nil, err
-		}
+		var members []string
+		id, _ = fs.GetString("network")
+		name, _ = fs.GetString("group")
+		members, _ = fs.GetStringArray("person")
 		if id == "" || name == "" {
 			return "", "", nil, errors.New("invalid command; see capsule-host --help")
 		}
@@ -331,7 +286,7 @@ func adminRequest(ctx context.Context, client host.Client, args []string, errOut
 				version = g.Version + 1
 			}
 		}
-		loaded, err := person.Load(adminKey)
+		loaded, err := person.Load(personKey(fs))
 		if err != nil {
 			return "", "", nil, fmt.Errorf("forbidden: this host does not hold the network's root seed, and no administrator key was found: %w", err)
 		}
@@ -344,13 +299,8 @@ func adminRequest(ctx context.Context, client host.Client, args []string, errOut
 			return "", "", nil, errors.New("invalid command; see capsule-host --help")
 		}
 		id = args[2]
-		err := parse("network rotate-root", args[3:], func(fs *flag.FlagSet) {
-			fs.BoolVar(&toSSH, "to-ssh", false, "rotate to the SSH key named by --root-key")
-			fs.StringVar(&rootKey, "root-key", "", "the new SSH root: a .pub file selecting an ssh-agent identity, or an OpenSSH private key file")
-		})
-		if err != nil {
-			return "", "", nil, err
-		}
+		toSSH, _ = fs.GetBool("to-ssh")
+		rootKey, _ = fs.GetString("root-key")
 		if !toSSH || rootKey == "" {
 			return "", "", nil, errors.New("rotate-root takes --to-ssh with --root-key PATH, or neither")
 		}

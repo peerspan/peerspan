@@ -3,47 +3,30 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"io"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/integration"
+	"github.com/spf13/pflag"
 )
 
-func runSessionSetup(ctx context.Context, args []string, state string, out, errOut io.Writer) error {
+func runSessionSetup(ctx context.Context, args []string, fs *pflag.FlagSet, state string, out io.Writer) error {
 	o := integration.Options{Action: args[0], State: state}
-	fs := flag.NewFlagSet("session "+o.Action, flag.ContinueOnError)
-	fs.SetOutput(errOut)
-	fs.StringVar(&o.Directory, "directory", "", "private session setup directory")
-	var values integrationOptions
-	if o.Action == "setup" {
-		fs.StringVar(&o.Harness, "harness", "", "installed harness integration ID")
-		fs.StringVar(&o.Integrations, "integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")
-		fs.StringVar(&o.Runner, "runner", "", "integration helper executable override")
-		fs.StringVar(&o.Agent, "agent", "", "registered agent ID")
-		fs.StringVar(&o.ExpiresAt, "expires-at", "", "future RFC3339 authorization expiry")
-		fs.StringVar(&o.Routes, "routes", "", "owner destination JSON array")
-		fs.Var(&values, "option", "integration-specific KEY=VALUE; repeatable")
+	o.Directory, _ = fs.GetString("directory")
+	var values []string
+	switch o.Action {
+	case "setup":
+		o.Harness, _ = fs.GetString("harness")
+		o.Integrations, _ = fs.GetString("integrations")
+		o.Runner, _ = fs.GetString("runner")
+		o.Agent, _ = fs.GetString("agent")
+		o.ExpiresAt, _ = fs.GetString("expires-at")
+		o.Routes, _ = fs.GetString("routes")
+		values, _ = fs.GetStringArray("option")
+	case "start":
+		o.Workspace, _ = fs.GetString("workspace")
+		o.Args = args[1:]
 	}
-	if o.Action == "start" {
-		fs.StringVar(&o.Workspace, "workspace", "", "harness working directory; defaults to this directory")
-	}
-	parseArgs := args[1:]
-	for index, arg := range parseArgs {
-		if arg == "--" {
-			o.Args = parseArgs[index+1:]
-			parseArgs = parseArgs[:index]
-			break
-		}
-	}
-	if err := fs.Parse(parseArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
-	}
-	if fs.NArg() != 0 || len(o.Args) != 0 && o.Action != "start" {
-		return errors.New("harness arguments require session start and a -- separator")
-	}
+
 	if o.Directory == "" {
 		return errors.New("--directory is required")
 	}
@@ -60,8 +43,3 @@ func runSessionSetup(ctx context.Context, args []string, state string, out, errO
 	}
 	return integration.Run(ctx, o, out)
 }
-
-type integrationOptions []string
-
-func (s *integrationOptions) String() string         { return "KEY=VALUE" }
-func (s *integrationOptions) Set(value string) error { *s = append(*s, value); return nil }
