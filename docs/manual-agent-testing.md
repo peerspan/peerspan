@@ -1,5 +1,7 @@
 # Manual agent testing
 
+This is the advanced path: it wires sessions together by hand with grants, routes, and explicit setup, which `capsule help advanced` lists. For the normal path, with `install`, `join`, `allow`, and `attach`, see the [quick start](quick-start.md).
+
 Start with two conversations on one machine. This walkthrough uses Codex for A
 and OpenCode for B. Two Capsule daemons give the test separate host identities,
 so you can exercise peer messaging over loopback. A daemon can normally register

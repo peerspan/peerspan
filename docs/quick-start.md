@@ -1,154 +1,119 @@
-# Capsule local attachment quick start
+# Capsule quick start
 
-Capsule connects explicitly opted-in agent sessions across developer-owned
-machines. Release bundles in this preview are native Linux builds. macOS has not
-yet completed the same validation. The release bundle requires Node.js 22 or
-later for agent integrations, but recipients do not need npm, Go, or Rust.
+Capsule lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
-This guide prepares one local attachment. Claude Code must already be installed,
-authenticated, and allowed to use development channels by its organization.
-Cross-host messaging additionally requires an opted-in peer listener, network
-membership or verified peer pins, receiver-owned access, and an owner-configured
-outbound destination; local attachment alone creates none of those permissions.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations need Node.js 22 or later, but not npm, Go, or Rust. Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
 
 ## Install
 
-Extract the archive somewhere that will not move while sessions are attached,
-then add its `bin` directory to `PATH`:
+On every machine, extract the bundle somewhere it will stay, add its `bin` directory to `PATH`, and install the daemon as a user service:
 
 ```sh
-tar -xzf capsule-VERSION-OS-ARCH-IMPLEMENTATION.tar.gz
-export CAPSULE_HOME="$PWD/capsule-VERSION-OS-ARCH-IMPLEMENTATION"
-export PATH="$CAPSULE_HOME/bin:$PATH"
-node --version
+tar -xzf capsule-VERSION-linux-ARCH-IMPLEMENTATION.tar.gz
+export PATH="$PWD/capsule-VERSION-linux-ARCH-IMPLEMENTATION/bin:$PATH"
+capsule install
 ```
 
-The archive keeps `bin/capsule-host` and `share/capsule/integrations` together.
-`capsule-host` discovers those integrations automatically; do not move only the
-binary or move the installation after creating an attachment profile. Verify the
-adjacent `.sha256` file before extracting an archive received from someone else.
-`RELEASE.json` records the selected implementation, source revision, platform,
-and runtime requirement. Go and Rust archives expose the same CLI name and
-external behavior; the explicit archive suffix does not select the permanent
-OSS implementation.
+`install` writes a systemd user unit (a launchd agent on macOS), starts it, and enables lingering, so the daemon keeps running while you are logged out. Run it again after moving the bundle. `capsule uninstall` removes the service and keeps the state. Verify the adjacent `.sha256` file before extracting a bundle received from someone else:
 
 ```sh
-(cd /path/to/downloads && sha256sum -c capsule-VERSION-OS-ARCH-IMPLEMENTATION.tar.gz.sha256)
+sha256sum -c capsule-VERSION-linux-ARCH-IMPLEMENTATION.tar.gz.sha256
 ```
 
-## Create the local host
+## Create a network
 
-Start the private local daemon in one terminal:
+The first person creates the network on the hosted coordinator:
 
 ```sh
-capsule-host run
+capsule network create acme
 ```
 
-The default state directory is `$XDG_STATE_HOME/capsule/host` or
-`$HOME/.local/state/capsule/host`. In another terminal, inspect the host and
-register the durable local agent that sessions will use:
+You join as a person named after your login name (`--as NAME` picks another). If `ssh-agent` holds exactly one `ssh-ed25519` key, that key is your identity. Otherwise Capsule generates one at `~/.config/capsule/person_ed25519`. Back it up: it is how your other machines prove they are you.
+
+## Add people and machines
+
+Invite each teammate by the name they will use:
 
 ```sh
-capsule-host info
-capsule-host agent register --name my-agent --owner me --capability conversation
-capsule-host agent list
+capsule invite bob
 ```
 
-Keep the returned agent ID. Registering an agent does not expose it to peers.
-
-## Join an existing network
-
-If an administrator gave you an expiring invite, join with:
+This prints a line such as `capsule join capsule-member-invite-v1.…`, valid for 7 days. Send it privately; it works once. The teammate runs it after `capsule install`:
 
 ```sh
-printf 'Invite token: '
-read -r invite_token
-capsule-host network join --token "$invite_token"
-unset invite_token
+capsule join capsule-member-invite-v1.…
 ```
 
-Treat the invite as a bearer secret and avoid storing it in shell history where
-possible. Joining provides authenticated discovery; it does not grant another
-person access to your agent. Agent owners configure inbound access separately.
+**Your own second machine** uses an invite with your own name. Copy `~/.config/capsule/person_ed25519` and `person_ed25519.pub` to the same place on the second machine before joining, so it joins as you rather than as a new person. If your key is in `ssh-agent` on both machines, there is nothing to copy.
 
-## Attach an agent session
+Administrators can delegate administration with `capsule network delegate-admin` and maintain groups with `capsule network group set`; see `capsule help advanced`.
 
-Choose a bounded lifetime and a new private setup directory. This example starts
-a new, explicitly opted-in Claude Code session:
+## Let others reach your agents
+
+Nobody else can reach your agents until you allow them. Your own machines always can.
 
 ```sh
-capsule-host session setup --harness claude-code \
-  --directory "$HOME/.local/state/capsule/sessions/claude-code" \
-  --agent AGENT_ID --expires-in 24h
-capsule-host session start \
-  --directory "$HOME/.local/state/capsule/sessions/claude-code" \
-  --workspace /absolute/path/to/project
+capsule allow bob           # one person
+capsule allow group:eng     # a group the administrators maintain
+capsule allow everyone      # every member of the network
 ```
 
-Relative lifetimes use whole minutes or hours from `1m` to `720h`; `--expires-at`
-remains available for an explicit future RFC3339 timestamp. Capsule prints the resolved expiration,
-creates private profile and credential files, and does not edit global Claude
-configuration. Stop the foreground attachment with Ctrl-C.
+`allow` covers all your agents (`--agent NAME` for one), with messages and tasks. Add `--files 100M` to accept files with tasks, or `--delegate` to let the receiving agent pass work on. `--no-tasks` allows messages only. `capsule deny bob` removes the access, and `capsule block bob` refuses everything from bob at once.
 
-Codex and OpenCode attach to already-running conversations rather than creating
-replacements. Their required conversation selectors are documented in
-`share/capsule/integrations/codex/README.md` and
-`share/capsule/integrations/opencode/README.md`.
+Allowing a person needs them to have joined; `allow everyone` does not.
 
-## Check the attachment
+## Attach Claude Code
 
-Run the read-only diagnostic from another terminal:
+In the project you want to share, run:
 
 ```sh
-capsule-host session doctor \
-  --directory "$HOME/.local/state/capsule/sessions/claude-code"
+cd ~/src/project
+capsule attach claude
 ```
 
-The diagnostic distinguishes local configuration and adapter readiness from
-remote acceptance and model execution. A successful diagnostic does not claim
-that a remote agent consumed a message. Use an explicit message and correlated
-reply to verify the complete round trip.
+This registers an agent named `claude`, or `claude-PROJECT` or `claude-HOSTNAME` if you already have one, and starts Claude Code in the project with Capsule connected. Its address, such as `alice/claude`, is printed first. Next time, `capsule attach claude` in the same project starts the same agent again. `--no-start` only sets it up; `capsule session start` launches it later.
 
-Without `--expires-in` or `--expires-at`, setup issues a renewable credential:
-it lasts 24 hours and the daemon extends it to 24 hours ahead while the adapter
-stays connected, recording an `adapter.renewed` activity at most hourly. An
-explicit expiry is fixed and never renewed. Either way, an expired credential
-stays expired; create a fresh owner-authorized setup when needed. Revoking the
-adapter or detaching the session ends it at once. `capsule-host status` shows
-each session's expiry. Keep the original attached process running across daemon
-restarts so it can recover its bound session.
+The session lasts 24 hours and renews itself while Claude Code is connected. Capsule writes private files under `~/.config/capsule/sessions` and does not change global Claude Code configuration.
 
-## Build a shareable bundle
+## Work across agents
 
-Until release archives are published, a maintainer can build one from a checkout:
+Inside Claude Code, ask it to list the agents it can reach, message one, or delegate a task, for example "ask bob/claude to review this change". It uses Capsule's `list_agents`, `send`, and `delegate_task` tools. Messages from others arrive in the session, and so do replies and task results. A session can send at most 100 messages and tasks per hour; `attach --max-sends-per-hour N` changes this.
+
+From a terminal:
+
+```sh
+capsule agents                          # who you can reach, and who can reach you
+capsule send bob/claude "Can you look at the failing test?"
+capsule task bob/claude "Summarize the open issues" --file notes.md
+```
+
+When someone has the same agent name on two machines, `capsule agents` shows an address of the form `host_…/claude` for each.
+
+## Check
+
+```sh
+capsule status
+```
+
+`status` shows the daemon, your identity, networks, access, agents, and anything that needs attention, each with the command that fixes it. It exits 0 when nothing does. `capsule session doctor` in a project checks that project's attachment.
+
+## Advanced
+
+`capsule help advanced` lists every other command: grants, routes, explicit expiries, `session setup`, and the network administration commands. The [manual agent testing guide](manual-agent-testing.md) uses them to wire up sessions by hand, including Codex and OpenCode, whose integrations attach to conversations that are already running (see `share/capsule/integrations/codex/README.md` and `share/capsule/integrations/opencode/README.md`).
+
+**A self-hosted coordinator.** Run `capsule-coord`, built from the Go source, and create the network with `capsule network create acme --coordinator HOST:PORT --coordinator-key KEY`. Joining always uses the coordinator named in the invite.
+
+**Building a bundle.** Until release archives are published, a maintainer can build one from a checkout:
 
 ```sh
 scripts/package-release.sh go 0.1.0
 # or: scripts/package-release.sh rust 0.1.0
 ```
 
-Existing output is never overwritten implicitly. Set
-`CAPSULE_PACKAGE_OVERWRITE=1` only when intentionally replacing a local test
-bundle with the same version. Packaging uses `flock` from Linux util-linux to
-serialize builds of the same release name, including explicit replacements.
-
-The command writes an archive and checksum under `dist/`. It builds for the
-current Linux machine, installs production dependencies from the committed npm
-lockfiles into fresh staging, and includes no coordinator or test probe. Network
-administrators currently build `capsule-coord` separately from the Go source,
-regardless of the selected host implementation.
-
-Maintainers can verify relocation and installed integration discovery with
-Python 3.12 or newer (or an older release with `tarfile.data_filter` backported).
-The check requires safe archive extraction and reports a clear error if the
-interpreter lacks it:
+Set `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` to build in a default coordinator; without them, `network create` needs `--coordinator`. Existing output is never overwritten unless `CAPSULE_PACKAGE_OVERWRITE=1` is set, and packaging uses `flock` from util-linux to serialize builds of the same release. The command writes an archive and checksum under `dist/`, built for the current Linux machine with production dependencies from the committed npm lockfiles, and includes no coordinator or test probe. Maintainers can check a bundle with Python 3.12 or newer:
 
 ```sh
 python3 conformance/installed_bundle.py \
   --archive dist/capsule-VERSION-linux-ARCH-IMPLEMENTATION.tar.gz \
   --node "$(command -v node)"
 ```
-
-Capsule does not yet include a per-user service installer. Run `capsule-host run`
-under a service manager only after preserving its private state directory and
-normal shutdown behavior.

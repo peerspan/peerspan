@@ -612,3 +612,80 @@ Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, r
   - the rate cap with a small `--max-sends-per-hour`, retries not counted, and route sends not counted.
 - **Agents and status:** `agents --json` fields; item 12 with an injected duplicate.
 - **Root help:** the new command set; the moved commands still run.
+
+## Slice 5: acceptance
+
+Decided with the owner on 2026-10-09:
+- each machine in the scripted run is a temporary Linux user on one host, with a real systemd user service from `capsule install`;
+- the scripted run executes exactly the commands the [quick start](quick-start.md) documents, and fails if any other step is needed;
+- the live run has three Claude Code sessions use the directory and a two-link delegation, with no routes;
+- the live run uses the operator's existing Claude Code login for all three sessions, with each person's Capsule state and configuration isolated;
+- `attach` launches the session itself.
+
+### Attach launches
+
+For an integration that supports launch, `attach` ends by doing what `capsule session start` does in the project: it replaces itself with the harness in the workspace, recovering the session first if needed. This happens whether the attach set up a new session or reused one. `--no-start` stops after setup and prints the output object as before, with `next` naming `capsule session start`. Arguments after `--` are passed to the harness, as for `session start`. For an integration without launch, `attach` prints its output as before.
+
+Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness.
+
+### The documented path
+
+The quick start is the user path. `attach` runs last on each machine, because it keeps the terminal for Claude Code. Each counted step below is a command the user types; extracting the bundle, adding it to `PATH`, and `cd` into a project are preparation and not counted. `LABEL`, `TOKEN`, and `ADDRESS` are taken from the previous commands' output, as a user would read them.
+
+**Solo** (one person, machines M1 and M2):
+1. M1: `capsule install`, `capsule network create acme`, `capsule invite LABEL` with the person's own label, `capsule attach claude`;
+2. copying `~/.config/capsule/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Capsule step);
+3. M2: `capsule install`, `capsule join TOKEN`, `capsule attach claude`.
+
+That is 7 Capsule commands and one copy. M2's agent is named `claude-HOSTNAME`, because `claude` is taken on M1.
+
+**Pair** (alice on M1, bob on M2):
+1. M1: `capsule install`, `capsule network create acme`, `capsule invite bob`;
+2. M2: `capsule install`, `capsule join TOKEN`, `capsule allow alice`, `capsule attach claude`;
+3. M1: `capsule allow bob`, which needs bob to have joined, then `capsule attach claude`.
+
+That is 9 commands.
+
+**Team** (alice, bob, and carol on M1 to M3):
+1. M1: `capsule install`, `capsule network create acme`, `capsule invite bob`, `capsule invite carol`, `capsule allow everyone`, `capsule attach claude`;
+2. M2 and M3, each: `capsule install`, `capsule join TOKEN`, `capsule allow everyone`, `capsule attach claude`.
+
+That is 14 commands.
+
+**Checks after each path,** which are not counted:
+- every session's adapter is connected, through the fixture launched by `attach`;
+- every host's `capsule status --json` exits 0, with the service installed and active and linger enabled;
+- every `capsule agents --json` lists each other person's agent (and, in solo, the other machine's agent) with its address and `message.append` and `task.submit`;
+- each owner's `capsule send ADDRESS TEXT` to every other agent ends `accepted`, and `capsule task ADDRESS TEXT` reaches the receiver;
+- sends cite a policy in pair and team, and `self` in solo.
+
+### Scripted run
+
+`conformance/launch_acceptance.py` is an end-to-end check, separate from the conformance rule for new suites. It needs root, systemd 250 or newer, Python 3.12, and Node 22.
+- **Bundles.** It packages both implementations with `scripts/package-release.sh`, with `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` set to a `capsule-coord` it runs on loopback, standing in for the hosted coordinator. It verifies each archive's checksum.
+- **Machines.** Each machine is a new user (`capsule-acc-N`) with an empty home. Before the path, the harness enables linger for the user, so its systemd user manager runs as it would after a login. It then extracts the bundle into the user's home and runs every step as that user, with `XDG_RUNTIME_DIR` set, through `runuser`. No `ssh-agent` runs, so each person's key is generated. A fixture `claude` in the user's `~/.local/bin` stands in for Claude Code: it accepts the arguments the launch passes and runs the configured MCP adapter, as `conformance/claude_setup.py`'s fixture does. The harness runs each `attach` in the background, as a user's terminal would keep it, and stops it at the end. No model is called.
+- **Runs.** Solo and pair with each implementation; team with Go only, Rust only, and mixed (Go, Rust, Go).
+- **Cleanup.** Afterwards, it stops and removes every unit, disables linger, kills the users' processes, and deletes the users and their homes, also after a failure. `--keep` leaves them for inspection.
+- **Results.** It writes `docs/results/launch-acceptance.json`: for each run, the implementations, the exact commands with their machine, the counts by kind, each check's result, and the release metadata.
+
+A run fails when a step exits nonzero, when a step's output lacks what a later step needs (such as the `join` line), or when a check fails.
+
+### Live run
+
+`conformance/live_launch_agents.py` runs three persons, alice (Go), bob (Rust), and carol (Go), on one host as the invoking user.
+- **Isolation.** Each person has their own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and daemon, run in the foreground with `capsule run` from an installed bundle; the scripted run covers `install`. `HOME` is shared, so all three Claude Code sessions use the existing login.
+- **Setup.** It follows the team path, except that `allow everyone --delegate` replaces `allow everyone`. Each person runs `capsule attach claude` in a project directory of their own, in a terminal the harness drives, with Claude Code's built-in tools disabled.
+- **Flow.** The harness prompts only alice's session. Alice's Claude calls `list_agents`, then `delegate_task` to `bob/claude` by `to`, asking for a short review with a part to be passed on to carol. Bob's Claude accepts and calls `delegate_task` to `carol/claude` with `parent_task_id`. Carol's Claude completes, bob's completes the parent with carol's result, and alice's receives the final update. Alice's Claude then sends one message to `carol/claude` by `to` and gets a reply.
+- **Verification, from host state:**
+  - every task and message was submitted by an adapter with directory access and has a `to`, and no route exists;
+  - carol's task carries a two-link chain originating at alice;
+  - each task ended `completed`;
+  - the message has a reply.
+- **Results.** It writes `docs/results/launch-live.json` with the commands, the tool calls observed, task states, and model and version strings, and records model behavior without claiming more than host state shows. `--fixture` replaces the models with deterministic MCP consumers, for checking the harness.
+
+### Verification
+
+The attach launch is checked by `conformance/launch_directory.py`, which existing cases make pass `--no-start` where they expect the output object, plus cases for the launch with the fixture harness, the reused session, and `--no-start`. Otherwise this slice adds no conformance suite. It is accepted when:
+- `launch_acceptance.py` passes every run, and its results file shows the counts above;
+- `live_launch_agents.py` completes once with real models, and its results file is committed;
+- the quick start documents exactly the counted path, and the [manual agent testing guide](manual-agent-testing.md) is presented as the advanced path.
