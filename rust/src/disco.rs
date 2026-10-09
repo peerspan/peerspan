@@ -394,6 +394,8 @@ struct State {
     endpoints: HashMap<SocketAddr, [u8; HOST]>,
     seen: HashMap<([u8; HOST], [u8; TX]), Instant>,
     stun: HashMap<[u8; TX], (SocketAddr, oneshot::Sender<SocketAddr>)>,
+    /// The last reflexive address learned from each coordinator, and when.
+    reflexive: HashMap<String, (Instant, SocketAddr)>,
 }
 
 /// Path discovery for one peer endpoint (one UDP socket).
@@ -654,6 +656,29 @@ impl Discovery {
     }
 
     /// Learns this socket's reflexive address as seen by a coordinator.
+    /// The reflexive address for `coordinator`: one learned within `fresh`,
+    /// or else a new STUN request's answer. Syncs prompted by change
+    /// notifications come often, and waiting up to a second for STUN on each
+    /// would delay applying the change.
+    pub(crate) async fn reflexive_within(
+        &self,
+        coordinator: &str,
+        fresh: Duration,
+    ) -> Option<SocketAddr> {
+        if let Ok(state) = self.state.lock()
+            && let Some((at, addr)) = state.reflexive.get(coordinator)
+            && at.elapsed() < fresh
+        {
+            return Some(*addr);
+        }
+        let addr = self.reflexive(coordinator).await?;
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .reflexive
+                .insert(coordinator.to_owned(), (Instant::now(), addr));
+        }
+        Some(addr)
+    }
     pub(crate) async fn reflexive(&self, coordinator: &str) -> Option<SocketAddr> {
         let v4_only = matches!(self.inner.local_addr(), Ok(SocketAddr::V4(_)));
         let target = tokio::net::lookup_host(coordinator)

@@ -373,6 +373,17 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 		return fmt.Errorf("the person key %s is not a current person of that network", membership.PersonID(signer.PublicKey()))
 	}
 	principal, err := resolveTopPrincipal(persons, given)
+	if errors.Is(err, host.ErrNotFound) {
+		// A person admitted moments ago may not have reached this host yet:
+		// sync the network once and resolve again.
+		if _, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil); err != nil {
+			return err
+		}
+		if persons, err = personsOf(ctx, client, network); err != nil {
+			return err
+		}
+		principal, err = resolveTopPrincipal(persons, given)
+	}
 	if err != nil {
 		return err
 	}

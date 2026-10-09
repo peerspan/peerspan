@@ -57,6 +57,8 @@ const QUERY_BOUND: Duration = Duration::from_secs(5);
 const PARALLEL: usize = 8;
 /// A synchronous refresh waits at most this long.
 const SYNC_WAIT: Duration = Duration::from_secs(10);
+/// A synchronous refresh asks a host that answered 403 again this much later.
+const FORBIDDEN_RETRY: Duration = Duration::from_secs(2);
 /// The rate cap's window.
 const HOUR_MS: i64 = 3_600_000;
 
@@ -376,11 +378,11 @@ impl Store {
             self_access |= self.self_bound(&conn, caller, person)?;
         }
         let blocked = self.blocked(&conn, caller)?;
-        // Each verified, current policy of this host's person, with the
-        // caller's member record and groups in that network.
+        // The verified, current policy of this host's person in the queried
+        // network, with the caller's member record and groups there.
         let mut policies = Vec::new();
         if !blocked {
-            for (net, m) in &own {
+            for (net, m) in own.iter().filter(|(n, _)| n == network) {
                 let Some(person) = &m.person_id else {
                     continue;
                 };
@@ -589,8 +591,8 @@ impl Store {
     fn matching(&self, to: &str, networks: &[String]) -> Result<Vec<Candidate>, Error> {
         let (first, name) = parts(to)?;
         let by_host = valid_id(first, "host", 32);
-        let mut seen = BTreeSet::new();
-        let mut found = Vec::new();
+        let mut seen: BTreeMap<(String, String), usize> = BTreeMap::new();
+        let mut found: Vec<Candidate> = Vec::new();
         for (c, _) in self.candidates(networks)? {
             if c.name != name || !addressable(&c.name) {
                 continue;
@@ -602,8 +604,26 @@ impl Store {
                     .as_deref()
                     .is_some_and(|l| crate::network::labels_conflict(l, first))
             };
-            if hit && seen.insert((c.host_id.clone(), c.agent_id.clone())) {
-                found.push(c);
+            if !hit {
+                continue;
+            }
+            // One agent listed in several networks resolves in the lowest
+            // that lists an authorization for it.
+            let listed = |c: &Candidate| {
+                c.agent
+                    .as_ref()
+                    .is_some_and(|a| !a.authorizations.is_empty())
+            };
+            match seen.get(&(c.host_id.clone(), c.agent_id.clone())) {
+                Some(&i) => {
+                    if !listed(&found[i]) && listed(&c) {
+                        found[i] = c;
+                    }
+                }
+                None => {
+                    seen.insert((c.host_id.clone(), c.agent_id.clone()), found.len());
+                    found.push(c);
+                }
             }
         }
         Ok(found)
@@ -880,6 +900,12 @@ pub(crate) fn choose(agent: &PeerAgent, action: &str, origin: Option<&str>) -> O
 enum Outcome {
     Agents(Vec<PeerAgent>),
     Unsupported,
+    /// HTTP 403: the host does not know this one yet, for example right
+    /// after a join it has not synced.
+    Forbidden,
+    /// The host refused this host's TLS authentication: it does not know
+    /// this host yet either.
+    Unauthenticated(String),
     Failed(String),
 }
 
@@ -910,24 +936,45 @@ async fn query(store: Arc<Store>, network: String, host: String) -> Outcome {
             _ => Outcome::Failed("invalid directory response".into()),
         },
         Ok(Ok((404, _))) => Outcome::Unsupported,
+        Ok(Ok((403, _))) => Outcome::Forbidden,
         Ok(Ok((status, _))) => Outcome::Failed(format!("peer returned HTTP {status}")),
+        Ok(Err(e)) if crate::quic::unauthenticated(&e) => {
+            Outcome::Unauthenticated(format!("{e:#}"))
+        }
         Ok(Err(e)) => Outcome::Failed(format!("{e:#}")),
         Err(_) => Outcome::Failed("directory query timed out".into()),
     }
 }
 
 /// Refreshes one network's directory: every other member, or only `only`.
-/// A host that fails keeps its agents, marked with the error.
-async fn refresh(store: Arc<Store>, network: String, only: Option<String>) {
+/// A host that fails keeps its agents, marked with the error. A synchronous
+/// refresh (`retry_forbidden`) asks a host that answered 403 once more,
+/// 2 seconds later.
+async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry_forbidden: bool) {
     let lookup = network.clone();
-    let Ok(members) = blocking(store.clone(), move |s| {
+    let Ok((members, own_person)) = blocking(store.clone(), move |s| {
         let conn = s.connection()?;
-        s.other_members(&conn, &lookup)
+        let own = s.identity().id;
+        let own_person = s
+            .stored_members(&conn, &lookup)?
+            .into_iter()
+            .find(|m| m.host_id == own)
+            .and_then(|m| m.person_id);
+        Ok((s.other_members(&conn, &lookup)?, own_person))
     })
     .await
     else {
         return;
     };
+    // Hosts this map shows bound to this host's own person: their answer
+    // should carry `self` entries.
+    let siblings: Arc<BTreeSet<String>> = Arc::new(
+        members
+            .iter()
+            .filter(|m| own_person.is_some() && m.person_id == own_person)
+            .map(|m| m.host_id.clone())
+            .collect(),
+    );
     let hosts: Vec<String> = members
         .iter()
         .map(|m| m.host_id.clone())
@@ -953,12 +1000,36 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>) {
     let permits = Arc::new(tokio::sync::Semaphore::new(PARALLEL));
     let mut queries = tokio::task::JoinSet::new();
     for host in hosts {
-        let (store, network, permits) = (store.clone(), network.clone(), permits.clone());
+        let (store, network, permits, siblings) = (
+            store.clone(),
+            network.clone(),
+            permits.clone(),
+            siblings.clone(),
+        );
         queries.spawn(async move {
             let Ok(_permit) = permits.acquire_owned().await else {
                 return;
             };
-            let outcome = query(store.clone(), network.clone(), host.clone()).await;
+            let mut outcome = query(store.clone(), network.clone(), host.clone()).await;
+            // A synchronous refresh asks once more, 2 seconds later, a host
+            // that answered 403, or a sibling whose answer has no `self`
+            // entry because it has not yet synced the binding.
+            let lacks_self = |o: &Outcome| match o {
+                Outcome::Agents(agents) => {
+                    siblings.contains(&host)
+                        && !agents
+                            .iter()
+                            .any(|a| a.authorizations.iter().any(|z| z.kind == "self"))
+                }
+                _ => false,
+            };
+            if retry_forbidden
+                && (matches!(outcome, Outcome::Forbidden | Outcome::Unauthenticated(_))
+                    || lacks_self(&outcome))
+            {
+                tokio::time::sleep(FORBIDDEN_RETRY).await;
+                outcome = query(store.clone(), network.clone(), host.clone()).await;
+            }
             let at = rfc3339(Utc::now());
             let Ok(mut cache) = store.directory_cache() else {
                 return;
@@ -987,7 +1058,11 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>) {
                         agents: Vec::new(),
                     }
                 }
-                Outcome::Failed(error) => {
+                Outcome::Forbidden => {
+                    entry.state = "error";
+                    entry.error = Some("peer returned HTTP 403".into());
+                }
+                Outcome::Failed(error) | Outcome::Unauthenticated(error) => {
                     entry.state = "error";
                     entry.error = Some(error);
                 }
@@ -1008,7 +1083,12 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>) {
 pub(crate) async fn refresh_now(store: &Arc<Store>, networks: Vec<String>, only: Option<String>) {
     let mut running = Vec::new();
     for network in networks {
-        running.push(tokio::spawn(refresh(store.clone(), network, only.clone())));
+        running.push(tokio::spawn(refresh(
+            store.clone(),
+            network,
+            only.clone(),
+            true,
+        )));
     }
     let _ = tokio::time::timeout(SYNC_WAIT, async {
         for task in running {
@@ -1083,7 +1163,9 @@ pub(crate) async fn resolve(
 }
 
 /// Chooses how a request by address to `target` cites its authorization,
-/// refreshing that host once before refusing with `not_authorized`.
+/// refreshing that host once before refusing with `not_authorized`. Before
+/// refusing, and before citing a policy this host does not yet hold, it also
+/// syncs the network once, so it cites the newest policy.
 pub(crate) async fn authorize(
     store: &Arc<Store>,
     to: &str,
@@ -1091,32 +1173,50 @@ pub(crate) async fn authorize(
     action: &str,
     origin: Option<&str>,
 ) -> Result<Choice, Error> {
-    if let Some(choice) = target
-        .agent
-        .as_ref()
-        .and_then(|a| choose(a, action, origin))
-    {
-        return Ok(choice);
+    let chosen = |agent: Option<PeerAgent>| agent.as_ref().and_then(|a| choose(a, action, origin));
+    let recheck = || async {
+        refresh_now(
+            store,
+            vec![target.network_id.clone()],
+            Some(target.host_id.clone()),
+        )
+        .await;
+        let (network, host, agent) = (
+            target.network_id.clone(),
+            target.host_id.clone(),
+            target.agent_id.clone(),
+        );
+        blocking(store.clone(), move |s| {
+            s.cached_agent(&network, &host, &agent)
+        })
+        .await
+    };
+    let sync = || async {
+        let _ = crate::network::sync_network(store.clone(), target.network_id.clone()).await;
+    };
+    let mut synced = false;
+    let mut choice = chosen(target.agent.clone());
+    if choice.is_none() {
+        choice = chosen(recheck().await?);
     }
-    refresh_now(
-        store,
-        vec![target.network_id.clone()],
-        Some(target.host_id.clone()),
-    )
-    .await;
-    let (network, host, agent) = (
-        target.network_id.clone(),
-        target.host_id.clone(),
-        target.agent_id.clone(),
-    );
-    let agent = blocking(store.clone(), move |s| {
-        s.cached_agent(&network, &host, &agent)
-    })
-    .await?;
-    agent
-        .as_ref()
-        .and_then(|a| choose(a, action, origin))
-        .ok_or_else(|| not_authorized(to))
+    if choice.is_none() {
+        sync().await;
+        synced = true;
+        choice = chosen(recheck().await?);
+    }
+    let choice = choice.ok_or_else(|| not_authorized(to))?;
+    if choice == Choice::Policy && !synced {
+        let host = target.host_id.clone();
+        let held = blocking(store.clone(), move |s| {
+            let conn = s.connection()?;
+            Ok(s.cited_policy(&conn, &host).is_ok())
+        })
+        .await?;
+        if !held {
+            sync().await;
+        }
+    }
+    Ok(choice)
 }
 
 /// Resolves and authorizes an owner request by address; an explicit grant
@@ -1220,7 +1320,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
                 .is_none_or(|(at, seen)| at.elapsed() >= REFRESH_EVERY || seen != fingerprint);
             if due {
                 last.insert(id.clone(), (Instant::now(), fingerprint.clone()));
-                tokio::spawn(refresh(store.clone(), id.clone(), None));
+                tokio::spawn(refresh(store.clone(), id.clone(), None, false));
             }
         }
         last.retain(|id, _| networks.iter().any(|(_, n)| n == id));
@@ -1231,6 +1331,8 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
         }
         tokio::select! {
             _ = tokio::time::sleep(WATCH_EVERY) => {}
+            // A sync after the coordinator's change notification.
+            _ = store.directory_wake.notified() => {}
             _ = shutdown.changed() => return,
         }
     }

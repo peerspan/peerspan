@@ -103,7 +103,7 @@ The new link copies the last link's principals and `originator_agent_id`, with `
 ## Creating chains
 
 - **Owner:** `task submit ... [--delegation-depth N] [--delegate-to P ...] [--parent-sender HOST --parent-task ID]`.
-  - `--delegation-depth` (0 to 2, default 0) creates link 0 with that depth. `--delegate-to` sets its principals, default `network`, sorted and de-duplicated. Link 0 needs `--from-agent`, and it uses the lowest network ID the two hosts share; a missing origin or no shared network is a 400.
+  - `--delegation-depth` (0 to 2, default 0) creates link 0 with that depth. `--delegate-to` sets its principals, default `network`, sorted and de-duplicated. Link 0 needs `--from-agent`, and it uses the lowest network ID the two hosts share; a missing origin or no shared network is a 400. A delegation by address instead uses the network the address resolved in ([launch contract](launch-contract.md), slice 5).
   - An owner forward's origin defaults to the parent task's target agent, and any other agent is a 403.
   - `--parent-sender` and `--parent-task` forward a running received task instead.
   - In `POST /v1/tasks`, these are `delegation_depth`, `delegation_principals`, and `parent: {sender_host_id, task_id}`.

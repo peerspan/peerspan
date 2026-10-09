@@ -34,8 +34,10 @@ impl Local<'_> {
         path: String,
         body: Option<Value>,
     ) -> anyhow::Result<Value> {
+        // These requests submit statements to a coordinator and may sync
+        // first, so they get the daemon's own 65-second local write bound.
         tokio::time::timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(65),
             call(self.0.to_path_buf(), method, path, body),
         )
         .await

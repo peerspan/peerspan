@@ -370,7 +370,9 @@ func (r *relayClient) run(ctx context.Context) {
 
 // session runs one relay connection until it fails.
 func (r *relayClient) session(ctx context.Context) error {
-	config, err := r.store.coordinatorTLS(r.network, relay.ALPN)
+	// Version 2 adds change notifications; a version 1 coordinator selects 1,
+	// and interval syncs remain the only way to learn of changes.
+	config, err := r.store.coordinatorTLS(r.network, relay.ALPNv2, relay.ALPN)
 	if err != nil {
 		return err
 	}
@@ -383,8 +385,8 @@ func (r *relayClient) session(ctx context.Context) error {
 	}
 	conn := raw.(*tls.Conn)
 	defer conn.Close()
-	if conn.ConnectionState().NegotiatedProtocol != relay.ALPN {
-		return errors.New("coordinator did not negotiate " + relay.ALPN)
+	if protocol := conn.ConnectionState().NegotiatedProtocol; protocol != relay.ALPN && protocol != relay.ALPNv2 {
+		return errors.New("coordinator did not negotiate " + relay.ALPNv2 + " or " + relay.ALPN)
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
@@ -399,9 +401,12 @@ func (r *relayClient) session(ctx context.Context) error {
 				failed <- err
 				return
 			}
-			if kind == relay.FrameReceive {
+			switch kind {
+			case relay.FrameReceive:
 				r.touch()
 				r.packets.deliver(peer, data, r)
+			case relay.FrameChanged:
+				r.store.networkChanged(string(data))
 			}
 		}
 	}()
@@ -499,13 +504,21 @@ func (s *Store) relayNetwork(ctx context.Context, id string) (Network, bool, err
 }
 
 // RunRelays keeps a relay connection to every coordinator of this host's
-// networks, so a listening host is reachable through them. Hosts without a
-// peer listener use relays only on demand to dial out.
+// networks, which notifies it of changes and makes a listening host
+// reachable. A host without a peer listener has a QUIC endpoint that only
+// dials, so it accepts no inbound peer connections through its relays.
 func (s *Store) RunRelays(ctx context.Context) {
+	// Syncs for changed frames end with the daemon.
+	s.changesMu.Lock()
+	s.changesCtx = ctx
+	s.changesMu.Unlock()
 	ticker := time.NewTicker(relayManagerRefresh)
 	defer ticker.Stop()
 	for {
 		networks, err := s.Networks(ctx)
+		if err == nil && len(networks) > 0 {
+			_, err = s.peerUDP(nil)
+		}
 		if err == nil {
 			wanted := map[string]bool{}
 			for _, n := range networks {
@@ -531,6 +544,45 @@ func (s *Store) RunRelays(ctx context.Context) {
 		case <-s.relayWake:
 		}
 	}
+}
+
+// networkChanged syncs a network its coordinator reported changed. At most
+// one such sync per network runs; a change reported during it causes one
+// more sync after it. A sync that started after the report, for any reason,
+// serves it.
+func (s *Store) networkChanged(network string) {
+	now := time.Now()
+	s.changesMu.Lock()
+	if s.changes == nil {
+		s.changes = map[string]time.Time{}
+	}
+	if _, running := s.changes[network]; running {
+		s.changes[network] = now
+		s.changesMu.Unlock()
+		return
+	}
+	s.changes[network] = time.Time{}
+	parent := s.changesCtx
+	s.changesMu.Unlock()
+	if parent == nil {
+		parent = context.Background()
+	}
+	go func() {
+		for since := now; ; {
+			ctx, cancel := context.WithTimeout(parent, time.Minute)
+			_, _ = s.syncNetworkSince(ctx, network, since)
+			cancel()
+			s.changesMu.Lock()
+			if next := s.changes[network]; !next.IsZero() {
+				s.changes[network], since = time.Time{}, next
+				s.changesMu.Unlock()
+				continue
+			}
+			delete(s.changes, network)
+			s.changesMu.Unlock()
+			return
+		}
+	}()
 }
 
 // wakeRelays asks RunRelays to refresh now, without blocking.

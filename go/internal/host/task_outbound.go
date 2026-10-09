@@ -148,6 +148,9 @@ type AdapterDelegate struct {
 	Artifacts []ArtifactEntry `json:"artifacts,omitempty"`
 	// ParentTaskID forwards a task this session claimed and is running.
 	ParentTaskID string `json:"parent_task_id,omitempty"`
+	// DelegationDepth, 0 to 2 and only with To, creates link 0 with that
+	// depth and network principals, allowing onward hops.
+	DelegationDepth int64 `json:"delegation_depth,omitempty"`
 }
 
 // TaskUpdateDelivery is one task event handed to the originating session.
@@ -881,6 +884,9 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 	}
 	if r.Network != "" {
 		return OutboundTask{}, ErrInvalid
+	}
+	if r.DelegationDepth != 0 {
+		return OutboundTask{}, fmt.Errorf("%w: delegation_depth needs to; a route sets its own depth", ErrInvalid)
 	}
 	if !validRouteName(r.Destination) || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) || (r.Artifacts != nil && !validManifest(r.Artifacts)) || (r.ParentTaskID != "" && !validID(r.ParentTaskID, "task", 16)) {
 		return OutboundTask{}, ErrInvalid

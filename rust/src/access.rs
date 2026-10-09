@@ -183,11 +183,36 @@ async fn resolve(local: &Local<'_>, network: &str, given: &str) -> anyhow::Resul
     if is_person_id(person) {
         return Ok(given.to_owned());
     }
-    let key = person_key(local, network, person).await?;
+    let key = synced_person_key(local, network, person).await?;
     Ok(format!(
         "person:{}",
         persons::person_id_of(&key).map_err(failed)?
     ))
+}
+
+/// Resolves a person as `person_key` does, but when it is not a current
+/// person, syncs the network once and resolves again before failing: a
+/// person admitted moments ago elsewhere may not have reached this host yet.
+async fn synced_person_key(
+    local: &Local<'_>,
+    network: &str,
+    given: &str,
+) -> anyhow::Result<String> {
+    let first = person_key(local, network, given).await;
+    match &first {
+        Err(e) if e.to_string().starts_with("no current person") => {
+            // A failed sync leaves the first answer.
+            if local
+                .post(format!("/v1/networks/{}/sync", encoded(network)), json!({}))
+                .await
+                .is_err()
+            {
+                return first;
+            }
+            person_key(local, network, given).await
+        }
+        _ => first,
+    }
 }
 
 fn is_person_id(value: &str) -> bool {
@@ -237,7 +262,7 @@ async fn top_principal(local: &Local<'_>, network: &str, given: &str) -> anyhow:
         return Ok(given.to_owned());
     }
     let person = given.strip_prefix("person:").unwrap_or(given);
-    let key = person_key(local, network, person).await?;
+    let key = synced_person_key(local, network, person).await?;
     Ok(format!(
         "person:{}",
         persons::person_id_of(&key).map_err(failed)?

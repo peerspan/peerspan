@@ -177,7 +177,7 @@ func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Reques
 	}
 	mux.HandleFunc("POST /adapter/v1/delegations", func(w http.ResponseWriter, r *http.Request) {
 		var req AdapterDelegate
-		if !decode(w, r, &req, "destination", "to", "network", "task_id", "input", "artifacts", "parent_task_id") {
+		if !decode(w, r, &req, "destination", "to", "network", "task_id", "input", "artifacts", "parent_task_id", "delegation_depth") {
 			return
 		}
 		out, err := store.PrepareAdapterTask(r.Context(), token(r), req)

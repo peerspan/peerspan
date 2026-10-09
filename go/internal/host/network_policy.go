@@ -618,30 +618,39 @@ func (s *Store) blockSubject(ctx context.Context, r BlockAccess) (string, string
 		}
 		return "host", r.Host, nil
 	case r.Person != "" && r.Host == "":
-		networks, err := s.Networks(ctx)
-		if err != nil {
-			return "", "", err
-		}
-		seen := map[string]bool{}
-		var persons []Person
-		for _, n := range networks {
-			g, err := s.loadGovernance(ctx, s.db, n.ID)
+		// A person admitted moments ago may not have reached this host yet,
+		// so an unresolved label syncs every network once and resolves again.
+		for synced := false; ; synced = true {
+			networks, err := s.Networks(ctx)
 			if err != nil {
 				return "", "", err
 			}
-			for _, p := range g.personList() {
-				if !seen[p.PersonID] {
-					seen[p.PersonID] = true
-					persons = append(persons, p)
+			seen := map[string]bool{}
+			var persons []Person
+			for _, n := range networks {
+				g, err := s.loadGovernance(ctx, s.db, n.ID)
+				if err != nil {
+					return "", "", err
+				}
+				for _, p := range g.personList() {
+					if !seen[p.PersonID] {
+						seen[p.PersonID] = true
+						persons = append(persons, p)
+					}
 				}
 			}
+			sort.Slice(persons, func(i, j int) bool { return persons[i].PersonID < persons[j].PersonID })
+			p, err := ResolvePerson(persons, r.Person)
+			if errors.Is(err, ErrNotFound) && membership.ValidPersonID(r.Person) {
+				return "person", r.Person, nil
+			}
+			if !errors.Is(err, ErrNotFound) || synced {
+				return "person", p.PersonID, err
+			}
+			for _, n := range networks {
+				_, _ = s.SyncNetwork(ctx, n.ID)
+			}
 		}
-		sort.Slice(persons, func(i, j int) bool { return persons[i].PersonID < persons[j].PersonID })
-		p, err := ResolvePerson(persons, r.Person)
-		if errors.Is(err, ErrNotFound) && membership.ValidPersonID(r.Person) {
-			return "person", r.Person, nil
-		}
-		return "person", p.PersonID, err
 	}
 	return "", "", fmt.Errorf("%w: give exactly one of person or host", ErrInvalid)
 }

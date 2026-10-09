@@ -1,0 +1,413 @@
+{
+  "checked_at": "2026-10-09T20:04:00.483669+00:00",
+  "mode": "live",
+  "contract": "docs/launch-contract.md, Slice 5: acceptance (live run)",
+  "persons": {
+    "alice": {
+      "implementation": "go",
+      "address": "root/claude",
+      "host_id": "host_e4dc652f6cf44fe6d2cf3ef48ebe573bab6e051bfdc0c8ac783205b788a56267"
+    },
+    "bob": {
+      "implementation": "rust",
+      "address": "bob/claude",
+      "host_id": "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021"
+    },
+    "carol": {
+      "implementation": "go",
+      "address": "carol/claude",
+      "host_id": "host_168cd58bcf21b5bd39b4174d92bd27996fab4a39435fbe7d5bdaf99910c8b00f"
+    }
+  },
+  "release": {
+    "go": {
+      "archive": "capsule-0.0.0-acceptance-linux-amd64-go.tar.gz",
+      "sha256": "17a594ddfd3ec9b7007eec6e99089408abd569ecb65e3aafa2cf83e6b5a1173f",
+      "checksum_verified": true,
+      "release": {
+        "version": "0.0.0-acceptance",
+        "implementation": "go",
+        "source_revision": "d161924168f0d709461c98102bc6a7e20a94fb04",
+        "source_dirty": true,
+        "os": "linux",
+        "architecture": "amd64",
+        "node_requirement": ">=22",
+        "rust_libc": "glibc (builder baseline; rust bundles only)"
+      }
+    },
+    "rust": {
+      "archive": "capsule-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+      "sha256": "a3d9c7fb9a90d2a23f2dfd416ea1da5a46c0d94d3a1f662d323377d8297dc7bf",
+      "checksum_verified": true,
+      "release": {
+        "version": "0.0.0-acceptance",
+        "implementation": "rust",
+        "source_revision": "d161924168f0d709461c98102bc6a7e20a94fb04",
+        "source_dirty": true,
+        "os": "linux",
+        "architecture": "amd64",
+        "node_requirement": ">=22",
+        "rust_libc": "glibc (builder baseline; rust bundles only)"
+      }
+    }
+  },
+  "commands": [
+    {
+      "person": "alice",
+      "command": "capsule run --peer-listen 127.0.0.1:45620",
+      "kind": "daemon (foreground)"
+    },
+    {
+      "person": "bob",
+      "command": "capsule run --peer-listen 127.0.0.1:44600",
+      "kind": "daemon (foreground)"
+    },
+    {
+      "person": "carol",
+      "command": "capsule run --peer-listen 127.0.0.1:36001",
+      "kind": "daemon (foreground)"
+    },
+    {
+      "person": "alice",
+      "implementation": "go",
+      "command": "capsule network create acme",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "alice",
+      "implementation": "go",
+      "command": "capsule invite bob",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "alice",
+      "implementation": "go",
+      "command": "capsule invite carol",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "alice",
+      "implementation": "go",
+      "command": "capsule allow everyone --delegate",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "alice",
+      "implementation": "go",
+      "command": "capsule attach claude -- --session-id 427bdcc8-caae-41e5-a72f-7756698ee89e --strict-mcp-config --settings '{\"disableAllHooks\":true}' --setting-sources '' --tools '' --allowedTools mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__delegate_task,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_status --permission-mode dontAsk --disable-slash-commands --debug-file /var/tmp/capsule-live-jgk60jff/alice/claude-debug.log",
+      "kind": "capsule",
+      "background": true,
+      "cwd": "project",
+      "terminal": true
+    },
+    {
+      "person": "bob",
+      "implementation": "rust",
+      "command": "capsule join TOKEN",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "bob",
+      "implementation": "rust",
+      "command": "capsule allow everyone --delegate",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "bob",
+      "implementation": "rust",
+      "command": "capsule attach claude -- --session-id fbb96928-a89a-409c-823c-43b3d171d774 --strict-mcp-config --settings '{\"disableAllHooks\":true}' --setting-sources '' --tools '' --allowedTools mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__delegate_task,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_status --permission-mode dontAsk --disable-slash-commands --debug-file /var/tmp/capsule-live-jgk60jff/bob/claude-debug.log",
+      "kind": "capsule",
+      "background": true,
+      "cwd": "project",
+      "terminal": true
+    },
+    {
+      "person": "carol",
+      "implementation": "go",
+      "command": "capsule join TOKEN",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "carol",
+      "implementation": "go",
+      "command": "capsule allow everyone --delegate",
+      "kind": "capsule",
+      "exit": 0
+    },
+    {
+      "person": "carol",
+      "implementation": "go",
+      "command": "capsule attach claude -- --session-id ce119478-5cf3-4a6b-9bcf-c0de981239a6 --strict-mcp-config --settings '{\"disableAllHooks\":true}' --setting-sources '' --tools '' --allowedTools mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__delegate_task,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_status --permission-mode dontAsk --disable-slash-commands --debug-file /var/tmp/capsule-live-jgk60jff/carol/claude-debug.log",
+      "kind": "capsule",
+      "background": true,
+      "cwd": "project",
+      "terminal": true
+    }
+  ],
+  "task_states": {
+    "alice_view_of_bob_task": "succeeded",
+    "bob_view_of_carol_task": "succeeded",
+    "bob_received": "succeeded",
+    "carol_received": "succeeded"
+  },
+  "harness_verified": {
+    "every_attached_adapter_has_directory_access": true,
+    "no_route_exists": true,
+    "one_task_each_from_alice_and_bob_none_from_carol": true,
+    "tasks_submitted_by_directory_adapters_with_to": true,
+    "bob_task_passed_on_with_parent": true,
+    "carol_task_two_link_chain_from_alice": true,
+    "each_task_completed": true,
+    "one_message_by_alice_directory_adapter_with_to": true,
+    "message_has_reply": true,
+    "only_alice_sent_messages": true
+  },
+  "ids": {
+    "parent_task": "task_3f6e098cc16a575937853ce57ab18728",
+    "subtask": "task_074a8f0c1d8f21aa622c420e87364f15",
+    "chain_issuers": [
+      "host_e4dc652f6cf44fe6d2cf3ef48ebe573bab6e051bfdc0c8ac783205b788a56267",
+      "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021"
+    ]
+  },
+  "messages": [
+    {
+      "peer": "host_168cd58bcf21b5bd39b4174d92bd27996fab4a39435fbe7d5bdaf99910c8b00f",
+      "request_id": "request_f98040aa9f25e43f26ba9ed60fa5939e",
+      "adapter_id": "adapter_733054da639f690d683d9a0cfe171726",
+      "route_id": null,
+      "to": "carol/claude",
+      "state": "accepted",
+      "reply": true
+    }
+  ],
+  "tool_calls": {
+    "alice": {
+      "list_agents": [
+        {
+          "input": {},
+          "result": [
+            {
+              "address": "bob/claude",
+              "network_id": "net_491f7b2c14f2a8d7c7474c94b37ffa7d414e0ef3ca42964ac3e6e582648c86c5",
+              "connected": true,
+              "actions": [
+                "message.append",
+                "task.submit",
+                "task.delegate"
+              ],
+              "max_message_bytes": 65536,
+              "max_artifact_bytes": 0
+            },
+            {
+              "address": "carol/claude",
+              "network_id": "net_491f7b2c14f2a8d7c7474c94b37ffa7d414e0ef3ca42964ac3e6e582648c86c5",
+              "connected": true,
+              "actions": [
+                "message.append",
+                "task.submit",
+                "task.delegate"
+              ],
+              "max_message_bytes": 65536,
+              "max_artifact_bytes": 0
+            }
+          ]
+        }
+      ],
+      "send": [
+        {
+          "input": {
+            "to": "carol/claude",
+            "content": "Thanks for the fix; please reply with one sentence."
+          },
+          "result": {
+            "state": "accepted",
+            "request_id": "request_f98040aa9f25e43f26ba9ed60fa5939e",
+            "to": "carol/claude",
+            "peer_host_id": "host_168cd58bcf21b5bd39b4174d92bd27996fab4a39435fbe7d5bdaf99910c8b00f",
+            "attempts": 1,
+            "next_attempt_at": null,
+            "error": null
+          }
+        }
+      ],
+      "send_status": [
+        {
+          "input": {
+            "request_id": "request_f98040aa9f25e43f26ba9ed60fa5939e"
+          },
+          "result": {
+            "request_id": "request_f98040aa9f25e43f26ba9ed60fa5939e",
+            "destination": null,
+            "to": "carol/claude",
+            "state": "accepted",
+            "attempts": 1,
+            "next_attempt_at": null,
+            "error": null
+          }
+        }
+      ],
+      "delegate_task": [
+        {
+          "input": {
+            "to": "bob/claude",
+            "delegation_depth": 1,
+            "input": "Review request 00086f from alice. Review this Python function in one or two sentences: `def mean(xs): return sum(xs) / len(xs) - 1`. Pass one part on: call delegate_task with to 'carol/claude', parent_task_id set to this task's task_id, and input 'Suggest a corrected one-line version of: def mean(xs): return sum(xs) / len(xs) - 1'. When carol's kind=task_update event with state succeeded arrives, complete this task with task_complete, status succeeded, and output your review followed by 'CAROL SAYS: ' and carol's output verbatim."
+          },
+          "result": {
+            "task_id": "task_3f6e098cc16a575937853ce57ab18728",
+            "to": "bob/claude",
+            "parent_task_id": null,
+            "peer_host_id": "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021",
+            "submit_state": "accepted",
+            "state": "queued",
+            "artifacts": [],
+            "attempts": 1,
+            "next_attempt_at": null,
+            "error": null
+          }
+        }
+      ]
+    },
+    "bob": {
+      "delegate_task": [
+        {
+          "input": {
+            "to": "carol/claude",
+            "parent_task_id": "task_3f6e098cc16a575937853ce57ab18728",
+            "input": "Suggest a corrected one-line version of: def mean(xs): return sum(xs) / len(xs) - 1"
+          },
+          "result": {
+            "task_id": "task_074a8f0c1d8f21aa622c420e87364f15",
+            "to": "carol/claude",
+            "parent_task_id": "task_3f6e098cc16a575937853ce57ab18728",
+            "peer_host_id": "host_168cd58bcf21b5bd39b4174d92bd27996fab4a39435fbe7d5bdaf99910c8b00f",
+            "submit_state": "accepted",
+            "state": "queued",
+            "artifacts": [],
+            "attempts": 1,
+            "next_attempt_at": null,
+            "error": null
+          }
+        }
+      ],
+      "task_accept": [
+        {
+          "input": {
+            "task_id": "task_3f6e098cc16a575937853ce57ab18728"
+          },
+          "result": {
+            "task_id": "task_3f6e098cc16a575937853ce57ab18728",
+            "sender_host_id": "host_e4dc652f6cf44fe6d2cf3ef48ebe573bab6e051bfdc0c8ac783205b788a56267",
+            "receiver_host_id": "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021",
+            "target_agent_id": "agent_166d4cf44e4705e1da61a8ebec825d51",
+            "state": "running",
+            "cancel_requested": false,
+            "created_at": "2026-10-09T20:03:14.672841659Z",
+            "updated_at": "2026-10-09T20:03:17.594725011Z",
+            "last_event": 2
+          }
+        }
+      ],
+      "task_complete": [
+        {
+          "input": {
+            "task_id": "task_3f6e098cc16a575937853ce57ab18728",
+            "status": "succeeded",
+            "output": "Review: Because `/` binds tighter than `-`, this computes `(sum(xs) / len(xs)) - 1`, which is the true mean minus 1; drop the `- 1` to fix it. It also raises ZeroDivisionError on an empty list.\n\nCAROL SAYS: Corrected version:\n\n    def mean(xs): return sum(xs) / len(xs)\n\nThe bug: `/` binds tighter than `-`, so the original computes `(sum(xs) / len(xs)) - 1`, which is the true mean minus 1. The arithmetic mean is just the sum divided by the count, so the `- 1` should go.\n\n(If `len(xs) - 1` was meant, as in a sample-variance denominator, that would be `sum(xs) / (len(xs) - 1)`. That isn't a mean, though, and it divides by zero for a single element.)\n\nOptional variant that handles an empty list instead of raising ZeroDivisionError:\n\n    def mean(xs): return sum(xs) / len(xs) if xs else float('nan')"
+          },
+          "result": {
+            "task_id": "task_3f6e098cc16a575937853ce57ab18728",
+            "sender_host_id": "host_e4dc652f6cf44fe6d2cf3ef48ebe573bab6e051bfdc0c8ac783205b788a56267",
+            "receiver_host_id": "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021",
+            "target_agent_id": "agent_166d4cf44e4705e1da61a8ebec825d51",
+            "state": "succeeded",
+            "cancel_requested": false,
+            "created_at": "2026-10-09T20:03:14.672841659Z",
+            "updated_at": "2026-10-09T20:03:34.737643404Z",
+            "last_event": 3
+          }
+        }
+      ]
+    },
+    "carol": {
+      "reply": [
+        {
+          "input": {
+            "delivery_id": "delivery_66b246bcff63196fac6ec3c8d58a025c",
+            "content": "You're welcome — the fix is simply `def mean(xs): return sum(xs) / len(xs)`, since the stray `- 1` was being subtracted from the mean due to operator precedence."
+          },
+          "result": null
+        }
+      ],
+      "task_accept": [
+        {
+          "input": {
+            "task_id": "task_074a8f0c1d8f21aa622c420e87364f15"
+          },
+          "result": {
+            "task_id": "task_074a8f0c1d8f21aa622c420e87364f15",
+            "sender_host_id": "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021",
+            "receiver_host_id": "host_168cd58bcf21b5bd39b4174d92bd27996fab4a39435fbe7d5bdaf99910c8b00f",
+            "target_agent_id": "agent_26d5793e418c007a7132246aef3ab516",
+            "state": "running",
+            "cancel_requested": false,
+            "created_at": "2026-10-09T20:03:18.570644634Z",
+            "updated_at": "2026-10-09T20:03:21.653173142Z",
+            "last_event": 2
+          }
+        }
+      ],
+      "task_complete": [
+        {
+          "input": {
+            "task_id": "task_074a8f0c1d8f21aa622c420e87364f15",
+            "status": "succeeded",
+            "output": "Corrected version:\n\n    def mean(xs): return sum(xs) / len(xs)\n\nThe bug: `/` binds tighter than `-`, so the original computes `(sum(xs) / len(xs)) - 1`, which is the true mean minus 1. The arithmetic mean is just the sum divided by the count, so the `- 1` should go.\n\n(If `len(xs) - 1` was meant, as in a sample-variance denominator, that would be `sum(xs) / (len(xs) - 1)`. That isn't a mean, though, and it divides by zero for a single element.)\n\nOptional variant that handles an empty list instead of raising ZeroDivisionError:\n\n    def mean(xs): return sum(xs) / len(xs) if xs else float('nan')"
+          },
+          "result": {
+            "task_id": "task_074a8f0c1d8f21aa622c420e87364f15",
+            "sender_host_id": "host_b0c3392e51eec992996cfd084fade2b2e8e4fc67796b5cd0ce75574655b5a021",
+            "receiver_host_id": "host_168cd58bcf21b5bd39b4174d92bd27996fab4a39435fbe7d5bdaf99910c8b00f",
+            "target_agent_id": "agent_26d5793e418c007a7132246aef3ab516",
+            "state": "succeeded",
+            "cancel_requested": false,
+            "created_at": "2026-10-09T20:03:18.570644634Z",
+            "updated_at": "2026-10-09T20:03:25.844467478Z",
+            "last_event": 3
+          }
+        }
+      ]
+    }
+  },
+  "claude_version": "2.1.296 (Claude Code)",
+  "models": {
+    "alice": [
+      "claude-opus-5-5"
+    ],
+    "bob": [
+      "claude-opus-5-5"
+    ],
+    "carol": [
+      "claude-opus-5-5"
+    ]
+  },
+  "mcp_protocols": [
+    "2025-11-25",
+    "2025-11-25",
+    "2025-11-25"
+  ],
+  "alice_terminal_text": "I delegated the review to bob/claude as task `task_3f6e098cc16a575937853ce57ab18728`. It's queued, and I'm waiting for its task_update event with state succeeded.\nStill queued. I'm waiting for the succeeded update.\nRunning. I'm waiting for the succeeded update.\nALICE_RESULT_OBSERVED\nReview: Because `/` binds tighter than `-`, this computes `(sum(xs) / len(xs)) - 1`, which is the true mean minus 1; drop the `- 1` to fix it. It also raises ZeroDivisionError on an empty list.\n\nCAROL SAYS: Corrected version:\n\n    def mean(xs): return sum(xs) / len(xs)\n\nThe bug: `/` binds tighter than `-`, so the original computes `(sum(xs) / len(xs)) - 1`, which is the true mean minus 1. The arithmetic mean is just the sum divided by the count, so the `- 1` should go.\n\n(If `len(xs) - 1` was meant, as in a sample-variance denominator, that would be `sum(xs) / (len(xs) - 1)`. That isn't a mean, though, and it divides by zero for a single element.)\n\nOptional variant that handles an empty list instead of raising ZeroDivisionError:\n\n    def mean(xs): return sum(xs) / len(xs) if xs else float('nan')\nI sent the thank-you message to carol/claude and it was accepted. I'm waiting for carol's reply.\nALICE_REPLY_OBSERVED\nYou're welcome — the fix is simply `def mean(xs): return sum(xs) / len(xs)`, since the stray `- 1` was being subtracted from the mean due to operator precedence.",
+  "evidence": "harness_verified comes from host databases and owner CLI records read after the flow; tool_calls come from each session's own transcript; alice_terminal_text is the model's own report, not host state.",
+  "limitations": [
+    "Three persons as one OS user on one host, over loopback, not separate machines.",
+    "Alice's prompt names the tools and addresses; bob and carol were not prompted and acted on the channel events alone, following the instructions alice's task carried."
+  ]
+}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/quic-go/quic-go"
 )
 
 // The agent directory (milestone 7, slice 4). Each host serves the agents
@@ -41,9 +42,9 @@ const (
 	directoryQueryTimeout = 5 * time.Second
 	directoryWait         = 10 * time.Second
 	directoryQueries      = 8
-	// directoryDebounce gathers a burst of map and policy changes into one
-	// refresh, well within the 10 seconds discovery allows.
-	directoryDebounce      = time.Second
+	// directoryRetry is the wait before a synchronous refresh asks a host
+	// once more that may not have learned of this host's change yet.
+	directoryRetry         = 2 * time.Second
 	defaultMaxSendsPerHour = 100
 )
 
@@ -418,7 +419,7 @@ func (s *Store) mapApplied(network string, members []NetworkMember) {
 }
 
 // RunDirectory refreshes every network's directory at startup, every 5
-// minutes, and soon after a change, until ctx is cancelled.
+// minutes, and at once after a change, until ctx is cancelled.
 func (s *Store) RunDirectory(ctx context.Context) {
 	d := s.directoryInit()
 	ticker := time.NewTicker(directoryInterval)
@@ -449,7 +450,7 @@ func (s *Store) RunDirectory(ctx context.Context) {
 			refreshes.Add(1)
 			go func() {
 				defer refreshes.Done()
-				_ = s.refreshDirectory(ctx, id, "")
+				_ = s.refreshDirectory(ctx, id, "", false)
 			}()
 		}
 		refreshes.Wait()
@@ -460,11 +461,6 @@ func (s *Store) RunDirectory(ctx context.Context) {
 		case <-ticker.C:
 			all = true
 		case <-d.wake:
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(directoryDebounce):
-			}
 		}
 	}
 }
@@ -472,7 +468,9 @@ func (s *Store) RunDirectory(ctx context.Context) {
 // refreshDirectory queries every current member of a network other than
 // this host, or only one host when only is set. A host that fails keeps its
 // previous agents.
-func (s *Store) refreshDirectory(ctx context.Context, network, only string) error {
+// retry marks a synchronous refresh, which retries a host that may not
+// have learned of a change yet.
+func (s *Store) refreshDirectory(ctx context.Context, network, only string, retry bool) error {
 	d := s.directoryInit()
 	nd := d.networkDir(network)
 	nd.refresh.Lock()
@@ -522,6 +520,18 @@ func (s *Store) refreshDirectory(ctx context.Context, network, only string) erro
 			}
 			defer func() { <-d.queries }()
 			agents, state, err := s.queryAgents(ctx, network, id)
+			// A synchronous refresh asks once more, shortly, a host that may
+			// not have learned of this host's join, binding, or policy yet:
+			// one that answered 403 or refused this host's key in the
+			// handshake, or a sibling (bound to this host's person) whose
+			// answer lacks self access.
+			if retry && (errors.Is(err, errDirectoryForbidden) || peerAuthRefused(err) || (state == hostStateOK && !hasSelf(agents) && s.boundToOwnPerson(ctx, id))) {
+				select {
+				case <-time.After(directoryRetry):
+					agents, state, err = s.queryAgents(ctx, network, id)
+				case <-ctx.Done():
+				}
+			}
 			now := time.Now().UTC()
 			d.mu.Lock()
 			defer d.mu.Unlock()
@@ -551,6 +561,35 @@ func (s *Store) refreshDirectory(ctx context.Context, network, only string) erro
 	return nil
 }
 
+// hasSelf reports whether any listed agent carries self access.
+func hasSelf(agents []PeerAgent) bool {
+	for _, a := range agents {
+		for _, auth := range a.Authorizations {
+			if auth.Kind == authorizationKindSelf {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// boundToOwnPerson reports whether this host's map binds a host to this host's
+// own person.
+func (s *Store) boundToOwnPerson(ctx context.Context, host string) bool {
+	_, ok, err := s.selfPerson(ctx, s.db, host)
+	return err == nil && ok
+}
+
+// peerAuthRefused reports a peer that closed the handshake with a TLS
+// alert, as one that does not know this host yet does.
+func peerAuthRefused(err error) bool {
+	var transport *quic.TransportError
+	return errors.As(err, &transport) && transport.Remote && transport.ErrorCode.IsCryptoError()
+}
+
+// errDirectoryForbidden is a host's 403 to a directory query.
+var errDirectoryForbidden = errors.New("peer returned HTTP 403")
+
 // queryAgents asks one host for the agents this host may reach. A 404 is
 // an older receiver without the route.
 func (s *Store) queryAgents(ctx context.Context, network, host string) ([]PeerAgent, string, error) {
@@ -566,6 +605,8 @@ func (s *Store) queryAgents(ctx context.Context, network, host string) ([]PeerAg
 		return nil, hostStateError, err
 	case status == http.StatusNotFound:
 		return nil, hostStateUnsupported, nil
+	case status == http.StatusForbidden:
+		return nil, hostStateError, errDirectoryForbidden
 	case status != http.StatusOK:
 		return nil, hostStateError, fmt.Errorf("peer returned HTTP %d", status)
 	}
@@ -592,7 +633,7 @@ func (s *Store) refreshWithin(ctx context.Context, network, only string) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), directoryWait+directoryQueryTimeout)
 		defer cancel()
-		done <- s.refreshDirectory(ctx, network, only)
+		done <- s.refreshDirectory(ctx, network, only, true)
 	}()
 	select {
 	case err := <-done:

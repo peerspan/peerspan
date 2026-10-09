@@ -110,7 +110,7 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		return runStatus(ctx, client, fs, state, out)
 	}
 	if args[0] == "attach" {
-		return runAttach(ctx, client, args[1], fs, state, out)
+		return runAttach(ctx, client, args[1], args[2:], fs, state, out, errOut)
 	}
 	if args[0] == "agents" {
 		return runAgents(ctx, client, fs, out)
@@ -722,9 +722,10 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 			}
 		}
 		fmt.Fprintf(errOut, "peer listener %s (advertised %q)\n", peerListener.Addr(), advertise)
-		// A listening host stays reachable through its networks' relays.
-		go store.RunRelays(daemonCtx)
 	}
+	// Every member host keeps its coordinators' relay connections, which
+	// carry change notifications; a listening host is also reachable there.
+	go store.RunRelays(daemonCtx)
 	if err = store.ConfigureCoordination(advertise, time.Duration(interval)*time.Second); err != nil {
 		return err
 	}
@@ -771,8 +772,8 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 	}
 	defer adapterListener.Close()
 	results := make(chan error, 3)
-	go func() { results <- host.Serve(daemonCtx, listener, host.Handler(store)) }()
-	go func() { results <- host.Serve(daemonCtx, adapterListener, host.AdapterHandler(store)) }()
+	go func() { results <- host.ServeLocal(daemonCtx, listener, host.Handler(store)) }()
+	go func() { results <- host.ServeLocal(daemonCtx, adapterListener, host.AdapterHandler(store)) }()
 	count := 2
 	if peerListener != nil {
 		count++

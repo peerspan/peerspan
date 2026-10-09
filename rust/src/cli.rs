@@ -141,7 +141,7 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
-    /// Register an agent for a project and set up its directory session
+    /// Register an agent for a project, set up its directory session, and launch it
     Attach {
         /// Integration ID, or claude for claude-code
         #[arg(value_name = "HARNESS")]
@@ -168,6 +168,12 @@ pub enum Command {
         integrations: Option<PathBuf>,
         #[arg(long, value_name = "PATH")]
         runner: Option<PathBuf>,
+        /// Stop after setup and print the result instead of launching the harness
+        #[arg(long)]
+        no_start: bool,
+        /// Arguments passed to the harness at launch
+        #[arg(last = true, allow_hyphen_values = true, value_name = "HARNESS_ARGS")]
+        harness_args: Vec<String>,
     },
     /// Show the agents you can reach, your own, and who can reach yours
     Agents {

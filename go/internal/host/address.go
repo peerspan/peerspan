@@ -77,7 +77,7 @@ func (t addressTarget) match(name string) AddressMatch {
 // resolveAddress finds the one agent an address names, in the given network
 // or in every network this host belongs to, refreshing the directory once
 // when nothing matches.
-func (s *Store) resolveAddress(ctx context.Context, to, network string) (addressTarget, error) {
+func (s *Store) resolveAddress(ctx context.Context, to, network, action, origin string) (addressTarget, error) {
 	cut := strings.LastIndex(to, "/")
 	if cut <= 0 || cut == len(to)-1 || len(to) > 256 {
 		return addressTarget{}, fmt.Errorf("%w: an address is PERSON/AGENT or HOST_ID/AGENT", ErrInvalid)
@@ -98,7 +98,7 @@ func (s *Store) resolveAddress(ctx context.Context, to, network string) (address
 			networks = append(networks, n.ID)
 		}
 	}
-	matches, err := s.findAddress(ctx, networks, left, name)
+	matches, err := s.findAddress(ctx, networks, left, name, action, origin)
 	if err != nil {
 		return addressTarget{}, err
 	}
@@ -108,7 +108,7 @@ func (s *Store) resolveAddress(ctx context.Context, to, network string) (address
 				return addressTarget{}, err
 			}
 		}
-		if matches, err = s.findAddress(ctx, networks, left, name); err != nil {
+		if matches, err = s.findAddress(ctx, networks, left, name, action, origin); err != nil {
 			return addressTarget{}, err
 		}
 	}
@@ -130,8 +130,9 @@ func (s *Store) resolveAddress(ctx context.Context, to, network string) (address
 }
 
 // findAddress lists the agents an address names, each once, in the lowest
-// network that lists it, sorted by network then host.
-func (s *Store) findAddress(ctx context.Context, networks []string, left, name string) ([]addressTarget, error) {
+// network whose entry lists an authorization for the action and origin
+// (else the lowest that lists it), sorted by network then host.
+func (s *Store) findAddress(ctx context.Context, networks []string, left, name, action, origin string) ([]addressTarget, error) {
 	if !AddressableName(name) {
 		return nil, nil
 	}
@@ -146,7 +147,7 @@ func (s *Store) findAddress(ctx context.Context, networks []string, left, name s
 			local = a.id
 		}
 	}
-	seen := map[string]bool{}
+	seen, remote := map[string]bool{}, map[string]int{}
 	var out []addressTarget
 	d := s.directoryInit()
 	sort.Strings(networks)
@@ -178,15 +179,32 @@ func (s *Store) findAddress(ctx context.Context, networks []string, left, name s
 					continue
 				}
 				for _, a := range nd.hosts[id].agents {
-					if a.Name == name && !seen[id+"/"+a.AgentID] {
-						seen[id+"/"+a.AgentID] = true
-						out = append(out, addressTarget{network: network, host: id, agentID: a.AgentID, auths: a.Authorizations})
+					if a.Name != name {
+						continue
 					}
+					target := addressTarget{network: network, host: id, agentID: a.AgentID, auths: a.Authorizations}
+					// One agent listed in several networks is one match. It
+					// resolves in the lowest network whose entry lists an
+					// authorization for the action, else the lowest.
+					if i, ok := remote[id+"/"+a.AgentID]; ok {
+						if len(candidates(out[i].auths, action, origin)) == 0 && len(candidates(a.Authorizations, action, origin)) > 0 {
+							out[i] = target
+						}
+						continue
+					}
+					remote[id+"/"+a.AgentID] = len(out)
+					out = append(out, target)
 				}
 			}
 		}
 		d.mu.Unlock()
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].network != out[j].network {
+			return out[i].network < out[j].network
+		}
+		return out[i].host < out[j].host
+	})
 	return out, nil
 }
 
@@ -239,8 +257,9 @@ type citation struct {
 }
 
 // authorizeTarget chooses the first listed authorization allowing action
-// whose citation this host can form. With none, it refreshes the target's
-// host once and tries again, then refuses with not_authorized.
+// whose citation this host can form. With none, it syncs the network once,
+// so a policy submitted moments ago can be cited, and refreshes the target's
+// host, then tries again before refusing with not_authorized.
 func (s *Store) authorizeTarget(ctx context.Context, t *addressTarget, action, origin string) (citation, error) {
 	for attempt := 0; ; attempt++ {
 		for _, a := range candidates(t.auths, action, origin) {
@@ -269,7 +288,19 @@ func (s *Store) authorizeTarget(ctx context.Context, t *addressTarget, action, o
 		if attempt > 0 {
 			return citation{}, &codedError{status: http.StatusForbidden, code: "not_authorized", message: fmt.Sprintf("no self access, policy rule, or grant of host %s allows %s to agent %s", t.host, action, t.agentID)}
 		}
-		if err := s.refreshWithin(ctx, t.network, t.host); err != nil && !errors.Is(err, ErrNotFound) {
+		// The sync and the refresh run together, so the retry costs the
+		// longer of the two; any sync that starts meanwhile serves.
+		synced, since := make(chan struct{}), time.Now()
+		go func() {
+			defer close(synced)
+			_, _ = s.syncNetworkSince(ctx, t.network, since)
+		}()
+		err := s.refreshWithin(ctx, t.network, t.host)
+		select {
+		case <-synced:
+		case <-ctx.Done():
+		}
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			return citation{}, err
 		}
 		t.auths = s.cachedAuthorizations(*t)
@@ -282,17 +313,17 @@ func (s *Store) addressOutbound(ctx context.Context, r *SendMessage) error {
 	if r.PeerHostID != "" || r.TargetAgentID != "" || r.Policy != nil || r.Self != nil {
 		return fmt.Errorf("%w: give either to or peer_host_id and target_agent_id", ErrInvalid)
 	}
-	t, err := s.resolveAddress(ctx, *r.To, r.Network)
+	origin := ""
+	if r.Origin != nil {
+		origin = r.Origin.AgentID
+	}
+	t, err := s.resolveAddress(ctx, *r.To, r.Network, membership.PolicyActionMessage, origin)
 	if err != nil {
 		return err
 	}
 	r.PeerHostID, r.TargetAgentID = t.host, t.agentID
 	if r.GrantID != nil {
 		return nil
-	}
-	origin := ""
-	if r.Origin != nil {
-		origin = r.Origin.AgentID
 	}
 	c, err := s.authorizeTarget(ctx, &t, membership.PolicyActionMessage, origin)
 	if err != nil {
@@ -302,28 +333,30 @@ func (s *Store) addressOutbound(ctx context.Context, r *SendMessage) error {
 	return nil
 }
 
-// addressTask resolves an owner task submission's address; a forwarded task
-// needs task.delegate.
+// addressTask resolves an owner task submission's address and, unless it is
+// a forward, chooses its authorization.
 func (s *Store) addressTask(ctx context.Context, r *SubmitTask) error {
 	if r.PeerHostID != "" || r.TargetAgentID != "" {
 		return fmt.Errorf("%w: give either to or peer_host_id and target_agent_id", ErrInvalid)
 	}
-	t, err := s.resolveAddress(ctx, *r.To, r.Network)
+	origin, action := "", membership.PolicyActionTask
+	if r.Origin != nil {
+		origin = r.Origin.AgentID
+	}
+	if r.Parent != nil {
+		action = membership.PolicyActionDelegate
+	}
+	t, err := s.resolveAddress(ctx, *r.To, r.Network, action, origin)
 	if err != nil {
 		return err
 	}
 	r.PeerHostID, r.TargetAgentID = t.host, t.agentID
-	if r.GrantID != nil {
+	// A forward relies on its chain's originator's authorization, which
+	// PrepareOutboundTask cites; it does not choose from the directory.
+	if r.GrantID != nil || r.Parent != nil {
 		return nil
 	}
-	action, origin := membership.PolicyActionTask, ""
-	if r.Parent != nil {
-		action = membership.PolicyActionDelegate
-	}
-	if r.Origin != nil {
-		origin = r.Origin.AgentID
-	}
-	c, err := s.authorizeTarget(ctx, &t, action, origin)
+	c, err := s.authorizeTarget(ctx, &t, membership.PolicyActionTask, origin)
 	if err != nil {
 		return err
 	}
@@ -428,7 +461,7 @@ func (s *Store) prepareAddressSend(ctx context.Context, token AdapterAuth, r Ada
 		return deref(old), err
 	}
 	// Resolution may refresh the directory, so it runs outside a transaction.
-	t, err := s.resolveAddress(ctx, *r.To, r.Network)
+	t, err := s.resolveAddress(ctx, *r.To, r.Network, membership.PolicyActionMessage, ss.AgentID)
 	if err != nil {
 		return OutboundMessage{}, err
 	}
@@ -492,15 +525,65 @@ func repeatAddressTask(ctx context.Context, tx *sql.Tx, a Adapter, ss Session, r
 		return old, true, ErrForbidden
 	case old.RouteID != nil || old.To == nil || *old.To != *r.To || old.Request.Input != r.Input || !sameManifest(old.Request.Artifacts, r.Artifacts) || (old.Parent == nil) != (r.ParentTaskID == "") || (old.Parent != nil && old.Parent.TaskID != r.ParentTaskID):
 		return old, true, ErrConflict
+	case old.Parent == nil && firstDepth(old.Request.Delegation) != r.DelegationDepth:
+		return old, true, ErrConflict
 	}
 	return old, true, nil
+}
+
+// forwardCitation is a forward by address's owner citation: self when the
+// originator and target hosts are bound to one person in the chain's
+// network, otherwise the target owner's policy.
+func (s *Store) forwardCitation(ctx context.Context, tx *sql.Tx, network, originator, target string) (ownerCitation, error) {
+	members, err := membersOf(ctx, tx, network)
+	if err != nil {
+		return ownerCitation{}, err
+	}
+	from, okFrom := members[originator]
+	to, okTo := members[target]
+	if okFrom && okTo && from.PersonID != nil && to.PersonID != nil && *from.PersonID == *to.PersonID {
+		return ownerCitation{self: &SelfCitation{PersonID: *from.PersonID}}, nil
+	}
+	cited, until, err := s.policyCitationUntil(ctx, tx, target)
+	if errors.Is(err, ErrInvalid) {
+		return ownerCitation{}, &codedError{status: http.StatusForbidden, code: "not_authorized", message: fmt.Sprintf("this host holds no access policy of the owner of host %s to cite for the forward", target)}
+	}
+	return ownerCitation{policy: cited, until: until}, err
+}
+
+// firstDepth is the depth of a chain's link 0, or 0 without a chain.
+func firstDepth(chain []membership.Link) int64 {
+	if len(chain) == 0 {
+		return 0
+	}
+	return chain[0].Depth
 }
 
 // prepareAddressTask persists a directory session's delegation by address;
 // with a parent task it forwards that task, which needs task.delegate.
 func (s *Store) prepareAddressTask(ctx context.Context, auth AdapterAuth, r AdapterDelegate) (OutboundTask, error) {
+	out, err := s.prepareAddressTaskOnce(ctx, auth, r)
+	var refused *codedError
+	if r.ParentTaskID == "" || !errors.As(err, &refused) || refused.code != "not_authorized" {
+		return out, err
+	}
+	// A forward found no policy to cite: sync once, so it cites the newest.
+	networks, nerr := s.Networks(ctx)
+	if nerr != nil {
+		return out, err
+	}
+	for _, n := range networks {
+		_, _ = s.SyncNetwork(ctx, n.ID)
+	}
+	return s.prepareAddressTaskOnce(ctx, auth, r)
+}
+
+func (s *Store) prepareAddressTaskOnce(ctx context.Context, auth AdapterAuth, r AdapterDelegate) (OutboundTask, error) {
 	if r.Destination != "" || *r.To == "" || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) || (r.Artifacts != nil && !validManifest(r.Artifacts)) || (r.ParentTaskID != "" && !validID(r.ParentTaskID, "task", 16)) {
 		return OutboundTask{}, ErrInvalid
+	}
+	if r.DelegationDepth < 0 || r.DelegationDepth > membership.DelegationMaxDepth || (r.DelegationDepth != 0 && r.ParentTaskID != "") {
+		return OutboundTask{}, fmt.Errorf("%w: delegation_depth is 0 to 2, and a forward with parent_task_id continues its chain", ErrInvalid)
 	}
 	check := func(tx *sql.Tx) (Adapter, Session, *OutboundTask, error) {
 		a, ss, err := directoryAuthority(ctx, tx, auth)
@@ -525,17 +608,21 @@ func (s *Store) prepareAddressTask(ctx context.Context, auth AdapterAuth, r Adap
 	if old != nil || err != nil {
 		return deref(old), err
 	}
-	t, err := s.resolveAddress(ctx, *r.To, r.Network)
-	if err != nil {
-		return OutboundTask{}, err
-	}
 	action := membership.PolicyActionTask
 	if r.ParentTaskID != "" {
 		action = membership.PolicyActionDelegate
 	}
-	c, err := s.authorizeTarget(ctx, &t, action, ss.AgentID)
+	t, err := s.resolveAddress(ctx, *r.To, r.Network, action, ss.AgentID)
 	if err != nil {
 		return OutboundTask{}, err
+	}
+	// A forward relies on its chain's originator's authorization, cited
+	// below; it does not choose from this host's directory entries.
+	var c citation
+	if r.ParentTaskID == "" {
+		if c, err = s.authorizeTarget(ctx, &t, membership.PolicyActionTask, ss.AgentID); err != nil {
+			return OutboundTask{}, err
+		}
 	}
 	if tx, err = s.db.BeginTx(ctx, nil); err != nil {
 		return OutboundTask{}, err
@@ -563,9 +650,12 @@ func (s *Store) prepareAddressTask(ctx context.Context, auth AdapterAuth, r Adap
 		deadline = exp
 	}
 	owner := c.owner
-	if c.grant == nil && parent != nil && len(parentRequest.Delegation) > 0 && parentRequest.Delegation[0].IssuerHostID != s.identity.ID {
-		// A forward relies on its chain's originator's authorization.
-		if owner, err = s.chainCitation(ctx, tx, t.host, parentRequest.Delegation[0].IssuerHostID); err != nil {
+	if parent != nil {
+		// checkForward ensured a chain. Cite self when the originator host
+		// and the target host are bound to one person in the chain's
+		// network, else the target owner's policy.
+		link := parentRequest.Delegation[0]
+		if owner, err = s.forwardCitation(ctx, tx, link.NetworkID, link.IssuerHostID, t.host); err != nil {
 			return OutboundTask{}, err
 		}
 	}
@@ -581,6 +671,9 @@ func (s *Store) prepareAddressTask(ctx context.Context, auth AdapterAuth, r Adap
 			return OutboundTask{}, err
 		}
 		request.Delegation = append(append([]membership.Link{}, parentRequest.Delegation...), s.nextLink(parentRequest.Delegation, t.host, request))
+	} else if r.DelegationDepth > 0 {
+		// Link 0 is in the network the address resolved in.
+		request.Delegation = []membership.Link{s.firstLinkIn(t.network, t.host, request, r.DelegationDepth, []string{membership.PrincipalNetwork})}
 	}
 	adapterID, to := a.ID, *r.To
 	out := OutboundTask{PeerHostID: t.host, To: &to, Request: request, SubmitState: submitUnknown, AdapterID: &adapterID, NextAttemptAt: s.initialAttempt(), Parent: parent, Delegation: request.Delegation}

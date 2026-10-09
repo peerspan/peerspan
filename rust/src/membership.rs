@@ -268,9 +268,12 @@ impl Membership {
             &self.host_public_key,
             &self.joined_at,
         );
-        invite
-            .verify_strict(statement.as_bytes(), &signature(&self.host_signature)?)
-            .map_err(|_| invalid("invalid host signature"))?;
+        verify_strict_cached(
+            &invite,
+            statement.as_bytes(),
+            &signature(&self.host_signature)?,
+        )
+        .map_err(|_| invalid("invalid host signature"))?;
         if time(&self.joined_at)? > time(&self.invite_expires_at)? {
             return Err(invalid("joined after invite expiry"));
         }
@@ -336,6 +339,41 @@ impl InviteToken {
     }
 }
 
+/// Strict Ed25519 verification, remembering signatures that verified. Every
+/// sync re-verifies the whole network map, so without this a map of a few
+/// dozen statements costs hundreds of milliseconds per sync (seconds under
+/// load in debug builds) for signatures already checked. Verification is a
+/// pure function of the key, message, and signature, so a hit is exact.
+pub(crate) fn verify_strict_cached(
+    key: &VerifyingKey,
+    message: &[u8],
+    signature: &Signature,
+) -> Result<(), ed25519_dalek::SignatureError> {
+    use std::{
+        collections::HashSet,
+        sync::{Mutex, OnceLock},
+    };
+    const LIMIT: usize = 16_384;
+    static VERIFIED: OnceLock<Mutex<HashSet<[u8; 32]>>> = OnceLock::new();
+    let mut digest = Sha256::new();
+    digest.update(key.as_bytes());
+    digest.update(signature.to_bytes());
+    digest.update(message);
+    let id: [u8; 32] = digest.finalize().into();
+    let verified = VERIFIED.get_or_init(Default::default);
+    if verified.lock().is_ok_and(|v| v.contains(&id)) {
+        return Ok(());
+    }
+    key.verify_strict(message, signature)?;
+    if let Ok(mut v) = verified.lock() {
+        if v.len() >= LIMIT {
+            v.clear();
+        }
+        v.insert(id);
+    }
+    Ok(())
+}
+
 pub(crate) fn sign_lines(key: &SigningKey, lines: &[&str]) -> String {
     STANDARD.encode(key.sign(lines.join("\n").as_bytes()).to_bytes())
 }
@@ -344,8 +382,7 @@ pub(crate) fn sign_lines(key: &SigningKey, lines: &[&str]) -> String {
 /// may sign either way; administrators always sign with `SSHSIG`.
 pub(crate) fn verify_lines(key: &str, lines: &[&str], sig: &str) -> Result<(), Error> {
     match signature(sig) {
-        Ok(raw) => public_key(key)?
-            .verify_strict(lines.join("\n").as_bytes(), &raw)
+        Ok(raw) => verify_strict_cached(&public_key(key)?, lines.join("\n").as_bytes(), &raw)
             .map_err(|_| invalid("invalid statement signature")),
         Err(_) => crate::persons::verify_sshsig(key, lines, sig),
     }

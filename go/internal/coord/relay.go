@@ -24,6 +24,9 @@ const (
 	relayHandshake      = 10 * time.Second
 	relayWriteTimeout   = 10 * time.Second
 	relayUnreachableGap = time.Second
+	// relayChangedGap bounds changed frames per network per connection;
+	// later changes coalesce into the next frame.
+	relayChangedGap = 250 * time.Millisecond
 )
 
 // relayServer forwards already-encrypted peer datagrams between hosts that are
@@ -61,6 +64,15 @@ type relayConn struct {
 	tokens  float64
 	refill  time.Time
 	refused map[relay.HostID]time.Time
+	// v2 connections negotiated capsule-relay/2 and receive changed frames.
+	v2      bool
+	notices map[string]*notice
+}
+
+// notice is the changed-frame state of one network on one connection.
+type notice struct {
+	last    time.Time
+	pending bool
 }
 
 func newRelayServer(s *Server) *relayServer {
@@ -136,7 +148,8 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn) {
 	if networks, err := r.networksOf(ctx, id); err != nil || len(networks) == 0 {
 		return
 	}
-	c := &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{}}
+	c := &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{},
+		v2: conn.ConnectionState().NegotiatedProtocol == relay.ALPNv2, notices: map[string]*notice{}}
 	r.mu.Lock()
 	// The cap counts current registrations; a replacement does not add one.
 	old := r.conns[id]
@@ -196,6 +209,75 @@ func (r *relayServer) forward(ctx context.Context, src *relayConn, dest relay.Ho
 		return
 	}
 	target.enqueue(r, frame(relay.FrameReceive, src.id[:], datagram))
+}
+
+// changed tells every member host of a network with a current version 2
+// relay connection that the network changed. Membership may have changed, so
+// the forwarding cache is dropped too.
+func (r *relayServer) changed(network string) {
+	r.mu.Lock()
+	r.members = map[relay.HostID]cachedNetworks{}
+	r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := r.s.db.QueryContext(ctx, `SELECT host_id FROM members WHERE network_id = ?`, network)
+	if err != nil {
+		return
+	}
+	var hosts []relay.HostID
+	for rows.Next() {
+		var host string
+		if rows.Scan(&host) != nil {
+			continue
+		}
+		if id, err := relay.ParseHostID(host); err == nil {
+			hosts = append(hosts, id)
+		}
+	}
+	rows.Close()
+	for _, id := range hosts {
+		r.mu.Lock()
+		c := r.conns[id]
+		r.mu.Unlock()
+		if c != nil && c.v2 {
+			c.notify(r, network)
+		}
+	}
+}
+
+// notify sends a changed frame for a network now, or, within relayChangedGap
+// of the previous one, once when the gap ends.
+func (c *relayConn) notify(r *relayServer, network string) {
+	c.mu.Lock()
+	n := c.notices[network]
+	if n == nil {
+		n = &notice{}
+		c.notices[network] = n
+	}
+	if n.pending {
+		c.mu.Unlock()
+		return
+	}
+	now := r.now()
+	wait := n.last.Add(relayChangedGap).Sub(now)
+	if n.last.IsZero() || wait <= 0 {
+		n.last = now
+		c.mu.Unlock()
+		c.enqueue(r, frame(relay.FrameChanged, []byte(network)))
+		return
+	}
+	n.pending = true
+	c.mu.Unlock()
+	time.AfterFunc(wait, func() {
+		c.mu.Lock()
+		n.pending, n.last = false, r.now()
+		c.mu.Unlock()
+		select {
+		case <-c.done:
+		default:
+			c.enqueue(r, frame(relay.FrameChanged, []byte(network)))
+		}
+	})
 }
 
 func frame(kind byte, parts ...[]byte) []byte {
@@ -332,7 +414,7 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListen
 		return
 	}
 	_ = tc.SetDeadline(time.Time{})
-	if tc.ConnectionState().NegotiatedProtocol == relay.ALPN {
+	if protocol := tc.ConnectionState().NegotiatedProtocol; protocol == relay.ALPN || protocol == relay.ALPNv2 {
 		s.relay.serve(ctx, tc)
 		return
 	}

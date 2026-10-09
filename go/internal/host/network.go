@@ -458,12 +458,31 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Ne
 // and applies the returned map. A coordination failure is recorded in the
 // network's last_sync_error rather than returned.
 func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
-	s.syncing.Lock()
-	defer s.syncing.Unlock()
+	return s.syncNetworkSince(ctx, id, time.Time{})
+}
+
+// syncNetworkSince syncs a network unless a sync of it started after since,
+// which already serves what the coordinator held then.
+func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time) (Network, error) {
 	n, err := s.Network(ctx, id)
-	if err != nil {
+	if err != nil || s.syncedSince(id, since) {
 		return n, err
 	}
+	// Candidates are refreshed on every registration and sync, so the
+	// reflexive mapping is probed at startup and once per interval. The probe
+	// waits up to a second, so it runs before other syncs are held up.
+	candidates := s.ownCandidates(ctx, n.CoordinatorAddress)
+	s.syncing.Lock()
+	defer s.syncing.Unlock()
+	if n, err = s.Network(ctx, id); err != nil || s.syncedSince(id, since) {
+		return n, err
+	}
+	s.changesMu.Lock()
+	if s.syncStarted == nil {
+		s.syncStarted = map[string]time.Time{}
+	}
+	s.syncStarted[id] = time.Now()
+	s.changesMu.Unlock()
 	// A rotation persisted before a crash or a lost response is resubmitted
 	// until the coordinator accepts or refuses it.
 	if n.LastSyncAt != nil {
@@ -486,9 +505,6 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		return n, err
 	}
 	advertise, _ := s.coordinationConfig()
-	// Candidates are refreshed on every registration and sync, so the
-	// reflexive mapping is probed at startup and once per interval.
-	candidates := s.ownCandidates(ctx, n.CoordinatorAddress)
 	var m membership.Map
 	if n.Administrator && n.LastSyncAt == nil {
 		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks", map[string]any{"name": n.Name, "root_public_key": n.RootPublicKey, "membership": self.Membership, "address": advertise, "candidates": candidates})
@@ -537,6 +553,14 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		s.mapApplied(n.ID, applied.members)
 	}
 	return n, nil
+}
+
+// syncedSince reports whether a sync of a network started after since; a
+// zero since never counts as synced.
+func (s *Store) syncedSince(id string, since time.Time) bool {
+	s.changesMu.Lock()
+	defer s.changesMu.Unlock()
+	return !since.IsZero() && s.syncStarted[id].After(since)
 }
 
 func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, members []NetworkMember, now string) error {
@@ -606,8 +630,9 @@ func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, 
 }
 
 // coordinatorTLS proves this host's key and pins the network's coordinator,
-// offering one application protocol: the coordination API or the relay.
-func (s *Store) coordinatorTLS(n Network, alpn string) (*tls.Config, error) {
+// offering the given application protocols: the coordination API, or the
+// relay versions in order of preference.
+func (s *Store) coordinatorTLS(n Network, alpn ...string) (*tls.Config, error) {
 	pinned, err := membership.DecodeKey(n.CoordinatorPublicKey)
 	if err != nil {
 		return nil, err
@@ -617,7 +642,7 @@ func (s *Store) coordinatorTLS(n Network, alpn string) (*tls.Config, error) {
 		return nil, err
 	}
 	config := tlsid.Config()
-	config.NextProtos = []string{alpn}
+	config.NextProtos = alpn
 	config.Certificates = []tls.Certificate{cert}
 	// The coordinator is authenticated by its pinned key, not a CA or DNS name.
 	config.InsecureSkipVerify = true

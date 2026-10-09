@@ -72,6 +72,15 @@ type Store struct {
 	advertise    string
 	interval     time.Duration
 	syncing      sync.Mutex // serializes coordinator syncs and map application
+	// syncStarted is when each network's latest sync started; changesMu
+	// guards it.
+	syncStarted map[string]time.Time
+	// changes holds the networks with a sync for a changed frame in flight,
+	// each with the arrival of a later changed frame that wants one more
+	// sync, or zero.
+	changesMu  sync.Mutex
+	changes    map[string]time.Time
+	changesCtx context.Context
 
 	peer peerTransport // the daemon's UDP socket and cached QUIC connections
 	// relayWake wakes RunRelays when this host creates or joins a network, so it

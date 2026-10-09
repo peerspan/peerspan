@@ -30,7 +30,11 @@ use tokio::{
 };
 use tokio_rustls::TlsConnector;
 
+/// Version 1 of the relay protocol.
 pub(crate) const ALPN: &[u8] = b"capsule-relay/1";
+/// Version 2: version 1 plus the coordinator's `changed` frame (launch
+/// slice 5). Hosts offer it first.
+pub(crate) const ALPN_V2: &[u8] = b"capsule-relay/2";
 pub(crate) const MAX_DATAGRAM: usize = 1500;
 const HOST_ID: usize = 32;
 const HEADER: usize = 3;
@@ -45,6 +49,9 @@ const SEND: u8 = 0x01;
 const RECEIVE: u8 = 0x02;
 const UNREACHABLE: u8 = 0x03;
 const PING: u8 = 0x04;
+const CHANGED: u8 = 0x05;
+/// The longest network ID a `changed` frame may carry.
+const MAX_NETWORK_ID: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Frame {
@@ -60,6 +67,10 @@ pub(crate) enum Frame {
         host: [u8; HOST_ID],
     },
     Ping,
+    /// A network's map or stored statements changed (version 2 only).
+    Changed {
+        network: String,
+    },
 }
 
 pub(crate) fn encode(frame: &Frame) -> Vec<u8> {
@@ -68,6 +79,7 @@ pub(crate) fn encode(frame: &Frame) -> Vec<u8> {
         Frame::Receive { host, datagram } => (RECEIVE, Some(host), datagram),
         Frame::Unreachable { host } => (UNREACHABLE, Some(host), &[]),
         Frame::Ping => (PING, None, &[]),
+        Frame::Changed { network } => (CHANGED, None, network.as_bytes()),
     };
     let length = host.map_or(0, |_| HOST_ID) + datagram.len();
     let mut out = Vec::with_capacity(HEADER + length);
@@ -92,6 +104,7 @@ pub(crate) fn decode(buf: &[u8]) -> anyhow::Result<Option<(Frame, usize)>> {
         SEND | RECEIVE => (HOST_ID + 1..=HOST_ID + MAX_DATAGRAM).contains(&length),
         UNREACHABLE => length == HOST_ID,
         PING => length == 0,
+        CHANGED => (1..=MAX_NETWORK_ID).contains(&length),
         other => anyhow::bail!("unknown relay frame type {other:#04x}"),
     };
     if !valid {
@@ -111,6 +124,10 @@ pub(crate) fn decode(buf: &[u8]) -> anyhow::Result<Option<(Frame, usize)>> {
             datagram: payload[HOST_ID..].to_vec(),
         },
         UNREACHABLE => Frame::Unreachable { host: host() },
+        CHANGED => Frame::Changed {
+            network: String::from_utf8(payload.to_vec())
+                .map_err(|_| anyhow::anyhow!("relay changed frame is not UTF-8"))?,
+        },
         _ => Frame::Ping,
     };
     Ok(Some((frame, HEADER + length)))
@@ -152,7 +169,7 @@ pub(crate) struct Coordinator {
 struct Client {
     frames: mpsc::Sender<Vec<u8>>,
     connected: watch::Receiver<bool>,
-    /// Kept for a listening host's networks; otherwise opened on demand.
+    /// Kept for every network membership; otherwise opened on demand.
     persistent: bool,
     /// When an on-demand client was first seen without a relayed connection.
     idle_since: Option<std::time::Instant>,
@@ -356,10 +373,10 @@ async fn run(
     let mut backoff = Duration::from_secs(1);
     loop {
         match connect(&store, &coordinator).await {
-            Ok(stream) => {
+            Ok((stream, v2)) => {
                 backoff = Duration::from_secs(1);
                 let _ = status.send(true);
-                let ended = session(&relays, &coordinator, stream, &mut outgoing).await;
+                let ended = session(&relays, &store, &coordinator, stream, v2, &mut outgoing).await;
                 let _ = status.send(false);
                 if let Err(error) = ended {
                     eprintln!("relay {}: {error}", coordinator.address);
@@ -372,13 +389,15 @@ async fn run(
     }
 }
 
+/// Connects and returns the stream with whether version 2 was negotiated.
 async fn connect(
     store: &Arc<Store>,
     coordinator: &Coordinator,
-) -> anyhow::Result<tokio_rustls::client::TlsStream<TcpStream>> {
+) -> anyhow::Result<(tokio_rustls::client::TlsStream<TcpStream>, bool)> {
     let (host, _) =
         membership::split_host_port(&coordinator.address).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let config = pinned_client_config(store.clone(), coordinator.key.clone(), ALPN)?;
+    let mut config = pinned_client_config(store.clone(), coordinator.key.clone(), ALPN)?;
+    config.alpn_protocols = vec![ALPN_V2.to_vec(), ALPN.to_vec()];
     let name = rustls::pki_types::ServerName::try_from(host)?;
     let attempt = async {
         let stream = TcpStream::connect(&coordinator.address).await?;
@@ -392,19 +411,24 @@ async fn connect(
     let stream = tokio::time::timeout(Duration::from_secs(5), attempt)
         .await
         .map_err(|_| anyhow::anyhow!("relay connect timed out"))??;
-    if stream.get_ref().1.alpn_protocol() != Some(ALPN) {
-        anyhow::bail!(
-            "coordinator did not negotiate {}",
+    let v2 = match stream.get_ref().1.alpn_protocol() {
+        Some(p) if p == ALPN_V2 => true,
+        Some(p) if p == ALPN => false,
+        _ => anyhow::bail!(
+            "coordinator did not negotiate {} or {}",
+            String::from_utf8_lossy(ALPN_V2),
             String::from_utf8_lossy(ALPN)
-        );
-    }
-    Ok(stream)
+        ),
+    };
+    Ok((stream, v2))
 }
 
 async fn session(
     relays: &Relays,
+    store: &Arc<Store>,
     coordinator: &Coordinator,
     stream: tokio_rustls::client::TlsStream<TcpStream>,
+    v2: bool,
     outgoing: &mut mpsc::Receiver<Vec<u8>>,
 ) -> anyhow::Result<()> {
     let (mut reader, mut writer) = tokio::io::split(stream);
@@ -429,6 +453,12 @@ async fn session(
                         relays.deliver(host, datagram, coordinator)
                     }
                     Frame::Unreachable { .. } | Frame::Ping => {}
+                    Frame::Changed { network } if v2 => {
+                        crate::network::changed(store, network);
+                    }
+                    Frame::Changed { .. } => {
+                        anyhow::bail!("relay sent a changed frame on version 1")
+                    }
                     Frame::Send { .. } => anyhow::bail!("relay sent a host-only frame type"),
                 }
             }

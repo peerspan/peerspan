@@ -363,7 +363,7 @@ pub struct AccessBlock {
     pub subject: String,
     pub created_at: String,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockRequest {
     #[serde(default)]
@@ -1038,11 +1038,28 @@ async fn submit_route(
 async fn blocks_route(State(store): State<Arc<Store>>) -> Result<Json<Vec<AccessBlock>>, Error> {
     Ok(Json(blocking(store, |s| s.access_blocks()).await?))
 }
+/// Syncs every network once when a block's person does not resolve, since a
+/// person admitted moments ago elsewhere may not have reached this host.
+async fn sync_unresolved(store: &Arc<Store>, request: &BlockRequest) -> Result<(), Error> {
+    let r = request.clone();
+    let networks = blocking(store.clone(), move |s| {
+        Ok(match s.block_subject(&r) {
+            Err(Error::NotFound) => s.networks()?.into_iter().map(|n| n.id).collect(),
+            _ => Vec::new(),
+        })
+    })
+    .await?;
+    for id in networks {
+        let _ = crate::network::sync_network(store.clone(), id).await;
+    }
+    Ok(())
+}
 async fn block_route(
     State(store): State<Arc<Store>>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<AccessBlock>), Error> {
     let request: BlockRequest = decode(body)?;
+    sync_unresolved(&store, &request).await?;
     Ok((
         StatusCode::CREATED,
         Json(blocking(store, move |s| s.block(request)).await?),
@@ -1053,6 +1070,7 @@ async fn unblock_route(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<AccessBlock>, Error> {
     let request: BlockRequest = decode(body)?;
+    sync_unresolved(&store, &request).await?;
     Ok(Json(blocking(store, move |s| s.unblock(request)).await?))
 }
 

@@ -63,6 +63,13 @@ pub struct Store {
     pub(crate) artifact_quota: AtomicI64,
     /// Wakes the policy propagation worker when deliveries are queued.
     pub(crate) policy_wake: tokio::sync::Notify,
+    /// Syncs started by the coordinator's `changed` notifications, by
+    /// network ID, with whether another `changed` arrived during the one in
+    /// flight and so needs one more sync after it.
+    pub(crate) changed_syncs: Mutex<BTreeMap<String, bool>>,
+    /// Wakes the directory worker after a notified sync, so it refreshes a
+    /// changed network at once.
+    pub(crate) directory_wake: tokio::sync::Notify,
     /// Seconds between periodic policy syncs with siblings.
     pub(crate) policy_sync_interval: AtomicU64,
     /// Policy deliveries and sibling syncs in progress, so each runs once.
@@ -219,6 +226,8 @@ impl Store {
             person_key_file: RwLock::new(None),
             artifact_quota: AtomicI64::new(crate::artifact::DEFAULT_QUOTA),
             policy_wake: tokio::sync::Notify::new(),
+            changed_syncs: Mutex::new(BTreeMap::new()),
+            directory_wake: tokio::sync::Notify::new(),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),
             coordinator_limits: Mutex::new(BTreeMap::new()),

@@ -272,8 +272,14 @@ func (s *Store) firstLink(ctx context.Context, q dbQuerier, peer string, r TaskR
 	if err != nil {
 		return membership.Link{}, err
 	}
+	return s.firstLinkIn(network, peer, r, depth, principals), nil
+}
+
+// firstLinkIn creates and signs link 0 in a given network, the one an
+// address resolved in.
+func (s *Store) firstLinkIn(network, peer string, r TaskRequest, depth int64, principals []string) membership.Link {
 	l := membership.Link{NetworkID: network, Index: 0, Previous: membership.DelegationNone, IssuerHostID: s.identity.ID, AudienceHostID: peer, TaskID: r.TaskID, OriginatorAgentID: r.Origin.AgentID, Principals: principals, Deadline: r.Deadline, Depth: depth}
-	return membership.SignLink(s.privateKey, l), nil
+	return membership.SignLink(s.privateKey, l)
 }
 
 // nextLink extends a received chain to peer for a forwarded task.

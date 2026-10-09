@@ -299,17 +299,22 @@ def check(coord_binary, owner_binary, sender_binary, label):
                 db.execute("UPDATE statements SET statement = ? WHERE network_id = ? AND kind = 'policy' AND subject = ?",
                            (json.dumps(v4), net, pat_key))
 
-            # Pat re-allows quinn from bob's host; alice, not yet synced, is
-            # behind the cited version and answers 503 until it syncs.
+            # Pat re-allows quinn from bob's host. The coordinator notifies
+            # alice, but until its sync completes alice is behind the cited
+            # version and answers 503; a retry is accepted once it syncs.
             use_agent(agents['pat'])
             v5 = bob.cli('access', 'allow', '--network', net, '--agent', 'reviewer', '--principal', 'person:quinn',
                          '--principal', 'group:backend', '--max-message-bytes', '100')
-            assert v5['version'] == 5 and show(alice, net)['version'] == 4
-            ahead = expect(bob, a, reviewer, 'unknown', content='ahead')
-            assert ahead['request']['policy']['version'] == 5 and 'HTTP 503' in ahead['error'], ahead
-            alice.cli('network', 'sync', net)
-            rid = ahead['request']['request_id']
-            wait_for(lambda: bob.cli('message', 'retry', '--peer', a, rid)['state'] == 'accepted', message='cited retry')
+            assert v5['version'] == 5
+            ahead = send(bob, a, reviewer, content='ahead')
+            assert ahead['request']['policy']['version'] == 5, ahead
+            if ahead['state'] != 'accepted':
+                assert ahead['state'] == 'unknown' and 'HTTP 503' in ahead['error'], ahead
+                alice.cli('network', 'sync', net)
+                rid = ahead['request']['request_id']
+                wait_for(lambda: bob.cli('message', 'retry', '--peer', a, rid)['state'] == 'accepted',
+                         message='cited retry')
+            assert show(alice, net)['version'] == 5
 
             # The block list overrides a grant and the policy, without coordination.
             grant = alice.cli('grant', 'create', '--peer', ids[bob]['id'], '--agent', triage['id'], '--expires-at',

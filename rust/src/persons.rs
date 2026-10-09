@@ -178,12 +178,12 @@ pub fn verify_sshsig(person_key: &str, lines: &[&str], signature_b64: &str) -> R
         .try_into()
         .map_err(|_| invalid("invalid Ed25519 signature length"))?;
     sig.done()?;
-    expected
-        .verify_strict(
-            &signed_data(lines.join("\n").as_bytes()),
-            &ed25519_dalek::Signature::from_bytes(&raw),
-        )
-        .map_err(|_| invalid("invalid person signature"))
+    crate::membership::verify_strict_cached(
+        &expected,
+        &signed_data(lines.join("\n").as_bytes()),
+        &ed25519_dalek::Signature::from_bytes(&raw),
+    )
+    .map_err(|_| invalid("invalid person signature"))
 }
 
 /// The key embedded in an `SSHSIG` blob, as canonical standard Base64, or

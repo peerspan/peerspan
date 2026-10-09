@@ -176,6 +176,10 @@ pub struct AddressDelegate {
     pub artifacts: Option<Vec<ArtifactEntry>>,
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub parent_task_id: Option<String>,
+    /// Onward hops for a new chain (launch slice 5): 0 to 2; nonzero only
+    /// without `parent_task_id`.
+    #[serde(default)]
+    pub delegation_depth: u64,
 }
 /// Where an adapter delegation goes: through a route, or to a resolved
 /// address with its chosen authorization.
@@ -187,6 +191,10 @@ struct DelegationTarget {
     route: Option<OutboundRoute>,
     to: Option<String>,
     choice: Option<crate::directory::Choice>,
+    /// Link 0's depth for a new task: the route's, or the address request's.
+    depth: u64,
+    /// The network an address resolved in, for link 0.
+    network: Option<String>,
 }
 /// How a new task relates to delegation: no chain, a new chain from link 0,
 /// or a forward of a received task.
@@ -562,7 +570,14 @@ impl Store {
         if let Some(inputs) = &request.artifacts {
             self.check_uploads(&tx, inputs)?;
         }
-        let delegation = self.chain_for(&tx, &r.peer_host_id, &request, &spec, forward.as_ref())?;
+        let delegation = self.chain_for(
+            &tx,
+            &r.peer_host_id,
+            &request,
+            &spec,
+            forward.as_ref(),
+            None,
+        )?;
         request.delegation = delegation.clone();
         let mut out = OutboundTask {
             peer_host_id: r.peer_host_id,
@@ -643,10 +658,17 @@ impl Store {
         request: &TaskRequest,
         spec: &ChainSpec,
         forward: Option<&Forwardable>,
+        network: Option<&str>,
     ) -> Result<Option<Vec<Link>>, Error> {
         match (spec, forward) {
             (ChainSpec::Origin { depth, principals }, _) => {
-                let network = self.shared_network(conn, peer)?;
+                // A delegation by address uses the network the address
+                // resolved in, so onward hops stay within it; otherwise the
+                // lowest network ID the two hosts share.
+                let network = match network {
+                    Some(n) => n.to_owned(),
+                    None => self.shared_network(conn, peer)?,
+                };
                 let origin = request
                     .origin
                     .as_ref()
@@ -778,6 +800,8 @@ impl Store {
             peer: route.peer_host_id.clone(),
             agent: route.target_agent_id.clone(),
             expiry,
+            depth: route.delegation_depth,
+            network: None,
             route: Some(route),
             to: None,
             choice: None,
@@ -886,7 +910,7 @@ impl Store {
             artifacts,
             delegation: None,
         };
-        let depth = target.route.as_ref().map_or(0, |r| r.delegation_depth);
+        let depth = target.depth;
         let spec = match &forward {
             Some(f) => ChainSpec::Forward(f.parent.clone()),
             None if depth > 0 => ChainSpec::Origin {
@@ -895,7 +919,14 @@ impl Store {
             },
             None => ChainSpec::None,
         };
-        let delegation = self.chain_for(tx, &target.peer, &request, &spec, forward.as_ref())?;
+        let delegation = self.chain_for(
+            tx,
+            &target.peer,
+            &request,
+            &spec,
+            forward.as_ref(),
+            target.network.as_deref(),
+        )?;
         request.delegation = delegation.clone();
         let mut out = OutboundTask {
             peer_host_id: target.peer,
@@ -960,6 +991,15 @@ impl Store {
             || old.request.input != r.input
             || old.request.artifacts != normalized(r.artifacts.clone())
             || old.parent.as_ref().map(|p| p.task_id.as_str()) != r.parent_task_id.as_deref()
+            || (old.parent.is_none()
+                && ChainSpec::of(&old)
+                    != match r.delegation_depth {
+                        0 => ChainSpec::None,
+                        depth => ChainSpec::Origin {
+                            depth,
+                            principals: vec![NETWORK.into()],
+                        },
+                    })
         {
             return Err(Error::Conflict(
                 "task ID reused with different fields".into(),
@@ -988,6 +1028,14 @@ impl Store {
         {
             return Err(Error::Invalid("invalid delegation".into()));
         }
+        if r.delegation_depth > MAX_DEPTH {
+            return Err(Error::Invalid("delegation depth is 0 to 2".into()));
+        }
+        if r.delegation_depth > 0 && r.parent_task_id.is_some() {
+            return Err(Error::Invalid(
+                "a forward with parent_task_id continues its parent's chain; give no delegation_depth".into(),
+            ));
+        }
         if let Some(manifest) = &normalized(r.artifacts.clone()) {
             validate_manifest(manifest)?;
         }
@@ -1008,7 +1056,7 @@ impl Store {
         to: &str,
         r: AddressDelegate,
         target: &crate::directory::Candidate,
-        choice: &crate::directory::Choice,
+        choice: Option<&crate::directory::Choice>,
     ) -> Result<OutboundTask, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -1032,7 +1080,9 @@ impl Store {
             expiry: time(&a.expires_at)?,
             route: None,
             to: Some(to.to_owned()),
-            choice: Some(choice.clone()),
+            choice: choice.cloned(),
+            depth: r.delegation_depth,
+            network: Some(target.network_id.clone()),
         };
         let out = self.delegate_in(
             &tx,
@@ -1713,6 +1763,19 @@ async fn delegate(
     let auth = crate::adapter::token(&headers);
     let out = match crate::directory::split_address(&mut value, &["destination"])? {
         None => {
+            // A route sets the depth of the chains it starts.
+            match value
+                .as_object_mut()
+                .and_then(|o| o.remove("delegation_depth"))
+            {
+                None | Some(Value::Null) => {}
+                Some(depth) if depth == 0 => {}
+                Some(_) => {
+                    return Err(Error::Invalid(
+                        "delegation_depth is set by the route; give it only with to".into(),
+                    ));
+                }
+            }
             let request = crate::directory::body(value)?;
             blocking(store.clone(), move |s| s.prepare_delegation(&auth, request)).await?
         }
@@ -1748,15 +1811,25 @@ async fn address_delegation(
         Err(origin) => origin,
     };
     let target = crate::directory::resolve(&store, &to, network.as_deref()).await?;
-    // A forward needs `task.delegate`.
-    let action = if r.parent_task_id.is_some() {
-        crate::policy::DELEGATE_ACTION
+    // A forward continues a chain whose originator the receiver authorizes,
+    // so it cites by the chain (self or the target owner's policy) rather
+    // than choosing from this host's directory entries.
+    let choice = if r.parent_task_id.is_some() {
+        None
     } else {
-        crate::policy::TASK_ACTION
+        Some(
+            crate::directory::authorize(
+                &store,
+                &to,
+                &target,
+                crate::policy::TASK_ACTION,
+                Some(&origin),
+            )
+            .await?,
+        )
     };
-    let choice = crate::directory::authorize(&store, &to, &target, action, Some(&origin)).await?;
     blocking(store, move |s| {
-        s.prepare_address_delegation(&auth, &to, r, &target, &choice)
+        s.prepare_address_delegation(&auth, &to, r, &target, choice.as_ref())
     })
     .await
 }

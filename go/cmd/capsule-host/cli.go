@@ -50,7 +50,10 @@ it, and send and task address an agent there, citing self access, a policy
 rule, or the grant with the latest expiry unless --grant is given. attach
 registers an agent for a project and sets up a session with directory access:
 its agent may send and delegate by address to anyone in the directory, at most
---max-sends-per-hour times in an hour.
+--max-sends-per-hour times in an hour. For a harness that supports launch,
+attach then starts it in the project as session start does, printing its
+result on stderr first; --no-start only sets up, and arguments after -- go to
+the harness.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `,
@@ -142,7 +145,13 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	}
 	configureFlags(task, []string{taskByAddress})
 	leaves = append(leaves, task)
-	add("attach", "attach HARNESS", "Attach a harness in this project to the directory", 1)
+	attach := add("attach", "attach HARNESS [-- HARNESS_ARGS...]", "Attach a harness in this project to the directory and start it", 1)
+	attach.Args = func(cmd *cobra.Command, args []string) error {
+		if dash := cmd.Flags().ArgsLenAtDash(); (dash == -1 && len(args) != 1) || (dash != -1 && dash != 1) {
+			return errors.New("attach takes one HARNESS; harness arguments follow a -- separator")
+		}
+		return nil
+	}
 	add("agents", "agents", "Show the agents you can reach and who can reach yours", 0)
 	add("send", "send TARGET TEXT", "Send a message to an agent by address", 2)
 	add("artifact list", "list", "List stored artifacts", 0)
@@ -360,6 +369,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.StringArray("option", nil, "integration-specific KEY=VALUE; repeatable")
 		fs.String("integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")
 		fs.String("runner", "", "integration helper executable override")
+		fs.Bool("no-start", false, "set up only, print the result, and do not start the harness")
 	case "agents":
 		fs.String("network", "", "network ID; defaults to the only network")
 		fs.Bool("refresh", false, "refresh the directory first")

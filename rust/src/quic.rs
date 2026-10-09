@@ -426,6 +426,11 @@ pub(crate) async fn request(
         Ok(response) => Ok(response),
         Err(failure) => {
             transport.evict(&peer.id, &connection);
+            // TLS 1.3 lets the client finish first; a peer that does not
+            // accept this host's certificate closes the connection after.
+            if connection.close_reason().is_some_and(|r| crypto_close(&r)) {
+                return Err(failure.error.context(Unauthenticated));
+            }
             // A reused connection may have died silently, for example when the
             // peer restarted. Receivers deduplicate appends by request ID and
             // lookups are reads, so retry exactly once on a fresh connection,
@@ -440,9 +445,41 @@ pub(crate) async fn request(
             if retried.is_err() {
                 transport.evict(&peer.id, &connection);
             }
-            retried.map_err(|f| f.error)
+            retried.map_err(|f| {
+                if connection.close_reason().is_some_and(|r| crypto_close(&r)) {
+                    f.error.context(Unauthenticated)
+                } else {
+                    f.error
+                }
+            })
         }
     }
+}
+/// Marks a peer request that failed because the peer refused this host's
+/// TLS authentication, typically because it does not know this host yet.
+#[derive(Debug)]
+pub(crate) struct Unauthenticated;
+impl std::fmt::Display for Unauthenticated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("peer refused this host's authentication")
+    }
+}
+/// Whether a QUIC connection closed with a TLS (crypto) error, either side.
+fn crypto_close(error: &quinn::ConnectionError) -> bool {
+    let code = match error {
+        quinn::ConnectionError::ConnectionClosed(close) => u64::from(close.error_code),
+        quinn::ConnectionError::TransportError(error) => u64::from(error.code),
+        _ => return false,
+    };
+    (0x100..0x200).contains(&code)
+}
+/// Whether a peer request failed the TLS authentication of either host.
+pub(crate) fn unauthenticated(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<Unauthenticated>().is_some()
+        || error.chain().any(|e| {
+            e.downcast_ref::<quinn::ConnectionError>()
+                .is_some_and(crypto_close)
+        })
 }
 /// A response whose body is read incrementally: an artifact transfer, which
 /// may exceed the 1 MiB bound on other peer responses.
@@ -610,8 +647,8 @@ async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow
     Ok(Paths { direct, relay })
 }
 /// Keeps a relay connection to every coordinator of this host's networks, so
-/// relayed peers can reach this listening host, and closes those to
-/// coordinators that no longer serve any of them.
+/// relayed peers can reach a listening host and every host receives change
+/// notifications, and closes those to coordinators that no longer serve any.
 async fn keep_relays(store: Arc<Store>, transport: Arc<Transport>) {
     loop {
         // A failed lookup leaves the current relay connections in place.
@@ -633,6 +670,36 @@ async fn keep_relays(store: Arc<Store>, transport: Arc<Transport>) {
             _ = tokio::time::sleep(RELAY_REFRESH) => {}
             _ = store.relay_wake.notified() => {}
         }
+    }
+}
+/// Keeps the relay connections of a host without `--peer-listen` once it is
+/// a member of a network, so its coordinators can push change
+/// notifications. Its client-only endpoint still accepts no inbound peer
+/// connections through them.
+pub async fn keep_without_listener(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
+    loop {
+        let member = blocking(store.clone(), |s| s.coordinators())
+            .await
+            .is_ok_and(|c| !c.is_empty());
+        if member {
+            break;
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(RELAY_REFRESH) => {}
+            _ = store.relay_wake.notified() => {}
+            _ = shutdown.changed() => return,
+        }
+    }
+    let transport = match transport(&store) {
+        Ok(transport) => transport,
+        Err(error) => {
+            eprintln!("relay: {error:#}");
+            return;
+        }
+    };
+    tokio::select! {
+        _ = keep_relays(store, transport) => {}
+        _ = shutdown.changed() => {}
     }
 }
 struct Failure {

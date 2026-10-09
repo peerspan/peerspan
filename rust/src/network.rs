@@ -3642,7 +3642,12 @@ async fn publish_candidates(store: &Arc<Store>, coordinator: &str) -> Vec<String
     };
     let mut out: Vec<std::net::SocketAddr> = Vec::new();
     if let Some(discovery) = crate::quic::discovery(store)
-        && let Some(reflexive) = discovery.reflexive(coordinator).await
+        && let Some(reflexive) = discovery
+            .reflexive_within(
+                coordinator,
+                Duration::from_secs(store.coordination_interval.load(Ordering::Relaxed)),
+            )
+            .await
     {
         out.push(reflexive);
     }
@@ -4576,6 +4581,47 @@ async fn create_person_step(
         }
     }
     outcome
+}
+
+/// Handles the coordinator's `changed` notification for a network: syncs
+/// it as the interval sync does, then wakes the directory worker. At most
+/// one notified sync per network runs; a notification during it causes one
+/// more sync after it.
+pub(crate) fn changed(store: &Arc<Store>, network: String) {
+    let Ok(mut running) = store.changed_syncs.lock() else {
+        return;
+    };
+    if let Some(again) = running.get_mut(&network) {
+        *again = true;
+        return;
+    }
+    running.insert(network.clone(), false);
+    drop(running);
+    let store = store.clone();
+    tokio::spawn(async move {
+        loop {
+            let known = {
+                let id = network.clone();
+                blocking(store.clone(), move |s| s.network(&id))
+                    .await
+                    .is_ok()
+            };
+            if known && let Err(error) = sync_network(store.clone(), network.clone()).await {
+                eprintln!("coordination sync error: {error}");
+            }
+            store.directory_wake.notify_one();
+            let Ok(mut running) = store.changed_syncs.lock() else {
+                return;
+            };
+            match running.get_mut(&network) {
+                Some(again) if *again => *again = false,
+                _ => {
+                    running.remove(&network);
+                    return;
+                }
+            }
+        }
+    });
 }
 
 /// Background registration and sync for every network until shutdown.

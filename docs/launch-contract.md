@@ -448,7 +448,7 @@ Agent IDs remain the identity. Names are labels that let people and agents addre
 
 An address splits at its last `/`. Resolution searches the directory of every network this host belongs to, or only the one given with `--network` or the adapter's `network`. It fails with:
 - `unknown`, after one synchronous refresh of the directory, when nothing matches;
-- `ambiguous` when more than one agent matches, for example a duplicate name or a label used in two networks. The error lists each match as `HOST_ID/AGENT` with its network;
+- `ambiguous` when more than one agent matches, for example a duplicate name or a label used in two networks naming different agents. The error lists each match as `HOST_ID/AGENT` with its network. The same agent (host and agent ID) listed in several networks is one match; it resolves in the lowest network ID whose entry lists an authorization for the action, else the lowest network ID (clarified in slice 5);
 - `local` when the address names an agent on this host. Capsule has no local delivery.
 
 ### Peer route
@@ -502,7 +502,7 @@ Each daemon keeps a directory per network, in memory:
 - `hosts` are sorted by host ID. `state` is `ok`, `error`, `unsupported`, or `pending` (never queried yet).
 - `agents` are sorted by address, then host ID, with null addresses last, then by host ID and agent ID. `address` is `PERSON/AGENT`, or `HOST_ID/AGENT` when the host has no bound person or the name is duplicated within that person. It is null for names that are not addressable. `authorizations` is as served by the peer.
 - Without `network`, a host in no network or in several gets 400, the latter listing them; an unknown network is 404.
-- `POST /v1/directory/refresh?network=ID` with `{}` refreshes synchronously, waiting at most 10 seconds, and returns the same object.
+- `POST /v1/directory/refresh?network=ID` with `{}` refreshes synchronously, waiting at most 10 seconds, and returns the same object. Hosts still unanswered at 10 seconds are reported as `error`, keeping their earlier agents; with stopped members and the slice 5 retries, a refresh may take the full 10 seconds.
 
 ### Sending by address
 
@@ -512,12 +512,14 @@ The owner API, the CLI, and the adapter API accept an address in place of a host
 
 The daemon resolves the address before persisting anything. Resolution failures return 404 (`unknown`), 409 (`ambiguous`), or 400 (`local`), each with `{code, error, matches}`, where `matches` is empty unless ambiguous, and then lists `{address, network_id}` objects with `HOST_ID/AGENT` addresses, sorted by network ID, then address. A malformed address, or both forms given, is an ordinary 400.
 
-**Choosing an authorization.** The daemon picks the first of these that allows the action (`message.append`, `task.submit`, or `task.delegate` for a forwarded task) for the request's origin agent:
+**Choosing an authorization.** The daemon picks the first of these that allows the action (`message.append` or `task.submit`) for the request's origin agent:
 1. self access, cited as `self`;
 2. a policy entry whose `from_agent` is null or the origin agent, cited as the target owner's policy, as today;
 3. the grant with the latest `expires_at` whose `from_agent` is null or the origin agent, cited by its ID.
 
 When none allows it, the daemon refreshes that host once and tries again, then refuses with 403 `{code: "not_authorized"}` before persisting anything. An explicit `grant_id` (owner `--grant`) overrides the choice. Sizes and deadlines are checked by the receiver as before.
+
+**Forwards by address** (a delegation with `parent_task_id` and `to`, clarified in slice 5) follow the [delegation chain contract](delegation-chain-contract.md): the receiver authorizes the chain's originator, and the forwarder needs no authorization of its own. The forwarder therefore does not choose from its directory entries. It cites `self` when the originator host's bound person is the target host's bound person in the chain's network, and otherwise the target owner's policy. The forwarding checks (depth, `delegable`, audience, deadline) apply as before. The address still resolves through the forwarder's directory, which lists only agents the forwarder may reach in some way, so the target must appear there (for example, through `allow everyone`, or any rule covering the forwarder); otherwise the forward fails as `unknown`, and a route remains the way to forward to an agent that authorizes only the originator.
 
 **Persistence.** The resolved host and agent ID are stored with the request, and the record shows `to` as given. Records not sent by address have no `to` key, so their shape is unchanged; the adapter's send status always has both `destination` and `to`, one of them null. Retries and status lookups use the stored target and never re-resolve. Request IDs, retries, idempotency, and replies work as for any send or task.
 
@@ -644,12 +646,12 @@ The first acceptance runs showed that commands run right after a join or an `all
 
 **Fallbacks for the remaining race.** A change reaches other hosts within about a round trip, which can still be later than a command typed straight afterwards on another machine. So:
 - `allow`, `deny`, `block`, and `unblock` sync the network once when a person label or ID does not resolve, and then resolve again before failing.
-- A synchronous directory refresh (`POST /v1/directory/refresh`, `attach`, `agents --refresh`, and the refresh before an `unknown` resolution) retries a host that answered 403 once, 2 seconds later.
+- A synchronous directory refresh (`POST /v1/directory/refresh`, `attach`, `agents --refresh`, and the refresh before an `unknown` resolution) retries a host once, 2 seconds later, when it answered 403, when it is a current member in this host's map but its connection failed authentication (it does not know this host yet), or when this host's map shows it bound to this host's own person but its answer has no `self` entry. The latter covers a sibling that has seen a new host join but not yet its binding, and answers `[]`. A sibling with no agents is retried once for nothing.
 - Before refusing a send by address with `not_authorized`, the daemon also syncs the network once, so it cites the newest policy.
 
 ### Onward hops by address
 
-`POST /adapter/v1/delegations` with `to` accepts `delegation_depth` (0 to 2, default 0), as `task submit --delegation-depth` does. A nonzero depth creates link 0 with that depth, principals `network`, and the session's agent as originator, under the rules of the [delegation chain contract](delegation-chain-contract.md). It is 400 with `destination`, whose route sets the depth, and with `parent_task_id`, since a forward continues an existing chain. MCP `delegate_task` accepts `delegation_depth` with `to`. The receiving owner must still allow onward delegation (`allow --delegate`), and the receiver checks the chain as before.
+`POST /adapter/v1/delegations` with `to` accepts `delegation_depth` (0 to 2, default 0), as `task submit --delegation-depth` does. A nonzero depth creates link 0 with that depth, principals `network`, the session's agent as originator, and the network the address resolved in (not the lowest network the hosts share, which may not include the eventual receivers), under the rules of the [delegation chain contract](delegation-chain-contract.md). A nonzero depth is 400 with `destination`, whose route sets the depth, and with `parent_task_id`, since a forward continues an existing chain; an explicit 0 is accepted there as the default. MCP `delegate_task` accepts `delegation_depth` with `to`. The receiving owner must still allow onward delegation (`allow --delegate`), and the receiver checks the chain as before.
 
 ### Attach launches
 
@@ -716,11 +718,11 @@ A run fails when a step exits nonzero, when a step's output lacks what a later s
 
 Change notifications are checked by `conformance/launch_push.py`, written from this contract by an author independent of both implementations, across all Go/Rust pairings with the Go coordinator and `--probe`. It covers:
 - version 2 negotiation, and a version 1 host still served by interval syncs;
-- a join, a binding, a policy, a group change, and a revocation each reaching every other member within 2 seconds, with a 30-second interval;
+- a join, a binding, a policy, a group change, and a revocation each reaching every other member within 2 seconds of the command's return, with a 30-second interval and the coordinator reachable;
 - no `changed` for a plain sync;
 - coalescing of a burst of changes;
 - a host without `--peer-listen` notified;
-- the three fallbacks: `allow` by a label admitted moments earlier, a directory refresh retrying a 403, and a send citing a policy submitted moments earlier;
+- the three fallbacks: `allow` by a label admitted moments earlier, a directory refresh retrying a 403 and a sibling answer without `self`, and a send citing a policy submitted moments earlier;
 - `delegation_depth` on an address delegation, with a forward by the receiver by address, and the 400 cases.
 
 The attach launch is checked by `conformance/launch_directory.py`, which existing cases make pass `--no-start` where they expect the output object, plus cases for the launch with the fixture harness, the reused session, and `--no-start`. Otherwise this slice adds no conformance suite. It is accepted when:

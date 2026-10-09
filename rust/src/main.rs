@@ -1050,6 +1050,8 @@ async fn run_daemon(
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
+        } else {
+            capsule_host::quic::keep_without_listener(store, peer_shutdown).await;
         }
         Ok::<_, anyhow::Error>(())
     };

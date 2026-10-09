@@ -12,14 +12,21 @@ import (
 	"strings"
 )
 
-// ALPN selects the relay protocol on the coordinator's TLS listener.
-const ALPN = "capsule-relay/1"
+// ALPN selects the relay protocol on the coordinator's TLS listener. Version
+// 2 adds the changed frame; hosts offer it first and coordinators prefer it.
+const (
+	ALPN   = "capsule-relay/1"
+	ALPNv2 = "capsule-relay/2"
+)
 
 const (
 	FrameSend        byte = 0x01
 	FrameReceive     byte = 0x02
 	FrameUnreachable byte = 0x03
 	FramePing        byte = 0x04
+	// FrameChanged (version 2, relay to host) carries a network ID whose map
+	// or stored statements changed.
+	FrameChanged byte = 0x05
 )
 
 const (
@@ -67,7 +74,8 @@ func Write(w io.Writer, kind byte, parts ...[]byte) error {
 }
 
 // Read decodes one frame. fromHost selects which frame types are valid: a host
-// sends send and ping frames; a relay sends receive, unreachable, and ping.
+// sends send and ping frames; a relay sends receive, unreachable, ping, and
+// (version 2) changed, whose network ID is returned as the datagram.
 // Any invalid frame is an error, and the caller closes the connection.
 func Read(r *bufio.Reader, fromHost bool) (kind byte, peer HostID, datagram []byte, err error) {
 	var header [3]byte
@@ -97,6 +105,11 @@ func Read(r *bufio.Reader, fromHost bool) (kind byte, peer HostID, datagram []by
 		}
 		copy(peer[:], payload)
 		return kind, peer, payload[HostIDSize:], nil
+	case kind == FrameChanged && !fromHost:
+		if size == 0 {
+			return 0, peer, nil, errors.New("relay changed frame has no network ID")
+		}
+		return kind, peer, payload, nil
 	case kind == FrameUnreachable && !fromHost:
 		if size != HostIDSize {
 			return 0, peer, nil, errors.New("relay unreachable frame has the wrong size")

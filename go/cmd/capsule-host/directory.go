@@ -103,8 +103,14 @@ type attachAgent struct {
 }
 
 // runAttach registers an agent if needed and sets up a directory session
-// for a project, recording it in an attach profile.
-func runAttach(ctx context.Context, client host.Client, harness string, fs *pflag.FlagSet, state string, out io.Writer) error {
+// for a project, recording it in an attach profile. For an integration that
+// supports launch it then starts the session as session start does, unless
+// --no-start is given, printing its output on errOut first.
+func runAttach(ctx context.Context, client host.Client, harness string, harnessArgs []string, fs *pflag.FlagSet, state string, out, errOut io.Writer) error {
+	noStart, _ := fs.GetBool("no-start")
+	if noStart && len(harnessArgs) > 0 {
+		return errors.New("harness arguments require a launch; omit --no-start")
+	}
 	name, _ := fs.GetString("name")
 	project, _ := fs.GetString("directory")
 	expiresAt, _ := fs.GetString("expires-at")
@@ -229,18 +235,87 @@ func runAttach(ctx context.Context, client host.Client, harness string, fs *pfla
 		if p.Launchable() {
 			next = "capsule session start"
 		}
-		return printJSON(out, map[string]any{
+		result := map[string]any{
 			"agent": attachAgent{agent.ID, agent.Name, address(agent.Name)}, "session_id": p.SessionID, "adapter_id": p.AdapterID,
 			"profile": p.Directory, "workspace": workspace, "reused": reused, "unchecked_hosts": unchecked, "next": next,
-		})
+		}
+		if !p.Launchable() || noStart {
+			if err := printJSON(out, result); err != nil {
+				return err
+			}
+			if len(harnessArgs) > 0 {
+				return errors.New("this integration does not support launch; harness arguments were not used")
+			}
+			return nil
+		}
+		// The output goes to errOut, so that stdout belongs to the harness.
+		if err := printJSON(errOut, result); err != nil {
+			return err
+		}
+		return integration.Run(ctx, integration.Options{Action: "start", Directory: p.Directory, State: state, Workspace: workspace, Args: harnessArgs, Program: programName}, out)
 	}
 	if reusedProfile != nil && reusedProfile.Phase == "configured" {
+		// A valid credential that never connected is reused unchanged; one
+		// connected now is refused; any other is replaced by a new setup.
 		adapter, err := call[host.Adapter](ctx, client, "GET", "/v1/adapters/"+url.PathEscape(reusedProfile.AdapterID))
 		if err != nil {
 			return err
 		}
+		conn, err := call[host.Connection](ctx, client, "GET", "/v1/adapters/"+url.PathEscape(reusedProfile.AdapterID)+"/connection")
+		if err != nil {
+			return err
+		}
+		valid := false
 		if expires, err := time.Parse(time.RFC3339Nano, adapter.ExpiresAt); err == nil && adapter.RevokedAt == nil && expires.After(time.Now()) {
+			valid = true
+		}
+		switch {
+		case valid && conn.State == "registered":
 			return print(reusedProfile, true)
+		case conn.State == "ready":
+			// An adapter that has just exited keeps its lease for up to 15
+			// seconds: wait until the lease seen has expired, at most 16
+			// seconds, and refuse if it was renewed meanwhile.
+			running := fmt.Errorf("the session of agent %s in this project is already running (adapter %s is connected)", agent.Name, reusedProfile.AdapterID)
+			seen := time.Now()
+			if conn.LeaseExpiresAt != nil {
+				if at, err := time.Parse(time.RFC3339Nano, *conn.LeaseExpiresAt); err == nil {
+					seen = at
+				}
+			}
+			fmt.Fprintf(errOut, "waiting for the previous session of agent %s to release its lease (until %s)\n", agent.Name, seen.UTC().Format(time.RFC3339))
+			limit := time.Now().Add(16 * time.Second)
+			for {
+				wait := time.Until(seen) + 200*time.Millisecond
+				if wait > time.Second {
+					wait = time.Second
+				}
+				if until := time.Until(limit); wait > until {
+					wait = until
+				}
+				if wait > 0 {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(wait):
+					}
+				}
+				conn, err = call[host.Connection](ctx, client, "GET", "/v1/adapters/"+url.PathEscape(reusedProfile.AdapterID)+"/connection")
+				if err != nil {
+					return err
+				}
+				if conn.LeaseExpiresAt != nil {
+					if at, err := time.Parse(time.RFC3339Nano, *conn.LeaseExpiresAt); err == nil && at.After(seen) {
+						return running
+					}
+				}
+				if conn.State != "ready" {
+					break
+				}
+				if !time.Now().Before(limit) {
+					return running
+				}
+			}
 		}
 	}
 	if agent == nil {

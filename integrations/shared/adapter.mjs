@@ -155,7 +155,7 @@ export const tools = [
   {
     name: 'delegate_task',
     description:
-      'Submit a task to an owner-authorized destination whose action is task.submit, or with directory access to an agent address (to) from list_agents; give exactly one of destination and to. To pass on part of a task assigned to you, give its task_id as parent_task_id; this works only for a running task whose kind=task event had meta.delegable true. Progress and the result arrive as kind=task_update events. If the outcome is unknown, the Capsule host retries automatically with the same task_id; follow it with task_status.',
+      'Submit a task to an owner-authorized destination whose action is task.submit, or with directory access to an agent address (to) from list_agents; give exactly one of destination and to. To pass on part of a task assigned to you, give its task_id as parent_task_id; this works only for a running task whose kind=task event had meta.delegable true. With to and no parent_task_id, delegation_depth (1 or 2) lets the receiving agent pass the task on that many further hops, if its owner allows onward delegation. Progress and the result arrive as kind=task_update events. If the outcome is unknown, the Capsule host retries automatically with the same task_id; follow it with task_status.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -166,6 +166,7 @@ export const tools = [
         input: { type: 'string', minLength: 1, maxLength: 65536 },
         task_id: { type: 'string', pattern: taskIdPattern },
         parent_task_id: { type: 'string', pattern: taskIdPattern },
+        delegation_depth: { type: 'integer', minimum: 0, maximum: 2 },
         artifacts: artifactPaths
       },
       required: ['input']
@@ -199,7 +200,8 @@ export const tools = [
   }
 ];
 
-// validArguments checks tool arguments against a definition's string schema.
+// validArguments checks tool arguments against a definition's string,
+// string array, and bounded integer schema.
 function validArguments(name, args) {
   const definition = tools.find((tool) => tool.name === name);
   if (!definition || !args || typeof args !== 'object' || Array.isArray(args)) return false;
@@ -214,6 +216,8 @@ function validArguments(name, args) {
     Buffer.byteLength(value, 'utf8') <= (property.maxLength ?? 65536);
   return Object.entries(args).every(([key, value]) => {
     const property = properties[key];
+    if (property.type === 'integer')
+      return Number.isInteger(value) && value >= property.minimum && value <= property.maximum;
     if (property.type === 'array')
       return (
         Array.isArray(value) &&
@@ -707,7 +711,9 @@ export function createAdapter({
       }
     }
     if (name === 'delegate_task') {
-      const to = validArguments(name, args) ? target(args) : undefined;
+      let to = validArguments(name, args) ? target(args) : undefined;
+      // An onward-hop depth starts a new chain by address only.
+      if (args?.delegation_depth && (to?.to === undefined || args.parent_task_id !== undefined)) to = undefined;
       if (!to) return errorResult('Invalid delegate_task arguments.');
       const taskId = args.task_id ?? `task_${randomBytes(16).toString('hex')}`;
       let artifacts;
@@ -722,7 +728,8 @@ export function createAdapter({
           task_id: taskId,
           input: args.input,
           ...(artifacts.length && { artifacts }),
-          ...(args.parent_task_id && { parent_task_id: args.parent_task_id })
+          ...(args.parent_task_id && { parent_task_id: args.parent_task_id }),
+          ...(args.delegation_depth && { delegation_depth: args.delegation_depth })
         });
         return textResult({
           task_id: taskId,

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the agent directory and addressing (milestone 7 slice 4) across CLI/daemon pairings.
 
-Written from docs/launch-contract.md ("Slice 4: directory and addressing") and the
-contracts it builds on, independently of both implementations. Runs every Go/Rust
+Written from docs/launch-contract.md ("Slice 4: directory and addressing", and "Attach
+launches" in slice 5) and the contracts it builds on, independently of both implementations. Runs every Go/Rust
 CLI and daemon pairing (all hosts of a pairing run that pairing's daemon and are
 driven by its CLI), with one Go coordinator per pairing, real ssh-agents, the
 peer probe for the peer route, and the real Node MCP adapter. Each pairing
@@ -29,7 +29,16 @@ reports these sections separately:
 - attach: default naming and each suffix rule across two hosts of one person,
   `--name` taken refused with no registration, an unprofiled agent reused by
   `--name`, re-attach with `reused: true` and after revocation, `unchecked_hosts`
-  with a sibling stopped, and `session start`/`doctor` without `--directory`;
+  with a sibling stopped, and `session start`/`doctor` without `--directory`
+  (these attach with `--no-start`, which prints the output object on stdout);
+- attach launch: a new session launched with the fixture harness (the output object
+  on stderr, the harness replacing attach in the workspace with the arguments after
+  `--`, its adapter connecting), re-attaching while it runs (`ready`, renewed) refused
+  with exit 1 and no change after the wait, re-attaching right after it exited
+  waiting out the lease and launching the same agent with a fresh session,
+  re-attaching once `offline` making a new setup, a reused (`registered`) session launched, `--no-start` (the object
+  on stdout, `next` naming `capsule session start`, nothing connected), and an
+  integration without launch printing its output as before;
 - directory sessions: MCP `list_agents`, `send` and `delegate_task` by `to`
   through the real adapter, `send_status` reporting `to`; `no_directory` for
   sessions from `session setup` and `adapter create`; the rate cap with retries and
@@ -46,6 +55,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import queue
 import re
 import secrets
 import shutil
@@ -53,6 +63,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 
@@ -94,6 +105,83 @@ ATTACH_KEYS = {'agent', 'session_id', 'adapter_id', 'profile', 'workspace', 'reu
 ADDRESSABLE = re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', socket.gethostname().split('.')[0].lower())
 NOT_ADDRESSABLE = 'Not Addressable'
+PROFILE_FLAG = '--capsule-fixture-profile'
+# The launch target written into the fixture bundles in place of fixtures/harness/harness.py. As that one, it
+# prints its literal arguments and cwd as one JSON line (plus its pid). Given PROFILE_FLAG DIR among its arguments,
+# it then connects the adapter configured in that attach profile (consumer.json's socket and credential.json, as
+# the fixture provider writes them), reports the outcome as a second JSON line, and renews the lease until its
+# stdin closes.
+LAUNCH_HARNESS = r'''"""A launch target that exposes literal arguments, cwd, and pid, and can connect its adapter."""
+import http.client
+import json
+import os
+import secrets
+import select
+import socket
+import sys
+import time
+
+
+class Unix(http.client.HTTPConnection):
+    def __init__(self, path):
+        super().__init__("localhost", timeout=10)
+        self.unix_path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(10)
+        self.sock.connect(self.unix_path)
+
+
+def call(path, token, instance, method, url, body=None):
+    connection = Unix(path)
+    try:
+        payload = json.dumps(body).encode() if body is not None else None
+        connection.request(method, url, payload, {"Authorization": "Bearer " + token, "X-Capsule-Instance": instance,
+                                                  "Content-Type": "application/json"})
+        response = connection.getresponse()
+        data = response.read()
+        try:
+            return response.status, json.loads(data)
+        except ValueError:
+            return response.status, data.decode(errors="replace")
+    finally:
+        connection.close()
+
+
+args = sys.argv[1:]
+print(json.dumps({"arguments": args, "cwd": os.getcwd(), "pid": os.getpid()}), flush=True)
+if "--capsule-fixture-profile" in args:
+    report = {}
+    try:
+        profile = args[args.index("--capsule-fixture-profile") + 1]
+        with open(os.path.join(profile, "credential.json")) as f:
+            credential = json.load(f)
+        with open(os.path.join(profile, "consumer.json")) as f:
+            path = json.load(f)["socket"]
+        token, adapter = credential["token"], credential["adapter"]
+        instance = "instance_" + secrets.token_hex(32)
+        body = {"adapter_id": adapter["id"], "session_id": adapter["session_id"], "instance_id": instance}
+        report["connect"], value = call(path, token, instance, "POST", "/adapter/v1/connect", body)
+        if report["connect"] != 200:
+            report["error"] = value
+        else:
+            report["session"], _ = call(path, token, instance, "GET", "/adapter/v1/session")
+        report.update(adapter_id=adapter["id"], session_id=adapter["session_id"])
+    except Exception as error:
+        report["error"] = repr(error)
+    print(json.dumps(report), flush=True)
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([0], [], [], 4)
+        if ready and not os.read(0, 4096):
+            break
+        if report.get("connect") == 200:
+            try:
+                call(path, token, instance, "POST", "/adapter/v1/connect", body)
+            except Exception:
+                pass
+'''
 
 
 def sanitized(text):
@@ -128,7 +216,7 @@ def mentions(value, text):
 class DirectoryHost(OnboardHost):
     """An onboarding host whose CLI may run in a chosen directory with a longer timeout."""
 
-    def run(self, *args, sock=DEFAULT, env=None, argv=None, cwd=None, timeout=90):
+    def environment(self, sock=DEFAULT, env=None):
         e = dict(os.environ)
         e.pop('SSH_AUTH_SOCK', None)
         chosen = self.sock if sock is DEFAULT else sock
@@ -137,8 +225,12 @@ class DirectoryHost(OnboardHost):
         e['USER'] = e['LOGNAME'] = 'not-the-login-name'
         e.update(self.private_env())
         e.update(env or {})
+        return e
+
+    def run(self, *args, sock=DEFAULT, env=None, argv=None, cwd=None, timeout=90):
         command = argv or [self.cli_binary, '--state', str(self.state), *args]
-        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=e, cwd=cwd)
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
+                              env=self.environment(sock, env), cwd=cwd)
 
     def cli(self, *args, success=True, sock=DEFAULT, cwd=None):
         result = self.run(*args, sock=sock, cwd=cwd)
@@ -170,6 +262,83 @@ class DirectoryHost(OnboardHost):
         return self.call('GET', '/v1/directory' + query)
 
 
+def output_object(text):
+    """The first JSON object in text that looks like attach's output, or None."""
+    decoder = json.JSONDecoder()
+    for start in [m.start() for m in re.finditer(r'\{', text)]:
+        try:
+            value, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and 'agent' in value:
+            return value
+    return None
+
+
+class Launch:
+    """`attach` run in the background, as a terminal keeps it, with its stdout lines read as they come."""
+
+    def __init__(self, host, args, cwd):
+        command = [host.cli_binary, '--state', str(host.state), *args]
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, env=host.environment(), cwd=cwd)
+        self.lines = queue.Queue()
+        self.stdout = []
+        self.stderr = b''
+        threading.Thread(target=self._read, daemon=True).start()
+        self._errors = threading.Thread(target=self._read_errors, daemon=True)
+        self._errors.start()
+
+    def _read(self):
+        for line in self.process.stdout:
+            self.stdout.append(line)
+            self.lines.put(line)
+        self.lines.put(None)
+
+    def _read_errors(self):
+        self.stderr = self.process.stderr.read()
+
+    def line(self, timeout=90):
+        """The next stdout line as JSON; fails when stdout closes or nothing comes in time."""
+        try:
+            line = self.lines.get(timeout=timeout)
+        except queue.Empty:
+            need(False, 'attach: no output from the launched harness in time', self.errors())
+        if line is None:
+            need(False, 'attach: stdout closed before the harness wrote its line', self.process.poll(), self.text(),
+                 self.errors())
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            need(False, 'Before launching, attach prints its output object on stderr, so stdout belongs to the '
+                 'harness', line.decode(errors='replace'))
+
+    def finish(self, timeout=30):
+        """Close the harness's stdin, so it exits, and collect the rest."""
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+        self._errors.join(timeout=10)
+        return self.process.returncode
+
+    def text(self):
+        return b''.join(self.stdout).decode(errors='replace')
+
+    def errors(self):
+        return self.stderr.decode(errors='replace')[-1500:]
+
+    def close(self):
+        if self.process.poll() is None:
+            self.process.kill()
+            self.process.wait()
+
+
 class Pairing:
     def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root):
         self.label, self.cli_binary, self.daemon, self.node, self.root = label, cli_binary, daemon_binary, node, root
@@ -179,6 +348,7 @@ class Pairing:
         self.agents = {}
         self.keys = {}
         self.channels = []
+        self.launches = []
         self.script = Path(__file__).resolve().parents[1] / 'integrations/claude-channel/channel.mjs'
 
     # --- infrastructure -----------------------------------------------------------------------------------
@@ -300,7 +470,8 @@ class Pairing:
                 sql(host, 'SELECT COUNT(*) FROM outbound_tasks')[0][0])
 
     def attach(self, host, *args, success=True, cwd=None):
-        return host.cli('attach', *args, '--integrations', str(self.catalog), success=success, cwd=cwd)
+        """attach with --no-start, which stops after setup and prints the output object on stdout."""
+        return host.cli('attach', *args, '--integrations', str(self.catalog), '--no-start', success=success, cwd=cwd)
 
     def profile_secret(self, out):
         path = Path(out['profile']) / 'credential.json'
@@ -898,6 +1069,167 @@ class Pairing:
         finally:
             a2.start()
 
+    def check_attach_launch(self):
+        a1, ids = self.hosts['a1'], self.ids
+        ws = self.root / 'ws-launch'
+        sessions = a1.config / 'capsule' / 'sessions' / ids['a1']
+        notes = []
+
+        def project(name):
+            path = ws / name
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+
+        def launch(*args, harness_args=(), cwd=None):
+            run = Launch(a1, ['attach', *args, '--integrations', str(self.catalog), '--', *harness_args],
+                         cwd=cwd or self.root)
+            self.launches.append(run)
+            return run
+
+        def connected(agent_id):
+            mine = a1.cli('agents', '--json', '--network', self.net)['mine']
+            return [m['connected'] for m in mine if m['agent_id'] == agent_id]
+
+        def launched(run, name, workspace, harness_args, reused, rule, while_running=None):
+            """The harness's lines, then attach's object on stderr once it exits."""
+            first = run.line()
+            need(first.get('arguments') == list(harness_args), f'{rule}: arguments after -- are passed to the '
+                 'harness, as for session start', first, list(harness_args))
+            need(first.get('cwd') and Path(first['cwd']).resolve() == workspace.resolve(),
+                 f'{rule}: attach replaces itself with the harness in the workspace', first, workspace)
+            need(first.get('pid') == run.process.pid, f'{rule}: attach replaces itself with the harness (the harness '
+                 'runs as the attach process)', first.get('pid'), run.process.pid)
+            report = run.line()
+            need(report.get('connect') == 200 and report.get('session') == 200,
+                 f'{rule}: the launched harness connects its adapter with the profile\'s credential', report)
+            states = connected(out_agent(name))
+            need(states == [True], f'{rule}: the agent is connected while the launched harness holds the lease',
+                 states)
+            if while_running:
+                while_running()
+            code = run.finish()
+            need(code == 0, f'{rule}: the harness exits 0 when its stdin closes', code, run.errors())
+            lines = [line for line in run.text().splitlines() if line.strip()]
+            need(len(lines) == 2 and all('agent' not in json.loads(line) for line in lines),
+                 'Before launching, attach prints its output object on stderr, so stdout belongs to the harness',
+                 run.text())
+            out = output_object(run.stderr.decode(errors='replace'))
+            need(out is not None, 'Before launching, attach prints its output object on stderr', run.errors())
+            need(set(out) == ATTACH_KEYS, 'the object on stderr is attach\'s output object', out)
+            need(out['agent']['name'] == name and out['agent']['address'] == f'ana/{name}'
+                 and out['reused'] is reused and Path(out['workspace']).resolve() == workspace.resolve(),
+                 f'{rule}: the output object names the agent and its address', out)
+            need(out['adapter_id'] == report['adapter_id'] and out['session_id'] == report['session_id'],
+                 f'{rule}: the launched harness uses the session attach set up', out, report)
+            need(Path(out['profile']).resolve() == (sessions / name).resolve(), 'Profiles live in '
+                 '$XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME/', out['profile'])
+            return out
+
+        def out_agent(name):
+            return {a['name']: a['id'] for a in a1.cli('agent', 'list')}.get(name)
+
+        # 1. A new session, launched: claude means claude-code, which supports launch; run from another directory.
+        w1 = project('launched')
+        extra = ('--example', 'two words', PROFILE_FLAG, str(sessions / 'launched'))
+        run = launch('claude', '--name', 'launched', '--directory', str(w1), harness_args=extra)
+
+        def refused_while_running():
+            # Re-attaching while the session is connected (ready) is refused with exit 1 before changing anything.
+            adapters = a1.cli('adapter', 'list')
+            credential = (sessions / 'launched' / 'credential.json').read_bytes()
+            for flags in ((), ('--no-start',)):
+                result = a1.run('attach', 'claude', '--directory', str(w1), '--integrations', str(self.catalog),
+                                *flags, cwd=self.root, timeout=60)
+                need(result.returncode == 1, 'Re-attaching: connected now (ready), attach refuses with exit 1',
+                     flags, result.returncode, result.stdout[-400:], result.stderr[-400:])
+                need('running' in (result.stderr + result.stdout).lower(),
+                     'Re-attaching (ready): the refusal says the session is already running', result.stderr[-400:])
+                need('wait' in result.stderr.lower(), 'Re-attaching (ready): attach says on stderr that it is waiting',
+                     result.stderr[-400:])
+            need(a1.cli('adapter', 'list') == adapters
+                 and (sessions / 'launched' / 'credential.json').read_bytes() == credential,
+                 'Re-attaching (ready): refused before changing anything')
+        first = launched(run, 'launched', w1, extra, False, 'Attach launches a new session',
+                         while_running=refused_while_running)
+
+        # 1b. Attach again right after the harness exits: its lease is still valid (ready), so attach says it is
+        # waiting, sees the lease expire without renewal within 16 seconds, and starts the same agent with a fresh
+        # session: a new setup, then the launch.
+        started = time.monotonic()
+        extra = (PROFILE_FLAG, str(sessions / 'launched'), '--after-exit')
+        run = launch('claude', '--directory', str(w1), harness_args=extra, cwd=w1)
+        fresh = launched(run, 'launched', w1, extra, False,
+                         'Re-attaching right after the harness exited waits out its lease, then performs a new setup '
+                         'and launches')
+        waited = time.monotonic() - started
+        need('wait' in run.errors().lower(), 'Re-attaching (ready): attach says on stderr that it is waiting',
+             run.errors())
+        notes.append(f'relaunch after exit took {waited:.0f}s')
+        need(fresh['agent']['id'] == first['agent']['id'] and fresh['adapter_id'] != first['adapter_id']
+             and fresh['session_id'] != first['session_id'],
+             'running attach again after the harness exited starts the same agent with a fresh session', fresh, first)
+        old = a1.cli('adapter', 'inspect', first['adapter_id'])
+        connection = a1.cli('adapter', 'connection', first['adapter_id'])
+        need(old.get('revoked') is True or old.get('revoked_at') or 'revoked' in json.dumps(list(connection.values())),
+             'the old credential is replaced as the adapter contract allows for a lapsed lease (revoked)', old,
+             connection)
+        need(a1.cli('session', 'inspect', first['session_id']).get('state') == 'detached',
+             'replacing a lapsed credential detaches its old session', first['session_id'])
+
+        # 2. --no-start: setup only, the object on stdout, next naming capsule session start; nothing connects.
+        w2 = project('no-start')
+        result = a1.run('attach', 'claude', '--name', 'relaunched', '--directory', str(w2), '--integrations',
+                        str(self.catalog), '--no-start', cwd=self.root)
+        need(result.returncode == 0, '--no-start exits 0', result.returncode, result.stderr[-800:])
+        try:
+            out = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            need(False, '--no-start stops after setup and prints the output object as before (stdout is the object '
+                 'only)', result.stdout[-800:])
+        need(set(out) == ATTACH_KEYS and out['agent']['name'] == 'relaunched' and out['reused'] is False,
+             '--no-start prints the output object as before', out)
+        need(isinstance(out['next'], str) and 'capsule session start' in out['next'],
+             '--no-start: next names capsule session start', out['next'])
+        record = a1.cli('adapter', 'inspect', out['adapter_id'])
+        need(record.get('directory') is True, '--no-start still sets up the directory session', record)
+        need(connected(out['agent']['id']) == [False], '--no-start stops after setup: no harness connects',
+             connected(out['agent']['id']))
+
+        # 3. The reused session, launched: the same workspace again, without --no-start.
+        extra = (PROFILE_FLAG, str(sessions / 'relaunched'), '--again')
+        run = launch('claude', '--directory', str(w2), harness_args=extra, cwd=w2)
+        again = launched(run, 'relaunched', w2, extra, True, 'Attach launches a reused session')
+        need(again['adapter_id'] == out['adapter_id'] and again['session_id'] == out['session_id'],
+             'a reused attach launches the existing session', again, out)
+
+        # 3b. Once that harness has exited and its lease lapsed (offline after connecting), attach performs a new
+        # setup for the same agent; with --no-start it prints the object on stdout.
+        try:
+            wait_for(lambda: connected(again['agent']['id']) == [False], timeout=40,
+                     message='the exited harness\'s lease lapses')
+        except AssertionError:
+            need(False, 'connected is true only while the adapter holds a valid lease (15 seconds at most)',
+                 connected(again['agent']['id']))
+        renewed = self.attach(a1, 'claude', '--directory', str(w2))
+        need(set(renewed) == ATTACH_KEYS and renewed['reused'] is False
+             and renewed['agent']['id'] == again['agent']['id'] and renewed['adapter_id'] != again['adapter_id']
+             and renewed['session_id'] != again['session_id'],
+             'Re-attaching (offline after connecting): a new setup for the same agent', renewed, again)
+
+        # 4. An integration without launch: attach prints its output as before, on stdout.
+        w3 = project('no-launch')
+        result = a1.run('attach', 'no-launch', '--directory', str(w3), '--integrations', str(self.catalog),
+                        cwd=self.root, timeout=60)
+        need(result.returncode == 0, 'attach with an integration without launch exits 0', result.stderr[-800:])
+        try:
+            plain = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            need(False, 'For an integration without launch, attach prints its output as before', result.stdout)
+        need(set(plain) == ATTACH_KEYS and plain['agent']['name'] == 'no-launch' and plain['reused'] is False,
+             'For an integration without launch, attach prints its output as before', plain)
+        notes.append(f"launched {first['agent']['name']} and reused {again['agent']['name']}")
+        return '; '.join(notes)
+
     def check_expired_attach(self):
         a1 = self.hosts['a1']
         if not getattr(self, 'expiring', None):
@@ -1081,17 +1413,25 @@ class Pairing:
     # --- the pairing ---------------------------------------------------------------------------------------
 
     def setup_catalog(self):
-        """The fixture integration as `file-fixture` and as `claude-code` (no Claude needed)."""
+        """The fixture integration as `file-fixture` and as `claude-code` (no Claude needed), and as `no-launch`
+        without the launch operation."""
         self.catalog = self.root / 'integrations'
         source = Path(__file__).with_name('fixtures') / 'harness'
         for identity in ('file-fixture', 'claude-code'):
             bundle = self.catalog / identity
             bundle.mkdir(parents=True)
-            for name in ('provider.py', 'harness.py'):
-                shutil.copy2(source / name, bundle / name)
+            shutil.copy2(source / 'provider.py', bundle / 'provider.py')
+            (bundle / 'harness.py').write_text(LAUNCH_HARNESS)
             (bundle / 'integration.json').write_text(json.dumps({
                 'version': 1, 'id': identity, 'command': [str(Path(sys.executable).resolve()), './provider.py'],
                 'operations': ['prepare', 'check', 'launch']}))
+        # The same fixture without launch support.
+        bundle = self.catalog / 'no-launch'
+        bundle.mkdir(parents=True)
+        shutil.copy2(source / 'provider.py', bundle / 'provider.py')
+        (bundle / 'integration.json').write_text(json.dumps({
+            'version': 1, 'id': 'no-launch', 'command': [str(Path(sys.executable).resolve()), './provider.py'],
+            'operations': ['prepare', 'check']}))
 
     def join(self, name, label, person=True):
         token = self.p1.cli('network', 'invite', '--network', self.net, '--member', label, '--expires-in', '1h')['token']
@@ -1206,12 +1546,15 @@ class Pairing:
         self.section('sending', self.check_sending)
         self.section('agents and status', self.check_agents_and_status)
         self.section('attach', self.check_attach)
+        self.section('attach launch', self.check_attach_launch)
         self.section('directory sessions', self.check_directory_sessions)
         self.section('attach after expiry', self.check_expired_attach)
         self.section('retry after a label change', self.check_label_retry)
 
     def close(self):
         try:
+            for run in self.launches:
+                run.close()
             for channel in self.channels:
                 try:
                     channel.close()

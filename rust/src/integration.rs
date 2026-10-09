@@ -1018,7 +1018,18 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
         Some(directory) => directory,
         None => attached_profile(&state)?,
     };
-    let mut p = load_profile(&directory, &state)?;
+    start(&directory, &state, workspace, args).await
+}
+
+/// `session start`: recovers a preparing session if needed, then replaces
+/// this process with the harness in the workspace. It returns only on error.
+async fn start(
+    directory: &Path,
+    state: &Option<PathBuf>,
+    workspace: Option<PathBuf>,
+    args: Vec<String>,
+) -> anyhow::Result<()> {
+    let mut p = load_profile(directory, state)?;
     if !p.harness.supports("launch") {
         bail!(
             "this integration does not support launch; connect its consumer using the prepared configuration"
@@ -1206,6 +1217,50 @@ fn default_name(
         .expect("an unused suffix exists")
 }
 
+/// Polls an adapter's connection until the lease in `seen` has expired, at
+/// most 16 seconds, and refuses when the lease is renewed meanwhile.
+async fn wait_for_lease(
+    state: &Path,
+    adapter_id: &str,
+    seen: &Value,
+    workspace: &str,
+) -> anyhow::Result<()> {
+    let lease = |c: &Value| {
+        c["lease_expires_at"]
+            .as_str()
+            .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+    };
+    let first = lease(seen);
+    let running = || {
+        anyhow::anyhow!(
+            "the session for {workspace} is already running (adapter {adapter_id} has a live lease)"
+        )
+    };
+    eprintln!(
+        "capsule: the session for {workspace} is connected; waiting up to 16 seconds for its lease to expire"
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(16);
+    loop {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let connection = admin(
+            state,
+            Method::GET,
+            format!("/v1/adapters/{adapter_id}/connection"),
+            None,
+        )
+        .await?;
+        if connection["state"] != "ready" {
+            return Ok(());
+        }
+        if lease(&connection) > first {
+            return Err(running());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(running());
+        }
+    }
+}
+
 /// `attach HARNESS`: registers the agent if needed and sets up a directory
 /// session for the project, recorded in an attach profile.
 pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> anyhow::Result<()> {
@@ -1219,6 +1274,8 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         options,
         integrations,
         runner,
+        no_start,
+        harness_args,
     } = command
     else {
         bail!("not an attach command")
@@ -1235,6 +1292,9 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     };
     if !name(&integration) {
         bail!("use a valid integration ID")
+    }
+    if no_start && !harness_args.is_empty() {
+        bail!("harness arguments require a launch; omit --no-start")
     }
     if let Some(expiry) = &expires_at
         && !future(expiry)
@@ -1315,6 +1375,9 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         None => format!("{host}/{name}"),
     };
     let unchecked: Vec<String> = unchecked.into_iter().collect();
+    // A launch-capable integration launches unless --no-start; then the
+    // output goes to stderr, because stdout belongs to the harness.
+    let launching = |p: &Profile| !no_start && p.harness.supports("launch");
     let print = |agent_id: &str, agent_name: &str, p: &Profile, profile: &Path, reused: bool| {
         let next = if p.harness.supports("launch") {
             "capsule session start"
@@ -1331,10 +1394,27 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             "unchecked_hosts": unchecked,
             "next": next,
         });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_default()
-        );
+        let text = serde_json::to_string_pretty(&value).unwrap_or_default();
+        if launching(p) {
+            eprintln!("{text}");
+        } else {
+            println!("{text}");
+        }
+    };
+    let launch = |p: &Profile, profile: PathBuf| {
+        let start_now = launching(p);
+        let state = Some(state.clone());
+        let workspace = workspace.clone();
+        let args = harness_args.clone();
+        async move {
+            if start_now {
+                start(&profile, &state, Some(workspace), args).await
+            } else if !no_start && !args.is_empty() {
+                bail!("this integration does not support launch")
+            } else {
+                Ok(())
+            }
+        }
     };
     let existing = profiles
         .iter()
@@ -1349,7 +1429,23 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                     None,
                 )
                 .await?;
-                if adapter["revoked_at"].is_null()
+                let connection = admin(
+                    &state,
+                    Method::GET,
+                    format!("/v1/adapters/{}/connection", p.adapter_id),
+                    None,
+                )
+                .await?;
+                // A live lease may belong to an adapter that has just exited:
+                // wait for the lease seen here to run out, and refuse only if
+                // it is renewed meanwhile. A valid credential that never
+                // connected is reused unchanged; anything else lapsed and
+                // gets a new setup for the same agent.
+                if connection["state"] == "ready" {
+                    wait_for_lease(&state, &p.adapter_id, &connection, &workspace_text).await?;
+                }
+                if connection["state"] == "registered"
+                    && adapter["revoked_at"].is_null()
                     && future(adapter["expires_at"].as_str().unwrap_or(""))
                 {
                     let agent_name = directory
@@ -1357,7 +1453,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     print(&p.agent_id, &agent_name, p, directory, true);
-                    return Ok(());
+                    return launch(p, directory.clone()).await;
                 }
             }
             let agent = admin(
@@ -1463,7 +1559,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                 let _ = fs::remove_dir_all(&aside);
             }
             print(&agent_id, &agent_name, &p, &directory, false);
-            Ok(())
+            launch(&p, directory).await
         }
         Err(error) => {
             if moved && fs::symlink_metadata(&directory).is_err() {

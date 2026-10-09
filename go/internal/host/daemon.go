@@ -60,7 +60,19 @@ func listenSocket(path string) (*net.UnixListener, error) {
 // Serve stops accepting requests on cancellation, drains outstanding local
 // requests, and returns before the caller closes the store.
 func Serve(ctx context.Context, listener net.Listener, handler http.Handler) error {
-	server := &http.Server{Handler: handler, ConnContext: peerConnContext, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	return serve(ctx, listener, handler, 15*time.Second)
+}
+
+// ServeLocal is Serve for the owner's and adapters' local sockets. A local
+// request may wait on several coordinator calls and syncs, so it may write
+// its response for as long as the CLI waits (one minute), rather than being
+// cut off with EOF.
+func ServeLocal(ctx context.Context, listener net.Listener, handler http.Handler) error {
+	return serve(ctx, listener, handler, 65*time.Second)
+}
+
+func serve(ctx context.Context, listener net.Listener, handler http.Handler, write time.Duration) error {
+	server := &http.Server{Handler: handler, ConnContext: peerConnContext, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: write, IdleTimeout: 30 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	select {

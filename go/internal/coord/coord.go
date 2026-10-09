@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
 	"encoding/json"
@@ -224,7 +225,12 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if s.db, err = openDB(path, false); err != nil {
 		return nil, err
 	}
-	if _, err = s.db.ExecContext(ctx, `PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;`); err != nil {
+	// Every accepted change makes each member sync at once, and every sync
+	// commits a write, so commits must be cheap: write-ahead logging with
+	// full synchronization keeps each commit durable with one fsync instead
+	// of a rollback journal's several. SQLite creates the -wal and -shm files
+	// with coord.db's private permissions.
+	if _, err = s.db.ExecContext(ctx, `PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;`); err != nil {
 		return nil, err
 	}
 	var version int
@@ -327,7 +333,8 @@ func (s *Server) TLSConfig() (*tls.Config, error) {
 	config := tlsid.Config()
 	config.ClientAuth = tls.RequireAnyClientCert
 	// The relay shares this listener and is selected by ALPN.
-	config.NextProtos = []string{"http/1.1", relay.ALPN}
+	// Version 2 is preferred when a host offers it.
+	config.NextProtos = []string{"http/1.1", relay.ALPNv2, relay.ALPN}
 	cache := &tlsid.Cache{Key: s.key, Name: s.identity.ID}
 	if _, err := cache.Get(); err != nil {
 		return nil, err
@@ -440,6 +447,9 @@ func (s *Server) Handler() http.Handler {
 		}
 		status, m, err := s.registerFrom(r.Context(), caller, sourceOf(r.RemoteAddr), req)
 		respond(w, status, m, err)
+		if err == nil && status == http.StatusCreated {
+			s.relay.changed(m.NetworkID)
+		}
 	})
 	mux.HandleFunc("POST /coord/v1/networks/{network}/members", func(w http.ResponseWriter, r *http.Request) {
 		caller, ok := callerID(w, r)
@@ -470,7 +480,62 @@ func (s *Server) Handler() http.Handler {
 	s.adminRoutes(mux)
 	s.policyRoutes(mux)
 	s.limitRoutes(mux)
-	return mux
+	return s.notifyChanges(mux)
+}
+
+// notifyChanges sends changed frames after every accepted change to a
+// network: each POST under /coord/v1/networks/{network}/ except sync, which
+// only updates an address and candidates. A request that leaves the
+// network's statements and members as they were, such as a retried join or
+// a resubmitted policy, is not a change; when that cannot be read, the
+// request counts as one.
+func (s *Server) notifyChanges(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rest, ok := strings.CutPrefix(r.URL.Path, "/coord/v1/networks/")
+		parts := strings.Split(rest, "/")
+		network := ""
+		if ok && r.Method == http.MethodPost && len(parts) == 2 && parts[0] != "" && parts[1] != "sync" {
+			network = parts[0]
+		}
+		if network == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		before := s.changeDigest(network)
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		if recorder.status >= 200 && recorder.status <= 299 && (before == "" || s.changeDigest(network) != before) {
+			s.relay.changed(network)
+		}
+	})
+}
+
+// changeDigest summarizes what a change can alter in a network's map, in
+// one query: the network row, each member's membership and admission (not
+// its address, candidates, or time), and every stored statement.
+func (s *Server) changeDigest(network string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var digest sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT
+ (SELECT name || '|' || root_public_key FROM networks WHERE id = ?1) || char(10) ||
+ COALESCE((SELECT group_concat(host_id || '|' || membership || '|' || COALESCE(admission, ''), char(10)) FROM (SELECT * FROM members WHERE network_id = ?1 ORDER BY host_id)), '') || char(10) ||
+ COALESCE((SELECT group_concat(kind || '|' || subject || '|' || statement, char(10)) FROM (SELECT * FROM statements WHERE network_id = ?1 ORDER BY kind, subject)), '')`, network).Scan(&digest)
+	if err != nil || !digest.Valid {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(digest.String))
+	return string(sum[:])
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
 }
 
 func callerID(w http.ResponseWriter, r *http.Request) (string, bool) {
