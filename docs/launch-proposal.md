@@ -1,6 +1,6 @@
 # Launch readiness: onboarding, status, and a smaller CLI
 
-Status: proposed; decisions settled with the owner on 2026-10-08 (see [Decisions](#decisions)). This is roadmap milestone 7, and nothing here is implemented yet. It builds on person identity and owner policy (milestone 2b), direct policy propagation (2c), tasks (milestone 6), and the release bundle and [quick start](quick-start.md), which it replaces as the user path once slice 5 lands.
+Status: implemented; decisions settled with the owner on 2026-10-08 (see [Decisions](#decisions)). This is roadmap milestone 7. It builds on person identity and owner policy (milestone 2b), direct policy propagation (2c), tasks (milestone 6), and the release bundle and [quick start](quick-start.md), which it replaced as the user path in slice 5.
 
 ## Problem
 
@@ -184,4 +184,3 @@ Settled with the owner on 2026-10-09, for slice 4:
 ## Open
 
 - Who operates the hosted coordinator, under which domain, and how its key is held.
-- Whether `install` should offer to enable systemd lingering.

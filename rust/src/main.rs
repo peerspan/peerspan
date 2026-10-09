@@ -227,15 +227,9 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     if let Some(value) = admin::command(&command, &socket).await? {
         return Ok(value);
     }
-    // A send by address may refresh the directory before sending.
-    let bound = if matches!(command, cli::Command::Send { .. }) {
-        Duration::from_secs(40)
-    } else {
-        Duration::from_secs(10)
-    };
     let request = command.request().expect("local control command");
     tokio::time::timeout(
-        bound,
+        LOCAL_TIMEOUT,
         call(socket, request.method, request.path, request.body),
     )
     .await
@@ -281,6 +275,11 @@ async fn only_network(socket: &Path) -> anyhow::Result<String> {
         ),
     }
 }
+
+/// The bound on a local daemon request. Requests may submit to a coordinator,
+/// sync, or refresh the directory first, so this matches the daemon's own
+/// 65-second write bound on the admin socket.
+pub(crate) const LOCAL_TIMEOUT: Duration = Duration::from_secs(65);
 
 /// `status`: exits 0 when nothing needs attention, 1 when something does,
 /// and 2 when the daemon cannot be reached.
@@ -486,7 +485,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
     let local = |method: Method, path: String, body: Option<Value>| {
         let socket = socket.clone();
         async move {
-            tokio::time::timeout(Duration::from_secs(10), call(socket, method, path, body))
+            tokio::time::timeout(LOCAL_TIMEOUT, call(socket, method, path, body))
                 .await
                 .context("local host daemon request timed out")?
         }
@@ -1180,7 +1179,7 @@ async fn artifact_command(command: &cli::Command, socket: &Path) -> anyhow::Resu
             let mut body = request.body.unwrap_or_default();
             body["artifacts"] = Value::Array(entries);
             let value = tokio::time::timeout(
-                Duration::from_secs(10),
+                LOCAL_TIMEOUT,
                 call(
                     socket.to_path_buf(),
                     request.method,

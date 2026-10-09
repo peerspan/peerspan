@@ -21,10 +21,7 @@ use capsule_host::{
 use ed25519_dalek::SigningKey;
 use hyper::Method;
 use serde_json::{Value, json};
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::path::{Path, PathBuf};
 
 pub(crate) struct Local<'a>(pub(crate) &'a Path);
 impl Local<'_> {
@@ -34,10 +31,8 @@ impl Local<'_> {
         path: String,
         body: Option<Value>,
     ) -> anyhow::Result<Value> {
-        // These requests submit statements to a coordinator and may sync
-        // first, so they get the daemon's own 65-second local write bound.
         tokio::time::timeout(
-            Duration::from_secs(65),
+            crate::LOCAL_TIMEOUT,
             call(self.0.to_path_buf(), method, path, body),
         )
         .await
