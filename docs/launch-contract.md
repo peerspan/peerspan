@@ -422,3 +422,191 @@ Blocks do not apply.
   - blocks not applying;
   - the `self` citation by owner CLI and adapter routes.
 - **`block`/`unblock`:** by label and by host ID.
+
+## Slice 4: directory and addressing
+
+Decided with the owner on 2026-10-09:
+- an agent's name is unique among its person's agents on all of their hosts, so `person/agent` names one agent;
+- when `attach`'s default name is taken, it picks a suffixed name rather than failing;
+- sessions created by `attach` may reach any agent in the directory, capped at 100 sends and delegations per hour;
+- the directory shows whether each agent has a connected session.
+
+Agent IDs remain the identity. Names are labels that let people and agents address an agent, and nothing authorizes by name.
+
+### Names and addresses
+
+**Addressable names.** An agent can be addressed when its name is 1–64 characters of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter or digit. Other agents are listed by ID only. `attach` only creates addressable names. `agent register` is unchanged.
+
+**Uniqueness.** A person's agents should have distinct names across all of that person's hosts. Names are not published to the coordinator, so this is enforced by `attach` through the directory (below), as well as it can be:
+- `attach --name NAME` refuses a name that the person already uses on this host or on any of their hosts in the directory, and names the host that has it;
+- a host of the person that could not be reached is reported in `unchecked_hosts`, and does not block the attach;
+- a duplicate that slips through is reported by status item 12 (`agent_name_conflict`).
+
+**Addresses** take two forms:
+- `PERSON/AGENT`, where `PERSON` is a person label, compared with ASCII case folded, as person label uniqueness is;
+- `HOST_ID/AGENT`, where the first part is a host ID (`host_` followed by its hex digits). It also addresses agents of hosts without a bound person, and picks one agent of a duplicate pair.
+
+An address splits at its last `/`. Resolution searches the directory of every network this host belongs to, or only the one given with `--network` or the adapter's `network`. It fails with:
+- `unknown`, after one synchronous refresh of the directory, when nothing matches;
+- `ambiguous` when more than one agent matches, for example a duplicate name or a label used in two networks. The error lists each match as `HOST_ID/AGENT` with its network;
+- `local` when the address names an agent on this host. Capsule has no local delivery.
+
+### Peer route
+
+`GET /peer/v1/networks/{network_id}/agents` returns the receiver's agents that the authenticated caller host may reach now, for callers that are current, unrevoked members of that network. Any other caller gets 403, and a network the receiver does not belong to returns 404. It returns 200 with an array sorted by name, then ID:
+
+```json
+[{
+  "name": "claude", "agent_id": "agent_…", "connected": true,
+  "authorizations": [
+    {"kind": "self", "actions": ["message.append", "task.submit", "task.delegate"],
+     "max_message_bytes": 65536, "max_artifact_bytes": 1073741824},
+    {"kind": "policy", "actions": ["message.append", "task.submit"],
+     "max_message_bytes": 65536, "max_artifact_bytes": 0, "from_agent": null},
+    {"kind": "grant", "grant_id": "grant_…", "actions": ["task.submit"],
+     "max_message_bytes": 65536, "max_artifact_bytes": 0, "expires_at": "RFC3339"}
+  ]
+}]
+```
+
+- `authorizations` lists every current authorization of the caller for that agent, with the same predicates the receiver uses for a request: self access; each applicable rule of the receiver's bound person's newest verified policy (named rules, else `*` rules); and each unexpired, unrevoked grant to the caller host for that agent. Blocks apply to policies and grants, not to self access.
+- A rule whose principal is `agent:HOST/AGENT_ID` appears with `from_agent` set to that agent ID, and applies only to requests from that agent. Otherwise `from_agent` is null.
+- An agent with no authorizations is never listed. A caller with none receives `[]`.
+- `connected` is true when the agent has an attached session whose adapter holds a valid lease.
+- Agent names in the response are as registered, addressable or not.
+
+Older receivers return 404 for this route. The caller records the host as `unsupported`, not as an error.
+
+### Discovery
+
+Each daemon keeps a directory per network, in memory:
+- **Hosts queried:** every current, unrevoked member other than itself.
+- **When:** at startup, every 5 minutes, within 10 seconds of a change to the network's map or to any stored policy, and on demand.
+- **How:** at most 8 queries at once, each with a 5-second timeout, over the usual peer transport, relay included.
+- **Failures:** a host that fails keeps its previous agents, marked with the time of the last success and the error.
+
+`GET /v1/directory?network=ID` returns the cache for one network, with the slice 1 network defaulting:
+
+```json
+{
+  "network_id": "net_…",
+  "refreshed_at": "RFC3339 or null",
+  "hosts": [{"host_id": "host_…", "person_id": "person_… or null", "person_label": "bob or null",
+             "state": "ok", "refreshed_at": "RFC3339 or null", "error": "text or null"}],
+  "agents": [{"address": "bob/claude", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
+              "name": "claude", "agent_id": "agent_…", "connected": true, "authorizations": []}]
+}
+```
+
+- `hosts` are sorted by host ID. `state` is `ok`, `error`, `unsupported`, or `pending` (never queried yet).
+- `agents` are sorted by address, then host ID. `address` is `PERSON/AGENT`, or `HOST_ID/AGENT` when the host has no bound person or the name is duplicated within that person. It is null for names that are not addressable. `authorizations` is as served by the peer.
+- `POST /v1/directory/refresh?network=ID` with `{}` refreshes synchronously, waiting at most 10 seconds, and returns the same object.
+
+### Sending by address
+
+The owner API, the CLI, and the adapter API accept an address in place of a host and an agent:
+- `POST /v1/outbound` and `POST /v1/tasks` accept `to`, with optional `network`, in place of `peer_host_id` and `target_agent_id`; giving both forms is 400.
+- `POST /adapter/v1/send` and `POST /adapter/v1/delegations` accept `to`, with optional `network`, in place of `destination`; giving both is 400.
+
+The daemon resolves the address before persisting anything. Resolution failures return 404 (`unknown`), 409 (`ambiguous`), or 400 (`local`), each with `{code, error, matches}`, where `matches` lists the candidate addresses (empty unless ambiguous).
+
+**Choosing an authorization.** The daemon picks the first of these that allows the action (`message.append`, `task.submit`, or `task.delegate` for a forwarded task) for the request's origin agent:
+1. self access, cited as `self`;
+2. a policy entry whose `from_agent` is null or the origin agent, cited as the target owner's policy, as today;
+3. the grant with the latest `expires_at`, cited by its ID.
+
+When none allows it, the daemon refreshes that host once and tries again, then refuses with 403 `{code: "not_authorized"}` before persisting anything. An explicit `grant_id` (owner `--grant`) overrides the choice. Sizes and deadlines are checked by the receiver as before.
+
+**Persistence.** The resolved host and agent ID are stored with the request, and the record shows `to` as given. Retries and status lookups use the stored target and never re-resolve. Request IDs, retries, idempotency, and replies work as for any send or task.
+
+**Deadlines.** Adapter sends by address get 5 minutes and adapter delegations 1 hour, as route sends do, bounded by the credential's expiry.
+
+### Directory sessions
+
+A session's credential may be created with **directory access**. Then its adapter may send and delegate by address to any agent in the directory. This is a deliberate exception to the rule that credentials confer no arbitrary outbound messaging. Without directory access, which is the default for `session setup` and `adapter create`, sessions behave as before, and a `to` request returns 403 `{code: "no_directory"}`.
+
+- `POST /v1/adapters/setup` gains optional `directory` (boolean, default false) and `max_sends_per_hour` (1 to 10,000, default 100; it requires `directory`). The adapter's record shows both.
+- **Rate cap.** Each send and each delegation by address counts once when it is first persisted, never on retries. A request that would make more than `max_sends_per_hour` in the preceding 60 minutes for that credential returns 429 `{code: "rate_limited", error, retry_after}`, where `retry_after` is in seconds, and persists nothing. Route sends keep their own budgets and are not counted.
+- **Agent tools.** `GET /adapter/v1/agents` returns `[{address, network_id, connected, actions, max_message_bytes, max_artifact_bytes}]` from the directory, for addressable agents only. `actions` and the bounds are the union over the agent's authorizations, ignoring `from_agent` entries for other agents. It returns 403 `no_directory` without directory access.
+- **MCP.** The shared adapter adds `list_agents`. `send` and `delegate_task` accept `to` and optional `network` in place of `destination`, when the credential has directory access. `send_status` reports `to` for these sends. `list_destinations` stays, for routes.
+- **Schema.** Storing `directory` and `max_sends_per_hour` with the credential, and `to` with outbound requests and tasks, is a shared schema migration, applied atomically and preserving existing state.
+
+### Commands
+
+| Command | Behavior |
+| --- | --- |
+| `attach HARNESS [--name NAME] [--directory DIR] [--expires-in D \| --expires-at T] [--max-sends-per-hour N] [--option KEY=VALUE ...] [--integrations DIR] [--runner PATH]` | Registers the agent if needed and sets up a directory session for the project at `--directory` (default: the current directory), below. |
+| `agents [--network ID] [--refresh] [--json]` | Shows the directory (below). `--refresh` refreshes first. |
+| `send TARGET TEXT [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `message send` addressed by `TARGET`, an address. Prints the outbound record. |
+| `task TARGET TEXT [--file PATH ...] [--network ID] [--grant ID] [--from-agent ID] [--deadline T]` | `task submit` addressed by `TARGET`. `--file` is `--artifact`, with the default media type. Prints the local task record. |
+| `session start` / `session doctor` | `--directory` becomes optional: without it, they use the `attach` profile whose recorded workspace is the current directory. |
+
+**`attach`.**
+- `HARNESS` is an integration ID, or `claude`, which means `claude-code`. The base name is `claude` for `claude-code`, and otherwise the integration ID.
+- **Profiles** live in `$XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME/`, and record the project's real path as `workspace`.
+- **Re-attaching.** If a profile for this host already records this workspace, `attach` reuses its agent. If its credential is unexpired and unrevoked, `attach` changes nothing and reports `reused: true`. Otherwise it performs a new setup for the same agent and replaces the old profile once the setup succeeds.
+- **Naming.** Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
+  1. the base name;
+  2. `BASE-PROJECT`, where `PROJECT` is the workspace's base name, if the base name is used on this host;
+  3. `BASE-HOSTNAME`, with this machine's short host name, if it is used only on another host;
+  4. then either with `-2`, `-3`, and so on appended.
+  Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. They are cut so that the name fits in 64 characters.
+- **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
+- **Setup.** It then runs today's session setup with directory access, `max_sends_per_hour` (default 100), no routes, and a renewable credential (the slice 1 default) unless an expiry is given. Integration options pass through.
+- **Output.** It prints `{agent: {id, name, address}, session_id, adapter_id, profile, workspace, reused, unchecked_hosts, next}`, where `address` is `PERSON/NAME` (or `HOST_ID/NAME` if this host has no bound person), and `next` is `capsule session start` for launch-capable integrations.
+- **Refusals.** A taken `--name` is refused with 409 before any registration, and the error names the host that has it.
+
+**`agents`** prints, for the network:
+- **reachable:** each addressable agent in the directory with its address, actions, whether it is connected, and whether its host answered the last refresh;
+- **mine:** this person's agents on this host and in the directory, with their addresses and connection;
+- **inbound:** for each rule of this person's stored policy, its agent scope (`*` or a name), principals as labels where they resolve, actions, and `max_artifact_bytes`, plus a line saying that the person's own hosts reach everything.
+
+Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, reachable, mine, inbound, hosts}`. `reachable` uses `{address, host_id, agent_id, connected, host_state, actions}`, `mine` uses `{address, host_id, agent_id, connected}`, and `inbound` uses `{agent, principals, actions, max_artifact_bytes}`. Principals use their policy form, for example `person:person_…`. `hosts` is the directory's `hosts`.
+
+**Root help** now lists, in order:
+1. `status` and `install`;
+2. `run`;
+3. `network create`, `join`, and `invite`;
+4. `attach`, `agents`, `send`, and `task`;
+5. `allow`, `deny`, `block`, and `unblock`;
+6. `network list` and `network members`;
+7. `access show`;
+8. `session start` and `doctor`.
+
+`session setup`, `message send`, and `task submit` move to `help advanced`, unchanged.
+
+### Status addition
+
+12. `agent_name_conflict`: the directory shows a name used by more than one agent of this host's person, and this host has one of them. Added by the daemon; subject `NETWORK/NAME`; command `capsule attach HARNESS --name NEW` in that agent's project. It follows item 11.
+
+### Verification
+
+`conformance/launch_directory.py` is written from this contract by an author independent of both implementations. It runs across all Go/Rust CLI and daemon pairings, with `--probe`, the Go coordinator, `--node` for the MCP cases, and OpenSSH. It covers:
+- **Peer route:**
+  - listing through self access, a person rule, a `*` rule, a group rule, `everyone`, an `agent:` principal (`from_agent`), and a grant;
+  - unlisted agents with no authorization, and `[]`;
+  - blocks hiding policy and grant entries but not self;
+  - `connected` before and after an adapter connects;
+  - 403 for a non-member host, and 404 for an unknown network.
+- **Discovery:**
+  - a new agent appearing after `--refresh`;
+  - a policy change reflected within 10 seconds without a refresh;
+  - a stopped host keeping its agents with `state: error`.
+- **Addresses:** both forms; case-folded labels; `unknown`, `ambiguous` (with an injected duplicate), and `local`; a host without a person addressed by host ID.
+- **Sending:**
+  - `send` and `task` by address under self, policy, and grant, and the authorization each cites;
+  - `--grant` overriding the choice;
+  - `not_authorized` persisting nothing;
+  - a retry after the target's map label changes still reaching the stored target.
+- **Attach:**
+  - default naming and each suffix rule, across two hosts of one person;
+  - `--name` taken refused, with no registration;
+  - re-attach reusing the agent with `reused: true`, and after expiry a new credential for the same agent;
+  - `unchecked_hosts` with a sibling stopped;
+  - `session start`/`doctor` without `--directory`.
+- **Directory sessions:**
+  - MCP `list_agents`, and `send` and `delegate_task` by `to` through the real adapter;
+  - `no_directory` for a session from `session setup`;
+  - the rate cap with a small `--max-sends-per-hour`, retries not counted, and route sends not counted.
+- **Agents and status:** `agents --json` fields; item 12 with an injected duplicate.
+- **Root help:** the new command set; the moved commands still run.

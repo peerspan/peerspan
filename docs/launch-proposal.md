@@ -133,6 +133,8 @@ The map already carries every person's newest policy to every member. The direct
 
 Authorization is unchanged: the receiver still checks every request, so a stale directory entry yields the usual 403 or 404.
 
+Slice 4 of the [launch contract](launch-contract.md) settles the details: names are unique per person, so the `@host` qualifier is replaced by a `HOST_ID/AGENT` form for rare duplicates; the peer route is per network; every member host is queried; MCP keeps its `send` tool and gains `to`; and only sessions created by `attach` may send by address, capped per hour.
+
 ## Status
 
 `capsule status` prints one screen, in order:
@@ -173,6 +175,11 @@ Settled with the owner on 2026-10-08:
 - **Agent scope** (2): `allow` without `--agent` covers all of the owner's agents through `*`.
 - **Self access** (3): everything, up to 1 GiB of artifacts, with no policy.
 - **Hosted limits** (4): modest caps as configurable `capsule-coord` flags, returning 429.
+
+Settled with the owner on 2026-10-09, for slice 4:
+- **Agent names:** unique per person across their hosts; `attach` picks a suffixed name when the default is taken.
+- **Session reach:** `attach` sessions may reach any agent in the directory, at most 100 sends and delegations per hour by default.
+- **Presence:** the directory shows whether an agent has a connected session.
 
 ## Open
 
