@@ -74,3 +74,53 @@ A restored coordinator has the backup's identity, so hosts that pin its key keep
 - backup while hosts sync and relay continuously: the copy is 0600, opens, and has the same `id`; an existing FILE is refused;
 - restore: refused while running, refused over an existing database without `--replace`, refused for a corrupt or non-coordinator file; with `--replace`, the previous database kept; then, a coordinator started on the restored state at the same address, Go and Rust hosts sync, join with a fresh invite, and exchange relayed messages without any host action;
 - the deployment files: `systemd-analyze verify` on the unit where available, and `litestream.yml` parsing as YAML with the database path and an encrypted replica.
+
+## Slice 2: successors
+
+Decision recorded in the proposal: the operator's coordinator key may sign a successor that moves every network on the coordinator, and a root-signed move (slice 3) always takes precedence.
+
+### Identities
+
+A coordinator has an ordered list of identities, numbered from 0. Identity 0 is the existing key. Each later identity has an address and a key, which may be the previous key, and a successor statement signed by the previous identity's key. The coordinator database moves to version 6.
+
+`capsule-coord [--state DIR] successor --address HOST:PORT [--new-key]` appends an identity:
+- It takes the state lock, so the coordinator must be stopped: `coordinator is running` exits 1.
+- `--address` must be a valid coordinator address (`HOST:PORT`, where HOST is an IP literal or a DNS name). With `--new-key` it generates a key; otherwise the new identity keeps the latest key, and an address equal to the latest identity's address exits 1 with `nothing changes`.
+- It prints `{"sequence": N, "id": COORDINATOR_ID, "public_key": KEY, "address": ADDRESS, "successor": SUCCESSOR}`.
+
+`info` keeps `id` and `public_key`, which are the latest identity's, and gains `identities`: `[{sequence, id, public_key, address}]` in order. Identity 0's `address` is null.
+
+**Successor.** A successor is a strict JSON object with exactly `sequence`, `previous_public_key`, `address`, `public_key`, `signed_at`, and `signature`. `signature` is by `previous_public_key` over the statement with lines `capsule-coordinator-successor-v1`, `sequence` in decimal, `previous_public_key`, `address`, `public_key`, `signed_at`. A chain of successors is valid from a key K when the first's `previous_public_key` is K, each signature verifies, sequences increase by exactly 1, each later `previous_public_key` is the preceding `public_key`, and every address is a valid coordinator address.
+
+### Serving
+
+`capsule-coord run --listen HOST:PORT` presents the latest identity. `--previous-listen SEQUENCE=HOST:PORT`, repeatable, also serves an earlier identity on another address, with its key, its STUN responder, and its relay. All listeners share one database and one relay, so hosts connected through different identities relay to each other. A sequence that is not an earlier identity exits 2 before listening.
+- Responses to register, join, and sync gain `successors`: the chain from the identity whose listener answered to the latest, in order, or `[]` on the latest identity's listener.
+- The `start` log line gains `previous_listen`: `[{sequence, listen}]`, empty without the flag. `/healthz` reports the latest identity's `id`.
+- Metric `capsule_coord_identity_hosts{sequence}` (gauge): distinct hosts that completed a request or opened a relay connection through that identity's listener in the last 24 hours, since the process started. It is how the operator tells when an old listener can stop.
+
+### Hosts
+
+On a register, join, or sync response with a non-empty `successors`, a host verifies the chain from the network's pinned `coordinator_public_key`:
+- **Invalid:** it ignores the chain, keeps the pin, applies the map as usual, and sets `last_sync_error` to `invalid coordinator successor`.
+- **Valid:** it records the chain's last entry as the network's `coordinator_pending`: `{address, public_key, sequence}`. It then syncs the network at the pending address with the pending key. If that sync succeeds, the pending address and key replace `coordinator_address` and `coordinator_public_key`, `coordinator_pending` becomes null, and the relay connection and STUN move to the new address. If it fails, the host keeps its pin and the pending entry, and each later interval sync tries the pending coordinator first and the pinned one after it.
+
+A pending entry survives restarts. A later valid chain from the pinned key replaces it. The network record gains `coordinator_pending`, null when nothing is pending, in `network list` and `GET /v1/networks`. Invites carry the pinned coordinator, which is the new one once the host has switched. A joiner whose invite names an earlier identity follows the chain in the join response the same way.
+
+### Runbook
+
+The deployment runbook gains a successor procedure:
+- **Address change (same key):** run `successor --address NEW`, point the new name at the VM, and restart. One listener can serve both names, since the key is the same.
+- **Key change:** run `successor --address NEW --new-key` with a new port or address, restart with `--listen NEW --previous-listen N=OLD`, update `CAPSULE_COORDINATOR_KEY` for new builds, take a new offline backup, and stop the old listener once `capsule_coord_identity_hosts` for it has been 0 for 30 days.
+- **Leaked key:** sign a successor with a new key at once. Hosts that reach the operator first follow it; a successor signed with the leaked key to another coordinator can divert hosts only to an availability-only coordinator, and administrators recover with a root-signed move (slice 3).
+
+### Verification
+
+`conformance/coord_successor.py` is written from this contract by an author independent of both implementations. It runs the Go coordinator with every Go/Rust combination of a creator and a joiner host, and covers:
+- `successor` refusals (running, nothing changes, an invalid address) and `info.identities`;
+- an address change with the same key: both hosts switch within two sync intervals, `coordinator_pending` returns to null, and messages, relay, and change notifications keep working;
+- a key change served with `--previous-listen`: hosts switch, a host that was stopped during the change follows on restart, a join with an invite issued before the change ends pinned to the new identity, and invites issued after it carry the new pin;
+- two successors (0 to 2) applied while a host was stopped, followed in one step;
+- an unreachable new address: hosts keep their pin with `coordinator_pending` set and a sync error, survive a restart, and switch once the new listener starts;
+- `--previous-listen` refusals, the `start` line, and `capsule_coord_identity_hosts` per sequence;
+- where the suite can serve a chain itself (for example a minimal coordinator stand-in), an invalid chain leaving the pin unchanged with `invalid coordinator successor`.

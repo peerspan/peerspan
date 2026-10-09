@@ -39,7 +39,7 @@ The coordinator is trusted for availability only ([coordination contract](coordi
 A network's pinned coordinator can change in two ways, both signed. Hosts verify the signature, switch only after the new coordinator answers a sync for the network, and keep the previous pin until then.
 
 **Successor (operator).** The current coordinator key signs a successor naming a new address, a new key, or both, with a sequence number. It covers every network on that coordinator at once.
-- The coordinator serves its latest successor with every sync and notifies connected hosts.
+- The coordinator serves the chain of successors from the identity a host reached to the latest one, with every sync and join.
 - A coordinator can listen on several addresses, each presenting one of its identities, so the old address and key keep serving until every host has moved. Metrics show how many hosts still use each.
 - A successor grants nothing beyond availability. Whoever holds a leaked key could already deny service, and it gains no say over membership or access.
 
