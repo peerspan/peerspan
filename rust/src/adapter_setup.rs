@@ -117,6 +117,7 @@ impl Store {
                     action: route.action,
                     delegation_depth: 0,
                     follows_credential: false,
+                    authorization: None,
                 },
             )?);
         }

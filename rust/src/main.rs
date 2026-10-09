@@ -67,6 +67,38 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     if let cli::Command::Help { topic } = &command {
         return help(topic);
     }
+    // The top-level invite and join are network invite and network join.
+    let mut top_invite = false;
+    command = match command {
+        cli::Command::Invite {
+            label,
+            network,
+            expires_at,
+            expires_in,
+            person_key,
+        } => {
+            top_invite = true;
+            cli::Command::Network(cli::NetworkCommand::Invite {
+                network,
+                member: label,
+                expires_at,
+                expires_in,
+                host_only: false,
+                person_key,
+            })
+        }
+        cli::Command::Join {
+            token,
+            person_key,
+            no_person,
+        } => cli::Command::Network(cli::NetworkCommand::Join {
+            token: Some(token),
+            descriptor: None,
+            person_key,
+            no_person,
+        }),
+        other => other,
+    };
     command.resolve_expiries()?;
     if matches!(
         &command,
@@ -119,6 +151,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         coordination_interval,
         person_agent,
         artifact_quota,
+        person_key_file,
     } = command
     {
         let person_agent = person_agent.or_else(|| {
@@ -126,48 +159,60 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 .filter(|s| !s.is_empty())
                 .map(PathBuf::from)
         });
+        let person_key_file = person_key_file.or_else(persons::generated_key_path);
         return run_daemon(
             directory,
             peer_listen,
             advertise,
             coordination_interval,
             person_agent,
+            person_key_file,
             artifact_quota,
         )
         .await;
     }
-    if let Some(value) = artifact_command(&command, &directory.join("admin.sock")).await? {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-        return Ok(());
+    let mut value = dispatch(command, &directory).await?;
+    if top_invite {
+        let token = value["token"].clone();
+        value = json!({
+            "network_id": value["network_id"],
+            "member": value["member"],
+            "invite_expires_at": value["invite_expires_at"],
+            "token": token,
+            "join": format!("capsule join {}", token.as_str().unwrap_or_default()),
+        });
     }
-    if let cli::Command::Access(access) = &command
-        && let Some(value) = access::command(access, &directory.join("admin.sock")).await?
-    {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-        return Ok(());
-    }
-    if let Some(value) = person_command(&command, &directory).await? {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-        return Ok(());
-    }
-    if let Some(value) = admin::command(&command, &directory.join("admin.sock")).await? {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-        return Ok(());
-    }
-    let request = command.request().expect("local control command");
-    let value = tokio::time::timeout(
-        Duration::from_secs(10),
-        call(
-            directory.join("admin.sock"),
-            request.method,
-            request.path,
-            request.body,
-        ),
-    )
-    .await
-    .context("local host daemon request timed out")??;
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
+}
+
+/// Runs a command through the local daemon and returns what it prints.
+async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Value> {
+    let socket = directory.join("admin.sock");
+    if let Some(value) = artifact_command(&command, &socket).await? {
+        return Ok(value);
+    }
+    if let cli::Command::Access(access) = &command
+        && let Some(value) = access::command(access, &socket).await?
+    {
+        return Ok(value);
+    }
+    if let Some(value) = access::top_command(&command, &socket).await? {
+        return Ok(value);
+    }
+    if let Some(value) = person_command(&command, directory).await? {
+        return Ok(value);
+    }
+    if let Some(value) = admin::command(&command, &socket).await? {
+        return Ok(value);
+    }
+    let request = command.request().expect("local control command");
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        call(socket, request.method, request.path, request.body),
+    )
+    .await
+    .context("local host daemon request timed out")?
 }
 
 /// `help`, `help advanced`, or `help COMMAND...`, which prints that
@@ -430,6 +475,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             })
         }
         Command::Network(NetworkCommand::Create {
+            name_arg,
             name,
             member,
             coordinator,
@@ -437,7 +483,19 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             person_key,
             no_person,
         }) => {
-            let found = explicit_key(*no_person, person_key)?;
+            let name = match (name_arg, name) {
+                (Some(_), Some(_)) => bail!("give the network name once: as NAME or with --name"),
+                (Some(name), None) | (None, Some(name)) => name.clone(),
+                (None, None) => bail!("network create needs a NAME"),
+            };
+            let member = match member {
+                Some(label) => label.clone(),
+                None => login_name().context("cannot determine the login name; give --as LABEL")?,
+            };
+            let choice = match no_person {
+                true => None,
+                false => Some(choose_key(person_key)?),
+            };
             // Without either coordinator flag, the daemon uses its build's
             // default coordinator.
             let mut body = json!({"name": name, "member": member});
@@ -447,13 +505,16 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             if let Some(key) = coordinator_key {
                 body["coordinator_public_key"] = json!(key);
             }
-            if let Ok(signer) = &found {
-                body["person_public_key"] = json!(signer.public_key_b64());
+            if let Some(choice) = &choice {
+                body["person_public_key"] = json!(choice.signer.public_key_b64());
             }
             let mut value = local(Method::POST, "/v1/networks".into(), Some(body)).await?;
+            if let Some(choice) = &choice {
+                choice.save(&member)?;
+            }
             let network = value["id"].as_str().unwrap_or_default().to_owned();
-            match found {
-                Ok(signer) if value["person"]["admitted"] == json!(true) => {
+            match &choice {
+                Some(choice) if value["person"]["admitted"] == json!(true) => {
                     // Admitted with the new root: bind this host now, signed
                     // here so the person key never reaches the daemon.
                     let result = async {
@@ -461,8 +522,9 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                         let key = host["public_key"]
                             .as_str()
                             .context("host daemon returned no public key")?;
-                        let binding = persons::HostBinding::sign(&signer, &network, key, &at())
-                            .map_err(|e| anyhow::anyhow!("{e}"))?;
+                        let binding =
+                            persons::HostBinding::sign(&choice.signer, &network, key, &at())
+                                .map_err(|e| anyhow::anyhow!("{e}"))?;
                         local(
                             Method::POST,
                             format!("/v1/networks/{}/bindings", encoded(&network)),
@@ -482,17 +544,19 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                         }
                     }
                 }
-                Ok(_) => {}
-                Err(reason) => {
-                    let next = (!*no_person).then(|| {
-                        format!(
-                            "an administrator runs: {} network admit --network {network} --person '<your ssh-ed25519 public key>' --member {member}; then: {}",
-                            program(),
-                            bind_next(&network)
-                        )
-                    });
-                    value["person"] = skipped(reason, next);
+                Some(_) => {}
+                None => {
+                    let next = format!(
+                        "an administrator runs: {} network admit --network {network} --person '<your ssh-ed25519 public key>' --member {member}; then: {}",
+                        program(),
+                        bind_next(&network)
+                    );
+                    value["person"] =
+                        skipped("person step disabled with --no-person".into(), Some(next));
                 }
+            }
+            if let Some(choice) = &choice {
+                choice.describe(&mut value, false);
             }
             value
         }
@@ -502,7 +566,10 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             person_key,
             no_person,
         }) => {
-            let found = explicit_key(*no_person, person_key)?;
+            let choice = match no_person {
+                true => None,
+                false => Some(choose_key(person_key)?),
+            };
             let mut body = match (token, descriptor) {
                 (Some(token), _) => json!({"token": token}),
                 (None, descriptor) => json!({"descriptor": descriptor}),
@@ -513,7 +580,8 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                     .and_then(|d| persons::Descriptor::decode(d).ok())
                     .map(|d| d.network_id)
             });
-            if let Ok(signer) = &found {
+            if let Some(choice) = &choice {
+                let signer = &choice.signer;
                 body["person_public_key"] = json!(signer.public_key_b64());
                 // Sign the binding before joining: the token or descriptor names
                 // the network, and the daemon names this host. If either is
@@ -527,23 +595,40 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                 }
             }
             let mut value = local(Method::POST, "/v1/networks/join".into(), Some(body)).await?;
-            if let Err(reason) = found {
-                let id = value["id"].as_str().unwrap_or_default().to_owned();
-                let member_token = token
-                    .as_deref()
-                    .is_some_and(|t| t.trim().starts_with(persons::MEMBER_TOKEN_PREFIX));
-                let next = (!*no_person).then(|| match token {
-                    Some(token) if member_token => format!(
-                        "{} network redeem-person --token {token} --person-key PATH; then: {} --person-key PATH",
-                        program(),
-                        bind_next(&id)
-                    ),
-                    _ => format!(
-                        "after an administrator admits your person: {} --person-key PATH",
-                        bind_next(&id)
-                    ),
-                });
-                value["person"] = skipped(reason, next);
+            match &choice {
+                Some(choice) => {
+                    let label = token
+                        .as_deref()
+                        .and_then(token_member)
+                        .or_else(login_name)
+                        .unwrap_or_default();
+                    choice.save(&label)?;
+                    let member_token = token
+                        .as_deref()
+                        .is_some_and(|t| t.trim().starts_with(persons::MEMBER_TOKEN_PREFIX));
+                    if value["person"].is_null() {
+                        value["person"] = skipped("no person key reached the daemon".into(), None);
+                    }
+                    choice.describe(&mut value, member_token);
+                }
+                None => {
+                    let id = value["id"].as_str().unwrap_or_default().to_owned();
+                    let next = match token {
+                        Some(token) if token.trim().starts_with(persons::MEMBER_TOKEN_PREFIX) => {
+                            format!(
+                                "{} network redeem-person --token {token} --person-key PATH; then: {} --person-key PATH",
+                                program(),
+                                bind_next(&id)
+                            )
+                        }
+                        _ => format!(
+                            "after an administrator admits your person: {} --person-key PATH",
+                            bind_next(&id)
+                        ),
+                    };
+                    value["person"] =
+                        skipped("person step disabled with --no-person".into(), Some(next));
+                }
             }
             value
         }
@@ -610,28 +695,200 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
     Ok(Some(value))
 }
 
-/// Finds the person key for the one-command flows. A missing or ambiguous key
-/// is never an error: the person step is skipped and the reason reported.
-fn discover(no_person: bool, path: &Option<PathBuf>) -> Result<persons::PersonSigner, String> {
-    if no_person {
-        return Err("person step disabled with --no-person".into());
+/// The person key `network create` and `join` use, and where it came from:
+/// `option` (--person-key), `generated` (the generated key file), `agent`
+/// (the only ssh-ed25519 identity in ssh-agent), or `new`. A new key exists
+/// only in memory until `save`.
+struct KeyChoice {
+    signer: persons::PersonSigner,
+    source: &'static str,
+    path: Option<PathBuf>,
+    new: Option<ed25519_dalek::SigningKey>,
+}
+fn choose_key(option: &Option<PathBuf>) -> anyhow::Result<KeyChoice> {
+    if let Some(path) = option {
+        let signer = persons::PersonSigner::open(Some(path)).map_err(|e| {
+            let reason = match e {
+                model::Error::Invalid(message) => message,
+                other => other.to_string(),
+            };
+            anyhow::anyhow!("--person-key {}: {reason}", path.display())
+        })?;
+        return Ok(KeyChoice {
+            signer,
+            source: "option",
+            path: Some(std::path::absolute(path)?),
+            new: None,
+        });
     }
-    persons::PersonSigner::open(path.as_deref()).map_err(|e| match e {
-        model::Error::Invalid(message) => message,
-        other => other.to_string(),
+    match persons::PersonSigner::discover().map_err(|e| anyhow::anyhow!("{e}"))? {
+        Some((signer, Some(path))) => {
+            return Ok(KeyChoice {
+                signer,
+                source: "generated",
+                path: Some(path),
+                new: None,
+            });
+        }
+        Some((signer, None)) => {
+            return Ok(KeyChoice {
+                signer,
+                source: "agent",
+                path: None,
+                new: None,
+            });
+        }
+        None => {}
+    }
+    let generated = persons::generated_key_path().context(
+        "cannot locate the generated person key: neither XDG_CONFIG_HOME nor HOME is set",
+    )?;
+    let mut seed = [0u8; 32];
+    getrandom::fill(&mut seed).map_err(|e| anyhow::anyhow!("random source: {e}"))?;
+    let key = ed25519_dalek::SigningKey::from_bytes(&seed);
+    Ok(KeyChoice {
+        signer: persons::PersonSigner::File(key.clone()),
+        source: "new",
+        path: Some(generated),
+        new: Some(key),
     })
 }
-/// An explicit --person-key must be usable before anything happens; only
-/// automatic discovery skips.
-fn explicit_key(
-    no_person: bool,
-    path: &Option<PathBuf>,
-) -> anyhow::Result<Result<persons::PersonSigner, String>> {
-    let found = discover(no_person, path);
-    if let (Some(path), Err(reason)) = (path, &found) {
-        bail!("--person-key {}: {reason}", path.display());
+impl KeyChoice {
+    /// Writes a new key, once the network request has succeeded: the private
+    /// key mode 0600 and the public key beside it mode 0644, in a 0700
+    /// directory. It never overwrites. Other sources have nothing to save.
+    fn save(&self, label: &str) -> anyhow::Result<()> {
+        let (Some(key), Some(path)) = (&self.new, &self.path) else {
+            return Ok(());
+        };
+        let result = (|| -> anyhow::Result<()> {
+            use std::{io::Write, os::unix::fs::OpenOptionsExt};
+            let comment = format!("capsule {label}@{}", hostname());
+            let dir = path.parent().context("invalid key path")?;
+            fs::create_dir_all(dir)?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+            let text = persons::encode_openssh_private_key(key, &comment)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)?;
+            if let Err(e) = file
+                .write_all(text.as_bytes())
+                .and_then(|_| file.sync_all())
+            {
+                let _ = fs::remove_file(path);
+                return Err(e.into());
+            }
+            let public = path.with_file_name("person_ed25519.pub");
+            let line = format!(
+                "{} {comment}\n",
+                persons::ssh_public_line(&key.verifying_key().to_bytes())
+            );
+            fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o644)
+                .open(&public)?
+                .write_all(line.as_bytes())?;
+            fs::set_permissions(&public, fs::Permissions::from_mode(0o644))?;
+            Ok(())
+        })();
+        result.with_context(|| {
+            format!(
+                "the host joined, but the new person key could not be saved to {}",
+                path.display()
+            )
+        })
     }
-    Ok(found)
+    /// Adds `person.key`, and the follow-up a key needs: backing up a new
+    /// key, or, when a member join's person part failed with a generated or
+    /// new key, copying the first machine's key.
+    fn describe(&self, value: &mut Value, member_join: bool) {
+        let id = value["id"].as_str().unwrap_or_default().to_owned();
+        let Some(outcome) = value.get_mut("person").and_then(Value::as_object_mut) else {
+            return;
+        };
+        let path = match self.source {
+            "agent" => Value::Null,
+            _ => json!(self.path.as_ref().map(|p| p.display().to_string())),
+        };
+        outcome.insert(
+            "key".into(),
+            json!({"source": self.source, "public_key": self.signer.public_key_b64(), "path": path}),
+        );
+        let mut next = outcome
+            .get("next")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let shown = self
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        if member_join
+            && outcome.get("admitted") != Some(&json!(true))
+            && matches!(self.source, "new" | "generated")
+        {
+            next = format!(
+                "to use the same person as on your first machine, copy its person_ed25519 (and .pub) to {shown}, then run {} network bind --network {id}",
+                program()
+            );
+        }
+        if self.source == "new" {
+            let backup = format!(
+                "back up the new person key {shown}; copy it to your other machines to use the same identity there"
+            );
+            next = if next.is_empty() {
+                backup
+            } else {
+                format!("{next}; {backup}")
+            };
+        }
+        if !next.is_empty() {
+            outcome.insert("next".into(), json!(next));
+        }
+    }
+}
+/// The login name: the user name of the effective user ID, else `$USER`.
+fn login_name() -> Option<String> {
+    // SAFETY: getpwuid returns null or a pointer to a static record that is
+    // read here before any other call could overwrite it.
+    let name = unsafe {
+        let entry = libc::getpwuid(libc::geteuid());
+        if entry.is_null() || (*entry).pw_name.is_null() {
+            None
+        } else {
+            Some(
+                std::ffi::CStr::from_ptr((*entry).pw_name)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        }
+    };
+    name.filter(|n| !n.is_empty())
+        .or_else(|| env::var("USER").ok().filter(|u| !u.is_empty()))
+}
+fn hostname() -> String {
+    let mut buffer = [0u8; 256];
+    // SAFETY: the buffer is valid for its length; gethostname writes at most
+    // that many bytes.
+    let ok = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } == 0;
+    if !ok {
+        return String::new();
+    }
+    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
+    String::from_utf8_lossy(&buffer[..end]).into_owned()
+}
+/// An invite token's member label.
+fn token_member(token: &str) -> Option<String> {
+    persons::MemberInviteToken::decode(token)
+        .map(|t| t.member)
+        .or_else(|_| membership::InviteToken::decode(token).map(|t| t.member))
+        .ok()
 }
 /// The network a token names, read locally so the CLI can sign a binding
 /// before joining. The daemon verifies the token itself.
@@ -681,12 +938,14 @@ async fn run_daemon(
     advertise: Option<std::net::SocketAddr>,
     coordination_interval: u64,
     person_agent: Option<PathBuf>,
+    person_key_file: Option<PathBuf>,
     artifact_quota: i64,
 ) -> anyhow::Result<()> {
     let store = Arc::new(Store::open(&directory)?);
     store.set_artifact_quota(artifact_quota);
     store.set_coordination_interval(coordination_interval);
     store.set_person_agent(person_agent);
+    store.set_person_key_file(person_key_file);
     let path = store.socket_path();
     match fs::symlink_metadata(&path) {
         Ok(metadata) => {

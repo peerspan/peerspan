@@ -49,8 +49,9 @@ from policy import PolicyHost, crafted
 
 ROOT_COMMANDS = [
     'status', 'install', 'run',
-    'network create', 'network join', 'network invite', 'network list', 'network members',
-    'access allow', 'access deny', 'access show',
+    'network create', 'join', 'invite',
+    'allow', 'deny', 'block', 'unblock',
+    'network list', 'network members', 'access show',
     'session setup', 'session start', 'session doctor',
     'message send', 'task submit',
 ]
@@ -72,6 +73,7 @@ HIDDEN_COMMANDS = [
     'adapter create', 'adapter list', 'adapter inspect', 'adapter revoke', 'adapter rotate', 'adapter connection',
     'adapter route add', 'adapter route list', 'adapter route revoke',
     'delivery list', 'delivery inspect', 'activity', 'uninstall',
+    'network join', 'network invite', 'access allow', 'access deny',
 ]
 STATUS_KEYS = {'host_id', 'version', 'networks', 'blocks', 'agents', 'artifacts', 'attention'}
 NETWORK_KEYS = {'id', 'name', 'coordinator', 'last_sync_at', 'last_sync_error', 'members', 'person', 'policy',

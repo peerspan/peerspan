@@ -90,7 +90,7 @@ func PeerHandler(store *Store) http.Handler {
 			return
 		}
 		var request MessageRequest
-		if !decode(w, r, &request, "request_id", "grant_id", "policy", "target_agent_id", "deadline", "content", "origin") {
+		if !decode(w, r, &request, "request_id", "grant_id", "policy", "self", "target_agent_id", "deadline", "content", "origin") {
 			return
 		}
 		receipt, err := store.AcceptMessage(r.Context(), id, request)
@@ -252,6 +252,8 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 // refusalHint explains a peer's refusal of a policy-cited request.
 func refusalHint(r MessageRequest, status int) string {
 	switch {
+	case r.Self != nil && status == http.StatusForbidden:
+		return ": self access needs this host and the receiver bound to the same person in a network they share"
 	case r.Policy == nil:
 	case status == http.StatusForbidden:
 		return ": the receiver's owner policy does not allow this host to message that agent within these bounds, or the receiver blocks this host or its person"

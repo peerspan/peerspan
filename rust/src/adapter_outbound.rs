@@ -28,6 +28,7 @@ CREATE INDEX adapter_outbound_route ON adapter_outbound(route_id);
 PRAGMA user_version = 5;
 ";
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(from = "StoredRoute")]
 pub struct OutboundRoute {
     pub id: String,
     pub adapter_id: String,
@@ -53,6 +54,60 @@ pub struct OutboundRoute {
     /// many further hops. Older routes read as 0.
     #[serde(default)]
     pub delegation_depth: u64,
+    /// `grant`, `policy`, or `self`: what the route cited when created.
+    pub authorization: String,
+}
+/// A stored route; older records lack `authorization`, which then follows
+/// from `grant_id`.
+#[derive(Deserialize)]
+struct StoredRoute {
+    id: String,
+    adapter_id: String,
+    name: String,
+    peer_host_id: String,
+    target_agent_id: String,
+    #[serde(default = "message_action")]
+    action: String,
+    #[serde(default)]
+    grant_id: Option<String>,
+    expires_at: String,
+    max_message_bytes: i64,
+    max_messages: i64,
+    revoked_at: Option<String>,
+    #[serde(default)]
+    follows_credential: bool,
+    #[serde(default)]
+    delegation_depth: u64,
+    #[serde(default)]
+    authorization: Option<String>,
+}
+impl From<StoredRoute> for OutboundRoute {
+    fn from(r: StoredRoute) -> Self {
+        let authorization = r.authorization.unwrap_or_else(|| {
+            if r.grant_id.is_some() {
+                "grant"
+            } else {
+                "policy"
+            }
+            .into()
+        });
+        Self {
+            id: r.id,
+            adapter_id: r.adapter_id,
+            name: r.name,
+            peer_host_id: r.peer_host_id,
+            target_agent_id: r.target_agent_id,
+            action: r.action,
+            grant_id: r.grant_id,
+            expires_at: r.expires_at,
+            max_message_bytes: r.max_message_bytes,
+            max_messages: r.max_messages,
+            revoked_at: r.revoked_at,
+            follows_credential: r.follows_credential,
+            delegation_depth: r.delegation_depth,
+            authorization,
+        }
+    }
 }
 fn message_action() -> String {
     crate::policy::ACTION.into()
@@ -82,6 +137,9 @@ pub struct CreateOutboundRoute {
     /// posted back as a request.
     #[serde(default)]
     pub follows_credential: bool,
+    /// Accepted so a route record can be posted back; the daemon decides it.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub authorization: Option<String>,
 }
 #[derive(Serialize)]
 pub struct Destination {
@@ -200,6 +258,9 @@ impl Store {
             || r.action
                 .as_deref()
                 .is_some_and(|a| !crate::policy::ROUTE_ACTIONS.contains(&a))
+            || r.authorization
+                .as_deref()
+                .is_some_and(|a| !["grant", "policy", "self"].contains(&a))
             || r.delegation_depth > crate::chain::MAX_DEPTH
             || (r.delegation_depth > 0 && r.action.as_deref() != Some(crate::policy::TASK_ACTION))
         {
@@ -242,7 +303,15 @@ impl Store {
         if count != 0 {
             return Err(Error::Conflict("destination name already exists".into()));
         }
+        let authorization = if r.grant_id.is_some() {
+            "grant"
+        } else if self.self_citation(tx, &r.peer_host_id)?.is_some() {
+            "self"
+        } else {
+            "policy"
+        };
         let route = OutboundRoute {
+            authorization: authorization.into(),
             id: new_id("route")?,
             adapter_id: r.adapter_id,
             name: r.name,
@@ -397,10 +466,10 @@ impl Store {
         let deadline = (Utc::now() + chrono::Duration::minutes(5))
             .fixed_offset()
             .min(exp);
-        let policy = if route.grant_id.is_none() {
-            Some(self.policy_citation(&tx, &route.peer_host_id)?)
+        let (policy, self_access) = if route.grant_id.is_none() {
+            self.citation(&tx, &route.peer_host_id)?.fields()
         } else {
-            None
+            (None, None)
         };
         let out = OutboundMessage {
             peer_host_id: route.peer_host_id,
@@ -408,6 +477,7 @@ impl Store {
                 request_id: r.request_id,
                 grant_id: route.grant_id,
                 policy,
+                self_access,
                 target_agent_id: route.target_agent_id,
                 deadline: crate::store::rfc3339(deadline.with_timezone(&Utc)),
                 content: r.content,
@@ -801,6 +871,7 @@ pub(crate) mod tests {
                 action: None,
                 delegation_depth: 0,
                 follows_credential: false,
+                authorization: None,
             })
             .unwrap();
         let request_id = format!("request_{}", "2".repeat(32));

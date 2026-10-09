@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
+	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +30,11 @@ another and to the coordinator, and sync with each other at start, every 5
 minutes, and when another of the owner's hosts appears; access sync runs a sync
 now, and --status shows the deliveries. Blocks are host-local and override
 grants and policies.
-Without --grant, message send, task submit, and adapter routes cite the receiver
+A policy rule for agent * covers every agent of the owner that no rule names.
+Hosts bound to the same person reach each other's agents without a grant or
+policy (self access), even out of sync with coordination; blocks do not apply.
+Without --grant, message send, task submit, and adapter routes cite self access
+when the receiver is bound to this host's person, and otherwise the receiver
 owner's policy. Grants, policy rules, and routes carry an action: message.append
 (the default) or task.submit. Task submissions are retried and their events
 polled automatically; task inspect and task events read the local record.
@@ -124,7 +129,13 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("task artifact", "artifact ID SHA256", "Download a task artifact", 2)
 	add("artifact list", "list", "List stored artifacts", 0)
 	add("artifact prune", "prune", "Release artifacts of finished tasks", 0)
-	add("network create", "create", "Create a coordinated network", 0)
+	add("network create", "create [NAME]", "Create a coordinated network", 0).Args = cobra.RangeArgs(0, 1)
+	add("join", "join TOKEN", "Join a network with an invite", 1)
+	add("invite", "invite LABEL", "Invite a person to a network", 1)
+	add("allow", "allow PRINCIPAL", "Set a principal's access to your agents", 1)
+	add("deny", "deny PRINCIPAL", "Remove a principal's access to your agents", 1)
+	add("block", "block TARGET", "Block a person or host locally", 1)
+	add("unblock", "unblock TARGET", "Remove a local block", 1)
 	add("network join", "join", "Join a coordinated network", 0)
 	add("network invite", "invite", "Issue a member or host invite", 0)
 	add("network list", "list", "List joined networks", 0)
@@ -174,8 +185,10 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 // are hidden and listed by help advanced.
 var rootCommands = []string{
 	"status", "install", "run",
-	"network create", "network join", "network invite", "network list", "network members",
-	"access allow", "access deny", "access show",
+	"network create", "join", "invite",
+	"allow", "deny", "block", "unblock",
+	"network list", "network members",
+	"access show",
 	"session setup", "session start", "session doctor",
 	"message send", "task submit",
 }
@@ -285,11 +298,35 @@ func configureFlags(cmd *cobra.Command, args []string) {
 				fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 			}
 		}
-	} else if args[0] == "person" {
+	} else if args[0] == "person" || args[0] == "join" || args[0] == "invite" || args[0] == "allow" || args[0] == "deny" {
 		fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 	}
 
 	switch strings.Join(args, " ") {
+	case "join":
+		fs.Bool("no-person", false, "join as a host-only membership, without admitting or binding a person")
+		// network join's flags, filled in from TOKEN.
+		fs.String("token", "", "")
+		fs.String("descriptor", "", "")
+		_ = fs.MarkHidden("token")
+		_ = fs.MarkHidden("descriptor")
+	case "invite":
+		fs.String("network", "", "network ID; defaults to the only network")
+		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead; default 7 days")
+		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
+		fs.String("member", "", "")
+		fs.Bool("host-only", false, "")
+		_ = fs.MarkHidden("member")
+		_ = fs.MarkHidden("host-only")
+	case "allow", "deny":
+		fs.String("network", "", "network ID; defaults to the only network")
+		fs.String("agent", membership.PolicyAgentAll, "agent name the access covers; * means every agent of yours")
+		if command == "allow" {
+			fs.Bool("no-tasks", false, "allow messages only, not task.submit")
+			fs.String("files", "", "task artifact bound, a byte count with an optional K, M, or G suffix; default none")
+			fs.Bool("delegate", false, "also allow task.delegate, so your agent may pass tasks on")
+		}
+	case "block", "unblock":
 	case "status":
 		fs.Bool("json", false, "print the daemon's status object")
 	case "install":
@@ -401,10 +438,11 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "network redeem-person":
 		fs.String("token", "", "person invite token")
 	case "network create", "network join":
-		fs.Bool("no-person", false, "do not admit or bind a person")
+		fs.Bool("no-person", false, "host-only membership: do not admit or bind a person")
 		if command == "create" {
-			fs.String("name", "", "network name")
-			fs.String("member", "", "this host's member label")
+			fs.String("name", "", "network name; or give NAME")
+			fs.String("as", "", "your person and member label; defaults to the login name")
+			fs.String("member", "", "alias of --as")
 			fs.String("coordinator", "", "coordinator HOST:PORT; with --coordinator-key, overrides the build's default coordinator")
 			fs.String("coordinator-key", "", "pinned coordinator public key; given together with --coordinator")
 		} else {
@@ -416,6 +454,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("advertise", "", "peer address advertised to coordination; defaults to a specific bind address")
 		fs.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
 		fs.String("person-agent", os.Getenv("SSH_AUTH_SOCK"), "ssh-agent socket for renewing access policies; defaults to SSH_AUTH_SOCK")
+		fs.String("person-key-file", "", "CLI-generated person key file for renewing access policies when the ssh-agent lacks the key; defaults to $XDG_CONFIG_HOME/capsule/person_ed25519, used while it exists")
 		fs.Int64("artifact-quota", host.DefaultArtifactQuota, "bytes of task artifacts this host stores, including pending fetches")
 	case "session setup", "session start", "session doctor":
 		fs.String("directory", "", "private session setup directory")

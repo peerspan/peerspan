@@ -14,10 +14,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/host"
+	"github.com/Cerebral-Systems/capsule/go/internal/person"
 	"github.com/spf13/pflag"
 )
 
@@ -63,6 +65,20 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == "session" && (args[1] == "setup" || args[1] == "start" || args[1] == "doctor") {
 		return runSessionSetup(ctx, args[1:], fs, state, out)
 	}
+	// The top-level invite and join are network invite and network join.
+	topInvite := args[0] == "invite"
+	switch args[0] {
+	case "invite":
+		if err := fs.Set("member", args[1]); err != nil {
+			return err
+		}
+		args = []string{"network", "invite"}
+	case "join":
+		if err := fs.Set("token", args[1]); err != nil {
+			return err
+		}
+		args = []string{"network", "join"}
+	}
 	if err := resolveExpiry(args, fs); err != nil {
 		return err
 	}
@@ -93,7 +109,10 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		return err
 	}
 	if len(args) >= 2 && args[0] == "network" && (args[1] == "create" || args[1] == "join") {
-		return networkCreateOrJoin(ctx, client, args[1], fs, explicitState, out, errOut)
+		return networkCreateOrJoin(ctx, client, args[1], args[2:], fs, explicitState, out, errOut)
+	}
+	if args[0] == "allow" || args[0] == "deny" {
+		return allowOrDeny(ctx, client, args[0], args[1], fs, out)
 	}
 	var method, path string
 	var body any
@@ -129,6 +148,12 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if err != nil {
 		return err
 	}
+	if topInvite {
+		result, err = inviteOutput(result)
+		if err != nil {
+			return err
+		}
+	}
 	var value any
 	if err := json.Unmarshal(result, &value); err != nil {
 		return err
@@ -143,6 +168,17 @@ func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error)
 		return "", "", nil, invalidCommand()
 	}
 	switch args[0] {
+	case "block", "unblock":
+		// TARGET is a host ID, or else a person ID or label.
+		target := args[1]
+		req := host.BlockAccess{Person: strings.TrimPrefix(target, "person:")}
+		if strings.HasPrefix(target, "host_") {
+			req = host.BlockAccess{Host: target}
+		}
+		if args[0] == "unblock" {
+			return "POST", "/v1/access-blocks/remove", req, nil
+		}
+		return "POST", "/v1/access-blocks", req, nil
 	case "info":
 		if len(args) != 1 {
 			return invalid()
@@ -629,6 +665,7 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 	advertise, _ := fs.GetString("advertise")
 	interval, _ := fs.GetInt("coordination-interval")
 	personAgent, _ := fs.GetString("person-agent")
+	personKeyFile, _ := fs.GetString("person-key-file")
 	artifactQuota, _ := fs.GetInt64("artifact-quota")
 	if advertise != "" && peerListen == "" {
 		return errors.New("--advertise requires --peer-listen")
@@ -672,6 +709,10 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		return err
 	}
 	store.ConfigurePersonAgent(personAgent)
+	if !fs.Changed("person-key-file") {
+		personKeyFile, _ = person.GeneratedKeyPath()
+	}
+	store.ConfigurePersonKeyFile(personKeyFile)
 	if err = store.ConfigureArtifacts(artifactQuota); err != nil {
 		return err
 	}

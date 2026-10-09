@@ -51,6 +51,95 @@ pub enum Command {
         /// Bytes of storage for task artifacts: stored files plus pending fetches
         #[arg(long, value_name = "BYTES", default_value_t = capsule_host::artifact::DEFAULT_QUOTA, value_parser = clap::value_parser!(i64).range(1..))]
         artifact_quota: i64,
+        /// CLI-generated person key file for renewing access policies when
+        /// the ssh-agent lacks the key; defaults to
+        /// $XDG_CONFIG_HOME/capsule/person_ed25519, used while it exists
+        #[arg(long, value_name = "PATH")]
+        person_key_file: Option<PathBuf>,
+    },
+    /// Join a network with an invite
+    Join {
+        #[arg(value_name = "TOKEN")]
+        token: String,
+        /// Person key: an OpenSSH public key (select an ssh-agent identity) or
+        /// unencrypted private key file
+        #[arg(long, value_name = "PATH", conflicts_with = "no_person")]
+        person_key: Option<PathBuf>,
+        /// Host-only membership: do not admit or bind a person
+        #[arg(long)]
+        no_person: bool,
+    },
+    /// Invite a person to a network
+    Invite {
+        #[arg(value_name = "LABEL")]
+        label: String,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// UTC invite expiration, at most 30 days ahead; default 7 days
+        #[arg(long, value_name = "TIME")]
+        expires_at: Option<String>,
+        /// Relative lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Set a principal's access to your agents
+    Allow {
+        /// everyone, network, group:NAME, person:PERSON or PERSON, or
+        /// agent:HOST/AGENT
+        #[arg(value_name = "PRINCIPAL")]
+        principal: String,
+        /// Agent name the access covers; * means every agent of yours
+        #[arg(long, value_name = "NAME", default_value = "*")]
+        agent: String,
+        /// Allow messages only, not task.submit
+        #[arg(long)]
+        no_tasks: bool,
+        /// Task artifact bound: a byte count with an optional K, M, or G suffix
+        #[arg(long, value_name = "SIZE")]
+        files: Option<String>,
+        /// Also allow task.delegate, so your agent may pass tasks on
+        #[arg(long)]
+        delegate: bool,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Remove a principal's access to your agents
+    Deny {
+        #[arg(value_name = "PRINCIPAL")]
+        principal: String,
+        /// Only from this agent's rules (* names the * rules); default every rule
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Block a person or host locally
+    Block {
+        /// A host ID, or a person ID or label
+        #[arg(value_name = "TARGET")]
+        target: String,
+        /// Accepted like the other person commands; blocks are host-local and
+        /// sign nothing
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Remove a local block
+    Unblock {
+        /// A host ID, or a person ID or label
+        #[arg(value_name = "TARGET")]
+        target: String,
+        /// Accepted like the other person commands; blocks are host-local and
+        /// sign nothing
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// Install the daemon as a user service and start it
     Install {
@@ -228,11 +317,14 @@ pub enum PersonCommand {
 pub enum NetworkCommand {
     /// Create a network whose root key stays on this host
     Create {
+        /// Network name; or give --name
+        #[arg(value_name = "NAME")]
+        name_arg: Option<String>,
         #[arg(long)]
-        name: String,
-        /// Member label for this host's own membership
-        #[arg(long)]
-        member: String,
+        name: Option<String>,
+        /// Your person and member label; defaults to the login name
+        #[arg(long = "as", alias = "member", value_name = "LABEL")]
+        member: Option<String>,
         /// Coordinator HOST:PORT; defaults to the build's coordinator
         #[arg(long, value_name = "HOST:PORT")]
         coordinator: Option<String>,
@@ -798,17 +890,19 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 16] = [
+pub const MAIN_COMMANDS: [&str; 18] = [
     "status",
     "install",
     "run",
     "network create",
-    "network join",
-    "network invite",
+    "join",
+    "invite",
+    "allow",
+    "deny",
+    "block",
+    "unblock",
     "network list",
     "network members",
-    "access allow",
-    "access deny",
     "access show",
     "session setup",
     "session start",
@@ -915,6 +1009,9 @@ impl Command {
                 | NetworkCommand::DelegateAdmin { network, .. }
                 | NetworkCommand::Group(GroupCommand::Set { network, .. }),
             )
+            | Self::Invite { network, .. }
+            | Self::Allow { network, .. }
+            | Self::Deny { network, .. }
             | Self::Access(
                 AccessCommand::Allow { network, .. }
                 | AccessCommand::Deny { network, .. }
@@ -942,7 +1039,12 @@ impl Command {
                 expires_in,
                 ..
             }) => (expires_at, expires_in, Some(TimeDelta::days(30))),
-            Self::Network(
+            Self::Invite {
+                expires_at,
+                expires_in,
+                ..
+            }
+            | Self::Network(
                 NetworkCommand::Invite {
                     expires_at,
                     expires_in,
@@ -1000,6 +1102,10 @@ impl Command {
                 | SessionCommand::Doctor { .. },
             )
             | Self::Person(_)
+            | Self::Join { .. }
+            | Self::Invite { .. }
+            | Self::Allow { .. }
+            | Self::Deny { .. }
             | Self::Task(TaskCommand::Artifact { .. })
             | Self::Access(
                 AccessCommand::Allow { .. }
@@ -1461,6 +1567,16 @@ impl Command {
                 "/v1/access-blocks/remove".into(),
                 Some(block_body(person, host)),
             ),
+            Self::Block { target, .. } => (
+                Method::POST,
+                "/v1/access-blocks".into(),
+                Some(target_body(&target)),
+            ),
+            Self::Unblock { target, .. } => (
+                Method::POST,
+                "/v1/access-blocks/remove".into(),
+                Some(target_body(&target)),
+            ),
             Self::Access(AccessCommand::Blocks) => (Method::GET, "/v1/access-blocks".into(), None),
             Self::Activity { after, limit } => (
                 Method::GET,
@@ -1494,6 +1610,14 @@ fn with_grant(mut body: Value, grant: Option<String>) -> Value {
         body["grant_id"] = json!(grant);
     }
     body
+}
+/// `block`/`unblock TARGET`: a host ID, or else a person ID or label.
+fn target_body(target: &str) -> Value {
+    if target.starts_with("host_") {
+        json!({ "host": target })
+    } else {
+        json!({ "person": target.strip_prefix("person:").unwrap_or(target) })
+    }
 }
 fn block_body(person: Option<String>, host: Option<String>) -> Value {
     match (person, host) {

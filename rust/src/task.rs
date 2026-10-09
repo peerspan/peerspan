@@ -91,6 +91,14 @@ pub struct TaskRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub policy: Option<PolicyRef>,
+    /// Self access: the sender's bound person (launch slice 3).
+    #[serde(
+        rename = "self",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub self_access: Option<crate::policy::SelfRef>,
     pub target_agent_id: String,
     pub deadline: String,
     pub input: String,
@@ -122,6 +130,7 @@ impl TaskRequest {
             action: TASK_ACTION,
             grant_id: self.grant_id.as_deref(),
             policy: self.policy.as_ref(),
+            self_access: self.self_access.as_ref(),
             target_agent_id: &self.target_agent_id,
             deadline: &self.deadline,
             size: self.input.len(),
@@ -224,11 +233,11 @@ pub enum Change {
 }
 
 pub(crate) fn validate_task(r: &TaskRequest) -> Result<(), Error> {
-    let authorization = match (&r.policy, &r.grant_id) {
-        (None, Some(grant)) => valid_id(grant, "grant", 16),
-        (Some(p), None) => p.version >= 1 && crate::policy::person_id_shape(&p.person_id),
-        _ => false,
-    };
+    let authorization = crate::peer_store::one_authorization(
+        r.grant_id.as_deref(),
+        r.policy.as_ref(),
+        r.self_access.as_ref(),
+    );
     if !valid_id(&r.task_id, "task", 16)
         || !authorization
         || r.origin.as_ref().is_some_and(|o| !o.valid())
@@ -1167,6 +1176,7 @@ pub(crate) mod tests {
             task_id: format!("task_{}", n.to_string().repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,
+            self_access: None,
             target_agent_id: agent.into(),
             deadline: rfc3339(Utc::now() + chrono::Duration::minutes(30)),
             input: "summarize the report".into(),

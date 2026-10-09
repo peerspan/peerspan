@@ -75,6 +75,13 @@ class Host:
         self.daemon_args = daemon_args
         self.process = None
         self.logs = tempfile.TemporaryFile()
+        # Each host's own user configuration, so a person key the CLI generates
+        # (launch contract, slice 3) never lands in the real one or is shared.
+        self.config_home = tempfile.mkdtemp(prefix="capsule-config-")
+
+    def isolated(self, env):
+        env["XDG_CONFIG_HOME"] = self.config_home
+        return env
 
     def start(self, command="run"):
         self.process = subprocess.Popen(
@@ -96,8 +103,8 @@ class Host:
         raise AssertionError("host did not become ready")
 
     def daemon_env(self):
-        """The daemon's environment; None inherits the suite's."""
-        return None
+        """The daemon's environment: the suite's, with this host's configuration."""
+        return self.isolated(dict(os.environ))
 
     def stop(self, crash=False):
         if self.process is not None and self.process.poll() is None:
@@ -131,7 +138,7 @@ class Host:
     keep_agent = False
 
     def cli(self, *args, success=True):
-        env = dict(os.environ)
+        env = self.isolated(dict(os.environ))
         if not self.keep_agent:
             env.pop("SSH_AUTH_SOCK", None)
         result = subprocess.run(

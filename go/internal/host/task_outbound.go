@@ -93,6 +93,7 @@ type recordedTaskRequest struct {
 	TaskID        string            `json:"task_id"`
 	GrantID       *string           `json:"grant_id"`
 	Policy        *PolicyCitation   `json:"policy,omitempty"`
+	Self          *SelfCitation     `json:"self,omitempty"`
 	TargetAgentID string            `json:"target_agent_id"`
 	Deadline      string            `json:"deadline"`
 	Input         string            `json:"input"`
@@ -272,7 +273,7 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 		request.Deadline = old.Request.Deadline
 	}
 	if exists && request.GrantID == nil {
-		request.Policy = old.Request.Policy
+		request.Policy, request.Self = old.Request.Policy, old.Request.Self
 	}
 	if !exists {
 		if _, err := s.KnownHost(ctx, r.PeerHostID, nil); err != nil {
@@ -298,14 +299,18 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 		}
 	}
 	deadline := time.Now().Add(taskDefaultDeadline)
-	if request.GrantID == nil && request.Policy == nil {
-		citation, until, err := s.policyCitationUntil(ctx, tx, r.PeerHostID)
+	if request.GrantID == nil && request.Policy == nil && request.Self == nil {
+		originator := s.identity.ID
+		if forward && len(parent.Delegation) > 0 {
+			originator = parent.Delegation[0].IssuerHostID
+		}
+		c, err := s.chainCitation(ctx, tx, r.PeerHostID, originator)
 		if err != nil {
 			return OutboundTask{}, err
 		}
-		request.Policy = citation
-		if until.Before(deadline) {
-			deadline = until
+		request.Policy, request.Self = c.policy, c.self
+		if c.policy != nil && c.until.Before(deadline) {
+			deadline = c.until
 		}
 	}
 	if request.Deadline == "" {
@@ -927,21 +932,24 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 	if exp.Before(deadline) {
 		deadline = exp
 	}
-	var citation *PolicyCitation
+	var c ownerCitation
 	if route.GrantID == nil {
-		var until time.Time
-		if citation, until, err = s.policyCitationUntil(ctx, tx, route.PeerHostID); err != nil {
+		originator := s.identity.ID
+		if parent != nil && len(parentRequest.Delegation) > 0 {
+			originator = parentRequest.Delegation[0].IssuerHostID
+		}
+		if c, err = s.chainCitation(ctx, tx, route.PeerHostID, originator); err != nil {
 			return old, err
 		}
-		if until.Before(deadline) {
-			deadline = until
+		if c.policy != nil && c.until.Before(deadline) {
+			deadline = c.until
 		}
 	}
 	if err = requireStored(ctx, tx, r.Artifacts); err != nil {
 		return old, err
 	}
 	adapterID, routeID := a.ID, route.ID
-	request := TaskRequest{TaskID: r.TaskID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Input: r.Input, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}, Artifacts: r.Artifacts}
+	request := TaskRequest{TaskID: r.TaskID, GrantID: route.GrantID, Policy: c.policy, Self: c.self, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Input: r.Input, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}, Artifacts: r.Artifacts}
 	switch {
 	case parent != nil:
 		if err = forwardDeadline(&request, parentRequest, false); err != nil {

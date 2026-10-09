@@ -96,6 +96,45 @@ pub struct PolicyRef {
     pub version: u64,
 }
 
+/// Self access (launch slice 3): the sender's bound person, which the
+/// receiver must also be bound to in a shared network.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SelfRef {
+    pub person_id: String,
+}
+/// What a request without a grant cites.
+pub(crate) enum Citation {
+    SelfAccess(SelfRef),
+    Policy(Box<Policy>),
+}
+impl Citation {
+    /// The request fields `policy` and `self`.
+    pub(crate) fn fields(&self) -> (Option<PolicyRef>, Option<SelfRef>) {
+        match self {
+            Self::SelfAccess(s) => (None, Some(s.clone())),
+            Self::Policy(p) => (Some(p.reference()), None),
+        }
+    }
+    /// The cited policy's end, which caps a default deadline.
+    pub(crate) fn valid_until(&self) -> Option<&str> {
+        match self {
+            Self::SelfAccess(_) => None,
+            Self::Policy(p) => Some(&p.valid_until),
+        }
+    }
+}
+/// The rule agent meaning every agent of the owner. A receiver applies the
+/// rules naming an agent if there are any, and otherwise the `*` rules.
+pub const ALL_AGENTS: &str = "*";
+/// Self access bounds: every action, up to 1 GiB of artifacts.
+pub(crate) const SELF_BOUNDS: Bounds = Bounds {
+    max_message_bytes: 65536,
+    max_artifact_bytes: crate::artifact::MAX_BOUND,
+    allow_disconnected: true,
+    delegate: true,
+};
+
 /// Rejects an explicit `null`; an absent field defaults to `None`.
 pub(crate) fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
@@ -454,6 +493,14 @@ impl Store {
         };
         let mut behind = false;
         let mut allowed: Option<Bounds> = None;
+        // A named agent's rules override the `*` rules.
+        let applies = |policy: &Policy, rule: &Rule| {
+            if policy.rules.iter().any(|r| r.agent == agent) {
+                rule.agent == agent
+            } else {
+                rule.agent == ALL_AGENTS
+            }
+        };
         for (network, own) in self.own_members(connection)? {
             if own.person_id.as_deref() != Some(cited.person_id.as_str()) {
                 continue;
@@ -483,7 +530,7 @@ impl Store {
             let groups = self.stored_groups(connection, &network)?;
             let matches = |p: &str| principal_matches(p, &sender_member, &groups, r.origin);
             for rule in &policy.rules {
-                if rule.agent != agent
+                if !applies(&policy, rule)
                     || !rule.actions.iter().any(|a| allows(a, r.action))
                     || r.size as i64 > rule.max_message_bytes
                     || !crate::peer_store::artifacts_fit(r.artifacts, rule.max_artifact_bytes)
@@ -511,14 +558,116 @@ impl Store {
             None => Err(Error::Forbidden),
         }
     }
-    /// The policy a send to `peer` cites: the target host's bound person's
-    /// newest verified policy.
-    pub(crate) fn policy_citation(
+    /// Whether `host` is another current member bound to `person` in a
+    /// network where this host is also bound to `person`.
+    pub(crate) fn self_bound(
+        &self,
+        connection: &Connection,
+        host: &str,
+        person: &str,
+    ) -> Result<bool, Error> {
+        if host == self.identity().id {
+            return Ok(false);
+        }
+        for (network, own) in self.own_members(connection)? {
+            if own.person_id.as_deref() != Some(person) {
+                continue;
+            }
+            if crate::chain::member(connection, &network, host)?
+                .is_some_and(|m| m.person_id.as_deref() == Some(person))
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    /// The self access a request to `peer` cites: this host's person, when
+    /// `peer` is bound to it in a shared network (the lowest network ID).
+    pub(crate) fn self_citation(
         &self,
         connection: &Connection,
         peer: &str,
-    ) -> Result<PolicyRef, Error> {
-        Ok(self.cited_policy(connection, peer)?.reference())
+    ) -> Result<Option<SelfRef>, Error> {
+        if peer == self.identity().id {
+            return Ok(None);
+        }
+        for (network, own) in self.own_members(connection)? {
+            let Some(person) = own.person_id else {
+                continue;
+            };
+            if crate::chain::member(connection, &network, peer)?
+                .is_some_and(|m| m.person_id.as_deref() == Some(person.as_str()))
+            {
+                return Ok(Some(SelfRef { person_id: person }));
+            }
+        }
+        Ok(None)
+    }
+    /// Authorizes a request under self access: this host and `subject` are
+    /// both bound to the cited person in a shared network. It needs no grant
+    /// or policy, and the block list does not apply.
+    pub(crate) fn self_bounds(
+        &self,
+        connection: &Connection,
+        subject: &str,
+        r: &Authz<'_>,
+        cited: &SelfRef,
+        require_deadline: bool,
+    ) -> Result<Bounds, Error> {
+        let deadline = time(r.deadline)?;
+        if require_deadline && deadline <= Utc::now() {
+            return Err(Error::Forbidden);
+        }
+        let agent: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?1)",
+            [r.target_agent_id],
+            |row| row.get(0),
+        )?;
+        if !agent
+            || !self.self_bound(connection, subject, &cited.person_id)?
+            || r.size as i64 > SELF_BOUNDS.max_message_bytes
+            || !crate::peer_store::artifacts_fit(r.artifacts, SELF_BOUNDS.max_artifact_bytes)
+        {
+            return Err(Error::Forbidden);
+        }
+        Ok(SELF_BOUNDS)
+    }
+    /// What a request to `peer` without a grant cites: self access when
+    /// `peer` is bound to this host's person in a shared network, and
+    /// otherwise the target owner's newest verified policy.
+    pub(crate) fn citation(&self, connection: &Connection, peer: &str) -> Result<Citation, Error> {
+        if let Some(cited) = self.self_citation(connection, peer)? {
+            return Ok(Citation::SelfAccess(cited));
+        }
+        Ok(Citation::Policy(Box::new(
+            self.cited_policy(connection, peer)?,
+        )))
+    }
+    /// What a forward to `peer` without a grant cites: past one link the
+    /// authorization is the originator's, so self access when `peer` is bound
+    /// to the originator host's person in the chain's network, and otherwise
+    /// the target owner's policy.
+    pub(crate) fn chain_citation(
+        &self,
+        connection: &Connection,
+        chain: &[crate::chain::Link],
+        peer: &str,
+    ) -> Result<Citation, Error> {
+        if let Some(first) = chain.first() {
+            let network = &first.network_id;
+            let person = crate::chain::member(connection, network, &first.issuer_host_id)?
+                .and_then(|m| m.person_id);
+            if let Some(person) = person
+                && crate::chain::member(connection, network, &self.identity().id)?.is_some()
+                && crate::chain::member(connection, network, peer)?
+                    .is_some_and(|m| m.person_id.as_deref() == Some(person.as_str()))
+            {
+                return Ok(Citation::SelfAccess(SelfRef { person_id: person }));
+            }
+        }
+        Ok(Citation::Policy(Box::new(
+            self.cited_policy(connection, peer)?,
+        )))
     }
     /// The policy a request to `peer` cites, whose `valid_until` also caps a
     /// default deadline.
@@ -555,6 +704,40 @@ impl Store {
         if let Ok(mut agent) = self.person_agent.write() {
             *agent = socket;
         }
+    }
+    /// The generated person key file the daemon may renew with.
+    pub fn set_person_key_file(&self, path: Option<std::path::PathBuf>) {
+        if let Ok(mut file) = self.person_key_file.write() {
+            *file = path;
+        }
+    }
+    /// A signer for `key`'s renewals: the agent at the daemon's socket when it
+    /// holds the key, otherwise the generated key file when it holds that key.
+    /// Without either, the reason.
+    pub(crate) fn renewal_signer(&self, key: [u8; 32]) -> Result<PersonSigner, String> {
+        let socket = self.person_agent.read().ok().and_then(|s| s.clone());
+        let mut reason =
+            "the daemon has no ssh-agent (--person-agent) to renew your access policy".to_owned();
+        if let Some(socket) = socket {
+            match PersonSigner::agent_at(socket.clone(), key) {
+                Ok(signer) => return Ok(signer),
+                Err(e) => {
+                    reason = format!(
+                        "the daemon cannot renew your access policy through its ssh-agent {}: {e}",
+                        socket.display()
+                    )
+                }
+            }
+        }
+        let file = self.person_key_file.read().ok().and_then(|f| f.clone());
+        if let Some(path) = file
+            && let Ok(text) = std::fs::read_to_string(&path)
+            && let Ok(signing) = crate::persons::parse_openssh_private_key(&text)
+            && signing.verifying_key().to_bytes() == key
+        {
+            return Ok(PersonSigner::File(signing));
+        }
+        Err(reason)
     }
     /// The newest verified policy of a person (this host's own person by
     /// default) in a network.
@@ -742,13 +925,6 @@ impl Store {
 /// access lapses at `valid_until`. Several of an owner's hosts may renew at
 /// once; they converge on one version by the tie-break of the acceptance rule.
 pub(crate) async fn renew(store: Arc<Store>) {
-    let socket = match store.person_agent.read() {
-        Ok(guard) => guard.clone(),
-        Err(_) => None,
-    };
-    let Some(socket) = socket else {
-        return;
-    };
     let due = blocking(store.clone(), |s| s.renewable_policies())
         .await
         .unwrap_or_default();
@@ -759,9 +935,12 @@ pub(crate) async fn renew(store: Arc<Store>) {
         let Ok(key) = <[u8; 32]>::try_from(key) else {
             continue;
         };
-        let signer = match PersonSigner::agent_at(socket.clone(), key) {
-            Ok(signer) => signer,
-            Err(_) => continue,
+        let signer = {
+            let store = store.clone();
+            match tokio::task::spawn_blocking(move || store.renewal_signer(key)).await {
+                Ok(Ok(signer)) => signer,
+                _ => continue,
+            }
         };
         let renewed = match policy.renewal(&signer, Utc::now()) {
             Ok(p) => p,

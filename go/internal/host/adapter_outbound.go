@@ -40,9 +40,13 @@ type OutboundRoute struct {
 	// FollowsCredential routes were created without an expiry; they take
 	// their renewable credential's expires_at whenever it is renewed.
 	FollowsCredential bool `json:"follows_credential"`
+	// Authorization is what the route's requests cite, as decided when it
+	// was created: grant, policy, or self.
+	Authorization string `json:"authorization"`
 }
 
-// UnmarshalJSON reads a route from before task routes as a message route.
+// UnmarshalJSON reads a route from before task routes as a message route,
+// and one from before self access as citing its grant or a policy.
 func (r *OutboundRoute) UnmarshalJSON(data []byte) error {
 	type plain OutboundRoute
 	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
@@ -50,6 +54,12 @@ func (r *OutboundRoute) UnmarshalJSON(data []byte) error {
 	}
 	if r.Action == "" {
 		r.Action = membership.PolicyActionMessage
+	}
+	if r.Authorization == "" {
+		r.Authorization = AuthorizationPolicy
+		if r.GrantID != nil {
+			r.Authorization = AuthorizationGrant
+		}
 	}
 	return nil
 }
@@ -74,6 +84,9 @@ type CreateOutboundRoute struct {
 	// FollowsCredential true is the same as omitting ExpiresAt, so a route
 	// record can be posted back as a request.
 	FollowsCredential bool `json:"follows_credential,omitempty"`
+	// Authorization is accepted, so a route record can be posted back as a
+	// request, and ignored: the daemon decides it.
+	Authorization string `json:"authorization,omitempty"`
 }
 type Destination struct {
 	Name              string `json:"name"`
@@ -166,6 +179,11 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if follows {
 		exp, err = time.Now().Add(time.Hour), nil // checked against the credential below
 	}
+	switch r.Authorization {
+	case "", AuthorizationGrant, AuthorizationPolicy, AuthorizationSelf:
+	default:
+		return OutboundRoute{}, ErrInvalid
+	}
 	if err != nil || !membership.ValidRouteAction(r.Action) || r.DelegationDepth < 0 || r.DelegationDepth > membership.DelegationMaxDepth || (r.DelegationDepth != 0 && r.Action != membership.PolicyActionTask) || !exp.After(time.Now()) || !validRouteName(r.Name) || !validID(r.TargetAgentID, "agent", 16) || (r.GrantID != nil && !validID(*r.GrantID, "grant", 16)) || r.MaxMessageBytes < 1 || r.MaxMessageBytes > 65536 || r.MaxMessages < 1 || r.MaxMessages > 10000 {
 		return OutboundRoute{}, ErrInvalid
 	}
@@ -211,7 +229,16 @@ func (s *Store) createOutboundRoute(ctx context.Context, tx *sql.Tx, r CreateOut
 	if err != nil {
 		return OutboundRoute{}, err
 	}
-	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, DelegationDepth: r.DelegationDepth, FollowsCredential: follows}
+	authorization := AuthorizationGrant
+	if r.GrantID == nil {
+		authorization = AuthorizationPolicy
+		if _, self, err := s.selfPerson(ctx, tx, r.PeerHostID); err != nil {
+			return OutboundRoute{}, err
+		} else if self {
+			authorization = AuthorizationSelf
+		}
+	}
+	route := OutboundRoute{ID: id, AdapterID: r.AdapterID, Name: r.Name, PeerHostID: r.PeerHostID, TargetAgentID: r.TargetAgentID, Action: r.Action, GrantID: r.GrantID, ExpiresAt: r.ExpiresAt, MaxMessageBytes: r.MaxMessageBytes, MaxMessages: r.MaxMessages, DelegationDepth: r.DelegationDepth, FollowsCredential: follows, Authorization: authorization}
 	data, err := json.Marshal(route)
 	if err != nil {
 		return route, err
@@ -377,14 +404,15 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	if exp.Before(deadline) {
 		deadline = exp
 	}
-	// A route without a grant cites the target host's owner's policy.
-	var citation *PolicyCitation
+	// A route without a grant cites self access or the target host's owner's
+	// policy, whichever applies now.
+	var c ownerCitation
 	if route.GrantID == nil {
-		if citation, err = s.policyCitation(ctx, tx, route.PeerHostID); err != nil {
+		if c, err = s.ownerCitation(ctx, tx, route.PeerHostID); err != nil {
 			return old, err
 		}
 	}
-	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, Policy: citation, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}}, State: "unknown", NextAttemptAt: s.initialAttempt()}
+	out := OutboundMessage{PeerHostID: route.PeerHostID, Request: MessageRequest{RequestID: r.RequestID, GrantID: route.GrantID, Policy: c.policy, Self: c.self, TargetAgentID: route.TargetAgentID, Deadline: timestamp(deadline), Content: r.Content, Origin: &Origin{AgentID: ss.AgentID, SessionID: ss.ID}}, State: "unknown", NextAttemptAt: s.initialAttempt()}
 	if err = insertOutbound(ctx, tx, out); err != nil {
 		return out, err
 	}

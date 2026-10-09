@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
-	"github.com/Cerebral-Systems/capsule/go/internal/person"
 )
 
 // Version names this build; release builds set it with -ldflags -X.
@@ -359,32 +358,28 @@ func failedTasks(ctx context.Context, tx *sql.Tx, now time.Time) (int, error) {
 }
 
 // personAgentAttention reports networks whose policy the daemon cannot
-// renew: its --person-agent is unset, unreachable, or lacks the person's key.
+// renew: its --person-agent is unset, unreachable, or lacks the person's key,
+// and its --person-key-file does not hold that key.
 func (s *Store) personAgentAttention(owners map[string]string, attend func(kind, subject, detail, command string)) {
 	if len(owners) == 0 {
 		return
 	}
-	s.agent.Lock()
-	socket := s.agent.socket
-	s.agent.Unlock()
 	networks := make([]string, 0, len(owners))
 	for network := range owners {
 		networks = append(networks, network)
 	}
 	sort.Strings(networks)
 	for _, network := range networks {
-		detail := "the daemon has no ssh-agent (--person-agent) to renew your access policy"
-		if socket != "" {
-			public, err := membership.DecodeKey(owners[network])
-			if err == nil {
-				var signer person.Signer
-				if signer, err = person.LoadKeyAt(socket, ed25519.PublicKey(public)); err == nil {
-					signer.Close()
-					continue
-				}
-			}
-			detail = "the daemon cannot renew your access policy through its ssh-agent " + socket + ": " + err.Error()
+		public, err := membership.DecodeKey(owners[network])
+		if err != nil {
+			continue
 		}
+		signer, err := s.renewalSigner(ed25519.PublicKey(public))
+		if err == nil {
+			signer.Close()
+			continue
+		}
+		detail := err.Error()
 		attend("person_agent_unreachable", network, detail, "capsule install")
 	}
 }

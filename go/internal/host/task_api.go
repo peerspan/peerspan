@@ -28,7 +28,7 @@ func taskPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 			return
 		}
 		var request TaskRequest
-		if !decode(w, r, &request, "task_id", "grant_id", "policy", "target_agent_id", "deadline", "input", "origin", "artifacts", "delegation") {
+		if !decode(w, r, &request, "task_id", "grant_id", "policy", "self", "target_agent_id", "deadline", "input", "origin", "artifacts", "delegation") {
 			return
 		}
 		st, err := store.AcceptTask(r.Context(), id, request)

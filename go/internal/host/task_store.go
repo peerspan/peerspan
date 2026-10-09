@@ -68,6 +68,7 @@ type TaskRequest struct {
 	TaskID        string          `json:"task_id"`
 	GrantID       *string         `json:"grant_id,omitempty"`
 	Policy        *PolicyCitation `json:"policy,omitempty"`
+	Self          *SelfCitation   `json:"self,omitempty"`
 	TargetAgentID string          `json:"target_agent_id"`
 	Deadline      string          `json:"deadline"`
 	Input         string          `json:"input"`
@@ -82,7 +83,7 @@ type TaskRequest struct {
 // asMessage is the request as authorization sees it: its input bounded like
 // message content, and its input artifacts by max_artifact_bytes.
 func (r TaskRequest) asMessage() MessageRequest {
-	m := MessageRequest{GrantID: r.GrantID, Policy: r.Policy, TargetAgentID: r.TargetAgentID, Deadline: r.Deadline, Content: r.Input, Origin: r.Origin}
+	m := MessageRequest{GrantID: r.GrantID, Policy: r.Policy, Self: r.Self, TargetAgentID: r.TargetAgentID, Deadline: r.Deadline, Content: r.Input, Origin: r.Origin}
 	manifestAuthority(&m, r.Artifacts)
 	return m
 }

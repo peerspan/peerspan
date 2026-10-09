@@ -238,17 +238,55 @@ impl PersonSigner {
                     Ok(Self::Agent { socket, key })
                 }
             }
-            None => {
-                let socket = socket()?;
-                let keys = agent_identities(&socket)?;
-                match keys.as_slice() {
-                    [key] => Ok(Self::Agent { socket, key: *key }),
-                    [] => Err(invalid("the ssh-agent holds no ssh-ed25519 identity")),
-                    _ => Err(invalid(
-                        "the ssh-agent holds several ssh-ed25519 identities; choose one with --person-key",
-                    )),
+            None => match Self::discover()? {
+                Some((signer, _)) => Ok(signer),
+                None => {
+                    let socket = socket()?;
+                    agent_identities(&socket)?;
+                    Err(invalid("the ssh-agent holds no ssh-ed25519 identity"))
                 }
+            },
+        }
+    }
+    /// Person key discovery without `--person-key` (launch slice 3): the
+    /// generated key if its file exists, then the only `ssh-ed25519`
+    /// identity in `SSH_AUTH_SOCK`. None when there is no agent, it does not
+    /// answer, or it holds no such identity; several are an error. Returns
+    /// the generated key's path for a generated key.
+    pub fn discover() -> Result<Option<(Self, Option<std::path::PathBuf>)>, Error> {
+        if let Some(generated) = generated_key_path()
+            && std::fs::metadata(&generated).is_ok()
+        {
+            let text = std::fs::read_to_string(&generated).map_err(|e| {
+                invalid(&format!(
+                    "cannot read person key file {}: {e}",
+                    generated.display()
+                ))
+            })?;
+            let key = parse_openssh_private_key(&text).map_err(|e| {
+                invalid(&format!(
+                    "cannot use person key file {}: {e}",
+                    generated.display()
+                ))
+            })?;
+            return Ok(Some((Self::File(key), Some(generated))));
+        }
+        let keys = agent_keys();
+        match keys.as_slice() {
+            [] => Ok(None),
+            [(key, _)] => {
+                let socket = std::env::var_os("SSH_AUTH_SOCK")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_default();
+                Ok(Some((Self::Agent { socket, key: *key }, None)))
             }
+            many => Err(invalid(&format!(
+                "ssh-agent has several ssh-ed25519 identities ({}); choose one with --person-key PATH",
+                many.iter()
+                    .map(|(key, comment)| format!("{comment:?} {}", fingerprint(key)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
         }
     }
     /// The `ssh-agent` identity holding `key` (standard Base64).
@@ -354,6 +392,91 @@ fn agent_sign(socket: &Path, key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, Err
         return Err(agent_error("invalid signature length"));
     }
     Ok(raw.to_vec())
+}
+/// The generated person key's path (launch slice 3):
+/// `$XDG_CONFIG_HOME/capsule/person_ed25519`, by default under `~/.config`.
+pub fn generated_key_path() -> Option<std::path::PathBuf> {
+    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
+        Some(dir) => std::path::PathBuf::from(dir),
+        None => std::path::PathBuf::from(std::env::var_os("HOME").filter(|h| !h.is_empty())?)
+            .join(".config"),
+    };
+    Some(base.join("capsule").join("person_ed25519"))
+}
+/// The OpenSSH SHA256 fingerprint of an `ssh-ed25519` key.
+pub fn fingerprint(key: &[u8; 32]) -> String {
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
+    format!(
+        "SHA256:{}",
+        STANDARD_NO_PAD.encode(Sha256::digest(ssh_public_blob(key)))
+    )
+}
+/// The `ssh-ed25519` identities of the agent in `SSH_AUTH_SOCK`, with their
+/// comments; none when there is no agent or it does not answer.
+pub fn agent_keys() -> Vec<([u8; 32], String)> {
+    let Some(socket) = std::env::var_os("SSH_AUTH_SOCK").filter(|s| !s.is_empty()) else {
+        return Vec::new();
+    };
+    let Ok(response) = agent_call(Path::new(&socket), &[11]) else {
+        return Vec::new();
+    };
+    let mut r = Reader(&response);
+    let mut keys: Vec<([u8; 32], String)> = Vec::new();
+    let parsed = (|| -> Result<(), Error> {
+        if r.take(1)? != [12] {
+            return Err(agent_error("identities request failed"));
+        }
+        for _ in 0..r.u32()? {
+            let blob = r.string()?;
+            let comment = String::from_utf8_lossy(r.string()?).into_owned();
+            if let Ok(key) = parse_public_blob(blob)
+                && !keys.iter().any(|(k, _)| *k == key)
+            {
+                keys.push((key, comment));
+            }
+        }
+        Ok(())
+    })();
+    if parsed.is_err() {
+        return Vec::new();
+    }
+    keys
+}
+/// An unencrypted OpenSSH private key file for `key`, with `comment`.
+pub fn encode_openssh_private_key(key: &SigningKey, comment: &str) -> Result<String, Error> {
+    let public = key.verifying_key().to_bytes();
+    let mut check = [0u8; 4];
+    getrandom::fill(&mut check)
+        .map_err(|e| Error::Internal(anyhow::anyhow!("random source: {e}")))?;
+    let mut private = Vec::new();
+    private.extend_from_slice(&check);
+    private.extend_from_slice(&check);
+    put_string(&mut private, KEY_TYPE.as_bytes());
+    put_string(&mut private, &public);
+    let mut pair = key.to_bytes().to_vec();
+    pair.extend_from_slice(&public);
+    put_string(&mut private, &pair);
+    put_string(&mut private, comment.as_bytes());
+    let mut pad = 1u8;
+    while private.len() % 8 != 0 {
+        private.push(pad);
+        pad += 1;
+    }
+    let mut data = b"openssh-key-v1\0".to_vec();
+    put_string(&mut data, b"none");
+    put_string(&mut data, b"none");
+    put_string(&mut data, b"");
+    data.extend_from_slice(&1u32.to_be_bytes());
+    put_string(&mut data, &ssh_public_blob(&public));
+    put_string(&mut data, &private);
+    let encoded = STANDARD.encode(data);
+    let mut text = "-----BEGIN OPENSSH PRIVATE KEY-----\n".to_owned();
+    for chunk in encoded.as_bytes().chunks(70) {
+        text.push_str(std::str::from_utf8(chunk).unwrap_or_default());
+        text.push('\n');
+    }
+    text.push_str("-----END OPENSSH PRIVATE KEY-----\n");
+    Ok(text)
 }
 /// Parses an unencrypted OpenSSH `ssh-ed25519` private key file.
 pub fn parse_openssh_private_key(text: &str) -> Result<SigningKey, Error> {

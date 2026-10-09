@@ -143,11 +143,11 @@ def check(coord_binary, creator_binary, joiner_binary, label):
         try:
             coordinator = coord.start()
             a, b, c, d = alice.start(), bob.start(), carol.start(), dave.start()
-            network = alice.cli('network', 'create', '--name', 'team', '--member', 'alice',
+            network = alice.cli('network', 'create', '--name', 'team', '--member', 'alice', '--no-person',
                                 '--coordinator', coord.address, '--coordinator-key', coordinator['public_key'])
             net = network['id']
             invite = alice.cli('network', 'invite', '--network', net, '--member', 'bob', '--expires-at', timestamp(600))
-            bob.cli('network', 'join', '--token', invite['token'])
+            bob.cli('network', 'join', '--token', invite['token'], '--no-person')
 
             # Host admitted by public key joins with the descriptor; an
             # unadmitted host is refused.
@@ -157,7 +157,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             admitted = alice.cli('network', 'admit', '--network', net, '--host', c['public_key'], '--member', 'carol')
             assert admitted['host_id'] == c['id'] and admitted['descriptor'].startswith('capsule-network-v1.')
             assert dave.call('POST', '/v1/networks/join', {'descriptor': admitted['descriptor']})[0] == 403
-            joined = carol.cli('network', 'join', '--descriptor', admitted['descriptor'])
+            joined = carol.cli('network', 'join', '--descriptor', admitted['descriptor'], '--no-person')
             assert joined['id'] == net and joined['member'] == 'carol', joined
             alice.cli('network', 'sync', net)
             entry = member(alice, net, c['id'])
@@ -212,7 +212,8 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             os.environ['SSH_AUTH_SOCK'] = agent.socket
             # A binding naming another host, from an unadmitted person, or a
             # second binding are refused.
-            bob_binding = host_statements(bob, net, 'binding')
+            # Bob's own binding: carol's may already have arrived by sync.
+            bob_binding = [s for s in host_statements(bob, net, 'binding') if s.get('host_public_key') == b['public_key']]
             assert len(bob_binding) == 1, [(b.get('person_public_key'), b.get('host_public_key')) for b in bob_binding]
             assert carol.call('POST', f'/v1/networks/{net}/bindings', {'binding': bob_binding[0]})[0] == 400
             stranger_key, _, _ = ssh_key(root, 'stranger')
@@ -379,11 +380,12 @@ def check_one_command(coord_binary, creator_binary, joiner_binary, label):
             joined = hosts['bob2'].cli('network', 'join', '--token', invite('bob')['token'])
             assert joined['person']['bound'] and joined['person']['admitted'] and joined['person']['skipped'] is None, joined
 
-            # No agent: the host still joins; the reason and exact next command
-            # are reported, and the token's person half stays redeemable.
+            # Host-only join: the reason and exact next command are reported, and
+            # the token's person half stays redeemable. (Without --no-person a
+            # key is now generated; launch_onboarding.py covers that.)
             use_agent(None)
             carol_invite = invite('carol')
-            joined = hosts['carol'].cli('network', 'join', '--token', carol_invite['token'])
+            joined = hosts['carol'].cli('network', 'join', '--token', carol_invite['token'], '--no-person')
             person = joined['person']
             assert joined['id'] == net and not person['admitted'] and not person['bound'], joined
             assert person['skipped'] and person['next'], person
@@ -391,9 +393,10 @@ def check_one_command(coord_binary, creator_binary, joiner_binary, label):
             bound = hosts['carol'].cli('network', 'bind', '--network', net, '--person-key', str(keys['carol'][0]))
             assert bound['person_id'] == person_id(keys['carol'][2]), bound
 
-            # Several agent identities and --no-person skip the person part.
+            # --no-person skips the person part. (Several agent identities are now
+            # refused without it; launch_onboarding.py covers that.)
             use_agent(agents['dave'])
-            joined = hosts['dave'].cli('network', 'join', '--token', invite('dave')['token'])
+            joined = hosts['dave'].cli('network', 'join', '--token', invite('dave')['token'], '--no-person')
             assert joined['id'] == net and joined['person']['skipped'] and not joined['person']['bound'], joined
             use_agent(agents['erin'])
             joined = hosts['erin'].cli('network', 'join', '--token', invite('erin')['token'], '--no-person')

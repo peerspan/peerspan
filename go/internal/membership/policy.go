@@ -30,7 +30,30 @@ const (
 	PolicySkew = 5 * time.Minute
 	// PrincipalNetwork matches every member host of the policy's network.
 	PrincipalNetwork = "network"
+	// PolicyAgentAll is the rule agent meaning every agent of the owner. A
+	// receiver applies the rules naming an agent if there are any, and
+	// otherwise the * rules. Agents cannot be registered under this name.
+	PolicyAgentAll = "*"
 )
+
+// RuleApplies reports whether a rule applies to the agent named agent, given
+// whether the policy has any rule naming that agent.
+func RuleApplies(rule PolicyRule, agent string, named bool) bool {
+	if named {
+		return rule.Agent == agent
+	}
+	return rule.Agent == PolicyAgentAll
+}
+
+// NamesAgent reports whether any rule names agent exactly.
+func NamesAgent(p Policy, agent string) bool {
+	for _, r := range p.Rules {
+		if r.Agent == agent {
+			return true
+		}
+	}
+	return false
+}
 
 type PolicyRule struct {
 	Agent           string   `json:"agent"`

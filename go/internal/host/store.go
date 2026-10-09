@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Cerebral-Systems/capsule/go/internal/membership"
 	"golang.org/x/sys/unix"
 	_ "modernc.org/sqlite"
 )
@@ -351,6 +352,9 @@ func (s *Store) RegisterAgent(ctx context.Context, req RegisterAgent) (Agent, er
 	}
 	if len(req.Name) > 128 || len(req.Owner) > 128 {
 		return Agent{}, fmt.Errorf("%w: name and owner must be at most 128 bytes", ErrInvalid)
+	}
+	if req.Name == membership.PolicyAgentAll {
+		return Agent{}, fmt.Errorf("%w: the agent name %q is reserved: policy rules use it for every agent", ErrInvalid, membership.PolicyAgentAll)
 	}
 	caps := make([]string, 0, len(req.Capabilities))
 	seen := map[string]bool{}

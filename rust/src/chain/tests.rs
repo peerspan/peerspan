@@ -358,6 +358,7 @@ impl Fixture {
             task_id: task.into(),
             grant_id: Some(grant.into()),
             policy: None,
+            self_access: None,
             target_agent_id: self.target.clone(),
             deadline: deadline.into(),
             input: "part of the work".into(),

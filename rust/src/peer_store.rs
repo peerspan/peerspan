@@ -101,6 +101,14 @@ pub struct MessageRequest {
         deserialize_with = "crate::policy::present"
     )]
     pub policy: Option<crate::policy::PolicyRef>,
+    /// Self access: the sender's bound person (launch slice 3).
+    #[serde(
+        rename = "self",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::policy::present"
+    )]
+    pub self_access: Option<crate::policy::SelfRef>,
     pub target_agent_id: String,
     pub deadline: String,
     pub content: String,
@@ -245,12 +253,25 @@ pub(crate) fn valid_id(id: &str, prefix: &str, bytes: usize) -> bool {
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     })
 }
-fn validate_message(r: &MessageRequest) -> Result<(), Error> {
-    let authorization = match (&r.policy, &r.grant_id) {
-        (None, Some(grant)) => valid_id(grant, "grant", 16),
-        (Some(p), None) => p.version >= 1 && crate::policy::person_id_shape(&p.person_id),
+/// Exactly one of `grant_id`, `policy`, and `self`, each well formed.
+pub(crate) fn one_authorization(
+    grant: Option<&str>,
+    policy: Option<&PolicyRef>,
+    self_access: Option<&crate::policy::SelfRef>,
+) -> bool {
+    match (grant, policy, self_access) {
+        (Some(grant), None, None) => valid_id(grant, "grant", 16),
+        (None, Some(p), None) => p.version >= 1 && crate::policy::person_id_shape(&p.person_id),
+        (None, None, Some(s)) => crate::policy::person_id_shape(&s.person_id),
         _ => false,
-    };
+    }
+}
+fn validate_message(r: &MessageRequest) -> Result<(), Error> {
+    let authorization = one_authorization(
+        r.grant_id.as_deref(),
+        r.policy.as_ref(),
+        r.self_access.as_ref(),
+    );
     if !valid_id(&r.request_id, "request", 16)
         || !authorization
         || r.origin.as_ref().is_some_and(|o| !o.valid())
@@ -271,6 +292,7 @@ pub(crate) struct Authz<'a> {
     pub action: &'a str,
     pub grant_id: Option<&'a str>,
     pub policy: Option<&'a PolicyRef>,
+    pub self_access: Option<&'a crate::policy::SelfRef>,
     pub target_agent_id: &'a str,
     pub deadline: &'a str,
     /// Bytes bounded by `max_message_bytes`: message content or task input.
@@ -290,6 +312,7 @@ impl MessageRequest {
             action: crate::policy::ACTION,
             grant_id: self.grant_id.as_deref(),
             policy: self.policy.as_ref(),
+            self_access: self.self_access.as_ref(),
             target_agent_id: &self.target_agent_id,
             deadline: &self.deadline,
             size: self.content.len(),
@@ -366,6 +389,10 @@ impl Store {
         r: &Authz<'_>,
         require_deadline: bool,
     ) -> Result<Bounds, Error> {
+        // Self access needs no grant or policy, and blocks do not apply.
+        if let Some(cited) = r.self_access {
+            return self.self_bounds(conn, sender, r, cited, require_deadline);
+        }
         if self.blocked(conn, sender)? {
             return Err(Error::Forbidden);
         }
@@ -629,6 +656,7 @@ impl Store {
             },
             grant_id: r.grant_id,
             policy,
+            self_access: None,
             target_agent_id: r.target_agent_id,
             deadline: r.deadline,
             content: r.content,
@@ -643,9 +671,12 @@ impl Store {
         validate_message(&request)?;
         self.dial_target(&r.peer_host_id)?;
         if request.policy.is_some() {
-            // Cite the target owner's newest verified policy; with none, the
-            // send is refused before anything is persisted.
-            request.policy = Some(self.policy_citation(&*self.connection()?, &r.peer_host_id)?);
+            // Cite self access, or else the target owner's newest verified
+            // policy; with neither, the send is refused before anything is
+            // persisted.
+            (request.policy, request.self_access) = self
+                .citation(&*self.connection()?, &r.peer_host_id)?
+                .fields();
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -811,6 +842,7 @@ pub(crate) mod tests {
             request_id: format!("request_{}", "1".repeat(32)),
             grant_id: Some(grant.into()),
             policy: None,
+            self_access: None,
             target_agent_id: agent.into(),
             deadline: rfc3339(Utc::now() + chrono::Duration::minutes(5)),
             content: "hello".into(),

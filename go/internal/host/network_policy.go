@@ -43,6 +43,30 @@ func (c *PolicyCitation) UnmarshalJSON(data []byte) error {
 	return membership.Strict(data, (*plain)(c), "person_id", "version")
 }
 
+// SelfCitation is self access: the request relies on sender and receiver
+// being bound to one person, the sender's, in a network they share.
+type SelfCitation struct {
+	PersonID string `json:"person_id"`
+}
+
+func (c *SelfCitation) UnmarshalJSON(data []byte) error {
+	type plain SelfCitation
+	return membership.Strict(data, (*plain)(c), "person_id")
+}
+
+// Self access bounds: every action, with these effective limits.
+const (
+	selfMaxMessageBytes  = 65536
+	selfMaxArtifactBytes = membership.PolicyMaxArtifactBytes
+)
+
+// Route and request authorization kinds.
+const (
+	AuthorizationGrant  = "grant"
+	AuthorizationPolicy = "policy"
+	AuthorizationSelf   = "self"
+)
+
 // authority is what a grant or the matching policy rules permit.
 type authority struct {
 	maxMessageBytes   int64
@@ -294,6 +318,9 @@ func (s *Store) messageBounds(ctx context.Context, tx *sql.Tx, sender string, r 
 // actionBounds is messageBounds for any action: a task request is checked as
 // a message whose content is the task input.
 func (s *Store) actionBounds(ctx context.Context, tx *sql.Tx, sender, action string, r MessageRequest, requireDeadline bool) (authority, error) {
+	if r.Self != nil {
+		return s.selfBounds(ctx, tx, sender, r, requireDeadline)
+	}
 	if refused, err := blocked(ctx, tx, sender); err != nil || refused {
 		if err == nil {
 			err = ErrForbidden
@@ -362,8 +389,9 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 		if err != nil {
 			return authority{}, err
 		}
+		named := membership.NamesAgent(p, agent)
 		for _, rule := range p.Rules {
-			if rule.Agent != agent || !ruleAllows(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !artifactsAllowed(r, rule.MaxArtifactBytes) || !g.principalMatches(rule, member, r.Origin) {
+			if !membership.RuleApplies(rule, agent, named) || !ruleAllows(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !artifactsAllowed(r, rule.MaxArtifactBytes) || !g.principalMatches(rule, member, r.Origin) {
 				continue
 			}
 			if allowed == nil {
@@ -436,14 +464,112 @@ func (g governance) principalMatches(rule membership.PolicyRule, sender NetworkM
 	return false
 }
 
-// policyCitation is what a send without a grant cites: the target host's
-// bound person's newest verified policy, in the first network that has one.
-func (s *Store) policyCitation(ctx context.Context, q dbQuerier, peer string) (*PolicyCitation, error) {
-	citation, _, err := s.policyCitationUntil(ctx, q, peer)
-	return citation, err
+// ownerCitation is what a request without a grant cites: self, or the
+// owner policy and its valid_until.
+type ownerCitation struct {
+	policy *PolicyCitation
+	self   *SelfCitation
+	until  time.Time
 }
 
-// policyCitationUntil is policyCitation with the cited policy's valid_until.
+// ownerCitation is what a send without a grant cites: self access when the
+// target host is bound to this host's person in a network they share,
+// otherwise the target host's bound person's newest verified policy, in the
+// first network that has one.
+func (s *Store) ownerCitation(ctx context.Context, q dbQuerier, peer string) (ownerCitation, error) {
+	return s.chainCitation(ctx, q, peer, s.identity.ID)
+}
+
+// chainCitation is ownerCitation for a request whose authorization is the
+// originator's: in a forward, which carries a chain of two or more links,
+// self access is cited when the originator host and the target are bound to
+// one person, the originator's, in a network both share.
+func (s *Store) chainCitation(ctx context.Context, q dbQuerier, peer, originator string) (ownerCitation, error) {
+	if person, ok, err := s.boundPerson(ctx, q, originator, peer); err != nil || ok {
+		if ok {
+			return ownerCitation{self: &SelfCitation{PersonID: person}}, nil
+		}
+		return ownerCitation{}, err
+	}
+	citation, until, err := s.policyCitationUntil(ctx, q, peer)
+	return ownerCitation{policy: citation, until: until}, err
+}
+
+// selfPerson is this host's person when peer, a current member, is bound to
+// that person in a network both hosts share, in the lowest such network.
+func (s *Store) selfPerson(ctx context.Context, q queryer, peer string) (string, bool, error) {
+	if peer == s.identity.ID {
+		return "", false, nil
+	}
+	return s.boundPerson(ctx, q, s.identity.ID, peer)
+}
+
+// boundPerson is the person both hosts are bound to in the lowest network
+// where both are current members bound to one person, in this host's view.
+func (s *Store) boundPerson(ctx context.Context, q queryer, host, peer string) (string, bool, error) {
+	own, err := membershipsOf(ctx, q, host)
+	if err != nil {
+		return "", false, err
+	}
+	theirs, err := membershipsOf(ctx, q, peer)
+	if err != nil {
+		return "", false, err
+	}
+	for _, n := range own {
+		if n.member.PersonID == nil {
+			continue
+		}
+		for _, t := range theirs {
+			if t.network == n.network && t.member.PersonID != nil && *t.member.PersonID == *n.member.PersonID {
+				return *n.member.PersonID, true, nil
+			}
+		}
+	}
+	return "", false, nil
+}
+
+// selfBounds authorizes self access: this host and the sender (for a chain
+// of two or more links, the originator host), a current member, are both bound to the cited person in a network they share. It
+// needs no grant or policy, allows every action within the self access
+// bounds, and holds without coordination. Blocks do not apply.
+func (s *Store) selfBounds(ctx context.Context, tx *sql.Tx, sender string, r MessageRequest, requireDeadline bool) (authority, error) {
+	deadline, err := parseTime(r.Deadline)
+	if err != nil {
+		return authority{}, err
+	}
+	if requireDeadline && !deadline.After(time.Now()) {
+		return authority{}, ErrForbidden
+	}
+	var exists bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?)", r.TargetAgentID).Scan(&exists); err != nil || !exists {
+		if err == nil {
+			err = ErrForbidden
+		}
+		return authority{}, err
+	}
+	ok, err := s.boundTogether(ctx, tx, sender, r.Self.PersonID)
+	if err != nil || !ok {
+		if err == nil {
+			err = ErrForbidden
+		}
+		return authority{}, err
+	}
+	if int64(len(r.Content)) > selfMaxMessageBytes || !artifactsAllowed(r, selfMaxArtifactBytes) {
+		return authority{}, ErrForbidden
+	}
+	return authority{maxMessageBytes: selfMaxMessageBytes, allowDisconnected: true, maxArtifactBytes: selfMaxArtifactBytes, delegate: true}, nil
+}
+
+// boundTogether reports whether this host and peer are both bound to person
+// in some network they share. A chain may return to its originator, so peer
+// may be this host.
+func (s *Store) boundTogether(ctx context.Context, q dbQuerier, peer, person string) (bool, error) {
+	var found bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM network_members a JOIN network_members b ON a.network_id = b.network_id WHERE a.host_id = ? AND b.host_id = ? AND json_extract(a.record, '$.person_id') = ? AND json_extract(b.record, '$.person_id') = ?)`, s.identity.ID, peer, person, person).Scan(&found)
+	return found, err
+}
+
+// policyCitationUntil is the policy a send cites, with its valid_until.
 func (s *Store) policyCitationUntil(ctx context.Context, q dbQuerier, peer string) (*PolicyCitation, time.Time, error) {
 	memberships, err := membershipsOf(ctx, q, peer)
 	if err != nil {
@@ -574,6 +700,9 @@ func (s *Store) Unblock(ctx context.Context, r BlockAccess) (AccessBlock, error)
 type personAgent struct {
 	sync.Mutex
 	socket string
+	// keyFile is the CLI-generated person key the daemon may also renew
+	// with (run --person-key-file), or "".
+	keyFile string
 }
 
 // ConfigurePersonAgent sets the ssh-agent socket for policy renewal; empty
@@ -584,6 +713,40 @@ func (s *Store) ConfigurePersonAgent(socket string) {
 	s.agent.socket = socket
 }
 
+// ConfigurePersonKeyFile sets the generated person key file used for
+// renewal when the ssh-agent lacks the person's key; empty disables it. The
+// file is read when a renewal needs it.
+func (s *Store) ConfigurePersonKeyFile(path string) {
+	s.agent.Lock()
+	defer s.agent.Unlock()
+	s.agent.keyFile = path
+}
+
+// renewalSigner is a signer for an owner key: through the ssh-agent, or
+// else from the person key file when it holds that key.
+func (s *Store) renewalSigner(public ed25519.PublicKey) (person.Signer, error) {
+	s.agent.Lock()
+	socket, keyFile := s.agent.socket, s.agent.keyFile
+	s.agent.Unlock()
+	err := errors.New("the daemon has no ssh-agent (--person-agent) to renew your access policy")
+	if socket != "" {
+		var signer person.Signer
+		if signer, err = person.LoadKeyAt(socket, public); err == nil {
+			return signer, nil
+		}
+		err = fmt.Errorf("the daemon cannot renew your access policy through its ssh-agent %s: %w", socket, err)
+	}
+	if keyFile != "" {
+		if signer, fileErr := person.LoadPrivateFile(keyFile); fileErr == nil {
+			if signer.PublicKey().Equal(public) {
+				return signer, nil
+			}
+			signer.Close()
+		}
+	}
+	return nil, err
+}
+
 // RenewPolicies renews this host's bound persons' policies that have less
 // than a quarter of their validity left, signing through the ssh-agent. Each
 // renewal keeps the rules and duration at version + 1, issued now. Several of
@@ -591,9 +754,9 @@ func (s *Store) ConfigurePersonAgent(socket string) {
 // lower statement hash by direct propagation.
 func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 	s.agent.Lock()
-	socket := s.agent.socket
+	enabled := s.agent.socket != "" || s.agent.keyFile != ""
 	s.agent.Unlock()
-	if socket == "" {
+	if !enabled {
 		return
 	}
 	own, err := membershipsOf(ctx, s.db, s.identity.ID)
@@ -622,9 +785,9 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		if err != nil {
 			continue
 		}
-		signer, err := person.LoadKeyAt(socket, ed25519.PublicKey(public))
+		signer, err := s.renewalSigner(ed25519.PublicKey(public))
 		if err != nil {
-			continue // the agent does not hold this owner's key
+			continue // neither the agent nor the key file holds this owner's key
 		}
 		renewed, err := membership.Renewal(signer, p, now.Truncate(time.Second))
 		signer.Close()

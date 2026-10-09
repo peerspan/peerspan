@@ -40,7 +40,7 @@ class PolicyHost(PersonHost):
         self.agent_socket = None
 
     def daemon_env(self):
-        env = dict(os.environ)
+        env = self.isolated(dict(os.environ))
         env.pop('SSH_AUTH_SOCK', None)
         if self.agent_socket:
             env['SSH_AUTH_SOCK'] = self.agent_socket

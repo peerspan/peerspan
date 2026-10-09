@@ -66,6 +66,7 @@ var (
 		"network revoke-invite": true, "network admit": true, "network bind": true, "network unbind": true,
 		"network delegate-admin": true, "network group": true,
 		"access allow": true, "access deny": true, "access renew": true, "access show": true, "access sync": true,
+		"allow": true, "deny": true,
 	}
 	networkArgOptional = map[string]bool{"network members": true, "network sync": true, "network persons": true, "network groups": true}
 )
@@ -77,6 +78,9 @@ func defaultNetwork(ctx context.Context, client host.Client, args []string, fs *
 		return args, nil
 	}
 	command := strings.Join(args[:2], " ")
+	if args[0] == "allow" || args[0] == "deny" {
+		command = args[0]
+	}
 	flag := networkFlagOptional[command] && fs.Lookup("network") != nil && !fs.Changed("network")
 	positional := networkArgOptional[command] && len(args) == 2
 	if !flag && !positional {

@@ -36,29 +36,22 @@ const KINDS: [&str; 11] = [
     "coordinator_limit",
 ];
 
-/// Why the daemon's person agent cannot renew `key`'s policy, if it cannot:
-/// no socket, no answer, or no such key.
-fn agent_problem(socket: Option<std::path::PathBuf>, key: &str) -> Option<String> {
-    let Some(socket) = socket else {
-        return Some("the daemon has no ssh-agent socket".into());
-    };
-    let key: [u8; 32] = match crate::membership::canonical(key, 32)
-        .ok()
-        .and_then(|k| k.try_into().ok())
-    {
-        Some(key) => key,
-        None => return Some("the person key is invalid".into()),
-    };
-    crate::persons::PersonSigner::agent_at(socket.clone(), key)
-        .err()
-        .map(|e| format!("ssh-agent at {}: {e}", socket.display()))
-}
-
 impl Store {
+    /// Why the daemon cannot renew `key`'s policy, if it cannot: neither its
+    /// ssh-agent nor its generated key file holds the key.
+    fn renewal_problem(&self, key: &str) -> Option<String> {
+        let key: [u8; 32] = match crate::membership::canonical(key, 32)
+            .ok()
+            .and_then(|k| k.try_into().ok())
+        {
+            Some(key) => key,
+            None => return Some("the person key is invalid".into()),
+        };
+        self.renewal_signer(key).err()
+    }
     pub fn status(&self) -> Result<Value, Error> {
         let now = Utc::now();
         let own = self.identity().id;
-        let agent_socket = self.person_agent.read().ok().and_then(|s| s.clone());
         let mut attention = Vec::new();
         let mut networks = Vec::new();
         for network in self.networks()? {
@@ -121,7 +114,7 @@ impl Store {
                 }
             }
             if let Some(p) = &policy
-                && let Some(problem) = agent_problem(agent_socket.clone(), &p.person_public_key)
+                && let Some(problem) = self.renewal_problem(&p.person_public_key)
             {
                 attention.push(item(
                     "person_agent_unreachable",

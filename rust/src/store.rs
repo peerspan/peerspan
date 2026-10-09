@@ -55,6 +55,10 @@ pub struct Store {
     /// The owner's `ssh-agent` socket for policy renewal signatures. The
     /// daemon asks the agent to sign and never holds the key.
     pub(crate) person_agent: RwLock<Option<PathBuf>>,
+    /// The CLI-generated person key file (`run --person-key-file`), read
+    /// when a renewal needs it, which renews policies when the agent lacks
+    /// the key.
+    pub(crate) person_key_file: RwLock<Option<PathBuf>>,
     /// Bytes of artifact storage this host allows (`run --artifact-quota`).
     pub(crate) artifact_quota: AtomicI64,
     /// Wakes the policy propagation worker when deliveries are queued.
@@ -207,6 +211,7 @@ impl Store {
             peer_bound: RwLock::new(None),
             candidates: RwLock::new(Vec::new()),
             person_agent: RwLock::new(None),
+            person_key_file: RwLock::new(None),
             artifact_quota: AtomicI64::new(crate::artifact::DEFAULT_QUOTA),
             policy_wake: tokio::sync::Notify::new(),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
@@ -245,6 +250,11 @@ impl Store {
             return Err(Error::Invalid(
                 "name and owner must be at most 128 bytes".into(),
             ));
+        }
+        if name == crate::policy::ALL_AGENTS {
+            return Err(Error::Invalid(format!(
+                "the agent name {name:?} is reserved: policy rules use it for every agent"
+            )));
         }
         let mut capabilities = Vec::new();
         for capability in request.capabilities {

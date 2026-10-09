@@ -69,6 +69,7 @@ type MessageRequest struct {
 	RequestID     string          `json:"request_id"`
 	GrantID       *string         `json:"grant_id,omitempty"`
 	Policy        *PolicyCitation `json:"policy,omitempty"`
+	Self          *SelfCitation   `json:"self,omitempty"`
 	TargetAgentID string          `json:"target_agent_id"`
 	Deadline      string          `json:"deadline"`
 	Content       string          `json:"content"`
@@ -126,10 +127,13 @@ func (r MessageRequest) same(o MessageRequest) bool {
 	if (r.GrantID == nil) != (o.GrantID == nil) || (r.GrantID != nil && *r.GrantID != *o.GrantID) {
 		return false
 	}
+	if (r.Self == nil) != (o.Self == nil) || (r.Self != nil && *r.Self != *o.Self) {
+		return false
+	}
 	if (r.Origin == nil) != (o.Origin == nil) || (r.Origin != nil && *r.Origin != *o.Origin) {
 		return false
 	}
-	r.Policy, o.Policy, r.GrantID, o.GrantID, r.Origin, o.Origin = nil, nil, nil, nil, nil, nil
+	r.Policy, o.Policy, r.GrantID, o.GrantID, r.Origin, o.Origin, r.Self, o.Self = nil, nil, nil, nil, nil, nil, nil, nil
 	return r == o
 }
 
@@ -180,6 +184,7 @@ type recordedRequest struct {
 	RequestID     string          `json:"request_id"`
 	GrantID       *string         `json:"grant_id"`
 	Policy        *PolicyCitation `json:"policy,omitempty"`
+	Self          *SelfCitation   `json:"self,omitempty"`
 	TargetAgentID string          `json:"target_agent_id"`
 	Deadline      string          `json:"deadline"`
 	Content       string          `json:"content"`
@@ -191,7 +196,7 @@ func (o OutboundMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		plain
 		Request recordedRequest `json:"request"`
-	}{plain(o), recordedRequest{o.Request.RequestID, o.Request.GrantID, o.Request.Policy, o.Request.TargetAgentID, o.Request.Deadline, o.Request.Content, o.Request.Origin}})
+	}{plain(o), recordedRequest{o.Request.RequestID, o.Request.GrantID, o.Request.Policy, o.Request.Self, o.Request.TargetAgentID, o.Request.Deadline, o.Request.Content, o.Request.Origin}})
 }
 
 func validID(id, prefix string, bytes int) bool {
@@ -425,10 +430,15 @@ func (s *Store) grantConnected(ctx context.Context, tx *sql.Tx, sender string, g
 	return false, recoverable, err
 }
 func validateMessage(r MessageRequest) error {
-	// Exactly one authorization: a grant ID, or a policy citation.
-	authorized := r.Policy == nil && validID(grantOf(r), "grant", 16)
-	if r.Policy != nil {
-		authorized = r.GrantID == nil && membership.ValidPersonID(r.Policy.PersonID) && r.Policy.Version >= 1
+	// Exactly one authorization: a grant ID, a policy citation, or self.
+	var authorized bool
+	switch {
+	case r.Policy != nil:
+		authorized = r.GrantID == nil && r.Self == nil && membership.ValidPersonID(r.Policy.PersonID) && r.Policy.Version >= 1
+	case r.Self != nil:
+		authorized = r.GrantID == nil && membership.ValidPersonID(r.Self.PersonID)
+	default:
+		authorized = validID(grantOf(r), "grant", 16)
 	}
 	if !validID(r.RequestID, "request", 16) || !authorized || !validID(r.TargetAgentID, "agent", 16) || !r.Origin.valid() || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
 		return ErrInvalid
@@ -534,13 +544,14 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 		}
 		r.RequestID = id
 	}
-	// Without a grant, the send cites the target host's owner's policy.
-	if r.GrantID == nil && r.Policy == nil {
-		citation, err := s.policyCitation(ctx, s.db, r.PeerHostID)
+	// Without a grant, the send cites self access when the target host is
+	// bound to this host's person, and otherwise its owner's policy.
+	if r.GrantID == nil && r.Policy == nil && r.Self == nil {
+		c, err := s.ownerCitation(ctx, s.db, r.PeerHostID)
 		if err != nil {
 			return OutboundMessage{}, err
 		}
-		r.Policy = citation
+		r.Policy, r.Self = c.policy, c.self
 	}
 	if err := validateMessage(r.MessageRequest); err != nil {
 		return OutboundMessage{}, err
@@ -556,8 +567,8 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 	old, err := readJSON[OutboundMessage](tx.QueryRowContext(ctx, "SELECT record FROM outbound_messages WHERE peer = ? AND request_id = ?", r.PeerHostID, r.RequestID))
 	if err == nil {
 		// A resend keeps its original citation.
-		if r.GrantID == nil && old.Request.Policy != nil {
-			r.Policy = old.Request.Policy
+		if r.GrantID == nil && (old.Request.Policy != nil || old.Request.Self != nil) {
+			r.Policy, r.Self = old.Request.Policy, old.Request.Self
 		}
 		if !old.Request.same(r.MessageRequest) {
 			return old, ErrConflict

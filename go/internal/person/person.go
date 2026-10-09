@@ -1,7 +1,8 @@
 // Package person loads a person's OpenSSH ssh-ed25519 key for the CLI: from
 // ssh-agent by default, or from an OpenSSH key file. Daemons only ask an
 // ssh-agent for policy renewal signatures (LoadKeyAt), and never read key
-// files.
+// files, except the CLI-generated key (LoadPrivateFile), which a daemon may
+// read from the user's configuration to renew policies.
 package person
 
 import (
@@ -99,8 +100,9 @@ func ParsePublicKey(value string) (ed25519.PublicKey, error) {
 	return public, nil
 }
 
-// Load returns the person signer. With no path it uses the only ssh-ed25519
-// identity in the agent at SSH_AUTH_SOCK. A path to a public key selects that
+// Load returns the person signer. With no path it uses the generated key if
+// it exists, otherwise the only ssh-ed25519 identity in the agent at
+// SSH_AUTH_SOCK; it never generates one. A path to a public key selects that
 // identity in the agent; a path to an unencrypted OpenSSH private key signs
 // locally without an agent.
 func Load(path string) (Signer, error) {
@@ -123,6 +125,13 @@ func Load(path string) (Signer, error) {
 			return nil, err
 		}
 		return fromAgent(public)
+	}
+	// The generated key wins over an agent key, so a person's identity never
+	// changes because a key was later added to the agent.
+	if generated, err := GeneratedKeyPath(); err == nil {
+		if _, err := os.Stat(generated); err == nil {
+			return LoadPrivateFile(generated)
+		}
 	}
 	return fromAgent(nil)
 }
@@ -174,6 +183,14 @@ func agentAt(socket string, want ed25519.PublicKey) (Signer, error) {
 		return nil, errors.New("ssh-agent has no ssh-ed25519 identity; add one or use --person-key PATH")
 	default:
 		conn.Close()
-		return nil, errors.New("ssh-agent has several ssh-ed25519 identities; choose one with --person-key PATH")
+		listed := make([]string, len(found))
+		for i, f := range found {
+			comment := ""
+			if k, ok := f.key.(*agent.Key); ok {
+				comment = k.Comment
+			}
+			listed[i] = fmt.Sprintf("%q %s", comment, ssh.FingerprintSHA256(f.key))
+		}
+		return nil, fmt.Errorf("ssh-agent has several ssh-ed25519 identities (%s); choose one with --person-key PATH", strings.Join(listed, ", "))
 	}
 }

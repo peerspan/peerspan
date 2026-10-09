@@ -372,6 +372,7 @@ impl Store {
                 version: 1,
             }),
             grant_id: r.grant_id,
+            self_access: None,
             target_agent_id: r.target_agent_id,
             deadline,
             input: r.input,
@@ -399,11 +400,15 @@ impl Store {
         validate_task(&request)?;
         self.dial_target(&r.peer_host_id)?;
         let mut default_cap = default_deadline;
-        if request.policy.is_some() {
-            let cited = self.cited_policy(&*self.connection()?, &r.peer_host_id)?;
-            request.policy = Some(cited.reference());
+        // A forward cites once its parent's chain is known, below.
+        let forwarding = matches!(spec, ChainSpec::Forward(_));
+        if request.policy.is_some() && !forwarding {
+            let cited = self.citation(&*self.connection()?, &r.peer_host_id)?;
+            (request.policy, request.self_access) = cited.fields();
             // A default deadline never outlives the cited policy.
-            default_cap = default_cap.min(time(&cited.valid_until)?);
+            if let Some(until) = cited.valid_until() {
+                default_cap = default_cap.min(time(until)?);
+            }
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -422,11 +427,18 @@ impl Store {
             // request stands. A forward's default origin is its claimer.
             let defaulted_origin =
                 matches!(spec, ChainSpec::Forward(_)) && request.origin.is_none();
+            // A forward's citation is made once its chain is known, so a
+            // repeat compares only whether it names a grant.
             let same_owner = |a: &TaskRequest| TaskRequest {
-                policy: a.policy.as_ref().map(|p| crate::policy::PolicyRef {
-                    person_id: p.person_id.clone(),
-                    version: 0,
-                }),
+                policy: a
+                    .policy
+                    .as_ref()
+                    .map(|p| crate::policy::PolicyRef {
+                        person_id: p.person_id.clone(),
+                        version: 0,
+                    })
+                    .filter(|_| !forwarding),
+                self_access: a.self_access.clone().filter(|_| !forwarding),
                 deadline: if explicit_deadline {
                     a.deadline.clone()
                 } else {
@@ -465,6 +477,13 @@ impl Store {
                     }
                 }
                 default_cap = default_cap.min(f.deadline);
+                if request.policy.is_some() {
+                    let cited = self.chain_citation(&tx, &f.chain, &r.peer_host_id)?;
+                    (request.policy, request.self_access) = cited.fields();
+                    if let Some(until) = cited.valid_until() {
+                        default_cap = default_cap.min(time(until)?);
+                    }
+                }
                 Some(f)
             }
             _ => None,
@@ -721,12 +740,17 @@ impl Store {
         if let Some(f) = &forward {
             deadline = deadline.min(f.deadline);
         }
-        let policy = match route.grant_id {
-            Some(_) => None,
+        let (policy, self_access) = match route.grant_id {
+            Some(_) => (None, None),
             None => {
-                let cited = self.cited_policy(&tx, &route.peer_host_id)?;
-                deadline = deadline.min(time(&cited.valid_until)?);
-                Some(cited.reference())
+                let cited = match &forward {
+                    Some(f) => self.chain_citation(&tx, &f.chain, &route.peer_host_id)?,
+                    None => self.citation(&tx, &route.peer_host_id)?,
+                };
+                if let Some(until) = cited.valid_until() {
+                    deadline = deadline.min(time(until)?);
+                }
+                cited.fields()
             }
         };
         if let Some(inputs) = &artifacts {
@@ -736,6 +760,7 @@ impl Store {
             task_id: r.task_id,
             grant_id: route.grant_id,
             policy,
+            self_access,
             target_agent_id: route.target_agent_id,
             deadline: rfc3339(deadline),
             input: r.input,
@@ -1750,6 +1775,7 @@ mod tests {
                     action: action.map(Into::into),
                     delegation_depth: 0,
                     follows_credential: false,
+                    authorization: None,
                 })
                 .unwrap()
         };

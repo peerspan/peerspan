@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -205,8 +206,9 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 				rules = append(rules, rule)
 				continue
 			}
-			found = true
 			switch {
+			case args[1] == "allow" && found:
+				// Several rules for the agent become one.
 			case args[1] == "allow":
 				rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected})
 			case len(resolved) != 0:
@@ -215,6 +217,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 					rules = append(rules, rule)
 				}
 			}
+			found = true
 		}
 		if args[1] == "deny" {
 			issued, _ := membership.ParseTime(current.IssuedAt)
@@ -245,4 +248,200 @@ func without(principals, removed []string) []string {
 		}
 	}
 	return out
+}
+
+// sizeLimit is the largest --files bound: 1 GiB.
+const sizeLimit = membership.PolicyMaxArtifactBytes
+
+// parseSize reads a byte count with an optional K, M, or G suffix (powers of
+// 1024), from 1 byte to 1 GiB.
+func parseSize(value string) (int64, error) {
+	invalid := fmt.Errorf("invalid size %q: give 1 to %d bytes, with an optional K, M, or G suffix", value, sizeLimit)
+	digits, unit := value, int64(1)
+	if n := len(value); n > 0 {
+		switch value[n-1] {
+		case 'K':
+			digits, unit = value[:n-1], 1<<10
+		case 'M':
+			digits, unit = value[:n-1], 1<<20
+		case 'G':
+			digits, unit = value[:n-1], 1<<30
+		}
+	}
+	if digits == "" || len(digits) > 10 {
+		return 0, invalid
+	}
+	var n int64
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return 0, invalid
+		}
+		n = n*10 + int64(c-'0')
+	}
+	if n < 1 || n > sizeLimit/unit {
+		return 0, invalid
+	}
+	return n * unit, nil
+}
+
+// resolveTopPrincipal resolves the PRINCIPAL of allow, deny: everyone or
+// network, group:NAME, agent:HOST/AGENT, or person:PERSON or a bare PERSON.
+func resolveTopPrincipal(persons []host.Person, given string) (string, error) {
+	switch {
+	case given == "everyone":
+		return membership.PrincipalNetwork, nil
+	case given == membership.PrincipalNetwork, strings.HasPrefix(given, "group:"), strings.HasPrefix(given, "agent:"), strings.HasPrefix(given, "person:"):
+		return resolvePrincipal(persons, given)
+	}
+	p, err := host.ResolvePerson(persons, given)
+	if err != nil {
+		return "", err
+	}
+	return "person:" + p.PersonID, nil
+}
+
+// sameSettings reports whether two rules have the same actions, as sets,
+// and the same bounds.
+func sameSettings(a, b membership.PolicyRule) bool {
+	if a.MaxMessageBytes != b.MaxMessageBytes || a.MaxArtifactBytes != b.MaxArtifactBytes || a.AllowDisconnected != b.AllowDisconnected || len(a.Actions) != len(b.Actions) {
+		return false
+	}
+	have := map[string]bool{}
+	for _, action := range a.Actions {
+		have[action] = true
+	}
+	for _, action := range b.Actions {
+		if !have[action] {
+			return false
+		}
+	}
+	return true
+}
+
+// allowOrDeny runs the top-level allow and deny. allow sets a principal's
+// access for one agent scope (--agent, default *): it removes the principal
+// from every rule of that scope, adds it to the first rule of the scope with
+// identical settings or appends a new rule, drops rules left without
+// principals, and signs the next version, valid for 7 days. deny removes the
+// principal from every rule of the scope, or of every scope without --agent.
+func allowOrDeny(ctx context.Context, client host.Client, command, given string, fs *pflag.FlagSet, out io.Writer) error {
+	network, _ := fs.GetString("network")
+	agent, _ := fs.GetString("agent")
+	keyPath, _ := fs.GetString("person-key")
+	if !membership.ValidLabel(agent) {
+		return fmt.Errorf("invalid agent name %q", agent)
+	}
+	rule := membership.PolicyRule{Agent: agent, Actions: []string{membership.PolicyActionMessage}, MaxMessageBytes: 65536}
+	if command == "allow" {
+		noTasks, _ := fs.GetBool("no-tasks")
+		delegate, _ := fs.GetBool("delegate")
+		files, _ := fs.GetString("files")
+		if noTasks && (delegate || fs.Changed("files")) {
+			return errors.New("--delegate and --files need tasks; drop --no-tasks")
+		}
+		if !noTasks {
+			rule.Actions = append(rule.Actions, membership.PolicyActionTask)
+		}
+		if delegate {
+			rule.Actions = append(rule.Actions, membership.PolicyActionDelegate)
+		}
+		if fs.Changed("files") {
+			bound, err := parseSize(files)
+			if err != nil {
+				return err
+			}
+			rule.MaxArtifactBytes = bound
+		}
+	}
+	signer, err := person.Load(keyPath)
+	if err != nil {
+		return err
+	}
+	defer signer.Close()
+	owner := membership.EncodeKey(signer.PublicKey())
+	persons, err := personsOf(ctx, client, network)
+	if err != nil {
+		return err
+	}
+	ownerID := ""
+	for _, p := range persons {
+		if p.PublicKey == owner {
+			ownerID = p.PersonID
+		}
+	}
+	if ownerID == "" {
+		return fmt.Errorf("the person key %s is not a current person of that network", membership.PersonID(signer.PublicKey()))
+	}
+	principal, err := resolveTopPrincipal(persons, given)
+	if err != nil {
+		return err
+	}
+	current, err := currentPolicy(ctx, client, network, ownerID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().Truncate(time.Second)
+	version, validFor := int64(1), 7*24*time.Hour
+	var old []membership.PolicyRule
+	if current != nil {
+		version, old = current.Version+1, current.Rules
+	}
+	scoped := command == "allow" || fs.Changed("agent")
+	var rules []membership.PolicyRule
+	removed := 0
+	for _, r := range old {
+		r.Principals = append([]string{}, r.Principals...)
+		if !scoped || r.Agent == agent {
+			if kept := without(r.Principals, []string{principal}); len(kept) != len(r.Principals) {
+				r.Principals = kept
+				removed++
+			}
+		}
+		rules = append(rules, r)
+	}
+	if command == "allow" {
+		added := false
+		for i := range rules {
+			if rules[i].Agent == agent && sameSettings(rules[i], rule) {
+				rules[i].Principals = append(rules[i].Principals, principal)
+				added = true
+				break
+			}
+		}
+		if !added {
+			rule.Principals = []string{principal}
+			rules = append(rules, rule)
+		}
+	}
+	kept := []membership.PolicyRule{}
+	for _, r := range rules {
+		if len(r.Principals) != 0 {
+			kept = append(kept, r)
+		}
+	}
+	if command == "deny" {
+		if removed == 0 {
+			var policy any
+			if current != nil {
+				policy = current
+			}
+			return printJSON(out, map[string]any{"policy": policy, "removed": 0, "note": "no rule of your policy names " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
+		}
+		issued, _ := membership.ParseTime(current.IssuedAt)
+		until, _ := membership.ParseTime(current.ValidUntil)
+		validFor = until.Sub(issued)
+	}
+	p, err := membership.SignPolicy(signer, network, version, now, validFor, kept)
+	if err != nil {
+		return err
+	}
+	data, err := client.Call(ctx, "POST", policyPath(network), host.SubmitPolicy{Policy: &p})
+	if err != nil {
+		return err
+	}
+	var stored json.RawMessage = data
+	if command == "deny" {
+		return printJSON(out, map[string]any{"policy": stored, "removed": removed})
+	}
+	return printJSON(out, map[string]any{"policy": stored, "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes})
 }

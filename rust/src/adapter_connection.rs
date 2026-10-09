@@ -314,6 +314,7 @@ mod tests {
             action: None,
             delegation_depth: 0,
             follows_credential: false,
+            authorization: None,
         }
     }
     /// Moves a stored expiry back, as if the credential were an hour from
