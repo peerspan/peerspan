@@ -1074,14 +1074,14 @@ fn rules_with_task_delegate_sign_as_another_action() {
 }
 
 #[test]
-fn version_ten_migrates_to_latest_and_thirteen_is_refused() {
+fn version_ten_migrates_to_latest_and_fourteen_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("host");
     drop(Store::open(&path).unwrap());
     Connection::open(path.join("host.db"))
         .unwrap()
         .execute_batch(
-            "DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10;",
+            "DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10;",
         )
         .unwrap();
     let store = Store::open(&path).unwrap();
@@ -1089,7 +1089,7 @@ fn version_ten_migrates_to_latest_and_thirteen_is_refused() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     let sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE name = 'task_children'",
@@ -1105,7 +1105,7 @@ fn version_ten_migrates_to_latest_and_thirteen_is_refused() {
     drop(store);
     Connection::open(path.join("host.db"))
         .unwrap()
-        .execute_batch("PRAGMA user_version = 13;")
+        .execute_batch("PRAGMA user_version = 14;")
         .unwrap();
     assert!(Store::open(&path).is_err());
 }

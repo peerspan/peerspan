@@ -27,6 +27,12 @@ pub struct AdapterSetupRequest {
     pub expires_at: Option<String>,
     #[serde(default)]
     pub routes: Vec<SetupRoute>,
+    /// Directory access (launch slice 4), default false.
+    #[serde(default)]
+    pub directory: bool,
+    /// 1 to 10,000, default 100; only with `directory`.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub max_sends_per_hour: Option<i64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +90,21 @@ impl Store {
         if !crate::peer_store::valid_id(&r.session_id, "session", 16) || r.routes.len() > 100 {
             return Err(Error::Invalid("invalid setup".into()));
         }
+        let directory = match (r.directory, r.max_sends_per_hour) {
+            (false, None) => None,
+            (false, Some(_)) => {
+                return Err(Error::Invalid(
+                    "max_sends_per_hour requires directory access".into(),
+                ));
+            }
+            (true, None) => Some(crate::directory::DEFAULT_SENDS_PER_HOUR),
+            (true, Some(n)) if (1..=10000).contains(&n) => Some(n),
+            (true, Some(_)) => {
+                return Err(Error::Invalid(
+                    "max_sends_per_hour must be 1 to 10000".into(),
+                ));
+            }
+        };
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let session = Self::attach_session_in(
@@ -100,6 +121,7 @@ impl Store {
                 session_id: session.id.clone(),
                 expires_at: r.expires_at,
             },
+            directory,
         )?;
         let mut routes = Vec::new();
         for route in r.routes {

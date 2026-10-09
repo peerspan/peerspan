@@ -60,6 +60,13 @@ func TestOwnerAccessPolicy(t *testing.T) {
 	ctx := context.Background()
 	network := startCoordinator(t)
 	alice, bob, carol := startPeerHost(t, "alice"), startPeerHost(t, "bob"), startPeerHost(t, "carol")
+	// The receiver accepts non-disconnected sends only within three intervals
+	// of its last sync; widen the window so slow runs (-race, load) stay
+	// connected. The stale case below backdates the sync by an hour.
+	advertise, _ := alice.coordinationConfig()
+	if err := alice.ConfigureCoordination(advertise, time.Minute); err != nil {
+		t.Fatal(err)
+	}
 	created, err := alice.CreateNetwork(ctx, CreateNetwork{Name: "team", Member: "alice", CoordinatorAddress: network.address, CoordinatorPublicKey: network.coord.Identity().PublicKey})
 	if err != nil {
 		t.Fatal(err)
@@ -384,18 +391,18 @@ func TestAccessBlocksMigrationToVersion8(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err = s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 12 {
+	if err = s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 13 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if blocks, err := s.AccessBlocks(ctx); err != nil || len(blocks) != 0 {
 		t.Fatalf("blocks: %v %v", blocks, err)
 	}
-	if _, err = s.db.ExecContext(ctx, "PRAGMA user_version = 13"); err != nil {
+	if _, err = s.db.ExecContext(ctx, "PRAGMA user_version = 14"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
 	if _, err = Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version") {
-		t.Fatalf("version 13 opened: %v", err)
+		t.Fatalf("version 14 opened: %v", err)
 	}
 }
 

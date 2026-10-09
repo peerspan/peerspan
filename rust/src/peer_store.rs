@@ -169,6 +169,10 @@ pub struct OutboundMessage {
     /// Receipt queries made after the deadline; written only when nonzero.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub receipt_queries: u32,
+    /// The address the send was made to, as given (launch slice 4);
+    /// omitted for a send to a host and agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
 }
 fn is_zero(n: &u32) -> bool {
     *n == 0
@@ -644,6 +648,17 @@ impl Store {
         )
     }
     pub fn prepare_outbound(&self, r: SendMessage) -> Result<OutboundMessage, Error> {
+        self.prepare_outbound_to(r, None)
+    }
+    /// An addressed send's target is resolved and its authorization chosen
+    /// before this; a repeat of a stored send by address has no choice and
+    /// returns the stored record without citing anything anew.
+    pub(crate) fn prepare_outbound_to(
+        &self,
+        r: SendMessage,
+        addressed: Option<crate::directory::Addressed>,
+    ) -> Result<OutboundMessage, Error> {
+        let explicit_grant = r.grant_id.is_some();
         let policy = r.grant_id.is_none().then(|| PolicyRef {
             person_id: format!("person_{}", "0".repeat(64)),
             version: 1,
@@ -673,10 +688,19 @@ impl Store {
         if request.policy.is_some() {
             // Cite self access, or else the target owner's newest verified
             // policy; with neither, the send is refused before anything is
-            // persisted.
-            (request.policy, request.self_access) = self
-                .citation(&*self.connection()?, &r.peer_host_id)?
-                .fields();
+            // persisted. A send by address cites what was chosen for it.
+            let conn = self.connection()?;
+            match addressed.as_ref().map(|a| &a.choice) {
+                None => {
+                    (request.policy, request.self_access) =
+                        self.citation(&conn, &r.peer_host_id)?.fields();
+                }
+                Some(Some(choice)) => {
+                    (request.grant_id, request.policy, request.self_access) =
+                        self.chosen_citation(&conn, &r.peer_host_id, choice)?;
+                }
+                Some(None) => {}
+            }
         }
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -698,12 +722,32 @@ impl Store {
                 }),
                 ..a.clone()
             };
-            if same_owner(&old.request) != same_owner(&request) {
+            // A repeat by address keeps the stored citation, whatever it
+            // cites, unless it names a grant itself.
+            let same_address = |a: &MessageRequest| MessageRequest {
+                grant_id: a.grant_id.clone().filter(|_| explicit_grant),
+                policy: None,
+                self_access: None,
+                ..a.clone()
+            };
+            let differs = match &addressed {
+                None => old.to.is_some() || same_owner(&old.request) != same_owner(&request),
+                Some(a) => {
+                    old.to.as_deref() != Some(a.to.as_str())
+                        || same_address(&old.request) != same_address(&request)
+                }
+            };
+            if differs {
                 return Err(Error::Conflict(
                     "request ID reused with different fields".into(),
                 ));
             }
             return Ok(old);
+        }
+        if addressed.as_ref().is_some_and(|a| a.choice.is_none()) && !explicit_grant {
+            return Err(Error::Conflict(
+                "the stored send by address changed; retry".into(),
+            ));
         }
         let out = OutboundMessage {
             peer_host_id: r.peer_host_id,
@@ -715,6 +759,7 @@ impl Store {
             // Retried automatically if the inline send never finishes.
             next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
             receipt_queries: 0,
+            to: addressed.map(|a| a.to),
         };
         tx.execute(
             "INSERT INTO outbound_messages VALUES (?1, ?2, ?3)",

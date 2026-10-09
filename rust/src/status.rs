@@ -22,7 +22,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-const KINDS: [&str; 11] = [
+const KINDS: [&str; 12] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -34,6 +34,7 @@ const KINDS: [&str; 11] = [
     "linger_disabled",
     "person_agent_unreachable",
     "coordinator_limit",
+    "agent_name_conflict",
 ];
 
 impl Store {
@@ -262,6 +263,21 @@ impl Store {
                 format!("{network}/{limit}"),
                 format!("the coordinator of network {network} reports its {limit} limit reached"),
                 String::new(),
+            ));
+        }
+        for (network, name, integration) in self.name_conflicts()? {
+            let harness = match integration.as_deref() {
+                Some("claude-code") => "claude".to_owned(),
+                Some(other) => other.to_owned(),
+                None => "HARNESS".to_owned(),
+            };
+            attention.push(item(
+                "agent_name_conflict",
+                format!("{network}/{name}"),
+                format!(
+                    "another agent of this host's person in network {network} is also named {name}; rename this host's agent in its project"
+                ),
+                format!("capsule attach {harness} --name NEW"),
             ));
         }
         attention.sort_by(|a, b| {

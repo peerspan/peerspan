@@ -70,6 +70,14 @@ pub enum Error {
         limit: String,
         message: String,
     },
+    /// A refusal with its own status and code, and extra body fields
+    /// (directory addressing and its rate cap).
+    Coded {
+        status: u16,
+        code: &'static str,
+        message: String,
+        extra: serde_json::Map<String, serde_json::Value>,
+    },
     Internal(anyhow::Error),
 }
 
@@ -98,7 +106,7 @@ impl std::fmt::Display for Error {
             Self::Unavailable(message) => write!(f, "unavailable: {message}"),
             Self::TooLarge(message) => write!(f, "too large: {message}"),
             Self::InsufficientStorage(message) => write!(f, "insufficient storage: {message}"),
-            Self::Limit { message, .. } => write!(f, "{message}"),
+            Self::Limit { message, .. } | Self::Coded { message, .. } => write!(f, "{message}"),
             Self::Internal(error) => write!(f, "{error}"),
         }
     }

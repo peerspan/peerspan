@@ -252,29 +252,30 @@ def check(coord_binary, first_binary, second_binary, sender_binary, label):
                                   ('network.policy_updated', pat_id)):
                 assert (kind, subject) in kinds, (kind, subject)
 
-            # Migration from version 11, and refusal of version 13.
+            # Migration from version 11, and refusal of version 14.
             for host in (alice, bob):
-                assert user_version(host) == 12
+                assert user_version(host) == 13
                 host.stop()
                 with sqlite3.connect(host.state / 'host.db') as db:
                     db.execute('DROP TABLE policy_deliveries')
+                    db.execute('DROP TABLE directory_sends')
                     db.execute('PRAGMA user_version = 11')
                 host.start()
-                assert user_version(host) == 12
+                assert user_version(host) == 13
                 assert stored(host, net, pat_id) == winner
                 assert status(host, net)['deliveries'] == []
                 host.stop()
                 with sqlite3.connect(host.state / 'host.db') as db:
-                    db.execute('PRAGMA user_version = 13')
+                    db.execute('PRAGMA user_version = 14')
                 try:
                     host.start()
                     opened = True
                 except AssertionError as error:
                     assert 'exited at startup' in str(error), error
                     opened = False
-                assert not opened, 'version 13 opened'
+                assert not opened, 'version 14 opened'
                 with sqlite3.connect(host.state / 'host.db') as db:
-                    db.execute('PRAGMA user_version = 12')
+                    db.execute('PRAGMA user_version = 13')
                 host.start()
             assert len(status(alice, net, sync=True)['deliveries']) == 0
         finally:
@@ -289,7 +290,7 @@ def check(coord_binary, first_binary, second_binary, sender_binary, label):
                 agent.stop()
     print(f'PASS {label}: withdrawal pushed with the coordinator stopped and refused, coordinator delivery on '
           'restart; start-up sync after an offline push; same-version tie-break; non-sibling and lower-version '
-          'refusals; access sync and status; v11 to v12 migration', flush=True)
+          'refusals; access sync and status; v11 to v13 migration', flush=True)
 
 
 def main():

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strconv"
 	"time"
 
+	"github.com/Cerebral-Systems/capsule/go/internal/host"
 	"github.com/Cerebral-Systems/capsule/go/internal/integration"
 	"github.com/spf13/pflag"
 )
@@ -31,6 +33,24 @@ func runSessionSetup(ctx context.Context, args []string, fs *pflag.FlagSet, stat
 		o.Args = args[1:]
 	}
 
+	if o.Directory == "" && o.Action != "setup" {
+		// Without --directory, start and doctor use the attach profile
+		// recorded for the current directory.
+		state := o.State
+		if state == "" {
+			var err error
+			if state, err = host.DefaultStateDir(); err != nil {
+				return err
+			}
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		if o.Directory, err = integration.WorkspaceProfile(state, cwd); err != nil {
+			return err
+		}
+	}
 	if o.Directory == "" {
 		return errors.New("--directory is required")
 	}

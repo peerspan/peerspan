@@ -141,6 +141,64 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
+    /// Register an agent for a project and set up its directory session
+    Attach {
+        /// Integration ID, or claude for claude-code
+        #[arg(value_name = "HARNESS")]
+        harness: String,
+        /// Agent name; default claude (for claude-code) or the integration ID,
+        /// suffixed when taken
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Project directory; default the current directory
+        #[arg(long, value_name = "DIR")]
+        directory: Option<PathBuf>,
+        /// Authorization expiry; without it or --expires-in, renewable
+        #[arg(long, value_name = "TIME")]
+        expires_at: Option<String>,
+        /// Relative authorization lifetime, from 1m to 720h
+        #[arg(long, value_name = "DURATION")]
+        expires_in: Option<String>,
+        /// Cap on the session's sends and delegations by address per hour
+        #[arg(long, value_name = "N", default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
+        max_sends_per_hour: i64,
+        #[arg(long = "option", value_name = "KEY=VALUE")]
+        options: Vec<String>,
+        #[arg(long, value_name = "DIR")]
+        integrations: Option<PathBuf>,
+        #[arg(long, value_name = "PATH")]
+        runner: Option<PathBuf>,
+    },
+    /// Show the agents you can reach, your own, and who can reach yours
+    Agents {
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Refresh the directory first
+        #[arg(long)]
+        refresh: bool,
+        /// Print the directory as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Send a message to an agent by address, PERSON/AGENT or HOST_ID/AGENT
+    Send {
+        #[arg(value_name = "TARGET")]
+        target: String,
+        #[arg(value_name = "TEXT")]
+        text: String,
+        /// Resolve the address only in this network
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// Grant ID; otherwise the daemon chooses an authorization
+        #[arg(long, value_name = "ID")]
+        grant: Option<String>,
+        /// Send as this registered local agent
+        #[arg(long, value_name = "AGENT_ID")]
+        from_agent: Option<String>,
+        /// RFC3339 deadline; default one hour
+        #[arg(long, value_name = "TIME")]
+        deadline: Option<String>,
+    },
     /// Install the daemon as a user service and start it
     Install {
         /// Private state directory; otherwise use XDG_STATE_HOME or HOME
@@ -176,7 +234,7 @@ pub enum Command {
     /// Submit messages and inspect durable host receipts
     #[command(subcommand)]
     Message(MessageCommand),
-    /// Delegate tasks to remote agents and follow their progress
+    /// Delegate a task to an agent by address: task TARGET TEXT
     #[command(subcommand)]
     Task(TaskCommand),
     /// Inspect and prune stored task artifacts
@@ -256,8 +314,9 @@ pub enum SessionCommand {
     },
     /// Launch a prepared session if its integration supports launch
     Start {
+        /// Setup directory; default the attach profile of the current directory
         #[arg(long)]
-        directory: PathBuf,
+        directory: Option<PathBuf>,
         #[arg(long)]
         workspace: Option<PathBuf>,
         #[arg(last = true, allow_hyphen_values = true)]
@@ -265,8 +324,9 @@ pub enum SessionCommand {
     },
     /// Inspect session and integration readiness without changing state
     Doctor {
+        /// Setup directory; default the attach profile of the current directory
         #[arg(long)]
-        directory: PathBuf,
+        directory: Option<PathBuf>,
     },
 
     /// Record an attachment to a registered agent
@@ -791,6 +851,34 @@ pub enum TaskCommand {
         peer: String,
         id: String,
     },
+    /// `task TARGET TEXT [OPTIONS]`, parsed as `TaskTo`.
+    #[command(external_subcommand)]
+    To(Vec<String>),
+}
+
+/// `task TARGET TEXT`: a task submission by address.
+#[derive(Debug, Parser)]
+#[command(about = "Delegate a task to an agent by address, PERSON/AGENT or HOST_ID/AGENT")]
+pub struct TaskTo {
+    #[arg(value_name = "TARGET")]
+    pub target: String,
+    #[arg(value_name = "TEXT")]
+    pub text: String,
+    /// File to attach as an input artifact; repeat for each
+    #[arg(long = "file", value_name = "PATH")]
+    pub files: Vec<PathBuf>,
+    /// Resolve the address only in this network
+    #[arg(long, value_name = "ID")]
+    pub network: Option<String>,
+    /// Grant ID; otherwise the daemon chooses an authorization
+    #[arg(long, value_name = "ID")]
+    pub grant: Option<String>,
+    /// Submit as this registered local agent
+    #[arg(long, value_name = "AGENT_ID")]
+    pub from_agent: Option<String>,
+    /// RFC3339 deadline for an agent to accept it; default one hour
+    #[arg(long, value_name = "TIME")]
+    pub deadline: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -890,13 +978,17 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 18] = [
+pub const MAIN_COMMANDS: [&str; 19] = [
     "status",
     "install",
     "run",
     "network create",
     "join",
     "invite",
+    "attach",
+    "agents",
+    "send",
+    "task",
     "allow",
     "deny",
     "block",
@@ -904,11 +996,8 @@ pub const MAIN_COMMANDS: [&str; 18] = [
     "network list",
     "network members",
     "access show",
-    "session setup",
     "session start",
     "session doctor",
-    "message send",
-    "task submit",
 ];
 
 /// The command line under `name`, the base name the binary was invoked as.
@@ -932,7 +1021,8 @@ pub fn command_line(name: &'static str) -> clap::Command {
 
 /// `help advanced`: every command, as the root help listed them before.
 pub fn advanced_help(name: &str) -> String {
-    let command = <Cli as clap::CommandFactory>::command();
+    let mut command = <Cli as clap::CommandFactory>::command();
+    command.build();
     let mut entries = Vec::new();
     leaves(&command, "", &mut entries);
     format!(
@@ -974,6 +1064,11 @@ fn leaves(command: &clap::Command, prefix: &str, entries: &mut Vec<(String, Stri
     for sub in command.get_subcommands().filter(|s| s.get_name() != "help") {
         let path = format!("{prefix}{}", sub.get_name());
         if sub.has_subcommands() {
+            // A group that also runs by itself, like `task TARGET TEXT`.
+            if sub.is_allow_external_subcommands_set() {
+                let about = sub.get_about().map(ToString::to_string).unwrap_or_default();
+                entries.push((path.clone(), about));
+            }
             leaves(sub, &format!("{path} "), entries);
         } else {
             let about = sub.get_about().map(ToString::to_string).unwrap_or_default();
@@ -1010,6 +1105,7 @@ impl Command {
                 | NetworkCommand::Group(GroupCommand::Set { network, .. }),
             )
             | Self::Invite { network, .. }
+            | Self::Agents { network, .. }
             | Self::Allow { network, .. }
             | Self::Deny { network, .. }
             | Self::Access(
@@ -1073,7 +1169,12 @@ impl Command {
                 expires_in,
                 ..
             }) => (expires_at, expires_in, None),
-            Self::Message(MessageCommand::Send { deadline, .. }) => {
+            Self::Attach {
+                expires_at,
+                expires_in,
+                ..
+            } => (expires_at, expires_in, None),
+            Self::Message(MessageCommand::Send { deadline, .. }) | Self::Send { deadline, .. } => {
                 deadline.get_or_insert_with(|| after(TimeDelta::hours(1)));
                 return Ok(());
             }
@@ -1106,7 +1207,9 @@ impl Command {
             | Self::Invite { .. }
             | Self::Allow { .. }
             | Self::Deny { .. }
-            | Self::Task(TaskCommand::Artifact { .. })
+            | Self::Task(TaskCommand::Artifact { .. } | TaskCommand::To(_))
+            | Self::Attach { .. }
+            | Self::Agents { .. }
             | Self::Access(
                 AccessCommand::Allow { .. }
                 | AccessCommand::Deny { .. }
@@ -1210,6 +1313,26 @@ impl Command {
                         origin["session_id"] = json!(session);
                     }
                     body["origin"] = origin;
+                }
+                (Method::POST, "/v1/outbound".into(), Some(body))
+            }
+            Self::Send {
+                target,
+                text,
+                network,
+                grant,
+                from_agent,
+                deadline,
+            } => {
+                let mut body = with_grant(
+                    json!({"to": target, "content": text, "deadline": deadline, "request_id": ""}),
+                    grant,
+                );
+                if let Some(network) = network {
+                    body["network"] = json!(network);
+                }
+                if let Some(agent) = from_agent {
+                    body["origin"] = json!({ "agent_id": agent });
                 }
                 (Method::POST, "/v1/outbound".into(), Some(body))
             }

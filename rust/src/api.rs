@@ -34,6 +34,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::task_outbound::local_routes())
         .merge(crate::artifact::local_routes())
         .merge(crate::status::local_routes())
+        .merge(crate::directory::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
 }
@@ -150,6 +151,7 @@ fn number(value: Option<String>, default: i64) -> Result<i64, Error> {
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let mut limit = None;
+        let mut extra = serde_json::Map::new();
         let (status, code, message) = match self {
             Self::Invalid(message) => (
                 StatusCode::BAD_REQUEST,
@@ -185,6 +187,19 @@ impl IntoResponse for Error {
                 limit = Some(name);
                 (StatusCode::TOO_MANY_REQUESTS, "limit", message)
             }
+            Self::Coded {
+                status,
+                code,
+                message,
+                extra: fields,
+            } => {
+                extra = fields;
+                (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+                    code,
+                    message,
+                )
+            }
             Self::Internal(error) => {
                 eprintln!("host store error: {error}");
                 (
@@ -197,6 +212,9 @@ impl IntoResponse for Error {
         let mut body = serde_json::json!({"code": code, "error": message});
         if let Some(limit) = limit {
             body["limit"] = limit.into();
+        }
+        if let Some(object) = body.as_object_mut() {
+            object.extend(extra);
         }
         (status, Json(body)).into_response()
     }

@@ -70,6 +70,8 @@ pub struct Store {
     /// Coordinator limits each network has reached, by network ID: from the
     /// usage fetched after a sync and from the latest 429. Kept in memory.
     pub(crate) coordinator_limits: Mutex<BTreeMap<String, crate::network::CoordinatorLimits>>,
+    /// The agent directory of every network, kept in memory.
+    pub(crate) agent_directory: Mutex<crate::directory::Cache>,
 }
 
 impl Store {
@@ -94,7 +96,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=12).contains(&version) {
+        if !(0..=13).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -133,6 +135,9 @@ impl Store {
         }
         if version < 12 {
             tx.execute_batch(crate::policy_sync::SCHEMA)?;
+        }
+        if version < 13 {
+            tx.execute_batch(crate::directory::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -217,6 +222,7 @@ impl Store {
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),
             coordinator_limits: Mutex::new(BTreeMap::new()),
+            agent_directory: Mutex::new(Default::default()),
         };
         store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
         Ok(store)

@@ -78,11 +78,12 @@ type Store struct {
 	// becomes reachable through the new coordinator without waiting to poll.
 	relayWake chan struct{}
 
-	retry    outboundRetry // automatic retry state for uncertain sends
-	agent    personAgent   // the ssh-agent for policy renewal
-	policies policySync    // direct policy propagation to sibling hosts
-	tasks    taskWork      // the in-memory task poll schedule
-	limits   coordinatorLimits
+	retry     outboundRetry // automatic retry state for uncertain sends
+	agent     personAgent   // the ssh-agent for policy renewal
+	policies  policySync    // direct policy propagation to sibling hosts
+	tasks     taskWork      // the in-memory task poll schedule
+	limits    coordinatorLimits
+	directory directoryState // the in-memory agent directory per network
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
 }
@@ -139,7 +140,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 12 {
+	if version < 0 || version > 13 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -205,6 +206,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 12 {
 		if _, err = tx.ExecContext(ctx, policyDeliveriesSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 13 {
+		if _, err = tx.ExecContext(ctx, directorySchema); err != nil {
 			return nil, err
 		}
 	}

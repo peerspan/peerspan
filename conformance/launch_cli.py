@@ -50,10 +50,10 @@ from policy import PolicyHost, crafted
 ROOT_COMMANDS = [
     'status', 'install', 'run',
     'network create', 'join', 'invite',
+    'attach', 'agents', 'send', 'task',
     'allow', 'deny', 'block', 'unblock',
     'network list', 'network members', 'access show',
-    'session setup', 'session start', 'session doctor',
-    'message send', 'task submit',
+    'session start', 'session doctor',
 ]
 # Every command help advanced must list, beyond the root help's.
 HIDDEN_COMMANDS = [
@@ -73,6 +73,7 @@ HIDDEN_COMMANDS = [
     'adapter create', 'adapter list', 'adapter inspect', 'adapter revoke', 'adapter rotate', 'adapter connection',
     'adapter route add', 'adapter route list', 'adapter route revoke',
     'delivery list', 'delivery inspect', 'activity', 'uninstall',
+    'session setup', 'message send', 'task submit',
     'network join', 'network invite', 'access allow', 'access deny',
 ]
 STATUS_KEYS = {'host_id', 'version', 'networks', 'blocks', 'agents', 'artifacts', 'attention'}

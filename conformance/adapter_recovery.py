@@ -887,7 +887,7 @@ def migration(original, replacement, label):
             )
             a.binary = str(replacement)
             assert a.start() == ai
-            assert sql(a, "PRAGMA user_version")[0][0] == 12
+            assert sql(a, "PRAGMA user_version")[0][0] == 13
             for table, records in rows.items():
                 assert sql(a, "SELECT * FROM " + table) == records
             assert (

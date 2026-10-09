@@ -44,6 +44,13 @@ files together. --artifact uploads a file named after its base name; the
 i-th --artifact-type is the i-th file's media type. Received files count
 toward the daemon's --artifact-quota (default 10 GiB) and are kept 7 days
 after their task finishes; artifact prune releases finished tasks now.
+Agents are addressed as PERSON/AGENT or HOST_ID/AGENT. Each daemon keeps a
+directory of the agents its networks' other hosts let it reach; agents shows
+it, and send and task address an agent there, citing self access, a policy
+rule, or the grant with the latest expiry unless --grant is given. attach
+registers an agent for a project and sets up a session with directory access:
+its agent may send and delegate by address to anyone in the directory, at most
+--max-sends-per-hour times in an hour.
 The serve command is a compatibility alias for run.
 Session attachment records metadata; a scoped adapter connects an opted-in session.
 `,
@@ -127,6 +134,17 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("task cancel", "cancel ID", "Cancel a task", 1)
 	add("task events", "events ID", "Read task events", 1)
 	add("task artifact", "artifact ID SHA256", "Download a task artifact", 2)
+	// task TARGET TEXT is the task group itself, run with an address.
+	task := groups["task"]
+	task.Use, task.Short, task.Args = "task TARGET TEXT", "Delegate a task to an agent by address", cobra.ExactArgs(2)
+	task.RunE = func(cmd *cobra.Command, args []string) error {
+		return execute(cmd.Context(), append([]string{taskByAddress}, args...), cmd.Flags(), state, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	}
+	configureFlags(task, []string{taskByAddress})
+	leaves = append(leaves, task)
+	add("attach", "attach HARNESS", "Attach a harness in this project to the directory", 1)
+	add("agents", "agents", "Show the agents you can reach and who can reach yours", 0)
+	add("send", "send TARGET TEXT", "Send a message to an agent by address", 2)
 	add("artifact list", "list", "List stored artifacts", 0)
 	add("artifact prune", "prune", "Release artifacts of finished tasks", 0)
 	add("network create", "create [NAME]", "Create a coordinated network", 0).Args = cobra.RangeArgs(0, 1)
@@ -186,12 +204,15 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 var rootCommands = []string{
 	"status", "install", "run",
 	"network create", "join", "invite",
+	"attach", "agents", "send", "task",
 	"allow", "deny", "block", "unblock",
 	"network list", "network members",
 	"access show",
-	"session setup", "session start", "session doctor",
-	"message send", "task submit",
+	"session start", "session doctor",
 }
+
+// taskByAddress is the command path execute receives for task TARGET TEXT.
+const taskByAddress = "task-by-address"
 
 // shapeHelp hides every command outside rootCommands, and groups left with
 // no visible command, and installs the root and advanced help.
@@ -200,15 +221,18 @@ func shapeHelp(root *cobra.Command, leaves []*cobra.Command) {
 	for _, path := range rootCommands {
 		shown[path] = true
 	}
-	for _, leaf := range leaves {
-		leaf.Hidden = !shown[commandPath(leaf)]
+	leaf := map[*cobra.Command]bool{}
+	for _, l := range leaves {
+		l.Hidden = !shown[commandPath(l)]
+		leaf[l] = true
 	}
 	var hideGroups func(*cobra.Command) bool
 	hideGroups = func(cmd *cobra.Command) bool {
 		if !cmd.HasSubCommands() {
 			return !cmd.Hidden
 		}
-		visible := false
+		// A runnable group, such as task, stays visible when listed.
+		visible := leaf[cmd] && !cmd.Hidden
 		for _, child := range cmd.Commands() {
 			if hideGroups(child) {
 				visible = true
@@ -327,6 +351,27 @@ func configureFlags(cmd *cobra.Command, args []string) {
 			fs.Bool("delegate", false, "also allow task.delegate, so your agent may pass tasks on")
 		}
 	case "block", "unblock":
+	case "attach":
+		fs.String("name", "", "agent name; by default the harness name, suffixed when taken")
+		fs.String("directory", "", "project directory; defaults to the current directory")
+		fs.String("expires-at", "", "credential expiration; by default the credential is renewable")
+		fs.String("expires-in", "", "relative credential lifetime (1m to 720h); excludes --expires-at")
+		fs.Int64("max-sends-per-hour", 100, "sends and delegations by address the session may make in any 60 minutes, 1 to 10000")
+		fs.StringArray("option", nil, "integration-specific KEY=VALUE; repeatable")
+		fs.String("integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")
+		fs.String("runner", "", "integration helper executable override")
+	case "agents":
+		fs.String("network", "", "network ID; defaults to the only network")
+		fs.Bool("refresh", false, "refresh the directory first")
+		fs.Bool("json", false, "print the directory object")
+	case "send", taskByAddress:
+		fs.String("network", "", "network to resolve TARGET in; by default every network")
+		fs.String("grant", "", "receiver grant ID; without it, the daemon chooses self access, a policy rule, or a grant")
+		fs.String("from-agent", "", "local agent this originates from")
+		fs.String("deadline", "", "UTC deadline; default 1 hour")
+		if command == taskByAddress {
+			fs.StringArray("file", nil, "file to attach as an input artifact; repeatable")
+		}
 	case "status":
 		fs.Bool("json", false, "print the daemon's status object")
 	case "install":
@@ -457,7 +502,11 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("person-key-file", "", "CLI-generated person key file for renewing access policies when the ssh-agent lacks the key; defaults to $XDG_CONFIG_HOME/capsule/person_ed25519, used while it exists")
 		fs.Int64("artifact-quota", host.DefaultArtifactQuota, "bytes of task artifacts this host stores, including pending fetches")
 	case "session setup", "session start", "session doctor":
-		fs.String("directory", "", "private session setup directory")
+		if command == "setup" {
+			fs.String("directory", "", "private session setup directory")
+		} else {
+			fs.String("directory", "", "private session setup directory; defaults to the attach profile of the current directory")
+		}
 		if command == "setup" {
 			fs.String("harness", "", "installed harness integration ID")
 			fs.String("integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")

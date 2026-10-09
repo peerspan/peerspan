@@ -205,6 +205,8 @@ func (s *Store) storePolicy(ctx context.Context, tx *sql.Tx, network string, p m
 	if err := putRecord(ctx, tx, network, kindPolicy, p.PersonPublicKey, p); err != nil {
 		return err
 	}
+	// What other hosts list to this one may have changed.
+	s.directoryChanged(network)
 	person := personIDOf(p.PersonPublicKey)
 	if err := appendEvent(ctx, tx, "network.policy_updated", person, now); err != nil {
 		return err

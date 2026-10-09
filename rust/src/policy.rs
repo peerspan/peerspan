@@ -103,6 +103,8 @@ pub struct PolicyRef {
 pub struct SelfRef {
     pub person_id: String,
 }
+/// A request's `grant_id`, `policy`, and `self` fields.
+pub(crate) type RequestAuthorization = (Option<String>, Option<PolicyRef>, Option<SelfRef>);
 /// What a request without a grant cites.
 pub(crate) enum Citation {
     SelfAccess(SelfRef),
@@ -176,7 +178,7 @@ pub fn principal(value: &str) -> Result<(), Error> {
 }
 /// Whether a principal matches an authenticated sender, its groups, and the
 /// origin it asserts.
-fn principal_matches(
+pub(crate) fn principal_matches(
     p: &str,
     sender: &Member,
     groups: &[crate::admins::Group],
@@ -642,6 +644,40 @@ impl Store {
         Ok(Citation::Policy(Box::new(
             self.cited_policy(connection, peer)?,
         )))
+    }
+    /// What a request by address to `peer` cites for the chosen
+    /// authorization: a grant, or else a citation. Self access falls back
+    /// to the usual citation if this host no longer shares a person with
+    /// `peer`.
+    pub(crate) fn chosen(
+        &self,
+        connection: &Connection,
+        peer: &str,
+        choice: &crate::directory::Choice,
+    ) -> Result<Result<String, Citation>, Error> {
+        use crate::directory::Choice;
+        Ok(match choice {
+            Choice::Grant(id) => Ok(id.clone()),
+            Choice::SelfAccess => Err(self.citation(connection, peer)?),
+            Choice::Policy => Err(Citation::Policy(Box::new(
+                self.cited_policy(connection, peer)?,
+            ))),
+        })
+    }
+    /// The request fields `grant_id`, `policy`, and `self` for a choice.
+    pub(crate) fn chosen_citation(
+        &self,
+        connection: &Connection,
+        peer: &str,
+        choice: &crate::directory::Choice,
+    ) -> Result<RequestAuthorization, Error> {
+        Ok(match self.chosen(connection, peer, choice)? {
+            Ok(grant) => (Some(grant), None, None),
+            Err(cited) => {
+                let (policy, self_access) = cited.fields();
+                (None, policy, self_access)
+            }
+        })
     }
     /// What a forward to `peer` without a grant cites: past one link the
     /// authorization is the originator's, so self access when `peer` is bound
@@ -1547,6 +1583,7 @@ mod tests {
             attempts: 0,
             next_attempt_at: None,
             receipt_queries: 0,
+            to: None,
         };
         let shown = serde_json::to_value(&record).unwrap();
         assert!(

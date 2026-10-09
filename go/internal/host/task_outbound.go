@@ -57,11 +57,20 @@ type SubmitTask struct {
 	DelegationPrincipals []string `json:"delegation_principals,omitempty"`
 	// Parent forwards a running received task instead, extending its chain.
 	Parent *TaskParent `json:"parent,omitempty"`
+	// To, with an optional Network, is an address given instead of
+	// PeerHostID and TargetAgentID.
+	To      *string `json:"to,omitempty"`
+	Network string  `json:"network,omitempty"`
+	// cite is the owner citation chosen for an address, if any.
+	cite *ownerCitation
 }
 
 // OutboundTask is the local record of a submitted task.
 type OutboundTask struct {
-	PeerHostID  string      `json:"peer_host_id"`
+	PeerHostID string `json:"peer_host_id"`
+	// To is the address the task was given; records not sent by address
+	// keep their earlier shape, without it.
+	To          *string     `json:"to,omitempty"`
 	Request     TaskRequest `json:"request"`
 	SubmitState string      `json:"submit_state"`
 	// Status is the latest status record the receiver returned.
@@ -129,10 +138,14 @@ type OutboundTaskItem struct {
 
 // AdapterDelegate is an agent's task submission through a task.submit route.
 type AdapterDelegate struct {
-	Destination string          `json:"destination"`
-	TaskID      string          `json:"task_id"`
-	Input       string          `json:"input"`
-	Artifacts   []ArtifactEntry `json:"artifacts,omitempty"`
+	Destination string `json:"destination"`
+	// To, with an optional Network, is an address given instead of
+	// Destination by a directory session.
+	To        *string         `json:"to,omitempty"`
+	Network   string          `json:"network,omitempty"`
+	TaskID    string          `json:"task_id"`
+	Input     string          `json:"input"`
+	Artifacts []ArtifactEntry `json:"artifacts,omitempty"`
 	// ParentTaskID forwards a task this session claimed and is running.
 	ParentTaskID string `json:"parent_task_id,omitempty"`
 }
@@ -305,6 +318,9 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 			originator = parent.Delegation[0].IssuerHostID
 		}
 		c, err := s.chainCitation(ctx, tx, r.PeerHostID, originator)
+		if r.cite != nil && originator == s.identity.ID {
+			c, err = *r.cite, nil // chosen from the directory
+		}
 		if err != nil {
 			return OutboundTask{}, err
 		}
@@ -365,7 +381,7 @@ func (s *Store) PrepareOutboundTask(ctx context.Context, r SubmitTask) (Outbound
 	if err = requireStored(ctx, tx, request.Artifacts); err != nil {
 		return OutboundTask{}, err
 	}
-	out := OutboundTask{PeerHostID: r.PeerHostID, Request: request, SubmitState: submitUnknown, NextAttemptAt: s.initialAttempt(), Parent: r.Parent, Delegation: request.Delegation}
+	out := OutboundTask{PeerHostID: r.PeerHostID, To: r.To, Request: request, SubmitState: submitUnknown, NextAttemptAt: s.initialAttempt(), Parent: r.Parent, Delegation: request.Delegation}
 	if err = insertOutboundTask(ctx, tx, out); err != nil {
 		if isUniqueViolation(err) {
 			return out, ErrConflict
@@ -860,6 +876,12 @@ func (s *Store) backoffFetch(key string) {
 // route, bound to its credential and session, before any network attempt.
 func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r AdapterDelegate) (OutboundTask, error) {
 	r.Artifacts = emptyAsNone(r.Artifacts)
+	if r.To != nil {
+		return s.prepareAddressTask(ctx, auth, r)
+	}
+	if r.Network != "" {
+		return OutboundTask{}, ErrInvalid
+	}
 	if !validRouteName(r.Destination) || !validID(r.TaskID, "task", 16) || !validText(r.Input, false) || (r.Artifacts != nil && !validManifest(r.Artifacts)) || (r.ParentTaskID != "" && !validID(r.ParentTaskID, "task", 16)) {
 		return OutboundTask{}, ErrInvalid
 	}
@@ -887,7 +909,7 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 		return OutboundTask{}, ErrForbidden
 	}
 	var reused bool
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM outbound_tasks WHERE task_id = ? AND json_extract(record, '$.adapter_id') = ? AND json_extract(record, '$.route_id') != ?)`, r.TaskID, a.ID, route.ID).Scan(&reused); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM outbound_tasks WHERE task_id = ? AND json_extract(record, '$.adapter_id') = ? AND json_extract(record, '$.route_id') IS NOT ?)`, r.TaskID, a.ID, route.ID).Scan(&reused); err != nil {
 		return OutboundTask{}, err
 	}
 	if reused {

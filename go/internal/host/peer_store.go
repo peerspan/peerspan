@@ -148,6 +148,10 @@ func grantOf(r MessageRequest) string {
 type SendMessage struct {
 	PeerHostID string `json:"peer_host_id"`
 	MessageRequest
+	// To, with an optional Network, is an address given instead of
+	// PeerHostID and TargetAgentID.
+	To      *string `json:"to,omitempty"`
+	Network string  `json:"network,omitempty"`
 }
 type Receipt struct {
 	SenderHostID   string `json:"sender_host_id"`
@@ -162,11 +166,14 @@ type ReceivedMessage struct {
 	Receipt  Receipt        `json:"receipt"`
 }
 type OutboundMessage struct {
-	PeerHostID string         `json:"peer_host_id"`
-	Request    MessageRequest `json:"request"`
-	State      string         `json:"state"`
-	Receipt    *Receipt       `json:"receipt"`
-	Error      *string        `json:"error"`
+	PeerHostID string `json:"peer_host_id"`
+	// To is the address the send was given; records not sent by address
+	// keep their earlier shape, without it.
+	To      *string        `json:"to,omitempty"`
+	Request MessageRequest `json:"request"`
+	State   string         `json:"state"`
+	Receipt *Receipt       `json:"receipt"`
+	Error   *string        `json:"error"`
 	// Attempts counts transmissions, including receipt queries. NextAttemptAt
 	// is the next automatic attempt; nil once the outcome is final or retries
 	// stopped. A record from before automatic retry has neither field and is
@@ -578,7 +585,7 @@ func (s *Store) PrepareOutbound(ctx context.Context, r SendMessage) (OutboundMes
 	if !errors.Is(err, ErrNotFound) {
 		return old, err
 	}
-	out := OutboundMessage{PeerHostID: r.PeerHostID, Request: r.MessageRequest, State: "unknown", NextAttemptAt: s.initialAttempt()}
+	out := OutboundMessage{PeerHostID: r.PeerHostID, To: r.To, Request: r.MessageRequest, State: "unknown", NextAttemptAt: s.initialAttempt()}
 	data, err := json.Marshal(out)
 	if err != nil {
 		return out, err

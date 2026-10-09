@@ -302,6 +302,7 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
         .merge(crate::task::peer_routes())
         .merge(crate::artifact::peer_routes())
         .merge(crate::policy_sync::peer_routes())
+        .merge(crate::directory::peer_routes())
         .layer(Extension(sender))
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
@@ -504,8 +505,31 @@ async fn send(
     State(store): State<Arc<Store>>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<OutboundMessage>, Error> {
-    let request = decode(body)?;
-    let out = blocking(store.clone(), move |s| s.prepare_outbound(request)).await?;
+    let mut value: serde_json::Value = decode(body)?;
+    let addressed =
+        crate::directory::split_address(&mut value, &["peer_host_id", "target_agent_id"])?;
+    let out = match addressed {
+        None => {
+            let request = crate::directory::body(value)?;
+            blocking(store.clone(), move |s| s.prepare_outbound(request)).await?
+        }
+        Some((to, network)) => {
+            let addressed = crate::directory::owner_request(
+                &store,
+                &mut value,
+                &to,
+                network,
+                "request_id",
+                crate::policy::ACTION,
+            )
+            .await?;
+            let request = crate::directory::body(value)?;
+            blocking(store.clone(), move |s| {
+                s.prepare_outbound_to(request, Some(addressed))
+            })
+            .await?
+        }
+    };
     Ok(Json(exchange(store, out, false).await?))
 }
 async fn outbound(

@@ -27,6 +27,10 @@ type Options struct {
 	Program         string
 	ProviderOptions map[string]string
 	Args            []string
+	// AttachWorkspace, set by attach, is the project the profile records.
+	AttachWorkspace string
+	// MaxSendsPerHour, when nonzero, gives the session directory access.
+	MaxSendsPerHour int64
 }
 type Profile struct {
 	Version       int                      `json:"version"`
@@ -42,6 +46,8 @@ type Profile struct {
 	ProviderState json.RawMessage          `json:"provider_state"`
 	Files         map[string]string        `json:"files"`
 	Request       host.AdapterSetupRequest `json:"request"`
+	// Workspace is the project's real path, recorded only by attach.
+	Workspace string `json:"workspace,omitempty"`
 	// credential is the issued authorization, kept for the setup result.
 	credential host.Adapter
 }
@@ -323,11 +329,15 @@ func prepare(ctx context.Context, o Options) (*Profile, error) {
 	if _, err := rand.Read(random); err != nil {
 		return nil, err
 	}
-	p := &Profile{Version: 2, Phase: "preparing", Directory: dir, State: state, AgentID: o.Agent, SessionID: "session_" + hex.EncodeToString(random), Harness: m, Options: o.ProviderOptions, ProviderState: json.RawMessage(`{}`)}
+	p := &Profile{Version: 2, Phase: "preparing", Directory: dir, State: state, AgentID: o.Agent, SessionID: "session_" + hex.EncodeToString(random), Harness: m, Options: o.ProviderOptions, ProviderState: json.RawMessage(`{}`), Workspace: o.AttachWorkspace}
 	if p.Options == nil {
 		p.Options = map[string]string{}
 	}
 	p.Request = host.AdapterSetupRequest{AgentID: p.AgentID, SessionID: p.SessionID, Integration: m.ID, ExpiresAt: o.ExpiresAt, Routes: routes}
+	if o.MaxSendsPerHour > 0 {
+		limit := o.MaxSendsPerHour
+		p.Request.Directory, p.Request.MaxSendsPerHour = true, &limit
+	}
 	prepared, err := provider(ctx, p, "prepare", "", nil)
 	if err != nil {
 		return nil, err
@@ -516,6 +526,34 @@ func printJSON(out io.Writer, value any) error {
 	return err
 }
 
+// Setup prepares a new session setup with o.Agent, or else resumes the
+// interrupted setup in o.Directory, and returns its configured profile.
+func Setup(ctx context.Context, o Options) (*Profile, error) {
+	if o.Agent != "" {
+		return prepare(ctx, o)
+	}
+	p, err := loadProfile(o)
+	if err == nil && p.Phase != "preparing" {
+		err = errors.New("setup is already configured; use session start or session doctor")
+	}
+	if err == nil {
+		err = ensureArtifacts(p)
+	}
+	if err == nil {
+		checks := providerChecks(ctx, p)
+		if failed(checks) {
+			err = errors.New(checkErrors(checks))
+		}
+	}
+	if err == nil {
+		err = recoverSetup(ctx, p)
+	}
+	return p, err
+}
+
+// Launchable reports whether the profile's integration supports launch.
+func (p *Profile) Launchable() bool { return p.Harness.supports("launch") }
+
 // Run returns diagnostics through out; all authorization mutations remain in
 // the daemon's existing atomic setup/rotation API.
 func Run(ctx context.Context, o Options, out io.Writer) error {
@@ -523,28 +561,7 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 		o.Program = "capsule-host"
 	}
 	if o.Action == "setup" {
-		var p *Profile
-		var err error
-		if o.Agent != "" {
-			p, err = prepare(ctx, o)
-		} else {
-			p, err = loadProfile(o)
-			if err == nil && p.Phase != "preparing" {
-				err = errors.New("setup is already configured; use session start or session doctor")
-			}
-			if err == nil {
-				err = ensureArtifacts(p)
-			}
-			if err == nil {
-				checks := providerChecks(ctx, p)
-				if failed(checks) {
-					err = errors.New(checkErrors(checks))
-				}
-			}
-			if err == nil {
-				err = recoverSetup(ctx, p)
-			}
-		}
+		p, err := Setup(ctx, o)
 		if err != nil {
 			return err
 		}

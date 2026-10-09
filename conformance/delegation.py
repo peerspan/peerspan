@@ -488,18 +488,18 @@ def migration_check(original, replacement, label):
             sql(host, 'PRAGMA user_version = 10')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 12
+            assert sql(host, 'PRAGMA user_version')[0][0] == 13
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(DELEGATION_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('task', 'list') == []
             host.stop()
-            sql(host, 'PRAGMA user_version = 13')
+            sql(host, 'PRAGMA user_version = 14')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 13
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 14
         finally:
             stop_all((host,))
-    print(f'PASS {label}: v10→v12 migration; version 13 refused', flush=True)
+    print(f'PASS {label}: v10→v13 migration; version 14 refused', flush=True)
 
 
 def main():

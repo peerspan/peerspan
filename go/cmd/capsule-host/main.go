@@ -62,6 +62,11 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == "person" {
 		return personShow(fs, out)
 	}
+	// send and task TARGET TEXT name their target by address.
+	addressed := args[0] == "send" || args[0] == taskByAddress
+	if args[0] == taskByAddress {
+		args = append([]string{"task"}, args[1:]...)
+	}
 	if args[0] == "session" && (args[1] == "setup" || args[1] == "start" || args[1] == "doctor") {
 		return runSessionSetup(ctx, args[1:], fs, state, out)
 	}
@@ -104,6 +109,12 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == "status" {
 		return runStatus(ctx, client, fs, state, out)
 	}
+	if args[0] == "attach" {
+		return runAttach(ctx, client, args[1], fs, state, out)
+	}
+	if args[0] == "agents" {
+		return runAgents(ctx, client, fs, out)
+	}
 	args, err := defaultNetwork(ctx, client, args, fs)
 	if err != nil {
 		return err
@@ -116,7 +127,9 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	}
 	var method, path string
 	var body any
-	if args[0] == "access" {
+	if addressed {
+		method, path, body, err = addressedRequest(args, fs)
+	} else if args[0] == "access" {
 		method, path, body, err = accessRequest(ctx, client, args, fs)
 	} else {
 		method, path, body, err = buildRequest(args, fs)
@@ -140,6 +153,13 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 			return err
 		}
 		result, err = client.Call(ctx, method, path, b.SubmitTask)
+	case addressedTask:
+		if len(b.files) > 0 {
+			if b.body["artifacts"], err = uploadArtifacts(ctx, client, b.files, nil); err != nil {
+				return err
+			}
+		}
+		result, err = client.Call(ctx, method, path, b.body)
 	case artifactDownload:
 		result, err = downloadArtifact(ctx, client, path, b.out)
 	default:
@@ -730,6 +750,9 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		store.RunPolicySync(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
 	}()
 	defer func() { cancel(); <-policiesDone }()
+	directoryDone := make(chan struct{})
+	go func() { defer close(directoryDone); store.RunDirectory(daemonCtx) }()
+	defer func() { cancel(); <-directoryDone }()
 	retriesDone := make(chan struct{})
 	go func() { defer close(retriesDone); store.RunOutboundRetries(daemonCtx) }()
 	defer func() { cancel(); <-retriesDone }()

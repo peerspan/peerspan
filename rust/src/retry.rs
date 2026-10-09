@@ -308,6 +308,7 @@ mod tests {
             receipt: None,
             error: None,
             attempts: 0,
+            to: None,
             next_attempt_at: None,
             receipt_queries: 0,
         }

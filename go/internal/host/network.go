@@ -534,6 +534,7 @@ func (s *Store) SyncNetwork(ctx context.Context, id string) (Network, error) {
 		// are submitted on every sync until the coordinator serves them.
 		s.submitMissingRevocations(finishCtx, n, applied.missing)
 		s.refreshUsage(finishCtx, n)
+		s.mapApplied(n.ID, applied.members)
 	}
 	return n, nil
 }

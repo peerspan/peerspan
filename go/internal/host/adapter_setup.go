@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 )
 
@@ -62,6 +63,10 @@ type AdapterSetupRequest struct {
 	// ExpiresAt, when empty, makes the credential renewable.
 	ExpiresAt string       `json:"expires_at,omitempty"`
 	Routes    []SetupRoute `json:"routes"`
+	// Directory grants directory access, capped at MaxSendsPerHour (default
+	// 100) sends and delegations by address in any 60 minutes.
+	Directory       bool   `json:"directory,omitempty"`
+	MaxSendsPerHour *int64 `json:"max_sends_per_hour,omitempty"`
 }
 type SetupRoute struct {
 	Name            string  `json:"name"`
@@ -119,6 +124,15 @@ func (s *Store) SetupAdapter(ctx context.Context, r AdapterSetupRequest) (Adapte
 	if !validID(r.SessionID, "session", 16) || len(r.Routes) > 100 {
 		return AdapterSetup{}, ErrInvalid
 	}
+	var maxSends int64
+	if r.MaxSendsPerHour != nil {
+		if !r.Directory || *r.MaxSendsPerHour < 1 || *r.MaxSendsPerHour > 10000 {
+			return AdapterSetup{}, fmt.Errorf("%w: max_sends_per_hour is 1 to 10000 and requires directory", ErrInvalid)
+		}
+		maxSends = *r.MaxSendsPerHour
+	} else if r.Directory {
+		maxSends = defaultMaxSendsPerHour
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AdapterSetup{}, err
@@ -128,7 +142,7 @@ func (s *Store) SetupAdapter(ctx context.Context, r AdapterSetupRequest) (Adapte
 	if err != nil {
 		return AdapterSetup{}, err
 	}
-	credential, err := s.createAdapter(ctx, tx, CreateAdapter{SessionID: ss.ID, ExpiresAt: r.ExpiresAt})
+	credential, err := s.createAdapter(ctx, tx, CreateAdapter{SessionID: ss.ID, ExpiresAt: r.ExpiresAt, maxSendsPerHour: maxSends})
 	if err != nil {
 		return AdapterSetup{}, err
 	}
@@ -162,7 +176,7 @@ func localSetupRoute(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/adapters/setup", func(w http.ResponseWriter, r *http.Request) {
 		var req AdapterSetupRequest
-		if !decode(w, r, &req, "agent_id", "session_id", "integration", "expires_at", "routes") {
+		if !decode(w, r, &req, "agent_id", "session_id", "integration", "expires_at", "routes", "directory", "max_sends_per_hour") {
 			return
 		}
 		setup, err := store.SetupAdapter(r.Context(), req)

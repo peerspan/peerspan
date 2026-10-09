@@ -9,7 +9,7 @@ func adapterOutboundRoutes(mux *http.ServeMux, store *Store, token func(*http.Re
 	})
 	mux.HandleFunc("POST /adapter/v1/send", func(w http.ResponseWriter, r *http.Request) {
 		var req AdapterSend
-		if !decode(w, r, &req, "destination", "request_id", "content") {
+		if !decode(w, r, &req, "destination", "to", "network", "request_id", "content") {
 			return
 		}
 		out, err := store.PrepareAdapterSend(r.Context(), token(r), req)
@@ -17,6 +17,10 @@ func adapterOutboundRoutes(mux *http.ServeMux, store *Store, token func(*http.Re
 			out, err = store.Exchange(r.Context(), out, false)
 		}
 		respond(w, 200, out, err)
+	})
+	mux.HandleFunc("GET /adapter/v1/agents", func(w http.ResponseWriter, r *http.Request) {
+		agents, err := store.AdapterAgents(r.Context(), token(r))
+		respond(w, 200, agents, err)
 	})
 	mux.HandleFunc("GET /adapter/v1/sends/{id}", func(w http.ResponseWriter, r *http.Request) {
 		status, err := store.AdapterSendStatus(r.Context(), token(r), r.PathValue("id"))

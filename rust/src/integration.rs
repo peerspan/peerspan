@@ -117,6 +117,9 @@ struct Profile {
     provider_state: Value,
     files: BTreeMap<String, String>,
     request: Value,
+    /// The project's real path, in profiles made by `attach`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    workspace: String,
 }
 struct SetupOptions {
     directory: PathBuf,
@@ -129,6 +132,10 @@ struct SetupOptions {
     runner: Option<PathBuf>,
     routes: Option<PathBuf>,
     options: Vec<String>,
+    /// Directory access with this rate cap, for `attach`.
+    max_sends_per_hour: Option<i64>,
+    /// The project an `attach` profile records.
+    workspace: Option<String>,
 }
 fn name(value: &str) -> bool {
     !value.is_empty()
@@ -822,8 +829,13 @@ async fn prepare(o: SetupOptions) -> anyhow::Result<Profile> {
         provider_state: json!({}),
         files: BTreeMap::new(),
         request: Value::Null,
+        workspace: o.workspace.unwrap_or_default(),
     };
     p.request = json!({"agent_id":o.agent,"session_id":p.session_id,"integration":p.harness.id,"routes":routes(o.routes,o.expiry.as_deref())?});
+    if let Some(cap) = o.max_sends_per_hour {
+        p.request["directory"] = json!(true);
+        p.request["max_sends_per_hour"] = json!(cap);
+    }
     // Without an expiry the credential is renewable.
     if let Some(expiry) = &o.expiry {
         p.request["expires_at"] = json!(expiry);
@@ -960,6 +972,8 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
                     runner,
                     routes,
                     options,
+                    max_sends_per_hour: None,
+                    workspace: None,
                 })
                 .await?
             } else {
@@ -981,6 +995,10 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
             return Ok(());
         }
         SessionCommand::Doctor { directory } => {
+            let directory = match directory {
+                Some(directory) => directory,
+                None => attached_profile(&state)?,
+            };
             let p = load_profile(&directory, &state)?;
             let report = inspect(&p, provider_checks(&p).await).await;
             println!("{}", serde_json::to_string_pretty(&report)?);
@@ -995,6 +1013,10 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
             harness_args,
         } => (directory, workspace, harness_args),
         _ => bail!("unknown session integration operation"),
+    };
+    let directory = match directory {
+        Some(directory) => directory,
+        None => attached_profile(&state)?,
     };
     let mut p = load_profile(&directory, &state)?;
     if !p.harness.supports("launch") {
@@ -1045,6 +1067,411 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
     }
     std::env::set_current_dir(workspace)?;
     Err(Command::new(program).args(plan.args).exec()).context("harness launch failed")
+}
+
+/// `$XDG_CONFIG_HOME/capsule/sessions`, where `attach` keeps its profiles.
+fn sessions_root() -> anyhow::Result<PathBuf> {
+    let key = capsule_host::persons::generated_key_path().context(
+        "cannot locate the configuration directory: neither XDG_CONFIG_HOME nor HOME is set",
+    )?;
+    Ok(key
+        .parent()
+        .context("invalid configuration directory")?
+        .join("sessions"))
+}
+/// The state directory a command uses, as an absolute path.
+fn state_directory(state: &Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    absolute(&match state {
+        Some(value) => value.clone(),
+        None => crate::default_directory()?,
+    })
+}
+/// Every `attach` profile under `root/HOST/AGENT`, with its directory;
+/// unreadable ones are skipped.
+fn attach_profiles(root: &Path, host: Option<&str>) -> Vec<(PathBuf, Profile)> {
+    let mut found = Vec::new();
+    let hosts = match host {
+        Some(host) => vec![root.join(host)],
+        None => fs::read_dir(root)
+            .map(|entries| entries.filter_map(|e| e.ok()).map(|e| e.path()).collect())
+            .unwrap_or_default(),
+    };
+    for host in hosts {
+        let Ok(entries) = fs::read_dir(&host) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || !entry.path().is_dir() {
+                continue;
+            }
+            if let Ok(p) = load_profile(&entry.path(), &None)
+                && !p.workspace.is_empty()
+            {
+                found.push((entry.path(), p));
+            }
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found
+}
+/// The `attach` profile whose workspace is the current directory, for
+/// `session start` and `doctor` without `--directory`.
+fn attached_profile(state: &Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let workspace = fs::canonicalize(std::env::current_dir()?)?;
+    let state = state_directory(state)?;
+    let matches: Vec<PathBuf> = attach_profiles(&sessions_root()?, None)
+        .into_iter()
+        .filter(|(_, p)| Path::new(&p.workspace) == workspace && Path::new(&p.state) == state)
+        .map(|(directory, _)| directory)
+        .collect();
+    match matches.as_slice() {
+        [] => bail!(
+            "no attach profile for this directory; run capsule attach HARNESS, or give --directory"
+        ),
+        [one] => Ok(one.clone()),
+        many => bail!(
+            "several attach profiles record this directory; choose one with --directory: {}",
+            many.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+async fn admin(
+    state: &Path,
+    method: Method,
+    path: String,
+    body: Option<Value>,
+) -> anyhow::Result<Value> {
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        crate::call(state.join("admin.sock"), method, path, body),
+    )
+    .await
+    .context("host daemon request timed out")?
+}
+/// Lowercases a name suffix and replaces characters outside the
+/// addressable set with `-`.
+fn suffix(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            let c = c.to_ascii_lowercase();
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+/// `stem` with `tail` appended, cutting the stem so the name fits in 64
+/// characters.
+fn fitted(stem: &str, tail: &str) -> String {
+    let room = 64usize.saturating_sub(tail.len());
+    let mut stem: String = stem.chars().take(room).collect();
+    while stem.len() > room {
+        stem.pop();
+    }
+    format!("{stem}{tail}")
+}
+/// The first free default name: the base name, else `BASE-PROJECT` when the
+/// base name is used on this host, or `BASE-HOSTNAME` when it is used only
+/// on another host, then with `-2`, `-3`, and so on.
+fn default_name(
+    base: &str,
+    project: &str,
+    local: &BTreeSet<String>,
+    remote: &BTreeMap<String, String>,
+) -> String {
+    let free = |name: &str| !local.contains(name) && !remote.contains_key(name);
+    if free(base) {
+        return base.to_owned();
+    }
+    let stem = if local.contains(base) {
+        format!("{base}-{}", suffix(project))
+    } else {
+        let host = crate::hostname();
+        let short = host.split('.').next().unwrap_or_default().to_owned();
+        format!("{base}-{}", suffix(&short))
+    };
+    let first = fitted(&stem, "");
+    if free(&first) {
+        return first;
+    }
+    (2u64..)
+        .map(|n| fitted(&stem, &format!("-{n}")))
+        .find(|name| free(name))
+        .expect("an unused suffix exists")
+}
+
+/// `attach HARNESS`: registers the agent if needed and sets up a directory
+/// session for the project, recorded in an attach profile.
+pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> anyhow::Result<()> {
+    let crate::cli::Command::Attach {
+        harness,
+        name: wanted,
+        directory,
+        expires_at,
+        expires_in: _,
+        max_sends_per_hour,
+        options,
+        integrations,
+        runner,
+    } = command
+    else {
+        bail!("not an attach command")
+    };
+    let integration = if harness == "claude" {
+        "claude-code".to_owned()
+    } else {
+        harness
+    };
+    let base = if integration == "claude-code" {
+        "claude".to_owned()
+    } else {
+        integration.clone()
+    };
+    if !name(&integration) {
+        bail!("use a valid integration ID")
+    }
+    if let Some(expiry) = &expires_at
+        && !future(expiry)
+    {
+        bail!("use a future RFC3339 expiry")
+    }
+    let project = match directory {
+        Some(directory) => directory,
+        None => std::env::current_dir()?,
+    };
+    let workspace = fs::canonicalize(&project)
+        .with_context(|| format!("{} is not an existing directory", project.display()))?;
+    if !workspace.is_dir() {
+        bail!("{} is not a directory", workspace.display())
+    }
+    let workspace_text = workspace.to_string_lossy().into_owned();
+    let state = state_directory(&state)?;
+    let host = admin(&state, Method::GET, "/v1/host".into(), None).await?["id"]
+        .as_str()
+        .context("invalid daemon response")?
+        .to_owned();
+    // Refresh every network's directory first: names are checked against
+    // the person's other hosts, and unreachable ones are reported.
+    let status = admin(&state, Method::GET, "/v1/status".into(), None).await?;
+    let mut persons = BTreeMap::new();
+    let mut label = None;
+    for network in status["networks"].as_array().into_iter().flatten() {
+        if let (Some(id), Some(person)) = (network["id"].as_str(), network["person"]["id"].as_str())
+        {
+            persons.insert(id.to_owned(), person.to_owned());
+            if label.is_none() {
+                label = network["person"]["label"].as_str().map(str::to_owned);
+            }
+        }
+    }
+    let mut unchecked = BTreeSet::new();
+    let mut remote: BTreeMap<String, String> = BTreeMap::new();
+    for network in status["networks"].as_array().into_iter().flatten() {
+        let Some(id) = network["id"].as_str() else {
+            continue;
+        };
+        let directory = admin(
+            &state,
+            Method::POST,
+            format!("/v1/directory/refresh?network={}", crate::cli::encoded(id)),
+            Some(json!({})),
+        )
+        .await?;
+        let Some(person) = persons.get(id) else {
+            continue;
+        };
+        for h in directory["hosts"].as_array().into_iter().flatten() {
+            if h["person_id"].as_str() == Some(person) && h["state"] != "ok" {
+                unchecked.insert(h["host_id"].as_str().unwrap_or_default().to_owned());
+            }
+        }
+        for a in directory["agents"].as_array().into_iter().flatten() {
+            if a["person_id"].as_str() == Some(person)
+                && let (Some(name), Some(on)) = (a["name"].as_str(), a["host_id"].as_str())
+            {
+                remote
+                    .entry(name.to_owned())
+                    .or_insert_with(|| on.to_owned());
+            }
+        }
+    }
+    let agents = admin(&state, Method::GET, "/v1/agents".into(), None).await?;
+    let local: BTreeMap<String, String> = agents
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| Some((a["name"].as_str()?.to_owned(), a["id"].as_str()?.to_owned())))
+        .collect();
+    let root = sessions_root()?.join(&host);
+    let profiles = attach_profiles(&sessions_root()?, Some(&host));
+    let address = |name: &str| match &label {
+        Some(label) => format!("{label}/{name}"),
+        None => format!("{host}/{name}"),
+    };
+    let unchecked: Vec<String> = unchecked.into_iter().collect();
+    let print = |agent_id: &str, agent_name: &str, p: &Profile, profile: &Path, reused: bool| {
+        let next = if p.harness.supports("launch") {
+            "capsule session start"
+        } else {
+            "capsule session doctor"
+        };
+        let value = json!({
+            "agent": {"id": agent_id, "name": agent_name, "address": address(agent_name)},
+            "session_id": p.session_id,
+            "adapter_id": p.adapter_id,
+            "profile": profile,
+            "workspace": workspace_text,
+            "reused": reused,
+            "unchecked_hosts": unchecked,
+            "next": next,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        );
+    };
+    let existing = profiles
+        .iter()
+        .find(|(_, p)| p.workspace == workspace_text && p.host_id == host);
+    let (agent_id, agent_name) = match existing {
+        Some((directory, p)) => {
+            if p.phase == "configured" {
+                let adapter = admin(
+                    &state,
+                    Method::GET,
+                    format!("/v1/adapters/{}", p.adapter_id),
+                    None,
+                )
+                .await?;
+                if adapter["revoked_at"].is_null()
+                    && future(adapter["expires_at"].as_str().unwrap_or(""))
+                {
+                    let agent_name = directory
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    print(&p.agent_id, &agent_name, p, directory, true);
+                    return Ok(());
+                }
+            }
+            let agent = admin(
+                &state,
+                Method::GET,
+                format!("/v1/agents/{}", p.agent_id),
+                None,
+            )
+            .await?;
+            (
+                p.agent_id.clone(),
+                agent["name"]
+                    .as_str()
+                    .context("invalid daemon response")?
+                    .to_owned(),
+            )
+        }
+        None => {
+            let recorded = |id: &str| profiles.iter().any(|(_, p)| p.agent_id == id);
+            let reuse = match &wanted {
+                Some(wanted) => {
+                    if !capsule_host::directory::addressable(wanted) {
+                        bail!(
+                            "invalid agent name {wanted:?}: use 1-64 lowercase letters, digits, '.', '_', or '-', starting with a letter or digit"
+                        )
+                    }
+                    if let Some(on) = remote.get(wanted) {
+                        bail!("name {wanted} is taken by an agent on host {on} (409)")
+                    }
+                    match local.get(wanted) {
+                        Some(id) if recorded(id) => {
+                            bail!("name {wanted} is taken by agent {id} on host {host} (409)")
+                        }
+                        Some(id) => Some((id.clone(), wanted.clone())),
+                        None => None,
+                    }
+                }
+                None => None,
+            };
+            match reuse {
+                Some(found) => found,
+                None => {
+                    let agent_name = match wanted {
+                        Some(wanted) => wanted,
+                        None => {
+                            let project = workspace
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            let names = local.keys().cloned().collect();
+                            default_name(&base, &project, &names, &remote)
+                        }
+                    };
+                    let owner = label
+                        .clone()
+                        .or_else(crate::login_name)
+                        .unwrap_or_else(|| "owner".into());
+                    let agent = admin(
+                        &state,
+                        Method::POST,
+                        "/v1/agents".into(),
+                        Some(json!({"name": agent_name, "owner": owner, "capabilities": []})),
+                    )
+                    .await?;
+                    (
+                        agent["id"]
+                            .as_str()
+                            .context("invalid daemon response")?
+                            .to_owned(),
+                        agent_name,
+                    )
+                }
+            }
+        }
+    };
+    // A new setup replaces an old profile only once it succeeds.
+    let directory = root.join(&agent_name);
+    let aside = root.join(format!(".{agent_name}.old"));
+    let moved = if fs::symlink_metadata(&directory).is_ok() {
+        let _ = fs::remove_dir_all(&aside);
+        fs::rename(&directory, &aside).context("cannot move the old attach profile aside")?;
+        true
+    } else {
+        false
+    };
+    let result = prepare(SetupOptions {
+        directory: directory.clone(),
+        state: Some(state.clone()),
+        harness: integration,
+        agent: agent_id.clone(),
+        expiry: expires_at,
+        integrations,
+        runner,
+        routes: None,
+        options,
+        max_sends_per_hour: Some(max_sends_per_hour),
+        workspace: Some(workspace_text.clone()),
+    })
+    .await;
+    match result {
+        Ok(p) => {
+            if moved {
+                let _ = fs::remove_dir_all(&aside);
+            }
+            print(&agent_id, &agent_name, &p, &directory, false);
+            Ok(())
+        }
+        Err(error) => {
+            if moved && fs::symlink_metadata(&directory).is_err() {
+                let _ = fs::rename(&aside, &directory);
+            }
+            Err(error)
+        }
+    }
 }
 
 pub(crate) fn relative_expiry(value: &str) -> anyhow::Result<String> {

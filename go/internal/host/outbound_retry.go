@@ -290,8 +290,11 @@ func (s *Store) RunOutboundRetries(ctx context.Context) {
 
 // AdapterSendStatus reports a send made with this credential.
 type AdapterSendStatus struct {
-	RequestID     string  `json:"request_id"`
-	Destination   string  `json:"destination"`
+	RequestID string `json:"request_id"`
+	// Destination is the route of a route send; To is the address of a
+	// send by address. The other is null.
+	Destination   *string `json:"destination"`
+	To            *string `json:"to"`
 	State         string  `json:"state"`
 	Attempts      int64   `json:"attempts"`
 	NextAttemptAt *string `json:"next_attempt_at"`
@@ -308,7 +311,8 @@ func (s *Store) AdapterSendStatus(ctx context.Context, token AdapterAuth, id str
 	if err != nil {
 		return AdapterSendStatus{}, err
 	}
-	var peer, routeID string
+	var peer string
+	var routeID sql.NullString
 	err = tx.QueryRowContext(ctx, `SELECT peer, route_id FROM adapter_outbound WHERE adapter_id = ? AND request_id = ?`, a.ID, id).Scan(&peer, &routeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AdapterSendStatus{}, ErrNotFound
@@ -316,13 +320,17 @@ func (s *Store) AdapterSendStatus(ctx context.Context, token AdapterAuth, id str
 	if err != nil {
 		return AdapterSendStatus{}, err
 	}
-	route, err := readJSON[OutboundRoute](tx.QueryRowContext(ctx, `SELECT record FROM adapter_routes WHERE id = ?`, routeID))
-	if err != nil {
-		return AdapterSendStatus{}, err
+	var destination *string
+	if routeID.Valid {
+		route, err := readJSON[OutboundRoute](tx.QueryRowContext(ctx, `SELECT record FROM adapter_routes WHERE id = ?`, routeID.String))
+		if err != nil {
+			return AdapterSendStatus{}, err
+		}
+		destination = &route.Name
 	}
 	out, err := readJSON[OutboundMessage](tx.QueryRowContext(ctx, `SELECT record FROM outbound_messages WHERE peer = ? AND request_id = ?`, peer, id))
 	if err != nil {
 		return AdapterSendStatus{}, err
 	}
-	return AdapterSendStatus{RequestID: id, Destination: route.Name, State: out.State, Attempts: out.Attempts, NextAttemptAt: out.NextAttemptAt, Error: out.Error}, nil
+	return AdapterSendStatus{RequestID: id, Destination: destination, To: out.To, State: out.State, Attempts: out.Attempts, NextAttemptAt: out.NextAttemptAt, Error: out.Error}, nil
 }

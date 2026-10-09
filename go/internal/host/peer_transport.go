@@ -107,6 +107,7 @@ func PeerHandler(store *Store) http.Handler {
 	adapterPeerRoutes(mux, store, sender)
 	taskPeerRoutes(mux, store, sender)
 	policyPeerRoutes(mux, store, sender)
+	directoryPeerRoutes(mux, store, sender)
 	// A stream carries exactly one exchange.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "close")
@@ -221,12 +222,24 @@ func localPeerRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/outbound", func(w http.ResponseWriter, r *http.Request) {
 		var request SendMessage
-		if !decode(w, r, &request, "peer_host_id", "request_id", "grant_id?", "target_agent_id", "deadline", "content", "origin") {
+		if !decode(w, r, &request, "peer_host_id", "request_id", "grant_id?", "target_agent_id", "deadline", "content", "origin", "to", "network") {
 			return
 		}
 		if err := store.checkLocalOrigin(r.Context(), request.Origin); err != nil {
 			respond(w, 0, nil, err)
 			return
+		}
+		if request.To == nil && request.Network != "" {
+			respond(w, 0, nil, ErrInvalid)
+			return
+		}
+		if request.To != nil {
+			// The address is resolved, and an authorization chosen, before
+			// anything is persisted.
+			if err := store.addressOutbound(r.Context(), &request); err != nil {
+				respond(w, 0, nil, err)
+				return
+			}
 		}
 		out, err := store.PrepareOutbound(r.Context(), request)
 		if err == nil {

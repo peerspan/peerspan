@@ -44,6 +44,15 @@ pub struct Adapter {
     /// `expires_at` to a day ahead. Older records read as fixed.
     #[serde(default)]
     pub renewable: bool,
+    /// Directory access (launch slice 4): the adapter may send and delegate
+    /// by address to any agent in the directory. Older records read as
+    /// false.
+    #[serde(default)]
+    pub directory: bool,
+    /// The cap on sends and delegations by address in any 60 minutes; null
+    /// without directory access.
+    #[serde(default)]
+    pub max_sends_per_hour: Option<i64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -221,14 +230,16 @@ impl Store {
     pub fn create_adapter(&self, r: CreateAdapter) -> Result<AdapterCredential, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let credential = self.create_adapter_in(&tx, r)?;
+        let credential = self.create_adapter_in(&tx, r, None)?;
         tx.commit()?;
         Ok(credential)
     }
+    /// `directory` is the rate cap of a credential with directory access.
     pub(crate) fn create_adapter_in(
         &self,
         tx: &Transaction<'_>,
         r: CreateAdapter,
+        directory: Option<i64>,
     ) -> Result<AdapterCredential, Error> {
         let renewable = r.expires_at.is_none();
         let expires_at = r.expires_at.unwrap_or_else(renewed_expiry);
@@ -325,6 +336,8 @@ impl Store {
             expires_at,
             revoked_at: None,
             renewable,
+            directory: directory.is_some(),
+            max_sends_per_hour: directory,
         };
         let mut random = [0u8; 32];
         getrandom::fill(&mut random)
@@ -652,6 +665,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::task::adapter_routes())
         .merge(crate::task_outbound::adapter_routes())
         .merge(crate::artifact::adapter_routes())
+        .merge(crate::directory::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

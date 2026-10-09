@@ -86,7 +86,7 @@ export async function proxyTool(socket, callerSession, name, args) {
           method: 'POST',
           agent: false,
           headers: { 'Content-Type': 'application/json', 'Content-Length': encoded.length },
-          signal: AbortSignal.timeout(15000)
+          signal: AbortSignal.timeout(40000)
         },
         (response) => {
           const chunks = [];
@@ -130,7 +130,7 @@ export async function proxyTool(socket, callerSession, name, args) {
           type: 'text',
           text: JSON.stringify({
             request_id: requestId,
-            destination: args?.destination,
+            ...(args?.to === undefined ? { destination: args?.destination } : { to: args.to }),
             error: error.message,
             recovery:
               'The host may have saved this send and retries it automatically. Check send_status with this request_id; only if not_recorded, retry the identical destination/content with this same ID.'

@@ -1,4 +1,5 @@
 mod access;
+mod addressing;
 mod admin;
 mod cli;
 mod integration;
@@ -113,6 +114,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         };
         return integration::run(operation, cli.state).await;
     }
+    if let cli::Command::Attach { .. } = command {
+        return integration::attach(command, cli.state).await;
+    }
     if let cli::Command::Uninstall = command {
         println!("{}", serde_json::to_string_pretty(&service::uninstall()?)?);
         return Ok(());
@@ -142,6 +146,20 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         && network.is_none()
     {
         *network = Some(only_network(&directory.join("admin.sock")).await?);
+    }
+    if let cli::Command::Agents {
+        network,
+        refresh,
+        json,
+    } = &command
+    {
+        return addressing::agents(
+            &directory.join("admin.sock"),
+            cli::resolved(network),
+            *refresh,
+            *json,
+        )
+        .await;
     }
     // this binary currently either starts a host daemon or a local admin client
     // the daemon serves admin requests, peer-listeners etc
@@ -189,6 +207,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 /// Runs a command through the local daemon and returns what it prints.
 async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Value> {
     let socket = directory.join("admin.sock");
+    if let cli::Command::Task(cli::TaskCommand::To(args)) = command {
+        return addressing::task_to(&socket, args).await;
+    }
     if let Some(value) = artifact_command(&command, &socket).await? {
         return Ok(value);
     }
@@ -206,9 +227,15 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     if let Some(value) = admin::command(&command, &socket).await? {
         return Ok(value);
     }
+    // A send by address may refresh the directory before sending.
+    let bound = if matches!(command, cli::Command::Send { .. }) {
+        Duration::from_secs(40)
+    } else {
+        Duration::from_secs(10)
+    };
     let request = command.request().expect("local control command");
     tokio::time::timeout(
-        Duration::from_secs(10),
+        bound,
         call(socket, request.method, request.path, request.body),
     )
     .await
@@ -1019,6 +1046,7 @@ async fn run_daemon(
     let expiry = capsule_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let retention = capsule_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let policy_sync = capsule_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
+    let directory = capsule_host::directory::worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
@@ -1052,6 +1080,10 @@ async fn run_daemon(
         },
         async {
             policy_sync.await;
+            Ok(())
+        },
+        async {
+            directory.await;
             Ok(())
         },
         async {

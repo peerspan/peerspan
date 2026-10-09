@@ -29,6 +29,7 @@ use axum::{
 use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -116,6 +117,10 @@ pub struct OutboundTask {
     /// The delegation chain this task carried, or null.
     #[serde(default)]
     pub delegation: Option<Vec<Link>>,
+    /// The address the task was submitted to, as given (launch slice 4);
+    /// omitted for a task to a host and agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
 }
 impl Attempted for OutboundTask {
     fn uncertain(&self) -> bool {
@@ -159,6 +164,29 @@ pub struct Delegate {
     /// A task this session claimed, to forward.
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub parent_task_id: Option<String>,
+}
+/// A directory session's delegation by address (launch slice 4); `to` and
+/// `network` are taken from the body first.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddressDelegate {
+    pub task_id: String,
+    pub input: String,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub artifacts: Option<Vec<ArtifactEntry>>,
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub parent_task_id: Option<String>,
+}
+/// Where an adapter delegation goes: through a route, or to a resolved
+/// address with its chosen authorization.
+struct DelegationTarget {
+    peer: String,
+    agent: String,
+    /// The route's or, by address, the credential's expiry.
+    expiry: DateTime<Utc>,
+    route: Option<OutboundRoute>,
+    to: Option<String>,
+    choice: Option<crate::directory::Choice>,
 }
 /// How a new task relates to delegation: no chain, a new chain from link 0,
 /// or a forward of a received task.
@@ -328,6 +356,17 @@ impl Store {
     /// Persists an owner-submitted task before any network attempt. A repeat
     /// with identical fields returns the stored record.
     pub fn prepare_task(&self, r: SubmitTask) -> Result<OutboundTask, Error> {
+        self.prepare_task_to(r, None)
+    }
+    /// An addressed task's target is resolved and its authorization chosen
+    /// before this; a repeat of a stored task by address has no choice.
+    pub(crate) fn prepare_task_to(
+        &self,
+        r: SubmitTask,
+        addressed: Option<crate::directory::Addressed>,
+    ) -> Result<OutboundTask, Error> {
+        let explicit_grant = r.grant_id.is_some();
+        let choice = addressed.as_ref().and_then(|a| a.choice.clone());
         let spec = match (r.parent, r.delegation_depth, r.delegation_principals) {
             (Some(parent), 0, None) => {
                 if !valid_id(&parent.sender_host_id, "host", 32)
@@ -402,8 +441,20 @@ impl Store {
         let mut default_cap = default_deadline;
         // A forward cites once its parent's chain is known, below.
         let forwarding = matches!(spec, ChainSpec::Forward(_));
-        if request.policy.is_some() && !forwarding {
-            let cited = self.citation(&*self.connection()?, &r.peer_host_id)?;
+        if let Some(crate::directory::Choice::Grant(grant)) = &choice {
+            request.grant_id = Some(grant.clone());
+            request.policy = None;
+        }
+        let repeat = addressed.is_some() && choice.is_none();
+        if request.policy.is_some() && !forwarding && !repeat {
+            let conn = self.connection()?;
+            let cited = match &choice {
+                Some(choice) => match self.chosen(&conn, &r.peer_host_id, choice)? {
+                    Err(cited) => cited,
+                    Ok(_) => unreachable!("a grant was cited above"),
+                },
+                None => self.citation(&conn, &r.peer_host_id)?,
+            };
             (request.policy, request.self_access) = cited.fields();
             // A default deadline never outlives the cited policy.
             if let Some(until) = cited.valid_until() {
@@ -452,15 +503,32 @@ impl Store {
                 delegation: None,
                 ..a.clone()
             };
-            if old.adapter_id.is_some()
-                || same_owner(&old.request) != same_owner(&request)
-                || ChainSpec::of(&old) != spec
-            {
+            // A repeat by address keeps the stored citation unless it names
+            // a grant itself.
+            let same_address = |a: &TaskRequest| TaskRequest {
+                grant_id: a.grant_id.clone().filter(|_| explicit_grant),
+                policy: None,
+                self_access: None,
+                ..same_owner(a)
+            };
+            let differs = match &addressed {
+                None => old.to.is_some() || same_owner(&old.request) != same_owner(&request),
+                Some(a) => {
+                    old.to.as_deref() != Some(a.to.as_str())
+                        || same_address(&old.request) != same_address(&request)
+                }
+            };
+            if old.adapter_id.is_some() || differs || ChainSpec::of(&old) != spec {
                 return Err(Error::Conflict(
                     "task ID reused with different fields".into(),
                 ));
             }
             return Ok(old);
+        }
+        if repeat && !explicit_grant {
+            return Err(Error::Conflict(
+                "the stored task by address changed; retry".into(),
+            ));
         }
         let forward = match &spec {
             ChainSpec::Forward(parent) => {
@@ -513,6 +581,7 @@ impl Store {
             parent: forward.as_ref().map(|f| f.parent.clone()),
             delegation,
             artifacts: Vec::new(),
+            to: addressed.map(|a| a.to),
         };
         insert(&tx, &mut out)?;
         if let Some(f) = &forward {
@@ -656,7 +725,7 @@ impl Store {
             return Err(Error::Forbidden);
         }
         let reused: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 AND json_extract(record, '$.route_id') != ?3)",
+            "SELECT EXISTS(SELECT 1 FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 AND (json_extract(record, '$.route_id') IS NULL OR json_extract(record, '$.route_id') != ?3))",
             params![r.task_id, a.id, route.id],
             |row| row.get(0),
         )?;
@@ -705,8 +774,44 @@ impl Store {
         if route_used(&tx, &route.id)? >= route.max_messages {
             return Err(Error::Forbidden);
         }
+        let target = DelegationTarget {
+            peer: route.peer_host_id.clone(),
+            agent: route.target_agent_id.clone(),
+            expiry,
+            route: Some(route),
+            to: None,
+            choice: None,
+        };
+        let out = self.delegate_in(
+            &tx,
+            &a,
+            &ss,
+            r.task_id,
+            r.input,
+            artifacts,
+            r.parent_task_id,
+            target,
+        )?;
+        tx.commit()?;
+        Ok(out)
+    }
+    /// The task for a delegation through a route or by address: a forward
+    /// of a task this session claimed, or a new one, with its deadline,
+    /// citation, and chain.
+    #[allow(clippy::too_many_arguments)]
+    fn delegate_in(
+        &self,
+        tx: &Transaction<'_>,
+        a: &crate::adapter::Adapter,
+        ss: &crate::model::Session,
+        task_id: String,
+        input: String,
+        artifacts: Option<Vec<ArtifactEntry>>,
+        parent_task_id: Option<String>,
+        target: DelegationTarget,
+    ) -> Result<OutboundTask, Error> {
         // A forward names a task this session claimed.
-        let forward = match &r.parent_task_id {
+        let forward = match &parent_task_id {
             Some(parent) => {
                 let sender: Option<String> = tx
                     .query_row(
@@ -732,20 +837,29 @@ impl Store {
                     sender_host_id: sender,
                     task_id: parent.clone(),
                 };
-                Some(self.forwardable(&tx, &parent, &route.peer_host_id)?)
+                Some(self.forwardable(tx, &parent, &target.peer)?)
             }
             None => None,
         };
-        let mut deadline = (Utc::now() + DEFAULT_DEADLINE).min(expiry);
+        let mut deadline = (Utc::now() + DEFAULT_DEADLINE).min(target.expiry);
         if let Some(f) = &forward {
             deadline = deadline.min(f.deadline);
         }
-        let (policy, self_access) = match route.grant_id {
+        let grant = match (&target.route, &target.choice) {
+            (Some(route), _) => route.grant_id.clone(),
+            (None, Some(crate::directory::Choice::Grant(g))) => Some(g.clone()),
+            (None, _) => None,
+        };
+        let (policy, self_access) = match grant {
             Some(_) => (None, None),
             None => {
-                let cited = match &forward {
-                    Some(f) => self.chain_citation(&tx, &f.chain, &route.peer_host_id)?,
-                    None => self.citation(&tx, &route.peer_host_id)?,
+                let cited = match (&forward, &target.choice) {
+                    (Some(f), _) => self.chain_citation(tx, &f.chain, &target.peer)?,
+                    (None, Some(choice)) => match self.chosen(tx, &target.peer, choice)? {
+                        Err(cited) => cited,
+                        Ok(_) => unreachable!("a grant was cited above"),
+                    },
+                    (None, None) => self.citation(tx, &target.peer)?,
                 };
                 if let Some(until) = cited.valid_until() {
                     deadline = deadline.min(time(until)?);
@@ -754,17 +868,17 @@ impl Store {
             }
         };
         if let Some(inputs) = &artifacts {
-            self.check_uploads(&tx, inputs)?;
+            self.check_uploads(tx, inputs)?;
         }
         let mut request = TaskRequest {
-            task_id: r.task_id,
-            grant_id: route.grant_id,
+            task_id,
+            grant_id: grant,
             policy,
             self_access,
-            target_agent_id: route.target_agent_id,
+            target_agent_id: target.agent.clone(),
             deadline: rfc3339(deadline),
-            input: r.input,
-            // The route's session originates the task.
+            input,
+            // The session originates the task.
             origin: Some(Origin {
                 agent_id: ss.agent_id.clone(),
                 session_id: Some(ss.id.clone()),
@@ -772,26 +886,26 @@ impl Store {
             artifacts,
             delegation: None,
         };
+        let depth = target.route.as_ref().map_or(0, |r| r.delegation_depth);
         let spec = match &forward {
             Some(f) => ChainSpec::Forward(f.parent.clone()),
-            None if route.delegation_depth > 0 => ChainSpec::Origin {
-                depth: route.delegation_depth,
+            None if depth > 0 => ChainSpec::Origin {
+                depth,
                 principals: vec![NETWORK.into()],
             },
             None => ChainSpec::None,
         };
-        let delegation =
-            self.chain_for(&tx, &route.peer_host_id, &request, &spec, forward.as_ref())?;
+        let delegation = self.chain_for(tx, &target.peer, &request, &spec, forward.as_ref())?;
         request.delegation = delegation.clone();
         let mut out = OutboundTask {
-            peer_host_id: route.peer_host_id,
+            peer_host_id: target.peer,
             request,
             submit_state: "unknown".into(),
             status: None,
             events_after: 0,
             cancel_state: None,
-            adapter_id: Some(a.id),
-            route_id: Some(route.id),
+            adapter_id: Some(a.id.clone()),
+            route_id: target.route.map(|r| r.id),
             attempts: 0,
             next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
             error: None,
@@ -799,11 +913,138 @@ impl Store {
             parent: forward.as_ref().map(|f| f.parent.clone()),
             delegation,
             artifacts: Vec::new(),
+            to: target.to,
         };
-        insert(&tx, &mut out)?;
+        insert(tx, &mut out)?;
         if let Some(f) = &forward {
-            record_forward(&tx, f, &out)?;
+            record_forward(tx, f, &out)?;
         }
+        Ok(out)
+    }
+    /// A delegation by address this credential already made with the task
+    /// ID. A task ID used with a route, or with other fields, is a conflict.
+    fn known_address_delegation(
+        &self,
+        conn: &Connection,
+        a: &crate::adapter::Adapter,
+        session: &str,
+        to: &str,
+        r: &AddressDelegate,
+    ) -> Result<Option<OutboundTask>, Error> {
+        let old: Option<String> = conn
+            .query_row(
+                "SELECT record FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 ORDER BY rowid LIMIT 1",
+                params![r.task_id, a.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(old) = old else {
+            return Ok(None);
+        };
+        let mut old: OutboundTask = serde_json::from_str(&old)?;
+        fill(conn, &mut old)?;
+        if old.route_id.is_some() {
+            return Err(Error::Conflict(
+                "task ID belongs to another destination".into(),
+            ));
+        }
+        let origin_session = old
+            .request
+            .origin
+            .as_ref()
+            .and_then(|o| o.session_id.as_deref());
+        if origin_session != Some(session) {
+            return Err(Error::Forbidden);
+        }
+        if old.to.as_deref() != Some(to)
+            || old.request.input != r.input
+            || old.request.artifacts != normalized(r.artifacts.clone())
+            || old.parent.as_ref().map(|p| p.task_id.as_str()) != r.parent_task_id.as_deref()
+        {
+            return Err(Error::Conflict(
+                "task ID reused with different fields".into(),
+            ));
+        }
+        if time(&old.request.deadline)? <= Utc::now() && old.submit_state != "accepted" {
+            return Err(Error::Forbidden);
+        }
+        Ok(Some(old))
+    }
+    /// Checks a delegation by address before it is resolved: the stored
+    /// task for a repeat, or else the delegating agent, once directory
+    /// access and the rate cap allow a new one.
+    pub fn check_address_delegation(
+        &self,
+        auth: &AdapterAuth,
+        to: &str,
+        r: &AddressDelegate,
+    ) -> Result<Result<OutboundTask, String>, Error> {
+        if !valid_id(&r.task_id, "task", 16)
+            || r.input.is_empty()
+            || r.input.len() > MAX_TEXT
+            || r.parent_task_id
+                .as_deref()
+                .is_some_and(|p| !valid_id(p, "task", 16))
+        {
+            return Err(Error::Invalid("invalid delegation".into()));
+        }
+        if let Some(manifest) = &normalized(r.artifacts.clone()) {
+            validate_manifest(manifest)?;
+        }
+        let conn = self.connection()?;
+        let (a, ss) = authority(&conn, auth)?;
+        crate::directory::directory_access(&a)?;
+        if let Some(old) = self.known_address_delegation(&conn, &a, &ss.id, to, r)? {
+            return Ok(Ok(old));
+        }
+        crate::directory::rate_check(&conn, &a)?;
+        Ok(Err(ss.agent_id))
+    }
+    /// Persists a delegation by address to its resolved target, citing the
+    /// chosen authorization, and counts it against the credential's cap.
+    pub fn prepare_address_delegation(
+        &self,
+        auth: &AdapterAuth,
+        to: &str,
+        r: AddressDelegate,
+        target: &crate::directory::Candidate,
+        choice: &crate::directory::Choice,
+    ) -> Result<OutboundTask, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (a, ss) = authority(&tx, auth)?;
+        crate::directory::directory_access(&a)?;
+        if let Some(old) = self.known_address_delegation(&tx, &a, &ss.id, to, &r)? {
+            return Ok(old);
+        }
+        crate::directory::rate_check(&tx, &a)?;
+        let taken: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbound_tasks WHERE peer = ?1 AND task_id = ?2)",
+            params![target.host_id, r.task_id],
+            |row| row.get(0),
+        )?;
+        if taken {
+            return Err(Error::Conflict("task ID belongs to another task".into()));
+        }
+        let destination = DelegationTarget {
+            peer: target.host_id.clone(),
+            agent: target.agent_id.clone(),
+            expiry: time(&a.expires_at)?,
+            route: None,
+            to: Some(to.to_owned()),
+            choice: Some(choice.clone()),
+        };
+        let out = self.delegate_in(
+            &tx,
+            &a,
+            &ss,
+            r.task_id,
+            r.input,
+            normalized(r.artifacts),
+            r.parent_task_id,
+            destination,
+        )?;
+        crate::directory::count_send(&tx, &a.id, "task", &out.peer_host_id, &out.request.task_id)?;
         tx.commit()?;
         Ok(out)
     }
@@ -1402,8 +1643,30 @@ async fn create(
     State(store): State<Arc<Store>>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<OutboundTask>, Error> {
-    let request = decode(body)?;
-    let out = blocking(store.clone(), move |s| s.prepare_task(request)).await?;
+    let mut value: Value = decode(body)?;
+    let addressed =
+        match crate::directory::split_address(&mut value, &["peer_host_id", "target_agent_id"])? {
+            None => None,
+            Some((to, network)) => {
+                // A forward needs `task.delegate`.
+                let action = if value.get("parent").is_some_and(|p| !p.is_null()) {
+                    crate::policy::DELEGATE_ACTION
+                } else {
+                    crate::policy::TASK_ACTION
+                };
+                Some(
+                    crate::directory::owner_request(
+                        &store, &mut value, &to, network, "task_id", action,
+                    )
+                    .await?,
+                )
+            }
+        };
+    let request = crate::directory::body(value)?;
+    let out = blocking(store.clone(), move |s| {
+        s.prepare_task_to(request, addressed)
+    })
+    .await?;
     let status_only = crate::retry::receipt_only(&out, Utc::now());
     Ok(Json(submit(store, out, status_only).await?))
 }
@@ -1446,11 +1709,56 @@ async fn delegate(
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<OutboundTask>, Error> {
-    let request = decode(body)?;
+    let mut value: Value = decode(body)?;
     let auth = crate::adapter::token(&headers);
-    let out = blocking(store.clone(), move |s| s.prepare_delegation(&auth, request)).await?;
+    let out = match crate::directory::split_address(&mut value, &["destination"])? {
+        None => {
+            let request = crate::directory::body(value)?;
+            blocking(store.clone(), move |s| s.prepare_delegation(&auth, request)).await?
+        }
+        Some((to, network)) => {
+            address_delegation(
+                store.clone(),
+                auth,
+                to,
+                network,
+                crate::directory::body(value)?,
+            )
+            .await?
+        }
+    };
     let status_only = crate::retry::receipt_only(&out, Utc::now());
     Ok(Json(submit(store, out, status_only).await?))
+}
+/// A delegation by address: checked, resolved, authorized, then persisted.
+async fn address_delegation(
+    store: Arc<Store>,
+    auth: AdapterAuth,
+    to: String,
+    network: Option<String>,
+    r: AddressDelegate,
+) -> Result<OutboundTask, Error> {
+    let (check, address, request) = (auth.clone(), to.clone(), r.clone());
+    let origin = match blocking(store.clone(), move |s| {
+        s.check_address_delegation(&check, &address, &request)
+    })
+    .await?
+    {
+        Ok(old) => return Ok(old),
+        Err(origin) => origin,
+    };
+    let target = crate::directory::resolve(&store, &to, network.as_deref()).await?;
+    // A forward needs `task.delegate`.
+    let action = if r.parent_task_id.is_some() {
+        crate::policy::DELEGATE_ACTION
+    } else {
+        crate::policy::TASK_ACTION
+    };
+    let choice = crate::directory::authorize(&store, &to, &target, action, Some(&origin)).await?;
+    blocking(store, move |s| {
+        s.prepare_address_delegation(&auth, &to, r, &target, &choice)
+    })
+    .await
 }
 async fn delegation(
     State(store): State<Arc<Store>>,

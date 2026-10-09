@@ -426,23 +426,23 @@ func TestDelegationMigrationToVersion11(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir() + "/host"
 	s := must(Open(ctx, dir))
-	if _, err := s.db.ExecContext(ctx, "DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10"); err != nil {
+	if _, err := s.db.ExecContext(ctx, "DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
 	s = must(Open(ctx, dir))
 	var version, tables int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 12 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 13 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'task_children'").Scan(&tables); err != nil || tables != 1 {
 		t.Fatalf("task_children: %d %v", tables, err)
 	}
-	if _, err := s.db.ExecContext(ctx, "PRAGMA user_version = 13"); err != nil {
+	if _, err := s.db.ExecContext(ctx, "PRAGMA user_version = 14"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
-	if _, err := Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version: 13") {
-		t.Fatalf("version 13 opened: %v", err)
+	if _, err := Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version: 14") {
+		t.Fatalf("version 14 opened: %v", err)
 	}
 }

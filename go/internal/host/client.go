@@ -36,7 +36,9 @@ func (c Client) Call(ctx context.Context, method, path string, body any) (json.R
 		return (&net.Dialer{}).DialContext(ctx, "unix", c.SocketPath)
 	}}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+	// Directory refreshes and sends by address may wait 10 seconds for
+	// peers, and then for the exchange.
+	client := &http.Client{Transport: transport, Timeout: time.Minute}
 	req, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, input)
 	if err != nil {
 		return nil, err

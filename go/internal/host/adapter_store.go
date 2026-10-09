@@ -29,12 +29,19 @@ type Adapter struct {
 	// Renewable credentials were created without an expiry: each connection
 	// or lease renewal moves expires_at to 24 hours ahead.
 	Renewable bool `json:"renewable"`
+	// Directory credentials may send and delegate by address to any agent
+	// in the directory, at most MaxSendsPerHour times in any 60 minutes;
+	// MaxSendsPerHour is null without directory access.
+	Directory       bool   `json:"directory"`
+	MaxSendsPerHour *int64 `json:"max_sends_per_hour"`
 }
 
 // CreateAdapter without ExpiresAt issues a renewable credential.
 type CreateAdapter struct {
 	SessionID string `json:"session_id"`
 	ExpiresAt string `json:"expires_at,omitempty"`
+	// maxSendsPerHour, nonzero only through setup, grants directory access.
+	maxSendsPerHour int64
 }
 
 const (
@@ -213,6 +220,9 @@ func (s *Store) createAdapter(ctx context.Context, tx *sql.Tx, r CreateAdapter) 
 	}
 	token := "token_" + hex.EncodeToString(random)
 	adapter := Adapter{ID: id, SessionID: r.SessionID, ExpiresAt: r.ExpiresAt, Renewable: renewable}
+	if r.maxSendsPerHour > 0 {
+		adapter.Directory, adapter.MaxSendsPerHour = true, &r.maxSendsPerHour
+	}
 	data, err := json.Marshal(adapter)
 	if err != nil {
 		return AdapterCredential{}, err

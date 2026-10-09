@@ -24,7 +24,7 @@ import time
 
 
 # Tables added by database version 12 (policy propagation), dropped to model older state.
-POLICY_DELIVERY_TABLES = ["policy_deliveries"]
+POLICY_DELIVERY_TABLES = ["policy_deliveries", "directory_sends"]
 # Tables added by database version 11 (delegation chains), dropped to model older state.
 DELEGATION_TABLES = ["task_children"]
 # Tables added by database version 10 (task artifacts), dropped to model older state.
@@ -316,7 +316,7 @@ def check(binary, label):
             assert host.cli("grant", "list") == []
             assert host.cli("message", "list") == []
             assert host.cli("network", "list") == []
-            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 12
+            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 13
             host.stop()
             assert not (host.state / "admin.sock").exists()
         finally:

@@ -16,7 +16,8 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
 
@@ -156,15 +157,34 @@ pub struct AdapterSend {
     pub request_id: String,
     pub content: String,
 }
+/// A directory session's send by address (launch slice 4); `to` and
+/// `network` are taken from the body first.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddressSend {
+    pub request_id: String,
+    pub content: String,
+}
 /// An agent's view of one of its own sends, including automatic retry progress.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct SendStatus {
     pub request_id: String,
+    /// The route's name, shown as null for a send by address.
+    #[serde(serialize_with = "null_if_empty")]
     pub destination: String,
+    /// The address of a send by address, or null.
+    pub to: Option<String>,
     pub state: String,
     pub attempts: u32,
     pub next_attempt_at: Option<String>,
     pub error: Option<String>,
+}
+fn null_if_empty<S: Serializer>(value: &str, s: S) -> Result<S::Ok, S::Error> {
+    if value.is_empty() {
+        s.serialize_none()
+    } else {
+        s.serialize_str(value)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplyDelivery {
@@ -189,7 +209,8 @@ pub struct OutboundOrigin {
     pub request_id: String,
     pub adapter_id: String,
     pub session_id: String,
-    pub route_id: String,
+    /// Null for a send by address.
+    pub route_id: Option<String>,
     pub reply_delivery: Option<ReplyDelivery>,
 }
 fn expiration(text: &str) -> Result<DateTime<chrono::FixedOffset>, Error> {
@@ -215,7 +236,7 @@ pub(crate) fn valid_name(name: &str) -> bool {
 impl Store {
     pub fn outbound_origin(&self, peer: &str, id: &str) -> Result<OutboundOrigin, Error> {
         let conn = self.connection()?;
-        let (adapter_id,session_id,route_id,delivery):(String,String,String,Option<String>)=conn.query_row("SELECT adapter_id,session_id,route_id,reply_delivery FROM adapter_outbound WHERE peer = ?1 AND request_id = ?2",params![peer,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+        let (adapter_id,session_id,route_id,delivery):(String,String,Option<String>,Option<String>)=conn.query_row("SELECT adapter_id,session_id,route_id,reply_delivery FROM adapter_outbound WHERE peer = ?1 AND request_id = ?2",params![peer,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
         Ok(OutboundOrigin {
             peer_host_id: peer.to_owned(),
             request_id: id.to_owned(),
@@ -423,7 +444,7 @@ impl Store {
             return Err(Error::Forbidden);
         }
         let reused: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM adapter_outbound WHERE adapter_id = ?1 AND request_id = ?2 AND route_id != ?3",
+            "SELECT COUNT(*) FROM adapter_outbound WHERE adapter_id = ?1 AND request_id = ?2 AND (route_id IS NULL OR route_id != ?3)",
             params![a.id, r.request_id, route.id],
             |row| row.get(0),
         )?;
@@ -441,7 +462,7 @@ impl Store {
             .optional()?;
         if let Some(old) = old {
             let old: OutboundMessage = serde_json::from_str(&old)?;
-            let binding:Option<(String,String,String)>=tx.query_row("SELECT adapter_id,session_id,route_id FROM adapter_outbound WHERE peer = ?1 AND request_id = ?2",params![route.peer_host_id,r.request_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+            let binding:Option<(String,String,Option<String>)>=tx.query_row("SELECT adapter_id,session_id,route_id FROM adapter_outbound WHERE peer = ?1 AND request_id = ?2",params![route.peer_host_id,r.request_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
             let Some((aid, sid, rid)) = binding else {
                 return Err(Error::Conflict(
                     "request belongs to owner administration".into(),
@@ -450,7 +471,7 @@ impl Store {
             if aid != a.id || sid != ss.id {
                 return Err(Error::Forbidden);
             }
-            if rid != route.id || old.request.content != r.content {
+            if rid.as_deref() != Some(route.id.as_str()) || old.request.content != r.content {
                 return Err(Error::Conflict(
                     "request ID reused with different fields".into(),
                 ));
@@ -496,6 +517,7 @@ impl Store {
                 Utc::now() + crate::retry::PREPARE_GUARD,
             )),
             receipt_queries: 0,
+            to: None,
         };
         tx.execute(
             "INSERT INTO outbound_messages VALUES (?1,?2,?3)",
@@ -537,7 +559,7 @@ impl Store {
         }
         let conn = self.connection()?;
         let (a, _) = authority(&conn, token)?;
-        let (peer, route_id): (String, String) = conn
+        let (peer, route_id): (String, Option<String>) = conn
             .query_row(
                 "SELECT peer, route_id FROM adapter_outbound WHERE adapter_id = ?1 AND request_id = ?2",
                 params![a.id, request_id],
@@ -545,11 +567,17 @@ impl Store {
             )
             .optional()?
             .ok_or(Error::NotFound)?;
-        let route: OutboundRoute = read(
-            &conn,
-            "SELECT record FROM adapter_routes WHERE id = ?1",
-            [&route_id],
-        )?;
+        let destination = match route_id {
+            Some(route_id) => {
+                read::<OutboundRoute>(
+                    &conn,
+                    "SELECT record FROM adapter_routes WHERE id = ?1",
+                    [&route_id],
+                )?
+                .name
+            }
+            None => String::new(),
+        };
         let out: OutboundMessage = read(
             &conn,
             "SELECT record FROM outbound_messages WHERE peer = ?1 AND request_id = ?2",
@@ -557,12 +585,160 @@ impl Store {
         )?;
         Ok(SendStatus {
             request_id: out.request.request_id,
-            destination: route.name,
+            destination,
+            to: out.to,
             state: out.state,
             attempts: out.attempts,
             next_attempt_at: out.next_attempt_at,
             error: out.error,
         })
+    }
+    /// A send by address this credential already made with the request ID.
+    /// A request ID used with a route, or with other fields, is a conflict.
+    fn known_address_send(
+        &self,
+        conn: &rusqlite::Connection,
+        a: &crate::adapter::Adapter,
+        session: &str,
+        to: &str,
+        r: &AddressSend,
+    ) -> Result<Option<OutboundMessage>, Error> {
+        let binding: Option<(String, Option<String>, String)> = conn
+            .query_row(
+                "SELECT peer, route_id, session_id FROM adapter_outbound WHERE adapter_id = ?1 AND request_id = ?2",
+                params![a.id, r.request_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((peer, route, sid)) = binding else {
+            return Ok(None);
+        };
+        if route.is_some() {
+            return Err(Error::Conflict(
+                "request ID belongs to another destination".into(),
+            ));
+        }
+        if sid != session {
+            return Err(Error::Forbidden);
+        }
+        let old: OutboundMessage = read(
+            conn,
+            "SELECT record FROM outbound_messages WHERE peer = ?1 AND request_id = ?2",
+            params![peer, r.request_id],
+        )?;
+        if old.to.as_deref() != Some(to) || old.request.content != r.content {
+            return Err(Error::Conflict(
+                "request ID reused with different fields".into(),
+            ));
+        }
+        if expiration(&old.request.deadline)? <= Utc::now() && old.state != "accepted" {
+            return Err(Error::Forbidden);
+        }
+        Ok(Some(old))
+    }
+    /// Checks a send by address before it is resolved: the stored send for
+    /// a repeat, or else the sending agent, once directory access and the
+    /// rate cap allow a new one.
+    pub fn check_address_send(
+        &self,
+        token: &AdapterAuth,
+        to: &str,
+        r: &AddressSend,
+    ) -> Result<Result<OutboundMessage, String>, Error> {
+        if !valid_id(&r.request_id, "request", 16)
+            || r.content.is_empty()
+            || r.content.len() > 65536
+        {
+            return Err(Error::Invalid("invalid send".into()));
+        }
+        let conn = self.connection()?;
+        let (a, ss) = authority(&conn, token)?;
+        crate::directory::directory_access(&a)?;
+        if let Some(old) = self.known_address_send(&conn, &a, &ss.id, to, r)? {
+            return Ok(Ok(old));
+        }
+        crate::directory::rate_check(&conn, &a)?;
+        Ok(Err(ss.agent_id))
+    }
+    /// Persists a send by address to its resolved target, citing the chosen
+    /// authorization, and counts it against the credential's cap.
+    pub fn prepare_address_send(
+        &self,
+        token: &AdapterAuth,
+        to: &str,
+        r: AddressSend,
+        target: &crate::directory::Candidate,
+        choice: &crate::directory::Choice,
+    ) -> Result<OutboundMessage, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (a, ss) = authority(&tx, token)?;
+        crate::directory::directory_access(&a)?;
+        if let Some(old) = self.known_address_send(&tx, &a, &ss.id, to, &r)? {
+            return Ok(old);
+        }
+        crate::directory::rate_check(&tx, &a)?;
+        let taken: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbound_messages WHERE peer = ?1 AND request_id = ?2)",
+            params![target.host_id, r.request_id],
+            |row| row.get(0),
+        )?;
+        if taken {
+            return Err(Error::Conflict("request ID belongs to another send".into()));
+        }
+        let deadline = (Utc::now() + chrono::Duration::minutes(5))
+            .fixed_offset()
+            .min(expiration(&a.expires_at)?);
+        let (grant_id, policy, self_access) = self.chosen_citation(&tx, &target.host_id, choice)?;
+        let out = OutboundMessage {
+            peer_host_id: target.host_id.clone(),
+            request: MessageRequest {
+                request_id: r.request_id,
+                grant_id,
+                policy,
+                self_access,
+                target_agent_id: target.agent_id.clone(),
+                deadline: crate::store::rfc3339(deadline.with_timezone(&Utc)),
+                content: r.content,
+                origin: Some(crate::peer_store::Origin {
+                    agent_id: ss.agent_id.clone(),
+                    session_id: Some(ss.id.clone()),
+                }),
+            },
+            state: "unknown".into(),
+            receipt: None,
+            error: None,
+            attempts: 0,
+            next_attempt_at: Some(crate::store::rfc3339(
+                Utc::now() + crate::retry::PREPARE_GUARD,
+            )),
+            receipt_queries: 0,
+            to: Some(to.to_owned()),
+        };
+        let subject = format!("{}/{}", out.peer_host_id, out.request.request_id);
+        tx.execute(
+            "INSERT INTO outbound_messages VALUES (?1,?2,?3)",
+            params![
+                out.peer_host_id,
+                out.request.request_id,
+                serde_json::to_string(&out)?
+            ],
+        )?;
+        append_event(&tx, "message.queued", &subject, &now())?;
+        tx.execute(
+            "INSERT INTO adapter_outbound VALUES (?1,?2,?3,?4,NULL,0,NULL)",
+            params![out.peer_host_id, out.request.request_id, a.id, ss.id],
+        )?;
+        append_event(&tx, "adapter.message_queued", &subject, &now())?;
+        crate::directory::count_send(
+            &tx,
+            &a.id,
+            "message",
+            &out.peer_host_id,
+            &out.request.request_id,
+        )?;
+        tx.commit()?;
+        Ok(out)
     }
     pub fn next_reply(&self, token: &AdapterAuth) -> Result<Option<ReplyHandoff>, Error> {
         let mut conn = self.connection()?;
@@ -691,10 +867,51 @@ async fn send(
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<OutboundMessage>, Error> {
-    let req = decode(body)?;
+    let mut value: Value = decode(body)?;
     let t = token(&headers);
-    let out = blocking(store.clone(), move |s| s.prepare_adapter_send(&t, req)).await?;
+    let out = match crate::directory::split_address(&mut value, &["destination"])? {
+        None => {
+            let req = crate::directory::body(value)?;
+            blocking(store.clone(), move |s| s.prepare_adapter_send(&t, req)).await?
+        }
+        Some((to, network)) => {
+            address_send(
+                store.clone(),
+                t,
+                to,
+                network,
+                crate::directory::body(value)?,
+            )
+            .await?
+        }
+    };
     Ok(Json(crate::peer::exchange(store, out, false).await?))
+}
+/// A send by address: checked, resolved, authorized, then persisted.
+async fn address_send(
+    store: Arc<Store>,
+    t: AdapterAuth,
+    to: String,
+    network: Option<String>,
+    r: AddressSend,
+) -> Result<OutboundMessage, Error> {
+    let (check, address, request) = (t.clone(), to.clone(), r.clone());
+    let origin = match blocking(store.clone(), move |s| {
+        s.check_address_send(&check, &address, &request)
+    })
+    .await?
+    {
+        Ok(old) => return Ok(old),
+        Err(origin) => origin,
+    };
+    let target = crate::directory::resolve(&store, &to, network.as_deref()).await?;
+    let choice =
+        crate::directory::authorize(&store, &to, &target, crate::policy::ACTION, Some(&origin))
+            .await?;
+    blocking(store, move |s| {
+        s.prepare_address_send(&t, &to, r, &target, &choice)
+    })
+    .await
 }
 async fn send_status(
     State(store): State<Arc<Store>>,

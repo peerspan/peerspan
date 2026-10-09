@@ -69,13 +69,12 @@ from delegation import link_hash, sign, submit_raw
 ROOT_COMMANDS = [
     'status', 'install', 'run',
     'network create', 'join', 'invite',
+    'attach', 'agents', 'send', 'task',
     'allow', 'deny', 'block', 'unblock',
-    'network list', 'network members',
-    'access show',
-    'session setup', 'session start', 'session doctor',
-    'message send', 'task submit',
+    'network list', 'network members', 'access show',
+    'session start', 'session doctor',
 ]
-MOVED_COMMANDS = ['network join', 'network invite', 'access allow', 'access deny']
+MOVED_COMMANDS = ['network join', 'network invite', 'access allow', 'access deny', 'session setup', 'message send', 'task submit']
 INVITE_KEYS = {'network_id', 'member', 'invite_expires_at', 'token', 'join'}
 ALLOW_KEYS = {'policy', 'principal', 'agent', 'actions', 'max_artifact_bytes'}
 DEFAULT_ACTIONS = ('message.append', 'task.submit')

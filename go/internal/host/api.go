@@ -82,6 +82,7 @@ func Handler(store *Store) http.Handler {
 	localAdapterRoutes(mux, store)
 	localTaskRoutes(mux, store)
 	localStatusRoutes(mux, store)
+	localDirectoryRoutes(mux, store)
 	return mux
 }
 
@@ -130,6 +131,16 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, allowed ...string) 
 }
 
 func respond(w http.ResponseWriter, status int, value any, err error) {
+	var coded *codedError
+	if errors.As(err, &coded) {
+		w.Header().Set("Content-Type", "application/json")
+		if coded.code == "rate_limited" {
+			w.Header().Set("Retry-After", strconv.FormatInt(coded.retryAfter, 10))
+		}
+		w.WriteHeader(coded.status)
+		_ = json.NewEncoder(w).Encode(coded.body())
+		return
+	}
 	if err != nil {
 		code, message := "internal", "internal error"
 		status = http.StatusInternalServerError

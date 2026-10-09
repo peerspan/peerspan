@@ -97,8 +97,12 @@ type Destination struct {
 }
 type AdapterSend struct {
 	Destination string `json:"destination"`
-	RequestID   string `json:"request_id"`
-	Content     string `json:"content"`
+	// To, with an optional Network, is an address given instead of
+	// Destination by a directory session.
+	To        *string `json:"to,omitempty"`
+	Network   string  `json:"network,omitempty"`
+	RequestID string  `json:"request_id"`
+	Content   string  `json:"content"`
 }
 type ReplyDelivery struct {
 	ID         string `json:"id"`
@@ -120,7 +124,7 @@ type OutboundOrigin struct {
 	RequestID     string         `json:"request_id"`
 	AdapterID     string         `json:"adapter_id"`
 	SessionID     string         `json:"session_id"`
-	RouteID       string         `json:"route_id"`
+	RouteID       *string        `json:"route_id"`
 	ReplyDelivery *ReplyDelivery `json:"reply_delivery"`
 }
 
@@ -334,6 +338,12 @@ func (s *Store) Destinations(ctx context.Context, token AdapterAuth) ([]Destinat
 	return items, rows.Err()
 }
 func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r AdapterSend) (OutboundMessage, error) {
+	if r.To != nil {
+		return s.prepareAddressSend(ctx, token, r)
+	}
+	if r.Network != "" {
+		return OutboundMessage{}, ErrInvalid
+	}
 	if !validRouteName(r.Destination) || !validID(r.RequestID, "request", 16) || r.Content == "" || !utf8.ValidString(r.Content) || len(r.Content) > 65536 {
 		return OutboundMessage{}, ErrInvalid
 	}
@@ -361,7 +371,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 		return OutboundMessage{}, ErrForbidden
 	}
 	var reused int
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM adapter_outbound WHERE adapter_id = ? AND request_id = ? AND route_id != ?`, a.ID, r.RequestID, route.ID).Scan(&reused); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM adapter_outbound WHERE adapter_id = ? AND request_id = ? AND route_id IS NOT ?`, a.ID, r.RequestID, route.ID).Scan(&reused); err != nil {
 		return OutboundMessage{}, err
 	}
 	if reused != 0 {
@@ -369,7 +379,8 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	}
 	old, err := readJSON[OutboundMessage](tx.QueryRowContext(ctx, `SELECT record FROM outbound_messages WHERE peer = ? AND request_id = ?`, route.PeerHostID, r.RequestID))
 	if err == nil {
-		var adapterID, sessionID, routeID string
+		var adapterID, sessionID string
+		var routeID sql.NullString
 		if err = tx.QueryRowContext(ctx, `SELECT adapter_id,session_id,route_id FROM adapter_outbound WHERE peer = ? AND request_id = ?`, route.PeerHostID, r.RequestID).Scan(&adapterID, &sessionID, &routeID); errors.Is(err, sql.ErrNoRows) {
 			return old, ErrConflict
 		} else if err != nil {
@@ -378,7 +389,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 		if adapterID != a.ID || sessionID != ss.ID {
 			return old, ErrForbidden
 		}
-		if routeID != route.ID || old.Request.Content != r.Content {
+		if routeID.String != route.ID || old.Request.Content != r.Content {
 			return old, ErrConflict
 		}
 		deadline, err := parseTime(old.Request.Deadline)
