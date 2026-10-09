@@ -244,10 +244,14 @@ func (s *Server) runUsageFlush(ctx context.Context, done chan<- struct{}) {
 	for {
 		select {
 		case <-ctx.Done():
-			_ = s.relay.usage.flush(context.Background(), s.db, s.Now())
+			if err := s.relay.usage.flush(context.Background(), s.db, s.Now()); err != nil {
+				s.logError("relay usage could not be saved at shutdown", err, "", "")
+			}
 			return
 		case <-ticker.C:
-			_ = s.relay.usage.flush(ctx, s.db, s.Now())
+			if err := s.relay.usage.flush(ctx, s.db, s.Now()); err != nil {
+				s.logError("relay usage could not be saved; it is retried at the next flush", err, "", "")
+			}
 		}
 	}
 }

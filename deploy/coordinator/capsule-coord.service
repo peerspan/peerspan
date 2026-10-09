@@ -1,0 +1,57 @@
+# Capsule coordinator, as a systemd system service. See README.md in this
+# directory for installation; settings come from the environment file.
+[Unit]
+Description=Capsule coordinator
+Documentation=https://github.com/Cerebral-Systems/capsule/blob/main/deploy/coordinator/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=capsule-coord
+Group=capsule-coord
+EnvironmentFile=/etc/capsule-coord/capsule-coord.env
+# The ops listener (/healthz, /metrics) is loopback only; capsule-coord
+# refuses any other address.
+ExecStart=/usr/local/bin/capsule-coord --state /var/lib/capsule-coord run --listen ${CAPSULE_COORD_LISTEN} --ops-listen 127.0.0.1:9464 --max-members ${CAPSULE_COORD_MAX_MEMBERS} --max-networks-per-ip ${CAPSULE_COORD_MAX_NETWORKS_PER_IP} --relay-bytes-per-month ${CAPSULE_COORD_RELAY_BYTES_PER_MONTH}
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=20s
+# Up to 4096 relay connections plus API connections.
+LimitNOFILE=65536
+
+# /var/lib/capsule-coord holds coord.db, which includes the private key.
+StateDirectory=capsule-coord
+StateDirectoryMode=0700
+UMask=0077
+
+# Sandboxing. The coordination port is 1024 or above, so no capabilities are
+# added; README.md describes the one addition for a port below 1024.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

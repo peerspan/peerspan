@@ -1,0 +1,43 @@
+# Continuous replication of the Capsule coordinator database with Litestream.
+# See README.md in this directory.
+[Unit]
+Description=Litestream replication of the Capsule coordinator database
+Documentation=https://github.com/Cerebral-Systems/capsule/blob/main/deploy/coordinator/README.md
+Wants=network-online.target
+After=network-online.target capsule-coord.service
+
+[Service]
+Type=exec
+# Litestream reads coord.db and writes its metadata beside it
+# (.coord.db-litestream), so it runs as the coordinator's user.
+User=capsule-coord
+Group=capsule-coord
+EnvironmentFile=/etc/capsule-coord/litestream.env
+ExecStart=/usr/local/bin/litestream replicate -config /etc/capsule-coord/litestream.yml
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/capsule-coord
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

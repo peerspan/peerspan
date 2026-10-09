@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -82,6 +83,10 @@ ALTER TABLE members ADD COLUMN admission TEXT;
 PRAGMA user_version = 4;
 `
 
+// schemaVersion is the newest database version this build opens; Open
+// upgrades older ones.
+const schemaVersion = 5
+
 var (
 	errInvalid   = errors.New("invalid request")
 	errForbidden = errors.New("forbidden")
@@ -104,7 +109,10 @@ type Server struct {
 	Now      func() time.Time
 	relay    *relayServer
 	// Limits apply to new networks, joins, and relayed bytes; set before Serve.
-	Limits    Limits
+	Limits Limits
+	// Log receives the JSON log lines; set before Serve.
+	Log       *slog.Logger
+	metrics   *metrics
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -201,7 +209,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{Now: time.Now, Limits: DefaultLimits}
+	s := &Server{Now: time.Now, Limits: DefaultLimits, Log: slog.New(slog.DiscardHandler), metrics: newMetrics()}
 	s.relay = newRelayServer(s)
 	defer func() {
 		if err != nil {
@@ -237,7 +245,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 5 {
+	if version < 0 || version > schemaVersion {
 		return nil, fmt.Errorf("unsupported coordinator database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -364,7 +372,7 @@ func (s *Server) Listen(address string) (net.Listener, error) {
 // for the relay and the rest go to http.Server, whose request timeouts must
 // not apply to long-lived relay connections.
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
-	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
+	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, ErrorLog: s.httpErrorLog()}
 	stunConn, err := listenSTUN(listener.Addr())
 	if err != nil {
 		return err
@@ -378,9 +386,20 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	defer func() { stopFlush(); <-flushed }()
 	httpConns := newConnListener(listener.Addr())
 	serveCtx, cancelServe := context.WithCancel(ctx)
-	defer cancelServe()
-	defer s.relay.closeAll()
+	// Serve returns after every relay connection has closed, so each has
+	// logged its relay line before the caller logs stop.
+	var active sync.WaitGroup
+	accepting := make(chan struct{})
+	defer func() {
+		cancelServe()
+		_ = listener.Close()
+		s.relay.closeAll()
+		httpConns.Close()
+		<-accepting
+		active.Wait()
+	}()
 	go func() {
+		defer close(accepting)
 		for {
 			c, err := listener.Accept()
 			if err != nil {
@@ -390,7 +409,11 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 				}
 				return
 			}
-			go s.dispatch(serveCtx, c, httpConns)
+			active.Add(1)
+			go func() {
+				defer active.Done()
+				s.dispatch(serveCtx, c, httpConns)
+			}()
 		}
 	}()
 	stopAccept := context.AfterFunc(serveCtx, func() { _ = listener.Close() })
@@ -480,7 +503,7 @@ func (s *Server) Handler() http.Handler {
 	s.adminRoutes(mux)
 	s.policyRoutes(mux)
 	s.limitRoutes(mux)
-	return s.notifyChanges(mux)
+	return s.observe(mux, s.notifyChanges(mux))
 }
 
 // notifyChanges sends changed frames after every accepted change to a
@@ -538,6 +561,8 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 func callerID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if r.TLS == nil {
 		respond(w, 0, nil, errForbidden)
@@ -574,6 +599,7 @@ func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 }
 
 func respond(w http.ResponseWriter, status int, value any, err error) {
+	recordError(w, err)
 	var limited *limitError
 	if errors.As(err, &limited) {
 		status, value, err = http.StatusTooManyRequests, struct {

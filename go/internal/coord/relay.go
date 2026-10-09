@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"io"
+	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Cerebral-Systems/capsule/go/internal/membership"
@@ -67,6 +70,8 @@ type relayConn struct {
 	// v2 connections negotiated capsule-relay/2 and receive changed frames.
 	v2      bool
 	notices map[string]*notice
+	// Frame bytes read and written, for the relay log line.
+	bytesIn, bytesOut atomic.Int64
 }
 
 // notice is the changed-frame state of one network on one connection.
@@ -145,11 +150,17 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn) {
 	if err != nil {
 		return
 	}
+	alpn := conn.ConnectionState().NegotiatedProtocol
+	c := &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{},
+		v2: alpn == relay.ALPNv2, notices: map[string]*notice{}}
+	start := time.Now()
+	defer func() {
+		r.s.Log.LogAttrs(context.Background(), slog.LevelInfo, "relay", slog.String("host", id.String()), slog.String("alpn", alpn),
+			slog.Int64("bytes_in", c.bytesIn.Load()), slog.Int64("bytes_out", c.bytesOut.Load()), slog.Float64("duration_ms", milliseconds(time.Since(start))))
+	}()
 	if networks, err := r.networksOf(ctx, id); err != nil || len(networks) == 0 {
 		return
 	}
-	c := &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{},
-		v2: conn.ConnectionState().NegotiatedProtocol == relay.ALPNv2, notices: map[string]*notice{}}
 	r.mu.Lock()
 	// The cap counts current registrations; a replacement does not add one.
 	old := r.conns[id]
@@ -173,7 +184,7 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn) {
 	stop := context.AfterFunc(ctx, c.close)
 	defer stop()
 	go c.write()
-	reader := bufio.NewReaderSize(conn, 64<<10)
+	reader := bufio.NewReaderSize(countingReader{conn, &c.bytesIn}, 64<<10)
 	for {
 		_ = conn.SetReadDeadline(r.now().Add(r.idle))
 		kind, dest, datagram, err := relay.Read(reader, true)
@@ -200,7 +211,11 @@ func (r *relayServer) forward(ctx context.Context, src *relayConn, dest relay.Ho
 	}
 	// A network over its monthly relay bytes has its frames dropped, and the
 	// sender is told the destination is unreachable.
-	if !shared || !r.usage.charge(ctx, r.s.db, usageKey{network, monthOf(r.now())}, int64(len(datagram)), r.s.Limits.RelayBytesPerMonth) {
+	charged := shared && r.usage.charge(ctx, r.s.db, usageKey{network, monthOf(r.now())}, int64(len(datagram)), r.s.Limits.RelayBytesPerMonth)
+	if shared && !charged {
+		r.s.metrics.refused(limitRelayBytes)
+	}
+	if !charged {
 		now := r.now()
 		if last, ok := src.refused[dest]; !ok || now.Sub(last) >= relayUnreachableGap {
 			src.refused[dest] = now
@@ -208,7 +223,34 @@ func (r *relayServer) forward(ctx context.Context, src *relayConn, dest relay.Ho
 		}
 		return
 	}
+	r.s.metrics.relayBytes.Add(uint64(len(datagram)))
 	target.enqueue(r, frame(relay.FrameReceive, src.id[:], datagram))
+}
+
+// connections counts open relay connections by negotiated ALPN.
+func (r *relayServer) connections() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	counts := map[string]int{}
+	for _, c := range r.conns {
+		if c.v2 {
+			counts[relay.ALPNv2]++
+		} else {
+			counts[relay.ALPN]++
+		}
+	}
+	return counts
+}
+
+type countingReader struct {
+	r io.Reader
+	n *atomic.Int64
+}
+
+func (c countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n.Add(int64(n))
+	return n, err
 }
 
 // changed tells every member host of a network with a current version 2
@@ -263,7 +305,9 @@ func (c *relayConn) notify(r *relayServer, network string) {
 	if n.last.IsZero() || wait <= 0 {
 		n.last = now
 		c.mu.Unlock()
-		c.enqueue(r, frame(relay.FrameChanged, []byte(network)))
+		if c.enqueue(r, frame(relay.FrameChanged, []byte(network))) {
+			r.s.metrics.notified.Add(1)
+		}
 		return
 	}
 	n.pending = true
@@ -275,7 +319,9 @@ func (c *relayConn) notify(r *relayServer, network string) {
 		select {
 		case <-c.done:
 		default:
-			c.enqueue(r, frame(relay.FrameChanged, []byte(network)))
+			if c.enqueue(r, frame(relay.FrameChanged, []byte(network))) {
+				r.s.metrics.notified.Add(1)
+			}
 		}
 	})
 }
@@ -334,7 +380,8 @@ func (c *relayConn) write() {
 			return
 		case data := <-c.out:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(relayWriteTimeout))
-			_, err := c.conn.Write(data)
+			n, err := c.conn.Write(data)
+			c.bytesOut.Add(int64(n))
 			c.mu.Lock()
 			c.queued -= len(data)
 			c.mu.Unlock()

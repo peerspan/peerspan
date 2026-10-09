@@ -43,7 +43,7 @@ go -C go build -o /tmp/capsule-peer-probe ./cmd/capsule-peer-probe
 cargo build --locked --manifest-path rust/Cargo.toml
 ```
 
-`capsule-coord` is the coordination service. It is a separate Go binary used by both host implementations. `capsule-peer-probe` is a test client the conformance suites use for raw peer requests; it is not part of a deployment.
+`capsule-coord` is the coordination service. It is a separate Go binary used by both host implementations; [deploy/coordinator](deploy/coordinator/README.md) runs it as a hosted service. `capsule-peer-probe` is a test client the conformance suites use for raw peer requests; it is not part of a deployment.
 
 Run each daemon in its own terminal with a separate state directory:
 
