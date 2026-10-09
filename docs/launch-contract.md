@@ -546,7 +546,10 @@ A session's credential may be created with **directory access**. Then its adapte
 **`attach`.**
 - `HARNESS` is an integration ID, or `claude`, which means `claude-code`. The base name is `claude` for `claude-code`, and otherwise the integration ID.
 - **Profiles** live in `$XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME/`, and record the project's real path as `workspace`.
-- **Re-attaching.** If a profile for this host already records this workspace, `attach` reuses its agent. If its credential is unexpired and unrevoked, `attach` changes nothing and reports `reused: true`. Otherwise it performs a new setup for the same agent and replaces the old profile once the setup succeeds.
+- **Re-attaching.** If a profile for this host already records this workspace, `attach` reuses its agent, according to the profile's credential (revised in slice 5):
+  - unexpired, unrevoked, and never connected (`registered`): `attach` changes nothing and reports `reused: true`;
+  - connected now (`ready`, a valid lease): an adapter that has just exited keeps its lease for up to 15 seconds, so `attach` says on stderr that it is waiting, and polls the connection until the lease it saw has expired, at most 16 seconds. If the lease was renewed meanwhile, the session is running, and `attach` refuses with exit 1 before changing anything. Otherwise it continues as for `offline`;
+  - otherwise (expired, revoked, detached, or connected before and now `offline`): it performs a new setup for the same agent, replacing the old credential as the adapter contract allows for a lapsed lease, and replaces the old profile once the setup succeeds. A refusal because the old adapter is still within its reconnect window is reported as is.
 - **Naming.** Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
   1. the base name;
   2. `BASE-PROJECT`, where `PROJECT` is the workspace's base name, if the base name is used on this host;
@@ -620,13 +623,39 @@ Decided with the owner on 2026-10-09:
 - the scripted run executes exactly the commands the [quick start](quick-start.md) documents, and fails if any other step is needed;
 - the live run has three Claude Code sessions use the directory and a two-link delegation, with no routes;
 - the live run uses the operator's existing Claude Code login for all three sessions, with each person's Capsule state and configuration isolated;
-- `attach` launches the session itself.
+- `attach` launches the session itself;
+- the coordinator pushes change notifications, so hosts learn of joins and policies at once rather than at the next 30-second sync (decided after the first acceptance runs, which failed on that latency);
+- an agent's delegation by address may allow onward hops, opt-in per task.
+
+### Change notifications
+
+The first acceptance runs showed that commands run right after a join or an `allow` on another machine fail, because hosts learn of changes only at their next coordination sync: `attach` could not check a new sibling's names, `allow bob` could not resolve bob, and a send could not cite a new policy.
+
+**Protocol.** The relay protocol gains version 2, ALPN `capsule-relay/2`, identical to version 1 plus one frame:
+
+| Type | Direction | Payload | Meaning |
+| --- | --- | --- | --- |
+| `0x05` changed | relay → host | the network ID, as UTF-8 | The network's map or stored statements changed; sync it. |
+
+- Hosts offer `capsule-relay/2` before `capsule-relay/1`, and coordinators select version 2 when offered. A coordinator that only knows version 1 selects it, and the host then relies on interval syncs as before. Version 1 connections never receive `0x05`.
+- **Coordinator.** After it accepts a change to a network, it sends `changed` for that network on the current version 2 relay connection of every member host of that network, the host that made the change included. Changes are joins, registrations, person and host admissions, bindings, revocations of every kind, leaves, rotations, policies, groups, and administrator delegations and removals. Plain syncs that only update an address or candidates are not changes. It sends at most one `changed` per network per connection per 250 milliseconds, coalescing later changes into the next one.
+- **Host.** On `changed`, it syncs that network as its interval sync does, then applies the result as usual: map changes, sibling policy syncs, and the directory refresh within 10 seconds of a change, which hosts now start at once instead. At most one sync per network is in flight; a `changed` that arrives during one causes one more sync after it. Interval syncs continue unchanged, as the fallback.
+- Every host that is a member of a network now keeps its relay connection to that coordinator, including hosts without `--peer-listen`, which still accept no inbound peer connections through it.
+
+**Fallbacks for the remaining race.** A change reaches other hosts within about a round trip, which can still be later than a command typed straight afterwards on another machine. So:
+- `allow`, `deny`, `block`, and `unblock` sync the network once when a person label or ID does not resolve, and then resolve again before failing.
+- A synchronous directory refresh (`POST /v1/directory/refresh`, `attach`, `agents --refresh`, and the refresh before an `unknown` resolution) retries a host that answered 403 once, 2 seconds later.
+- Before refusing a send by address with `not_authorized`, the daemon also syncs the network once, so it cites the newest policy.
+
+### Onward hops by address
+
+`POST /adapter/v1/delegations` with `to` accepts `delegation_depth` (0 to 2, default 0), as `task submit --delegation-depth` does. A nonzero depth creates link 0 with that depth, principals `network`, and the session's agent as originator, under the rules of the [delegation chain contract](delegation-chain-contract.md). It is 400 with `destination`, whose route sets the depth, and with `parent_task_id`, since a forward continues an existing chain. MCP `delegate_task` accepts `delegation_depth` with `to`. The receiving owner must still allow onward delegation (`allow --delegate`), and the receiver checks the chain as before.
 
 ### Attach launches
 
-For an integration that supports launch, `attach` ends by doing what `capsule session start` does in the project: it replaces itself with the harness in the workspace, recovering the session first if needed. This happens whether the attach set up a new session or reused one. `--no-start` stops after setup and prints the output object as before, with `next` naming `capsule session start`. Arguments after `--` are passed to the harness, as for `session start`. For an integration without launch, `attach` prints its output as before.
+For an integration that supports launch, `attach` ends by doing what `capsule session start` does in the project: it replaces itself with the harness in the workspace, recovering the session first if needed. This happens whether the attach set up a new session or reused one, so running `capsule attach claude` again in a project after Claude Code exited starts the same agent with a fresh session. `--no-start` stops after setup and prints the output object as before, with `next` naming `capsule session start`. Arguments after `--` are passed to the harness, as for `session start`. For an integration without launch, `attach` prints its output as before.
 
-Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness.
+Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness. The object is the same as with `--no-start`, including `next`, which names `capsule session start` for later launches.
 
 ### The documented path
 
@@ -675,7 +704,7 @@ A run fails when a step exits nonzero, when a step's output lacks what a later s
 `conformance/live_launch_agents.py` runs three persons, alice (Go), bob (Rust), and carol (Go), on one host as the invoking user.
 - **Isolation.** Each person has their own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and daemon, run in the foreground with `capsule run` from an installed bundle; the scripted run covers `install`. `HOME` is shared, so all three Claude Code sessions use the existing login.
 - **Setup.** It follows the team path, except that `allow everyone --delegate` replaces `allow everyone`. Each person runs `capsule attach claude` in a project directory of their own, in a terminal the harness drives, with Claude Code's built-in tools disabled.
-- **Flow.** The harness prompts only alice's session. Alice's Claude calls `list_agents`, then `delegate_task` to `bob/claude` by `to`, asking for a short review with a part to be passed on to carol. Bob's Claude accepts and calls `delegate_task` to `carol/claude` with `parent_task_id`. Carol's Claude completes, bob's completes the parent with carol's result, and alice's receives the final update. Alice's Claude then sends one message to `carol/claude` by `to` and gets a reply.
+- **Flow.** The harness prompts only alice's session. Alice's Claude calls `list_agents`, then `delegate_task` to `bob/claude` by `to` with `delegation_depth` 1, asking for a short review with a part to be passed on to carol. Bob's Claude accepts and calls `delegate_task` to `carol/claude` with `parent_task_id`. Carol's Claude completes, bob's completes the parent with carol's result, and alice's receives the final update. Alice's Claude then sends one message to `carol/claude` by `to` and gets a reply.
 - **Verification, from host state:**
   - every task and message was submitted by an adapter with directory access and has a `to`, and no route exists;
   - carol's task carries a two-link chain originating at alice;
@@ -684,6 +713,15 @@ A run fails when a step exits nonzero, when a step's output lacks what a later s
 - **Results.** It writes `docs/results/launch-live.json` with the commands, the tool calls observed, task states, and model and version strings, and records model behavior without claiming more than host state shows. `--fixture` replaces the models with deterministic MCP consumers, for checking the harness.
 
 ### Verification
+
+Change notifications are checked by `conformance/launch_push.py`, written from this contract by an author independent of both implementations, across all Go/Rust pairings with the Go coordinator and `--probe`. It covers:
+- version 2 negotiation, and a version 1 host still served by interval syncs;
+- a join, a binding, a policy, a group change, and a revocation each reaching every other member within 2 seconds, with a 30-second interval;
+- no `changed` for a plain sync;
+- coalescing of a burst of changes;
+- a host without `--peer-listen` notified;
+- the three fallbacks: `allow` by a label admitted moments earlier, a directory refresh retrying a 403, and a send citing a policy submitted moments earlier;
+- `delegation_depth` on an address delegation, with a forward by the receiver by address, and the 400 cases.
 
 The attach launch is checked by `conformance/launch_directory.py`, which existing cases make pass `--no-start` where they expect the output object, plus cases for the launch with the fixture harness, the reused session, and `--no-start`. Otherwise this slice adds no conformance suite. It is accepted when:
 - `launch_acceptance.py` passes every run, and its results file shows the counts above;
