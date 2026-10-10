@@ -39,7 +39,10 @@ async function call(name, args, session = selected) {
 async function input(text, meta) {
   if (meta) {
     const content = text.slice(text.indexOf('\n\n') + 2);
-    if (meta.kind === 'message')
+    // Live delivery readiness: answer the hello event before work flows.
+    if (meta.kind === 'hello')
+      await hooks.tool.capsule_ready.execute({ nonce: meta.nonce }, { sessionID: selected, ask: async () => {} });
+    else if (meta.kind === 'message')
       await call('reply', {
         delivery_id: meta.delivery_id,
         content: 'fixture reply: ' + content

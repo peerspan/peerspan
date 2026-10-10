@@ -7574,11 +7574,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 14;")
+            .execute_batch("PRAGMA user_version = 15;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

@@ -76,7 +76,7 @@ from tasks import channel_event, tool  # noqa: E402
 
 PERSONS = ('alice', 'bob', 'carol')
 NAMES = {'G': 'go', 'R': 'rust'}
-TOOLS = ['list_agents', 'send', 'send_status', 'reply', 'delegate_task', 'task_accept', 'task_reject',
+TOOLS = ['capsule_ready', 'list_agents', 'send', 'send_status', 'reply', 'delegate_task', 'task_accept', 'task_reject',
          'task_progress', 'task_complete', 'task_status']
 FLOW_SECONDS = 600
 READY_SECONDS = 120
@@ -155,6 +155,7 @@ class RelayedChannel(Channel):
         assert result['capabilities']['experimental'] == {'claude/channel': {}}, result
         self.protocol = result['protocolVersion']
         self.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
+        self.handshake()
 
     def close(self):
         try:
@@ -511,6 +512,15 @@ def verify(people):
     r['every_attached_adapter_has_directory_access'] = all(
         recs and all(rec.get('directory') is True for rec in recs.values()) for recs in adapters.values())
     r['no_route_exists'] = all(not person.sql('SELECT 1 FROM adapter_routes') for person in people)
+    # Each session called capsule_ready (live delivery contract, slice 1), so its
+    # channel is verified and status shows no channel_unverified item.
+    r['every_attached_channel_verified'] = all(
+        recs and all(person.sql('SELECT channel_verified_at FROM adapter_connections WHERE adapter_id = ? '
+                                'AND channel_verified_at IS NOT NULL', (adapter_id,)) for adapter_id in recs)
+        for person, recs in ((p, adapters[p.name]) for p in people))
+    r['no_channel_unverified_item'] = all(
+        not [i for i in (first_json(person.run('status', '--json').stdout) or {}).get('attention', [])
+             if i.get('kind') == 'channel_unverified'] for person in people)
 
     tasks = {person.name: records(person, 'SELECT record FROM outbound_tasks') for person in people}
     r['one_task_each_from_alice_and_bob_none_from_carol'] = (
@@ -635,6 +645,9 @@ def main():
         else:
             observed = live_flow(sessions, nonce)
         verified, states, ids = verify(people)
+        if not args.fixture:
+            verified['every_session_called_capsule_ready'] = all(
+                'capsule_ready' in calls for calls in observed['tool_calls'].values()) and len(observed['tool_calls']) == 3
         print('Verified from host state:', json.dumps(verified, indent=2), flush=True)
         failed = [k for k, v in verified.items() if not v]
         report = {

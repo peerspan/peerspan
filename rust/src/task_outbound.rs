@@ -1260,7 +1260,7 @@ impl Store {
     pub fn next_task_update(&self, auth: &AdapterAuth) -> Result<Option<TaskUpdate>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let (a, ss) = authority(&tx, auth)?;
+        let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
         let pending: Option<(String, String, i64, String)> = tx
             .query_row(
                 "SELECT e.peer, e.task_id, e.sequence, e.record FROM outbound_task_events e JOIN outbound_tasks t ON t.peer = e.peer AND t.task_id = e.task_id WHERE json_extract(t.record, '$.adapter_id') = ?1 AND json_extract(t.record, '$.request.origin.session_id') = ?2 AND NOT EXISTS (SELECT 1 FROM task_update_notifications n WHERE n.peer = e.peer AND n.task_id = e.task_id AND n.sequence = e.sequence) ORDER BY e.rowid LIMIT 1",

@@ -91,11 +91,12 @@ GIB = 1073741824
 SELF_KEYS = {'kind', 'actions', 'max_message_bytes', 'max_artifact_bytes'}
 POLICY_KEYS = {'kind', 'actions', 'max_message_bytes', 'max_artifact_bytes', 'from_agent'}
 GRANT_KEYS = {'kind', 'grant_id', 'actions', 'max_message_bytes', 'max_artifact_bytes', 'expires_at', 'from_agent'}
-LISTING_KEYS = {'name', 'agent_id', 'connected', 'authorizations'}
+# `channel` added by the live delivery contract, slice 1.
+LISTING_KEYS = {'name', 'agent_id', 'connected', 'channel', 'authorizations'}
 DIRECTORY_KEYS = {'network_id', 'refreshed_at', 'hosts', 'agents'}
 DIRECTORY_HOST_KEYS = {'host_id', 'person_id', 'person_label', 'state', 'refreshed_at', 'error'}
 DIRECTORY_AGENT_KEYS = {'address', 'host_id', 'person_id', 'person_label', 'name', 'agent_id', 'connected',
-                        'authorizations'}
+                        'channel', 'authorizations'}
 AGENTS_KEYS = {'network_id', 'refreshed_at', 'reachable', 'mine', 'inbound', 'hosts'}
 REACHABLE_KEYS = {'address', 'host_id', 'agent_id', 'connected', 'host_state', 'actions'}
 MINE_KEYS = {'address', 'host_id', 'agent_id', 'connected'}
@@ -167,6 +168,8 @@ if "--capsule-fixture-profile" in args:
             report["error"] = value
         else:
             report["session"], _ = call(path, token, instance, "GET", "/adapter/v1/session")
+            # Live delivery readiness: verify the channel, as capsule_ready would.
+            call(path, token, instance, "POST", "/adapter/v1/ready", {"nonce": secrets.token_hex(16)})
         report.update(adapter_id=adapter["id"], session_id=adapter["session_id"])
     except Exception as error:
         report["error"] = repr(error)
@@ -590,6 +593,8 @@ class Pairing:
              f'{rule}: connected false before the adapter connects')
         status, _ = adapter_call(self.p1, secret['token'], 'GET', '/adapter/v1/session')
         need(status == 200, 'adapter connects', status)
+        # Live delivery readiness: connected also needs a verified channel.
+        adapter_call(self.p1, secret['token'], 'POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)})
         need(self.listed('p1', 'p2', rule)['omega']['connected'] is True,
              f'{rule}: connected true when an attached session\'s adapter holds a valid lease')
 
@@ -1331,9 +1336,9 @@ class Pairing:
                  and value['to'] == to, 'the adapter send status always has both destination and to, one of them null',
                  status, value)
 
-        # Deadlines: 5 minutes for sends, 1 hour for delegations.
+        # Deadlines: 1 hour for sends (live delivery contract, slice 1) and delegations.
         stored = self.outbound(c1, ids['p1'], first['request_id'])
-        need(stored and near(stored['request']['deadline'], 300, 30), 'Adapter sends by address get 5 minutes',
+        need(stored and near(stored['request']['deadline'], 3600, 30), 'Adapter sends by address get 1 hour',
              stored)
         need(stored.get('to') == 'pat/alpha', 'Persistence: the record shows to as given (adapter send)', stored)
         status, local = c1.call('GET', f"/v1/tasks/{ids['p1']}/{delegated['task_id']}")

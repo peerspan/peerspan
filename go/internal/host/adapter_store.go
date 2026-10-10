@@ -303,6 +303,9 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 	if err != nil {
 		return nil, err
 	}
+	if err = requireVerified(ctx, tx, a.ID); err != nil {
+		return nil, err
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT m.sender,m.request FROM received_messages m WHERE json_extract(m.request,'$.target_agent_id') = ? AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.sender = m.sender AND d.request_id = m.request_id) ORDER BY m.rowid LIMIT 100`, ss.AgentID)
 	if err != nil {
 		return nil, err

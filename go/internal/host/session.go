@@ -80,7 +80,12 @@ func scanSession(row interface{ Scan(...any) error }) (Session, error) {
 }
 
 func (s *Store) Session(ctx context.Context, id string) (Session, error) {
-	return scanSession(s.db.QueryRowContext(ctx, `SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?`, id))
+	session, err := scanSession(s.db.QueryRowContext(ctx, `SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?`, id))
+	if err != nil {
+		return session, err
+	}
+	session.Channel, err = sessionChannel(ctx, s.db, session.ID, time.Now())
+	return session, err
 }
 
 func (s *Store) Sessions(ctx context.Context, agentID string) ([]Session, error) {
@@ -102,7 +107,17 @@ func (s *Store) Sessions(ctx context.Context, agentID string) ([]Session, error)
 		}
 		items = append(items, session)
 	}
-	return items, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	now := time.Now()
+	for i := range items {
+		if items[i].Channel, err = sessionChannel(ctx, s.db, items[i].ID, now); err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
 }
 
 func (s *Store) DetachSession(ctx context.Context, id string) (Session, error) {

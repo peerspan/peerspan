@@ -1029,6 +1029,9 @@ func (s *Store) NextTaskUpdate(ctx context.Context, auth AdapterAuth) (*TaskUpda
 	if err != nil {
 		return nil, err
 	}
+	if err = requireVerified(ctx, tx, a.ID); err != nil {
+		return nil, err
+	}
 	var h TaskUpdateHandoff
 	var record string
 	err = tx.QueryRowContext(ctx, `SELECT e.peer, e.task_id, e.record FROM outbound_task_events e JOIN outbound_tasks t ON t.peer = e.peer AND t.task_id = e.task_id WHERE json_extract(t.record, '$.adapter_id') = ? AND json_extract(t.record, '$.request.origin.session_id') = ? AND NOT EXISTS (SELECT 1 FROM task_update_notifications n WHERE n.peer = e.peer AND n.task_id = e.task_id AND n.sequence = e.sequence) ORDER BY e.rowid LIMIT 1`, a.ID, ss.ID).Scan(&h.Delivery.PeerHostID, &h.Delivery.TaskID, &record)

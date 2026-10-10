@@ -478,7 +478,7 @@ func (s *Store) prepareAddressSend(ctx context.Context, token AdapterAuth, r Ada
 		return deref(old), err
 	}
 	now := time.Now()
-	deadline := now.Add(5 * time.Minute)
+	deadline := now.Add(adapterSendDeadline)
 	if exp, err := parseTime(a.ExpiresAt); err == nil && exp.Before(deadline) {
 		deadline = exp
 	}

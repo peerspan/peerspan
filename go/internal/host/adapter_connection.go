@@ -28,6 +28,11 @@ type Connection struct {
 	Recoverable    bool    `json:"recoverable"`
 	LeaseExpiresAt *string `json:"lease_expires_at"`
 	LastSeenAt     *string `json:"last_seen_at"`
+	// Channel is verified or unverified while the adapter holds a lease,
+	// else null.
+	Channel           *string `json:"channel"`
+	ChannelVerifiedAt *string `json:"channel_verified_at"`
+	ProtocolVersion   *string `json:"protocol_version"`
 }
 
 func adapterAuthority(ctx context.Context, tx *sql.Tx, auth AdapterAuth) (Adapter, Session, error) {
@@ -54,10 +59,10 @@ func adapterAuthority(ctx context.Context, tx *sql.Tx, auth AdapterAuth) (Adapte
 }
 
 func connectionStatus(ctx context.Context, tx *sql.Tx, a Adapter, ss Session) (Connection, error) {
-	var hash, last sql.NullString
+	var hash, last, verified, protocol sql.NullString
 	var until int64
 	var recoverable bool
-	err := tx.QueryRowContext(ctx, `SELECT instance_hash,lease_until_ms,last_seen_at,recoverable FROM adapter_connections WHERE adapter_id = ?`, a.ID).Scan(&hash, &until, &last, &recoverable)
+	err := tx.QueryRowContext(ctx, `SELECT instance_hash,lease_until_ms,last_seen_at,recoverable,channel_verified_at,protocol_version FROM adapter_connections WHERE adapter_id = ?`, a.ID).Scan(&hash, &until, &last, &recoverable, &verified, &protocol)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -73,6 +78,12 @@ func connectionStatus(ctx context.Context, tx *sql.Tx, a Adapter, ss Session) (C
 		at := timestamp(time.UnixMilli(until))
 		c.LeaseExpiresAt = &at
 	}
+	if verified.Valid {
+		c.ChannelVerifiedAt = &verified.String
+	}
+	if protocol.Valid {
+		c.ProtocolVersion = &protocol.String
+	}
 	switch {
 	case a.RevokedAt != nil:
 		c.State = "revoked"
@@ -84,6 +95,11 @@ func connectionStatus(ctx context.Context, tx *sql.Tx, a Adapter, ss Session) (C
 		c.State = "registered"
 	case ss.State == SessionAttached && until > time.Now().UnixMilli():
 		c.State = "ready"
+		channel := ChannelUnverified
+		if verified.Valid {
+			channel = ChannelVerified
+		}
+		c.Channel = &channel
 	}
 	return c, nil
 }
@@ -105,8 +121,15 @@ func (s *Store) AdapterConnection(ctx context.Context, id string) (Connection, e
 	return connectionStatus(ctx, tx, a, ss)
 }
 
+// ConnectAdapter binds or renews an adapter's lease.
 func (s *Store) ConnectAdapter(ctx context.Context, token, instance, adapterID, sessionID string) (Connection, error) {
-	if !validID(instance, "instance", 32) || !validID(adapterID, "adapter", 16) || !validID(sessionID, "session", 16) {
+	return s.ConnectAdapterProtocol(ctx, token, instance, adapterID, sessionID, nil)
+}
+
+// ConnectAdapterProtocol is ConnectAdapter with the MCP protocol revision the
+// adapter negotiated, which replaces the stored one when it is not nil.
+func (s *Store) ConnectAdapterProtocol(ctx context.Context, token, instance, adapterID, sessionID string, protocol *string) (Connection, error) {
+	if !validID(instance, "instance", 32) || !validID(adapterID, "adapter", 16) || !validID(sessionID, "session", 16) || (protocol != nil && !protocolPattern.MatchString(*protocol)) {
 		return Connection{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -157,6 +180,11 @@ func (s *Store) ConnectAdapter(ctx context.Context, token, instance, adapterID, 
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE adapter_connections SET instance_hash = ?,lease_until_ms = ?,last_seen_at = ?,recoverable = 1 WHERE adapter_id = ?`, tokenHash(instance), lease.UnixMilli(), at, a.ID); err != nil {
 		return Connection{}, err
+	}
+	if protocol != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE adapter_connections SET protocol_version = ? WHERE adapter_id = ?`, *protocol, a.ID); err != nil {
+			return Connection{}, err
+		}
 	}
 	if !hash.Valid || until <= now.UnixMilli() {
 		if err = appendEvent(ctx, tx, "adapter.connected", a.ID, at); err != nil {
@@ -251,13 +279,17 @@ func adapterConnectionRoutes(mux *http.ServeMux, s *Store, auth func(*http.Reque
 			InstanceID string `json:"instance_id"`
 			AdapterID  string `json:"adapter_id"`
 			SessionID  string `json:"session_id"`
+			// ProtocolVersion is the MCP protocol revision the adapter
+			// negotiated (live delivery contract).
+			ProtocolVersion *string `json:"protocol_version"`
 		}
-		if !decode(w, r, &body, "instance_id", "adapter_id", "session_id") {
+		if !decode(w, r, &body, "instance_id", "adapter_id", "session_id", "protocol_version?") {
 			return
 		}
-		c, err := s.ConnectAdapter(r.Context(), auth(r).Token, body.InstanceID, body.AdapterID, body.SessionID)
+		c, err := s.ConnectAdapterProtocol(r.Context(), auth(r).Token, body.InstanceID, body.AdapterID, body.SessionID, body.ProtocolVersion)
 		respond(w, 200, c, err)
 	})
+	adapterChannelRoutes(mux, s, auth)
 }
 func localConnectionRoutes(mux *http.ServeMux, s *Store) {
 	mux.HandleFunc("GET /v1/adapters/{id}/connection", func(w http.ResponseWriter, r *http.Request) {

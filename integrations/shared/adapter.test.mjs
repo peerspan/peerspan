@@ -9,6 +9,23 @@ import { adapterTransfer, createAdapter } from './adapter.mjs';
 const adapterId = 'adapter_' + 'a'.repeat(32),
   sessionId = 'session_' + 'b'.repeat(32);
 const entry = (name, digit) => ({ name, size: 1, sha256: digit.repeat(64), media_type: 'application/octet-stream' });
+// The readiness handshake (live delivery contract): answer the hello event
+// with capsule_ready before any work flows.
+function readyAdapter(options) {
+  const adapter = createAdapter({
+    ...options,
+    call: async (method, path, body) =>
+      path === '/adapter/v1/ready' ? {} : options.call(method, path, body),
+    notify: async (event) => {
+      if (event.meta.kind === 'hello') {
+        void adapter.callTool('capsule_ready', { nonce: event.meta.nonce });
+        return;
+      }
+      return options.notify(event);
+    }
+  });
+  return adapter;
+}
 const handoff = {
   delivery: { id: 'delivery_' + 'c'.repeat(32), session_id: sessionId },
   request: { content: 'hello' }
@@ -25,7 +42,7 @@ test('renew the original lease while a harness submission blocks; claim only one
   const started = new Promise((resolve) => {
     submitted = resolve;
   });
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     leaseRenewMs: 20,
@@ -70,7 +87,7 @@ test('ambiguous harness submission stops without acknowledgement or automatic re
   const failure = new Promise((resolve) => {
     failed = resolve;
   });
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     pollMs: 10,
@@ -102,7 +119,7 @@ test('ambiguous harness submission stops without acknowledgement or automatic re
 });
 test('a stopped adapter cannot reconnect or execute a late tool request', async () => {
   let calls = 0;
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     notify: async () => {},
@@ -130,7 +147,7 @@ test('message and reply events carry agent origin and the sender person', async 
   };
   let messages = 0, replies = 0;
   const events = [];
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     leaseRenewMs: 1000,
@@ -165,7 +182,7 @@ test('message and reply events carry agent origin and the sender person', async 
 test('events without origin or person report null', async () => {
   const events = [];
   let messages = 0;
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     leaseRenewMs: 1000,
@@ -211,7 +228,7 @@ test('task, cancellation, and task update events; only updates are acknowledged'
   const acknowledged = [];
   const events = [];
   const once = (path, value) => ((counts[path] = (counts[path] ?? 0) + 1) === 1 ? value : null);
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     leaseRenewMs: 1000,
@@ -288,7 +305,7 @@ test('a delegated task names its originator and chain in meta', async () => {
   };
   const events = [];
   let served = false;
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     pollMs: 5,
@@ -324,7 +341,7 @@ test('a delegated task names its originator and chain in meta', async () => {
 test('task tools call the scoped routes and validate their arguments', async () => {
   const taskId = 'task_' + 'a'.repeat(32);
   const calls = [];
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     notify: async () => {},
@@ -395,7 +412,7 @@ test('artifact paths are uploaded before delegate_task and task_complete; artifa
   const taskId = 'task_' + 'c'.repeat(32);
   const calls = [];
   const transfers = [];
-  const adapter = createAdapter({
+  const adapter = readyAdapter({
     adapterId,
     sessionId,
     notify: async () => {},

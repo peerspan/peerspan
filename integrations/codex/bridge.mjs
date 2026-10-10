@@ -87,7 +87,8 @@ export async function run(config, { emit = () => {} } = {}) {
       },
       onFatal: (error) => {
         void close(error);
-      }
+      },
+      reattach: 'capsule attach codex'
     });
     if (closing) throw new Error('Attachment stopped during setup.');
     gateway = await toolGateway(config.tool_socket, config.thread_id, adapter, emit);

@@ -57,7 +57,7 @@ def run(args):
             beta=Runtime(args.opencode,root/'beta',root/'beta-bindings',model);runtimes.append(beta)
             def route(peer,agent,grant):return{'name':'remote','peer_host_id':peer['id'],'target_agent_id':agent['id'],'grant_id':grant['id'],'max_messages':2}
             setup(args.go,a,aa,root/'left',args.node,[route(bi,ba,bg)],alpha);setup(args.rust,b,ba,root/'right',args.node,[route(ai,aa,ag)],beta)
-            alice=Harness(args.go,a,root/'left');bob=Harness(args.rust,b,root/'right');bridges.extend([alice,bob])
+            alice=Harness(args.go,a,root/'left');bob=Harness(args.rust,b,root/'right');bridges.extend([alice,bob]);alice.verified(30);bob.verified(30)
             alpha.input('send real-runtime');sent=json.loads(alice.event('tool_result',tool='send')['content'][0]['text']);assert sent['state']=='accepted'
             assert bob.event('tool_result',seconds=30,tool='reply')['success'];alice.event('input_accepted',kind='reply')
             def observed():

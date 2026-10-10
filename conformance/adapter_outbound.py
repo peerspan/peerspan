@@ -438,7 +438,7 @@ def check(go, rust, node, label):
             b.stop(crash=True)
             a.binary, b.binary = str(rust), str(go)
             assert a.start() == ai and b.start() == bi
-            assert sql(a, "PRAGMA user_version")[0][0] == 13
+            assert sql(a, "PRAGMA user_version")[0][0] == 14
             assert send(a, ac)[0] == 503
             a.cli("session", "detach", ass["id"])
             assert (
@@ -553,7 +553,7 @@ def migration_check(original_binary, replacement_binary, label):
             assert (
                 sql(a, "PRAGMA user_version")[0][0]
                 == sql(b, "PRAGMA user_version")[0][0]
-                == 13
+                == 14
             )
             assert a.cli("adapter", "list") == [ac["adapter"]] and b.cli(
                 "adapter", "list"

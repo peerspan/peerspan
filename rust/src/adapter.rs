@@ -157,6 +157,7 @@ pub(crate) fn session(conn: &Connection, id: &str) -> Result<Session, Error> {
                 state: r.get(3)?,
                 created_at: r.get(4)?,
                 updated_at: r.get(5)?,
+                channel: None,
             })
         },
     )?)
@@ -398,12 +399,15 @@ impl Store {
         Ok(a)
     }
     pub fn adapter_session(&self, token: &AdapterAuth) -> Result<Session, Error> {
-        Ok(authority(&*self.connection()?, token)?.1)
+        let conn = self.connection()?;
+        let mut session = authority(&conn, token)?.1;
+        session.channel = crate::store::session_channel(&conn, &session.id)?;
+        Ok(session)
     }
     pub fn next_delivery(&self, token: &AdapterAuth) -> Result<Option<Handoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let (a, ss) = authority(&tx, token)?;
+        let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
         let pending = {
             let mut stmt = tx.prepare("SELECT m.sender,m.request FROM received_messages m WHERE json_extract(m.request,'$.target_agent_id') = ?1 AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.sender = m.sender AND d.request_id = m.request_id) ORDER BY m.rowid LIMIT 100")?;
             stmt.query_map([&ss.agent_id], |row| {

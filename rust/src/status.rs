@@ -3,6 +3,7 @@
 use crate::{adapter::Adapter, api::blocking, model::Error, policy::Policy, store::Store};
 use axum::{Json, Router, extract::State, routing::get};
 use chrono::{DateTime, TimeDelta, Utc};
+use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -22,7 +23,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-const KINDS: [&str; 12] = [
+const KINDS: [&str; 13] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -35,7 +36,22 @@ const KINDS: [&str; 12] = [
     "person_agent_unreachable",
     "coordinator_limit",
     "agent_name_conflict",
+    "channel_unverified",
 ];
+
+/// How long an adapter may hold a lease without verifying its channel
+/// before status reports `channel_unverified`.
+const CHANNEL_UNVERIFIED_AFTER: TimeDelta = TimeDelta::seconds(120);
+
+/// The oldest Claude Code release whose channel delivery Capsule supports.
+pub const MINIMUM_CLAUDE_VERSION: &str = "2.1.187";
+
+/// The status item 13 message, which `session doctor` also uses.
+pub fn channel_unverified_detail(agent: &str) -> String {
+    format!(
+        "the session of agent {agent} holds a lease but has not confirmed that it receives Capsule's channel events (capsule_ready), so no messages or tasks are delivered to it. Likely causes: the organization has not enabled channels (channelsEnabled); the provider does not support channels; the Claude Code version is older than {MINIMUM_CLAUDE_VERSION}; or the session was started without the channel flag"
+    )
+}
 
 impl Store {
     /// Why the daemon cannot renew `key`'s policy, if it cannot: neither its
@@ -280,6 +296,14 @@ impl Store {
                 format!("capsule attach {harness} --name NEW"),
             ));
         }
+        for agent in self.unverified_channels(now)? {
+            attention.push(item(
+                "channel_unverified",
+                agent.clone(),
+                channel_unverified_detail(&agent),
+                "capsule session doctor".into(),
+            ));
+        }
         attention.sort_by(|a, b| {
             let rank = |k: &str| KINDS.iter().position(|x| *x == k);
             rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.1.cmp(&b.1))
@@ -297,6 +321,47 @@ impl Store {
             },
             "attention": attention.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
         }))
+    }
+
+    /// Status item 13: the agent name of each authorization whose adapter
+    /// has held its lease for more than 120 seconds without verifying its
+    /// channel, counted from the authorization's first connection (its
+    /// first `adapter.connected` event), so a reconnection after a lapsed
+    /// lease does not restart the count.
+    fn unverified_channels(&self, now: DateTime<Utc>) -> Result<Vec<String>, Error> {
+        let connection = self.connection()?;
+        let leases = {
+            let mut statement = connection.prepare(
+                "SELECT c.record, a.name FROM sessions s JOIN agents a ON a.id = s.agent_id JOIN adapter_credentials c ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE s.state = 'attached' AND x.lease_until_ms > ?1 AND x.channel_verified_at IS NULL ORDER BY c.id",
+            )?;
+            statement
+                .query_map([now.timestamp_millis()], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut agents = Vec::new();
+        for (record, agent) in leases {
+            let a: Adapter = serde_json::from_str(&record)?;
+            if a.revoked_at.is_some() || !time(&a.expires_at).is_some_and(|t| t > now) {
+                continue;
+            }
+            let since: Option<String> = connection
+                .query_row(
+                    "SELECT created_at FROM events WHERE kind = 'adapter.connected' AND subject_id = ?1 ORDER BY sequence LIMIT 1",
+                    [&a.id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if since
+                .as_deref()
+                .and_then(time)
+                .is_some_and(|since| now - since > CHANNEL_UNVERIFIED_AFTER)
+            {
+                agents.push(agent);
+            }
+        }
+        Ok(agents)
     }
 
     /// Outbound tasks that ended failed, rejected, or expired and whose last

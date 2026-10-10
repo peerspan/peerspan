@@ -497,6 +497,18 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		}
 	}
 	// This host's own agents, addressed as the directory would address them.
+	sessions, err := call[[]map[string]*string](ctx, client, "GET", "/v1/sessions")
+	if err != nil {
+		return err
+	}
+	channels := map[string]*string{}
+	for _, s := range sessions {
+		if id := s["id"]; id != nil {
+			if channel, ok := s["channel"]; ok {
+				channels[*id] = channel
+			}
+		}
+	}
 	label := persons.labels[network]
 	for _, a := range st.Agents {
 		if !host.AddressableName(a.Name) {
@@ -511,10 +523,14 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 				}
 			}
 		}
+		// Connected means a session with a lease and a verified channel,
+		// as in the directory; a daemon that reports no channel predates
+		// verification, and a lease alone counts there.
 		connected := false
 		for _, s := range a.Sessions {
 			if s.Connection != nil && *s.Connection == "ready" {
-				connected = true
+				channel, reported := channels[s.ID]
+				connected = connected || !reported || (channel != nil && *channel == host.ChannelVerified)
 			}
 		}
 		mine = append(mine, mineAgent{address, st.HostID, a.ID, connected})

@@ -1,6 +1,6 @@
 import { tool } from '@opencode-ai/plugin';
 import { tools } from '../shared/adapter.mjs';
-import { readBinding } from './binding.mjs';
+import { readBinding, toolName } from './binding.mjs';
 import { proxyTool } from '../shared/tools.mjs';
 export async function Capsule(_input, { bindings } = {}) {
   if (typeof bindings !== 'string' || !bindings.startsWith('/'))
@@ -26,7 +26,7 @@ export async function Capsule(_input, { bindings } = {}) {
             return [name, required.includes(name) ? value : value.optional()];
           })
         );
-        const name = 'capsule_' + definition.name;
+        const name = toolName(definition.name);
         return [
           name,
           tool({

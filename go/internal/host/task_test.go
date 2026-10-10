@@ -31,6 +31,7 @@ func connectedAdapter(t *testing.T, s *Store, agent Agent, instance string) (Ses
 	credential := must(s.CreateAdapter(ctx, CreateAdapter{SessionID: session.ID, ExpiresAt: timestamp(time.Now().Add(time.Hour))}))
 	auth := AdapterAuth{Token: credential.Token, Instance: "instance_" + strings.Repeat(instance, 64)}
 	must(s.ConnectAdapter(ctx, auth.Token, auth.Instance, credential.Adapter.ID, session.ID))
+	must(s.ReadyAdapter(ctx, auth, strings.Repeat("0", 32)))
 	return session, auth, credential
 }
 
@@ -633,7 +634,7 @@ func TestTaskMigrationToVersion10(t *testing.T) {
 	s = must(Open(ctx, dir))
 	defer s.Close()
 	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 13 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 14 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if kept := must(s.Agent(ctx, agent.ID)); kept.Name != "kept" {

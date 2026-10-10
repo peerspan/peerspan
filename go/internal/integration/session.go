@@ -415,6 +415,7 @@ type Report struct {
 	SessionID          string          `json:"session_id"`
 	AdapterID          string          `json:"adapter_id"`
 	AdapterReady       bool            `json:"adapter_ready"`
+	Channel            *string         `json:"channel"`
 	ModelAvailability  string          `json:"model_availability"`
 	MessageConsumption string          `json:"message_consumption"`
 	Connection         json.RawMessage `json:"connection"`
@@ -488,7 +489,9 @@ func inspect(ctx context.Context, p *Profile, checks []Check) Report {
 	}
 	r.Connection = connection
 	var conn struct {
-		State string `json:"state"`
+		State           string  `json:"state"`
+		Channel         *string `json:"channel"`
+		ProtocolVersion *string `json:"protocol_version"`
 	}
 	_ = json.Unmarshal(connection, &conn)
 	details := map[string]string{
@@ -498,6 +501,28 @@ func inspect(ctx context.Context, p *Profile, checks []Check) Report {
 		"detached":   "Owner detached this session. Prepare a fresh setup.", "revoked": "Owner revoked this authorization. Prepare a fresh setup.", "expired": "Authorization expired. Prepare a fresh setup.",
 	}
 	check("adapter_connection", conn.State == "ready", details[conn.State])
+	r.Channel = conn.Channel
+	switch {
+	case conn.Channel == nil:
+		check("channel", true, "not running")
+	case *conn.Channel == host.ChannelVerified:
+		check("channel", true, "verified")
+	default:
+		name := p.AgentID
+		var agent host.Agent
+		if err := call(ctx, p, "GET", "/v1/agents/"+p.AgentID, nil, &agent); err == nil && agent.Name != "" {
+			name = agent.Name
+		}
+		check("channel", false, "unverified: "+host.ChannelUnverifiedDetail(name))
+	}
+	switch {
+	case conn.ProtocolVersion == nil:
+		check("mcp_protocol", true, "The adapter has not reported its MCP protocol revision.")
+	case protocolTooNew(*conn.ProtocolVersion):
+		check("mcp_protocol", false, "The adapter negotiated MCP protocol revision "+*conn.ProtocolVersion+"; revisions from "+mcpProtocolLimit+" do not deliver channel events. Launch Claude Code with MCP_PROTOCOL_NEGOTIATION=legacy.")
+	default:
+		check("mcp_protocol", true, "The adapter negotiated MCP protocol revision "+*conn.ProtocolVersion+".")
+	}
 	var routes []host.RouteStatus
 	if err := call(ctx, p, "GET", "/v1/adapters/"+p.AdapterID+"/route-status", nil, &routes); err != nil {
 		check("destinations", false, err.Error())
@@ -514,8 +539,23 @@ func inspect(ctx context.Context, p *Profile, checks []Check) Report {
 		}
 		r.Destinations = append(r.Destinations, Destination{entry.Route.Name, status, entry.Route.ExpiresAt, entry.MessagesRemaining, "unverified"})
 	}
-	r.AdapterReady = conn.State == "ready" && !failed(r.Checks)
+	r.AdapterReady = conn.State == "ready" && conn.Channel != nil && *conn.Channel == host.ChannelVerified && !failed(r.Checks)
 	return r
+}
+
+// mcpProtocolLimit is the first MCP protocol revision under which Claude Code
+// drops channel events.
+const mcpProtocolLimit = "2026-07-28"
+
+// protocolTooNew reports whether a dated MCP protocol revision is at or after
+// the limit. Revisions that are not dates are not compared.
+func protocolTooNew(revision string) bool {
+	at, err := time.Parse("2006-01-02", revision)
+	if err != nil {
+		return false
+	}
+	limit, _ := time.Parse("2006-01-02", mcpProtocolLimit)
+	return !at.Before(limit)
 }
 func printJSON(out io.Writer, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")

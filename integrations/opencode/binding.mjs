@@ -2,6 +2,8 @@ import { constants } from 'node:fs';
 import { mkdir, lstat, open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { privateJSON } from '../shared/provider.mjs';
+// OpenCode tool names carry a capsule_ prefix, once.
+export const toolName = (name) => (name.startsWith('capsule_') ? name : 'capsule_' + name);
 export function bindingPath(directory, session) {
   if (!/^ses_[a-zA-Z0-9]{20,64}$/.test(session))
     throw new Error('Invalid OpenCode session identity.');

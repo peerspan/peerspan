@@ -105,7 +105,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=13).contains(&version) {
+        if !(0..=14).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -147,6 +147,9 @@ impl Store {
         }
         if version < 13 {
             tx.execute_batch(crate::directory::SCHEMA)?;
+        }
+        if version < 14 {
+            crate::adapter_connection::migrate_channel(&tx)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -360,6 +363,7 @@ impl Store {
             state: "attached".into(),
             created_at: at.clone(),
             updated_at: at,
+            channel: None,
         };
         let exists: i64 = tx.query_row(
             "SELECT COUNT(*) FROM sessions WHERE id = ?1",
@@ -390,7 +394,10 @@ impl Store {
     }
 
     pub fn session(&self, id: &str) -> Result<Session, Error> {
-        Ok(self.connection()?.query_row("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?1", [id], read_session)?)
+        let connection = self.connection()?;
+        let mut session = connection.query_row("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE id = ?1", [id], read_session)?;
+        session.channel = session_channel(&connection, &session.id)?;
+        Ok(session)
     }
 
     pub fn sessions(&self, agent_id: &str) -> Result<Vec<Session>, Error> {
@@ -401,9 +408,13 @@ impl Store {
             })?;
         }
         let mut statement = connection.prepare("SELECT id, agent_id, integration, state, created_at, updated_at FROM sessions WHERE (?1 = '' OR agent_id = ?1) ORDER BY created_at, id")?;
-        Ok(statement
+        let mut sessions = statement
             .query_map([agent_id], read_session)?
-            .collect::<Result<Vec<_>, _>>()?)
+            .collect::<Result<Vec<_>, _>>()?;
+        for session in &mut sessions {
+            session.channel = session_channel(&connection, &session.id)?;
+        }
+        Ok(sessions)
     }
 
     pub fn detach_session(&self, id: &str) -> Result<Session, Error> {
@@ -496,6 +507,14 @@ pub(crate) fn append_event(
     Ok(())
 }
 
+/// A session's channel, as the directory reports an agent's.
+pub(crate) fn session_channel(
+    connection: &Connection,
+    session: &str,
+) -> Result<Option<String>, Error> {
+    Ok(crate::directory::lease_channel(connection, "s.id", session)?.map(str::to_owned))
+}
+
 fn read_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
     let encoded: String = row.get(3)?;
     let capabilities = serde_json::from_str(&encoded).map_err(|e| {
@@ -518,6 +537,7 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         state: row.get(3)?,
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
+        channel: None,
     })
 }
 

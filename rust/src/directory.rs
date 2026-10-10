@@ -46,6 +46,37 @@ CREATE INDEX directory_sends_adapter ON directory_sends(adapter_id, sent_at_ms);
 PRAGMA user_version = 13;
 ";
 
+/// The channel of the leases of attached sessions where `column` is `id`:
+/// `verified` when any is verified, `unverified` when there is a lease, else
+/// none.
+pub(crate) fn lease_channel(
+    conn: &Connection,
+    column: &str,
+    id: &str,
+) -> Result<Option<&'static str>, Error> {
+    let mut statement = conn.prepare(&format!(
+        "SELECT c.record, x.channel_verified_at IS NOT NULL FROM sessions s JOIN adapter_credentials c ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE {column} = ?1 AND s.state = 'attached' AND x.lease_until_ms > ?2"
+    ))?;
+    let records = statement
+        .query_map(params![id, Utc::now().timestamp_millis()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut channel = None;
+    for (record, verified) in records {
+        let a: Adapter = serde_json::from_str(&record)?;
+        if a.revoked_at.is_none()
+            && crate::membership::time(&a.expires_at).is_ok_and(|t| t > Utc::now())
+        {
+            if verified {
+                return Ok(Some("verified"));
+            }
+            channel = Some("unverified");
+        }
+    }
+    Ok(channel)
+}
+
 /// A directory session's default cap on sends and delegations per hour.
 pub const DEFAULT_SENDS_PER_HOUR: i64 = 100;
 /// Every network is refreshed this often, and sooner after a change.
@@ -148,6 +179,11 @@ pub struct PeerAgent {
     pub agent_id: String,
     pub connected: bool,
     pub authorizations: Vec<Authorization>,
+    /// `verified` when a verified session holds a lease, `unverified` when
+    /// only unverified ones do, else null. `connected` means verified. Hosts
+    /// before live delivery omit it.
+    #[serde(default)]
+    pub channel: Option<String>,
 }
 
 /// What a send or task by address cites.
@@ -330,26 +366,15 @@ impl Store {
             .map_err(|_| Error::Internal(anyhow::anyhow!("directory lock poisoned")))
     }
 
-    /// Whether an agent has an attached session whose adapter holds a valid
-    /// lease.
-    fn agent_connected(&self, conn: &Connection, agent: &str) -> Result<bool, Error> {
-        let mut statement = conn.prepare(
-            "SELECT c.record FROM sessions s JOIN adapter_credentials c ON c.session_id = s.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE s.agent_id = ?1 AND s.state = 'attached' AND x.lease_until_ms > ?2",
-        )?;
-        let records = statement
-            .query_map(params![agent, Utc::now().timestamp_millis()], |r| {
-                r.get::<_, String>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        for record in records {
-            let a: Adapter = serde_json::from_str(&record)?;
-            if a.revoked_at.is_none()
-                && crate::membership::time(&a.expires_at).is_ok_and(|t| t > Utc::now())
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    /// The channel of an agent's attached sessions whose adapters hold a
+    /// valid lease: `verified` when any is verified, `unverified` when there
+    /// is such a lease, else none.
+    pub(crate) fn agent_channel(
+        &self,
+        conn: &Connection,
+        agent: &str,
+    ) -> Result<Option<&'static str>, Error> {
+        lease_channel(conn, "s.agent_id", agent)
     }
 
     /// The peer route: this host's agents that `caller`, a current member
@@ -468,8 +493,10 @@ impl Store {
             if authorizations.is_empty() {
                 continue;
             }
+            let channel = self.agent_channel(&conn, &id)?;
             result.push(PeerAgent {
-                connected: self.agent_connected(&conn, &id)?,
+                connected: channel == Some("verified"),
+                channel: channel.map(str::to_owned),
                 name,
                 agent_id: id,
                 authorizations,
@@ -699,6 +726,7 @@ impl Store {
                         "agent_id": a.agent_id,
                         "connected": a.connected,
                         "authorizations": a.authorizations,
+                        "channel": a.channel,
                     }),
                 ));
             }
@@ -923,7 +951,7 @@ async fn query(store: Arc<Store>, network: String, host: String) -> Outcome {
     .await;
     match response {
         Ok(Ok((200, body))) => match serde_json::from_slice::<Vec<PeerAgent>>(&body) {
-            Ok(agents)
+            Ok(mut agents)
                 if agents.iter().all(|a| {
                     valid_id(&a.agent_id, "agent", 16)
                         && !a.name.is_empty()
@@ -931,6 +959,11 @@ async fn query(store: Arc<Store>, network: String, host: String) -> Outcome {
                         && a.authorizations.iter().all(Authorization::valid)
                 }) =>
             {
+                for a in &mut agents {
+                    if !matches!(a.channel.as_deref(), Some("verified" | "unverified")) {
+                        a.channel = None;
+                    }
+                }
                 Outcome::Agents(agents)
             }
             _ => Outcome::Failed("invalid directory response".into()),

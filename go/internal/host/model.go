@@ -57,6 +57,9 @@ type Session struct {
 	State       string    `json:"state"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Channel is verified or unverified while the session's adapter holds a
+	// lease, else null (live delivery contract).
+	Channel *string `json:"channel"`
 }
 
 const (

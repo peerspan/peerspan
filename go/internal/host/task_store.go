@@ -449,6 +449,9 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 	if err != nil {
 		return nil, err
 	}
+	if err = requireVerified(ctx, tx, a.ID); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	if err = expireTasks(ctx, tx, now); err != nil {
 		return nil, err
@@ -728,6 +731,9 @@ func (s *Store) NextTaskCancel(ctx context.Context, auth AdapterAuth) (*TaskCanc
 	defer tx.Rollback()
 	a, ss, err := adapterAuthority(ctx, tx, auth)
 	if err != nil {
+		return nil, err
+	}
+	if err = requireVerified(ctx, tx, a.ID); err != nil {
 		return nil, err
 	}
 	var record, status string

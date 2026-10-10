@@ -2,7 +2,7 @@
 // profile, credential, destination scopes, and all daemon lifecycle requests.
 import {constants} from 'node:fs';
 import {access, open, readFile, realpath} from 'node:fs/promises';
-import {dirname, join, resolve} from 'node:path';
+import {basename, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {isDeepStrictEqual} from 'node:util';
@@ -10,6 +10,10 @@ import {tools} from '../shared/adapter.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const channel = join(directory, 'channel.mjs');
+// Channels need at least this Claude Code version.
+const minimumVersion = [2, 1, 187];
+// Claude Code negotiates the MCP protocol revision that delivers channel events.
+const launchEnvironment = ['MCP_PROTOCOL_NEGOTIATION=legacy'];
 const command = (program, args) => {
   const result = spawnSync(program, args, {encoding: 'utf8', timeout: 10000, maxBuffer: 1048576, stdio: ['ignore', 'pipe', 'pipe']});
   return {ok: !result.error && result.status === 0, output: result.stdout ?? ''};
@@ -38,14 +42,38 @@ async function prerequisites(state, checks) {
   const version = command(claude, ['--version']);
   const compatible = command(claude, ['--mcp-config', '{}', '--dangerously-load-development-channels', 'server:capsule', '--version']);
   check('executable', version.ok && compatible.ok, compatible.ok ? 'Claude Code accepts the channel launch flags.' : 'This Claude installation does not accept the required channel launch flags.');
-  let authenticated = false, supported = false;
+  const minimum = minimumVersion.join('.');
+  const parsed = version.ok ? /^(\d+)\.(\d+)\.(\d+)(?=\s|$)/.exec(version.output.trim()) : null;
+  const found = parsed?.slice(1, 4).map(Number);
+  const recent = found !== undefined && (found[0] - minimumVersion[0] || found[1] - minimumVersion[1] || found[2] - minimumVersion[2]) >= 0;
+  check('claude_version', recent, !found ? `Could not read the Claude Code version; channels need Claude Code ${minimum} or newer.` : recent ? `Claude Code ${found.join('.')} meets the minimum ${minimum}.` : `Claude Code ${found.join('.')} is older than the minimum ${minimum}; update Claude Code.`);
+  let authenticated = false, supported = false, account;
   try {
     const auth = command(claude, ['auth', 'status']);
     const value = JSON.parse(auth.output);
     authenticated = auth.ok && value.loggedIn === true;
     supported = ['claude.ai', 'oauth_token', 'api_key', 'api_key_helper'].includes(value.authMethod);
+    if (value && typeof value === 'object') account = value;
   } catch {}
   check('authentication', authenticated && supported, !authenticated ? 'Sign in with claude auth login.' : !supported ? 'Channels require an Anthropic authentication method.' : 'Claude is authenticated. Organization channel policy is checked at launch.');
+  // Account warnings never fail a check. The helper interface has only ok
+  // and error, so a warning is an ok check whose detail starts "Warning:".
+  const warnings = [];
+  if (account && account.apiProvider !== undefined && account.apiProvider !== 'firstParty') warnings.push('channels are not available on this provider');
+  if (account && ['team', 'enterprise'].includes(account.subscriptionType)) warnings.push('an organization Owner must enable channels');
+  checks.push({name: 'claude_account', status: 'ok', detail: !account ? 'Claude account details are unavailable.' : warnings.length ? `Warning: ${warnings.join('; ')}.` : 'The Claude account can use channels.'});
+}
+// launchProgram runs Claude Code through env so that its environment gains
+// launchEnvironment; the helper's launch plan has no environment field.
+async function launchProgram(claude) {
+  if (claude.includes('=')) throw new Error('The Claude executable path cannot contain "=".');
+  let env;
+  for (const candidate of ['env', '/usr/bin/env', '/bin/env']) {
+    try { env = await executable(candidate); break; } catch {}
+  }
+  if (!env) throw new Error('env is missing; it sets the Claude Code launch environment.');
+  // A multi-call binary (busybox, uutils) selects its applet by name.
+  return {program: env, args: [...(basename(env) === 'env' ? [] : ['env']), ...launchEnvironment, claude]};
 }
 function configuration(context, state) {
   return {mcpServers: {capsule: {command: state.node, args: [state.channel, '--socket', context.adapter_socket, '--credential-file', context.credential_file]}}};
@@ -87,9 +115,10 @@ async function main(request) {
     throw new Error('Claude arguments cannot override the prepared MCP configuration or channel selection.');
   }
   await configurationCheck(context, state, checks);
+  const launcher = await launchProgram(state.executable);
   response.launch = {
-    program: state.executable,
-    args: ['--mcp-config', join(context.directory, 'mcp.json'), '--dangerously-load-development-channels', 'server:capsule',
+    program: launcher.program,
+    args: [...launcher.args, '--mcp-config', join(context.directory, 'mcp.json'), '--dangerously-load-development-channels', 'server:capsule',
       '--allowedTools', tools.map(tool => 'mcp__capsule__' + tool.name).join(','), ...extra],
   };
   return response;

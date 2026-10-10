@@ -802,7 +802,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
     let tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('artifact_files', 'task_artifacts')",

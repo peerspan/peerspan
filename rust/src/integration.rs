@@ -927,6 +927,20 @@ async fn inspect(p: &Profile, mut checks: Vec<Check>) -> Value {
             "detached"=>"Owner detached this session. Prepare a fresh setup.","revoked"=>"Owner revoked this authorization. Prepare a fresh setup.","expired"=>"Authorization expired. Prepare a fresh setup.",_=>"Adapter state is unknown.",
         };
         checks.push(Check::new("adapter_connection",connection["state"]=="ready",detail));
+        match connection["channel"].as_str() {
+            None => checks.push(Check::new("channel", true, "not running")),
+            Some("verified") => checks.push(Check::new("channel", true, "verified")),
+            Some(_) => {
+                let agent = call(p, Method::GET, &format!("/v1/agents/{}", p.agent_id), None).await.ok();
+                let name = agent.as_ref().and_then(|a| a["name"].as_str()).filter(|n| !n.is_empty()).unwrap_or(&p.agent_id);
+                checks.push(Check::new("channel", false, &format!("unverified: {}", capsule_host::status::channel_unverified_detail(name))))
+            }
+        }
+        checks.push(match connection["protocol_version"].as_str() {
+            None => Check::new("mcp_protocol", true, "The adapter has not reported its MCP protocol revision."),
+            Some(version) if protocol_too_new(version) => Check::new("mcp_protocol", false, &format!("The adapter negotiated MCP protocol revision {version}; revisions from {MCP_PROTOCOL_LIMIT} do not deliver channel events. Launch Claude Code with MCP_PROTOCOL_NEGOTIATION=legacy.")),
+            Some(version) => Check::new("mcp_protocol", true, &format!("The adapter negotiated MCP protocol revision {version}.")),
+        });
         let routes=call(p,Method::GET,&format!("/v1/adapters/{}/route-status",p.adapter_id),None).await?;
         for entry in routes.as_array().context("invalid daemon response")?{
             let route=&entry["route"];let remaining=entry["messages_remaining"].as_i64().context("invalid route budget")?;
@@ -938,7 +952,23 @@ async fn inspect(p: &Profile, mut checks: Vec<Check>) -> Value {
     if let Err(error) = result {
         checks.push(Check::new("inspection", false, &error.to_string()))
     }
-    json!({"checked_at":Utc::now().to_rfc3339(),"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"adapter_ready":connection["state"]=="ready" && !failed(&checks),"model_availability":"unknown","message_consumption":"unverified","connection":connection,"checks":checks,"destinations":destinations})
+    json!({"checked_at":Utc::now().to_rfc3339(),"directory":p.directory,"harness":p.harness.id,"agent_id":p.agent_id,"session_id":p.session_id,"adapter_id":p.adapter_id,"adapter_ready":connection["state"]=="ready" && connection["channel"]=="verified" && !failed(&checks),"channel":connection["channel"],"model_availability":"unknown","message_consumption":"unverified","connection":connection,"checks":checks,"destinations":destinations})
+}
+/// The first MCP protocol revision under which Claude Code drops channel
+/// events.
+const MCP_PROTOCOL_LIMIT: &str = "2026-07-28";
+/// Whether a dated MCP protocol revision is at or after the limit.
+/// Revisions that are not dates are not compared.
+fn protocol_too_new(revision: &str) -> bool {
+    let date = |text: &str| {
+        (text.len() == 10)
+            .then(|| chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").ok())
+            .flatten()
+    };
+    match (date(revision), date(MCP_PROTOCOL_LIMIT)) {
+        (Some(at), Some(limit)) => at >= limit,
+        _ => false,
+    }
 }
 pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Result<()> {
     let (directory, workspace, args) = match command {

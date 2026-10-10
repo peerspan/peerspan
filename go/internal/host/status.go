@@ -84,7 +84,7 @@ type AttentionItem struct {
 // Attention kinds, in the order status reports them. The CLI adds
 // service_not_installed and linger_disabled.
 var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
-	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict"}
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict", "channel_unverified"}
 
 // SortAttention orders items by kind, then subject.
 func SortAttention(items []AttentionItem) {
@@ -148,6 +148,9 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return st, err
 	}
 	s.limitAttention(st.Networks, attend)
+	if err = channelAttention(ctx, tx, now, attend); err != nil {
+		return st, err
+	}
 	SortAttention(st.Attention)
 	return st, nil
 }

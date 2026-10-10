@@ -3,7 +3,11 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  InitializeRequestSchema,
+  ListToolsRequestSchema
+} from '@modelcontextprotocol/sdk/types.js';
 
 export { readCredential, AdapterError, adapterClient } from '../shared/adapter.mjs';
 import { createAdapter, configuredAdapter, instructions } from '../shared/adapter.mjs';
@@ -20,7 +24,9 @@ export function channelParams(params) {
   return { ...params, meta };
 }
 
-function channelServer(adapter) {
+// channelServer builds the MCP server; negotiated records the protocol
+// revision it agreed with Claude Code, which the adapter reports on connect.
+function channelServer(adapter, negotiated) {
   const server = new Server(
     { name: 'capsule', version: '0.1.0' },
     {
@@ -28,6 +34,11 @@ function channelServer(adapter) {
       instructions
     }
   );
+  server.setRequestHandler(InitializeRequestSchema, async (request) => {
+    const result = await server._oninitialize(request);
+    negotiated.version = result.protocolVersion;
+    return result;
+  });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: adapter.tools }));
   server.setRequestHandler(CallToolRequestSchema, (request) =>
     adapter.callTool(request.params.name, request.params.arguments)
@@ -44,30 +55,37 @@ function channelServer(adapter) {
     }
   };
 }
+const reattach = 'capsule attach claude';
 export function createChannel(options) {
   let channel;
+  const negotiated = {};
   const adapter = createAdapter({
+    reattach,
     ...options,
+    protocolVersion: () => negotiated.version,
     notify: (params) =>
       channel.server.notification({
         method: 'notifications/claude/channel',
         params: channelParams(params)
       })
   });
-  channel = channelServer(adapter);
+  channel = channelServer(adapter, negotiated);
   return channel;
 }
 export async function configuredChannel(socketPath, credentialPath, options = {}) {
   let channel;
+  const negotiated = {};
   const adapter = await configuredAdapter(socketPath, credentialPath, {
+    reattach,
     ...options,
+    protocolVersion: () => negotiated.version,
     notify: (params) =>
       channel.server.notification({
         method: 'notifications/claude/channel',
         params: channelParams(params)
       })
   });
-  channel = channelServer(adapter);
+  channel = channelServer(adapter, negotiated);
   return channel;
 }
 
@@ -99,7 +117,12 @@ async function main() {
   const channel = await configuredChannel(
     resolve(values.socket),
     resolve(values['credential-file']),
-    { pollMs }
+    {
+      pollMs,
+      // A fatal stop has already sent its disconnected event and written its
+      // reason; exiting lets Claude Code show the server as failed.
+      onFatal: () => process.exit(1)
+    }
   );
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.once(signal, () => {

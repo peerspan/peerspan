@@ -27,6 +27,27 @@ CREATE TABLE adapter_connections (adapter_id TEXT PRIMARY KEY REFERENCES adapter
 INSERT INTO adapter_connections(adapter_id) SELECT id FROM adapter_credentials;
 PRAGMA user_version = 6;
 ";
+/// Schema version 14 (live delivery slice 1): adds the channel verification
+/// time and the MCP protocol revision of each authorization, each only when
+/// missing, since a state rewound to an older version may keep them.
+/// Existing authorizations migrate as unverified.
+pub(crate) fn migrate_channel(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let present = {
+        let mut statement =
+            tx.prepare("SELECT name FROM pragma_table_info('adapter_connections')")?;
+        statement
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for column in ["channel_verified_at", "protocol_version"] {
+        if !present.iter().any(|c| c == column) {
+            tx.execute_batch(&format!(
+                "ALTER TABLE adapter_connections ADD COLUMN {column} TEXT;"
+            ))?;
+        }
+    }
+    tx.execute_batch("PRAGMA user_version = 14;")
+}
 pub(crate) const LEASE_SECONDS: u64 = 15;
 #[derive(Clone)]
 pub struct AdapterAuth {
@@ -41,6 +62,12 @@ pub struct Connection {
     pub recoverable: bool,
     pub lease_expires_at: Option<String>,
     pub last_seen_at: Option<String>,
+    /// `verified` or `unverified` while the adapter holds a lease, else
+    /// null.
+    pub channel: Option<&'static str>,
+    pub channel_verified_at: Option<String>,
+    /// The MCP protocol revision the adapter last reported on connect.
+    pub protocol_version: Option<String>,
 }
 type Binding = (Option<String>, i64, Option<String>, bool);
 fn binding(conn: &DB, id: &str) -> Result<Binding, Error> {
@@ -62,8 +89,49 @@ pub(crate) fn authority(conn: &DB, auth: &AdapterAuth) -> Result<(Adapter, Sessi
     }
     Ok((a, ss))
 }
+/// Like `authority`, for the work routes that claim deliveries, tasks,
+/// cancellations, replies, and task updates: the authorization must also have verified
+/// its channel through `POST /adapter/v1/ready`.
+pub(crate) fn verified_authority(
+    conn: &DB,
+    auth: &AdapterAuth,
+) -> Result<(Adapter, Session), Error> {
+    let (a, ss) = authority(conn, auth)?;
+    if channel_columns(conn, &a.id)?.0.is_none() {
+        return Err(Error::Coded {
+            status: 409,
+            code: "conflict",
+            message: "channel not verified".into(),
+            extra: Default::default(),
+        });
+    }
+    Ok((a, ss))
+}
+/// The verification time and the reported MCP protocol revision.
+fn channel_columns(conn: &DB, id: &str) -> Result<(Option<String>, Option<String>), Error> {
+    Ok(conn.query_row(
+        "SELECT channel_verified_at, protocol_version FROM adapter_connections WHERE adapter_id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?)
+}
+/// A readiness nonce: 128 bits as 32 hex digits.
+fn valid_nonce(value: &str) -> bool {
+    value.len() == 32 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+/// An MCP protocol revision as an adapter reports it: 1 to 64 letters,
+/// digits, `.`, `_`, or `-`, starting with a letter or digit.
+fn valid_protocol(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
 fn status(conn: &DB, a: &Adapter, ss: &Session) -> Result<Connection, Error> {
     let (hash, until, last, recoverable) = binding(conn, &a.id)?;
+    let (verified, protocol) = channel_columns(conn, &a.id)?;
     let expiry =
         DateTime::parse_from_rfc3339(&a.expires_at).map_err(|e| Error::Internal(e.into()))?;
     let state = if a.revoked_at.is_some() {
@@ -92,6 +160,13 @@ fn status(conn: &DB, a: &Adapter, ss: &Session) -> Result<Connection, Error> {
             None
         },
         last_seen_at: last,
+        channel: (state == "ready").then_some(if verified.is_some() {
+            "verified"
+        } else {
+            "unverified"
+        }),
+        channel_verified_at: verified,
+        protocol_version: protocol,
     })
 }
 /// Moves a live renewable credential's expiry to a day ahead, with the routes
@@ -160,6 +235,21 @@ impl Store {
         adapter_id: &str,
         session_id: &str,
     ) -> Result<Connection, Error> {
+        self.connect_adapter_reporting(token, instance, adapter_id, session_id, None)
+    }
+    /// Connects or renews the lease, recording the MCP protocol revision
+    /// the adapter negotiated when it reports one.
+    pub fn connect_adapter_reporting(
+        &self,
+        token: &str,
+        instance: &str,
+        adapter_id: &str,
+        session_id: &str,
+        protocol_version: Option<&str>,
+    ) -> Result<Connection, Error> {
+        if protocol_version.is_some_and(|v| !valid_protocol(v)) {
+            return Err(Error::Invalid("invalid protocol version".into()));
+        }
         if !valid_id(instance, "instance", 32)
             || !valid_id(adapter_id, "adapter", 16)
             || !valid_id(session_id, "session", 16)
@@ -200,9 +290,32 @@ impl Store {
             ss.state = "attached".into();
         }
         tx.execute("UPDATE adapter_connections SET instance_hash = ?1,lease_until_ms = ?2,last_seen_at = ?3,recoverable = 1 WHERE adapter_id = ?4",params![token_hash(instance),lease.timestamp_millis(),at,a.id])?;
+        if let Some(version) = protocol_version {
+            tx.execute(
+                "UPDATE adapter_connections SET protocol_version = ?1 WHERE adapter_id = ?2",
+                params![version, a.id],
+            )?;
+        }
         if hash.is_none() || until <= current.timestamp_millis() {
             append_event(&tx, "adapter.connected", &a.id, &at)?;
         }
+        let c = status(&tx, &a, &ss)?;
+        tx.commit()?;
+        Ok(c)
+    }
+    /// `POST /adapter/v1/ready`: records that this authorization's session
+    /// received the hello event. Idempotent: the first time is kept.
+    pub fn adapter_ready(&self, auth: &AdapterAuth, nonce: &str) -> Result<Connection, Error> {
+        if !valid_nonce(nonce) {
+            return Err(Error::Invalid("invalid nonce".into()));
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let (a, ss) = authority(&tx, auth)?;
+        tx.execute(
+            "UPDATE adapter_connections SET channel_verified_at = COALESCE(channel_verified_at, ?1) WHERE adapter_id = ?2",
+            params![now(), a.id],
+        )?;
         let c = status(&tx, &a, &ss)?;
         tx.commit()?;
         Ok(c)
@@ -243,9 +356,29 @@ struct Connect {
     instance_id: String,
     adapter_id: String,
     session_id: String,
+    #[serde(default)]
+    protocol_version: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadyRequest {
+    nonce: String,
 }
 pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
-    Router::new().route("/adapter/v1/connect", post(connect))
+    Router::new()
+        .route("/adapter/v1/connect", post(connect))
+        .route("/adapter/v1/ready", post(ready))
+}
+async fn ready(
+    State(store): State<Arc<Store>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Connection>, Error> {
+    let req: ReadyRequest = decode(body)?;
+    let auth = token(&headers);
+    Ok(Json(
+        blocking(store, move |s| s.adapter_ready(&auth, &req.nonce)).await?,
+    ))
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
@@ -261,11 +394,12 @@ async fn connect(
     let auth = token(&headers);
     Ok(Json(
         blocking(store, move |s| {
-            s.connect_adapter(
+            s.connect_adapter_reporting(
                 &auth.token,
                 &req.instance_id,
                 &req.adapter_id,
                 &req.session_id,
+                req.protocol_version.as_deref(),
             )
         })
         .await?,

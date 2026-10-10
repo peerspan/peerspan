@@ -163,6 +163,11 @@ for line in child.stdout:
             error=message.get("error"))
     else:
         log(event="notification" if "method" in message else "response", message=message)
+        # Live delivery readiness: answer the hello event before work flows.
+        meta = (message.get("params") or {}).get("meta") or {}
+        if message.get("method") == "notifications/claude/channel" and meta.get("kind") == "hello":
+            send({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                  "params": {"name": "capsule_ready", "arguments": {"nonce": meta.get("nonce")}}})
 log(event="server_exited", code=child.wait())
 sys.exit(1)
 '''

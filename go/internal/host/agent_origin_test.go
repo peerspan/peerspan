@@ -117,6 +117,7 @@ func TestAgentOriginAndRequesterAgentGrants(t *testing.T) {
 	credential := must(receiver.CreateAdapter(ctx, CreateAdapter{SessionID: targetSession.ID, ExpiresAt: timestamp(time.Now().Add(time.Hour))}))
 	auth := AdapterAuth{Token: credential.Token, Instance: "instance_" + strings.Repeat("a", 64)}
 	must(receiver.ConnectAdapter(ctx, auth.Token, auth.Instance, credential.Adapter.ID, targetSession.ID))
+	must(receiver.ReadyAdapter(ctx, auth, strings.Repeat("0", 32)))
 
 	author := must(sender.RegisterAgent(ctx, RegisterAgent{Name: "author", Owner: "quinn"}))
 	other := must(sender.RegisterAgent(ctx, RegisterAgent{Name: "other", Owner: "quinn"}))
@@ -329,6 +330,7 @@ func TestAgentPrincipal(t *testing.T) {
 	credential := must(alice.CreateAdapter(ctx, CreateAdapter{SessionID: session.ID, ExpiresAt: timestamp(time.Now().Add(time.Hour))}))
 	auth := AdapterAuth{Token: credential.Token, Instance: "instance_" + strings.Repeat("b", 64)}
 	must(alice.ConnectAdapter(ctx, auth.Token, auth.Instance, credential.Adapter.ID, session.ID))
+	must(alice.ReadyAdapter(ctx, auth, strings.Repeat("0", 32)))
 	handoff := must(alice.NextDelivery(ctx, auth))
 	if handoff == nil || handoff.SenderPersonID == nil || *handoff.SenderPersonID != quinnID || handoff.SenderPerson == nil || *handoff.SenderPerson != "quinn" || handoff.Request.Origin.AgentID != author.ID {
 		t.Fatalf("handoff: %+v", handoff)

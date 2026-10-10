@@ -40,7 +40,7 @@ def check(client,receiver_binary,replacement,node,label):
             def route(peer,agent,grant):return{'name':'remote','peer_host_id':peer['id'],'target_agent_id':agent['id'],'grant_id':grant['id'],'max_messages':2}
             alpha=Backend(node,root/'alpha');beta=Backend(node,root/'beta');harnesses.extend([alpha,beta]);before=alpha.control('inspect')['session']
             left,right=root/'left',root/'right';setup(client,a,aa,left,node,[route(bi,ba,bg)],alpha);setup(client,b,ba,right,node,[route(ai,aa,ag)],beta)
-            alice=Harness(replacement,a,left);bob=Harness(client,b,right);harnesses.extend([alice,bob])
+            alice=Harness(replacement,a,left);bob=Harness(client,b,right);harnesses.extend([alice,bob]);alice.verified();bob.verified()
             assert alpha.control('inspect')['session']==before
             assert alpha.control('wrong-session')['blocked'];assert alpha.control('deny')['blocked']
             alpha.input('destinations');destinations=alice.event('tool_result',tool='list_destinations');assert json.loads(destinations['content'][0]['text'])[0]['messages_remaining']==2

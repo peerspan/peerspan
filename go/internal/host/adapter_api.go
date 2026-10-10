@@ -39,6 +39,9 @@ func AdapterHandler(store *Store) http.Handler {
 		}
 		defer tx.Rollback()
 		_, ss, err := adapterAuthority(r.Context(), tx, token(r))
+		if err == nil {
+			ss.Channel, err = sessionChannel(r.Context(), tx, ss.ID, time.Now())
+		}
 		respond(w, 200, ss, err)
 	})
 	mux.HandleFunc("POST /adapter/v1/next", func(w http.ResponseWriter, r *http.Request) {

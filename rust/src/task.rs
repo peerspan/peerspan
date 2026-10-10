@@ -644,7 +644,7 @@ impl Store {
     pub fn next_task(&self, auth: &AdapterAuth) -> Result<Option<TaskHandoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let (a, ss) = authority(&tx, auth)?;
+        let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
         let pending = {
             let mut stmt = tx.prepare("SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ?1 AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100")?;
             stmt.query_map([&ss.agent_id], |row| {
@@ -929,7 +929,7 @@ impl Store {
     pub fn next_task_cancel(&self, auth: &AdapterAuth) -> Result<Option<CancelHandoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let (a, ss) = authority(&tx, auth)?;
+        let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
         let pending: Option<(String, String)> = tx
             .query_row(
                 "SELECT d.record, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.session_id = ?1 AND json_extract(d.record, '$.adapter_id') = ?2 AND json_extract(d.record, '$.cancel_claimed_at') IS NULL AND json_extract(t.record, '$.state') = 'running' AND json_extract(t.record, '$.cancel_requested') = 1 ORDER BY d.rowid LIMIT 1",

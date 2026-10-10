@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-10-09T19:41:10.319262+00:00",
+  "checked_at": "2026-10-10T10:26:02.834261+00:00",
   "contract": "docs/launch-contract.md, Slice 5: acceptance (scripted run); path from docs/quick-start.md",
   "environment": {
     "systemd": "systemd 252",
@@ -13,12 +13,12 @@
   "release": {
     "go": {
       "archive": "capsule-0.0.0-acceptance-linux-amd64-go.tar.gz",
-      "sha256": "825642c528fd3afefb37304dcbe47b98150beede9caab9153ed4e98a608c9ac4",
+      "sha256": "2ab72e94c0b34fdf32d481ac49a4106395a35bf8e8bd9d79c1e5798cf33554c3",
       "checksum_verified": true,
       "release": {
         "version": "0.0.0-acceptance",
         "implementation": "go",
-        "source_revision": "d161924168f0d709461c98102bc6a7e20a94fb04",
+        "source_revision": "f4cd4291206f496e313a8ed3e3be0262be773ade",
         "source_dirty": true,
         "os": "linux",
         "architecture": "amd64",
@@ -28,12 +28,12 @@
     },
     "rust": {
       "archive": "capsule-0.0.0-acceptance-linux-amd64-rust.tar.gz",
-      "sha256": "3d1230284758060b5f9f5304183df393b7a36513ac780308652de74b4742d9df",
+      "sha256": "d91a5200c9a9f72999cb015e11cd38c060d1bc804ef3889e03ab729b65ab43b0",
       "checksum_verified": true,
       "release": {
         "version": "0.0.0-acceptance",
         "implementation": "rust",
-        "source_revision": "d161924168f0d709461c98102bc6a7e20a94fb04",
+        "source_revision": "f4cd4291206f496e313a8ed3e3be0262be773ade",
         "source_dirty": true,
         "os": "linux",
         "architecture": "amd64",
@@ -63,7 +63,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.5
+          "seconds": 0.42
         },
         {
           "machine": "M1",
@@ -73,7 +73,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.13
+          "seconds": 0.14
         },
         {
           "machine": "M1",
@@ -97,7 +97,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_c2d8ad6d0fa94cf5b5862a9d7fe4aecf",
+              "id": "agent_98f955bf875323e6f488b4bd0e2a97bb",
               "name": "claude",
               "address": "capsule-acc-1/claude"
             },
@@ -120,7 +120,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.51
+          "seconds": 0.54
         },
         {
           "machine": "M2",
@@ -130,7 +130,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.08,
+          "seconds": 0.12,
           "taken_from_output": {
             "TOKEN": "the join line printed by M1 `capsule invite capsule-acc-1`"
           }
@@ -147,7 +147,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_8138919b7c4de1f6cc39ec23347dedd1",
+              "id": "agent_f52905fd0753bc54745095e127ca75c3",
               "name": "claude-cerebral-work-1",
               "address": "capsule-acc-1/claude-cerebral-work-1"
             },
@@ -194,6 +194,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -211,18 +212,18 @@
             "mine": [
               {
                 "address": "capsule-acc-1/claude",
-                "host_id": "host_98adc4ad37b78c382bfed1a5ac05984531296ea20e0d29c806f67119591f453f",
-                "agent_id": "agent_c2d8ad6d0fa94cf5b5862a9d7fe4aecf",
+                "host_id": "host_1e1fc5291bd544b5eb13f3e0b7659f2fc5bddaa31522e91fb5047c95e4376077",
+                "agent_id": "agent_98f955bf875323e6f488b4bd0e2a97bb",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-1/.config/capsule/sessions/host_98adc4ad37b78c382bfed1a5ac05984531296ea20e0d29c806f67119591f453f/claude/mcp.json",
+              "/home/capsule-acc-1/.config/capsule/sessions/host_1e1fc5291bd544b5eb13f3e0b7659f2fc5bddaa31522e91fb5047c95e4376077/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -232,6 +233,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -249,18 +251,18 @@
             "mine": [
               {
                 "address": "capsule-acc-1/claude-cerebral-work-1",
-                "host_id": "host_486950c5448f6de3b82632d283e35910991f2f9964a404aa21f7aaa1e5097f6d",
-                "agent_id": "agent_8138919b7c4de1f6cc39ec23347dedd1",
+                "host_id": "host_1caa6d69b57b06f01d0f285741f4d0489ca37d61d9a68611e241f101d7ca9d6c",
+                "agent_id": "agent_f52905fd0753bc54745095e127ca75c3",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-2/.config/capsule/sessions/host_486950c5448f6de3b82632d283e35910991f2f9964a404aa21f7aaa1e5097f6d/claude-cerebral-work-1/mcp.json",
+              "/home/capsule-acc-2/.config/capsule/sessions/host_1caa6d69b57b06f01d0f285741f4d0489ca37d61d9a68611e241f101d7ca9d6c/claude-cerebral-work-1/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -387,7 +389,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.56
+          "seconds": 0.43
         },
         {
           "machine": "M1",
@@ -397,7 +399,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.11
+          "seconds": 0.1
         },
         {
           "machine": "M1",
@@ -407,7 +409,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.03
+          "seconds": 0.02
         },
         {
           "machine": "M1",
@@ -422,7 +424,7 @@
           "output": {
             "agent": {
               "address": "capsule-acc-3/claude",
-              "id": "agent_34bcc30bee0a6293bcbb89ba7fa4bac5",
+              "id": "agent_3da3c075a2544010df2f108d2fe30cd2",
               "name": "claude"
             },
             "reused": false,
@@ -444,7 +446,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.5
+          "seconds": 0.48
         },
         {
           "machine": "M2",
@@ -454,7 +456,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.05,
+          "seconds": 0.08,
           "taken_from_output": {
             "TOKEN": "the join line printed by M1 `capsule invite capsule-acc-3`"
           }
@@ -472,7 +474,7 @@
           "output": {
             "agent": {
               "address": "capsule-acc-3/claude-cerebral-work-1",
-              "id": "agent_609df33e36d5d16bd81bca51df77372b",
+              "id": "agent_30f0d4268d04f965b1d5a54a8ff5caa0",
               "name": "claude-cerebral-work-1"
             },
             "reused": false,
@@ -518,6 +520,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -535,18 +538,18 @@
             "mine": [
               {
                 "address": "capsule-acc-3/claude",
-                "agent_id": "agent_34bcc30bee0a6293bcbb89ba7fa4bac5",
+                "agent_id": "agent_3da3c075a2544010df2f108d2fe30cd2",
                 "connected": true,
-                "host_id": "host_5359fd76ef7f0c71bef36086fee6a6258c1f9725f597ecd11d47302669ce6d9a"
+                "host_id": "host_0ede282da8cdc7678360f870df75180c2c186a0e509a7687b7c2edbd65033541"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-3/.config/capsule/sessions/host_5359fd76ef7f0c71bef36086fee6a6258c1f9725f597ecd11d47302669ce6d9a/claude/mcp.json",
+              "/home/capsule-acc-3/.config/capsule/sessions/host_0ede282da8cdc7678360f870df75180c2c186a0e509a7687b7c2edbd65033541/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -556,6 +559,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -573,18 +577,18 @@
             "mine": [
               {
                 "address": "capsule-acc-3/claude-cerebral-work-1",
-                "agent_id": "agent_609df33e36d5d16bd81bca51df77372b",
+                "agent_id": "agent_30f0d4268d04f965b1d5a54a8ff5caa0",
                 "connected": true,
-                "host_id": "host_e256a7b9ee415aee7b16f4ec55a17db71109f748a8fb2d360843bfa2ffd32e39"
+                "host_id": "host_8886b6ea3111478bb167024fd778b163d184ac6664376f86313df73351f02dd4"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-4/.config/capsule/sessions/host_e256a7b9ee415aee7b16f4ec55a17db71109f748a8fb2d360843bfa2ffd32e39/claude-cerebral-work-1/mcp.json",
+              "/home/capsule-acc-4/.config/capsule/sessions/host_8886b6ea3111478bb167024fd778b163d184ac6664376f86313df73351f02dd4/claude-cerebral-work-1/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -711,7 +715,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.54
+          "seconds": 0.41
         },
         {
           "machine": "M1",
@@ -721,7 +725,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.34
+          "seconds": 0.12
         },
         {
           "machine": "M1",
@@ -731,7 +735,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.03
+          "seconds": 0.01
         },
         {
           "machine": "M2",
@@ -741,7 +745,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.53
+          "seconds": 0.43
         },
         {
           "machine": "M2",
@@ -751,7 +755,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.27,
+          "seconds": 0.16,
           "taken_from_output": {
             "TOKEN": "the join line printed by M1 `capsule invite bob`"
           }
@@ -764,7 +768,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.13
+          "seconds": 0.06
         },
         {
           "machine": "M2",
@@ -778,7 +782,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_5b016fc3c9ee9dc1d5e1713be30939ad",
+              "id": "agent_fdf76be35ec5422eedc5e6513ee800a0",
               "name": "claude",
               "address": "bob/claude"
             },
@@ -795,7 +799,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.21
+          "seconds": 0.22
         },
         {
           "machine": "M1",
@@ -809,7 +813,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_6deedc9bf7a874a99c8c36a500a51752",
+              "id": "agent_3914736f543c1f763f813bf736b4ece2",
               "name": "claude",
               "address": "capsule-acc-5/claude"
             },
@@ -853,6 +857,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -870,18 +875,18 @@
             "mine": [
               {
                 "address": "capsule-acc-5/claude",
-                "host_id": "host_5325c13109d7c9f782698338fcaf78b678ce912a12e7984f9481722353b237f8",
-                "agent_id": "agent_6deedc9bf7a874a99c8c36a500a51752",
+                "host_id": "host_78990d7fa483cda26c5219ef839b997482fcb7ed563f5441145766badfe5eced",
+                "agent_id": "agent_3914736f543c1f763f813bf736b4ece2",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-5/.config/capsule/sessions/host_5325c13109d7c9f782698338fcaf78b678ce912a12e7984f9481722353b237f8/claude/mcp.json",
+              "/home/capsule-acc-5/.config/capsule/sessions/host_78990d7fa483cda26c5219ef839b997482fcb7ed563f5441145766badfe5eced/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -891,6 +896,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -908,18 +914,18 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "host_id": "host_73dc06270f2e48e3c858ece2d5fbdd7a09dc9298086d345f0010b0cc676b8740",
-                "agent_id": "agent_5b016fc3c9ee9dc1d5e1713be30939ad",
+                "host_id": "host_3d175197fcbed532ffbf762bd5c26523fe623912c3fba9c2509240ca49666549",
+                "agent_id": "agent_fdf76be35ec5422eedc5e6513ee800a0",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-6/.config/capsule/sessions/host_73dc06270f2e48e3c858ece2d5fbdd7a09dc9298086d345f0010b0cc676b8740/claude/mcp.json",
+              "/home/capsule-acc-6/.config/capsule/sessions/host_3d175197fcbed532ffbf762bd5c26523fe623912c3fba9c2509240ca49666549/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -1046,7 +1052,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.87
+          "seconds": 0.45
         },
         {
           "machine": "M1",
@@ -1056,7 +1062,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 1.39
+          "seconds": 0.17
         },
         {
           "machine": "M1",
@@ -1066,7 +1072,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.04
+          "seconds": 0.03
         },
         {
           "machine": "M2",
@@ -1076,7 +1082,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.53
+          "seconds": 0.49
         },
         {
           "machine": "M2",
@@ -1086,7 +1092,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.21,
+          "seconds": 0.2,
           "taken_from_output": {
             "TOKEN": "the join line printed by M1 `capsule invite bob`"
           }
@@ -1099,7 +1105,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.25
+          "seconds": 0.11
         },
         {
           "machine": "M2",
@@ -1114,7 +1120,7 @@
           "output": {
             "agent": {
               "address": "bob/claude",
-              "id": "agent_1cffd3b9b24c4ddec10f512c7c06a668",
+              "id": "agent_7da6e4ba82a64ca4929e6db8c8fb841f",
               "name": "claude"
             },
             "reused": false,
@@ -1130,7 +1136,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.21
+          "seconds": 0.14
         },
         {
           "machine": "M1",
@@ -1145,7 +1151,7 @@
           "output": {
             "agent": {
               "address": "capsule-acc-7/claude",
-              "id": "agent_5535ef11241a6343f8d109fd62706556",
+              "id": "agent_762550627370675f4e703f62a8a7746b",
               "name": "claude"
             },
             "reused": false,
@@ -1188,6 +1194,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -1205,18 +1212,18 @@
             "mine": [
               {
                 "address": "capsule-acc-7/claude",
-                "agent_id": "agent_5535ef11241a6343f8d109fd62706556",
+                "agent_id": "agent_762550627370675f4e703f62a8a7746b",
                 "connected": true,
-                "host_id": "host_16534615032c0493cbf9188f625505a3635d8fb4f9651b7039bce86f8e0cc025"
+                "host_id": "host_f41967c78c552c11dd448d913b2e0ea720836e67349fe50ec2f6da72ce1c0ded"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-7/.config/capsule/sessions/host_16534615032c0493cbf9188f625505a3635d8fb4f9651b7039bce86f8e0cc025/claude/mcp.json",
+              "/home/capsule-acc-7/.config/capsule/sessions/host_f41967c78c552c11dd448d913b2e0ea720836e67349fe50ec2f6da72ce1c0ded/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -1226,6 +1233,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -1243,18 +1251,18 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "agent_id": "agent_1cffd3b9b24c4ddec10f512c7c06a668",
+                "agent_id": "agent_7da6e4ba82a64ca4929e6db8c8fb841f",
                 "connected": true,
-                "host_id": "host_5b87b55bb6fc0eb70f4dec7efcb82e5dd49b4d724a87991bf2ba43270616c062"
+                "host_id": "host_c0e004662625787fc46b7199cbc299bbc99945a0611d1a08e2c8289bca3df643"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-8/.config/capsule/sessions/host_5b87b55bb6fc0eb70f4dec7efcb82e5dd49b4d724a87991bf2ba43270616c062/claude/mcp.json",
+              "/home/capsule-acc-8/.config/capsule/sessions/host_c0e004662625787fc46b7199cbc299bbc99945a0611d1a08e2c8289bca3df643/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -1383,7 +1391,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.58
+          "seconds": 0.47
         },
         {
           "machine": "M1",
@@ -1403,7 +1411,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.04
+          "seconds": 0.09
         },
         {
           "machine": "M1",
@@ -1413,7 +1421,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.06
+          "seconds": 0.04
         },
         {
           "machine": "M1",
@@ -1423,7 +1431,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.13
+          "seconds": 0.17
         },
         {
           "machine": "M1",
@@ -1437,7 +1445,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_0a3e7c3c4285aa602491e1f50239d198",
+              "id": "agent_209be3713f41cf479c11b79a385ec3ab",
               "name": "claude",
               "address": "capsule-acc-9/claude"
             },
@@ -1454,7 +1462,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.49
+          "seconds": 0.53
         },
         {
           "machine": "M2",
@@ -1464,7 +1472,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.29,
+          "seconds": 0.35,
           "taken_from_output": {
             "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
           }
@@ -1477,7 +1485,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.24
+          "seconds": 0.22
         },
         {
           "machine": "M2",
@@ -1491,7 +1499,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_bf8319e6d002e53e4070803d44266c13",
+              "id": "agent_133da9f2a77d8e88e0842212bfe0117a",
               "name": "claude",
               "address": "bob/claude"
             },
@@ -1508,7 +1516,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.5
+          "seconds": 0.45
         },
         {
           "machine": "M3",
@@ -1518,7 +1526,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.44,
+          "seconds": 0.31,
           "taken_from_output": {
             "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
           }
@@ -1531,7 +1539,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.25
+          "seconds": 0.19
         },
         {
           "machine": "M3",
@@ -1545,7 +1553,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_21b0a92235240a9b27e72eeed2054e21",
+              "id": "agent_29b67d3a1d78a3a931b3b6966e1ae9cb",
               "name": "claude",
               "address": "carol/claude"
             },
@@ -1591,6 +1599,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -1608,18 +1617,18 @@
             "mine": [
               {
                 "address": "capsule-acc-9/claude",
-                "host_id": "host_3b4ab0c8d1df7320301aff11e06d100d321f629d97dee189a2cef1e8f738692d",
-                "agent_id": "agent_0a3e7c3c4285aa602491e1f50239d198",
+                "host_id": "host_fcec886657194140caae4af10cebb291a81d23ecbee63f8a1399eccc81f5648c",
+                "agent_id": "agent_209be3713f41cf479c11b79a385ec3ab",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-9/.config/capsule/sessions/host_3b4ab0c8d1df7320301aff11e06d100d321f629d97dee189a2cef1e8f738692d/claude/mcp.json",
+              "/home/capsule-acc-9/.config/capsule/sessions/host_fcec886657194140caae4af10cebb291a81d23ecbee63f8a1399eccc81f5648c/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -1629,6 +1638,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -1646,18 +1656,18 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "host_id": "host_39271a1cc379abe16cc9bf8838bb9f8b2f52688770573ad0cdd9feb4c485887b",
-                "agent_id": "agent_bf8319e6d002e53e4070803d44266c13",
+                "host_id": "host_4537002db14348f36fde0e65d22092e082a5fe4455fe2cbf3552b7d29cade4b9",
+                "agent_id": "agent_133da9f2a77d8e88e0842212bfe0117a",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-10/.config/capsule/sessions/host_39271a1cc379abe16cc9bf8838bb9f8b2f52688770573ad0cdd9feb4c485887b/claude/mcp.json",
+              "/home/capsule-acc-10/.config/capsule/sessions/host_4537002db14348f36fde0e65d22092e082a5fe4455fe2cbf3552b7d29cade4b9/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -1667,6 +1677,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -1684,18 +1695,18 @@
             "mine": [
               {
                 "address": "carol/claude",
-                "host_id": "host_a1c903d6db486784f0d708ac123215974f27d959fe8f06bad4fd670f19d3af71",
-                "agent_id": "agent_21b0a92235240a9b27e72eeed2054e21",
+                "host_id": "host_bad9d0e83d4d6e25f1386a3c9b8d2fdb4ab4a7479251c1074394f9e957b853ff",
+                "agent_id": "agent_29b67d3a1d78a3a931b3b6966e1ae9cb",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-11/.config/capsule/sessions/host_a1c903d6db486784f0d708ac123215974f27d959fe8f06bad4fd670f19d3af71/claude/mcp.json",
+              "/home/capsule-acc-11/.config/capsule/sessions/host_bad9d0e83d4d6e25f1386a3c9b8d2fdb4ab4a7479251c1074394f9e957b853ff/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -1942,7 +1953,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.5
+          "seconds": 0.55
         },
         {
           "machine": "M1",
@@ -1952,7 +1963,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.24
+          "seconds": 0.28
         },
         {
           "machine": "M1",
@@ -1962,7 +1973,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.04
+          "seconds": 0.05
         },
         {
           "machine": "M1",
@@ -1982,7 +1993,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.17
+          "seconds": 0.18
         },
         {
           "machine": "M1",
@@ -1997,7 +2008,7 @@
           "output": {
             "agent": {
               "address": "capsule-acc-12/claude",
-              "id": "agent_8adcdee9558e90de93ede4bbea8892fb",
+              "id": "agent_20fa898ab2276fd8a72c238592d89c49",
               "name": "claude"
             },
             "reused": false,
@@ -2013,7 +2024,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.5
+          "seconds": 0.4
         },
         {
           "machine": "M2",
@@ -2023,7 +2034,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.2,
+          "seconds": 0.14,
           "taken_from_output": {
             "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
           }
@@ -2051,7 +2062,7 @@
           "output": {
             "agent": {
               "address": "bob/claude",
-              "id": "agent_a759f0d8ea2064cbfeeda603ec37dcf7",
+              "id": "agent_0b081f9b212013b773b75d8082de394c",
               "name": "claude"
             },
             "reused": false,
@@ -2067,7 +2078,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.95
+          "seconds": 0.5
         },
         {
           "machine": "M3",
@@ -2077,7 +2088,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 1.38,
+          "seconds": 0.21,
           "taken_from_output": {
             "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
           }
@@ -2090,7 +2101,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.29
+          "seconds": 0.28
         },
         {
           "machine": "M3",
@@ -2105,7 +2116,7 @@
           "output": {
             "agent": {
               "address": "carol/claude",
-              "id": "agent_f9dc5260c4667f5b758367fbba3efd21",
+              "id": "agent_28e39dee0a21b246be651e47f671e2a0",
               "name": "claude"
             },
             "reused": false,
@@ -2150,6 +2161,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -2167,18 +2179,18 @@
             "mine": [
               {
                 "address": "capsule-acc-12/claude",
-                "agent_id": "agent_8adcdee9558e90de93ede4bbea8892fb",
+                "agent_id": "agent_20fa898ab2276fd8a72c238592d89c49",
                 "connected": true,
-                "host_id": "host_43f2528459b134ed93e3633b30cf713ecec82d2d518f80a1464fa5eb522d5bd6"
+                "host_id": "host_447554a5af19d88cf91bfc833079f67955f75824a3149e26f39352b986dcfd16"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-12/.config/capsule/sessions/host_43f2528459b134ed93e3633b30cf713ecec82d2d518f80a1464fa5eb522d5bd6/claude/mcp.json",
+              "/home/capsule-acc-12/.config/capsule/sessions/host_447554a5af19d88cf91bfc833079f67955f75824a3149e26f39352b986dcfd16/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -2188,6 +2200,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -2205,18 +2218,18 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "agent_id": "agent_a759f0d8ea2064cbfeeda603ec37dcf7",
+                "agent_id": "agent_0b081f9b212013b773b75d8082de394c",
                 "connected": true,
-                "host_id": "host_95eb7c06235c2579808826855261468049d69f06af87bb24f5e77f2cbca4ebe5"
+                "host_id": "host_262c68564d2a5c7987a62eeb0462ba80964cad8793408b7455cb68b6518931ce"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-13/.config/capsule/sessions/host_95eb7c06235c2579808826855261468049d69f06af87bb24f5e77f2cbca4ebe5/claude/mcp.json",
+              "/home/capsule-acc-13/.config/capsule/sessions/host_262c68564d2a5c7987a62eeb0462ba80964cad8793408b7455cb68b6518931ce/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -2226,6 +2239,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -2243,18 +2257,18 @@
             "mine": [
               {
                 "address": "carol/claude",
-                "agent_id": "agent_f9dc5260c4667f5b758367fbba3efd21",
+                "agent_id": "agent_28e39dee0a21b246be651e47f671e2a0",
                 "connected": true,
-                "host_id": "host_8afe846b9d10c5ef42a059b4ce3fec7c0b5743499e48917f37bef70415eb69f9"
+                "host_id": "host_e2fd9dbd83204970c744c52ff07b832d3cfca2987807e7c3e196f5a1c46fe1dc"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-14/.config/capsule/sessions/host_8afe846b9d10c5ef42a059b4ce3fec7c0b5743499e48917f37bef70415eb69f9/claude/mcp.json",
+              "/home/capsule-acc-14/.config/capsule/sessions/host_e2fd9dbd83204970c744c52ff07b832d3cfca2987807e7c3e196f5a1c46fe1dc/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -2501,7 +2515,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.56
+          "seconds": 0.44
         },
         {
           "machine": "M1",
@@ -2511,7 +2525,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.32
+          "seconds": 0.35
         },
         {
           "machine": "M1",
@@ -2531,7 +2545,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.05
+          "seconds": 0.08
         },
         {
           "machine": "M1",
@@ -2541,7 +2555,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.13
+          "seconds": 0.15
         },
         {
           "machine": "M1",
@@ -2555,7 +2569,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_7e8a39864c29e80d859c7aca2cf96f51",
+              "id": "agent_d5ce15f74426b06088897ee77413e498",
               "name": "claude",
               "address": "capsule-acc-15/claude"
             },
@@ -2572,7 +2586,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.49
+          "seconds": 0.42
         },
         {
           "machine": "M2",
@@ -2582,7 +2596,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.2,
+          "seconds": 0.31,
           "taken_from_output": {
             "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
           }
@@ -2595,7 +2609,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.17
+          "seconds": 0.28
         },
         {
           "machine": "M2",
@@ -2610,7 +2624,7 @@
           "output": {
             "agent": {
               "address": "bob/claude",
-              "id": "agent_2df65b99eed70a0cdf3464a61c090d03",
+              "id": "agent_5e1f1a943e02d9e884af2d488d0cbf96",
               "name": "claude"
             },
             "reused": false,
@@ -2626,7 +2640,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.57
+          "seconds": 0.45
         },
         {
           "machine": "M3",
@@ -2649,7 +2663,7 @@
           "kind": "capsule",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.25
+          "seconds": 0.26
         },
         {
           "machine": "M3",
@@ -2663,7 +2677,7 @@
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_428a495eeb8455c5dcfd0c4b5bc58cdb",
+              "id": "agent_a70c6f7e253ca0efa617654d3fae681f",
               "name": "claude",
               "address": "carol/claude"
             },
@@ -2709,6 +2723,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -2726,18 +2741,18 @@
             "mine": [
               {
                 "address": "capsule-acc-15/claude",
-                "host_id": "host_1606c441cd7c61761464e68479fe5388028eff2310476aecc4ac1aea4f0fb1f6",
-                "agent_id": "agent_7e8a39864c29e80d859c7aca2cf96f51",
+                "host_id": "host_27704dbc666d59a0578601fc147eadaee5e4e58d722f020009184f2d6da77a22",
+                "agent_id": "agent_d5ce15f74426b06088897ee77413e498",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-15/.config/capsule/sessions/host_1606c441cd7c61761464e68479fe5388028eff2310476aecc4ac1aea4f0fb1f6/claude/mcp.json",
+              "/home/capsule-acc-15/.config/capsule/sessions/host_27704dbc666d59a0578601fc147eadaee5e4e58d722f020009184f2d6da77a22/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -2747,6 +2762,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -2764,18 +2780,18 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "agent_id": "agent_2df65b99eed70a0cdf3464a61c090d03",
+                "agent_id": "agent_5e1f1a943e02d9e884af2d488d0cbf96",
                 "connected": true,
-                "host_id": "host_7e204d691e0ccb12695337a3bbf218c1661b53118e42360346fc8cd3eb2a0c1c"
+                "host_id": "host_81b7d883628742b1228e5ed6068a470c6806635767eaed0f95775664a7f6c838"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-16/.config/capsule/sessions/host_7e204d691e0ccb12695337a3bbf218c1661b53118e42360346fc8cd3eb2a0c1c/claude/mcp.json",
+              "/home/capsule-acc-16/.config/capsule/sessions/host_81b7d883628742b1228e5ed6068a470c6806635767eaed0f95775664a7f6c838/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },
@@ -2785,6 +2801,7 @@
           "passed": true,
           "detail": {
             "tools": [
+              "capsule_ready",
               "list_destinations",
               "list_agents",
               "send",
@@ -2802,18 +2819,18 @@
             "mine": [
               {
                 "address": "carol/claude",
-                "host_id": "host_30713666807a64f8a9abe53601800949322c04097b082fe68320c691d67f43db",
-                "agent_id": "agent_428a495eeb8455c5dcfd0c4b5bc58cdb",
+                "host_id": "host_60000c66184c9da323a1dae66ee031df27b67f15d3646f9006e302ac472ddfc5",
+                "agent_id": "agent_a70c6f7e253ca0efa617654d3fae681f",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-17/.config/capsule/sessions/host_30713666807a64f8a9abe53601800949322c04097b082fe68320c691d67f43db/claude/mcp.json",
+              "/home/capsule-acc-17/.config/capsule/sessions/host_60000c66184c9da323a1dae66ee031df27b67f15d3646f9006e302ac472ddfc5/claude/mcp.json",
               "--dangerously-load-development-channels",
               "server:capsule",
               "--allowedTools",
-              "mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
             ]
           }
         },

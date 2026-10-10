@@ -1,6 +1,8 @@
 // Peer-authored content stays separate from the adapter's correlation metadata.
 export const metadataMarker = 'Capsule event metadata:\n';
 const titles = {
+  hello: 'Capsule readiness check',
+  disconnected: 'Capsule disconnected',
   message: 'Capsule request',
   reply: 'Capsule reply',
   task: 'Capsule task',

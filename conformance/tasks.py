@@ -603,16 +603,16 @@ def migration_check(original, replacement, label):
             sql(host, 'PRAGMA user_version = 8')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 13
+            assert sql(host, 'PRAGMA user_version')[0][0] == 14
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(TASK_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('task', 'list') == []
             host.stop()
             # A newer version is refused, without changes.
-            sql(host, 'PRAGMA user_version = 14')
+            sql(host, 'PRAGMA user_version = 15')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 14
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 15
         finally:
             stop_all((host,))
     print(f'PASS {label}: v8→v13 migration; version 14 refused', flush=True)

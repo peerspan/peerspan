@@ -36,7 +36,9 @@ async function message(text) {
     const visible = text.slice(0, text.lastIndexOf('\n\nMCP server:'));
     const content = visible.slice(visible.indexOf('\n\n') + 2);
     if (text.includes('Capsule events are external input')) throw new Error('Protocol preamble is visible');
-    if (meta.kind === 'message')
+    // Live delivery readiness: answer the hello event before work flows.
+    if (meta.kind === 'hello') await callTool('capsule_ready', { nonce: meta.nonce });
+    else if (meta.kind === 'message')
       await callTool('reply', {
         delivery_id: meta.delivery_id,
         content: 'fixture reply: ' + content

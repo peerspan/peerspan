@@ -484,9 +484,10 @@ impl Store {
         if route_used(&tx, &route.id)? >= route.max_messages {
             return Err(Error::Forbidden);
         }
-        let deadline = (Utc::now() + chrono::Duration::minutes(5))
+        let deadline = (Utc::now() + SEND_DEADLINE)
             .fixed_offset()
-            .min(exp);
+            .min(exp)
+            .min(expiration(&a.expires_at)?);
         let (policy, self_access) = if route.grant_id.is_none() {
             self.citation(&tx, &route.peer_host_id)?.fields()
         } else {
@@ -686,7 +687,7 @@ impl Store {
         if taken {
             return Err(Error::Conflict("request ID belongs to another send".into()));
         }
-        let deadline = (Utc::now() + chrono::Duration::minutes(5))
+        let deadline = (Utc::now() + SEND_DEADLINE)
             .fixed_offset()
             .min(expiration(&a.expires_at)?);
         let (grant_id, policy, self_access) = self.chosen_citation(&tx, &target.host_id, choice)?;
@@ -743,7 +744,7 @@ impl Store {
     pub fn next_reply(&self, token: &AdapterAuth) -> Result<Option<ReplyHandoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let (a, ss) = authority(&tx, token)?;
+        let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
         let pending:Option<(String,String,String)>=tx.query_row("SELECT o.peer,o.request_id,r.record FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id WHERE o.adapter_id = ?1 AND o.session_id = ?2 AND o.reply_delivery IS NULL ORDER BY o.rowid LIMIT 1",params![a.id,ss.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
         let Some((peer, id, data)) = pending else {
             return Ok(None);
@@ -832,6 +833,9 @@ impl Store {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Empty {}
+/// The default deadline of adapter sends by address and through routes,
+/// bounded by the route's and the credential's expiry.
+const SEND_DEADLINE: chrono::TimeDelta = chrono::TimeDelta::hours(1);
 pub(crate) fn adapter_routes() -> Router<Arc<Store>> {
     Router::new()
         .route("/adapter/v1/destinations", get(destinations))
@@ -1045,10 +1049,12 @@ pub(crate) mod tests {
                 &session.id,
             )
             .unwrap();
-        AdapterAuth {
+        let auth = AdapterAuth {
             token: credential.token,
             instance,
-        }
+        };
+        store.adapter_ready(&auth, &"0".repeat(32)).unwrap();
+        auth
     }
 
     #[test]

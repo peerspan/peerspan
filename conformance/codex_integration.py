@@ -41,6 +41,9 @@ class Harness:
             event = self.queue.get(timeout=remaining)
             assert event is not None, ('harness exited', self.process.poll(), self.events)
             self.events.append(event)
+    def verified(self, seconds=15):
+        # Live delivery readiness: the fixture model answered the hello event.
+        result = self.event('tool_result', seconds, tool='capsule_ready'); assert result['success'], result
     def input(self, text):
         self.process.stdin.write(text+'\n'); self.process.stdin.flush()
     def stop(self):
@@ -87,6 +90,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             # Other native CLI can launch the profile unchanged.
             alice=Harness(replacement,source,left); harnesses.append(alice)
             bob=Harness(client,receiver,right); harnesses.append(bob)
+            alice.verified(); bob.verified()
             before=json.loads((left/'credential.json').read_text()); original=before['adapter']
             wait(lambda: source.cli('adapter','connection',original['id'])['state']=='ready')
             alice_backend.input('destinations'); destinations=alice.event('tool_result',tool='list_destinations'); assert destinations['success']

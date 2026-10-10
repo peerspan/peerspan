@@ -150,7 +150,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 13 {
+	if version < 0 || version > 14 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -221,6 +221,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 13 {
 		if _, err = tx.ExecContext(ctx, directorySchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 14 {
+		if err = migrateChannel(ctx, tx); err != nil {
 			return nil, err
 		}
 	}

@@ -4,12 +4,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 
 from adapter_recovery import connect
+from agent_adapter import adapter_call
 from claude_setup import DropSetupResponse, snapshot
 from peer_messaging import PeerHost, timestamp
 
@@ -68,6 +70,9 @@ def check(client, other_client, daemon, label):
             assert before == snapshot(host), "launch minted another attachment"
             secret = json.loads((directory / "credential.json").read_text())
             assert connect(host, secret)[0] == 200
+            # Live delivery readiness: the consumer verifies its channel.
+            assert adapter_call(host, secret["token"], "POST", "/adapter/v1/ready",
+                                {"nonce": secrets.token_hex(16)})[0] == 200
             before = snapshot(host)
             report = invoke(client, host, "doctor", "--directory", str(directory))
             assert report["adapter_ready"] and report["model_availability"] == "unknown" and report["message_consumption"] == "unverified"

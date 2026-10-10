@@ -8,42 +8,42 @@ Roadmap milestone 9. The design and its settled decisions are in the [live deliv
 
 - **Hello event.** After MCP initialization, the adapter connects as before. It then emits one channel event with `meta.kind` `hello` and `meta.nonce`, a fresh 128-bit hex value, before claiming any work. The event's content asks the model to call `capsule_ready` with that nonce now, and says that no messages arrive until it does.
 - **`capsule_ready`.** The tool takes `{nonce}`. A matching nonce makes the adapter post `POST /adapter/v1/ready` with `{nonce}`, start claiming work, and return `{ready: true}`. A wrong nonce returns a tool error and changes nothing. A repeated call after readiness returns `{ready: true}`.
-- **Daemon.** The daemon stores `channel_verified_at` on the adapter's authorization. The route requires the adapter's credential and lease, as `/adapter/v1/next` does, and is idempotent.
-- **Work routes.** Until the authorization is verified, `/adapter/v1/next`, `/adapter/v1/tasks/next`, `/adapter/v1/tasks/cancels/next`, and `/adapter/v1/replies/next` answer 409 with `{error: "channel not verified"}` and claim nothing. Outbound tools work before verification.
+- **Daemon.** The daemon stores `channel_verified_at` on the adapter's authorization, keeping the first time. The adapter connection object (`GET /v1/adapters/{id}/connection`) gains `channel`, `channel_verified_at`, and `protocol_version`, and session objects from the session routes (`/v1/sessions`, `/v1/sessions/{id}`, attach, detach, setup, and `/adapter/v1/session`) gain `channel`. The session views inside `GET /v1/status` are unchanged; item 13 covers them. The route requires the adapter's credential and lease, as `/adapter/v1/next` does, and is idempotent.
+- **Work routes.** Until the authorization is verified, `/adapter/v1/next`, `/adapter/v1/tasks/next`, `/adapter/v1/tasks/cancels/next`, `/adapter/v1/task-updates/next`, and `/adapter/v1/replies/next` answer 409 with `{code: "conflict", error: "channel not verified"}` and claim nothing. Outbound tools work before verification.
 - **Re-sending hello.** If the model has not called `capsule_ready` within 60 seconds, the adapter emits the hello event once more with the same nonce, and then never again. It keeps its lease and keeps waiting.
 - **Recovery.** Verification belongs to the authorization, so an adapter recovering its session after a daemon restart (recovery contract) stays verified. A new authorization, from `attach` or `session start`, starts unverified.
 
 ### Connected and status
 
 - **Directory.** A directory entry's `connected` is true only when the agent has an attached session whose adapter holds a valid lease and whose authorization is verified. Entries gain `channel`: `verified`, `unverified` (a lease but no verification), or null (no lease).
-- **Status item 13.** `GET /v1/status` and `status` add `channel_unverified`. It is added by the daemon for each authorization whose adapter has held a lease for more than 120 seconds without verification. Its subject is `AGENT_NAME`, and its command is `capsule session doctor`. Its message names the likely causes: the organization has not enabled channels (`channelsEnabled`), the provider does not support channels, the Claude Code version is older than the minimum, or the session was started without the channel flag.
+- **Status item 13.** `GET /v1/status` and `status` add `channel_unverified`. It is added by the daemon for each authorization that holds a lease, is unverified, and first connected more than 120 seconds ago (counted from the authorization's first connection, not its latest reconnection). Its subject is `AGENT_NAME`, and its command is `capsule session doctor`. Its message names the likely causes: the organization has not enabled channels (`channelsEnabled`), the provider does not support channels, the Claude Code version is older than the minimum, or the session was started without the channel flag.
 - **Session lists.** `session doctor` and `session list` report `channel` the same way.
 
 ### Doctor
 
 `session doctor` (and the harness `doctor`) gains these checks:
 - **`claude_version`:** the executable's `--version` output, run with no other arguments, must parse as `X.Y.Z` and be at least **2.1.187**. Otherwise it fails, naming the minimum.
-- **`claude_account`:** from `claude auth status` (JSON), a warning (not a failure) when `apiProvider` is not `firstParty` ("channels are not available on this provider") or `subscriptionType` is `team` or `enterprise` ("an organization Owner must enable channels").
-- **`channel`:** `verified`, `unverified`, or `not running`. `unverified` fails with the item 13 message.
+- **`claude_account`:** from `claude auth status` (JSON), a warning when `apiProvider` is present and not `firstParty` ("channels are not available on this provider"), or when `subscriptionType` is `team` or `enterprise` ("an organization Owner must enable channels"). A warning is a passing check whose detail starts with `Warning: `, since helper checks are `ok` or `error`.
+- **`channel`:** `verified`, `unverified`, or `not running`. `unverified` fails with the item 13 message; `not running` passes, so `session start` can run the same checks before launching. Integration checks appear with the CLI's usual `harness/` prefix.
 - **`mcp_protocol`:** the adapter reports the protocol revision it negotiated in `POST /adapter/v1/connect` as `protocol_version`, and the daemon stores it. Doctor fails when it is `2026-07-28` or later. The adapter's MCP SDK stays on major version 1.
 
 `adapter_ready` now also requires `channel` `verified`.
 
 ### Launch
 
-- **Environment.** The Claude integration launches Claude Code with `MCP_PROTOCOL_NEGOTIATION=legacy` in its environment, in addition to the existing arguments.
+- **Environment.** The Claude integration launches Claude Code with `MCP_PROTOCOL_NEGOTIATION=legacy` in its environment (through `env` in the launch command), in addition to the existing arguments.
 - **Instructions.** The MCP server instructions are at most 2,048 characters. Guidance that does not fit moves into the descriptions of the tools it concerns (`delegate_task`, `artifact_save`, the `task_*` tools), with no change in meaning.
 
 ### Fatal stops
 
 When the adapter stops polling for good (a 409 or 400 from the daemon that the recovery contract treats as final, or a replaced instance), it:
-1. emits one channel event with `meta.kind` `disconnected` and content saying Capsule is disconnected and how to reattach (`capsule attach NAME`);
+1. emits one channel event with `meta.kind` `disconnected` and content saying Capsule is disconnected and how to reattach (`capsule attach HARNESS` in the project);
 2. writes the reason to stderr;
 3. exits with status 1 after the event is written, so Claude Code shows the server as failed.
 
 ### Deadlines
 
-Adapter sends by address, and sends through routes, default to a 1-hour deadline (previously 5 minutes), bounded by the credential's expiry. Explicit deadlines are unchanged.
+Adapter sends by address, and sends through routes, default to a 1-hour deadline (previously 5 minutes), bounded by the credential's expiry and, for routes, the route's expiry, whichever is earliest. Explicit deadlines are unchanged.
 
 ### Shared state
 

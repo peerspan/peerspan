@@ -35,6 +35,10 @@ pub struct Session {
     pub state: String,
     pub created_at: String,
     pub updated_at: String,
+    /// `verified` or `unverified` while the session's adapter holds a
+    /// lease, else null (live delivery contract).
+    #[serde(default)]
+    pub channel: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

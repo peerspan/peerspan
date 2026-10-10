@@ -411,9 +411,13 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	if used >= route.MaxMessages {
 		return old, ErrForbidden
 	}
-	deadline := time.Now().Add(5 * time.Minute)
+	// The earliest of 1 hour, the route's expiry, and the credential's.
+	deadline := time.Now().Add(adapterSendDeadline)
 	if exp.Before(deadline) {
 		deadline = exp
+	}
+	if credential, err := parseTime(a.ExpiresAt); err == nil && credential.Before(deadline) {
+		deadline = credential
 	}
 	// A route without a grant cites self access or the target host's owner's
 	// policy, whichever applies now.
@@ -454,6 +458,9 @@ func (s *Store) NextReply(ctx context.Context, token AdapterAuth) (*ReplyHandoff
 	defer tx.Rollback()
 	a, ss, err := adapterAuthority(ctx, tx, token)
 	if err != nil {
+		return nil, err
+	}
+	if err = requireVerified(ctx, tx, a.ID); err != nil {
 		return nil, err
 	}
 	var peer, id string

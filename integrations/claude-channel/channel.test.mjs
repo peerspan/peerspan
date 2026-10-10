@@ -55,6 +55,7 @@ test('a lost claim reconnects without forwarding uncertain content again', async
   const sessionId = `session_${'b'.repeat(32)}`;
   const channel = createChannel({ sessionId, adapterId: `adapter_${'c'.repeat(32)}`,  pollMs: 10, log: message => messages.push(message), call: async (method, path) => {
     if (path === '/adapter/v1/connect') return { adapter_id: `adapter_${'c'.repeat(32)}`, session_id: sessionId, state: 'ready' };
+    if (path === '/adapter/v1/ready') return {};
     if (path === '/adapter/v1/next') {
       claims++;
       if (claims === 1) throw new Error('claim committed but response lost');
@@ -62,13 +63,20 @@ test('a lost claim reconnects without forwarding uncertain content again', async
     }
     return null;
   } });
-  channel.server.notification = async event => notifications.push(event);
+  // Answer the readiness hello with capsule_ready, as the model would.
+  const callTool = channel.server._requestHandlers.get('tools/call');
+  channel.server.notification = async event => {
+    notifications.push(event);
+    if (event.params.meta.kind === 'hello')
+      void callTool({ method: 'tools/call', params: { name: 'capsule_ready', arguments: { nonce: event.params.meta.nonce } } }, {});
+  };
   try {
     channel.server.oninitialized();
     channel.server.oninitialized();
     await delay(350);
     assert(claims >= 2);
-    assert.deepEqual(notifications.map(event => event.params.content), ['another unclaimed message']);
+    assert.equal(notifications.filter(event => event.params.meta.kind === 'hello').length, 1);
+    assert.deepEqual(notifications.filter(event => event.params.meta.kind !== 'hello').map(event => event.params.content), ['another unclaimed message']);
     assert(messages.some(message => message.includes('Reconnecting the original instance')));
   } finally { await channel.stop(); }
 });

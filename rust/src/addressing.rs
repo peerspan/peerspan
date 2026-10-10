@@ -106,6 +106,15 @@ pub async fn agents(
         })
         .collect();
     reachable.sort_by(by_address);
+    // Each session's channel; a daemon that reports none predates channel
+    // verification, and a lease alone counts there, as in the directory.
+    let sessions = local.get("/v1/sessions".into()).await?;
+    let channels: std::collections::BTreeMap<String, Value> = sessions
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| Some((s["id"].as_str()?.to_owned(), s.get("channel")?.clone())))
+        .collect();
     let mut mine = Vec::new();
     for agent in status["agents"].as_array().into_iter().flatten() {
         let name = agent["name"].as_str().unwrap_or_default();
@@ -120,11 +129,13 @@ pub async fn agents(
             Some(label) if !duplicate => format!("{label}/{name}"),
             _ => format!("{host}/{name}"),
         };
-        let connected = agent["sessions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|s| s["connection"] == "ready");
+        let connected = agent["sessions"].as_array().into_iter().flatten().any(|s| {
+            s["connection"] == "ready"
+                && s["id"]
+                    .as_str()
+                    .and_then(|id| channels.get(id))
+                    .is_none_or(|c| c == "verified")
+        });
         mine.push(json!({
             "address": address,
             "host_id": host,

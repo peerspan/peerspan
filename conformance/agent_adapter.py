@@ -33,6 +33,11 @@ def instance_for(host, token):
     return host._test_adapter_instances[token]
 
 
+# Work routes answer 409 until the authorization's channel is verified.
+WORK_ROUTES = {'/adapter/v1/next', '/adapter/v1/tasks/next', '/adapter/v1/tasks/cancels/next',
+               '/adapter/v1/task-updates/next', '/adapter/v1/replies/next'}
+
+
 def adapter_call(host, token, method, path, body=None, raw=None, socket_name='adapter.sock',
                  instance=None, auto_connect=True, timeout=3):
     # Raw API calls and the deterministic MCP consumer simulate one test instance.
@@ -41,8 +46,14 @@ def adapter_call(host, token, method, path, body=None, raw=None, socket_name='ad
     key = owned['instance'] if instance is None else instance
     if (auto_connect and path.startswith('/adapter/v1/') and path != '/adapter/v1/connect'
             and socket_name == 'adapter.sock' and owned['pid'] == host.process.pid):
-        adapter_call(host, token, 'POST', '/adapter/v1/connect',
-                     {'instance_id': key}, instance=key, auto_connect=False)
+        connected = adapter_call(host, token, 'POST', '/adapter/v1/connect',
+                                 {'instance_id': key}, instance=key, auto_connect=False)[0]
+        # The raw fixture client verifies its channel once, as an adapter does
+        # after the model calls capsule_ready, before it first claims work.
+        if connected == 200 and path in WORK_ROUTES and not owned.get('verified'):
+            ready = adapter_call(host, token, 'POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)},
+                                 instance=key, auto_connect=False)[0]
+            owned['verified'] = ready == 200
     if path == '/adapter/v1/connect' and body is not None:
         body = {'adapter_id':owned['adapter']['id'],'session_id':owned['adapter']['session_id'], **body}
     conn = UnixHTTPConnection(host.state / socket_name, timeout=timeout)
@@ -115,7 +126,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             receiver.binary = str(replacement_binary)
             identity = receiver.start()
             assert identity['id'] == b['id'] and identity['public_key'] == b['public_key']
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 13
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 14
             assert receiver.cli('message', 'list') == messages
             assert receiver.cli('activity') == activity
             assert receiver.cli('grant', 'list') == [grant]
@@ -171,6 +182,15 @@ class Channel:
         assert result['protocolVersion'] == '2025-11-25'
         assert result['capabilities']['experimental'] == {'claude/channel': {}}
         self.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
+        self.handshake()
+
+    def handshake(self):
+        # Live delivery readiness: answer the hello event with capsule_ready
+        # before any work flows, as a model receiving channel events would.
+        hello = self.notification()
+        assert hello['meta']['kind'] == 'hello', hello
+        ready = self.call('tools/call', {'name': 'capsule_ready', 'arguments': {'nonce': hello['meta']['nonce']}})
+        assert not ready.get('isError') and json.loads(ready['content'][0]['text']) == {'ready': True}, ready
 
     def read(self):
         try:
@@ -274,7 +294,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert sender.cli('message', 'reply', '--peer', b['id'], rid)['state'] == 'pending'
             channel = Channel(node, script, receiver, secret, root)
             tools = channel.call('tools/list', {})['tools']
-            assert [tool['name'] for tool in tools] == ['list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
+            assert [tool['name'] for tool in tools] == ['capsule_ready', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
             event = channel.notification()
             assert event['content'] == first['request']['content']
             assert event['meta']['request_id'] == rid
@@ -396,7 +416,7 @@ def check(sender_binary, receiver_binary, node, script, label):
                 assert actual['id'] == expected['id'] and actual['public_key'] == expected['public_key']
                 # Compare instants; state written before both used one spelling may differ.
                 assert datetime.fromisoformat(actual['created_at'].replace('Z', '+00:00')) == datetime.fromisoformat(expected['created_at'].replace('Z', '+00:00'))
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 13
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 14
             assert adapter_call(receiver, token, 'POST', '/adapter/v1/next', {})[0] == 503
             receiver.cli('session', 'detach', session['id'])
             assert receiver.cli('delivery', 'inspect', uncertain['id']) == uncertain

@@ -1064,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn version_eleven_migrates_to_latest_and_fourteen_is_refused() {
+    fn version_eleven_migrates_to_latest_and_fifteen_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("host");
         drop(Store::open(&path).unwrap());
@@ -1077,7 +1077,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",
@@ -1093,7 +1093,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 14;")
+            .execute_batch("PRAGMA user_version = 15;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

@@ -165,16 +165,9 @@ type PeerAgent struct {
 	AgentID        string                   `json:"agent_id"`
 	Connected      bool                     `json:"connected"`
 	Authorizations []DirectoryAuthorization `json:"authorizations"`
-}
-
-// agentConnected reports whether an agent has an attached session whose
-// adapter holds a valid lease.
-const agentConnectedQuery = `SELECT EXISTS(SELECT 1 FROM sessions ss JOIN adapter_credentials c ON c.session_id = ss.id JOIN adapter_connections x ON x.adapter_id = c.id WHERE ss.agent_id = ? AND ss.state = 'attached' AND x.lease_until_ms > ? AND json_extract(c.record, '$.revoked_at') IS NULL AND json_extract(c.record, '$.expires_at') > ?)`
-
-func agentConnected(ctx context.Context, q dbQuerier, agent string, now time.Time) (bool, error) {
-	var connected bool
-	err := q.QueryRowContext(ctx, agentConnectedQuery, agent, now.UnixMilli(), timestamp(now)).Scan(&connected)
-	return connected, err
+	// Channel is verified when a verified session holds a lease, unverified
+	// when only unverified sessions do, else null. Connected means verified.
+	Channel *string `json:"channel"`
 }
 
 // ReachableAgents is the peer route: this host's agents that caller, a
@@ -298,11 +291,12 @@ func (s *Store) ReachableAgents(ctx context.Context, caller, network string) ([]
 		if len(auths) == 0 {
 			continue
 		}
-		connected, err := agentConnected(ctx, tx, agent.ID, now)
+		channel, err := agentChannel(ctx, tx, agent.ID, now)
 		if err != nil {
 			return nil, err
 		}
-		listed = append(listed, PeerAgent{Name: agent.Name, AgentID: agent.ID, Connected: connected, Authorizations: auths})
+		connected := channel != nil && *channel == ChannelVerified
+		listed = append(listed, PeerAgent{Name: agent.Name, AgentID: agent.ID, Connected: connected, Authorizations: auths, Channel: channel})
 	}
 	return listed, nil
 }
@@ -620,6 +614,9 @@ func (s *Store) queryAgents(ctx context.Context, network, host string) ([]PeerAg
 			if a.Authorizations == nil {
 				a.Authorizations = []DirectoryAuthorization{}
 			}
+			if a.Channel != nil && *a.Channel != ChannelVerified && *a.Channel != ChannelUnverified {
+				a.Channel = nil
+			}
 			valid = append(valid, a)
 		}
 	}
@@ -678,6 +675,7 @@ type DirectoryAgent struct {
 	AgentID        string                   `json:"agent_id"`
 	Connected      bool                     `json:"connected"`
 	Authorizations []DirectoryAuthorization `json:"authorizations"`
+	Channel        *string                  `json:"channel"`
 }
 
 func optionalTime(t *time.Time) *string {
@@ -759,7 +757,7 @@ func (s *Store) directoryView(network string, members []NetworkMember, locals []
 		}
 		view.Hosts = append(view.Hosts, DirectoryHost{HostID: id, PersonID: m.PersonID, PersonLabel: m.PersonMember, State: h.state, RefreshedAt: optionalTime(h.refreshedAt), Error: h.err})
 		for _, a := range h.agents {
-			entry := DirectoryAgent{HostID: id, PersonID: m.PersonID, PersonLabel: m.PersonMember, Name: a.Name, AgentID: a.AgentID, Connected: a.Connected, Authorizations: a.Authorizations}
+			entry := DirectoryAgent{HostID: id, PersonID: m.PersonID, PersonLabel: m.PersonMember, Name: a.Name, AgentID: a.AgentID, Connected: a.Connected, Authorizations: a.Authorizations, Channel: a.Channel}
 			if AddressableName(a.Name) {
 				address := id + "/" + a.Name
 				if m.PersonID != nil && m.PersonMember != nil && uses[*m.PersonID+"/"+a.Name] == 1 {
