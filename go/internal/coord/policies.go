@@ -68,38 +68,7 @@ func (s *Server) submitPolicy(ctx context.Context, caller, network string, p mem
 	if err = isMember(ctx, tx, network, caller); err != nil {
 		return nil, err
 	}
-	if err = membership.VerifyPolicy(network, p); err != nil {
-		return nil, err
-	}
-	if !membership.PolicyActive(p, time.Now()) {
-		return nil, fmt.Errorf("%w: the policy is not within its validity window", errInvalid)
-	}
-	revoked, err := revokedOf(ctx, tx, chain)
-	if err != nil {
-		return nil, err
-	}
-	persons, err := validPersons(ctx, tx, chain, revoked)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := persons[p.PersonPublicKey]; !ok {
-		return nil, fmt.Errorf("%w: the policy owner is not a current person", errForbidden)
-	}
-	current, ok, err := storedPolicy(ctx, tx, network, p.PersonPublicKey)
-	if err != nil {
-		return nil, err
-	}
-	if ok && p.Version <= current.Version {
-		if p.Version == current.Version && p.Signature == current.Signature {
-			return networkMap(ctx, tx, network) // an identical resubmission
-		}
-		return nil, fmt.Errorf("%w: policy version %d is not above the current version %d", errConflict, p.Version, current.Version)
-	}
-	data, err := json.Marshal(p)
-	if err != nil {
-		return nil, err
-	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO statements VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET statement = excluded.statement`, network, kindPolicy, p.PersonPublicKey, string(data)); err != nil {
+	if err = submitPolicyIn(ctx, tx, chain, p); err != nil {
 		return nil, err
 	}
 	m, err := networkMap(ctx, tx, network)
@@ -107,6 +76,44 @@ func (s *Server) submitPolicy(ctx context.Context, caller, network string, p mem
 		return nil, err
 	}
 	return m, tx.Commit()
+}
+
+// submitPolicyIn verifies and stores a policy as the policies route does.
+func submitPolicyIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, p membership.Policy) error {
+	network := chain.NetworkID
+	if err := membership.VerifyPolicy(network, p); err != nil {
+		return err
+	}
+	if !membership.PolicyActive(p, time.Now()) {
+		return fmt.Errorf("%w: the policy is not within its validity window", errInvalid)
+	}
+	revoked, err := revokedOf(ctx, tx, chain)
+	if err != nil {
+		return err
+	}
+	persons, err := validPersons(ctx, tx, chain, revoked)
+	if err != nil {
+		return err
+	}
+	if _, ok := persons[p.PersonPublicKey]; !ok {
+		return fmt.Errorf("%w: the policy owner is not a current person", errForbidden)
+	}
+	current, ok, err := storedPolicy(ctx, tx, network, p.PersonPublicKey)
+	if err != nil {
+		return err
+	}
+	if ok && p.Version <= current.Version {
+		if p.Version == current.Version && p.Signature == current.Signature {
+			return nil // an identical resubmission
+		}
+		return fmt.Errorf("%w: policy version %d is not above the current version %d", errConflict, p.Version, current.Version)
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO statements VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET statement = excluded.statement`, network, kindPolicy, p.PersonPublicKey, string(data))
+	return err
 }
 
 // addPolicies fills the map's policies: the newest accepted policy of every

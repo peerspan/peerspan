@@ -441,6 +441,16 @@ func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error)
 				return invalid()
 			}
 			return "POST", "/v1/networks/" + url.PathEscape(network) + "/invites", i, nil
+		case "move":
+			var network string
+			var req host.MoveNetwork
+			network, _ = fs.GetString("network")
+			req.CoordinatorAddress, _ = fs.GetString("coordinator")
+			req.CoordinatorPublicKey, _ = fs.GetString("coordinator-key")
+			if network == "" || req.CoordinatorAddress == "" || req.CoordinatorPublicKey == "" {
+				return invalid()
+			}
+			return "POST", "/v1/networks/" + url.PathEscape(network) + "/move", req, nil
 		case "admit", "redeem-person", "bind", "unbind":
 			return "", "", nil, errPersonCommand
 		case "delegate-admin", "remove-admin", "group", "groups":

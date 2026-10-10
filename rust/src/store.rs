@@ -79,6 +79,8 @@ pub struct Store {
     pub(crate) coordinator_limits: Mutex<BTreeMap<String, crate::network::CoordinatorLimits>>,
     /// The agent directory of every network, kept in memory.
     pub(crate) agent_directory: Mutex<crate::directory::Cache>,
+    /// Coordinator move lookups and repair imports, by network ID.
+    pub(crate) coordinator_moves: Mutex<BTreeMap<String, crate::coordinator_move::Tracker>>,
 }
 
 impl Store {
@@ -227,6 +229,7 @@ impl Store {
             artifact_quota: AtomicI64::new(crate::artifact::DEFAULT_QUOTA),
             policy_wake: tokio::sync::Notify::new(),
             changed_syncs: Mutex::new(BTreeMap::new()),
+            coordinator_moves: Mutex::new(BTreeMap::new()),
             directory_wake: tokio::sync::Notify::new(),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),

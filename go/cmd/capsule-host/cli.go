@@ -172,6 +172,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("network revoke-invite", "revoke-invite", "Revoke an invite", 0)
 	add("network leave", "leave ID", "Leave a network", 1)
 	add("network rotate-root", "rotate-root ID", "Rotate the network root key", 1)
+	add("network move", "move", "Move a network to another coordinator", 0)
 	add("network admit", "admit", "Admit a person or host", 0)
 	add("network invite-person", "invite-person", "Issue a person invite", 0)
 	add("network redeem-person", "redeem-person", "Redeem a person invite", 0)
@@ -482,6 +483,10 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("network", "", "network ID")
 		fs.String("group", "", "group name")
 		fs.StringArray("person", nil, "member person ID or label (repeatable; none deletes the group)")
+	case "network move":
+		fs.String("network", "", "network ID; defaults to the only network")
+		fs.String("coordinator", "", "the new coordinator's HOST:PORT")
+		fs.String("coordinator-key", "", "the new coordinator's public key")
 	case "network rotate-root":
 		fs.Bool("to-ssh", false, "rotate to the SSH key named by --root-key")
 		fs.String("root-key", "", "the new SSH root: a .pub file selecting an ssh-agent identity, or an OpenSSH private key file")

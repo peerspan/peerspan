@@ -25,7 +25,7 @@ import (
 var errAdminCommand = errors.New("administrator command")
 
 // administeredCommands are the existing commands an administrator may sign.
-var administeredCommands = map[string]bool{"invite": true, "invite-person": true, "admit": true, "revoke": true, "revoke-invite": true, "remove-person": true}
+var administeredCommands = map[string]bool{"invite": true, "invite-person": true, "admit": true, "revoke": true, "revoke-invite": true, "remove-person": true, "move": true}
 
 func networkOf(ctx context.Context, client host.Client, id string) (host.Network, error) {
 	networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
@@ -163,6 +163,16 @@ func signAsAdministrator(ctx context.Context, client host.Client, path string, b
 		}
 		removal, err := membership.SignPersonRemovalWith(signer, id, p.PublicKey, now)
 		return host.RemovePerson{Removal: &removal}, err
+	case host.MoveNetwork:
+		// An SSH root in ssh-agent signs as the root.
+		plan, err := call[host.MovePlan](ctx, client, "GET", "/v1/networks/"+url.PathEscape(id)+"/move")
+		if err != nil {
+			return nil, err
+		}
+		asRoot := membership.EncodeKey(loaded.PublicKey()) == n.CurrentRootPublicKey
+		mv, err := membership.SignMove(signer, asRoot, id, plan.NextSequence, r.CoordinatorAddress, r.CoordinatorPublicKey, now)
+		r.Move = &mv
+		return r, err
 	}
 	return body, nil
 }

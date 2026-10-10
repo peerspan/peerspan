@@ -429,6 +429,9 @@ type Map struct {
 	// Policies are the newest valid owner access policy of every current
 	// person, visible to every member.
 	Policies []json.RawMessage `json:"policies"`
+	// Move is the network's current coordinator move, or null. It stays raw
+	// so a host can reject it without rejecting the map.
+	Move json.RawMessage `json:"move"`
 }
 
 type MapPerson struct {

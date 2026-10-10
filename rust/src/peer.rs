@@ -303,6 +303,7 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
         .merge(crate::artifact::peer_routes())
         .merge(crate::policy_sync::peer_routes())
         .merge(crate::directory::peer_routes())
+        .merge(crate::coordinator_move::peer_routes())
         .layer(Extension(sender))
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)

@@ -167,6 +167,9 @@ func scanNetwork(row interface{ Scan(...any) error }) (Network, error) {
 	if n.CurrentRootPublicKey == "" {
 		n.CurrentRootPublicKey = n.RootPublicKey // records from before rotation existed
 	}
+	if n.CoordinatorPending != nil && n.CoordinatorPending.Source == "" {
+		n.CoordinatorPending.Source = pendingSuccessor // records from before moves existed
+	}
 	return n, err
 }
 
@@ -419,6 +422,11 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map, cha
 	synced := timestamp(time.Now())
 	n.LastSyncAt = &synced
 	pending := followChain(&n, chain, &n.LastSyncError)
+	if applied.move != nil {
+		if moved, _ := considerMove(&n, *applied.move, 0); moved {
+			pending = true
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return n, err
@@ -451,6 +459,11 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map, cha
 	}
 	if err = s.persistStatements(ctx, tx, n.ID, applied, synced); err != nil {
 		return n, err
+	}
+	if applied.move != nil {
+		if _, err = storeMove(ctx, tx, n.ID, *applied.move); err != nil {
+			return n, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return n, err
@@ -514,23 +527,50 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 		return n, err
 	}
 	advertise, _ := s.coordinationConfig()
-	call := func(target Network) (appliedMap, []json.RawMessage, error) {
-		var m membership.Map
-		var chain []json.RawMessage
-		var err error
+	// A held move above the applied one is the pending coordinator, tried
+	// first.
+	held, appliedMove, err := heldMove(ctx, s.db, id)
+	if err != nil {
+		return n, err
+	}
+	startApplied := appliedMove
+	if held != nil {
+		_, appliedMove = considerMove(&n, *held, appliedMove)
+	}
+	// What this host holds before applying the map is re-submitted to a
+	// coordinator that lacks some of it.
+	body, bodyErr := s.importBody(ctx, n, nil)
+	request := func(target Network) (membership.Map, []json.RawMessage, error) {
 		if target.Administrator && target.LastSyncAt == nil {
-			m, chain, err = s.callCoordinatorMap(ctx, target, "/coord/v1/networks", map[string]any{"name": target.Name, "root_public_key": target.RootPublicKey, "membership": self.Membership, "address": advertise, "candidates": candidates})
-		} else {
-			m, chain, err = s.callCoordinatorMap(ctx, target, "/coord/v1/networks/"+url.PathEscape(target.ID)+"/sync", map[string]any{"address": advertise, "candidates": candidates})
+			return s.callCoordinatorMap(ctx, target, "/coord/v1/networks", map[string]any{"name": target.Name, "root_public_key": target.RootPublicKey, "membership": self.Membership, "address": advertise, "candidates": candidates})
 		}
-		if err != nil {
+		return s.callCoordinatorMap(ctx, target, "/coord/v1/networks/"+url.PathEscape(target.ID)+"/sync", map[string]any{"address": advertise, "candidates": candidates})
+	}
+	call := func(target Network) (appliedMap, []json.RawMessage, error) {
+		m, chain, err := request(target)
+		var applied appliedMap
+		if err == nil {
+			if applied, err = s.verifyMap(ctx, target, m); err == nil {
+				return applied, chain, nil
+			}
+		}
+		// A coordinator that does not know this host in the network, or
+		// serves a shorter root chain, gets an import and a second sync.
+		repairable := errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) || errors.Is(err, membership.ErrBehind)
+		if !repairable || (target.Administrator && target.LastSyncAt == nil) || bodyErr != nil || !s.importAllowed(id) {
+			return applied, chain, err
+		}
+		if _, importErr := s.importInto(ctx, target, body); importErr != nil {
+			return applied, chain, err
+		}
+		if m, chain, err = request(target); err != nil {
 			return appliedMap{}, nil, err
 		}
-		applied, err := s.verifyMap(ctx, target, m)
+		applied, err = s.verifyMap(ctx, target, m)
 		return applied, chain, err
 	}
 	previous := n.CoordinatorAddress + "|" + n.CoordinatorPublicKey
-	n, applied, notice, err := s.syncFollowing(n, call)
+	n, applied, notice, appliedMove, err := s.syncFollowing(n, appliedMove, call)
 	// Persist outcomes even if the requesting client disconnected.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -553,6 +593,16 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 		if txErr = s.persistStatements(finishCtx, tx, n.ID, applied, now); txErr != nil {
 			return n, txErr
 		}
+		if applied.move != nil {
+			if _, txErr = storeMove(finishCtx, tx, n.ID, *applied.move); txErr != nil {
+				return n, txErr
+			}
+		}
+	}
+	if appliedMove > startApplied {
+		if txErr = storeApplied(finishCtx, tx, n.ID, appliedMove); txErr != nil {
+			return n, txErr
+		}
 	}
 	if txErr = putJSON(finishCtx, tx, "UPDATE networks SET record = ? WHERE id = ?", n, n.ID); txErr != nil {
 		return n, txErr
@@ -560,15 +610,30 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 	if txErr = tx.Commit(); txErr != nil {
 		return n, txErr
 	}
+	s.syncResult(n.ID, err != nil)
 	if n.CoordinatorAddress+"|"+n.CoordinatorPublicKey != previous {
 		// The relay connection and STUN follow the new coordinator.
 		s.wakeRelays()
 	}
 	if err == nil {
+		// A map lacking what this host held is repaired by an import, at
+		// most once per interval.
+		repaired := false
+		if applied.lacking && bodyErr == nil && s.importAllowed(n.ID) {
+			imported, importErr := s.importInto(finishCtx, n, body)
+			repaired = importErr == nil
+			if repaired && imported.Added > 0 {
+				// Sync again for what the import added, which this
+				// sync's map lacked.
+				s.networkChanged(n.ID)
+			}
+		}
 		// Revocations this host holds but the coordinator does not (a local
 		// revocation not yet submitted, or one an omitting coordinator lost)
 		// are submitted on every sync until the coordinator serves them.
-		s.submitMissingRevocations(finishCtx, n, applied.missing)
+		if !repaired {
+			s.submitMissingRevocations(finishCtx, n, applied.missing)
+		}
 		s.refreshUsage(finishCtx, n)
 		s.mapApplied(n.ID, applied.members)
 	}

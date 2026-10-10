@@ -93,6 +93,7 @@ type Store struct {
 	tasks     taskWork      // the in-memory task poll schedule
 	limits    coordinatorLimits
 	directory directoryState // the in-memory agent directory per network
+	moves     moveState      // move lookups and repair imports per network
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
 }

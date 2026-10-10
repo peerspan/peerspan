@@ -6,6 +6,7 @@ pub mod admins;
 pub mod api;
 pub mod artifact;
 pub mod chain;
+pub mod coordinator_move;
 pub mod directory;
 pub mod disco;
 pub mod membership;

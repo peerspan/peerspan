@@ -303,39 +303,7 @@ func (s *Server) revoke(ctx context.Context, caller, network string, req revocat
 	if err = isMember(ctx, tx, network, caller); err != nil {
 		return nil, err
 	}
-	kind, subject, err := chain.VerifyRevocation(membership.Revocation{Kind: req.Kind, Statement: req.Statement})
-	if err != nil {
-		return nil, err
-	}
-	if kind == membership.KindAdmin {
-		if err = putAdminRemoval(ctx, tx, network, subject, req.Statement); err != nil {
-			return nil, err
-		}
-		// The removal may invalidate what the administrator signed.
-		if chain, err = chainOf(ctx, tx, network); err != nil {
-			return nil, err
-		}
-	} else {
-		if kind == membership.KindPerson {
-			// An administrator's role is removed explicitly first.
-			current, err := currentAdmins(ctx, tx, chain)
-			if err != nil {
-				return nil, err
-			}
-			if current[subject] {
-				return nil, fmt.Errorf("%w: that person is a current administrator; remove the administrator role first", errConflict)
-			}
-		}
-		if kind != membership.KindUnbind {
-			if err = requireCurrent(ctx, tx, chain, signatureOf(req.Statement)); err != nil {
-				return nil, err
-			}
-		}
-		if _, err = putStatement(ctx, tx, network, kind, subject, req.Statement); err != nil {
-			return nil, err
-		}
-	}
-	if err = dropExcluded(ctx, tx, chain); err != nil {
+	if err = revokeIn(ctx, tx, chain, req); err != nil {
 		return nil, err
 	}
 	m, err := networkMap(ctx, tx, network)
@@ -343,6 +311,45 @@ func (s *Server) revoke(ctx context.Context, caller, network string, req revocat
 		return nil, err
 	}
 	return m, tx.Commit()
+}
+
+// revokeIn verifies and stores a revocation or administrator removal as the
+// revocations route does, then drops the members it excludes.
+func revokeIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, req revocationRequest) error {
+	network := chain.NetworkID
+	kind, subject, err := chain.VerifyRevocation(membership.Revocation{Kind: req.Kind, Statement: req.Statement})
+	if err != nil {
+		return err
+	}
+	if kind == membership.KindAdmin {
+		if err = putAdminRemoval(ctx, tx, network, subject, req.Statement); err != nil {
+			return err
+		}
+		// The removal may invalidate what the administrator signed.
+		if chain, err = chainOf(ctx, tx, network); err != nil {
+			return err
+		}
+	} else {
+		if kind == membership.KindPerson {
+			// An administrator's role is removed explicitly first.
+			current, err := currentAdmins(ctx, tx, chain)
+			if err != nil {
+				return err
+			}
+			if current[subject] {
+				return fmt.Errorf("%w: that person is a current administrator; remove the administrator role first", errConflict)
+			}
+		}
+		if kind != membership.KindUnbind && kind != membership.KindLeave {
+			if err = requireCurrent(ctx, tx, chain, signatureOf(req.Statement)); err != nil {
+				return err
+			}
+		}
+		if _, err = putStatement(ctx, tx, network, kind, subject, req.Statement); err != nil {
+			return err
+		}
+	}
+	return dropExcluded(ctx, tx, chain)
 }
 
 func (s *Server) leave(ctx context.Context, caller, network string, statement json.RawMessage) error {

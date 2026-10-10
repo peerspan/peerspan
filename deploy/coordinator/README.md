@@ -4,7 +4,7 @@ This runbook runs one `capsule-coord` on one Linux VM as a systemd service, with
 
 The coordinator is trusted for availability only: it cannot admit hosts or change access. Its private key, which every host pins, lives inside `coord.db`. Whoever holds the database holds the key, so treat `coord.db`, every `backup` file, and the Litestream bucket as secrets.
 
-> **Moving the coordinator.** Hosts pin the coordinator's address and key. A signed successor (below) moves every network on this coordinator to a new address, a new key, or both, and hosts follow it on their next sync. A successor needs the current key, so losing the key without a backup still strands every network until administrators move their networks (milestone 8 slice 3), which is why this runbook keeps two independent copies.
+> **Moving the coordinator.** Hosts pin the coordinator's address and key. A signed successor (below) moves every network on this coordinator to a new address, a new key, or both, and hosts follow it on their next sync. A successor needs the current key, so losing the key without a backup still strands every network until administrators move their networks with `capsule network move`, which is why this runbook keeps two independent copies.
 
 ## Files
 
@@ -114,7 +114,7 @@ systemctl enable --now litestream
 journalctl -u litestream -n 20
 ```
 
-Litestream keeps its tracking files in `/var/lib/capsule-coord/.coord.db-litestream` and replicates about every second. Changes in the last seconds before losing the VM can be lost; hosts re-sync addresses on their own, and slice 3 adds re-submission of signed statements.
+Litestream keeps its tracking files in `/var/lib/capsule-coord/.coord.db-litestream` and replicates about every second. Changes in the last seconds before losing the VM can be lost; hosts re-sync addresses on their own and re-submit the signed statements the coordinator lacks (see Restore).
 
 ### Offline backup
 
@@ -143,7 +143,7 @@ A restart is a short outage; hosts keep working on their stored maps and retry s
 
 ## Restore
 
-Practice both restores on a scratch VM (or a scratch state directory) before they are needed, and repeat the drill after major upgrades. A restored coordinator has the backup's identity, so hosts keep working when it serves the same address. Changes made after the backup are lost until slice 3 adds re-submission.
+Practice both restores on a scratch VM (or a scratch state directory) before they are needed, and repeat the drill after major upgrades. A restored coordinator has the backup's identity, so hosts keep working when it serves the same address. Changes made after the backup are not lost: every member host compares each map with the signed statements it holds and re-submits what the coordinator lacks through `POST /coord/v1/networks/import`, and a member that joined after the backup, which the restored coordinator refuses as unknown, imports itself and syncs again. Members, persons, bindings, administrators, groups, policies, revocations, and moves reappear without administrator action within a sync interval of the members that hold them; only each member's address and candidates wait for that member's next sync.
 
 `restore` refuses to run while the coordinator holds the state lock, checks the file (SQLite `integrity_check`, the identity row, a supported version), refuses an existing database unless `--replace` is given, keeps the previous database as `coord.db.replaced-YYYYMMDDTHHMMSSZ`, and prints `{"id", "user_version", "replaced"}`.
 
@@ -182,7 +182,7 @@ litestream reset -config /etc/capsule-coord/litestream.yml /var/lib/capsule-coor
 systemctl start capsule-coord litestream
 ```
 
-Check that `/healthz` reports the expected `id`, that `capsule_coord_networks` and `capsule_coord_member_hosts` match what you expect, and that `capsule_coord_requests_total` for `/coord/v1/networks/{network}/sync` grows as hosts sync. Remove the `coord.db.replaced-*` file once the restore is confirmed; it also contains the key.
+Check that `/healthz` reports the expected `id`, that `capsule_coord_networks` and `capsule_coord_member_hosts` match what you expect, and that `capsule_coord_requests_total` for `/coord/v1/networks/{network}/sync` grows as hosts sync, and `capsule_coord_requests_total` for `/coord/v1/networks/import` shows members re-submitting what the backup lacked. Remove the `coord.db.replaced-*` file once the restore is confirmed; it also contains the key.
 
 ## Successors
 
@@ -227,9 +227,9 @@ curl -fsS http://127.0.0.1:9464/healthz          # reports the new identity's id
 capsule-coord --state /var/lib/capsule-coord info # note the new public_key
 ```
 
-Build new release bundles with the new address and `CAPSULE_COORDINATOR_KEY` set to the new key, and take a new offline encrypted `backup` (see above). Restoring a backup from before a successor loses that identity, so hosts that already switched cannot reach the restored coordinator. Watch `capsule_coord_identity_hosts{sequence="N"}`; once it has been 0 for 30 days, remove the `--previous-listen` flag, restart, and close the old port. Hosts that come back after that cannot follow and need their administrator to move the network (slice 3).
+Build new release bundles with the new address and `CAPSULE_COORDINATOR_KEY` set to the new key, and take a new offline encrypted `backup` (see above). Restoring a backup from before a successor loses that identity, so hosts that already switched cannot reach the restored coordinator. Watch `capsule_coord_identity_hosts{sequence="N"}`; once it has been 0 for 30 days, remove the `--previous-listen` flag, restart, and close the old port. Hosts that come back after that cannot follow and need their administrator to move the network with `capsule network move`.
 
-**Leaked key.** Sign a successor with a new key at once (the key change above) and restart. Hosts that reach this coordinator first follow it. Whoever holds the leaked key can sign a competing successor to a coordinator of their own, but a coordinator is trusted for availability only: it can divert hosts to a coordinator that denies them service, not change membership or access. Administrators recover diverted networks with a root-signed move (slice 3). Take a new offline backup: a backup from before a successor restores a coordinator without it, which hosts that already switched cannot reach.
+**Leaked key.** Sign a successor with a new key at once (the key change above) and restart. Hosts that reach this coordinator first follow it. Whoever holds the leaked key can sign a competing successor to a coordinator of their own, but a coordinator is trusted for availability only: it can divert hosts to a coordinator that denies them service, not change membership or access. Administrators recover diverted networks with `capsule network move`, signed by the network root or a delegated administrator, which takes precedence over any successor. Take a new offline backup: a backup from before a successor restores a coordinator without it, which hosts that already switched cannot reach.
 
 ## Monitor
 

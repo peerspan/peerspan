@@ -108,6 +108,7 @@ func PeerHandler(store *Store) http.Handler {
 	taskPeerRoutes(mux, store, sender)
 	policyPeerRoutes(mux, store, sender)
 	directoryPeerRoutes(mux, store, sender)
+	movePeerRoutes(mux, store, sender)
 	// A stream carries exactly one exchange.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "close")

@@ -560,6 +560,7 @@ func (s *Server) Handler() http.Handler {
 	s.adminRoutes(mux)
 	s.policyRoutes(mux)
 	s.limitRoutes(mux)
+	s.moveRoutes(mux)
 	return s.observe(mux, s.notifyChanges(mux))
 }
 
@@ -919,6 +920,9 @@ func networkMap(ctx context.Context, tx *sql.Tx, network string) (*membership.Ma
 		return nil, err
 	}
 	if err = addAdmins(ctx, tx, m); err != nil {
+		return nil, err
+	}
+	if err = addMove(ctx, tx, m); err != nil {
 		return nil, err
 	}
 	return m, addPolicies(ctx, tx, m)

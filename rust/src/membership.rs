@@ -444,7 +444,25 @@ struct Successor {
 pub struct CoordinatorPending {
     pub address: String,
     pub public_key: String,
+    /// The successor's sequence, or the move's sequence for a move.
     pub sequence: u64,
+    /// `move` for an administrator-signed move, `successor` for a
+    /// coordinator-signed successor chain.
+    #[serde(default = "successor_source")]
+    pub source: String,
+    /// The move's sequence; null for a successor.
+    #[serde(default)]
+    pub move_sequence: Option<u64>,
+}
+fn successor_source() -> String {
+    SOURCE_SUCCESSOR.to_owned()
+}
+pub const SOURCE_SUCCESSOR: &str = "successor";
+pub const SOURCE_MOVE: &str = "move";
+impl CoordinatorPending {
+    pub fn is_move(&self) -> bool {
+        self.source == SOURCE_MOVE
+    }
 }
 
 /// Verifies a chain of successors from the pinned coordinator key and
@@ -490,6 +508,8 @@ pub fn verify_successors(
             address: s.address,
             public_key: s.public_key,
             sequence: s.sequence,
+            source: successor_source(),
+            move_sequence: None,
         });
     }
     last.ok_or_else(bad)

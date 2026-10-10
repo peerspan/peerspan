@@ -86,6 +86,7 @@ type persistedStatements struct {
 	admins         map[string]json.RawMessage // delegations by person key
 	groups         map[string]json.RawMessage // newest version by name
 	policies       map[string]json.RawMessage // newest version by owner key
+	move           json.RawMessage            // the latest valid move held, or nil
 }
 
 // appliedMap is a verified map: valid members under the root chain, plus the
@@ -102,6 +103,11 @@ type appliedMap struct {
 	admins        membership.AdminState
 	groups        map[string]membership.GroupDefinition
 	policies      map[string]membership.Policy // by owner key
+	// move is the map's move when valid under this view, or nil.
+	move *membership.Move
+	// lacking reports that the map lacks a signed statement this host holds,
+	// which a repair import re-submits.
+	lacking bool
 }
 
 type queryer interface {
@@ -131,7 +137,9 @@ func loadStatements(ctx context.Context, q queryer, network string) (persistedSt
 			p.rotations = append(p.rotations, rotation)
 		case kindAttestation:
 			p.attestations = append(p.attestations, r.statement)
-		case kindPendingRotation, kindBinding:
+		case kindPendingRotation, kindBinding, kindMoveApplied:
+		case kindMove:
+			p.move = r.statement
 		case kindPersonStatement:
 			p.persons[r.subject] = r.statement
 		case kindHostAdmission:
@@ -237,9 +245,13 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 			a.revocations = append(a.revocations, statementRecord{kind, subject, entry.Statement})
 		}
 	}
+	unserved := false
 	for _, r := range valid {
-		if !served[servedKey(r)] && r.kind != membership.KindLeave {
-			a.missing = append(a.missing, r)
+		if !served[servedKey(r)] {
+			unserved = true
+			if r.kind != membership.KindLeave {
+				a.missing = append(a.missing, r)
+			}
 		}
 	}
 	// Persons are valid under the current root and not removed.
@@ -303,6 +315,11 @@ func (s *Store) verifyMap(ctx context.Context, n Network, m membership.Map) (app
 		return a, errors.New("coordinator map does not include this host's membership")
 	}
 	sort.Slice(a.members, func(i, j int) bool { return a.members[i].HostID < a.members[j].HostID })
+	a.move = a.mapMove(m.Move)
+	if a.lacking, err = s.mapLacks(ctx, n.ID, persisted, m, &a, attested, revoked); err != nil {
+		return a, err
+	}
+	a.lacking = a.lacking || unserved
 	return a, nil
 }
 

@@ -587,6 +587,21 @@ pub enum NetworkCommand {
     /// Define groups of persons (administrator or root)
     #[command(subcommand)]
     Group(GroupCommand),
+    /// Move a network to another coordinator (administrator or root)
+    Move {
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        /// The new coordinator's address
+        #[arg(long, value_name = "HOST:PORT")]
+        coordinator: String,
+        /// The new coordinator's public key (standard Base64)
+        #[arg(long, value_name = "KEY")]
+        coordinator_key: String,
+        /// Person key for signing as an administrator, when this host does
+        /// not hold the root seed and the agent holds several keys
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
     /// List a network's current groups
     Groups { id: Option<String> },
 }
@@ -1108,6 +1123,7 @@ impl Command {
                 | NetworkCommand::RemovePerson { network, .. }
                 | NetworkCommand::RevokeInvite { network, .. }
                 | NetworkCommand::DelegateAdmin { network, .. }
+                | NetworkCommand::Move { network, .. }
                 | NetworkCommand::Group(GroupCommand::Set { network, .. }),
             )
             | Self::Invite { network, .. }
@@ -1587,6 +1603,19 @@ impl Command {
                 Method::POST,
                 format!("/v1/networks/{}/groups", encoded(resolved(&network))),
                 Some(json!({"name": group, "members": person})),
+            ),
+            Self::Network(NetworkCommand::Move {
+                network,
+                coordinator,
+                coordinator_key,
+                ..
+            }) => (
+                Method::POST,
+                format!("/v1/networks/{}/move", encoded(resolved(&network))),
+                Some(json!({
+                    "coordinator_address": coordinator,
+                    "coordinator_public_key": coordinator_key,
+                })),
             ),
             Self::Network(NetworkCommand::Groups { id }) => (
                 Method::GET,

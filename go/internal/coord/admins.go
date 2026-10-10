@@ -198,43 +198,55 @@ func (s *Server) delegate(ctx context.Context, caller, network string, d members
 	if err = isMember(ctx, tx, network, caller); err != nil {
 		return nil, err
 	}
-	key, err := chain.VerifyDelegation(d)
-	if err != nil {
+	if err = delegateIn(ctx, tx, chain, d, false); err != nil {
 		return nil, err
-	}
-	if d.Epoch != chain.Epoch() {
-		return nil, fmt.Errorf("%w: delegation must be at the current epoch", errInvalid)
-	}
-	state, err := adminStateOf(ctx, tx, chain)
-	if err != nil {
-		return nil, err
-	}
-	if _, removed := state.Removals[key]; removed {
-		return nil, fmt.Errorf("%w: administrator removal is permanent for this key", errForbidden)
-	}
-	revoked, err := revokedOf(ctx, tx, chain)
-	if err != nil {
-		return nil, err
-	}
-	persons, err := validPersons(ctx, tx, chain, revoked)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := persons[key]; !ok {
-		return nil, fmt.Errorf("%w: person is not admitted to this network", errForbidden)
-	}
-	// The first delegation at an epoch is kept; one at a newer epoch
-	// replaces an older one.
-	if previous, ok := state.Delegations[key]; !ok || previous.Epoch < d.Epoch {
-		if err = putDelegation(ctx, tx, network, d); err != nil {
-			return nil, err
-		}
 	}
 	m, err := networkMap(ctx, tx, network)
 	if err != nil {
 		return nil, err
 	}
 	return m, tx.Commit()
+}
+
+// delegateIn verifies and stores a delegation as the admins route does. An
+// imported delegation may be from an earlier epoch, as the map serves those
+// of removed administrators so their statements verify; only one at the
+// current epoch needs its person admitted.
+func delegateIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, d membership.AdminDelegation, imported bool) error {
+	network := chain.NetworkID
+	key, err := chain.VerifyDelegation(d)
+	if err != nil {
+		return err
+	}
+	if d.Epoch != chain.Epoch() && !imported {
+		return fmt.Errorf("%w: delegation must be at the current epoch", errInvalid)
+	}
+	state, err := adminStateOf(ctx, tx, chain)
+	if err != nil {
+		return err
+	}
+	if _, removed := state.Removals[key]; removed {
+		return fmt.Errorf("%w: administrator removal is permanent for this key", errForbidden)
+	}
+	if d.Epoch == chain.Epoch() {
+		revoked, err := revokedOf(ctx, tx, chain)
+		if err != nil {
+			return err
+		}
+		persons, err := validPersons(ctx, tx, chain, revoked)
+		if err != nil {
+			return err
+		}
+		if _, ok := persons[key]; !ok {
+			return fmt.Errorf("%w: person is not admitted to this network", errForbidden)
+		}
+	}
+	// The first delegation at an epoch is kept; one at a newer epoch
+	// replaces an older one.
+	if previous, ok := state.Delegations[key]; !ok || previous.Epoch < d.Epoch {
+		return putDelegation(ctx, tx, network, d)
+	}
+	return nil
 }
 
 func putDelegation(ctx context.Context, tx *sql.Tx, network string, d membership.AdminDelegation) error {
@@ -287,32 +299,7 @@ func (s *Server) defineGroup(ctx context.Context, caller, network string, g memb
 	if err = isMember(ctx, tx, network, caller); err != nil {
 		return nil, err
 	}
-	if _, err = chain.VerifyGroup(g); err != nil {
-		return nil, err
-	}
-	groups, err := groupsOf(ctx, tx, chain)
-	if err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(g)
-	if err != nil {
-		return nil, err
-	}
-	if current, ok := groups[g.Name]; ok && g.Version == current.Version && renewal(chain, current, g) {
-		// The current root renews a group at the same version.
-	} else if ok && g.Version <= current.Version {
-		stored, _ := json.Marshal(current)
-		if g.Version == current.Version && membership.EqualRaw(stored, data) {
-			m, err := networkMap(ctx, tx, network) // a retried submission
-			return m, err
-		}
-		return nil, fmt.Errorf("%w: group %s is already at version %d", errConflict, g.Name, current.Version)
-	}
-	if err = requireCurrent(ctx, tx, chain, g.Signature); err != nil {
-		return nil, err
-	}
-	// Replace any invalid statement, or the renewed one, at this version.
-	if err = putGroup(ctx, tx, network, g); err != nil {
+	if err = defineGroupIn(ctx, tx, chain, g); err != nil {
 		return nil, err
 	}
 	m, err := networkMap(ctx, tx, network)
@@ -320,6 +307,36 @@ func (s *Server) defineGroup(ctx context.Context, caller, network string, g memb
 		return nil, err
 	}
 	return m, tx.Commit()
+}
+
+// defineGroupIn verifies and stores a group definition as the groups route
+// does. A retried submission of the current definition changes nothing.
+func defineGroupIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, g membership.GroupDefinition) error {
+	if _, err := chain.VerifyGroup(g); err != nil {
+		return err
+	}
+	groups, err := groupsOf(ctx, tx, chain)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	current, ok := groups[g.Name]
+	if stored, _ := json.Marshal(current); ok && g.Version == current.Version && membership.EqualRaw(stored, data) {
+		return nil // a retried submission
+	}
+	if ok && g.Version == current.Version && renewal(chain, current, g) {
+		// The current root renews a group at the same version.
+	} else if ok && g.Version <= current.Version {
+		return fmt.Errorf("%w: group %s is already at version %d", errConflict, g.Name, current.Version)
+	}
+	if err = requireCurrent(ctx, tx, chain, g.Signature); err != nil {
+		return err
+	}
+	// Replace any invalid statement, or the renewed one, at this version.
+	return putGroup(ctx, tx, chain.NetworkID, g)
 }
 
 // rotationDelegations verifies delegations re-signed at the new epoch. They

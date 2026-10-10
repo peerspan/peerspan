@@ -28,6 +28,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .route("/v1/activity", get(activity))
         .merge(crate::peer::local_routes())
         .merge(crate::network::local_routes())
+        .merge(crate::coordinator_move::local_routes())
         .merge(crate::policy::local_routes())
         .merge(crate::adapter::local_routes())
         .merge(crate::adapter_setup::local_routes())

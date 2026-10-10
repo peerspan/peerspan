@@ -64,7 +64,7 @@ var (
 	networkFlagOptional = map[string]bool{
 		"network invite": true, "network invite-person": true, "network remove-person": true,
 		"network revoke-invite": true, "network admit": true, "network bind": true, "network unbind": true,
-		"network delegate-admin": true, "network group": true,
+		"network delegate-admin": true, "network group": true, "network move": true,
 		"access allow": true, "access deny": true, "access renew": true, "access show": true, "access sync": true,
 		"allow": true, "deny": true,
 	}

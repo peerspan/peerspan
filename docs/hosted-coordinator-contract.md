@@ -139,9 +139,11 @@ Decisions recorded in the proposal: the network root or a delegated administrato
 
 A move is a strict JSON object with `network_id`, `sequence`, `address`, `public_key`, `moved_at`, `signer` (`root` or the administrator's `person_public_key`), and `signature`, raw for the root and `SSHSIG` for an administrator, as for group definitions. `sequence` is a decimal integer of at least 1; for each network the valid move with the highest sequence applies. A move is valid when its signer is the current root or a current administrator at the time a coordinator or host verifies it, and `address` is a valid coordinator address. A host that has already switched because of a move stays switched if its signer later stops being an administrator.
 
+**Test vector.** With the root seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (network `net_c5b940ed3f65c391965de8295fc5d25f474fa57b48d36eb10ad363b8539c1b79`), sequence 1, address `coord.example.com:7400`, public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=`, and `moved_at` `2026-10-10T00:00:00Z`, the root's raw signature is `IBmzYpyWsCU4IE5B4HhL9CMjdn2WlWUYWuJNjxWaoZ03ynlz2pCGzJ5i8Nj1LvEXm1936XDTB3o23GnvHN14CQ==`.
+
 ### Coordinator
 
-- `POST /coord/v1/networks/{network}/moves` with `{move}`: the caller must be a member. The coordinator stores a valid move whose sequence is higher than its current one (200), refuses a sequence that is not higher with 409, and an invalid move with 400.
+- `POST /coord/v1/networks/{network}/moves` with `{move}`: the caller must be a member, otherwise 403. The coordinator stores a valid move whose sequence is higher than its current one (200), refuses a sequence that is not higher with 409, and an invalid move with 400.
 - The map gains `move`, the current move or null.
 - `POST /coord/v1/networks/import` with `{name, root_public_key, map}`, where `map` carries the signed fields of a map as the caller holds them (`members`, `rotations`, `attestations`, `revocations`, `persons`, `admins`, `groups`, `policies`, `move`, and every other signed field the map serves). The coordinator verifies each statement as on its own submission route, in dependency order, and merges: it adds what it lacks and keeps what it has when its own is newer. Entries that fail verification are skipped, not fatal. The caller must be a current member of the result, otherwise 403. An unknown network is registered (201) and counts toward `--max-networks-per-ip`; an existing one returns 200. Both return `{added, skipped, map}`, where `added` and `skipped` count statements. Members' addresses and candidates come from their own syncs.
 - A coordinator keeps serving a network after a move away from it: syncs return the map with `move`, and joins still succeed, so invites issued before the move keep working while the old coordinator runs.
@@ -150,18 +152,24 @@ A move is a strict JSON object with `network_id`, `sequence`, `address`, `public
 
 `capsule network move --coordinator HOST:PORT --coordinator-key KEY [--network ID]` (in `help advanced`) is run on a host whose operator is the root holder or a current administrator; it picks the signer as the other administrator commands do. It:
 1. signs a move with sequence one more than the current one;
-2. imports the network, including the move, into the new coordinator, and fails with nothing changed if that import fails;
+2. imports the network, including the move, into the new coordinator, and fails with nothing changed if that import fails, including when the coordinator there presents another key;
 3. submits the move to the current coordinator, at most once, recording `accepted`, `refused`, or `unreachable`;
 4. pushes the move to every other current member host it can reach (below);
 5. syncs the new coordinator and switches its own pin.
 
 It prints `{network_id, sequence, coordinator: {address, public_key}, imported: {added, skipped}, previous_coordinator: STATE, pushed: N, members: M}`. Without a reachable new coordinator it exits 1.
 
+The CLI uses two local routes:
+- `GET /v1/networks/{id}/move` returns `{move, next_sequence}`: the host's latest valid move or null, and the sequence a new move takes, one more than the higher of the applied sequence and the latest held move's.
+- `POST /v1/networks/{id}/move` with exactly `{coordinator_address, coordinator_public_key, move}` runs the steps above and returns the printed object. With `move` null, the daemon signs with the root seed it holds, and a host without one returns 403, so the CLI exits nonzero. Otherwise `move` is a move the CLI signed with an administrator's person key through `ssh-agent` or `--person-key`; the daemon verifies it and refuses with 400 a move naming another address or key than the request.
+
+`members` in the output counts the other current member hosts, and `pushed` those that accepted the push.
+
 ### Hosts
 
-A host learns a move from the map's `move`, from a peer push, or from a peer lookup, and verifies it against its network state. A valid move with a sequence higher than the host's applied move sequence, naming an address or key other than its pin, becomes the pending coordinator: `coordinator_pending` gains `source`, `move` or `successor`, and `move_sequence` for a move (null for a successor). A pending move replaces any pending successor, and a successor never replaces a pending move. The host then switches as in slice 2: it syncs the pending coordinator, and if that coordinator answers 403 because it lacks the host, it imports (below) and syncs again. On the switch, the host records the move's sequence as applied. Successors then apply from the moved-to key as before.
+A host learns a move from the map's `move`, from a peer push, or from a peer lookup, and verifies it against its network state. A valid move with a sequence higher than the host's applied move sequence, naming an address or key other than its pin, becomes the pending coordinator: `coordinator_pending` gains `source`, `move` or `successor`, and `move_sequence` for a move (null for a successor); for a pending move, `sequence` equals `move_sequence`. Slice 2's checks of `coordinator_pending` accept these two fields. A pending move replaces any pending successor, and a successor never replaces a pending move. The host then switches as in slice 2: it syncs the pending coordinator, and if that coordinator answers 403 because it lacks the host, it imports (below) and syncs again. On the switch, the host records the move's sequence as applied. Successors then apply from the moved-to key as before.
 
-**Peer route.** `GET /peer/v1/networks/{network}/move` returns `{move}` with the host's latest valid move, or 404 without one. `POST` on the same route with `{move}` delivers one and returns 200 once verified and stored, or 400 when invalid. The caller must be a current member host of the network. A host whose syncs with both its pinned and its pending coordinator have failed for three intervals asks each member it can reach on a direct path, at most once per interval.
+**Peer route.** `GET /peer/v1/networks/{network}/move` returns `{move}` with the host's latest valid move, or 404 without one. `POST` on the same route with `{move}` delivers one and returns 200 once verified, storing it only if its sequence is higher than the host's held move, or 400 when invalid. A host that learns a move this way does not submit it to a coordinator; only the mover does. The caller must be a current member host of the network. A host whose syncs have failed for three intervals, with its pinned coordinator and with any pending one, asks each member it can reach on a direct path, at most once per interval.
 
 ### Repair
 
@@ -170,7 +178,7 @@ After each sync, a host compares the map with what it holds. It imports when the
 ### Verification
 
 `conformance/coord_move.py` is written from this contract by an author independent of both implementations. It runs Go coordinators (two or more) across Go/Rust combinations of the mover, another member, and a joiner, with OpenSSH for administrator signatures. It covers:
-- the move statement's lines and a test vector computed by the suite and checked by both implementations through an exchanged move;
+- the move statement's lines and the test vector, and both implementations accepting a move the other signed;
 - `network move` signed by the root and by a delegated administrator: import, the previous coordinator accepting, pushes, and every member switching; `network members`, messages, policies, and change notifications working at the new coordinator;
 - a move with the previous coordinator stopped: members learn it from the mover's push, or by peer lookup after their syncs fail;
 - a move by a removed administrator refused; a move with a sequence not higher refused (409);

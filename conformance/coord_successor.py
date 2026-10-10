@@ -321,6 +321,17 @@ class Coordinator(OpsCoordinator):
         return values
 
 
+def slice2_pending(p):
+    """coordinator_pending as slice 2 defines it. Slice 3 adds source and move_sequence, which slice 2's checks
+    accept; for a successor they must be `successor` and null."""
+    if not isinstance(p, dict):
+        return p
+    extra = {k: p[k] for k in ('source', 'move_sequence') if k in p}
+    need(extra in ({}, {'source': 'successor', 'move_sequence': None}),
+         'a pending successor has source successor and move_sequence null (slice 3 fields)', p)
+    return {k: v for k, v in p.items() if k not in ('source', 'move_sequence')}
+
+
 def check_successor_object(s, sequence, previous_key, address, public_key, directory):
     need(isinstance(s, dict) and set(s) == SUCCESSOR_FIELDS,
          'a successor is a strict object with exactly sequence, previous_public_key, address, public_key, '
@@ -988,17 +999,17 @@ class Pairing:
             r = self.record(name)
             # Q3: the pinned sync that follows succeeds; the suite reads the error as staying until the pending
             # coordinator answers.
-            return (r['coordinator_pending'] == pending and r['coordinator_address'] == self.addr[2]
+            return (slice2_pending(r['coordinator_pending']) == pending and r['coordinator_address'] == self.addr[2]
                     and r['coordinator_public_key'] == self.k[2]
                     and (r['last_sync_error'] or '').startswith(f'coordinator successor {self.addr[3]}: '))
         for name in names:
             eventually(lambda: waiting(name), self.bound + 2 * INTERVAL,
                        f'{name} keeps its pin with coordinator_pending set and last_sync_error "coordinator successor ADDRESS: ..."', lambda: self.record(name))
         r = self.record('bob')
-        need(set(r['coordinator_pending']) == {'address', 'public_key', 'sequence'},
-             'coordinator_pending is {address, public_key, sequence}', r)
+        need(set(slice2_pending(r['coordinator_pending'])) == {'address', 'public_key', 'sequence'},
+             'coordinator_pending is {address, public_key, sequence} (plus slice 3\'s source and move_sequence)', r)
         listed = {n['id']: n for n in self.hosts['bob'].cli('network', 'list')}[self.net]
-        need(listed['coordinator_pending'] == pending, 'network list shows coordinator_pending', listed)
+        need(slice2_pending(listed['coordinator_pending']) == pending, 'network list shows coordinator_pending', listed)
         # Hosts keep working on their pin.
         self.send('alice', 'bob')
         # The pending entry survives a restart, with the coordinator down so nothing can relearn it.
@@ -1006,11 +1017,11 @@ class Pairing:
         self.hosts['bob'].stop()
         self.start('bob')
         r = self.record('bob')
-        need(r['coordinator_pending'] == pending and r['coordinator_address'] == self.addr[2],
+        need(slice2_pending(r['coordinator_pending']) == pending and r['coordinator_address'] == self.addr[2],
              'a pending entry survives restarts', r)
         time.sleep(2 * INTERVAL)
         r = self.record('bob')
-        need(r['coordinator_pending'] == pending and r['coordinator_address'] == self.addr[2],
+        need(slice2_pending(r['coordinator_pending']) == pending and r['coordinator_address'] == self.addr[2],
              'a pending entry survives restarts (after failed syncs)', r)
         # The new listener starts.
         c.serve(self.p[3], {2: self.p[2]})
@@ -1098,7 +1109,7 @@ class Pairing:
         st.chain = [sign_successor(signer, 1, signer.b64, dead, other.b64, signed_at='informational only')]
         r = sync()
         want = {'address': dead, 'public_key': other.b64, 'sequence': 1}
-        need(r['coordinator_pending'] == want and r['coordinator_address'] == st.address
+        need(slice2_pending(r['coordinator_pending']) == want and r['coordinator_address'] == st.address
              and r['coordinator_public_key'] == signer.b64,
              'a valid chain to an unreachable coordinator becomes pending and the pin stays', r)
         need((r['last_sync_error'] or '').startswith(f'coordinator successor {dead}: '),
@@ -1106,7 +1117,7 @@ class Pairing:
         # An empty chain leaves the pending entry in place.
         st.chain = []
         r = sync()
-        need(r['coordinator_pending'] == want and r['coordinator_address'] == st.address,
+        need(slice2_pending(r['coordinator_pending']) == want and r['coordinator_address'] == st.address,
              'an empty chain leaves a pending entry in place', r)
         # A later valid chain from the pinned key replaces it: to a second stand-in, whose own chain leads to the
         # real coordinator. The second chain is followed on the next sync, not in the same one.
@@ -1118,7 +1129,7 @@ class Pairing:
              and r['last_sync_error'] is None,
              'a later valid chain from the pinned key replaces the pending entry, and the host switches '
              '(a suite-signed successor accepted)', r)
-        need(r['coordinator_pending'] == {'address': real_address, 'public_key': real_key, 'sequence': 2},
+        need(slice2_pending(r['coordinator_pending']) == {'address': real_address, 'public_key': real_key, 'sequence': 2},
              'a chain served by the coordinator just switched to is recorded as the pending entry in that sync', r)
         need(any(path.endswith(f'/{net}/sync') for _, path, _ in st2.requests), 'the switch synced at the new '
              'coordinator', st2.requests)

@@ -254,62 +254,7 @@ func (s *Server) admitPerson(ctx context.Context, caller, network string, data [
 	if err = isMember(ctx, tx, network, caller); err != nil {
 		return nil, err
 	}
-	key, _, err := chain.VerifyPerson(proof)
-	if err != nil {
-		return nil, err
-	}
-	if proof.Admission != nil {
-		if err = requireCurrent(ctx, tx, chain, proof.Admission.Signature); err != nil {
-			return nil, err
-		}
-	}
-	revoked, err := revokedOf(ctx, tx, chain)
-	if err != nil {
-		return nil, err
-	}
-	if revoked.Persons[key] {
-		return nil, fmt.Errorf("%w: person has been removed", errForbidden)
-	}
-	// Person labels are unique among current persons, ignoring ASCII case; a
-	// removed person frees its label.
-	current, err := validPersons(ctx, tx, chain, revoked)
-	if err != nil {
-		return nil, err
-	}
-	label := personLabel(proof)
-	for other, p := range current {
-		if other != key && membership.LabelsConflict(personLabel(p), label) {
-			return nil, fmt.Errorf("%w: person label %q is taken", errConflict, label)
-		}
-	}
-	if m := proof.Membership; m != nil {
-		if revoked.Invites[m.InvitePublicKey] {
-			return nil, fmt.Errorf("%w: person invite has been revoked", errForbidden)
-		}
-		var user string
-		err = tx.QueryRowContext(ctx, `SELECT statement FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindPersonInvite, m.InvitePublicKey).Scan(&user)
-		switch {
-		case err == nil && user != jsonString(key):
-			return nil, fmt.Errorf("%w: person invite has already been used", errConflict)
-		case err == nil:
-		case errors.Is(err, sql.ErrNoRows):
-			expires, _ := membership.ParseTime(m.InviteExpiresAt)
-			if !expires.After(s.Now()) {
-				return nil, fmt.Errorf("%w: person invite has expired", errForbidden)
-			}
-			if _, err = putStatement(ctx, tx, network, kindPersonInvite, m.InvitePublicKey, json.RawMessage(jsonString(key))); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, err
-		}
-	}
-	stored, err := json.Marshal(proof)
-	if err != nil {
-		return nil, err
-	}
-	// An already admitted person keeps its original admission.
-	if _, err = putStatement(ctx, tx, network, kindPersonAdmission, key, stored); err != nil {
+	if err = s.admitPersonIn(ctx, tx, chain, proof, false); err != nil {
 		return nil, err
 	}
 	m, err := networkMap(ctx, tx, network)
@@ -317,6 +262,80 @@ func (s *Server) admitPerson(ctx context.Context, caller, network string, data [
 		return nil, err
 	}
 	return m, tx.Commit()
+}
+
+// admitPersonIn verifies and stores a person admission as the persons route
+// does. An imported person invite is not checked for expiry: it was redeemed
+// when the person was first admitted.
+func (s *Server) admitPersonIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, proof membership.PersonProof, imported bool) error {
+	network := chain.NetworkID
+	key, _, err := chain.VerifyPerson(proof)
+	if err != nil {
+		return err
+	}
+	if proof.Admission != nil {
+		if err = requireCurrent(ctx, tx, chain, proof.Admission.Signature); err != nil {
+			return err
+		}
+	}
+	revoked, err := revokedOf(ctx, tx, chain)
+	if err != nil {
+		return err
+	}
+	if revoked.Persons[key] {
+		return fmt.Errorf("%w: person has been removed", errForbidden)
+	}
+	// Person labels are unique among current persons, ignoring ASCII case; a
+	// removed person frees its label.
+	current, err := validPersons(ctx, tx, chain, revoked)
+	if err != nil {
+		return err
+	}
+	if _, ok := current[key]; ok && imported {
+		return nil // already admitted: keep the original admission
+	}
+	label := personLabel(proof)
+	for other, p := range current {
+		if other != key && membership.LabelsConflict(personLabel(p), label) {
+			return fmt.Errorf("%w: person label %q is taken", errConflict, label)
+		}
+	}
+	if m := proof.Membership; m != nil {
+		if revoked.Invites[m.InvitePublicKey] {
+			return fmt.Errorf("%w: person invite has been revoked", errForbidden)
+		}
+		var user string
+		err = tx.QueryRowContext(ctx, `SELECT statement FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindPersonInvite, m.InvitePublicKey).Scan(&user)
+		switch {
+		case err == nil && user != jsonString(key):
+			return fmt.Errorf("%w: person invite has already been used", errConflict)
+		case err == nil:
+		case errors.Is(err, sql.ErrNoRows):
+			expires, _ := membership.ParseTime(m.InviteExpiresAt)
+			if !imported && !expires.After(s.Now()) {
+				return fmt.Errorf("%w: person invite has expired", errForbidden)
+			}
+			if _, err = putStatement(ctx, tx, network, kindPersonInvite, m.InvitePublicKey, json.RawMessage(jsonString(key))); err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+	}
+	stored, err := json.Marshal(proof)
+	if err != nil {
+		return err
+	}
+	if imported {
+		// A stored admission that no longer verifies, such as one a rotation
+		// lapsed, is replaced.
+		if _, err = tx.ExecContext(ctx, `DELETE FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindPersonAdmission, key); err != nil {
+			return err
+		}
+	}
+	// An already admitted person keeps its original admission.
+	_, err = putStatement(ctx, tx, network, kindPersonAdmission, key, stored)
+	return err
 }
 
 func jsonString(value string) string {
@@ -397,23 +416,39 @@ func (s *Server) bind(ctx context.Context, caller, network string, b membership.
 	if err = membership.VerifyHostBinding(network, b); err != nil {
 		return nil, err
 	}
-	host, _ := membership.DecodeKey(b.HostPublicKey)
-	if membership.HostID(host) != caller {
+	if host, _ := membership.DecodeKey(b.HostPublicKey); membership.HostID(host) != caller {
 		return nil, fmt.Errorf("%w: a binding must be submitted by the bound host itself", errForbidden)
+	}
+	if err = bindIn(ctx, tx, chain, b); err != nil {
+		return nil, err
+	}
+	m, err := networkMap(ctx, tx, network)
+	if err != nil {
+		return nil, err
+	}
+	return m, tx.Commit()
+}
+
+// bindIn verifies and stores a binding as the bindings route does, apart
+// from who submits it: the bound host's own signature is verified either way.
+func bindIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, b membership.HostBinding) error {
+	network := chain.NetworkID
+	if err := membership.VerifyHostBinding(network, b); err != nil {
+		return err
 	}
 	revoked, err := revokedOf(ctx, tx, chain)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	persons, err := validPersons(ctx, tx, chain, revoked)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if _, ok := persons[b.PersonPublicKey]; !ok {
-		return nil, fmt.Errorf("%w: person is not admitted to this network", errForbidden)
+		return fmt.Errorf("%w: person is not admitted to this network", errForbidden)
 	}
 	if revoked.Unbound[membership.UnbindSubject(b.PersonPublicKey, b.HostPublicKey)] {
-		return nil, fmt.Errorf("%w: this host was unbound from this person, which is permanent", errForbidden)
+		return fmt.Errorf("%w: this host was unbound from this person, which is permanent", errForbidden)
 	}
 	var existing string
 	err = tx.QueryRowContext(ctx, `SELECT statement FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindBinding, b.HostPublicKey).Scan(&existing)
@@ -422,30 +457,23 @@ func (s *Server) bind(ctx context.Context, caller, network string, b membership.
 		if json.Unmarshal([]byte(existing), &current) == nil && revoked.Bound(current.PersonPublicKey, current.HostPublicKey) {
 			if _, ok := persons[current.PersonPublicKey]; ok {
 				if current.PersonPublicKey != b.PersonPublicKey {
-					return nil, fmt.Errorf("%w: host is already bound to another person", errConflict)
+					return fmt.Errorf("%w: host is already bound to another person", errConflict)
 				}
-				m, err := networkMap(ctx, tx, network) // identical or re-signed: keep the original
-				return m, err
+				return nil // identical or re-signed: keep the original
 			}
 		}
 		if _, err = tx.ExecContext(ctx, `DELETE FROM statements WHERE network_id = ? AND kind = ? AND subject = ?`, network, kindBinding, b.HostPublicKey); err != nil {
-			return nil, err
+			return err
 		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+		return err
 	}
 	data, err := json.Marshal(b)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if _, err = putStatement(ctx, tx, network, kindBinding, b.HostPublicKey, data); err != nil {
-		return nil, err
-	}
-	m, err := networkMap(ctx, tx, network)
-	if err != nil {
-		return nil, err
-	}
-	return m, tx.Commit()
+	_, err = putStatement(ctx, tx, network, kindBinding, b.HostPublicKey, data)
+	return err
 }
 
 // addPersons fills the map's valid persons and each member's current binding.

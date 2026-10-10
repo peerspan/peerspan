@@ -11,6 +11,7 @@ use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use capsule_host::{
     admins::{AdminDelegation, AdminRemoval, Group},
+    coordinator_move::{CoordinatorMove, ROOT_SIGNER},
     membership::{self, HostRevocation, InviteRevocation, KeySigner, Rotation},
     network::{AdminRemovalPlan, RotationPlan},
     persons::{
@@ -85,6 +86,7 @@ pub async fn command(command: &Command, socket: &Path) -> anyhow::Result<Option<
         | NetworkCommand::RevokeInvite { network, .. }
         | NetworkCommand::RemovePerson { network, .. }
         | NetworkCommand::DelegateAdmin { network, .. }
+        | NetworkCommand::Move { network, .. }
         | NetworkCommand::Group(GroupCommand::Set { network, .. }) => resolved(network),
         NetworkCommand::Revoke { network, .. } | NetworkCommand::RemoveAdmin { network, .. } => {
             network.as_str()
@@ -173,6 +175,7 @@ fn person_key_of(command: &NetworkCommand) -> Option<&Path> {
         | NetworkCommand::Revoke { person_key, .. }
         | NetworkCommand::RevokeInvite { person_key, .. }
         | NetworkCommand::RemovePerson { person_key, .. }
+        | NetworkCommand::Move { person_key, .. }
         | NetworkCommand::Group(GroupCommand::Set { person_key, .. }) => person_key.as_deref(),
         _ => None,
     }
@@ -375,6 +378,42 @@ async fn administer(
             let group = Group::sign(signer, id, group, version, &members, &at()).map_err(failed)?;
             local
                 .post(under(id, "groups"), json!({"group": group}))
+                .await?
+        }
+        NetworkCommand::Move {
+            coordinator,
+            coordinator_key,
+            ..
+        } => {
+            let held = local.get(under(id, "move")).await?;
+            let sequence = held["next_sequence"]
+                .as_u64()
+                .unwrap_or_else(|| held["move"]["sequence"].as_u64().unwrap_or_default() + 1);
+            let key = signer.public_key_b64();
+            let as_signer = if key == root {
+                ROOT_SIGNER
+            } else {
+                key.as_str()
+            };
+            let signed = CoordinatorMove::sign(
+                signer,
+                as_signer,
+                id,
+                sequence,
+                coordinator,
+                coordinator_key,
+                &at(),
+            )
+            .map_err(failed)?;
+            local
+                .post(
+                    under(id, "move"),
+                    json!({
+                        "coordinator_address": coordinator,
+                        "coordinator_public_key": coordinator_key,
+                        "move": signed,
+                    }),
+                )
                 .await?
         }
         _ => unreachable!("not an administrator command"),

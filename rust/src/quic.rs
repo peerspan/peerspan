@@ -414,9 +414,35 @@ pub(crate) async fn request(
     path: &str,
     body: &[u8],
 ) -> anyhow::Result<(u16, Vec<u8>)> {
+    request_on(store, peer, method, path, body, false).await
+}
+/// `request` on the peer's direct path only, never through a relay.
+pub(crate) async fn request_direct(
+    store: Arc<Store>,
+    peer: &Peer,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    request_on(store, peer, method, path, body, true).await
+}
+async fn request_on(
+    store: Arc<Store>,
+    peer: &Peer,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    direct_only: bool,
+) -> anyhow::Result<(u16, Vec<u8>)> {
     let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
     let transport = transport(&store)?;
-    let paths = paths(&store, &transport, peer).await?;
+    let mut paths = paths(&store, &transport, peer).await?;
+    if direct_only {
+        paths.relay = None;
+        if paths.direct.is_none() {
+            anyhow::bail!("peer has no direct address");
+        }
+    }
     let deadline = tokio::time::Instant::now() + REQUEST_BOUND;
     let reused = transport.cached(&peer.id, &key, &paths.all()).is_some();
     let connection = transport
