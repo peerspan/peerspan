@@ -423,6 +423,78 @@ pub(crate) fn check_network(network: &str, expected: &str) -> Result<(), Error> 
     Ok(())
 }
 
+/// The first line of a coordinator successor statement.
+pub const SUCCESSOR_CONTEXT: &str = "capsule-coordinator-successor-v1";
+
+/// A coordinator identity signed by the previous identity's key, as a
+/// coordinator serves it in `successors`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Successor {
+    sequence: u64,
+    previous_public_key: String,
+    address: String,
+    public_key: String,
+    signed_at: String,
+    signature: String,
+}
+
+/// The coordinator a network follows once a sync with it succeeds.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CoordinatorPending {
+    pub address: String,
+    pub public_key: String,
+    pub sequence: u64,
+}
+
+/// Verifies a chain of successors from the pinned coordinator key and
+/// returns its last entry. Each signature is by the previous key, sequences
+/// increase by exactly 1, and every address is a coordinator address.
+pub fn verify_successors(
+    pinned: &str,
+    chain: &[serde_json::Value],
+) -> Result<CoordinatorPending, Error> {
+    let bad = || invalid("invalid coordinator successor");
+    let mut previous = pinned.to_owned();
+    let mut last: Option<CoordinatorPending> = None;
+    for value in chain {
+        let s: Successor = serde_json::from_value(value.clone()).map_err(|_| bad())?;
+        if s.previous_public_key != previous
+            || s.sequence == 0
+            || last
+                .as_ref()
+                .is_some_and(|l| l.sequence.checked_add(1) != Some(s.sequence))
+        {
+            return Err(bad());
+        }
+        split_host_port(&s.address).map_err(|_| bad())?;
+        public_key(&s.public_key).map_err(|_| bad())?;
+        let sequence = s.sequence.to_string();
+        let lines = [
+            SUCCESSOR_CONTEXT,
+            &sequence,
+            &s.previous_public_key,
+            &s.address,
+            &s.public_key,
+            &s.signed_at,
+        ];
+        let raw = signature(&s.signature).map_err(|_| bad())?;
+        verify_strict_cached(
+            &public_key(&s.previous_public_key).map_err(|_| bad())?,
+            lines.join("\n").as_bytes(),
+            &raw,
+        )
+        .map_err(|_| bad())?;
+        previous.clone_from(&s.public_key);
+        last = Some(CoordinatorPending {
+            address: s.address,
+            public_key: s.public_key,
+            sequence: s.sequence,
+        });
+    }
+    last.ok_or_else(bad)
+}
+
 /// A root-signed revocation of a member host key.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

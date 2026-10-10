@@ -57,6 +57,9 @@ type Network struct {
 	// RootSSH is true when the current root is an SSH key, seen from its
 	// SSHSIG signatures or set by this host's rotation to it.
 	RootSSH bool `json:"root_ssh"`
+	// CoordinatorPending is a coordinator successor this host verified but
+	// has not yet synced with, or nil.
+	CoordinatorPending *CoordinatorPending `json:"coordinator_pending"`
 }
 
 // NetworkMember is a verified map entry. Exactly one of Membership (an invite
@@ -385,16 +388,18 @@ func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error)
 	n := Network{ID: token.NetworkID, Name: token.NetworkName, RootPublicKey: token.RootPublicKey, Member: token.Member, CoordinatorAddress: token.CoordinatorAddress, CoordinatorPublicKey: token.CoordinatorPublicKey}
 	advertise, _ := s.coordinationConfig()
 	candidates := s.ownCandidates(ctx, n.CoordinatorAddress)
-	m, err := s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/members", map[string]any{"membership": self, "address": advertise, "candidates": candidates})
+	m, chain, err := s.callCoordinatorMap(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/members", map[string]any{"membership": self, "address": advertise, "candidates": candidates})
 	if err != nil {
 		return n, err
 	}
-	return s.finishJoin(ctx, n, m)
+	return s.finishJoin(ctx, n, m, chain)
 }
 
 // finishJoin verifies the coordinator's first map and persists the network,
-// its members, and its statements together.
-func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Network, error) {
+// its members, and its statements together. Coordinator successors served
+// with the map are followed as on a sync: a valid chain is recorded as
+// pending and synced at once.
+func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map, chain []json.RawMessage) (Network, error) {
 	if genesis, keyErr := membership.DecodeKey(m.RootPublicKey); keyErr != nil || membership.NetworkID(genesis) != n.ID {
 		return n, fmt.Errorf("%w: coordinator map root does not derive the network ID", ErrUnavailable)
 	}
@@ -413,6 +418,7 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Ne
 	n.RootSSH = applied.rootSSH()
 	synced := timestamp(time.Now())
 	n.LastSyncAt = &synced
+	pending := followChain(&n, chain, &n.LastSyncError)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return n, err
@@ -451,6 +457,9 @@ func (s *Store) finishJoin(ctx context.Context, n Network, m membership.Map) (Ne
 	}
 	s.wakeRelays()
 	s.refreshUsage(ctx, n)
+	if pending {
+		return s.SyncNetwork(ctx, n.ID)
+	}
 	return n, nil
 }
 
@@ -505,16 +514,23 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 		return n, err
 	}
 	advertise, _ := s.coordinationConfig()
-	var m membership.Map
-	if n.Administrator && n.LastSyncAt == nil {
-		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks", map[string]any{"name": n.Name, "root_public_key": n.RootPublicKey, "membership": self.Membership, "address": advertise, "candidates": candidates})
-	} else {
-		m, err = s.callCoordinator(ctx, n, "/coord/v1/networks/"+url.PathEscape(n.ID)+"/sync", map[string]any{"address": advertise, "candidates": candidates})
+	call := func(target Network) (appliedMap, []json.RawMessage, error) {
+		var m membership.Map
+		var chain []json.RawMessage
+		var err error
+		if target.Administrator && target.LastSyncAt == nil {
+			m, chain, err = s.callCoordinatorMap(ctx, target, "/coord/v1/networks", map[string]any{"name": target.Name, "root_public_key": target.RootPublicKey, "membership": self.Membership, "address": advertise, "candidates": candidates})
+		} else {
+			m, chain, err = s.callCoordinatorMap(ctx, target, "/coord/v1/networks/"+url.PathEscape(target.ID)+"/sync", map[string]any{"address": advertise, "candidates": candidates})
+		}
+		if err != nil {
+			return appliedMap{}, nil, err
+		}
+		applied, err := s.verifyMap(ctx, target, m)
+		return applied, chain, err
 	}
-	var applied appliedMap
-	if err == nil {
-		applied, err = s.verifyMap(ctx, n, m)
-	}
+	previous := n.CoordinatorAddress + "|" + n.CoordinatorPublicKey
+	n, applied, notice, err := s.syncFollowing(n, call)
 	// Persist outcomes even if the requesting client disconnected.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -528,7 +544,7 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 		message := err.Error()
 		n.LastSyncError = &message
 	} else {
-		n.LastSyncAt, n.LastSyncError = &now, nil
+		n.LastSyncAt, n.LastSyncError = &now, notice
 		n.RootSSH = applied.rootSSH() || (n.RootSSH && n.RootEpoch == applied.chain.Epoch())
 		n.RootEpoch, n.CurrentRootPublicKey = applied.chain.Epoch(), applied.chain.CurrentPublicKey()
 		if txErr = s.replaceMembers(finishCtx, tx, n.ID, applied.members, now); txErr != nil {
@@ -543,6 +559,10 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 	}
 	if txErr = tx.Commit(); txErr != nil {
 		return n, txErr
+	}
+	if n.CoordinatorAddress+"|"+n.CoordinatorPublicKey != previous {
+		// The relay connection and STUN follow the new coordinator.
+		s.wakeRelays()
 	}
 	if err == nil {
 		// Revocations this host holds but the coordinator does not (a local
@@ -661,15 +681,31 @@ func (s *Store) coordinatorTLS(n Network, alpn ...string) (*tls.Config, error) {
 
 // callCoordinator posts to the pinned coordinator and decodes its map.
 func (s *Store) callCoordinator(ctx context.Context, n Network, path string, body any) (membership.Map, error) {
-	var m membership.Map
+	m, _, err := s.callCoordinatorMap(ctx, n, path, body)
+	return m, err
+}
+
+// callCoordinatorMap also returns the coordinator successors served with a
+// register, join, or sync map.
+func (s *Store) callCoordinatorMap(ctx context.Context, n Network, path string, body any) (membership.Map, []json.RawMessage, error) {
+	var response struct {
+		membership.Map
+		Successors json.RawMessage `json:"successors"`
+	}
 	data, err := s.coordinatorRequest(ctx, n, http.MethodPost, path, body)
 	if err != nil {
-		return m, err
+		return response.Map, nil, err
 	}
-	if err = json.Unmarshal(data, &m); err != nil {
-		return m, fmt.Errorf("%w: malformed coordinator map", ErrUnavailable)
+	if err = json.Unmarshal(data, &response); err != nil {
+		return response.Map, nil, fmt.Errorf("%w: malformed coordinator map", ErrUnavailable)
 	}
-	return m, nil
+	// Successors that are not an array are an invalid chain, not a
+	// malformed map: the null entry fails verification.
+	var chain []json.RawMessage
+	if len(response.Successors) > 0 && json.Unmarshal(response.Successors, &chain) != nil {
+		chain = []json.RawMessage{json.RawMessage("null")}
+	}
+	return response.Map, chain, nil
 }
 
 // coordinatorRequest calls the pinned coordinator, with a JSON body unless

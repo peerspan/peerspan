@@ -85,7 +85,7 @@ PRAGMA user_version = 4;
 
 // schemaVersion is the newest database version this build opens; Open
 // upgrades older ones.
-const schemaVersion = 5
+const schemaVersion = 6
 
 var (
 	errInvalid   = errors.New("invalid request")
@@ -102,17 +102,20 @@ type Identity struct {
 
 // Server owns one coordinator state directory.
 type Server struct {
-	db       *sql.DB
-	lock     *os.File
-	key      ed25519.PrivateKey
-	identity Identity
-	Now      func() time.Time
-	relay    *relayServer
+	db   *sql.DB
+	lock *os.File
+	// identities are in sequence order; key and identity are the latest's.
+	identities []coordIdentity
+	key        ed25519.PrivateKey
+	identity   Identity
+	Now        func() time.Time
+	relay      *relayServer
 	// Limits apply to new networks, joins, and relayed bytes; set before Serve.
 	Limits Limits
 	// Log receives the JSON log lines; set before Serve.
 	Log       *slog.Logger
 	metrics   *metrics
+	hosts     identityHosts
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -285,40 +288,49 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 			return nil, err
 		}
 	}
-	if s.key, err = readKey(ctx, tx); err != nil {
+	if version < 6 {
+		if _, err = tx.ExecContext(ctx, successorsSchema); err != nil {
+			return nil, err
+		}
+	}
+	if s.identities, err = readIdentities(ctx, tx, schemaVersion); err != nil {
 		return nil, err
 	}
-	s.identity = identityOf(s.key)
+	latest := s.identities[len(s.identities)-1]
+	s.key, s.identity = latest.key, latest.identity
 	return s, tx.Commit()
 }
 
-// ReadIdentity reads the public identity without taking the state lock, so it
-// works while the service is running.
-func ReadIdentity(ctx context.Context, dir string) (Identity, error) {
+// openState opens the state's database read-only without taking the state
+// lock, so it works while the service is running.
+func openState(ctx context.Context, dir string) (*sql.DB, error) {
 	dir, err := privateDir(dir, false)
 	if err != nil {
-		return Identity{}, err
+		return nil, err
 	}
 	path := filepath.Join(dir, "coord.db")
 	f, err := privateFile(path, unix.O_RDONLY)
 	if err != nil {
-		return Identity{}, fmt.Errorf("coordinator state is not initialized: %w", err)
+		return nil, fmt.Errorf("coordinator state is not initialized: %w", err)
 	}
 	f.Close()
 	db, err := openDB(path, true)
 	if err != nil {
-		return Identity{}, err
+		return nil, err
 	}
-	defer db.Close()
 	// The running service may hold a write lock briefly; wait instead of failing.
 	if _, err = db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
-		return Identity{}, err
+		db.Close()
+		return nil, err
 	}
-	key, err := readKey(ctx, db)
-	if err != nil {
-		return Identity{}, err
-	}
-	return identityOf(key), nil
+	return db, nil
+}
+
+// ReadIdentity reads the latest public identity without taking the state
+// lock, so it works while the service is running.
+func ReadIdentity(ctx context.Context, dir string) (Identity, error) {
+	info, err := ReadInfo(ctx, dir)
+	return Identity{ID: info.ID, PublicKey: info.PublicKey}, err
 }
 
 func (s *Server) Identity() Identity { return s.identity }
@@ -337,13 +349,20 @@ func (s *Server) Close() error {
 
 // TLSConfig requires every client to prove possession of an Ed25519 key; the
 // caller's host ID is derived from that key.
-func (s *Server) TLSConfig() (*tls.Config, error) {
+func (s *Server) TLSConfig() (*tls.Config, error) { return s.tlsConfigFor(s.Latest()) }
+
+// tlsConfigFor presents an identity's key.
+func (s *Server) tlsConfigFor(sequence int64) (*tls.Config, error) {
+	if sequence < 0 || sequence > s.Latest() {
+		return nil, fmt.Errorf("no coordinator identity %d", sequence)
+	}
+	identity := s.identities[sequence]
 	config := tlsid.Config()
 	config.ClientAuth = tls.RequireAnyClientCert
 	// The relay shares this listener and is selected by ALPN.
 	// Version 2 is preferred when a host offers it.
 	config.NextProtos = []string{"http/1.1", relay.ALPNv2, relay.ALPN}
-	cache := &tlsid.Cache{Key: s.key, Name: s.identity.ID}
+	cache := &tlsid.Cache{Key: identity.key, Name: identity.identity.ID}
 	if _, err := cache.Get(); err != nil {
 		return nil, err
 	}
@@ -355,35 +374,73 @@ func (s *Server) TLSConfig() (*tls.Config, error) {
 	return config, nil
 }
 
+// Listen listens on address presenting the latest identity.
 func (s *Server) Listen(address string) (net.Listener, error) {
-	config, err := s.TLSConfig()
-	if err != nil {
-		return nil, err
-	}
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return nil, err
-	}
-	return tls.NewListener(listener, config), nil
+	return s.ListenIdentity(s.Latest(), address)
 }
 
-// Serve runs the coordination API and the relay until ctx is cancelled. Each
-// connection completes its TLS handshake first, then relay connections leave
-// for the relay and the rest go to http.Server, whose request timeouts must
-// not apply to long-lived relay connections.
-func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
-	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, ErrorLog: s.httpErrorLog()}
-	stunConn, err := listenSTUN(listener.Addr())
-	if err != nil {
-		return err
+func tlsListener(listener net.Listener, config *tls.Config) net.Listener {
+	return tls.NewListener(listener, config)
+}
+
+// Serve runs the coordination API, the relay, and a STUN responder on each
+// listener until ctx is cancelled. Every listener shares the database and the
+// relay; each answers as the identity it presents (the latest unless it came
+// from ListenIdentity). Serve returns when every listener has stopped; one
+// failing stops the others.
+func (s *Server) Serve(ctx context.Context, listeners ...net.Listener) error {
+	if len(listeners) == 0 {
+		return errors.New("no coordination listener")
 	}
-	defer stunConn.Close()
-	go serveSTUN(stunConn)
+	stunConns := make([]*net.UDPConn, 0, len(listeners))
+	defer func() {
+		for _, c := range stunConns {
+			c.Close()
+		}
+	}()
+	for _, listener := range listeners {
+		stunConn, err := listenSTUN(listener.Addr())
+		if err != nil {
+			return err
+		}
+		stunConns = append(stunConns, stunConn)
+	}
+	for _, c := range stunConns {
+		go serveSTUN(c)
+	}
 	// Relay usage is persisted periodically and once more on shutdown.
 	flushCtx, stopFlush := context.WithCancel(context.Background())
 	flushed := make(chan struct{})
 	go s.runUsageFlush(flushCtx, flushed)
 	defer func() { stopFlush(); <-flushed }()
+	handler := s.Handler()
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errs := make(chan error, len(listeners))
+	for _, listener := range listeners {
+		go func() {
+			err := s.serveListener(serveCtx, listener, handler)
+			cancel()
+			errs <- err
+		}()
+	}
+	var err error
+	for range listeners {
+		err = errors.Join(err, <-errs)
+	}
+	return err
+}
+
+// serveListener serves one listener. Each connection completes its TLS
+// handshake first, then relay connections leave for the relay and the rest go
+// to http.Server, whose request timeouts must not apply to long-lived relay
+// connections.
+func (s *Server) serveListener(ctx context.Context, listener net.Listener, handler http.Handler) error {
+	sequence := s.sequenceOf(listener)
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, ErrorLog: s.httpErrorLog(),
+		BaseContext: func(net.Listener) context.Context {
+			return context.WithValue(context.Background(), sequenceKey{}, sequence)
+		}}
 	httpConns := newConnListener(listener.Addr())
 	serveCtx, cancelServe := context.WithCancel(ctx)
 	// Serve returns after every relay connection has closed, so each has
@@ -412,7 +469,7 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 			active.Add(1)
 			go func() {
 				defer active.Done()
-				s.dispatch(serveCtx, c, httpConns)
+				s.dispatch(serveCtx, c, httpConns, sequence)
 			}()
 		}
 	}()
@@ -469,7 +526,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		status, m, err := s.registerFrom(r.Context(), caller, sourceOf(r.RemoteAddr), req)
-		respond(w, status, m, err)
+		respond(w, status, s.withSuccessors(r, m), err)
 		if err == nil && status == http.StatusCreated {
 			s.relay.changed(m.NetworkID)
 		}
@@ -484,7 +541,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		status, m, err := s.joinRequest(r.Context(), caller, r.PathValue("network"), data)
-		respond(w, status, m, err)
+		respond(w, status, s.withSuccessors(r, m), err)
 	})
 	mux.HandleFunc("POST /coord/v1/networks/{network}/sync", func(w http.ResponseWriter, r *http.Request) {
 		caller, ok := callerID(w, r)
@@ -496,7 +553,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		m, err := s.sync(r.Context(), caller, r.PathValue("network"), req.Address, req.Candidates)
-		respond(w, http.StatusOK, m, err)
+		respond(w, http.StatusOK, s.withSuccessors(r, m), err)
 	})
 	s.governanceRoutes(mux)
 	s.personRoutes(mux)

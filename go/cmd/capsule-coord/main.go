@@ -58,8 +58,9 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 	root.SetOut(out)
 	root.SetErr(errOut)
 	root.CompletionOptions.DisableDefaultCmd = true
-	var state, listen, opsListen string
-	var replace bool
+	var state, listen, opsListen, successorAddress string
+	var previousListen []string
+	var replace, newKey bool
 	limits := coord.DefaultLimits
 	root.PersistentFlags().StringVar(&state, "state", "", "private state directory")
 	resolveState := func(cmd *cobra.Command, args []string) error {
@@ -75,13 +76,13 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 		Use: "info", Short: "Show the coordinator's public identity", Args: cobra.NoArgs,
 		PreRunE: resolveState,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			identity, err := coord.ReadIdentity(cmd.Context(), state)
+			info, err := coord.ReadInfo(cmd.Context(), state)
 			if err != nil {
 				return err
 			}
 			encoder := json.NewEncoder(cmd.OutOrStdout())
 			encoder.SetIndent("", "  ")
-			return encoder.Encode(identity)
+			return encoder.Encode(info)
 		},
 	}
 	serve := &cobra.Command{
@@ -99,11 +100,28 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 			if limits.MaxMembers < 0 || limits.MaxNetworksPerIP < 0 || limits.RelayBytesPerMonth < 0 {
 				return fmt.Errorf("limits must be 0 (disabled) or positive")
 			}
+			type previous struct {
+				sequence int64
+				address  string
+			}
+			previousListeners := []previous{}
+			for _, value := range previousListen {
+				sequence, address, err := coord.ParsePreviousListen(value)
+				if err != nil {
+					return &exitError{code: 2, err: err}
+				}
+				previousListeners = append(previousListeners, previous{sequence, address})
+			}
 			server, err := coord.Open(cmd.Context(), state)
 			if err != nil {
 				return err
 			}
 			defer server.Close()
+			for _, p := range previousListeners {
+				if err := server.CheckPrevious(p.sequence); err != nil {
+					return &exitError{code: 2, err: err}
+				}
+			}
 			server.Limits = limits
 			log := coord.NewLogger(cmd.ErrOrStderr())
 			server.Log = log
@@ -112,6 +130,18 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 				return err
 			}
 			defer listener.Close()
+			listeners := []net.Listener{listener}
+			// Each previous identity's listener: [{sequence, listen}].
+			previousAddresses := []map[string]any{}
+			for _, p := range previousListeners {
+				l, err := server.ListenIdentity(p.sequence, p.address)
+				if err != nil {
+					return err
+				}
+				defer l.Close()
+				listeners = append(listeners, l)
+				previousAddresses = append(previousAddresses, map[string]any{"sequence": p.sequence, "listen": l.Addr().String()})
+			}
 			opsAddress := slog.Any("ops_listen", nil)
 			var ops net.Listener
 			if opsListen != "" {
@@ -121,7 +151,7 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 				defer ops.Close()
 				opsAddress = slog.String("ops_listen", ops.Addr().String())
 			}
-			log.LogAttrs(cmd.Context(), slog.LevelInfo, "start", slog.String("id", server.Identity().ID), slog.String("listen", listener.Addr().String()), opsAddress)
+			log.LogAttrs(cmd.Context(), slog.LevelInfo, "start", slog.String("id", server.Identity().ID), slog.String("listen", listener.Addr().String()), opsAddress, slog.Any("previous_listen", previousAddresses))
 			// The ops listener stops with the coordinator; its failure is
 			// logged but does not stop coordination.
 			opsCtx, stopOps := context.WithCancel(cmd.Context())
@@ -135,7 +165,7 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 					coord.LogError(log, "the ops listener stopped serving: "+err.Error(), "", "")
 				}
 			}()
-			err = server.Serve(cmd.Context(), listener)
+			err = server.Serve(cmd.Context(), listeners...)
 			stopOps()
 			<-opsDone
 			if err != nil {
@@ -153,6 +183,21 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 	serve.Flags().Int64Var(&limits.MaxNetworksPerIP, "max-networks-per-ip", limits.MaxNetworksPerIP, "network registrations per source address (IPv6 by /64) in any 24 hours; 0 disables")
 	serve.Flags().Int64Var(&limits.RelayBytesPerMonth, "relay-bytes-per-month", limits.RelayBytesPerMonth, "relayed datagram bytes per network per UTC calendar month; 0 disables")
 	serve.Flags().StringVar(&opsListen, "ops-listen", "", "loopback address for /healthz and /metrics, HOST:PORT; off by default")
+	serve.Flags().StringArrayVar(&previousListen, "previous-listen", nil, "also serve an earlier identity, SEQUENCE=HOST:PORT; repeatable")
+	successor := &cobra.Command{
+		Use: "successor --address HOST:PORT [--new-key]", Short: "Sign a successor identity at a new address, key, or both", Args: cobra.NoArgs,
+		Long:    "Successor appends a coordinator identity signed by the latest one, naming a new address and, with --new-key, a new key. Hosts follow it on their next sync. The coordinator must be stopped.",
+		PreRunE: resolveState,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := coord.AppendSuccessor(cmd.Context(), state, successorAddress, newKey)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	}
+	successor.Flags().StringVar(&successorAddress, "address", "", "the new identity's coordinator address, HOST:PORT")
+	successor.Flags().BoolVar(&newKey, "new-key", false, "generate a new key instead of keeping the latest one")
 	backup := &cobra.Command{
 		Use: "backup FILE", Short: "Write a consistent copy of the database, including the private key", Args: cobra.ExactArgs(1),
 		Long:    "Backup writes a consistent copy of the coordinator database, which includes its private key, to a new mode 0600 FILE. It works while the coordinator runs.",
@@ -178,6 +223,6 @@ func newCommand(out, errOut io.Writer) *cobra.Command {
 		},
 	}
 	restore.Flags().BoolVar(&replace, "replace", false, "replace an existing database, keeping it beside the restored one")
-	root.AddCommand(info, serve, backup, restore)
+	root.AddCommand(info, serve, successor, backup, restore)
 	return root
 }

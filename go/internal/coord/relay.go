@@ -449,7 +449,8 @@ func (l *connListener) Close() error {
 func (l *connListener) Addr() net.Addr { return l.addr }
 
 // dispatch completes the TLS handshake and routes the connection by ALPN.
-func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListener) {
+// A relay connection counts its host toward the listener's identity.
+func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListener, sequence int64) {
 	tc, ok := c.(*tls.Conn)
 	if !ok {
 		httpConns.push(c)
@@ -462,6 +463,9 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListen
 	}
 	_ = tc.SetDeadline(time.Time{})
 	if protocol := tc.ConnectionState().NegotiatedProtocol; protocol == relay.ALPN || protocol == relay.ALPNv2 {
+		if public, err := tlsid.PeerKey(tc.ConnectionState()); err == nil {
+			s.hosts.record(sequence, membership.HostID(public), time.Now())
+		}
 		s.relay.serve(ctx, tc)
 		return
 	}

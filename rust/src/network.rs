@@ -5,8 +5,8 @@ use crate::{
     admins::{self, AdminDelegation, AdminRemoval, Authority, Group, GroupView},
     api::{blocking, decode},
     membership::{
-        self, Attestation, ChainRelation, HostRevocation, InviteRevocation, InviteToken, KeySigner,
-        Leave, Membership, Rotation,
+        self, Attestation, ChainRelation, CoordinatorPending, HostRevocation, InviteRevocation,
+        InviteToken, KeySigner, Leave, Membership, Rotation,
     },
     model::Error,
     peer::{https, pinned_client_config},
@@ -72,6 +72,10 @@ pub struct Network {
     /// root actions go through the CLI's `--root-key`.
     #[serde(default)]
     pub root_ssh: bool,
+    /// A verified successor of the pinned coordinator, followed once a sync
+    /// with it succeeds; null when nothing is pending.
+    #[serde(default)]
+    pub coordinator_pending: Option<CoordinatorPending>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Member {
@@ -395,6 +399,9 @@ struct WireMap {
     groups: Vec<Value>,
     #[serde(default)]
     policies: Vec<Value>,
+    /// Register, join, and sync responses: the coordinator's successors.
+    #[serde(default)]
+    successors: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1490,6 +1497,7 @@ impl Store {
             root_epoch: 0,
             current_root_public_key: STANDARD.encode(root.verifying_key().as_bytes()),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let me = Member {
             host_id: self.identity().id,
@@ -1604,6 +1612,17 @@ impl Store {
     /// persists the union of verified statements. When `joined` is set, the
     /// network itself is inserted in the same transaction.
     fn apply_map(&self, network: Network, map: WireMap, joined: bool) -> Result<Network, Error> {
+        self.apply_map_at(network, map, joined, None)
+    }
+    /// `apply_map` for a map from `switch`, a pending coordinator, which
+    /// replaces the pinned coordinator in the same transaction.
+    fn apply_map_at(
+        &self,
+        network: Network,
+        map: WireMap,
+        joined: bool,
+        switch: Option<CoordinatorPending>,
+    ) -> Result<Network, Error> {
         // The first accepted map (a join, or a created network's registration)
         // means the coordinator now knows this host, so its relay will accept it.
         let first = joined || network.last_sync_at.is_none();
@@ -1640,6 +1659,11 @@ impl Store {
         } else {
             self.network_record(&tx, &network.id)?
         };
+        if let Some(pending) = switch {
+            network.coordinator_address = pending.address;
+            network.coordinator_public_key = pending.public_key;
+            network.coordinator_pending = None;
+        }
         let id = network.id.clone();
         for rotation in &verified.rotations {
             insert_statement(&tx, &id, "rotation", &rotation.epoch.to_string(), rotation)?;
@@ -3444,6 +3468,23 @@ impl Store {
         }
     }
 
+    fn set_coordinator_pending(
+        &self,
+        id: &str,
+        pending: CoordinatorPending,
+    ) -> Result<Network, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let mut network = self.network_record(&tx, id)?;
+        network.coordinator_pending = Some(pending);
+        tx.execute(
+            "UPDATE networks SET record = ?1 WHERE id = ?2",
+            params![serde_json::to_string(&network)?, id],
+        )?;
+        tx.commit()?;
+        Ok(network)
+    }
+
     fn record_sync_error(&self, id: &str, error: String) -> Result<Network, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -3718,89 +3759,250 @@ fn interface_addresses() -> Vec<std::net::IpAddr> {
 }
 
 /// Registers an unregistered administered network, or syncs any other one.
-/// Failures are recorded on the network rather than returned.
+/// A pending coordinator is synced first, and the pinned one only if that
+/// fails. Failures are recorded on the network rather than returned.
 pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Error> {
     let lookup = id.clone();
     let (network, own) = blocking(store.clone(), move |s| {
         Ok((s.network(&lookup)?, s.own_membership(&lookup)?))
     })
     .await?;
-    let address = store.advertised();
-    let candidates = publish_candidates(&store, &network.coordinator_address).await;
     let registration = own.filter(|_| network.administrator && network.last_sync_at.is_none());
+    let mut failed = None;
+    if let Some(pending) = network.coordinator_pending.clone()
+        && registration.is_none()
+    {
+        match switch_coordinator(&store, network.clone(), pending.clone()).await {
+            Ok(network) => return Ok(network),
+            Err(Error::Internal(error)) => return Err(Error::Internal(error)),
+            Err(error) => failed = Some((pending, error)),
+        }
+    }
+    let response = coordinator_map(
+        &store,
+        &network,
+        &network.coordinator_address,
+        &network.coordinator_public_key,
+        registration,
+    )
+    .await;
+    let outcome = match response {
+        Ok(mut map) => {
+            let successors = std::mem::take(&mut map.successors);
+            let listed = listed_revocations(&map);
+            let offered = offered_rotations(&map);
+            let network = network.clone();
+            match blocking(store.clone(), move |s| s.apply_map(network, map, false)).await {
+                Ok(network) => Ok((network, successors, listed, offered)),
+                Err(error) => Err(error),
+            }
+        }
+        Err(error) => Err(error),
+    };
+    match outcome {
+        Ok((network, successors, listed, offered)) => {
+            match follow_successors(&store, network, &successors, failed).await? {
+                Followed::Switched(network) => Ok(network),
+                Followed::Stayed(network) => after_sync(store, network, listed, offered).await,
+            }
+        }
+        Err(Error::Internal(error)) => Err(Error::Internal(error)),
+        Err(error) => {
+            let message = sync_message(error);
+            blocking(store, move |s| s.record_sync_error(&id, message)).await
+        }
+    }
+}
+
+fn sync_message(error: Error) -> String {
+    match error {
+        Error::Unavailable(message) => message,
+        other => other.to_string(),
+    }
+}
+
+fn offered_rotations(map: &WireMap) -> Vec<Rotation> {
+    map.rotations
+        .iter()
+        .filter_map(|r| serde_json::from_value::<Rotation>(r.clone()).ok())
+        .collect()
+}
+
+/// One register or sync request to the coordinator at `address` with `key`,
+/// and the map it returns; any refusal or transport failure is an error.
+async fn coordinator_map(
+    store: &Arc<Store>,
+    network: &Network,
+    address: &str,
+    key: &str,
+    registration: Option<Membership>,
+) -> Result<WireMap, Error> {
+    let advertised = store.advertised();
+    let candidates = publish_candidates(store, address).await;
     let (path, body, accepted): (_, _, &[u16]) = if let Some(own) = registration {
         (
             "/coord/v1/networks".to_owned(),
-            json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": address, "candidates": candidates}),
+            json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": advertised, "candidates": candidates}),
             &[200, 201],
         )
     } else {
         (
             format!("/coord/v1/networks/{}/sync", network.id),
-            json_value!({"address": address, "candidates": candidates}),
+            json_value!({"address": advertised, "candidates": candidates}),
             &[200],
         )
     };
-    let response = coordinator(
-        store.clone(),
-        &network.coordinator_address,
-        &network.coordinator_public_key,
-        path,
-        body,
-    )
-    .await;
-    let mut listed = None;
-    let mut offered = Vec::new();
-    let outcome = match response {
-        Ok((status, body)) if accepted.contains(&status) => match parse_map(&body) {
-            Ok(map) => {
-                listed = Some(listed_revocations(&map));
-                offered = map
-                    .rotations
-                    .iter()
-                    .filter_map(|r| serde_json::from_value::<Rotation>(r.clone()).ok())
-                    .collect();
-                let network = network.clone();
-                blocking(store.clone(), move |s| s.apply_map(network, map, false)).await
-            }
-            Err(error) => Err(error),
-        },
+    match coordinator(store.clone(), address, key, path, body).await {
+        Ok((status, body)) if accepted.contains(&status) => parse_map(&body),
         Ok((status, body)) => match limit_refusal(status, &body) {
             Some((limit, message)) => {
-                store.update_limits(&id, |l| l.refused = Some(limit));
+                store.update_limits(&network.id, |l| l.refused = Some(limit));
                 Err(Error::Unavailable(message))
             }
             None => Err(Error::Unavailable(coordinator_error(status, &body))),
         },
         Err(error) => Err(Error::Unavailable(format!("{error:#}"))),
-    };
-    match outcome {
-        Ok(network) => {
-            refresh_usage(&store, &network).await;
-            // Revocations this host made stay pending until the coordinator
-            // lists them; they are resubmitted on every successful sync.
-            if let Some(listed) = listed {
-                let lookup = network.id.clone();
-                let pending = blocking(store.clone(), move |s| {
-                    s.pending_revocations(&lookup, &listed)
-                })
-                .await
-                .unwrap_or_default();
-                for body in pending {
-                    let _ = submit_revocation(store.clone(), &network, body).await;
-                }
-            }
-            // A rotation left pending, for example by a crash after the
-            // coordinator accepted it, is completed or resubmitted here.
-            settle_rotation(store, network, offered).await
+    }
+}
+
+/// After a successful sync: refreshes usage, resubmits revocations the map
+/// does not list yet, and settles a pending rotation.
+async fn after_sync(
+    store: Arc<Store>,
+    network: Network,
+    listed: BTreeSet<(String, String)>,
+    offered: Vec<Rotation>,
+) -> Result<Network, Error> {
+    refresh_usage(&store, &network).await;
+    // Revocations this host made stay pending until the coordinator
+    // lists them; they are resubmitted on every successful sync.
+    let lookup = network.id.clone();
+    let pending = blocking(store.clone(), move |s| {
+        s.pending_revocations(&lookup, &listed)
+    })
+    .await
+    .unwrap_or_default();
+    for body in pending {
+        let _ = submit_revocation(store.clone(), &network, body).await;
+    }
+    // A rotation left pending, for example by a crash after the
+    // coordinator accepted it, is completed or resubmitted here.
+    settle_rotation(store, network, offered).await
+}
+
+/// Syncs a network at its pending coordinator. On success the pending
+/// coordinator replaces the pin, and the relay connection and STUN move to
+/// it; on failure nothing is recorded and the error is returned.
+async fn switch_coordinator(
+    store: &Arc<Store>,
+    network: Network,
+    pending: CoordinatorPending,
+) -> Result<Network, Error> {
+    let mut map =
+        coordinator_map(store, &network, &pending.address, &pending.public_key, None).await?;
+    let successors = std::mem::take(&mut map.successors);
+    let listed = listed_revocations(&map);
+    let offered = offered_rotations(&map);
+    let network = blocking(store.clone(), move |s| {
+        s.apply_map_at(network, map, false, Some(pending))
+    })
+    .await?;
+    store.relay_wake.notify_one();
+    // A chain served by the new coordinator is recorded and followed on the
+    // next sync, so one sync never follows coordinators in a loop.
+    let network = match successors_outcome(&network, &successors) {
+        Chain::None => network,
+        Chain::Invalid => invalid_successor(store, network.id).await?,
+        Chain::Valid(next) => {
+            let id = network.id;
+            blocking(store.clone(), move |s| s.set_coordinator_pending(&id, next)).await?
         }
-        Err(Error::Internal(error)) => Err(Error::Internal(error)),
-        Err(error) => {
-            let message = match error {
-                Error::Unavailable(message) => message,
-                other => other.to_string(),
-            };
-            blocking(store, move |s| s.record_sync_error(&id, message)).await
+    };
+    after_sync(store.clone(), network, listed, offered).await
+}
+
+enum Chain {
+    None,
+    Invalid,
+    Valid(CoordinatorPending),
+}
+/// A response's `successors`, verified from the pinned coordinator key.
+fn successors_outcome(network: &Network, successors: &Value) -> Chain {
+    match successors {
+        Value::Null => Chain::None,
+        Value::Array(chain) if chain.is_empty() => Chain::None,
+        Value::Array(chain) => {
+            match membership::verify_successors(&network.coordinator_public_key, chain) {
+                Ok(last) => Chain::Valid(last),
+                Err(_) => Chain::Invalid,
+            }
+        }
+        _ => Chain::Invalid,
+    }
+}
+async fn invalid_successor(store: &Arc<Store>, id: String) -> Result<Network, Error> {
+    blocking(store.clone(), move |s| {
+        s.record_sync_error(&id, "invalid coordinator successor".into())
+    })
+    .await
+}
+
+enum Followed {
+    /// The network now pins the successor, whose sync completed.
+    Switched(Network),
+    Stayed(Network),
+}
+/// After a register, join, or sync response's map is applied: records a
+/// valid chain's last entry as pending and syncs it, or records an invalid
+/// chain as the sync error. `failed` is a pending coordinator this sync
+/// already tried, which is not tried again.
+async fn follow_successors(
+    store: &Arc<Store>,
+    network: Network,
+    successors: &Value,
+    failed: Option<(CoordinatorPending, Error)>,
+) -> Result<Followed, Error> {
+    let pending_error = |pending: &CoordinatorPending, error: Error| {
+        format!(
+            "coordinator successor {}: {}",
+            pending.address,
+            sync_message(error)
+        )
+    };
+    let id = network.id.clone();
+    let record = |message: String| {
+        let id = id.clone();
+        async move { blocking(store.clone(), move |s| s.record_sync_error(&id, message)).await }
+    };
+    match successors_outcome(&network, successors) {
+        Chain::None => match failed {
+            Some((pending, error)) => Ok(Followed::Stayed(
+                record(pending_error(&pending, error)).await?,
+            )),
+            None => Ok(Followed::Stayed(network)),
+        },
+        Chain::Invalid => Ok(Followed::Stayed(invalid_successor(store, id).await?)),
+        Chain::Valid(pending) => {
+            let lookup = id.clone();
+            let next = pending.clone();
+            let network = blocking(store.clone(), move |s| {
+                s.set_coordinator_pending(&lookup, next)
+            })
+            .await?;
+            if let Some((tried, error)) = failed
+                && tried == pending
+            {
+                return Ok(Followed::Stayed(
+                    record(pending_error(&pending, error)).await?,
+                ));
+            }
+            match switch_coordinator(store, network, pending.clone()).await {
+                Ok(network) => Ok(Followed::Switched(network)),
+                Err(Error::Internal(error)) => Err(Error::Internal(error)),
+                Err(error) => Ok(Followed::Stayed(
+                    record(pending_error(&pending, error)).await?,
+                )),
+            }
         }
     }
 }
@@ -4096,8 +4298,19 @@ async fn join_token(store: Arc<Store>, token: InviteToken) -> Result<Network, Er
         root_epoch: 0,
         current_root_public_key: String::new(),
         root_ssh: false,
+        coordinator_pending: None,
     };
-    blocking(store, move |s| s.apply_map(network, map, true)).await
+    joined(store, network, map).await
+}
+
+/// Applies a join response's map, then follows its successors as a sync
+/// would; the joined network is kept whatever happens to them.
+async fn joined(store: Arc<Store>, network: Network, mut map: WireMap) -> Result<Network, Error> {
+    let successors = std::mem::take(&mut map.successors);
+    let network = blocking(store.clone(), move |s| s.apply_map(network, map, true)).await?;
+    match follow_successors(&store, network, &successors, None).await? {
+        Followed::Switched(network) | Followed::Stayed(network) => Ok(network),
+    }
 }
 
 /// The non-secret descriptor that lets a key an administrator admitted find
@@ -4384,8 +4597,9 @@ pub async fn join_with_descriptor(store: Arc<Store>, text: String) -> Result<Net
         root_epoch: 0,
         current_root_public_key: String::new(),
         root_ssh: false,
+        coordinator_pending: None,
     };
-    blocking(store, move |s| s.apply_map(network, map, true)).await
+    joined(store, network, map).await
 }
 
 /// The follow-up command that finishes a skipped person step, for display.
@@ -4937,6 +5151,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let hosts: Vec<SigningKey> = (0..5).map(|_| random_seed().unwrap()).collect();
         let shared = random_seed().unwrap();
@@ -4949,6 +5164,7 @@ mod tests {
             admins: Vec::new(),
             groups: Vec::new(),
             policies: Vec::new(),
+            successors: Value::Null,
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -4973,6 +5189,7 @@ mod tests {
             admins: Vec::new(),
             groups: Vec::new(),
             policies: Vec::new(),
+            successors: Value::Null,
             network_id: network.id.clone(),
             root_public_key: STANDARD.encode(forger.verifying_key().as_bytes()),
             members: vec![],
@@ -5073,6 +5290,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let me = membership::sign_member(
             membership::sign_invite(&root, &invite, "bob", "2099-01-01T00:00:00Z"),
@@ -5084,6 +5302,7 @@ mod tests {
             admins: Vec::new(),
             groups: Vec::new(),
             policies: Vec::new(),
+            successors: Value::Null,
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -5187,6 +5406,7 @@ mod tests {
             admins: Vec::new(),
             groups: Vec::new(),
             policies: Vec::new(),
+            successors: Value::Null,
             network_id: network.id.clone(),
             root_public_key: network.root_public_key.clone(),
             members,
@@ -5286,6 +5506,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let at = "2026-10-08T00:00:00Z";
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
@@ -5464,6 +5685,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let at = "2026-10-08T00:00:00Z";
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
@@ -5535,6 +5757,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let at = "2026-10-08T00:00:00Z";
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
@@ -6510,6 +6733,7 @@ mod tests {
             admins: Vec::new(),
             groups: Vec::new(),
             policies: Vec::new(),
+            successors: Value::Null,
             network_id: id.clone(),
             root_public_key: network.root_public_key.clone(),
             members: vec![
@@ -6608,6 +6832,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         let me = SigningKey::from_bytes(&store.signing_key.to_bytes());
         let [carol, dave, erin, frank] = [(); 4].map(|_| random_seed().unwrap());

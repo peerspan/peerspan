@@ -980,6 +980,7 @@ mod tests {
             root_epoch: 0,
             current_root_public_key: String::new(),
             root_ssh: false,
+            coordinator_pending: None,
         };
         {
             let connection = store.connection().unwrap();

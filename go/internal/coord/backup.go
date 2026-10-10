@@ -69,7 +69,8 @@ func exists(path string) (bool, error) {
 
 // checkDB verifies that a database file is a coordinator database this
 // build opens: integrity_check is ok, its user_version is supported, and it
-// has a valid identity row.
+// has a valid identity row (and valid successors). The identity is the
+// latest one.
 func checkDB(ctx context.Context, path string) (Identity, int, error) {
 	db, err := openDB(path, false)
 	if err != nil {
@@ -90,11 +91,11 @@ func checkDB(ctx context.Context, path string) (Identity, int, error) {
 	if version < 1 || version > schemaVersion {
 		return Identity{}, 0, fmt.Errorf("unsupported coordinator database version: %d", version)
 	}
-	key, err := readKey(ctx, db)
+	identities, err := readIdentities(ctx, db, version)
 	if err != nil {
 		return Identity{}, 0, fmt.Errorf("not a coordinator database: %w", err)
 	}
-	return identityOf(key), version, nil
+	return identities[len(identities)-1].identity, version, nil
 }
 
 // Backup writes a consistent copy of the state's database to file with

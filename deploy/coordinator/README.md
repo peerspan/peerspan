@@ -4,7 +4,7 @@ This runbook runs one `capsule-coord` on one Linux VM as a systemd service, with
 
 The coordinator is trusted for availability only: it cannot admit hosts or change access. Its private key, which every host pins, lives inside `coord.db`. Whoever holds the database holds the key, so treat `coord.db`, every `backup` file, and the Litestream bucket as secrets.
 
-> **A leaked key cannot yet be replaced.** Until coordinator successors (milestone 8 slice 2) and administrator moves (slice 3) exist, hosts pin the coordinator's address and key for the life of each network. If the key leaks, its holder can impersonate the coordinator and deny service to every hosted network, though it gains no say over membership or access. The only remedy today is for each network to be created again on a new coordinator. Losing the key without a backup has the same result, which is why this runbook keeps two independent copies.
+> **Moving the coordinator.** Hosts pin the coordinator's address and key. A signed successor (below) moves every network on this coordinator to a new address, a new key, or both, and hosts follow it on their next sync. A successor needs the current key, so losing the key without a backup still strands every network until administrators move their networks (milestone 8 slice 3), which is why this runbook keeps two independent copies.
 
 ## Files
 
@@ -19,7 +19,7 @@ The service runs `capsule-coord --state /var/lib/capsule-coord run` as the `caps
 
 ## Provision
 
-1. Create one VM (Linux with systemd, x86-64 or arm64) with a **static public address**. Give it a DNS name, such as `coord.example.com`, with A (and AAAA, if it has IPv6) records for that address. Hosts store the coordinator address at create and join, so the name and port must stay the same for the life of the networks.
+1. Create one VM (Linux with systemd, x86-64 or arm64) with a **static public address**. Give it a DNS name, such as `coord.example.com`, with A (and AAAA, if it has IPv6) records for that address. Hosts store the coordinator address at create and join; changing the name or port later takes a [successor](#successors).
 2. Choose the coordination port; these files use `7400`. Hosts reach the coordinator directly: no load balancer, proxy, or TLS terminator may sit in front, since hosts authenticate with client certificates and the registration limit counts real source addresses.
 3. Firewall: allow inbound **TCP and UDP on the coordination port only** (TCP for the API and relay, UDP for address discovery), plus SSH from your administration addresses. Do not open `9464`; the ops listener only binds loopback, and `capsule-coord` refuses any other ops address.
 4. Create an S3-compatible bucket for Litestream that is **private**, with no public access, and an access key limited to that bucket. The provider must support server-side encryption with customer-provided keys (SSE-C); AWS S3 does, and other providers vary, so check before choosing one.
@@ -65,7 +65,7 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 capsule-coord --state /var/lib/capsule-coord info
 ```
 
-prints `id` and `public_key`. `info` reads without the state lock, so it works while the service runs. Release bundles are built with the address and this key:
+prints `id` and `public_key`, which are the latest identity's, and `identities`: every identity in order with its `sequence`, `id`, `public_key`, and `address` (null for identity 0). `info` reads without the state lock, so it works while the service runs. Release bundles are built with the address and this key:
 
 ```sh
 CAPSULE_COORDINATOR=coord.example.com:7400 \
@@ -118,7 +118,7 @@ Litestream keeps its tracking files in `/var/lib/capsule-coord/.coord.db-litestr
 
 ### Offline backup
 
-After installing, and **after every key change** (from slice 2, each new successor key), write a `backup` file, encrypt it on the VM, and keep the encrypted copy offline, together with a copy of `litestream-sse.key`:
+After installing, and **after every key change** (each `successor --new-key`), write a `backup` file, encrypt it on the VM, and keep the encrypted copy offline, together with a copy of `litestream-sse.key`:
 
 ```sh
 sudo -u capsule-coord capsule-coord --state /var/lib/capsule-coord backup /var/lib/capsule-coord/offline.db
@@ -184,6 +184,53 @@ systemctl start capsule-coord litestream
 
 Check that `/healthz` reports the expected `id`, that `capsule_coord_networks` and `capsule_coord_member_hosts` match what you expect, and that `capsule_coord_requests_total` for `/coord/v1/networks/{network}/sync` grows as hosts sync. Remove the `coord.db.replaced-*` file once the restore is confirmed; it also contains the key.
 
+## Successors
+
+A coordinator has an ordered list of identities, numbered from 0. Identity 0 is the key generated at first start. `successor` appends one, signed by the latest identity's key, naming a new address and either the latest key or, with `--new-key`, a new one. Hosts that sync verify the chain of successors from the key they pin, sync with the new address and key, and switch only once that sync succeeds; until then they keep their pin and show the new coordinator as `coordinator_pending` in `network list`. A successor grants nothing beyond availability.
+
+`successor` takes the state lock, so stop the service first; it refuses with `coordinator is running` otherwise. It refuses an address that is not `HOST:PORT`, and, without `--new-key`, the latest identity's own address (`nothing changes`). It prints `{"sequence", "id", "public_key", "address", "successor"}`. Take a `backup` before running it, as for an upgrade.
+
+`run --listen` presents the latest identity. `--previous-listen SEQUENCE=HOST:PORT`, repeatable, also serves an earlier identity on another address with its own key and STUN responder; every listener shares the database and the relay. Responses to hosts that reached an earlier identity carry the chain to the latest. The `start` log line lists the previous listeners, and `capsule_coord_identity_hosts{sequence}` counts the distinct hosts that used each identity's listener in the last 24 hours (since the process started).
+
+**Address change (same key).** For a new DNS name on the same VM and port:
+
+```sh
+systemctl stop capsule-coord
+sudo -u capsule-coord capsule-coord --state /var/lib/capsule-coord successor --address coord-new.example.com:7400
+# Point coord-new.example.com at the VM (keep the old name pointing at it too).
+systemctl start capsule-coord
+curl -fsS http://127.0.0.1:9464/healthz
+```
+
+One listener serves both names, since the key is the same: a host that reaches it by the old name is served the chain and moves to the new name. Keep the old name resolving until hosts have moved. To change the port as well, serve the old port with `--previous-listen 0=0.0.0.0:OLD_PORT` (the sequence of the identity hosts used before) alongside `--listen` on the new one, and open both in the firewall.
+
+**Key change.** Use a new port or address for the new key, since one listener presents one key:
+
+```sh
+systemctl stop capsule-coord
+sudo -u capsule-coord capsule-coord --state /var/lib/capsule-coord successor --address coord.example.com:7401 --new-key
+```
+
+Then set `CAPSULE_COORD_LISTEN=0.0.0.0:7401` in the environment file, and serve the old port for the identity it presented with a drop-in (`systemctl edit capsule-coord`) that clears `ExecStart` and repeats it with `--previous-listen`, where N is that identity's sequence (`info` lists them):
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/capsule-coord --state /var/lib/capsule-coord run --listen ${CAPSULE_COORD_LISTEN} --previous-listen N=0.0.0.0:7400 --ops-listen 127.0.0.1:9464 --max-members ${CAPSULE_COORD_MAX_MEMBERS} --max-networks-per-ip ${CAPSULE_COORD_MAX_NETWORKS_PER_IP} --relay-bytes-per-month ${CAPSULE_COORD_RELAY_BYTES_PER_MONTH}
+```
+
+Open TCP and UDP on the new port, then:
+
+```sh
+systemctl start capsule-coord
+curl -fsS http://127.0.0.1:9464/healthz          # reports the new identity's id
+capsule-coord --state /var/lib/capsule-coord info # note the new public_key
+```
+
+Build new release bundles with the new address and `CAPSULE_COORDINATOR_KEY` set to the new key, and take a new offline encrypted `backup` (see above). Restoring a backup from before a successor loses that identity, so hosts that already switched cannot reach the restored coordinator. Watch `capsule_coord_identity_hosts{sequence="N"}`; once it has been 0 for 30 days, remove the `--previous-listen` flag, restart, and close the old port. Hosts that come back after that cannot follow and need their administrator to move the network (slice 3).
+
+**Leaked key.** Sign a successor with a new key at once (the key change above) and restart. Hosts that reach this coordinator first follow it. Whoever holds the leaked key can sign a competing successor to a coordinator of their own, but a coordinator is trusted for availability only: it can divert hosts to a coordinator that denies them service, not change membership or access. Administrators recover diverted networks with a root-signed move (slice 3). Take a new offline backup: a backup from before a successor restores a coordinator without it, which hosts that already switched cannot reach.
+
 ## Monitor
 
 Scrape `http://127.0.0.1:9464/metrics` with a local agent (for example, a Prometheus agent or Grafana Alloy on the VM that forwards to your monitoring), and alert on:
@@ -193,4 +240,4 @@ Scrape `http://127.0.0.1:9464/metrics` with a local agent (for example, a Promet
 - **Disk:** the filesystem holding `/var/lib/capsule-coord` above 80% used. A full disk stops every write, including syncs.
 - **Replication:** `litestream.service` not active, or `error` in its journal. Litestream serves its own metrics only if `addr` is set in `litestream.yml`; keep it on loopback if you add it.
 
-Useful gauges: `capsule_coord_relay_connections` by ALPN and `capsule_coord_relay_bytes_total`. Metric labels never carry network, host, or person IDs.
+Useful gauges: `capsule_coord_relay_connections` by ALPN, `capsule_coord_relay_bytes_total`, and, after a successor, `capsule_coord_identity_hosts` by sequence. Metric labels never carry network, host, or person IDs.

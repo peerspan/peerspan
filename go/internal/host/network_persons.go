@@ -313,11 +313,11 @@ func (s *Store) joinByDescriptor(ctx context.Context, value string) (Network, er
 	}
 	n := Network{ID: d.NetworkID, Name: d.NetworkName, RootPublicKey: d.RootPublicKey, CoordinatorAddress: d.CoordinatorAddress, CoordinatorPublicKey: d.CoordinatorPublicKey}
 	advertise, _ := s.coordinationConfig()
-	m, err := s.callCoordinator(ctx, n, networkPath(n, "/members"), map[string]any{"address": advertise, "candidates": s.ownCandidates(ctx, n.CoordinatorAddress)})
+	m, chain, err := s.callCoordinatorMap(ctx, n, networkPath(n, "/members"), map[string]any{"address": advertise, "candidates": s.ownCandidates(ctx, n.CoordinatorAddress)})
 	if err != nil {
 		return n, err
 	}
-	return s.finishJoin(ctx, n, m)
+	return s.finishJoin(ctx, n, m, chain)
 }
 
 // Bind submits a person-signed binding of this host; the daemon submitting
