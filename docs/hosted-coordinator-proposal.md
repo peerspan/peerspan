@@ -43,19 +43,21 @@ A network's pinned coordinator can change in two ways, both signed. Hosts verify
 - A coordinator can listen on several addresses, each presenting one of its identities, so the old address and key keep serving until every host has moved. Metrics show how many hosts still use each.
 - A successor grants nothing beyond availability. Whoever holds a leaked key could already deny service, and it gains no say over membership or access.
 
-**Move (administrator).** The network root signs a move naming the network, a new address and key, and a sequence number. The administrator's host:
+**Move (administrator).** The network root or a delegated administrator signs a move naming the network, a new address and key, and a sequence number. The signer's host:
 1. imports the network into the new coordinator, sending the signed statements it holds (the chain, memberships, revocations, rotations, admins, groups, persons, bindings, and policies), each verified as on submission;
 2. submits the move to the old coordinator, if it is reachable, which then serves it on sync;
 3. pushes the move directly to every member host it can reach.
 
-Hosts also answer a peer route with the move they hold, so a host whose coordinator is unreachable can learn it from any peer it reaches directly. A root-signed move always takes precedence: successors apply only on top of the coordinator the latest move names. Invites issued before a move name the old coordinator. Joins with them are refused after the move, and the administrator issues new ones.
+Hosts also answer a peer route with the move they hold, so a host whose coordinator is unreachable can learn it from any peer it reaches directly. A signed move always takes precedence: successors apply only on top of the coordinator the latest move names. Invites issued before a move name the old coordinator; while it still runs, joins with them succeed there and the new member follows the move like any other host.
+
+**Repair.** Every statement is signed and verified, so any member host that finds a coordinator missing something it holds (after a restore, or after a move) re-submits it through the same import. Repair needs no administrator online.
 
 ## Slices
 
 Each slice is implemented with shared conformance written from the contract by an independent author. Coordinator-only slices are Go, since `capsule-coord` is Go-only; host behavior is implemented in Go and Rust.
 1. **Operations:** the ops listener, logs, `backup`, the deployment files and runbook, and a restore drill in conformance: back up while serving, restore, and every host keeps working.
 2. **Successors:** coordinator identities and multiple listeners, the signed successor, and hosts following it, across Go and Rust hosts.
-3. **Administrator moves:** import, the root-signed move, peer distribution, and precedence over successors, including a move from a stopped coordinator.
+3. **Administrator moves and repair:** import, the signed move, peer distribution, precedence over successors, a move from a stopped coordinator, and members re-submitting what a coordinator lacks.
 4. **Launch:** provision the hosted instance, build release bundles with its address and key, and run the [launch acceptance](launch-contract.md) and a live run against it.
 
 ## Decisions
@@ -67,7 +69,8 @@ Settled with the owner on 2026-10-09:
 - **Visibility:** a loopback health and metrics endpoint, and structured logs without payloads or keys.
 
 Settled with the owner on 2026-10-10:
-- **Move authority:** both. The operator's coordinator-signed successor moves every hosted network; an administrator's root-signed move moves one network and always takes precedence.
+- **Move authority:** both. The operator's coordinator-signed successor moves every hosted network; a move signed by the network root or a delegated administrator moves one network and always takes precedence.
+- **Repair:** any member host re-submits signed statements a coordinator lacks, with no administrator needed.
 
 ## Open
 
