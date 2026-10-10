@@ -1,6 +1,6 @@
 # Hosted coordinator: operations and coordinator moves
 
-Status: proposed; decisions settled with the owner on 2026-10-09 and 2026-10-10 (see [Decisions](#decisions)). This is roadmap milestone 8. Nothing here is implemented yet. It follows milestone 7, whose release bundles default to a hosted `capsule-coord` that does not yet exist.
+Status: implemented except deployment; decisions settled with the owner on 2026-10-09 and 2026-10-10 (see [Decisions](#decisions)). This is roadmap milestone 8, specified in the [hosted coordinator contract](hosted-coordinator-contract.md). Slices 1 to 3 and slice 4's packaging, install script, and runbook are implemented; the hosted instance is not yet deployed, so acceptance against it is pending. It follows milestone 7, whose release bundles default to a hosted `capsule-coord`.
 
 ## Problem
 
@@ -74,5 +74,5 @@ Settled with the owner on 2026-10-10:
 
 ## Open
 
-- The cloud provider, region, object storage, and the hosted coordinator's DNS name (needed by slice 4).
-- How long the old address keeps serving after a successor (proposed: until metrics show no hosts on it for 30 days).
+- The region and the hosted coordinator's DNS name, which the owner provides when deploying (the provider is Hetzner Cloud, settled for slice 4).
+- How long the old address keeps serving after a successor: the runbook says until metrics show no hosts on it for 30 days.
