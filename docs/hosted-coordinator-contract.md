@@ -186,3 +186,47 @@ After each sync, a host compares the map with what it holds. It imports when the
 - a join with an invite issued before the move, through the previous coordinator, ending at the new coordinator with its membership there;
 - repair after a restore from an older backup: members, persons, a group, a policy, and a revocation made after the backup reappear at the coordinator without administrator action, and a member that joined after the backup syncs again;
 - import refusals: a caller that is not a member (403) and invalid entries skipped.
+
+## Slice 4: launch
+
+Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the owner provides; a runbook plus an install script run over SSH, with no infrastructure as code yet; the owner runs every outward-facing step with their own credentials; port 443 for TCP (coordination and relay) and UDP (STUN).
+
+### Coordinator release archive
+
+`scripts/package-coordinator.sh VERSION` builds `capsule-coord` for the current Linux machine with `coord.Version` set to VERSION and writes `dist/capsule-coord-VERSION-linux-ARCH.tar.gz` and its `.sha256`, refusing to overwrite as `package-release.sh` does. The archive holds `capsule-coord-VERSION-linux-ARCH/bin/capsule-coord`, `share/capsule-coord/deploy/` (the files in `deploy/coordinator/`), and a `release.json` with `version`, `os`, `architecture`, and `source_revision`.
+
+### Install script
+
+`deploy/coordinator/install.sh` runs as root on Debian 12, from an extracted archive:
+- `install.sh --listen 0.0.0.0:443` installs: the `capsule-coord` system user, `/usr/local/bin/capsule-coord`, the units and `/etc/capsule-coord/capsule-coord.env` (an existing env file is kept), the state directory, and Litestream at the pinned version after checking its published SHA-256. It enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and prints `{id, public_key, listen, litestream}` as JSON on stdout, where `litestream` is `enabled` or `not configured`.
+- With a port below 1024, the unit gains `AmbientCapabilities=CAP_NET_BIND_SERVICE` and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, and nothing else.
+- Litestream is enabled only when `/etc/capsule-coord/litestream.env` and the SSE-C key file both exist; otherwise its unit stays disabled and the script says so on stderr.
+- **Firewall:** nftables on the VM allows inbound TCP 22 and the coordination port over TCP and UDP, plus established traffic, and drops the rest. The runbook also sets the same rules as a Hetzner Cloud Firewall.
+- **Idempotent:** running it again with the same arguments changes nothing and prints the same identity.
+- `install.sh --upgrade` replaces the binary from the extracted archive, restarts, waits for `/healthz`, and prints the same JSON. The identity is unchanged. If health fails, it restores the previous binary, restarts, and exits 1.
+- It never generates or prints the private key, never contacts anything except the Litestream download, and exits 1 on any other distribution.
+
+### Runbook for Hetzner
+
+`deploy/coordinator/README.md` gains a Hetzner section:
+1. A CX22 (or larger) server on Debian 12 with primary IPv4 and IPv6, an SSH key, and the Cloud Firewall.
+2. An Object Storage bucket in the same location, with its access keys, and a 32-byte SSE-C key generated on the VM (`/etc/capsule-coord/litestream-sse.key`, mode 0600), kept also in the owner's password manager. Without that key, the replicas cannot be read.
+3. The owner's DNS name with A and AAAA records for the server.
+4. Copying the archive, `install.sh --listen 0.0.0.0:443`, and recording `public_key`.
+5. A first `capsule-coord backup`, encrypted offline.
+6. Release bundles built with `CAPSULE_COORDINATOR=NAME:443` and `CAPSULE_COORDINATOR_KEY=KEY`.
+7. A restore drill from the replica onto a second throwaway server before announcing.
+
+### Acceptance against the hosted coordinator
+
+Once the owner has deployed it and provided the name and key, `conformance/launch_acceptance.py` and `conformance/live_launch_agents.py` run with bundles built for it (their default coordinator), with consent for this machine to contact it. Their results are recorded as `docs/results/launch-acceptance-hosted.json` and `docs/results/launch-live-hosted.json`.
+
+### Verification
+
+`conformance/coord_deploy.py` is written from this contract by an author independent of the implementation. It needs root and runs everything locally: a throwaway Debian 12 container with systemd (for example `systemd-nspawn` on a `debootstrap` root), and a local S3-compatible server that enforces SSE-C over TLS. It covers:
+- the archive's layout, `release.json`, checksum, refusal to overwrite, and `capsule_coord_info{version}`;
+- `install.sh` in the container: the user, files and modes, the unit with exactly `CAP_NET_BIND_SERVICE` on port 443, both services' states with and without Litestream configured, the nftables rules, `/healthz`, and the printed JSON;
+- re-running it (same identity, nothing changed), `--upgrade` (identity kept, version changed), and an upgrade whose binary fails health (rolled back, exit 1);
+- Go and Rust hosts outside the container creating and joining a network through the container's port 443, and exchanging relayed messages;
+- Litestream replicating with SSE-C to the local server, objects unreadable without the key, and the runbook's restore procedure into a fresh container keeping the identity, after which the hosts sync again (and repair, slice 3, restores anything after the last replicated transaction);
+- the script refusing a non-Debian system and making no network requests besides the Litestream download.
