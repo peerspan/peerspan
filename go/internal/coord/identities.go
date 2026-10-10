@@ -27,7 +27,7 @@ import (
 
 // successorsSchema (version 6) stores identities after the first.
 const successorsSchema = `
-CREATE TABLE successors (sequence INTEGER PRIMARY KEY CHECK (sequence >= 1), private_key BLOB NOT NULL, successor TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS successors (sequence INTEGER PRIMARY KEY CHECK (sequence >= 1), private_key BLOB NOT NULL, successor TEXT NOT NULL, created_at TEXT NOT NULL);
 PRAGMA user_version = 6;
 `
 

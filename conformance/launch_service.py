@@ -558,8 +558,8 @@ def check_migration(coord_binary, root):
         coord.stop()
         database = coord.state / 'coord.db'
         with sqlite3.connect(database) as connection:
-            assert connection.execute('PRAGMA user_version').fetchone()[0] == 5, \
-                rule('coordinator schema version 5')
+            assert connection.execute('PRAGMA user_version').fetchone()[0] == 6, \
+                rule('coordinator schema version 6 (hosted coordinator contract, slice 2)')
             check_schema(connection)
             # Model version 4 state: without the two tables version 5 adds.
             connection.execute('DROP TABLE registrations')
@@ -568,8 +568,8 @@ def check_migration(coord_binary, root):
         connection.close()
         coord.start()
         with sqlite3.connect(database) as connection:
-            assert connection.execute('PRAGMA user_version').fetchone()[0] == 5, \
-                rule('version 5 migrates version 4 state')
+            assert connection.execute('PRAGMA user_version').fetchone()[0] == 6, \
+                rule('version 6 migrates version 4 state')
             check_schema(connection)
         connection.close()
         status, body = coord_call(coord, host, 'POST', f'/coord/v1/networks/{net.id}/sync',
