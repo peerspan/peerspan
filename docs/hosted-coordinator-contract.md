@@ -223,7 +223,7 @@ Once the owner has deployed it and provided the name and key, `conformance/launc
 
 ### Verification
 
-`conformance/coord_deploy.py` is written from this contract by an author independent of the implementation. It needs root and runs everything locally: a throwaway Debian 12 container with systemd (for example `systemd-nspawn` on a `debootstrap` root), and a local S3-compatible server that enforces SSE-C over TLS. It covers:
+`conformance/coord_deploy.py` is written from this contract by an author independent of the implementation. It needs root and Docker, and runs everything locally: a throwaway `debian:12` container running systemd as its init, and a MinIO container serving TLS, which enforces SSE-C. It removes its containers, images it pulled, and networks when done. It covers:
 - the archive's layout, `release.json`, checksum, refusal to overwrite, and `capsule_coord_info{version}`;
 - `install.sh` in the container: the user, files and modes, the unit with exactly `CAP_NET_BIND_SERVICE` on port 443, both services' states with and without Litestream configured, the nftables rules, `/healthz`, and the printed JSON;
 - re-running it (same identity, nothing changed), `--upgrade` (identity kept, version changed), and an upgrade whose binary fails health (rolled back, exit 1);
