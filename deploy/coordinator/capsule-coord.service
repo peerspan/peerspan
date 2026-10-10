@@ -25,8 +25,9 @@ StateDirectory=capsule-coord
 StateDirectoryMode=0700
 UMask=0077
 
-# Sandboxing. The coordination port is 1024 or above, so no capabilities are
-# added; README.md describes the one addition for a port below 1024.
+# Sandboxing. No capabilities are added for a port of 1024 or above. For a
+# port below 1024, install.sh sets both capability lines below to
+# CAP_NET_BIND_SERVICE, and nothing else (README.md).
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

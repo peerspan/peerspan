@@ -201,9 +201,10 @@ Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the ow
 - `install.sh --listen 0.0.0.0:443` installs: the `capsule-coord` system user, `/usr/local/bin/capsule-coord`, the units and `/etc/capsule-coord/capsule-coord.env` (an existing env file is kept), the state directory, and Litestream at the pinned version after checking its published SHA-256. It enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and prints `{id, public_key, listen, litestream}` as JSON on stdout, where `litestream` is `enabled` or `not configured`.
 - With a port below 1024, the unit gains `AmbientCapabilities=CAP_NET_BIND_SERVICE` and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, and nothing else.
 - Litestream is enabled only when `/etc/capsule-coord/litestream.env` and the SSE-C key file both exist; otherwise its unit stays disabled and the script says so on stderr.
-- **Firewall:** nftables on the VM allows inbound TCP 22 and the coordination port over TCP and UDP, plus established traffic, and drops the rest. The runbook also sets the same rules as a Hetzner Cloud Firewall.
+- **Firewall:** a dedicated nftables table on the VM, included from `/etc/nftables.conf` and loaded at boot, allows inbound TCP 22, the coordination port over TCP and UDP, established traffic, loopback, and IPv6 neighbor discovery, and drops the rest. The runbook also sets the same rules as a Hetzner Cloud Firewall.
 - **Idempotent:** running it again with the same arguments changes nothing and prints the same identity.
 - `install.sh --upgrade` replaces the binary from the extracted archive, restarts, waits for `/healthz`, and prints the same JSON. The identity is unchanged. If health fails, it restores the previous binary, restarts, and exits 1.
+- An existing env file naming another listen address, or `--listen` over a different installed binary, exits 1; `--upgrade` is for the latter. `--litestream-archive FILE` uses a local copy of the pinned Litestream release, still checked against its SHA-256.
 - It never generates or prints the private key, never contacts anything except the Litestream download, and exits 1 on any other distribution.
 
 ### Runbook for Hetzner

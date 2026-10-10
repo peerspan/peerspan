@@ -14,8 +14,144 @@ The coordinator is trusted for availability only: it cannot admit hosts or chang
 | `capsule-coord.env.example` | `/etc/capsule-coord/capsule-coord.env` |
 | `litestream.yml` | `/etc/capsule-coord/litestream.yml` |
 | `litestream.service` | `/etc/systemd/system/litestream.service` |
+| `install.sh` | not installed; run from the extracted release archive ([Hetzner Cloud](#hetzner-cloud)) |
 
 The service runs `capsule-coord --state /var/lib/capsule-coord run` as the `capsule-coord` user, with the coordination address and limits from the environment file and the ops listener (`/healthz`, `/metrics`) on `127.0.0.1:9464`. It logs one JSON object per line to the journal. Logs carry no client addresses, keys, tokens, or payloads.
+
+## Hetzner Cloud
+
+The hosted coordinator runs on Hetzner Cloud, installed with `install.sh` from a release archive over SSH. Every step that touches the outside world (the Cloud Console or `hcloud`, DNS, the bucket, copying files) is the owner's, with the owner's credentials. These steps use `coord.example.com` for the owner's DNS name and port 443 for TCP (coordination and relay) and UDP (address discovery); the sections after this one describe the same pieces by hand.
+
+**The release archive.** On a Linux build machine of the server's architecture (x86-64 for CX servers, arm64 for CAX):
+
+```sh
+scripts/package-coordinator.sh VERSION
+# dist/capsule-coord-VERSION-linux-amd64.tar.gz and its .sha256
+```
+
+It builds `capsule-coord` with `capsule_coord_info{version="VERSION"}` and packs `bin/capsule-coord`, `share/capsule-coord/deploy/` (this directory, `install.sh` included), and `release.json` (`version`, `os`, `architecture`, `source_revision`). It refuses to overwrite an existing archive unless `CAPSULE_PACKAGE_OVERWRITE=1` is set.
+
+**What `install.sh` does.** Run as root on Debian 12 from the extracted archive, `install.sh --listen 0.0.0.0:443`:
+- creates the `capsule-coord` system user, installs `/usr/local/bin/capsule-coord`, both units, `/etc/capsule-coord/litestream.yml`, and `/etc/capsule-coord/capsule-coord.env` from the example with `CAPSULE_COORD_LISTEN` set (an existing env file is kept, and must name the same `--listen`), and the state directory (0700);
+- for a port below 1024, installs the unit with `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` and `AmbientCapabilities=CAP_NET_BIND_SERVICE` and no other capability;
+- downloads Litestream v0.5.17 from its GitHub release and checks the archive against the SHA-256 the release publishes in `checksums.txt` (pinned in the script) before installing `/usr/local/bin/litestream`; `--litestream-archive FILE` uses a copy of that same archive instead, checked the same way;
+- loads an nftables table, `inet capsule_coord` in `/etc/capsule-coord/nftables.nft` and included from `/etc/nftables.conf`, that accepts inbound TCP 22, TCP and UDP on the coordination port, established traffic, loopback (for `/healthz`), and IPv6 neighbor discovery, and drops everything else; it enables `nftables.service` so the rules return at boot;
+- enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and enables `litestream` only when both `/etc/capsule-coord/litestream.env` and `/etc/capsule-coord/litestream-sse.key` exist (it says on stderr when they do not);
+- prints `{"id", "public_key", "listen", "litestream"}` on stdout, with `litestream` either `enabled` or `not configured`.
+
+Running it again with the same arguments changes nothing and prints the same identity. It never generates or prints the private key, contacts nothing but the Litestream download, refuses any system other than Debian 12, and refuses to replace a different installed binary: that is `install.sh --upgrade`.
+
+### 1. Server
+
+In the Cloud Console (or with `hcloud`), create a **CX22** (or larger) server running **Debian 12**, in the location you will use for Object Storage (for example `fsn1`), with a primary IPv4 and a primary IPv6 address and your SSH key. Create a **Cloud Firewall** with the same rules as `install.sh`, and apply it to the server:
+
+| Direction | Protocol | Port | Sources |
+| --- | --- | --- | --- |
+| Inbound | TCP | 22 | your administration addresses (or any) |
+| Inbound | TCP | 443 | any IPv4 and IPv6 |
+| Inbound | UDP | 443 | any IPv4 and IPv6 |
+
+Leave outbound open: Litestream reaches Object Storage over HTTPS. The primary IPs stay with the server while they are assigned to it, so DNS can name them. Do not open `9464`.
+
+`install.sh` needs `nft` and `curl` (or `wget`) on the server and installs no packages itself; if either is missing, run `apt-get install nftables curl` first.
+
+### 2. Object Storage and the SSE-C key
+
+Create an Object Storage bucket in the **same location**, private (no public access), for example `capsule-coord-replica`, and S3 credentials for it. Hetzner Object Storage supports SSE-C and does not keep the key; it does not support copying SSE-C encrypted objects, which Litestream v0.5.17 never does (it only puts, uploads in parts, gets, lists, and deletes).
+
+On the server, as root, generate the 32-byte SSE-C key and write the environment file:
+
+```sh
+install -d -m 0755 /etc/capsule-coord
+(umask 077; head -c 32 /dev/urandom | base64 > /etc/capsule-coord/litestream-sse.key)
+cat /etc/capsule-coord/litestream-sse.key    # copy it into your password manager now
+
+(umask 077; cat > /etc/capsule-coord/litestream.env) <<'ENV'
+LITESTREAM_ACCESS_KEY_ID=...
+LITESTREAM_SECRET_ACCESS_KEY=...
+LITESTREAM_BUCKET=capsule-coord-replica
+LITESTREAM_PATH=coord
+LITESTREAM_ENDPOINT=https://fsn1.your-objectstorage.com
+LITESTREAM_REGION=fsn1
+ENV
+```
+
+`install.sh` gives the key to the `capsule-coord` user with mode 0600 and keeps the environment file root-only (0600). **Without the key, the replicas cannot be read**, restores included: keep it in the password manager as well as on the server. To install without replication for now, skip this step; `install.sh` reports `"litestream": "not configured"`, and running it again after this step enables Litestream.
+
+### 3. DNS
+
+At your DNS provider, create **A** and **AAAA** records for `coord.example.com` with the server's primary IPv4 and IPv6 addresses. `0.0.0.0:443` in the next step serves both: `capsule-coord` binds the IPv6 wildcard, which accepts IPv4 as well. Check from elsewhere with `dig +short coord.example.com A` and `AAAA`.
+
+### 4. Install
+
+From the build machine:
+
+```sh
+sha256sum -c capsule-coord-VERSION-linux-amd64.tar.gz.sha256
+scp capsule-coord-VERSION-linux-amd64.tar.gz root@coord.example.com:
+ssh root@coord.example.com
+```
+
+On the server:
+
+```sh
+tar -xzf capsule-coord-VERSION-linux-amd64.tar.gz
+capsule-coord-VERSION-linux-amd64/share/capsule-coord/deploy/install.sh --listen 0.0.0.0:443
+# {"id": "coord_...", "public_key": "...", "listen": "0.0.0.0:443", "litestream": "enabled"}
+```
+
+Record `public_key`: it is `CAPSULE_COORDINATOR_KEY` for every release bundle, and `capsule-coord --state /var/lib/capsule-coord info` prints it again at any time. Then check:
+
+```sh
+systemctl status capsule-coord litestream
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz
+journalctl -u litestream -n 20      # no errors; replication about every second
+nft list table inet capsule_coord
+```
+
+**Upgrades** use a newer archive the same way: extract it and run `install.sh --upgrade`. It takes no other arguments, replaces the binary, restarts, waits for `/healthz`, and prints the same JSON with the same identity. If the new binary does not become healthy within 10 seconds, it restores the previous binary, restarts it, and exits 1. Take a `backup` first (step 5), since a new build may upgrade the database in a way an older one refuses.
+
+### 5. First offline backup
+
+As in [Offline backup](#offline-backup): write a `backup` file on the server, encrypt it there, copy the encrypted file to offline storage, and remove both copies from the server. Check that `id` in its output matches the printed `id`. Do this again after every key change.
+
+### 6. Release bundles
+
+Build the release bundles for the hosted coordinator, with `KEY` the `public_key` from step 4:
+
+```sh
+CAPSULE_COORDINATOR=coord.example.com:443 CAPSULE_COORDINATOR_KEY=KEY scripts/package-release.sh go VERSION
+CAPSULE_COORDINATOR=coord.example.com:443 CAPSULE_COORDINATOR_KEY=KEY scripts/package-release.sh rust VERSION
+```
+
+`network create` in those bundles then uses this coordinator without `--coordinator`.
+
+### 7. Restore drill before announcing
+
+Before announcing, restore the replica onto a **second, throwaway** server and check that it comes back with the same identity. The drill server holds the coordinator's key once restored: delete it afterwards, and do not point DNS at it.
+
+1. Create a second CX22 on Debian 12 as in step 1, with the same Cloud Firewall. Do not create its Litestream files yet: with them, `install.sh` would start replicating the drill server's own new database into the production bucket path.
+2. Copy the same archive and run `install.sh --listen 0.0.0.0:443`. It reports `"litestream": "not configured"` and a new, throwaway identity.
+3. Write `/etc/capsule-coord/litestream.env` and `/etc/capsule-coord/litestream-sse.key` with the same values as step 2, the key from the password manager. Then restore:
+
+   ```sh
+   systemctl stop capsule-coord
+   set -a; . /etc/capsule-coord/litestream.env; set +a
+   litestream restore -config /etc/capsule-coord/litestream.yml \
+     -o /var/lib/capsule-coord/restored.db /var/lib/capsule-coord/coord.db
+   chown capsule-coord:capsule-coord /var/lib/capsule-coord/restored.db
+   chmod 0600 /var/lib/capsule-coord/restored.db
+   runuser -u capsule-coord -- capsule-coord --state /var/lib/capsule-coord restore --replace /var/lib/capsule-coord/restored.db
+   rm /var/lib/capsule-coord/restored.db /var/lib/capsule-coord/coord.db.replaced-*
+   systemctl start capsule-coord
+   curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz
+   capsule-coord --state /var/lib/capsule-coord info
+   ```
+
+   `/healthz` and `info` must report the production `id` and `public_key`. Without the key file, or with another key, `litestream restore` fails: the bucket holds only ciphertext.
+4. For a drill, stop here: leave `litestream` disabled (it would write to the production replica path), then delete the server. A drill can point a test host at it by IP to see it serve, but hosts that pin `coord.example.com` must not reach it.
+
+**A real recovery** is the same on a new server, followed by a new `LITESTREAM_PATH` in `litestream.env` (such as `coord-2`, so the restored database starts a fresh replica and the old one stays intact until the new one is confirmed), `litestream reset -config /etc/capsule-coord/litestream.yml /var/lib/capsule-coord/coord.db`, running `install.sh --listen 0.0.0.0:443` again, which now reports the production identity and `"litestream": "enabled"`, and moving the DNS records (or the primary IPs) to the new server. Member hosts then sync with it as before and re-submit anything after the last replicated transaction ([Restore](#restore)).
 
 ## Provision
 
@@ -46,12 +182,12 @@ install -m 0644 capsule-coord.service /etc/systemd/system/capsule-coord.service
 
 systemctl daemon-reload
 systemctl enable --now capsule-coord
-curl -fsS http://127.0.0.1:9464/healthz
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz
 ```
 
 `StateDirectory=` creates `/var/lib/capsule-coord` (mode 0700, owned by `capsule-coord`); the first start creates `coord.db` and the coordinator's key. Do not switch the unit to `DynamicUser=`: Litestream needs the same user, and `capsule-coord` refuses a state directory reached through a symbolic link.
 
-**A port below 1024.** The unit adds no capabilities. To listen on, for example, port 443, add a drop-in with `systemctl edit capsule-coord`:
+**A port below 1024.** The unit adds no capabilities. `install.sh` installs it with both capability lines set to `CAP_NET_BIND_SERVICE` for such a port. By hand, to listen on, for example, port 443, add a drop-in with `systemctl edit capsule-coord`:
 
 ```ini
 [Service]
@@ -89,7 +225,7 @@ install -m 0755 litestream /usr/local/bin/litestream
 ```sh
 head -c 32 /dev/urandom | base64 > /etc/capsule-coord/litestream-sse.key
 chown capsule-coord:capsule-coord /etc/capsule-coord/litestream-sse.key
-chmod 0400 /etc/capsule-coord/litestream-sse.key
+chmod 0600 /etc/capsule-coord/litestream-sse.key
 ```
 
 Credentials and the bucket come from `/etc/capsule-coord/litestream.env` (mode 0600, owned by root), which `litestream.service` reads. Litestream reads the two credential variables itself and expands the others in `litestream.yml`:
@@ -135,7 +271,7 @@ shred -u /var/lib/capsule-coord/offline.db
 install -m 0755 capsule-coord /usr/local/bin/capsule-coord.new
 mv /usr/local/bin/capsule-coord.new /usr/local/bin/capsule-coord
 systemctl restart capsule-coord
-curl -fsS http://127.0.0.1:9464/healthz
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz
 curl -fsS http://127.0.0.1:9464/metrics | grep capsule_coord_info
 ```
 
@@ -163,7 +299,7 @@ rm /var/lib/capsule-coord/restored.db
 # the old replica's history untouched.
 litestream reset -config /etc/capsule-coord/litestream.yml /var/lib/capsule-coord/coord.db
 systemctl start capsule-coord litestream
-curl -fsS http://127.0.0.1:9464/healthz
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz
 ```
 
 On a new VM, install everything as above but restore before the first `systemctl start capsule-coord`, without `--replace`, then move the DNS name (or the static address) to the new VM.
@@ -199,7 +335,7 @@ systemctl stop capsule-coord
 sudo -u capsule-coord capsule-coord --state /var/lib/capsule-coord successor --address coord-new.example.com:7400
 # Point coord-new.example.com at the VM (keep the old name pointing at it too).
 systemctl start capsule-coord
-curl -fsS http://127.0.0.1:9464/healthz
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz
 ```
 
 One listener serves both names, since the key is the same: a host that reaches it by the old name is served the chain and moves to the new name. Keep the old name resolving until hosts have moved. To change the port as well, serve the old port with `--previous-listen 0=0.0.0.0:OLD_PORT` (the sequence of the identity hosts used before) alongside `--listen` on the new one, and open both in the firewall.
@@ -223,7 +359,7 @@ Open TCP and UDP on the new port, then:
 
 ```sh
 systemctl start capsule-coord
-curl -fsS http://127.0.0.1:9464/healthz          # reports the new identity's id
+curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:9464/healthz          # reports the new identity's id
 capsule-coord --state /var/lib/capsule-coord info # note the new public_key
 ```
 
