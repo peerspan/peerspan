@@ -12,11 +12,13 @@ Needs root, Docker, openssl, tcpdump, and nsenter. Everything runs locally: a `d
 as init (built as `capsule-m8s4-suite-debian12-systemd`), privileged with a private cgroup namespace (the
 cgroup v2 setup Docker needs for systemd), on its own bridge network with fixed addresses; a MinIO server
 (`cgr.dev/chainguard/minio`, since the upstream MinIO images are no longer published) serving TLS with a CA
-the suite generates; and an `ubuntu:24.04` container for the distribution refusal. Every container, image,
+the suite generates; an `ubuntu:24.04` image with systemd as init and ufw (built as
+`capsule-m8s4-suite-ubuntu2404-systemd`, ufw's module loading and sysctl file emptied); and `debian:11` and
+`ubuntu:22.04` containers for the distribution refusal. Every container, image,
 network, and volume the suite creates is named `capsule-m8s4-suite-*`; all are removed at the end, as are
 the base images it pulled, unless `--keep`. Inside the systemd image, units that would act on the shared
 machine's kernel through a privileged container (sysctl, binfmt, module loading, audit, udev) are masked.
-install.sh, nftables, and systemctl only ever run inside containers. Hosts run on this machine with HOME
+install.sh, nftables, ufw, and systemctl only ever run inside containers. Hosts run on this machine with HOME
 and XDG_CONFIG_HOME redirected under a temporary directory; the real ~/.config/capsule is never touched.
 
 Sections:
@@ -30,8 +32,8 @@ Sections:
   with the same VERSION refused with the outputs unchanged, and accepted with CAPSULE_PACKAGE_OVERWRITE=1
   as package-release.sh does (Q1); a second VERSION built for the upgrade;
 - install: in a fresh Debian 12 container, `install.sh --listen 0.0.0.0:443` from the extracted archive:
-  exit 0; stdout exactly `{id, public_key, listen, litestream}` with listen `0.0.0.0:443`, litestream
-  `not configured`, and the identity equal to `capsule-coord info` and `/healthz`; stderr saying Litestream
+  exit 0; stdout exactly `{id, public_key, listen, litestream, firewall}` with listen `0.0.0.0:443`, litestream
+  `not configured`, firewall `nftables`, and the identity equal to `capsule-coord info` and `/healthz`; stderr saying Litestream
   is not configured; no private key material in either stream; the static `capsule-coord` system user;
   `/usr/local/bin/capsule-coord` equal to the archive's binary; both units installed; the env file; the
   state directory (0700, owned by the user, not a symbolic link) and coord.db (0600); Litestream installed at
@@ -41,7 +43,8 @@ Sections:
   the running process with exactly that capability in its ambient and bounding sets, running as the user;
   `capsule-coord` enabled and active, `litestream` disabled and inactive; the coordinator listening on TCP
   and UDP 443 and the ops listener on 127.0.0.1:9464 only; `capsule_coord_info{version}` equal to VERSION;
-- firewall: the nftables input hook drops by default, accepts established traffic, TCP 22, TCP 443, and
+- firewall: the input hook is in the table `inet capsule_coord`, included from /etc/nftables.conf, with
+  nftables.service enabled; it drops by default, accepts established traffic, TCP 22, TCP 443, and
   UDP 443, and nothing else (loopback and ICMP accepts reported, Q2); from this machine TCP 443 connects,
   STUN on UDP 443 answers, TCP 22 is refused rather than dropped (the container has no sshd), and TCP 9464,
   TCP 8443, and UDP 9999 are dropped;
@@ -55,12 +58,25 @@ Sections:
 - re-run: the same command again prints the same JSON and changes nothing: binaries, units, env file (with
   a marker line the suite added, so an existing env file is kept), user, state directory modes, nftables
   ruleset, unit states, and the running service (same InvocationID, Q3);
-- upgrade: `install.sh --upgrade` from the second VERSION's archive: exit 0, the same JSON, the new binary
+- upgrade: `install.sh --upgrade` from the second VERSION's archive: exit 0, the same JSON with firewall
+  `unchanged`, the nftables ruleset untouched, the new binary
   in place, the service restarted, `capsule_coord_info{version}` the new VERSION, hosts syncing again;
 - failed upgrade: `--upgrade` from an archive whose `capsule-coord run` never serves: exit 1, the previous
   binary restored, the service active with the same identity and version, hosts syncing;
-- no outside requests: every install.sh run in the Debian container above (first install, re-run, both
-  upgrades) is captured with tcpdump inside the container's network namespace; the only outward traffic
+- upgrade with --no-firewall: `--upgrade --no-firewall` (either order) exits 2 and changes nothing;
+- ubuntu with ufw: in an Ubuntu 24.04 container with ufw active and two rules of its own (22/tcp, 8080/tcp), the
+  same install checks with firewall `ufw`; `ufw show added` gains exactly two allow rules for 443 over TCP and
+  UDP commented capsule-coord and loses none; the rest of ufw (defaults, logging, its other files) unchanged;
+  no `inet capsule_coord` table and /etc/nftables.conf unchanged (Q12); from this machine 443/tcp connects,
+  STUN answers, 8080 is refused (its rule kept), 9464 dropped; a re-run prints the same JSON and adds no
+  duplicate; `--upgrade` prints firewall `unchanged` and leaves ufw alone;
+- no firewall (debian): `--no-firewall` in a fresh Debian container: firewall `none`, the install checks, no
+  table, ruleset, /etc/nftables.conf, and nftables.service unchanged; a re-run the same; `--upgrade
+  --no-firewall` exits 2; a default install then loads the table, and `--no-firewall` after it keeps it;
+- no firewall (ubuntu): `--no-firewall` with ufw active: firewall `none`, no ufw rule or table, nothing in
+  ufw changed (443 stays dropped from outside); `--upgrade --no-firewall` exits 2;
+- no outside requests: every install.sh run above with a capture (first install, re-run, both upgrades in
+  the Debian container, and the Ubuntu and --no-firewall installs) is captured with tcpdump inside the container's network namespace; the only outward traffic
   initiated is DNS for GitHub release names and TCP 443 to addresses those names resolved to (Q4); the
   only other packets the container sends are replies from port 443;
 - litestream: an env file and a 32-byte SSE-C key created as the runbook says, the MinIO CA trusted by the
@@ -72,7 +88,8 @@ Sections:
   runbook's restore procedure from the replica; it serves the same identity, the hosts sync again without
   action, the late member reappears at the coordinator through repair (seen by a Rust host joining with a
   fresh invite), and relayed messages flow;
-- other distribution: install.sh in an Ubuntu container (without a network) exits 1 and creates nothing.
+- other distributions: install.sh in `debian:11` and `ubuntu:22.04` containers (without a network) exits 1
+  and creates nothing.
 
 Questions are marked `Q<n>` and listed in the suite-questions file given to the owner. Exits non-zero
 listing every failed section.
@@ -112,8 +129,10 @@ from peer_messaging import request_id, set_probe, timestamp  # noqa: E402
 PREFIX = 'capsule-m8s4-suite-'
 BASE_IMAGE = 'debian:12'
 MINIO_IMAGE = 'cgr.dev/chainguard/minio:latest'
-OTHER_IMAGE = 'ubuntu:24.04'
+UBUNTU_IMAGE = 'ubuntu:24.04'
+OTHER_IMAGES = ('debian:11', 'ubuntu:22.04')
 SYSTEMD_IMAGE = PREFIX + 'debian12-systemd'
+UBUNTU_SYSTEMD_IMAGE = PREFIX + 'ubuntu2404-systemd'
 STATE = '/var/lib/capsule-coord'
 ENV_FILE = '/etc/capsule-coord/capsule-coord.env'
 LITESTREAM_ENV = '/etc/capsule-coord/litestream.env'
@@ -125,7 +144,8 @@ BUCKET = 'capsule-m8s4-suite-replicas'
 MINIO_USER = 'capsulesuite'
 MINIO_PASSWORD = secrets.token_hex(16)
 CAP_NET_BIND_SERVICE = 1 << 10
-INSTALL_FIELDS = {'id', 'public_key', 'listen', 'litestream'}
+INSTALL_FIELDS = {'id', 'public_key', 'listen', 'litestream', 'firewall'}
+FIREWALL_VALUES = {'nftables', 'ufw', 'none', 'unchanged'}
 # Q4: the contract names "the Litestream download" without a location; Litestream publishes its releases
 # (and their SHA-256 checksums) on GitHub, so these names are the download's.
 DOWNLOAD_NAMES = re.compile(r'^(github\.com|[a-z0-9.-]+\.github\.com|[a-z0-9.-]+\.githubusercontent\.com)$')
@@ -138,6 +158,26 @@ RUN apt-get update \\
  && apt-get install -y --no-install-recommends systemd systemd-sysv dbus nftables curl wget ca-certificates \\
       openssl iproute2 procps tar gzip xz-utils bzip2 unzip less \\
  && apt-get clean && rm -rf /var/lib/apt/lists/* \\
+ && systemctl mask systemd-sysctl.service systemd-binfmt.service proc-sys-fs-binfmt_misc.automount \\
+      proc-sys-fs-binfmt_misc.mount systemd-modules-load.service kmod-static-nodes.service \\
+      systemd-journald-audit.socket getty.target console-getty.service systemd-firstboot.service \\
+      systemd-udevd.service systemd-udev-trigger.service apt-daily.timer apt-daily-upgrade.timer \\
+      e2scrub_all.timer fstrim.timer systemd-remount-fs.service sys-kernel-config.mount \\
+      sys-kernel-debug.mount sys-kernel-tracing.mount
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]
+"""
+
+# Ubuntu 24.04 with systemd as init and ufw installed (enabled by the suite, as on a VM where ufw is active), plus
+# nftables so the suite can list tables. ufw's module loading (IPT_MODULES) and its sysctl file are emptied: in
+# a privileged container they would act on the shared machine's kernel. Neither is part of ufw's rules.
+UBUNTU_DOCKERFILE = """FROM ubuntu:24.04
+ENV container=docker DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \\
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus ufw iptables nftables curl wget \\
+      ca-certificates openssl iproute2 procps tar gzip xz-utils bzip2 unzip less \\
+ && apt-get clean && rm -rf /var/lib/apt/lists/* \\
+ && sed -i 's/^IPT_MODULES=.*/IPT_MODULES=""/' /etc/default/ufw && : > /etc/ufw/sysctl.conf \\
  && systemctl mask systemd-sysctl.service systemd-binfmt.service proc-sys-fs-binfmt_misc.automount \\
       proc-sys-fs-binfmt_misc.mount systemd-modules-load.service kmod-static-nodes.service \\
       systemd-journald-audit.socket getty.target console-getty.service systemd-firstboot.service \\
@@ -609,10 +649,14 @@ class Suite:
         self.section('re-run', self.check_rerun, 'install')
         self.section('upgrade', self.check_upgrade, 'install')
         self.section('failed upgrade', self.check_failed_upgrade, 'install')
+        self.section('upgrade with --no-firewall', self.check_upgrade_no_firewall, 'install')
+        self.section('ubuntu with ufw', self.check_ubuntu_ufw, 'docker setup', 'archive')
+        self.section('no firewall (debian)', self.check_no_firewall_debian, 'docker setup', 'archive')
+        self.section('no firewall (ubuntu)', self.check_no_firewall_ubuntu, 'docker setup', 'archive')
         self.section('no outside requests', self.check_requests, 'install')
         self.section('litestream', self.check_litestream, 'install')
         self.section('restore from the replica', self.check_restore, 'litestream', 'hosts')
-        self.section('other distribution', self.check_other_distribution, 'docker setup', 'archive')
+        self.section('other distributions', self.check_other_distribution, 'docker setup', 'archive')
 
     def close(self):
         try:
@@ -634,19 +678,26 @@ class Suite:
         need(os.geteuid() == 0, '(suite) runs as root')
         for tool in ('docker', 'openssl', 'tcpdump', 'nsenter', 'ip', 'sha256sum'):
             need(shutil.which(tool), f'(suite) needs {tool}')
-        for image in (BASE_IMAGE, MINIO_IMAGE, OTHER_IMAGE):
+        for image in (BASE_IMAGE, MINIO_IMAGE, UBUNTU_IMAGE, *OTHER_IMAGES):
             self.docker.ensure_image(image)
-        build = self.root / 'image'
-        build.mkdir()
-        (build / 'Dockerfile').write_text(DOCKERFILE)
-        tag = f'{SYSTEMD_IMAGE}:{secrets.token_hex(3)}'
-        self.docker('build', '-q', '-t', tag, str(build), timeout=1200)
-        self.docker.images.append(tag)
-        self.image = tag
+        tags = []
+        for label, dockerfile, repository in (('image', DOCKERFILE, SYSTEMD_IMAGE),
+                                              ('ubuntu-image', UBUNTU_DOCKERFILE, UBUNTU_SYSTEMD_IMAGE)):
+            build = self.root / label
+            build.mkdir()
+            (build / 'Dockerfile').write_text(dockerfile)
+            tag = f'{repository}:{secrets.token_hex(3)}'
+            self.docker('build', '-q', '-t', tag, str(build), timeout=1200)
+            self.docker.images.append(tag)
+            tags.append(tag)
+        self.image, self.ubuntu_image = tags
+        tag = ', '.join(tags)
         self.network, self.subnet = self.docker.network()
         hosts = list(self.subnet.hosts())
         self.gateway = str(hosts[0])
         self.coord_ip, self.minio_ip = str(hosts[9]), str(hosts[19])
+        # Further systemd containers (Ubuntu with ufw, --no-firewall on each distribution), not published.
+        self.spare_ips = [str(hosts[n]) for n in (29, 39, 49, 59)]
         # Hosts reach the container's 443 through a port published on this machine's address on the suite network.
         # Each host daemon runs in its own network namespace (a container on its own network, see IsolatedHost)
         # and Docker's proxy stands between it and the coordinator, so hosts have no direct path to each other
@@ -707,15 +758,18 @@ class Suite:
         eventually(up, 60, '(suite) MinIO answers over TLS and creates the bucket',
                    lambda: self.docker('logs', name, check=False).stderr[-500:])
 
-    def start_debian(self, label):
+    def start_debian(self, label, image=None, ip=None):
+        """A systemd container: the coordinator's (published on this machine) unless another ip is given."""
         name = PREFIX + label
         self.docker.remove_container(name)
-        self.docker('run', '-d', '--name', name, '--hostname', label, '--network', self.network, '--ip',
-                    self.coord_ip, '-p', f'{self.gateway}:{self.coord_port}:443/tcp', '-p',
-                    f'{self.gateway}:{self.coord_port}:443/udp', '--privileged', '--cgroupns=private', '--tmpfs', '/run', '--tmpfs', '/run/lock',
-                    self.image)
+        publish = [] if ip else ['-p', f'{self.gateway}:{self.coord_port}:443/tcp', '-p',
+                                 f'{self.gateway}:{self.coord_port}:443/udp']
+        ip = ip or self.coord_ip
+        self.docker('run', '-d', '--name', name, '--hostname', label, '--network', self.network, '--ip', ip,
+                    *publish, '--privileged', '--cgroupns=private', '--tmpfs', '/run', '--tmpfs', '/run/lock',
+                    image or self.image)
         self.docker.containers.append(name)
-        c = Container(self.docker, name, self.coord_ip)
+        c = Container(self.docker, name, ip)
 
         def booted():
             state = c.sh('systemctl is-system-running').stdout.strip()
@@ -759,7 +813,9 @@ class Suite:
         except json.JSONDecodeError:
             value = None
         need(isinstance(value, dict) and set(value) == INSTALL_FIELDS,
-             f'{rule}: install.sh prints {{id, public_key, listen, litestream}} as JSON on stdout', stdout[-600:])
+             f'{rule}: install.sh prints {{id, public_key, listen, litestream, firewall}} as JSON on stdout',
+             stdout[-600:])
+        need(value['firewall'] in FIREWALL_VALUES, f'{rule}: firewall is nftables, ufw, none, or unchanged', value)
         return value
 
     def no_private_key(self, streams, public_key, rule):
@@ -876,46 +932,8 @@ class Suite:
         need(code == 0, 'install.sh --listen 0.0.0.0:443 exits 0', code, stdout[-600:], stderr[-1500:])
         out = self.printed(stdout, 'install')
         self.identity = out
-        need(out['listen'] == LISTEN, 'the printed listen is the --listen address', out)
-        need(out['litestream'] == 'not configured', 'litestream is `not configured` without its env and key', out)
-        need('litestream' in stderr.lower(), 'without Litestream configured the script says so on stderr', stderr)
-        self.no_private_key((stdout, stderr), out['public_key'], 'install')
-        info = c.info()
-        need(info['id'] == out['id'] and info['public_key'] == out['public_key'],
-             'the printed id and public_key are the coordinator\'s (`capsule-coord info`)', info, out)
-        status, body = c.healthz()
-        need(status == 200 and body == {'status': 'ok', 'id': out['id']}, '/healthz answers ok with the id', status,
-             body)
-        # The user.
-        passwd = c.sh('getent passwd capsule-coord').stdout.strip().split(':')
-        need(len(passwd) == 7, 'install.sh creates the capsule-coord user', passwd)
-        need(int(passwd[2]) < 1000 and passwd[6].endswith(('nologin', 'false')),
-             'capsule-coord is a system user without a login shell', passwd)
-        need(c.sh('getent group capsule-coord').returncode == 0, 'capsule-coord has its group')
-        # Files and modes.
-        st = c.stat(BINARY)
-        need(st and st[0] == 'regular file' and st[2] == 'root' and st[1] & 0o111 and not st[1] & 0o022,
-             f'{BINARY} is an executable owned by root, not group or world writable', st)
-        need(sha256_bytes(c.read_bytes(BINARY)) == self.archives[self.v1]['binary'],
-             f'{BINARY} is the archive\'s binary')
-        st = c.stat(ENV_FILE)
-        need(st and st[0] == 'regular file' and not st[1] & 0o002, f'{ENV_FILE} is installed, not world writable', st)
-        env = c.read(ENV_FILE) or ''
-        need(re.search(r'^\s*CAPSULE_COORD_LISTEN\s*=\s*"?0\.0\.0\.0:443"?\s*$', env, re.M),
-             'the env file sets CAPSULE_COORD_LISTEN to the --listen address', env)
-        st = c.stat(STATE)
-        need(st and st[0] == 'directory' and st[1] == 0o700 and st[2] == 'capsule-coord',
-             f'{STATE} is a directory (not a symbolic link), 0700, owned by capsule-coord', st)
-        st = c.stat(f'{STATE}/coord.db')
-        need(st and st[1] == 0o600 and st[2] == 'capsule-coord', 'coord.db is 0600, owned by capsule-coord', st)
-        paths = {}
-        for unit in ('capsule-coord', 'litestream'):
-            fragment = c.show(unit, 'FragmentPath').get('FragmentPath', '')
-            need(fragment and c.stat(fragment), f'the {unit} unit is installed', fragment)
-            st = c.stat(fragment)
-            need(st[2] == 'root' and not st[1] & 0o022, f'the {unit} unit is owned by root, not writable by others', st)
-            paths[unit] = fragment
-        self.unit_paths = paths
+        need(out['firewall'] == 'nftables', 'on Debian 12 without ufw or --no-firewall, firewall is `nftables`', out)
+        self.check_installed(c, out, stdout, stderr, self.v1, 'install')
         # Litestream.
         exec_start = c.show('litestream', 'ExecStart').get('ExecStart', '')
         match = re.search(r'path=(\S+)', exec_start)
@@ -924,8 +942,58 @@ class Suite:
         version = c.sh(f'{self.litestream_bin} version').stdout.strip()
         need(re.match(r'^v?0\.5\.\d+', version), 'Litestream 0.5 is installed (the pinned version)', version)
         notes = [f'Litestream {version} at {self.litestream_bin}', self.verify_litestream(version)]
+        return '; '.join(n for n in notes if n)
+
+    def check_installed(self, c, out, stdout, stderr, version, rule):
+        """The checks of a first install without Litestream configured, on either distribution."""
+        need(out['listen'] == LISTEN, f'{rule}: the printed listen is the --listen address', out)
+        need(out['litestream'] == 'not configured', f'{rule}: litestream is `not configured` without its env and '
+             'key', out)
+        need('litestream' in stderr.lower(), f'{rule}: without Litestream configured the script says so on stderr',
+             stderr)
+        self.no_private_key((stdout, stderr), out['public_key'], rule)
+        info = c.info()
+        need(info['id'] == out['id'] and info['public_key'] == out['public_key'],
+             f'{rule}: the printed id and public_key are the coordinator\'s (`capsule-coord info`)', info, out)
+        status, body = c.healthz()
+        need(status == 200 and body == {'status': 'ok', 'id': out['id']}, f'{rule}: /healthz answers ok with the id',
+             status, body)
+        # The user.
+        passwd = c.sh('getent passwd capsule-coord').stdout.strip().split(':')
+        need(len(passwd) == 7, f'{rule}: install.sh creates the capsule-coord user', passwd)
+        need(int(passwd[2]) < 1000 and passwd[6].endswith(('nologin', 'false')),
+             f'{rule}: capsule-coord is a system user without a login shell', passwd)
+        need(c.sh('getent group capsule-coord').returncode == 0, f'{rule}: capsule-coord has its group')
+        # Files and modes.
+        st = c.stat(BINARY)
+        need(st and st[0] == 'regular file' and st[2] == 'root' and st[1] & 0o111 and not st[1] & 0o022,
+             f'{rule}: {BINARY} is an executable owned by root, not group or world writable', st)
+        need(sha256_bytes(c.read_bytes(BINARY)) == self.archives[version]['binary'],
+             f'{rule}: {BINARY} is the archive\'s binary')
+        st = c.stat(ENV_FILE)
+        need(st and st[0] == 'regular file' and not st[1] & 0o002, f'{rule}: {ENV_FILE} is installed, not world '
+             'writable', st)
+        env = c.read(ENV_FILE) or ''
+        need(re.search(r'^\s*CAPSULE_COORD_LISTEN\s*=\s*"?0\.0\.0\.0:443"?\s*$', env, re.M),
+             f'{rule}: the env file sets CAPSULE_COORD_LISTEN to the --listen address', env)
+        st = c.stat(STATE)
+        need(st and st[0] == 'directory' and st[1] == 0o700 and st[2] == 'capsule-coord',
+             f'{rule}: {STATE} is a directory (not a symbolic link), 0700, owned by capsule-coord', st)
+        st = c.stat(f'{STATE}/coord.db')
+        need(st and st[1] == 0o600 and st[2] == 'capsule-coord', f'{rule}: coord.db is 0600, owned by capsule-coord',
+             st)
+        paths = {}
+        for unit in ('capsule-coord', 'litestream'):
+            fragment = c.show(unit, 'FragmentPath').get('FragmentPath', '')
+            need(fragment and c.stat(fragment), f'{rule}: the {unit} unit is installed', fragment)
+            st = c.stat(fragment)
+            need(st[2] == 'root' and not st[1] & 0o022, f'{rule}: the {unit} unit is owned by root, not writable by '
+                 'others', st)
+            paths[unit] = fragment
+        if c is self.coord:
+            self.unit_paths = paths
         # The unit gains exactly CAP_NET_BIND_SERVICE for port 443.
-        shipped = (self.archives[self.v1]['dir'] / 'share' / 'capsule-coord' / 'deploy' /
+        shipped = (self.archives[version]['dir'] / 'share' / 'capsule-coord' / 'deploy' /
                    'capsule-coord.service').read_text()
         installed = c.out('systemctl cat capsule-coord')
         added = multiset_minus(unit_directives(installed), unit_directives(shipped))
@@ -936,41 +1004,41 @@ class Suite:
         removed = [r for r in removed if r not in ('Service/AmbientCapabilities=', 'Service/CapabilityBoundingSet=')]
         need(sorted(added) == ['Service/AmbientCapabilities=CAP_NET_BIND_SERVICE',
                                'Service/CapabilityBoundingSet=CAP_NET_BIND_SERVICE'] and not removed,
-             'with port 443 the unit gains exactly AmbientCapabilities= and CapabilityBoundingSet= '
+             f'{rule}: with port 443 the unit gains exactly AmbientCapabilities= and CapabilityBoundingSet= '
              'CAP_NET_BIND_SERVICE, and nothing else (Q7)', added, removed)
         props = c.show('capsule-coord', 'AmbientCapabilities', 'CapabilityBoundingSet', 'User', 'MainPID',
                        'NoNewPrivileges', 'DynamicUser')
         need(props.get('AmbientCapabilities') == 'cap_net_bind_service'
              and props.get('CapabilityBoundingSet') == 'cap_net_bind_service',
-             'systemd applies exactly cap_net_bind_service as ambient and bounding set', props)
+             f'{rule}: systemd applies exactly cap_net_bind_service as ambient and bounding set', props)
         need(props.get('User') == 'capsule-coord' and props.get('DynamicUser') == 'no',
-             'the service runs as the static capsule-coord user', props)
+             f'{rule}: the service runs as the static capsule-coord user', props)
         status_text = c.out(f'cat /proc/{props["MainPID"]}/status')
         fields = dict(line.split(':', 1) for line in status_text.splitlines() if ':' in line)
         uid = fields['Uid'].split()[0]
-        need(uid == passwd[2], 'the coordinator process runs as capsule-coord', fields['Uid'], passwd[2])
+        need(uid == passwd[2], f'{rule}: the coordinator process runs as capsule-coord', fields['Uid'], passwd[2])
         for field in ('CapAmb', 'CapBnd', 'CapEff', 'CapPrm'):
             need(int(fields[field].strip(), 16) == CAP_NET_BIND_SERVICE,
-                 f'the coordinator process\'s {field} is exactly CAP_NET_BIND_SERVICE', fields[field])
+                 f'{rule}: the coordinator process\'s {field} is exactly CAP_NET_BIND_SERVICE', fields[field])
         # Service states without Litestream.
-        need(c.unit_state('capsule-coord') == ('enabled', 'active'), 'capsule-coord is enabled and active',
+        need(c.unit_state('capsule-coord') == ('enabled', 'active'), f'{rule}: capsule-coord is enabled and active',
              c.unit_state('capsule-coord'))
         need(c.unit_state('litestream') == ('disabled', 'inactive'),
-             'without Litestream configured its unit stays disabled (and inactive)', c.unit_state('litestream'))
+             f'{rule}: without Litestream configured its unit stays disabled (and inactive)',
+             c.unit_state('litestream'))
         # Sockets.
         sockets = c.out('ss -Hlntup')
         listening = {(line.split()[0], line.split()[4]) for line in sockets.splitlines() if 'capsule-coord' in line}
         wildcard = {'0.0.0.0:443', '*:443', '[::]:443'}
         need(any(('tcp', a) in listening for a in wildcard) and any(('udp', a) in listening for a in wildcard),
-             'the coordinator listens on TCP and UDP 443 on every address', sockets)
-        need(('tcp', OPS) in listening, 'the ops listener is on 127.0.0.1:9464', sockets)
-        need(not any(a.endswith(':9464') and a != OPS for _, a in listening), 'the ops port is loopback only',
-             sockets)
+             f'{rule}: the coordinator listens on TCP and UDP 443 on every address', sockets)
+        need(('tcp', OPS) in listening, f'{rule}: the ops listener is on 127.0.0.1:9464', sockets)
+        need(not any(a.endswith(':9464') and a != OPS for _, a in listening), f'{rule}: the ops port is loopback '
+             'only', sockets)
         metrics = c.metrics()
         versions = metrics.series('capsule_coord_info')
-        need(len(versions) == 1 and versions[0][0].get('version') == self.v1 and versions[0][1] == 1,
-             'capsule_coord_info{version} is the archive\'s VERSION', versions)
-        return '; '.join(n for n in notes if n)
+        need(len(versions) == 1 and versions[0][0].get('version') == version and versions[0][1] == 1,
+             f'{rule}: capsule_coord_info{{version}} is the archive\'s VERSION', versions)
 
     def verify_litestream(self, version):
         """The installed Litestream binary equals the published release's, checked against its checksums."""
@@ -1022,6 +1090,13 @@ class Suite:
                 ch = item['chain']
                 chains[(ch['family'], ch['table'], ch['name'])] = ch
         need(chains, 'nftables has an input hook chain', ruleset[:5])
+        need(any(k[:2] == ('inet', 'capsule_coord') for k in chains),
+             'the input hook chain is in the dedicated table `inet capsule_coord`', sorted(chains))
+        boot = self.nft_boot_tables(c)
+        need('capsule_coord' in boot, 'the `inet capsule_coord` table is included from /etc/nftables.conf',
+             c.read('/etc/nftables.conf'))
+        need(c.unit_state('nftables')[0] == 'enabled', 'nftables.service is enabled, so the table loads at boot',
+             c.unit_state('nftables'))
         families = {f for f, _, _ in chains}
         need('inet' in families or {'ip', 'ip6'} <= families, 'the input filter covers IPv4 and IPv6', families)
         dropping = [k for k, ch in chains.items() if ch.get('policy') == 'drop']
@@ -1078,17 +1153,8 @@ class Suite:
         # From this machine.
         ip = c.ip
 
-        def tcp(port, timeout=4):
-            started = time.monotonic()
-            try:
-                with socket.create_connection((ip, port), timeout=timeout):
-                    return 'open'
-            except ConnectionRefusedError:
-                return 'refused'
-            except (socket.timeout, TimeoutError):
-                return 'dropped' if time.monotonic() - started >= timeout - 0.5 else 'error'
-            except OSError as error:
-                return f'error {error}'
+        def tcp(port):
+            return self.tcp(ip, port)
         need(tcp(443) == 'open', 'TCP 443 is reachable from outside')
         need(tcp(22) == 'refused', 'TCP 22 is allowed (refused by the kernel, as the container has no sshd, rather '
              'than dropped)')
@@ -1099,6 +1165,32 @@ class Suite:
         status, body = c.healthz()
         need(status == 200, '/healthz still answers on loopback inside the VM', status, body)
         return '; '.join(sorted(set(notes))) or 'exactly 22/tcp, 443/tcp, 443/udp, established'
+
+    def nft_boot_tables(self, c):
+        """/etc/nftables.conf with the files it includes, as loaded at boot."""
+        conf = c.read('/etc/nftables.conf') or ''
+        text = conf
+        for pattern in re.findall(r'^\s*include\s+"([^"]+)"', conf, re.M):
+            text += c.sh(f'cat {pattern}').stdout
+        return text
+
+    def capsule_table(self, c):
+        """Whether nftables holds the table `inet capsule_coord`."""
+        result = c.sh('nft list tables')
+        need(result.returncode == 0, '(suite) `nft list tables` works in the container', result.stderr)
+        return bool(re.search(r'^table inet capsule_coord$', result.stdout, re.M))
+
+    def tcp(self, ip, port, timeout=4):
+        started = time.monotonic()
+        try:
+            with socket.create_connection((ip, port), timeout=timeout):
+                return 'open'
+        except ConnectionRefusedError:
+            return 'refused'
+        except (socket.timeout, TimeoutError):
+            return 'dropped' if time.monotonic() - started >= timeout - 0.5 else 'error'
+        except OSError as error:
+            return f'error {error}'
 
     def stun(self, ip, port):
         transaction = secrets.token_bytes(12)
@@ -1267,11 +1359,14 @@ class Suite:
         c = self.coord
         top = self.extract(c, self.v2)
         invocation = c.show('capsule-coord', 'InvocationID')['InvocationID']
+        ruleset = self.snapshot()[0]['nftables']
         moment = utcnow()
         code, stdout, stderr = self.install(c, top, '--upgrade', capture='upgrade')
         need(code == 0, 'install.sh --upgrade exits 0', code, stderr[-800:])
         out = self.printed(stdout, 'upgrade')
-        need(out == self.identity, '--upgrade prints the same JSON; the identity is unchanged', out, self.identity)
+        need(out == {**self.identity, 'firewall': 'unchanged'}, '--upgrade prints the same JSON with firewall '
+             '`unchanged`; the identity is unchanged', out, self.identity)
+        need(self.snapshot()[0]['nftables'] == ruleset, '--upgrade never touches the firewall (nftables ruleset)')
         need(sha256_bytes(c.read_bytes(BINARY)) == self.archives[self.v2]['binary'],
              '--upgrade replaces the binary with the extracted archive\'s')
         need(c.show('capsule-coord', 'InvocationID')['InvocationID'] != invocation, '--upgrade restarts the service')
@@ -1312,6 +1407,179 @@ class Suite:
         if self.state.get('hosts up'):
             self.synced_after(('alice', 'bob'), moment, 60, 'after the rollback')
         return 'rolled back, exit 1'
+
+    def check_upgrade_no_firewall(self):
+        """`--no-firewall` with `--upgrade` is a usage error (exit 2), in either order, and changes nothing."""
+        c = self.coord
+        # The other archive, so that an upgrade wrongly carried out would show in the binary.
+        top = f'/root/{self.archives[self.v1]["top"]}'
+        binary = sha256_bytes(c.read_bytes(BINARY))
+        invocation = c.show('capsule-coord', 'InvocationID')['InvocationID']
+        ruleset = self.snapshot()[0]['nftables']
+        for args in (('--upgrade', '--no-firewall'), ('--no-firewall', '--upgrade')):
+            code, stdout, stderr = self.install(c, top, *args)
+            need(code == 2, f'install.sh {" ".join(args)} is a usage error (exit 2)', code, stdout[-300:],
+                 stderr[-500:])
+            need(sha256_bytes(c.read_bytes(BINARY)) == binary, f'{" ".join(args)} leaves the binary in place')
+            need(c.show('capsule-coord', 'InvocationID')['InvocationID'] == invocation,
+                 f'{" ".join(args)} does not restart the service')
+            need(self.snapshot()[0]['nftables'] == ruleset, f'{" ".join(args)} leaves the firewall alone')
+        return 'exit 2 in both orders'
+
+    # ufw on Ubuntu 24.04
+
+    def start_ubuntu(self, label, ip):
+        """An Ubuntu 24.04 systemd container with ufw active and two rules of its own (as on a shared VM)."""
+        c = self.start_debian(label, self.ubuntu_image, ip)
+        release = c.out('. /etc/os-release; echo "$ID $VERSION_ID"').strip()
+        need(release == 'ubuntu 24.04', '(suite) the container is Ubuntu 24.04', release)
+        c.out("ufw allow 22/tcp >/dev/null && ufw allow 8080/tcp comment 'other-service' >/dev/null")
+        enable = c.sh('ufw --force enable')
+        status = c.sh('ufw status')
+        need('Status: active' in status.stdout, '(suite) ufw can be enabled in the Ubuntu container',
+             enable.returncode, enable.stdout[-500:], enable.stderr[-800:], status.stdout[-500:],
+             status.stderr[-500:])
+        need(self.tcp(c.ip, 9464) == 'dropped', '(suite) ufw is in effect (an unlisted port is dropped)')
+        return c
+
+    def ufw_rules(self, c):
+        """The user rules, as `ufw show added` prints them (one command per rule)."""
+        result = c.sh('ufw show added')
+        need(result.returncode == 0, '(suite) `ufw show added` works', result.stderr)
+        return [line.strip() for line in result.stdout.splitlines() if line.strip().startswith('ufw ')]
+
+    def ufw_rest(self, c):
+        """Everything of ufw but its user rules: status header (defaults, logging) and its other files."""
+        status = c.out('ufw status verbose').split('\nTo ')[0]
+        files = c.out('cd /etc && sha256sum default/ufw ufw/ufw.conf ufw/sysctl.conf ufw/before.rules '
+                      'ufw/before6.rules ufw/after.rules ufw/after6.rules; ls -1 /etc/ufw /etc/ufw/applications.d')
+        return status, files
+
+    def ufw_firewall_state(self, c):
+        return {'rules': self.ufw_rules(c), 'rest': self.ufw_rest(c), 'table': self.capsule_table(c),
+                'nftables.conf': c.read('/etc/nftables.conf')}
+
+    def check_ubuntu_ufw(self):
+        c = self.start_ubuntu('ubuntu-ufw', self.spare_ips[0])
+        before = self.ufw_firewall_state(c)
+        need(not before['table'], '(suite) no capsule_coord table before the install')
+        top = self.extract(c, self.v1)
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN, capture='ubuntu-install')
+        need(code == 0, 'on Ubuntu 24.04 install.sh --listen 0.0.0.0:443 exits 0', code, stdout[-600:],
+             stderr[-1500:])
+        out = self.printed(stdout, 'ubuntu')
+        need(out['firewall'] == 'ufw', 'with ufw installed and active, firewall is `ufw`', out)
+        self.check_installed(c, out, stdout, stderr, self.v1, 'ubuntu')
+        after = self.ufw_firewall_state(c)
+        removed = multiset_minus(before['rules'], after['rules'])
+        added = multiset_minus(after['rules'], before['rules'])
+        need(not removed, 'ufw: the other ufw rules stay in place', removed, after['rules'])
+        rule = re.compile(r"ufw allow (?:in )?(?:443/(tcp|udp)|proto (tcp|udp) (?:from any )?to any port 443)"
+                          r" comment '?capsule-coord'?")
+        protocols = sorted(next(p for p in m.groups() if p) for m in map(rule.fullmatch, added) if m)
+        need(len(added) == 2 and protocols == ['tcp', 'udp'], 'ufw: install.sh adds exactly two allow rules, the '
+             'coordination port over TCP and over UDP, commented capsule-coord', added)
+        need(after['rest'] == before['rest'], 'ufw: nothing else in ufw changes (defaults, logging, its other files, '
+             'still active)', diff_text(before['rest'], after['rest']))
+        need(not after['table'], 'ufw: install.sh writes no `inet capsule_coord` nftables table')
+        # Q12: "writes no nftables table" read as including /etc/nftables.conf (which loads tables at boot).
+        need(after['nftables.conf'] == before['nftables.conf'], 'ufw: /etc/nftables.conf is unchanged (Q12)',
+             diff_text(before['nftables.conf'], after['nftables.conf']))
+        # The rules in effect, from this machine.
+        need(self.tcp(c.ip, 443) == 'open', 'ufw: TCP 443 is reachable from outside')
+        need(self.stun(c.ip, 443), 'ufw: STUN on UDP 443 answers from outside')
+        need(self.tcp(c.ip, 8080) == 'refused', 'ufw: the existing rule (8080/tcp) still allows its port (refused, '
+             'as nothing listens, rather than dropped)')
+        need(self.tcp(c.ip, 9464) == 'dropped', 'ufw: an unlisted port is still dropped')
+        # Re-running adds no duplicate rules.
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN, capture='ubuntu-re-run')
+        need(code == 0, 'ufw: re-running install.sh exits 0', code, stderr[-800:])
+        need(self.printed(stdout, 'ubuntu re-run') == out, 'ufw: re-running prints the same JSON', stdout)
+        need(self.ufw_firewall_state(c) == after, 'ufw: re-running adds no duplicate rules and changes nothing',
+             diff_text(after, self.ufw_firewall_state(c)))
+        # An upgrade never touches the firewall.
+        top2 = self.extract(c, self.v2)
+        code, stdout, stderr = self.install(c, top2, '--upgrade', capture='ubuntu-upgrade')
+        need(code == 0, 'ufw: install.sh --upgrade exits 0', code, stderr[-800:])
+        need(self.printed(stdout, 'ubuntu upgrade') == {**out, 'firewall': 'unchanged'},
+             'ufw: --upgrade prints the same JSON with firewall `unchanged`', stdout)
+        need(sha256_bytes(c.read_bytes(BINARY)) == self.archives[self.v2]['binary'],
+             'ufw: --upgrade replaces the binary')
+        need(self.ufw_firewall_state(c) == after, 'ufw: --upgrade leaves the ufw rules and nftables alone',
+             diff_text(after, self.ufw_firewall_state(c)))
+        self.docker.remove_container(c.name)
+        return 'added: ' + '; '.join(added)
+
+    # --no-firewall
+
+    def check_no_firewall_debian(self):
+        c = self.start_debian('nofw-debian', None, self.spare_ips[1])
+
+        def firewall():
+            return {'ruleset': c.out('nft list ruleset'), 'nftables.conf': c.read('/etc/nftables.conf'),
+                    'nftables.service': c.unit_state('nftables')}
+        before = firewall()
+        top = self.extract(c, self.v1)
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN, '--no-firewall',
+                                            capture='no-firewall-debian')
+        need(code == 0, 'Debian: install.sh --listen 0.0.0.0:443 --no-firewall exits 0', code, stdout[-600:],
+             stderr[-1500:])
+        out = self.printed(stdout, 'Debian --no-firewall')
+        need(out['firewall'] == 'none', 'Debian: with --no-firewall, firewall is `none`', out)
+        self.check_installed(c, out, stdout, stderr, self.v1, 'Debian --no-firewall')
+        need(not self.capsule_table(c), 'Debian: --no-firewall writes no `inet capsule_coord` table')
+        need(firewall() == before, 'Debian: --no-firewall changes no firewall (ruleset, /etc/nftables.conf, '
+             'nftables.service)', diff_text(before, firewall()))
+        need(self.tcp(c.ip, 443) == 'open', 'Debian: TCP 443 is reachable with no firewall written')
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN, '--no-firewall')
+        need(code == 0 and self.printed(stdout, 'Debian --no-firewall re-run') == out,
+             'Debian: re-running with --no-firewall prints the same JSON', code, stdout, stderr[-500:])
+        need(firewall() == before, 'Debian: re-running with --no-firewall changes no firewall')
+        binary = sha256_bytes(c.read_bytes(BINARY))
+        top2 = self.extract(c, self.v2)
+        code, stdout, stderr = self.install(c, top2, '--upgrade', '--no-firewall')
+        need(code == 2, 'Debian: --upgrade --no-firewall exits 2', code, stdout[-300:], stderr[-500:])
+        need(sha256_bytes(c.read_bytes(BINARY)) == binary, 'Debian: the refused upgrade leaves the binary')
+        # Neither `ufw` nor `none` removes a table written by an earlier run.
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN)
+        need(code == 0 and self.printed(stdout, 'Debian default after --no-firewall')['firewall'] == 'nftables',
+             'Debian: install.sh without --no-firewall then writes the nftables table', code, stdout,
+             stderr[-500:])
+        need(self.capsule_table(c), 'Debian: the `inet capsule_coord` table is loaded')
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN, '--no-firewall')
+        need(code == 0 and self.printed(stdout, 'Debian --no-firewall after nftables')['firewall'] == 'none',
+             'Debian: --no-firewall after an nftables install exits 0 with firewall `none`', code, stdout,
+             stderr[-500:])
+        need(self.capsule_table(c), '`none` does not remove a table written by an earlier run')
+        self.docker.remove_container(c.name)
+        return 'no table, ruleset unchanged; upgrade with --no-firewall exit 2; earlier table kept'
+
+    def check_no_firewall_ubuntu(self):
+        c = self.start_ubuntu('nofw-ubuntu', self.spare_ips[2])
+        before = self.ufw_firewall_state(c)
+        top = self.extract(c, self.v1)
+        code, stdout, stderr = self.install(c, top, '--listen', LISTEN, '--no-firewall',
+                                            capture='no-firewall-ubuntu')
+        need(code == 0, 'Ubuntu: install.sh --listen 0.0.0.0:443 --no-firewall exits 0', code, stdout[-600:],
+             stderr[-1500:])
+        out = self.printed(stdout, 'Ubuntu --no-firewall')
+        need(out['firewall'] == 'none', 'Ubuntu: with --no-firewall (ufw active), firewall is `none`', out)
+        self.check_installed(c, out, stdout, stderr, self.v1, 'Ubuntu --no-firewall')
+        after = self.ufw_firewall_state(c)
+        need(after['rules'] == before['rules'], 'Ubuntu: --no-firewall adds no ufw rule', before['rules'],
+             after['rules'])
+        need(not after['table'], 'Ubuntu: --no-firewall writes no `inet capsule_coord` table')
+        need(after == before, 'Ubuntu: --no-firewall changes no firewall', diff_text(before, after))
+        need(self.tcp(c.ip, 443) == 'dropped', 'Ubuntu: with ufw active and no rule added, TCP 443 stays closed '
+             'until the owner opens it')
+        binary = sha256_bytes(c.read_bytes(BINARY))
+        top2 = self.extract(c, self.v2)
+        code, stdout, stderr = self.install(c, top2, '--upgrade', '--no-firewall')
+        need(code == 2, 'Ubuntu: --upgrade --no-firewall exits 2', code, stdout[-300:], stderr[-500:])
+        need(sha256_bytes(c.read_bytes(BINARY)) == binary, 'Ubuntu: the refused upgrade leaves the binary')
+        need(self.ufw_firewall_state(c) == before, 'Ubuntu: the refused upgrade changes no firewall')
+        self.docker.remove_container(c.name)
+        return 'no ufw rule, no table; upgrade with --no-firewall exit 2'
 
     def check_requests(self):
         need(self.capture_notes, '(suite) install.sh runs were captured')
@@ -1411,6 +1679,7 @@ class Suite:
         need(out['litestream'] == 'enabled', 'litestream is `enabled` once its env file and key exist', out)
         need({k: out[k] for k in ('id', 'public_key', 'listen')} ==
              {k: self.identity[k] for k in ('id', 'public_key', 'listen')}, 'the identity is unchanged', out)
+        need(out['firewall'] == 'nftables', 'install.sh --listen again reports firewall `nftables`', out)
         eventually(lambda: c.unit_state('litestream') == ('enabled', 'active'), 30,
                    'the litestream unit is enabled and active', lambda: c.sh('systemctl status litestream '
                                                                              '--no-pager; journalctl -u litestream '
@@ -1554,21 +1823,28 @@ class Suite:
     # 8. other distributions
 
     def check_other_distribution(self):
-        name = PREFIX + 'ubuntu'
-        self.docker('create', '--name', name, '--network', 'none', OTHER_IMAGE, 'sleep', 'infinity')
-        self.docker.containers.append(name)
-        self.docker('start', name)
-        c = Container(self.docker, name, None)
-        top = self.extract(c, self.v1)
-        before = c.out('ls -a /usr/local/bin /etc /var/lib | sha256sum; getent passwd | sha256sum')
-        result = c.sh(f'./share/capsule-coord/deploy/install.sh --listen {LISTEN}', cwd=top, timeout=120)
-        need(result.returncode == 1, 'install.sh exits 1 on another distribution (Ubuntu 24.04)', result.returncode,
-             result.stdout[-300:], result.stderr[-500:])
-        after = c.out('ls -a /usr/local/bin /etc /var/lib | sha256sum; getent passwd | sha256sum')
-        need(before == after, 'a refused install changes nothing (no user, binary, /etc/capsule-coord, or state)')
-        need(c.sh('getent passwd capsule-coord').returncode != 0 and c.sh(f'test -e {BINARY}').returncode != 0,
-             'no capsule-coord user or binary on another distribution')
-        return result.stderr.strip().splitlines()[-1][:160] if result.stderr.strip() else 'exit 1'
+        notes = []
+        for image in OTHER_IMAGES:
+            label = re.sub(r'[^a-z0-9]+', '', image)
+            name = PREFIX + label
+            self.docker('create', '--name', name, '--network', 'none', image, 'sleep', 'infinity')
+            self.docker.containers.append(name)
+            self.docker('start', name)
+            c = Container(self.docker, name, None)
+            top = self.extract(c, self.v1)
+            before = c.out('ls -a /usr/local/bin /etc /var/lib | sha256sum; getent passwd | sha256sum')
+            result = c.sh(f'./share/capsule-coord/deploy/install.sh --listen {LISTEN}', cwd=top, timeout=120)
+            need(result.returncode == 1, f'install.sh exits 1 on another distribution ({image})', result.returncode,
+                 result.stdout[-300:], result.stderr[-500:])
+            after = c.out('ls -a /usr/local/bin /etc /var/lib | sha256sum; getent passwd | sha256sum')
+            need(before == after, f'a refused install on {image} changes nothing (no user, binary, '
+                 '/etc/capsule-coord, or state)')
+            need(c.sh('getent passwd capsule-coord').returncode != 0 and c.sh(f'test -e {BINARY}').returncode != 0,
+                 f'no capsule-coord user or binary on {image}')
+            last = result.stderr.strip().splitlines()[-1][:120] if result.stderr.strip() else 'exit 1'
+            notes.append(f'{image}: {last}')
+            self.docker.remove_container(name)
+        return '; '.join(notes)
 
 
 # --- the runbook's restore procedure ------------------------------------------------------------------------

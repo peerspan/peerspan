@@ -189,7 +189,7 @@ After each sync, a host compares the map with what it holds. It imports when the
 
 ## Slice 4: launch
 
-Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the owner provides; a runbook plus an install script run over SSH, with no infrastructure as code yet; the owner runs every outward-facing step with their own credentials; port 443 for TCP (coordination and relay) and UDP (STUN).
+Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the owner provides; a runbook plus an install script run over SSH, with no infrastructure as code yet; the owner runs every outward-facing step with their own credentials; port 443 for TCP (coordination and relay) and UDP (STUN). Settled on 2026-10-11: the script also supports Ubuntu 24.04, uses ufw when it is active, and takes `--no-firewall`, so the coordinator can share a VM with other services.
 
 ### Coordinator release archive
 
@@ -197,15 +197,20 @@ Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the ow
 
 ### Install script
 
-`deploy/coordinator/install.sh` runs as root on Debian 12, from an extracted archive:
-- `install.sh --listen 0.0.0.0:443` installs: the `capsule-coord` system user, `/usr/local/bin/capsule-coord`, the units and `/etc/capsule-coord/capsule-coord.env` (an existing env file is kept), the state directory, and Litestream at the pinned version after checking its published SHA-256. It enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and prints `{id, public_key, listen, litestream}` as JSON on stdout, where `litestream` is `enabled` or `not configured`.
+`deploy/coordinator/install.sh` runs as root on Debian 12 or Ubuntu 24.04, from an extracted archive:
+- `install.sh --listen 0.0.0.0:443` installs: the `capsule-coord` system user, `/usr/local/bin/capsule-coord`, the units and `/etc/capsule-coord/capsule-coord.env` (an existing env file is kept), the state directory, and Litestream at the pinned version after checking its published SHA-256. It enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and prints `{id, public_key, listen, litestream, firewall}` as JSON on stdout, where `litestream` is `enabled` or `not configured`, and `firewall` is `nftables`, `ufw`, or `none` (below).
 - With a port below 1024, the unit gains `AmbientCapabilities=CAP_NET_BIND_SERVICE` and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, and nothing else.
 - Litestream is enabled only when `/etc/capsule-coord/litestream.env` and the SSE-C key file both exist; otherwise its unit stays disabled and the script says so on stderr.
-- **Firewall:** a dedicated nftables table on the VM, included from `/etc/nftables.conf` and loaded at boot, allows inbound TCP 22, the coordination port over TCP and UDP, established traffic, loopback, and IPv6 neighbor discovery, and drops the rest. The runbook also sets the same rules as a Hetzner Cloud Firewall.
+- **Firewall:** one of three, reported as `firewall`:
+  - `ufw`, when ufw is installed and `ufw status` reports `Status: active`: the script adds `allow` rules for the coordination port over TCP and UDP, commented `capsule-coord`, and changes nothing else in ufw. It writes no nftables table.
+  - `nftables`, otherwise: a dedicated nftables table, `inet capsule_coord`, included from `/etc/nftables.conf` and loaded at boot, allows inbound TCP 22, the coordination port over TCP and UDP, established traffic, loopback, and IPv6 neighbor discovery, and drops the rest. This mode is for a VM that runs only the coordinator. It needs `nft`.
+  - `none`, with `--no-firewall`: the script changes no firewall, and the owner opens the coordination port over TCP and UDP themselves. This mode is for a VM whose firewall is managed some other way.
+
+  Neither `ufw` nor `none` removes a table written by an earlier run. The runbook also sets the `nftables` rules as a Hetzner Cloud Firewall.
 - **Idempotent:** running it again with the same arguments changes nothing and prints the same identity.
-- `install.sh --upgrade` replaces the binary from the extracted archive, restarts, waits for `/healthz`, and prints the same JSON. The identity is unchanged. If health fails, it restores the previous binary, restarts, and exits 1.
+- `install.sh --upgrade` replaces the binary from the extracted archive, restarts, waits for `/healthz`, and prints the same JSON, with `firewall` `unchanged`: an upgrade never touches the firewall, and `--no-firewall` with `--upgrade` is a usage error (exit 2). The identity is unchanged. If health fails, it restores the previous binary, restarts, and exits 1.
 - An existing env file naming another listen address, or `--listen` over a different installed binary, exits 1; `--upgrade` is for the latter. `--litestream-archive FILE` uses a local copy of the pinned Litestream release, still checked against its SHA-256.
-- It never generates or prints the private key, never contacts anything except the Litestream download, and exits 1 on any other distribution.
+- It never generates or prints the private key, never contacts anything except the Litestream download, and exits 1 on any distribution other than Debian 12 and Ubuntu 24.04.
 
 ### Runbook for Hetzner
 
@@ -224,10 +229,12 @@ Once the owner has deployed it and provided the name and key, `conformance/launc
 
 ### Verification
 
-`conformance/coord_deploy.py` is written from this contract by an author independent of the implementation. It needs root and Docker, and runs everything locally: a throwaway `debian:12` container running systemd as its init, and a MinIO container serving TLS, which enforces SSE-C. It removes its containers, images it pulled, and networks when done. It covers:
+`conformance/coord_deploy.py` is written from this contract by an author independent of the implementation. It needs root and Docker, and runs everything locally: throwaway `debian:12` and `ubuntu:24.04` containers running systemd as their init, and a MinIO container serving TLS, which enforces SSE-C. It removes its containers, images it pulled, and networks when done. It covers:
 - the archive's layout, `release.json`, checksum, refusal to overwrite, and `capsule_coord_info{version}`;
 - `install.sh` in the container: the user, files and modes, the unit with exactly `CAP_NET_BIND_SERVICE` on port 443, both services' states with and without Litestream configured, the nftables rules, `/healthz`, and the printed JSON;
 - re-running it (same identity, nothing changed), `--upgrade` (identity kept, version changed), and an upgrade whose binary fails health (rolled back, exit 1);
 - Go and Rust hosts outside the container creating and joining a network through the container's port 443, and exchanging relayed messages;
 - Litestream replicating with SSE-C to the local server, objects unreadable without the key, and the runbook's restore procedure into a fresh container keeping the identity, after which the hosts sync again (and repair, slice 3, restores anything after the last replicated transaction);
-- the script refusing a non-Debian system and making no network requests besides the Litestream download.
+- on `ubuntu:24.04`: the same install, with ufw installed and active, adding exactly the two port rules, leaving other ufw rules in place, writing no `inet capsule_coord` table, and printing `firewall` `ufw`; re-running adds no duplicate rules;
+- `--no-firewall` on either distribution: no nftables table, no ufw rule, and `firewall` `none`; `--no-firewall` with `--upgrade` exits 2;
+- the script refusing other distributions (including `debian:11` and `ubuntu:22.04`) and making no network requests besides the Litestream download.

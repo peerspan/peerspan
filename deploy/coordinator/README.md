@@ -31,15 +31,18 @@ scripts/package-coordinator.sh VERSION
 
 It builds `capsule-coord` with `capsule_coord_info{version="VERSION"}` and packs `bin/capsule-coord`, `share/capsule-coord/deploy/` (this directory, `install.sh` included), and `release.json` (`version`, `os`, `architecture`, `source_revision`). It refuses to overwrite an existing archive unless `CAPSULE_PACKAGE_OVERWRITE=1` is set.
 
-**What `install.sh` does.** Run as root on Debian 12 from the extracted archive, `install.sh --listen 0.0.0.0:443`:
+**What `install.sh` does.** Run as root on Debian 12 or Ubuntu 24.04 from the extracted archive, `install.sh --listen 0.0.0.0:443`:
 - creates the `capsule-coord` system user, installs `/usr/local/bin/capsule-coord`, both units, `/etc/capsule-coord/litestream.yml`, and `/etc/capsule-coord/capsule-coord.env` from the example with `CAPSULE_COORD_LISTEN` set (an existing env file is kept, and must name the same `--listen`), and the state directory (0700);
 - for a port below 1024, installs the unit with `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` and `AmbientCapabilities=CAP_NET_BIND_SERVICE` and no other capability;
 - downloads Litestream v0.5.17 from its GitHub release and checks the archive against the SHA-256 the release publishes in `checksums.txt` (pinned in the script) before installing `/usr/local/bin/litestream`; `--litestream-archive FILE` uses a copy of that same archive instead, checked the same way;
-- loads an nftables table, `inet capsule_coord` in `/etc/capsule-coord/nftables.nft` and included from `/etc/nftables.conf`, that accepts inbound TCP 22, TCP and UDP on the coordination port, established traffic, loopback (for `/healthz`), and IPv6 neighbor discovery, and drops everything else; it enables `nftables.service` so the rules return at boot;
+- sets up the firewall in one of three ways, reported as `firewall` in its output:
+  - `nftables` (the default): loads a table, `inet capsule_coord` in `/etc/capsule-coord/nftables.nft` and included from `/etc/nftables.conf`, that accepts inbound TCP 22, TCP and UDP on the coordination port, established traffic, loopback (for `/healthz`), and IPv6 neighbor discovery, and drops everything else; it enables `nftables.service` so the rules return at boot. This drops every other service's traffic, so use it only on a VM that runs nothing else;
+  - `ufw`, when ufw is active: adds `ufw allow PORT/tcp` and `PORT/udp` (commented `capsule-coord`) and leaves the rest of ufw alone;
+  - `none`, with `--no-firewall`: changes no firewall; open TCP and UDP on the port yourself;
 - enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and enables `litestream` only when both `/etc/capsule-coord/litestream.env` and `/etc/capsule-coord/litestream-sse.key` exist (it says on stderr when they do not);
-- prints `{"id", "public_key", "listen", "litestream"}` on stdout, with `litestream` either `enabled` or `not configured`.
+- prints `{"id", "public_key", "listen", "litestream", "firewall"}` on stdout, with `litestream` either `enabled` or `not configured`.
 
-Running it again with the same arguments changes nothing and prints the same identity. It never generates or prints the private key, contacts nothing but the Litestream download, refuses any system other than Debian 12, and refuses to replace a different installed binary: that is `install.sh --upgrade`.
+Running it again with the same arguments changes nothing and prints the same identity. It never generates or prints the private key, contacts nothing but the Litestream download, refuses any system other than Debian 12 and Ubuntu 24.04, and refuses to replace a different installed binary: that is `install.sh --upgrade`.
 
 ### 1. Server
 
@@ -53,7 +56,7 @@ In the Cloud Console (or with `hcloud`), create a **CX22** (or larger) server ru
 
 Leave outbound open: Litestream reaches Object Storage over HTTPS. The primary IPs stay with the server while they are assigned to it, so DNS can name them. Do not open `9464`.
 
-`install.sh` needs `nft` and `curl` (or `wget`) on the server and installs no packages itself; if either is missing, run `apt-get install nftables curl` first.
+`install.sh` needs `curl` (or `wget`), and `nft` for its own firewall table, on the server, and installs no packages itself; if either is missing, run `apt-get install nftables curl` first.
 
 ### 2. Object Storage and the SSE-C key
 
@@ -152,6 +155,15 @@ Before announcing, restore the replica onto a **second, throwaway** server and c
 4. For a drill, stop here: leave `litestream` disabled (it would write to the production replica path), then delete the server. A drill can point a test host at it by IP to see it serve, but hosts that pin `coord.example.com` must not reach it.
 
 **A real recovery** is the same on a new server, followed by a new `LITESTREAM_PATH` in `litestream.env` (such as `coord-2`, so the restored database starts a fresh replica and the old one stays intact until the new one is confirmed), `litestream reset -config /etc/capsule-coord/litestream.yml /var/lib/capsule-coord/coord.db`, running `install.sh --listen 0.0.0.0:443` again, which now reports the production identity and `"litestream": "enabled"`, and moving the DNS records (or the primary IPs) to the new server. Member hosts then sync with it as before and re-submit anything after the last replicated transaction ([Restore](#restore)).
+
+### On a shared VM
+
+The coordinator can share a VM, such as an existing DigitalOcean droplet, if that VM has a static public address, nothing already serving the chosen port over TCP or UDP, and only administrators you trust with the coordinator's key. Nothing may sit in front of the port (no proxy or TLS terminator). Then:
+- Choose a free port before building bundles, since hosts pin it: 443 if nothing else serves it, or for example 7400.
+- With ufw active (common on Ubuntu), run `install.sh --listen 0.0.0.0:PORT`: it adds the two ufw rules and nothing else. Without ufw, always pass `--no-firewall` and open TCP and UDP on the port in the firewall you use: the default `nftables` mode would drop the other services' traffic.
+- Replication still needs an SSE-C bucket (step 2), which can be at any provider that supports it, such as Hetzner Object Storage or AWS S3; check before using another.
+
+The steps above are otherwise the same. Skip the Cloud Firewall in step 1 unless the provider has an equivalent, in which case open the same port there.
 
 ## Provision
 

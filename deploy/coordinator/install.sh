@@ -1,11 +1,13 @@
 #!/bin/bash
-# Installs or upgrades the Capsule coordinator on Debian 12, from an extracted
-# capsule-coord release archive (scripts/package-coordinator.sh). Run as root:
+# Installs or upgrades the Capsule coordinator on Debian 12 or Ubuntu 24.04,
+# from an extracted capsule-coord release archive
+# (scripts/package-coordinator.sh). Run as root:
 #
-#   share/capsule-coord/deploy/install.sh --listen 0.0.0.0:443
+#   share/capsule-coord/deploy/install.sh --listen 0.0.0.0:443 [--no-firewall]
 #   share/capsule-coord/deploy/install.sh --upgrade
 #
-# It prints {"id", "public_key", "listen", "litestream"} as JSON on stdout.
+# It prints {"id", "public_key", "listen", "litestream", "firewall"} as JSON on
+# stdout.
 # It never generates or reads the private key (capsule-coord creates it on its
 # first start), and contacts nothing except the pinned Litestream download.
 # See README.md in this directory.
@@ -41,23 +43,27 @@ fail() {
 }
 
 usage() {
-  echo "usage: $0 --listen HOST:PORT [--litestream-archive FILE]" >&2
+  echo "usage: $0 --listen HOST:PORT [--litestream-archive FILE] [--no-firewall]" >&2
   echo "       $0 --upgrade" >&2
   exit 2
 }
 
-# Debian 12 only; checked before anything else.
+# Debian 12 and Ubuntu 24.04 only; checked before anything else.
 os_release=/etc/os-release
 [ -e "$os_release" ] || os_release=/usr/lib/os-release
 distribution=$(
   # shellcheck disable=SC1090
   . "$os_release" 2>/dev/null && echo "${ID:-}:${VERSION_ID:-}"
 ) || distribution=unknown
-[ "$distribution" = debian:12 ] || fail "this script supports Debian 12 only (found ${distribution})"
+case "$distribution" in
+  debian:12|ubuntu:24.04) ;;
+  *) fail "this script supports Debian 12 and Ubuntu 24.04 only (found ${distribution})" ;;
+esac
 
 listen=
 upgrade=false
 litestream_archive=
+no_firewall=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --listen) [ "$#" -ge 2 ] || usage; listen=$2; shift 2 ;;
@@ -65,11 +71,12 @@ while [ "$#" -gt 0 ]; do
     --upgrade) upgrade=true; shift ;;
     --litestream-archive) [ "$#" -ge 2 ] || usage; litestream_archive=$2; shift 2 ;;
     --litestream-archive=*) litestream_archive=${1#--litestream-archive=}; shift ;;
+    --no-firewall) no_firewall=true; shift ;;
     *) usage ;;
   esac
 done
 if [ "$upgrade" = true ]; then
-  if [ -n "$listen" ] || [ -n "$litestream_archive" ]; then usage; fi
+  if [ -n "$listen" ] || [ -n "$litestream_archive" ] || [ "$no_firewall" = true ]; then usage; fi
 else
   [ -n "$listen" ] || usage
 fi
@@ -77,9 +84,25 @@ fi
 [ "$(id -u)" = 0 ] || fail "run as root"
 [ -d /run/systemd/system ] || fail "systemd is not running as init"
 
-for command in systemctl useradd runuser nft sha256sum tar cmp timeout flock; do
+for command in systemctl useradd runuser sha256sum tar cmp timeout flock; do
   command -v "$command" >/dev/null 2>&1 || fail "missing required command: $command"
 done
+
+# The firewall: none with --no-firewall; ufw when it is active, since it then
+# manages this machine's firewall; otherwise a table of our own.
+ufw_active() {
+  command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | head -n 1 | grep -qx 'Status: active'
+}
+if [ "$no_firewall" = true ]; then
+  firewall=none
+elif ufw_active; then
+  firewall=ufw
+else
+  firewall=nftables
+fi
+if [ "$upgrade" = false ] && [ "$firewall" = nftables ]; then
+  command -v nft >/dev/null 2>&1 || fail "missing required command: nft (or use --no-firewall)"
+fi
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 archive_root=$(CDPATH='' cd -- "$script_dir/../../.." && pwd)
@@ -173,7 +196,7 @@ print_identity() {
   if litestream_configured && systemctl -q is-enabled litestream.service 2>/dev/null; then
     status=enabled
   fi
-  printf '{"id": "%s", "public_key": "%s", "listen": "%s", "litestream": "%s"}\n' "$identity_id" "$identity_key" "$1" "$status"
+  printf '{"id": "%s", "public_key": "%s", "listen": "%s", "litestream": "%s", "firewall": "%s"}\n' "$identity_id" "$identity_key" "$1" "$status" "$2"
 }
 
 # --upgrade: replace the binary, restart, and roll back if health fails.
@@ -201,7 +224,7 @@ if [ "$upgrade" = true ]; then
     fi
     rm -f -- "$backup"
   fi
-  print_identity "$listen"
+  print_identity "$listen" unchanged
   exit 0
 fi
 
@@ -297,10 +320,18 @@ if [ -n "$litestream_new" ]; then
   litestream_changed=$((litestream_changed | changed))
 fi
 
-# Firewall: SSH, the coordination port over TCP and UDP, and established
-# traffic; everything else inbound is dropped. Loopback stays open for the
-# ops listener, and IPv6 neighbor discovery for IPv6 to work at all.
-cat > "$work/nftables.nft" <<EOF
+# Firewall: with ufw, allow the coordination port over TCP and UDP and leave
+# the rest of its rules alone. With our own table: SSH, the coordination port
+# over TCP and UDP, and established traffic; everything else inbound is
+# dropped. Loopback stays open for the ops listener, and IPv6 neighbor
+# discovery for IPv6 to work at all. --no-firewall changes neither.
+case "$firewall" in
+  ufw)
+    ufw allow "$port/tcp" comment capsule-coord >/dev/null || fail "cannot add the ufw rule for $port/tcp"
+    ufw allow "$port/udp" comment capsule-coord >/dev/null || fail "cannot add the ufw rule for $port/udp"
+    ;;
+  nftables)
+    cat > "$work/nftables.nft" <<EOF
 #!/usr/sbin/nft -f
 # Written by capsule-coord install.sh; included from /etc/nftables.conf.
 table inet capsule_coord
@@ -317,20 +348,22 @@ table inet capsule_coord {
 	}
 }
 EOF
-changed=0
-put "$work/nftables.nft" "$FIREWALL_FILE" 0644 root:root
-if [ "$changed" = 1 ] || ! nft list table inet capsule_coord >/dev/null 2>&1; then
-  nft -f "$FIREWALL_FILE" || fail "cannot apply $FIREWALL_FILE"
-fi
-include="include \"$FIREWALL_FILE\""
-if [ ! -f /etc/nftables.conf ]; then
-  printf '#!/usr/sbin/nft -f\n%s\n' "$include" > /etc/nftables.conf
-elif ! grep -qxF "$include" /etc/nftables.conf; then
-  printf '%s\n' "$include" >> /etc/nftables.conf
-fi
-if ! systemctl -q is-enabled nftables.service 2>/dev/null; then
-  systemctl enable nftables.service
-fi
+    changed=0
+    put "$work/nftables.nft" "$FIREWALL_FILE" 0644 root:root
+    if [ "$changed" = 1 ] || ! nft list table inet capsule_coord >/dev/null 2>&1; then
+      nft -f "$FIREWALL_FILE" || fail "cannot apply $FIREWALL_FILE"
+    fi
+    include="include \"$FIREWALL_FILE\""
+    if [ ! -f /etc/nftables.conf ]; then
+      printf '#!/usr/sbin/nft -f\n%s\n' "$include" > /etc/nftables.conf
+    elif ! grep -qxF "$include" /etc/nftables.conf; then
+      printf '%s\n' "$include" >> /etc/nftables.conf
+    fi
+    if ! systemctl -q is-enabled nftables.service 2>/dev/null; then
+      systemctl enable nftables.service
+    fi
+    ;;
+esac
 
 # Services.
 if [ "$units_changed" = 1 ]; then
@@ -372,4 +405,4 @@ else
   echo "install.sh: Litestream is not configured: $LITESTREAM_ENV and $SSE_KEY are both needed; litestream.service stays disabled (README.md, Litestream)" >&2
 fi
 
-print_identity "$listen"
+print_identity "$listen" "$firewall"
