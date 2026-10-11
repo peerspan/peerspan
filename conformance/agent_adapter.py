@@ -126,7 +126,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             receiver.binary = str(replacement_binary)
             identity = receiver.start()
             assert identity['id'] == b['id'] and identity['public_key'] == b['public_key']
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 14
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 15
             assert receiver.cli('message', 'list') == messages
             assert receiver.cli('activity') == activity
             assert receiver.cli('grant', 'list') == [grant]
@@ -294,7 +294,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert sender.cli('message', 'reply', '--peer', b['id'], rid)['state'] == 'pending'
             channel = Channel(node, script, receiver, secret, root)
             tools = channel.call('tools/list', {})['tools']
-            assert [tool['name'] for tool in tools] == ['capsule_ready', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
+            assert [tool['name'] for tool in tools] == ['capsule_ready', 'mark_seen', 'pending_work', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
             event = channel.notification()
             assert event['content'] == first['request']['content']
             assert event['meta']['request_id'] == rid
@@ -416,17 +416,25 @@ def check(sender_binary, receiver_binary, node, script, label):
                 assert actual['id'] == expected['id'] and actual['public_key'] == expected['public_key']
                 # Compare instants; state written before both used one spelling may differ.
                 assert datetime.fromisoformat(actual['created_at'].replace('Z', '+00:00')) == datetime.fromisoformat(expected['created_at'].replace('Z', '+00:00'))
-            assert sql(receiver, 'PRAGMA user_version')[0][0] == 14
+            assert sql(receiver, 'PRAGMA user_version')[0][0] == 15
             assert adapter_call(receiver, token, 'POST', '/adapter/v1/next', {})[0] == 503
             receiver.cli('session', 'detach', session['id'])
             assert receiver.cli('delivery', 'inspect', uncertain['id']) == uncertain
             assert sender.cli('message', 'reply', '--peer', b['id'], rid) == saved
             session2 = receiver.cli('session', 'attach', '--agent', agent['id'], '--integration', 'test')
             secret2 = credential(receiver, session2)
+            # Live delivery slice 2: the detached session never saw `third`, so
+            # session2 receives it again in place. `uncertain` was also unseen, but
+            # its grant is revoked, so its return is blocked rather than redelivered.
             status, handoff = adapter_call(receiver, secret2['token'], 'POST', '/adapter/v1/next', {})
-            assert status == 200 and handoff['request']['request_id'] == pending['request']['request_id']
-            assert handoff['delivery']['session_id'] == session2['id']
+            assert status == 200 and handoff['redelivered'] is True, handoff
+            assert handoff['request']['request_id'] == third['request']['request_id'], handoff
+            assert handoff['delivery']['id'] == d3 and handoff['delivery']['session_id'] == session2['id']
+            status, handoff = adapter_call(receiver, secret2['token'], 'POST', '/adapter/v1/next', {})
+            assert status == 200 and handoff['request']['request_id'] == pending['request']['request_id'], handoff
+            assert handoff['delivery']['session_id'] == session2['id'] and handoff['redelivered'] is False
             assert adapter_call(receiver, secret2['token'], 'POST', '/adapter/v1/next', {}) == (200, None)
+            assert receiver.cli('delivery', 'inspect', uncertain['id'])['state'] == 'blocked'
             assert adapter_call(receiver, secret2['token'], 'POST', '/adapter/v1/deliveries/' + uncertain['id'] + '/forwarded', {})[0] == 403
             receiver.stop()
             # Saved reply inspection requires no live receiver.

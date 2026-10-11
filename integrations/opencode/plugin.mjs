@@ -21,7 +21,7 @@ export async function Capsule(_input, { bindings } = {}) {
           Object.entries(definition.inputSchema.properties).map(([name, property]) => {
             const value =
               property.type === 'array'
-                ? schema.array(string(property.items)).max(property.maxItems)
+                ? schema.array(string(property.items)).min(property.minItems ?? 0).max(property.maxItems)
                 : string(property);
             return [name, required.includes(name) ? value : value.optional()];
           })

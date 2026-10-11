@@ -271,6 +271,18 @@ func provider(ctx context.Context, p *Profile, op, workspace string, args []stri
 		"adapter_socket": filepath.Join(p.State, "adapter.sock"), "credential_file": filepath.Join(p.Directory, "credential.json"),
 		"options": p.Options, "provider_state": p.ProviderState, "workspace": workspace, "arguments": args,
 	}}
+	if op == "launch" {
+		// The launch names the running CLI, which the Claude integration's
+		// session start hook runs as `capsule session pending --hook`.
+		executable, err := os.Executable()
+		if err == nil {
+			executable, err = filepath.Abs(executable)
+		}
+		if err != nil {
+			return providerResult{}, fmt.Errorf("could not find the running capsule executable: %w", err)
+		}
+		input["context"].(map[string]any)["capsule_executable"] = executable
+	}
 	data, err := json.Marshal(input)
 	if err != nil || len(data) > limit {
 		return providerResult{}, errors.New("integration request exceeds 1 MiB")

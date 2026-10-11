@@ -369,11 +369,17 @@ async fn provider(
     if !p.harness.supports(op) {
         bail!("this integration does not support {op}")
     }
-    let input = json!({"version":1,"operation":op,"context":{
+    let mut input = json!({"version":1,"operation":op,"context":{
         "directory":p.directory,"state":p.state,"agent_id":p.agent_id,"session_id":p.session_id,
         "adapter_socket":Path::new(&p.state).join("adapter.sock"),"credential_file":Path::new(&p.directory).join("credential.json"),
         "options":p.options,"provider_state":p.provider_state,"workspace":workspace,"arguments":args,
     }});
+    // A launch names this executable, for the session's hook that runs
+    // `session pending`.
+    if op == "launch" {
+        let executable = absolute(&std::env::current_exe()?)?;
+        input["context"]["capsule_executable"] = json!(executable);
+    }
     let bytes = serde_json::to_vec(&input)?;
     if bytes.len() > LIMIT as usize {
         bail!("integration request exceeds 1 MiB")
@@ -1042,6 +1048,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
             workspace,
             harness_args,
         } => (directory, workspace, harness_args),
+        SessionCommand::Pending { json, hook } => return pending(&state, json, hook).await,
         _ => bail!("unknown session integration operation"),
     };
     let directory = match directory {
@@ -1156,16 +1163,129 @@ fn attach_profiles(root: &Path, host: Option<&str>) -> Vec<(PathBuf, Profile)> {
     found.sort_by(|a, b| a.0.cmp(&b.0));
     found
 }
+/// The `attach` profiles whose workspace is the current directory.
+fn attached_profiles(state: &Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
+    workspace_profiles(Some(state_directory(state)?))
+}
+/// The `attach` profiles whose workspace is the current directory, of one
+/// state directory or of any.
+fn workspace_profiles(state: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
+    let workspace = fs::canonicalize(std::env::current_dir()?)?;
+    Ok(attach_profiles(&sessions_root()?, None)
+        .into_iter()
+        .filter(|(_, p)| {
+            Path::new(&p.workspace) == workspace
+                && state.as_ref().is_none_or(|s| Path::new(&p.state) == s)
+        })
+        .map(|(directory, _)| directory)
+        .collect())
+}
+/// Introduces the pending work in the session start hook's context.
+const PENDING_HOOK_LEAD: &str = "Capsule work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. ";
+
+/// `session pending`: the work the current directory's attached session
+/// still owes. Without an attachment it prints nothing, so a session start
+/// hook never fails.
+async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Result<()> {
+    // The session start hook runs without --state: any state's attachment
+    // of this directory then counts, read through its own daemon.
+    let found = match state {
+        Some(_) => attached_profiles(state).unwrap_or_default(),
+        None => workspace_profiles(None).unwrap_or_default(),
+    };
+    let directory = match found.as_slice() {
+        [] => return Ok(()),
+        [one] => one.clone(),
+        many => bail!(
+            "several attach profiles record this directory: {}",
+            many.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    let Ok(p) = load_profile(&directory, state) else {
+        return Ok(());
+    };
+    let value = call(
+        &p,
+        Method::GET,
+        &format!("/v1/sessions/{}/pending", p.session_id),
+        None,
+    )
+    .await?;
+    if json {
+        println!("{}", serde_json::to_string(&value)?);
+        return Ok(());
+    }
+    if hook {
+        // Claude Code reads a hook's JSON output as hook output, so the list
+        // reaches the model only as additionalContext.
+        let empty = ["deliveries", "replies", "tasks"]
+            .iter()
+            .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
+        if !empty {
+            let context = format!("{PENDING_HOOK_LEAD}{}", serde_json::to_string(&value)?);
+            println!(
+                "{}",
+                json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}})
+            );
+        }
+        return Ok(());
+    }
+    let text = |v: &Value| {
+        v.as_str()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let marks = |set: &[(bool, &str)]| {
+        let on: Vec<&str> = set.iter().filter(|(v, _)| *v).map(|(_, m)| *m).collect();
+        if on.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", on.join(", "))
+        }
+    };
+    for d in value["deliveries"].as_array().into_iter().flatten() {
+        println!(
+            "message {} request {} from {}{}: {}",
+            text(&d["delivery_id"]),
+            text(&d["request_id"]),
+            text(&d["sender_host_id"]),
+            marks(&[
+                (d["seen"] == true, "seen"),
+                (d["redelivered"] == true, "redelivered")
+            ]),
+            text(&d["preview"])
+        );
+    }
+    for r in value["replies"].as_array().into_iter().flatten() {
+        println!(
+            "reply {} to request {} from {}: {}",
+            text(&r["notification_id"]),
+            text(&r["request_id"]),
+            text(&r["peer_host_id"]),
+            text(&r["preview"])
+        );
+    }
+    for t in value["tasks"].as_array().into_iter().flatten() {
+        println!(
+            "task {} {} from {}{}: {}",
+            text(&t["task_id"]),
+            text(&t["state"]),
+            text(&t["sender_host_id"]),
+            marks(&[(t["adopted"] == true, "adopted")]),
+            text(&t["preview"])
+        );
+    }
+    Ok(())
+}
 /// The `attach` profile whose workspace is the current directory, for
 /// `session start` and `doctor` without `--directory`.
 fn attached_profile(state: &Option<PathBuf>) -> anyhow::Result<PathBuf> {
-    let workspace = fs::canonicalize(std::env::current_dir()?)?;
-    let state = state_directory(state)?;
-    let matches: Vec<PathBuf> = attach_profiles(&sessions_root()?, None)
-        .into_iter()
-        .filter(|(_, p)| Path::new(&p.workspace) == workspace && Path::new(&p.state) == state)
-        .map(|(directory, _)| directory)
-        .collect();
+    let matches = attached_profiles(state)?;
     match matches.as_slice() {
         [] => bail!(
             "no attach profile for this directory; run capsule attach HARNESS, or give --directory"

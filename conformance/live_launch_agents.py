@@ -29,6 +29,23 @@ delegate_task to carol/claude with parent_task_id; carol's completes; bob's
 completes the parent with carol's result; alice's receives the final update,
 then sends one message to carol/claude by `to` and gets a reply.
 
+Mid-task /clear (docs/live-delivery-contract.md, Slice 2, Verification; live
+mode, unless --no-clear): once bob's session has accepted alice's task and
+passed a part on (bob's task `running` and his task to carol submitted, in host
+state), the harness pauses carol's daemon (SIGSTOP) so carol's result cannot
+finish bob's task first. Once bob's transcript has been quiet for a few
+seconds, the harness records what the SessionStart hook's command (`capsule
+session pending --hook` in bob's project) prints and types `/clear` into bob's
+terminal. bob's session starts with empty context, and carol's daemon resumes
+(SIGCONT); the Claude launch's SessionStart hook (matcher
+`clear|compact|resume`) adds the pending work to it, and the model has the
+`pending_work` tool. The run then checks from host state that bob's task still
+succeeds, and from bob's post-/clear transcript that the model completed it and
+either received the hook's context or called pending_work. bob's session runs
+without `--disable-slash-commands` so `/clear` is the built-in command. In
+--fixture mode nothing is cleared: bob's consumer calls pending_work and the
+harness runs the hook's command at the same point, and the flow continues.
+
 Verification, from host state: every task and message was submitted by an
 adapter with directory access and has a `to`, and no route exists; carol's
 task carries a two-link chain originating at alice; each task ended
@@ -79,7 +96,8 @@ from tasks import channel_event, tool  # noqa: E402
 PERSONS = ('alice', 'bob', 'carol')
 NAMES = {'G': 'go', 'R': 'rust'}
 TOOLS = ['capsule_ready', 'list_agents', 'send', 'send_status', 'reply', 'delegate_task', 'task_accept', 'task_reject',
-         'task_progress', 'task_complete', 'task_status']
+         'task_progress', 'task_complete', 'task_status', 'pending_work', 'mark_seen']
+CLEARED = 'bob'  # the person whose session gets /clear mid-task
 FLOW_SECONDS = 600
 READY_SECONDS = 120
 
@@ -249,8 +267,9 @@ class AttachedSession(ClaudeSession):
     Capsule's launch supplies the MCP configuration and channel; the arguments
     after `--` restrict the experiment as live_delegation.py's sessions do."""
 
-    def __init__(self, person, allowed_tools):
+    def __init__(self, person, allowed_tools, slash_commands=False):
         self.directory = person.project
+        self.cleared_at = None
         self.sid = str(uuid.uuid4())
         self.console = bytearray()
         self.debug_path = person.root / 'claude-debug.log'
@@ -260,11 +279,14 @@ class AttachedSession(ClaudeSession):
         def terminal():
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        # No `--settings` here: Capsule's launch passes its own (the SessionStart
+        # hook) and refuses another. `--setting-sources ''` still keeps the
+        # operator's user, project, and local settings (and their hooks) out.
         self.arguments = [
-            '--session-id', self.sid, '--strict-mcp-config', '--settings', '{"disableAllHooks":true}',
+            '--session-id', self.sid, '--strict-mcp-config',
             '--setting-sources', '', '--tools', '', '--allowedTools',
             ','.join('mcp__capsule__' + name for name in allowed_tools), '--permission-mode', 'dontAsk',
-            '--disable-slash-commands', '--debug-file', str(self.debug_path)]
+            *([] if slash_commands else ['--disable-slash-commands']), '--debug-file', str(self.debug_path)]
         self.command = ['capsule', 'attach', 'claude', '--', *self.arguments]
         self.process = subprocess.Popen(self.command, cwd=person.project, stdin=slave, stdout=slave, stderr=slave,
                                         env=person.env, preexec_fn=terminal)
@@ -272,10 +294,26 @@ class AttachedSession(ClaudeSession):
         self.reader = threading.Thread(target=self.read, daemon=True)
         self.reader.start()
 
+    def transcript_paths(self):
+        """The --session-id transcript, then, after /clear, the transcripts of the sessions it started.
 
-def transcript_entries(session):
+        /clear starts a new session (a new ID and transcript) in the same terminal;
+        each person's project directory, and so its transcript directory, is its own."""
+        own = super().transcript_paths()
+        return own + self.later_paths(own)
+
+    def later_paths(self, own=None):
+        own = super().transcript_paths() if own is None else own
+        if self.cleared_at is None or not own:
+            return []
+        later = [p for p in own[0].parent.glob('*.jsonl')
+                 if p.stem != self.sid and p.stat().st_mtime >= self.cleared_at - 2]
+        return sorted(later, key=lambda p: p.stat().st_mtime)
+
+
+def transcript_entries(session, paths=None):
     entries = []
-    for path in (Path.home() / '.claude/projects').glob('*/' + session.sid + '.jsonl'):
+    for path in session.transcript_paths() if paths is None else paths:
         for line in path.read_text().splitlines():
             try:
                 entries.append(json.loads(line))
@@ -379,8 +417,8 @@ def attach_fixture(person, commands, root):
     return channel
 
 
-def attach_live(person, commands):
-    session = AttachedSession(person, TOOLS)
+def attach_live(person, commands, slash_commands=False):
+    session = AttachedSession(person, TOOLS, slash_commands)
     commands.append({'person': person.name, 'implementation': person.impl,
                      'command': 'capsule attach claude -- ' + ' '.join(
                          repr(a) if a == '' or ' ' in a or '"' in a else a for a in session.arguments),
@@ -438,6 +476,11 @@ def fixture_flow(people, channels, nonce):
     assert not failed, ('bob could not pass the task on with parent_task_id', sub_out,
                         {k: parent['meta'].get(k) for k in ('delegable', 'chain_hosts', 'originator_host_id')})
     assert sub_out['submit_state'] == 'accepted', sub_out
+    # Where the live run clears bob's session: bob's task running, his part
+    # passed on. No /clear here; bob's consumer asks for pending work and the
+    # harness runs the SessionStart hook's command, then the flow continues.
+    pending = call(bob, b, 'pending_work', {})
+    midtask = {'parent_task_id': parent_id, 'pending_work': pending, 'hook_command': hook_pending(bob)}
     child = channel_event(c, 'task')
     child_id = child['meta']['task_id']
     call(carol, c, 'task_accept', {'task_id': child_id})
@@ -460,7 +503,7 @@ def fixture_flow(people, channels, nonce):
                               'error': result.get('isError', False)})
     reply = channel_event(a, 'reply')
     return {'tool_calls': observed, 'alice_final_update': final['content'], 'alice_reply_event': reply['content'],
-            'send': sent, 'carol_task_meta': child['meta']}
+            'send': sent, 'carol_task_meta': child['meta'], 'midtask': midtask}
 
 
 def live_prompt(nonce):
@@ -473,18 +516,145 @@ def live_prompt(nonce):
             'respond in your terminal with ALICE_REPLY_OBSERVED followed by the reply content. Do nothing else.')
 
 
-def live_flow(sessions, nonce):
+def received_task(person):
+    """The one task this person's host received: (task_id, state), or (None, None)."""
+    rows = person.sql('SELECT task_id, record FROM received_tasks ORDER BY rowid')
+    return (rows[0][0], json.loads(rows[0][1]).get('state')) if rows else (None, None)
+
+
+def hook_pending(person):
+    """What the SessionStart hook's command prints now: `capsule session pending --hook` in the
+    person's project directory, with no --state, as the hook runs it. `output` is the pending
+    work object carried in its additionalContext, after the fixed lead sentence."""
+    result = subprocess.run(['capsule', 'session', 'pending', '--hook'], env=person.env, cwd=person.project,
+                            capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    hook = first_json(result.stdout) or {}
+    context = (hook.get('hookSpecificOutput') or {}).get('additionalContext') or ''
+    return {'exit': result.returncode, 'context_lead': context[:context.find('{')].strip(),
+            'output': first_json(context[context.find('{'):]) if '{' in context else None,
+            'stderr': tail(result.stderr)}
+
+
+def lists_running(pending, task_id):
+    tasks = (pending or {}).get('tasks') if isinstance(pending, dict) else None
+    return bool(task_id) and any(t.get('task_id') == task_id and t.get('state') == 'running' for t in tasks or [])
+
+
+def adapter_count(person):
+    return len(person.sql('SELECT c.id FROM adapter_credentials c JOIN sessions s ON s.id = c.session_id '
+                          'WHERE s.agent_id = ?', (person.agent_id,)))
+
+
+def clear_mid_task(people, session):
+    """Types /clear into bob's terminal while his task is running; returns what was recorded then."""
+    _alice, bob, carol = people
+
+    def passed_on():
+        _tid, state = received_task(bob)
+        if state is not None and state not in ('queued', 'running'):
+            return 'too_late'
+        if state == 'running' and bob.sql('SELECT 1 FROM outbound_tasks'):
+            # Pause carol's daemon so her result cannot reach bob, and finish
+            # his task, before /clear. It resumes once /clear has taken.
+            carol.daemon.send_signal(signal.SIGSTOP)
+            return 'ready'
+        return None
+    try:
+        return clear_paused(people, session, wait_live(passed_on, FLOW_SECONDS))
+    finally:
+        carol.daemon.send_signal(signal.SIGCONT)
+
+
+def clear_paused(people, session, stage):
+    _alice, bob, _carol = people
+    # Let bob's turn end (the transcript quiet for 5 s, at most 90 s), so /clear
+    # is not typed into a running turn.
+    def size():
+        return sum(p.stat().st_size for p in session.transcript_paths() if p.exists())
+    last, since, start = size(), time.monotonic(), time.monotonic()
+    while time.monotonic() - start < 90:
+        time.sleep(0.5)
+        now = size()
+        if now != last:
+            last, since = now, time.monotonic()
+        elif time.monotonic() - since >= 5:
+            break
+    parent_id, parent_state = received_task(bob)
+    record = {
+        'person': CLEARED, 'stage_before_clear': stage, 'waited_for_quiet_seconds': round(time.monotonic() - start, 1),
+        'parent_task_id': parent_id, 'bob_parent_state_at_clear': parent_state,
+        'carol_daemon_paused_at_clear': True,
+        'hook_command_at_clear': hook_pending(bob), 'bob_adapters_at_clear': adapter_count(bob),
+        'session_id_before_clear': session.sid,
+    }
+    record['debug_offset'] = len(session.debug())
+    session.cleared_at = time.time()
+    record['cleared_at'] = datetime.now(timezone.utc).isoformat()
+    print(f'Typing /clear into {CLEARED}\'s session (task {parent_state}).', flush=True)
+    os.write(session.master, b'/clear')
+    time.sleep(1)
+    os.write(session.master, b'\r')
+
+    def took():
+        return bool(session.later_paths()) or 'SessionStart' in session.debug()[record['debug_offset']:]
+    enters = 1
+    try:
+        wait_live(took, 20)
+    except AssertionError:
+        # The command menu may take the first Enter to complete `/clear`; a
+        # second Enter runs it, and on an empty prompt does nothing.
+        os.write(session.master, b'\r')
+        enters = 2
+        try:
+            wait_live(took, 20)
+        except AssertionError:
+            pass
+    record['enters_sent'] = enters
+    return record
+
+
+def clear_evidence(session, record):
+    """After the flow: what bob's session shows after /clear, from its transcripts and debug log."""
+    later = session.later_paths()
+    parent_id = record['parent_task_id']
+    hook_entries = []
+    for path in later:
+        for line in path.read_text().splitlines():
+            if 'hook_additional_context' in line and 'SessionStart' in line:
+                hook_entries.append({'transcript': path.stem, 'mentions_parent_task': bool(parent_id) and parent_id in line,
+                                     'excerpt': line[:1500]})
+    after = {t: session.tool_exchanges('mcp__capsule__' + t, later) for t in TOOLS}
+    debug = session.debug()[record['debug_offset']:]
+    return {
+        'session_ids_after_clear': [p.stem for p in later],
+        'session_start_hook_context_entries': hook_entries,
+        'debug_session_start_lines': [line[:300] for line in debug.splitlines() if 'SessionStart' in line][:20],
+        'tool_calls_after_clear': {t: calls for t, calls in after.items() if calls},
+        'pending_work_called_after_clear': bool(after['pending_work']),
+        'completed_parent_after_clear': any(
+            (c['input'] or {}).get('task_id') == parent_id and (c['input'] or {}).get('status') == 'succeeded'
+            for c in after['task_complete']),
+        'bob_adapters_after_flow': None,
+    }
+
+
+def live_flow(people, sessions, nonce, clear):
     alice = sessions['alice']
     print('Three interactive Claude sessions registered their Capsule channels; prompting alice only.', flush=True)
     pids = {name: s.process.pid for name, s in sessions.items()}
     alice.prompt(live_prompt(nonce))
+    cleared = clear_mid_task(people, sessions[CLEARED]) if clear else None
     wait_live(lambda: alice.assistant_said('ALICE_RESULT_OBSERVED'), FLOW_SECONDS)
     print('Alice reported the final update.', flush=True)
     wait_live(lambda: alice.assistant_said('ALICE_REPLY_OBSERVED')
               or 'ALICE_REPLY_OBSERVED' in assistant_text(alice), FLOW_SECONDS)
     print('Alice reported the reply.', flush=True)
     assert {name: s.process.pid for name, s in sessions.items()} == pids
+    if cleared is not None:
+        cleared.update(clear_evidence(sessions[CLEARED], cleared))
+        cleared['bob_adapters_after_flow'] = adapter_count(people[1])
     return {
+        'clear': cleared,
         'tool_calls': {name: {t: s.tool_exchanges('mcp__capsule__' + t) for t in TOOLS if s.tool_exchanges('mcp__capsule__' + t)}
                        for name, s in sessions.items()},
         'alice_text': assistant_text(alice),
@@ -595,6 +765,7 @@ def main():
                         help='use this deployed coordinator instead of one on loopback; needs --coordinator-key '
                              'and, when live, --output')
     parser.add_argument('--coordinator-key', metavar='KEY', help="the deployed coordinator's public key")
+    parser.add_argument('--no-clear', action='store_true', help='live mode: skip the mid-task /clear in bob\'s session')
     args = parser.parse_args()
     if not args.fixture and not args.claude:
         parser.error('--claude is required unless --fixture')
@@ -646,7 +817,8 @@ def main():
             if args.fixture:
                 channels[person.name] = attach_fixture(person, commands, work)
             else:
-                sessions[person.name] = attach_live(person, commands)
+                sessions[person.name] = attach_live(person, commands,
+                                                    slash_commands=person.name == CLEARED and not args.no_clear)
                 attached_output(person, sessions[person.name])
                 # Accept the workspace and development-channel confirmations, as the person would.
                 sessions[person.name].ready()
@@ -656,17 +828,37 @@ def main():
         if args.fixture:
             observed = fixture_flow(people, channels, nonce)
         else:
-            observed = live_flow(sessions, nonce)
+            observed = live_flow(people, sessions, nonce, not args.no_clear)
         verified, states, ids = verify(people)
         if not args.fixture:
             verified['every_session_called_capsule_ready'] = all(
                 'capsule_ready' in calls for calls in observed['tool_calls'].values()) and len(observed['tool_calls']) == 3
+        if args.fixture:
+            midtask = observed['midtask']
+            verified['bob_pending_work_listed_running_task_midtask'] = lists_running(
+                midtask['pending_work'], midtask['parent_task_id'])
+            verified['hook_command_listed_running_task_midtask'] = (
+                midtask['hook_command']['exit'] == 0
+                and lists_running(midtask['hook_command']['output'], midtask['parent_task_id']))
+        elif observed['clear'] is not None:
+            cleared = observed['clear']
+            verified['hook_command_listed_running_task_midtask'] = (
+                cleared['hook_command_at_clear']['exit'] == 0
+                and lists_running(cleared['hook_command_at_clear']['output'], cleared['parent_task_id']))
+            verified['bob_task_running_when_cleared'] = cleared['bob_parent_state_at_clear'] == 'running'
+            verified['bob_session_restarted_by_clear'] = bool(cleared['session_ids_after_clear'])
+            verified['bob_given_pending_work_after_clear'] = (
+                any(e['mentions_parent_task'] for e in cleared['session_start_hook_context_entries'])
+                or cleared['pending_work_called_after_clear'])
+            verified['bob_completed_task_after_clear'] = (
+                cleared['completed_parent_after_clear'] and states.get('bob_received') == 'succeeded')
         print('Verified from host state:', json.dumps(verified, indent=2), flush=True)
         failed = [k for k, v in verified.items() if not v]
         report = {
             'checked_at': datetime.now(timezone.utc).isoformat(),
             'mode': 'fixture' if args.fixture else 'live',
-            'contract': 'docs/launch-contract.md, Slice 5: acceptance (live run)',
+            'contract': 'docs/launch-contract.md, Slice 5: acceptance (live run); docs/live-delivery-contract.md, '
+                        'Slice 2: Verification (mid-task /clear)',
             'coordinator': ({'address': args.coordinator, 'public_key': args.coordinator_key,
                              'description': 'deployed coordinator, built into the bundles as the default'}
                             if args.coordinator else
@@ -685,7 +877,12 @@ def main():
             report['evidence'] = ('harness_verified comes from host databases and owner CLI records read after the '
                                   'flow; tool_calls are the deterministic consumers\' own calls.')
             report['limitations'] = ['Deterministic MCP consumers, no model: this checks the harness and the flow, '
-                                     'not model use.']
+                                     'not model use.',
+                                     'No /clear happens in fixture mode; there is no Claude Code session or '
+                                     'SessionStart hook. At the point the live run clears bob\'s session, bob\'s '
+                                     'consumer calls pending_work and the harness runs the hook\'s command '
+                                     '(`capsule session pending --hook` in bob\'s project); the flow then continues.']
+            report['clear'] = {'performed': False, 'midtask': observed['midtask']}
         else:
             report['claude_version'] = subprocess.check_output([str(args.claude.resolve()), '--version'],
                                                                text=True).strip()
@@ -702,6 +899,30 @@ def main():
                 'Alice\'s prompt names the tools and addresses; bob and carol were not prompted and acted on the '
                 'channel events alone, following the instructions alice\'s task carried.',
             ]
+            if observed['clear'] is None:
+                report['clear'] = {'performed': False, 'note': '--no-clear'}
+            else:
+                report['clear'] = {'performed': True, **observed['clear']}
+                report['evidence'] += (
+                    ' clear: bob_task_running_when_cleared and the hook command output are host state read just '
+                    'before /clear was typed; bob_session_restarted_by_clear means a new transcript (session ID) '
+                    'appeared in bob\'s project transcript directory after /clear; bob_given_pending_work_after_clear '
+                    'means a post-/clear transcript holds a SessionStart hook_additional_context entry naming bob\'s '
+                    'task, or the model called pending_work after /clear; bob_completed_task_after_clear means the '
+                    'post-/clear transcript holds task_complete (succeeded) for that task and host state shows it '
+                    'succeeded.')
+                report['limitations'] += [
+                    'bob\'s session runs without --disable-slash-commands so that /clear is the built-in command.',
+                    'The harness types /clear into the terminal once bob\'s transcript is quiet; whether Claude Code ran '
+                    'it is inferred from a new transcript or a SessionStart line in the debug log (enters_sent records '
+                    'whether a second Enter was needed).',
+                    'Hook context is detected by a hook_additional_context/SessionStart transcript entry; if Claude '
+                    'Code records it differently, only a pending_work call counts as evidence. Neither shows how the '
+                    'model used the context.',
+                    'After /clear the model is not prompted; its next turn comes from carol\'s task_update channel '
+                    'event. The hook\'s preview of the task input is 200 characters, so the instructions carried in '
+                    'alice\'s task may be cut off in it.',
+                ]
         if failed:
             report['failed'] = failed
         if output:

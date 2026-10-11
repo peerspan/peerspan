@@ -302,7 +302,7 @@ type AdapterSendStatus struct {
 }
 
 func (s *Store) AdapterSendStatus(ctx context.Context, token AdapterAuth, id string) (AdapterSendStatus, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AdapterSendStatus{}, err
 	}
@@ -311,9 +311,11 @@ func (s *Store) AdapterSendStatus(ctx context.Context, token AdapterAuth, id str
 	if err != nil {
 		return AdapterSendStatus{}, err
 	}
+	// The send is this credential's, or one whose reply this credential
+	// holds after claiming it from an ended authorization of its agent.
 	var peer string
 	var routeID sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT peer, route_id FROM adapter_outbound WHERE adapter_id = ? AND request_id = ?`, a.ID, id).Scan(&peer, &routeID)
+	err = tx.QueryRowContext(ctx, `SELECT peer, route_id FROM adapter_outbound WHERE request_id = ?1 AND (adapter_id = ?2 OR (reply_delivery IS NOT NULL AND json_extract(reply_delivery, '$.adapter_id') = ?2 AND reply_returned_at IS NULL)) ORDER BY adapter_id = ?2 DESC LIMIT 1`, id, a.ID).Scan(&peer, &routeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AdapterSendStatus{}, ErrNotFound
 	}
@@ -332,5 +334,9 @@ func (s *Store) AdapterSendStatus(ctx context.Context, token AdapterAuth, id str
 	if err != nil {
 		return AdapterSendStatus{}, err
 	}
-	return AdapterSendStatus{RequestID: id, Destination: destination, To: out.To, State: out.State, Attempts: out.Attempts, NextAttemptAt: out.NextAttemptAt, Error: out.Error}, nil
+	// Naming a send reports its reply seen, when this credential holds it.
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET reply_seen_at = ? WHERE peer = ? AND request_id = ? AND reply_delivery IS NOT NULL AND json_extract(reply_delivery, '$.adapter_id') = ? AND reply_returned_at IS NULL AND reply_seen_at IS NULL`, timestamp(time.Now()), peer, id, a.ID); err != nil {
+		return AdapterSendStatus{}, err
+	}
+	return AdapterSendStatus{RequestID: id, Destination: destination, To: out.To, State: out.State, Attempts: out.Attempts, NextAttemptAt: out.NextAttemptAt, Error: out.Error}, tx.Commit()
 }

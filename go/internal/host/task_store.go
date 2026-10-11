@@ -144,6 +144,12 @@ type TaskHandoff struct {
 	OriginatorPersonID *string `json:"originator_person_id"`
 	// Delegable reports whether the receiving agent may pass the task on.
 	Delegable bool `json:"delegable"`
+	// Redelivered marks a task claimed again after its holding
+	// authorization ended without seeing it; Adopted, a running task
+	// claimed from an ended authorization, with its latest Progress.
+	Redelivered bool    `json:"redelivered"`
+	Adopted     bool    `json:"adopted"`
+	Progress    *string `json:"progress"`
 }
 
 // TaskCancelHandoff is a claimed cancellation request.
@@ -440,6 +446,9 @@ func (s *Store) RequestTaskCancel(ctx context.Context, sender, id string) (TaskS
 // rechecking its authorization, as message handoff does. A recoverable
 // denial leaves the task unclaimed; a final one rejects it.
 func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, error) {
+	if err := s.returnEnded(ctx, auth); err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -455,6 +464,13 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 	now := time.Now()
 	if err = expireTasks(ctx, tx, now); err != nil {
 		return nil, err
+	}
+	// Tasks returned by the agent's ended authorizations come first.
+	if h, err := s.claimReturnedTask(ctx, tx, a, ss, now); err != nil || h != nil {
+		if err != nil {
+			return nil, err
+		}
+		return h, tx.Commit()
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ? AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100`, ss.AgentID)
 	if err != nil {
@@ -524,6 +540,102 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 	return result, tx.Commit()
 }
 
+// claimReturnedTask claims the oldest returned task of the session's agent,
+// rebinding its delivery in place. A running task is adopted; a queued one
+// is redelivered after rechecking its authorization as a first handoff does.
+func (s *Store) claimReturnedTask(ctx context.Context, tx *sql.Tx, a Adapter, ss Session, now time.Time) (*TaskHandoff, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT d.record, d.redeliveries, t.request, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.returned_at IS NOT NULL AND json_extract(d.record, '$.target_agent_id') = ? AND json_extract(t.record, '$.state') IN ('queued', 'running') ORDER BY d.rowid LIMIT 100`, ss.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	type returned struct {
+		delivery     TaskDelivery
+		redeliveries int64
+		request      TaskRequest
+		status       TaskStatus
+	}
+	var items []returned
+	for rows.Next() {
+		var p returned
+		var record, request, status string
+		if err = rows.Scan(&record, &p.redeliveries, &request, &status); err != nil {
+			break
+		}
+		if err = json.Unmarshal([]byte(record), &p.delivery); err != nil {
+			break
+		}
+		if err = json.Unmarshal([]byte(request), &p.request); err != nil {
+			break
+		}
+		if err = json.Unmarshal([]byte(status), &p.status); err != nil {
+			break
+		}
+		items = append(items, p)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range items {
+		d := p.delivery
+		d.AdapterID, d.SessionID = a.ID, ss.ID
+		h := &TaskHandoff{Task: p.request, Status: p.status}
+		if p.status.State == TaskRunning {
+			// Adoption: no redelivery is counted, and acceptance settled
+			// whether the task may be passed on.
+			if err = putJSON(ctx, tx, `UPDATE task_deliveries SET record = ?, session_id = ?, returned_at = NULL, adopted_at = ? WHERE id = ?`, d, ss.ID, timestamp(now), d.ID); err != nil {
+				return nil, err
+			}
+			var delegable sql.NullBool
+			if err = tx.QueryRowContext(ctx, `SELECT json_extract(record, '$.delegable') FROM received_tasks WHERE sender = ? AND task_id = ?`, d.SenderHostID, d.TaskID).Scan(&delegable); err != nil {
+				return nil, err
+			}
+			h.Delegable, h.Adopted, h.Redelivered = delegable.Valid && delegable.Bool, true, p.redeliveries > 0
+			if h.Progress, err = latestProgress(ctx, tx, d.SenderHostID, d.TaskID); err != nil {
+				return nil, err
+			}
+			if h.OriginatorPersonID, err = chainOriginatorPerson(ctx, tx, p.request); err != nil {
+				return nil, err
+			}
+		} else {
+			final, check, err := s.taskHandoffAuthority(ctx, tx, d.SenderHostID, p.request)
+			if err != nil {
+				return nil, err
+			}
+			if final == nil {
+				continue // recoverable: leave it returned
+			}
+			if !*final {
+				reason := taskLapsed
+				st := p.status
+				if err = appendTaskEvent(ctx, tx, &st, "rejected", TaskRejected, &reason, nil, "task.rejected", now); err != nil {
+					return nil, err
+				}
+				if _, err = tx.ExecContext(ctx, `UPDATE task_deliveries SET returned_at = NULL WHERE id = ?`, d.ID); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if err = putJSON(ctx, tx, `UPDATE task_deliveries SET record = ?, session_id = ?, returned_at = NULL, adopted_at = NULL, redeliveries = redeliveries + 1 WHERE id = ?`, d, ss.ID, d.ID); err != nil {
+				return nil, err
+			}
+			h.Delegable, h.Redelivered = check.delegable, true
+			if check.chain != nil {
+				h.OriginatorPersonID = check.chain.originatorPerson
+			}
+		}
+		h.Delivery = d
+		if h.SenderPersonID, h.SenderPerson, err = senderPerson(ctx, tx, d.SenderHostID); err != nil {
+			return nil, err
+		}
+		return h, nil
+	}
+	return nil, nil
+}
+
 // handoffCheck is what an authorized handoff or acceptance learned: the
 // artifact bound, the verified chain, and whether the task may be passed on.
 type handoffCheck struct {
@@ -575,7 +687,7 @@ func ownedTask(ctx context.Context, tx *sql.Tx, auth AdapterAuth, id string) (Ta
 	if err != nil {
 		return TaskDelivery{}, TaskRequest{}, TaskStatus{}, err
 	}
-	d, err := readJSON[TaskDelivery](tx.QueryRowContext(ctx, `SELECT record FROM task_deliveries WHERE task_id = ? AND session_id = ? AND json_extract(record, '$.adapter_id') = ? ORDER BY rowid LIMIT 1`, id, ss.ID, a.ID))
+	d, err := readJSON[TaskDelivery](tx.QueryRowContext(ctx, `SELECT record FROM task_deliveries WHERE task_id = ? AND session_id = ? AND json_extract(record, '$.adapter_id') = ? AND returned_at IS NULL ORDER BY rowid LIMIT 1`, id, ss.ID, a.ID))
 	if errors.Is(err, ErrNotFound) {
 		var exists bool
 		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM received_tasks WHERE task_id = ?)`, id).Scan(&exists); err != nil {
@@ -737,7 +849,7 @@ func (s *Store) NextTaskCancel(ctx context.Context, auth AdapterAuth) (*TaskCanc
 		return nil, err
 	}
 	var record, status string
-	err = tx.QueryRowContext(ctx, `SELECT d.record, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.session_id = ? AND json_extract(d.record, '$.adapter_id') = ? AND json_extract(d.record, '$.cancel_claimed_at') IS NULL AND json_extract(t.record, '$.state') = 'running' AND json_extract(t.record, '$.cancel_requested') = 1 ORDER BY d.rowid LIMIT 1`, ss.ID, a.ID).Scan(&record, &status)
+	err = tx.QueryRowContext(ctx, `SELECT d.record, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.session_id = ? AND json_extract(d.record, '$.adapter_id') = ? AND d.returned_at IS NULL AND json_extract(d.record, '$.cancel_claimed_at') IS NULL AND json_extract(t.record, '$.state') = 'running' AND json_extract(t.record, '$.cancel_requested') = 1 ORDER BY d.rowid LIMIT 1`, ss.ID, a.ID).Scan(&record, &status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -753,7 +865,8 @@ func (s *Store) NextTaskCancel(ctx context.Context, auth AdapterAuth) (*TaskCanc
 	}
 	at := timestamp(time.Now())
 	h.Delivery.CancelClaimedAt = &at
-	if err = putJSON(ctx, tx, `UPDATE task_deliveries SET record = ? WHERE id = ?`, h.Delivery, h.Delivery.ID); err != nil {
+	// The first claim of a cancellation request starts it unseen.
+	if err = putJSON(ctx, tx, `UPDATE task_deliveries SET record = ?, cancel_seen_at = NULL WHERE id = ?`, h.Delivery, h.Delivery.ID); err != nil {
 		return nil, err
 	}
 	return &h, tx.Commit()

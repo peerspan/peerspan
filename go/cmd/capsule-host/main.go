@@ -67,6 +67,9 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == taskByAddress {
 		args = append([]string{"task"}, args[1:]...)
 	}
+	if args[0] == "session" && args[1] == "pending" {
+		return runSessionPending(ctx, fs, state, out)
+	}
 	if args[0] == "session" && (args[1] == "setup" || args[1] == "start" || args[1] == "doctor") {
 		return runSessionSetup(ctx, args[1:], fs, state, out)
 	}

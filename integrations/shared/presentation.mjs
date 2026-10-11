@@ -12,7 +12,12 @@ const titles = {
 
 export function presentEvent(event) {
   return {
-    text: (titles[event.meta.kind] ?? 'Capsule event') + '\n\n' + event.content,
+    // An adopted task or redelivered item may continue earlier work.
+    text:
+      (titles[event.meta.kind] ?? 'Capsule event') +
+      (event.meta.adopted === true ? ' (adopted)' : event.meta.redelivered === true ? ' (redelivered)' : '') +
+      '\n\n' +
+      event.content,
     metadata: metadataMarker + JSON.stringify(event.meta)
   };
 }

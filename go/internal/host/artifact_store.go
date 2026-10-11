@@ -442,11 +442,11 @@ func (s *Store) AdapterDelegationArtifact(ctx context.Context, auth AdapterAuth,
 		return nil, 0, err
 	}
 	defer tx.Rollback()
-	a, _, err := adapterAuthority(ctx, tx, auth)
+	a, ss, err := adapterAuthority(ctx, tx, auth)
 	if err != nil {
 		return nil, 0, err
 	}
-	out, err := readJSON[OutboundTask](tx.QueryRowContext(ctx, `SELECT record FROM outbound_tasks WHERE task_id = ? AND json_extract(record, '$.adapter_id') = ? ORDER BY rowid LIMIT 1`, id, a.ID))
+	out, err := agentOutboundTask(ctx, tx, a, ss, id)
 	if err != nil {
 		return nil, 0, err
 	}

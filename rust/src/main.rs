@@ -107,6 +107,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             cli::SessionCommand::Setup { .. }
                 | cli::SessionCommand::Start { .. }
                 | cli::SessionCommand::Doctor { .. }
+                | cli::SessionCommand::Pending { .. }
         )
     ) {
         let cli::Command::Session(operation) = command else {

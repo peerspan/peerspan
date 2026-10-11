@@ -438,7 +438,7 @@ def check(go, rust, node, label):
             b.stop(crash=True)
             a.binary, b.binary = str(rust), str(go)
             assert a.start() == ai and b.start() == bi
-            assert sql(a, "PRAGMA user_version")[0][0] == 14
+            assert sql(a, "PRAGMA user_version")[0][0] == 15
             assert send(a, ac)[0] == 503
             a.cli("session", "detach", ass["id"])
             assert (
@@ -457,14 +457,26 @@ def check(go, rust, node, label):
                     "adapter", "route", "list", "--adapter", ac["adapter"]["id"]
                 )
             )
-            # A fresh session gets no replies belonging to the previous session.
+            # The detached session never saw its two claimed replies, so the
+            # agent's next session receives each again, once, under the same
+            # notification ID (live delivery slice 2).
             ss2 = a.cli(
                 "session", "attach", "--agent", aa["id"], "--integration", "test"
             )
             c2 = credential(a, ss2)
-            assert adapter_call(
-                a, c2["token"], "POST", "/adapter/v1/replies/next", {}
-            ) == (200, None)
+            again = {}
+            while True:
+                status, h = adapter_call(
+                    a, c2["token"], "POST", "/adapter/v1/replies/next", {}
+                )
+                assert status == 200
+                if h is None:
+                    break
+                assert h["redelivered"] is True, h
+                assert h["delivery"]["session_id"] == ss2["id"], h
+                again[h["reply"]["content"]] = h
+            assert set(again) == {"reply from agent B", "recovered"}, again
+            assert again["recovered"]["delivery"]["id"] == notice["id"]
         finally:
             if ca:
                 ca.close()
@@ -553,7 +565,7 @@ def migration_check(original_binary, replacement_binary, label):
             assert (
                 sql(a, "PRAGMA user_version")[0][0]
                 == sql(b, "PRAGMA user_version")[0][0]
-                == 14
+                == 15
             )
             assert a.cli("adapter", "list") == [ac["adapter"]] and b.cli(
                 "adapter", "list"

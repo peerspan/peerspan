@@ -201,6 +201,9 @@ pub struct ReplyDelivery {
 pub struct ReplyHandoff {
     pub delivery: ReplyDelivery,
     pub reply: Reply,
+    /// Whether this reply was claimed again after its holding
+    /// authorization ended unseen.
+    pub redelivered: bool,
 }
 
 #[derive(Serialize)]
@@ -236,7 +239,7 @@ pub(crate) fn valid_name(name: &str) -> bool {
 impl Store {
     pub fn outbound_origin(&self, peer: &str, id: &str) -> Result<OutboundOrigin, Error> {
         let conn = self.connection()?;
-        let (adapter_id,session_id,route_id,delivery):(String,String,Option<String>,Option<String>)=conn.query_row("SELECT adapter_id,session_id,route_id,reply_delivery FROM adapter_outbound WHERE peer = ?1 AND request_id = ?2",params![peer,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+        let (adapter_id,session_id,route_id,delivery):(String,String,Option<String>,Option<String>)=conn.query_row("SELECT o.adapter_id,c.session_id,o.route_id,o.reply_delivery FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id WHERE o.peer = ?1 AND o.request_id = ?2",params![peer,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
         Ok(OutboundOrigin {
             peer_host_id: peer.to_owned(),
             request_id: id.to_owned(),
@@ -535,7 +538,7 @@ impl Store {
             &now(),
         )?;
         tx.execute(
-            "INSERT INTO adapter_outbound VALUES (?1,?2,?3,?4,?5,0,NULL)",
+            "INSERT INTO adapter_outbound (peer, request_id, adapter_id, session_id, route_id, next_poll_at, reply_delivery) VALUES (?1,?2,?3,?4,?5,0,NULL)",
             params![
                 out.peer_host_id,
                 out.request.request_id,
@@ -559,15 +562,18 @@ impl Store {
             return Err(Error::NotFound);
         }
         let conn = self.connection()?;
-        let (a, _) = authority(&conn, token)?;
+        let (a, ss) = authority(&conn, token)?;
+        // This credential's send, or one whose reply this session holds.
         let (peer, route_id): (String, Option<String>) = conn
             .query_row(
-                "SELECT peer, route_id FROM adapter_outbound WHERE adapter_id = ?1 AND request_id = ?2",
+                "SELECT peer, route_id FROM adapter_outbound WHERE request_id = ?2 AND (adapter_id = ?1 OR (json_extract(reply_delivery, '$.adapter_id') = ?1 AND reply_returned_at IS NULL)) ORDER BY rowid LIMIT 1",
                 params![a.id, request_id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?
             .ok_or(Error::NotFound)?;
+        // Following a send shows its reply, if handed off, was seen.
+        crate::live_delivery::mark_reply(&conn, &a.id, &ss.id, request_id, &now())?;
         let destination = match route_id {
             Some(route_id) => {
                 read::<OutboundRoute>(
@@ -727,7 +733,7 @@ impl Store {
         )?;
         append_event(&tx, "message.queued", &subject, &now())?;
         tx.execute(
-            "INSERT INTO adapter_outbound VALUES (?1,?2,?3,?4,NULL,0,NULL)",
+            "INSERT INTO adapter_outbound (peer, request_id, adapter_id, session_id, route_id, next_poll_at, reply_delivery) VALUES (?1,?2,?3,?4,NULL,0,NULL)",
             params![out.peer_host_id, out.request.request_id, a.id, ss.id],
         )?;
         append_event(&tx, "adapter.message_queued", &subject, &now())?;
@@ -741,33 +747,77 @@ impl Store {
         tx.commit()?;
         Ok(out)
     }
+    /// Hands this session the oldest reply it is owed: one to its own send,
+    /// one returned to the agent's queue, or one that arrived after the
+    /// sending authorization of the agent ended.
     pub fn next_reply(&self, token: &AdapterAuth) -> Result<Option<ReplyHandoff>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
-        let pending:Option<(String,String,String)>=tx.query_row("SELECT o.peer,o.request_id,r.record FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id WHERE o.adapter_id = ?1 AND o.session_id = ?2 AND o.reply_delivery IS NULL ORDER BY o.rowid LIMIT 1",params![a.id,ss.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-        let Some((peer, id, data)) = pending else {
-            return Ok(None);
+        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        type Row = (String, String, String, String, Option<String>, bool);
+        let candidates: Vec<Row> = {
+            let mut stmt = tx.prepare("SELECT o.peer,o.request_id,r.record,o.adapter_id,o.reply_delivery,o.reply_returned_at IS NOT NULL FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id JOIN sessions s ON s.id = o.session_id WHERE s.agent_id = ?1 AND (o.reply_delivery IS NULL OR o.reply_returned_at IS NOT NULL) ORDER BY o.rowid")?;
+            stmt.query_map([&ss.agent_id], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
         };
-        let reply: Reply = serde_json::from_str(&data)?;
-        let at = now();
-        let d = ReplyDelivery {
-            id: new_id("notification")?,
-            peer_host_id: peer,
-            request_id: id,
-            adapter_id: a.id,
-            session_id: ss.id,
-            state: "unknown".into(),
-            created_at: at.clone(),
-            updated_at: at,
-        };
-        tx.execute(
-            "UPDATE adapter_outbound SET reply_delivery = ?1 WHERE peer = ?2 AND request_id = ?3",
-            params![serde_json::to_string(&d)?, d.peer_host_id, d.request_id],
-        )?;
-        append_event(&tx, "reply.handoff", &d.id, &d.created_at)?;
+        let mut ended = crate::live_delivery::Ended::default();
+        for (peer, id, data, sender, held, returned) in candidates {
+            let at = now();
+            let (d, redelivered) = if returned {
+                let mut d: ReplyDelivery = serde_json::from_str(held.as_deref().unwrap_or("null"))?;
+                d.adapter_id = a.id.clone();
+                d.session_id = ss.id.clone();
+                d.state = "unknown".into();
+                d.updated_at = at.clone();
+                tx.execute(
+                    "UPDATE adapter_outbound SET reply_delivery = ?1, session_id = ?2, reply_redeliveries = reply_redeliveries + 1, reply_returned_at = NULL WHERE peer = ?3 AND request_id = ?4",
+                    params![serde_json::to_string(&d)?, ss.id, peer, id],
+                )?;
+                (d, true)
+            } else {
+                let own = sender == a.id;
+                // A reply that arrived after its sending authorization ended.
+                if !own && !ended.check(&tx, &sender)? {
+                    continue;
+                }
+                let d = ReplyDelivery {
+                    id: new_id("notification")?,
+                    peer_host_id: peer,
+                    request_id: id,
+                    adapter_id: a.id.clone(),
+                    session_id: ss.id.clone(),
+                    state: "unknown".into(),
+                    created_at: at.clone(),
+                    updated_at: at,
+                };
+                // The first claim is a new handoff: it starts unseen.
+                tx.execute(
+                    "UPDATE adapter_outbound SET reply_delivery = ?1, session_id = ?2, reply_seen_at = NULL WHERE peer = ?3 AND request_id = ?4",
+                    params![serde_json::to_string(&d)?, ss.id, d.peer_host_id, d.request_id],
+                )?;
+                (d, false)
+            };
+            let reply: Reply = serde_json::from_str(&data)?;
+            append_event(&tx, "reply.handoff", &d.id, &d.updated_at)?;
+            tx.commit()?;
+            return Ok(Some(ReplyHandoff {
+                delivery: d,
+                reply,
+                redelivered,
+            }));
+        }
         tx.commit()?;
-        Ok(Some(ReplyHandoff { delivery: d, reply }))
+        Ok(None)
     }
     pub fn reply_forwarded(&self, token: &AdapterAuth, id: &str) -> Result<ReplyDelivery, Error> {
         let mut conn = self.connection()?;
@@ -775,7 +825,7 @@ impl Store {
         let (a, ss) = authority(&tx, token)?;
         let mut d: ReplyDelivery = read(
             &tx,
-            "SELECT reply_delivery FROM adapter_outbound WHERE json_extract(reply_delivery,'$.id') = ?1 AND adapter_id = ?2 AND session_id = ?3",
+            "SELECT reply_delivery FROM adapter_outbound WHERE json_extract(reply_delivery,'$.id') = ?1 AND json_extract(reply_delivery,'$.adapter_id') = ?2 AND session_id = ?3 AND reply_returned_at IS NULL",
             params![id, a.id, ss.id],
         )?;
         if d.state == "forwarded" {
@@ -794,27 +844,17 @@ impl Store {
     fn next_reply_job(&self) -> Result<Option<(String, String)>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let candidates = {
-            let mut stmt=tx.prepare("SELECT o.peer,o.request_id,c.record FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id JOIN sessions ss ON ss.id = o.session_id JOIN adapter_connections ac ON ac.adapter_id = o.adapter_id WHERE ac.lease_until_ms > ?1 AND ss.state = 'attached' AND o.next_poll_at <= ?1 AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) ORDER BY o.next_poll_at,o.rowid LIMIT 100")?;
-            stmt.query_map([Utc::now().timestamp_millis()], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-        };
-        let mut result = None;
-        for (peer, id, data) in candidates {
-            let a: crate::adapter::Adapter = serde_json::from_str(&data)?;
-            if a.revoked_at.is_none() && expiration(&a.expires_at)? > Utc::now() {
-                result = Some((peer, id));
-                break;
-            } else {
-                tx.execute("UPDATE adapter_outbound SET next_poll_at = ?1 WHERE peer = ?2 AND request_id = ?3",params![i64::MAX,peer,id])?;
-            }
-        }
+        // Replies are fetched while a session can receive them: the sending
+        // authorization's own, or, once it has ended, a verified session of
+        // the same agent, which receives replies that arrive late.
+        let current = Utc::now();
+        let result: Option<(String, String)> = tx
+            .query_row(
+                "SELECT o.peer,o.request_id FROM adapter_outbound o JOIN sessions ss ON ss.id = o.session_id WHERE o.next_poll_at <= ?1 AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) AND EXISTS (SELECT 1 FROM sessions s2 JOIN adapter_credentials c2 ON c2.session_id = s2.id JOIN adapter_connections x2 ON x2.adapter_id = c2.id WHERE s2.agent_id = ss.agent_id AND s2.state = 'attached' AND x2.lease_until_ms > ?1 AND json_extract(c2.record, '$.revoked_at') IS NULL AND json_extract(c2.record, '$.expires_at') > ?2 AND (c2.id = o.adapter_id OR x2.channel_verified_at IS NOT NULL)) ORDER BY o.next_poll_at,o.rowid LIMIT 1",
+                params![current.timestamp_millis(), crate::store::rfc3339(current)],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
         if let Some((peer, id)) = &result {
             tx.execute(
                 "UPDATE adapter_outbound SET next_poll_at = ?1 WHERE peer = ?2 AND request_id = ?3",

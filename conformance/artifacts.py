@@ -562,17 +562,17 @@ def migration_check(original, replacement, label):
             sql(host, 'PRAGMA user_version = 9')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 14
+            assert sql(host, 'PRAGMA user_version')[0][0] == 15
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(ARTIFACT_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('artifact', 'list')['files'] == []
             assert (host.state / 'artifacts').is_dir() and (host.state / 'artifacts').stat().st_mode & 0o077 == 0
             host.stop()
             # A newer version is refused, without changes.
-            sql(host, 'PRAGMA user_version = 15')
+            sql(host, 'PRAGMA user_version = 16')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 15
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 16
         finally:
             stop_all((host,))
     print(f'PASS {label}: v9→v13 migration; version 14 refused', flush=True)

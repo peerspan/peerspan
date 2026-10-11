@@ -9,6 +9,7 @@ pub mod chain;
 pub mod coordinator_move;
 pub mod directory;
 pub mod disco;
+pub mod live_delivery;
 pub mod membership;
 pub mod model;
 pub mod network;

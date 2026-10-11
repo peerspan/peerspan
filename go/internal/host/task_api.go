@@ -172,6 +172,11 @@ func adapterTaskRoutes(mux *http.ServeMux, store *Store, token func(*http.Reques
 				}
 			}
 			st, err := store.ChangeTask(r.Context(), token(r), r.PathValue("id"), TaskChange{Op: op, Reason: text(body.Reason), Message: text(body.Message), Status: text(body.Status), Output: text(body.Output), Artifacts: emptyAsNone(body.Artifacts)})
+			// A task_* call on the task reports what this session was
+			// forwarded about it seen; accept and reject, the task itself.
+			if seenErr := store.TaskSeen(r.Context(), token(r), r.PathValue("id"), op == "accept" || op == "reject"); err == nil {
+				err = seenErr
+			}
 			respond(w, http.StatusOK, st, err)
 		})
 	}

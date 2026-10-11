@@ -100,6 +100,9 @@ pub struct Handoff {
     /// network by ID that binds it; null for an unbound host.
     pub sender_person_id: Option<String>,
     pub sender_person: Option<String>,
+    /// Whether this delivery was claimed again after its holding
+    /// authorization ended unseen.
+    pub redelivered: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -195,8 +198,14 @@ pub(crate) fn authority(
 }
 fn owned(conn: &Connection, token: &AdapterAuth, id: &str) -> Result<Delivery, Error> {
     let (a, ss) = authority(conn, token)?;
-    let d: Delivery = read(conn, "SELECT record FROM deliveries WHERE id = ?1", [id])?;
-    if d.adapter_id != a.id || d.session_id != ss.id || d.state == "blocked" {
+    let (record, returned): (String, bool) = conn.query_row(
+        "SELECT record, returned_at IS NOT NULL FROM deliveries WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let d: Delivery = serde_json::from_str(&record)?;
+    // A returned delivery belongs to no session until it is claimed again.
+    if returned || d.adapter_id != a.id || d.session_id != ss.id || d.state == "blocked" {
         return Err(Error::Forbidden);
     }
     Ok(d)
@@ -408,6 +417,11 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, token)?;
+        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        if let Some(handoff) = self.claim_returned_delivery(&tx, &a, &ss)? {
+            tx.commit()?;
+            return Ok(Some(handoff));
+        }
         let pending = {
             let mut stmt = tx.prepare("SELECT m.sender,m.request FROM received_messages m WHERE json_extract(m.request,'$.target_agent_id') = ?1 AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.sender = m.sender AND d.request_id = m.request_id) ORDER BY m.rowid LIMIT 100")?;
             stmt.query_map([&ss.agent_id], |row| {
@@ -449,7 +463,7 @@ impl Store {
                 updated_at: at,
             };
             tx.execute(
-                "INSERT INTO deliveries VALUES (?1,?2,?3,?4,?5)",
+                "INSERT INTO deliveries (id, sender, request_id, session_id, record) VALUES (?1,?2,?3,?4,?5)",
                 params![
                     d.id,
                     d.sender_host_id,
@@ -475,12 +489,74 @@ impl Store {
                     request,
                     sender_person_id,
                     sender_person,
+                    redelivered: false,
                 });
                 break;
             }
         }
         tx.commit()?;
         Ok(handoff)
+    }
+    /// Claims the oldest delivery returned to this agent's queue, after
+    /// rechecking its authorization and deadline as for a new one: a final
+    /// lapse blocks it, and a recoverable one leaves it returned.
+    fn claim_returned_delivery(
+        &self,
+        tx: &Transaction<'_>,
+        a: &Adapter,
+        ss: &Session,
+    ) -> Result<Option<Handoff>, Error> {
+        let returned = {
+            let mut stmt = tx.prepare("SELECT d.record FROM deliveries d JOIN sessions s ON s.id = d.session_id WHERE s.agent_id = ?1 AND d.returned_at IS NOT NULL ORDER BY d.rowid")?;
+            stmt.query_map([&ss.agent_id], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for record in returned {
+            let mut d: Delivery = serde_json::from_str(&record)?;
+            let request: MessageRequest = read(
+                tx,
+                "SELECT request FROM received_messages WHERE sender = ?1 AND request_id = ?2",
+                params![d.sender_host_id, d.request_id],
+            )?;
+            let usable = match self.message_bounds(tx, &d.sender_host_id, &request.authz(), true) {
+                Ok(g) => match self.grant_connected(tx, &d.sender_host_id, &g)? {
+                    Connectivity::Usable => true,
+                    Connectivity::Stale => continue,
+                    Connectivity::Absent => false,
+                },
+                Err(Error::Forbidden) => false,
+                Err(Error::Unavailable(_)) => continue,
+                Err(e) => return Err(e),
+            };
+            let at = now();
+            d.updated_at = at.clone();
+            if !usable {
+                d.state = "blocked".into();
+                tx.execute(
+                    "UPDATE deliveries SET record = ?1, returned_at = NULL WHERE id = ?2",
+                    params![serde_json::to_string(&d)?, d.id],
+                )?;
+                append_event(tx, "message.blocked", &d.id, &at)?;
+                continue;
+            }
+            d.adapter_id = a.id.clone();
+            d.session_id = ss.id.clone();
+            d.state = "unknown".into();
+            tx.execute(
+                "UPDATE deliveries SET record = ?1, session_id = ?2, redeliveries = redeliveries + 1, returned_at = NULL WHERE id = ?3",
+                params![serde_json::to_string(&d)?, d.session_id, d.id],
+            )?;
+            append_event(tx, "message.handoff", &d.id, &at)?;
+            let (sender_person_id, sender_person) = sender_person(tx, &d.sender_host_id)?;
+            return Ok(Some(Handoff {
+                delivery: d,
+                request,
+                sender_person_id,
+                sender_person,
+                redelivered: true,
+            }));
+        }
+        Ok(None)
     }
     pub fn delivery(&self, id: &str) -> Result<Delivery, Error> {
         read(
@@ -529,14 +605,31 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let mut d = owned(&tx, token, id)?;
+        let r = self.answer(&tx, &mut d, content)?;
+        // A recorded reply reports the delivery seen; a refused one does not.
+        tx.execute(
+            "UPDATE deliveries SET seen_at = COALESCE(seen_at, ?1) WHERE id = ?2",
+            params![now(), d.id],
+        )?;
+        tx.commit()?;
+        Ok(r)
+    }
+    /// Records the reply to a delivery, or returns the identical one
+    /// already recorded.
+    fn answer(
+        &self,
+        tx: &Transaction<'_>,
+        d: &mut Delivery,
+        content: String,
+    ) -> Result<Reply, Error> {
         let request: MessageRequest = read(
-            &tx,
+            tx,
             "SELECT request FROM received_messages WHERE sender = ?1 AND request_id = ?2",
             params![d.sender_host_id, d.request_id],
         )?;
         // A reply answers content this host already delivered, so only final
         // bounds apply; a lapsed connected state does not strand it.
-        let g = self.message_bounds(&tx, &d.sender_host_id, &request.authz(), false)?;
+        let g = self.message_bounds(tx, &d.sender_host_id, &request.authz(), false)?;
         if content.len() as i64 > g.max_message_bytes {
             return Err(Error::Forbidden);
         }
@@ -577,8 +670,7 @@ impl Store {
         )?;
         d.state = "replied".into();
         d.updated_at = at;
-        update(&tx, &d, "message.replied")?;
-        tx.commit()?;
+        update(tx, d, "message.replied")?;
         Ok(r)
     }
     pub fn received_reply(&self, sender: &str, id: &str) -> Result<Reply, Error> {
@@ -670,6 +762,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::task_outbound::adapter_routes())
         .merge(crate::artifact::adapter_routes())
         .merge(crate::directory::adapter_routes())
+        .merge(crate::live_delivery::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

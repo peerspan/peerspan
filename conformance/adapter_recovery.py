@@ -444,6 +444,14 @@ def check(a_binary, b_binary, node, label):
             )
             fresh = credential(b, sibling)
             assert connect(b, fresh)[0] == 200
+            # The detached authorization never saw this delivery, so the agent's
+            # next session receives it again (live delivery slice 2).
+            redelivered = adapter_call(b, fresh["token"], "POST", "/adapter/v1/next", {})
+            assert (
+                redelivered[0] == 200
+                and redelivered[1]["delivery"]["request_id"] == unknown["request_id"]
+                and redelivered[1]["redelivered"] is True
+            ), redelivered
             assert adapter_call(b, fresh["token"], "POST", "/adapter/v1/next", {}) == (
                 200,
                 None,
@@ -451,12 +459,12 @@ def check(a_binary, b_binary, node, label):
             assert (
                 adapter_call(
                     b,
-                    fresh["token"],
+                    bc["token"],
                     "POST",
                     "/adapter/v1/deliveries/" + unknown["id"] + "/reply",
                     {"content": "wrong session"},
                 )[0]
-                == 403
+                in (401, 403)
             )
             b.cli("adapter", "revoke", fresh["adapter"]["id"])
             assert connect(b, fresh)[0] == 403
@@ -725,6 +733,16 @@ def replacement_check(original, replacement, node, label):
             )
             assert connect(a, fresh)[0] == 200
             assert a.cli("delivery", "inspect", old_delivery["id"]) == old_delivery
+            # The replaced session never saw its claimed delivery, so the
+            # replacement receives it again in place (live delivery slice 2).
+            status, again = adapter_call(
+                a, fresh["token"], "POST", "/adapter/v1/next", {}
+            )
+            assert status == 200 and again["redelivered"] is True, again
+            assert again["delivery"]["id"] == old_delivery["id"]
+            assert again["delivery"]["session_id"] == candidate["id"]
+            assert again["request"]["request_id"] == old_delivery["request_id"]
+            assert a.cli("delivery", "inspect", old_delivery["id"]) == again["delivery"]
             assert adapter_call(a, fresh["token"], "POST", "/adapter/v1/next", {}) == (
                 200,
                 None,
@@ -737,8 +755,9 @@ def replacement_check(original, replacement, node, label):
                 "adapter", "route", "list", "--adapter", old["adapter"]["id"]
             ) == [old_route]
             assert len(sql(a, "SELECT request_id FROM adapter_outbound")) == 1
-            # A final reply for old work remains owner-inspectable and never
-            # becomes a notification to the replacement session.
+            # A final reply for old work remains owner-inspectable. It arrives
+            # after the old authorization ended, so it goes to the agent's next
+            # verified session as a first delivery (live delivery slice 2).
             assert (
                 adapter_call(
                     b,
@@ -759,6 +778,11 @@ def replacement_check(original, replacement, node, label):
                 )["reply"]["content"]
                 == "old final reply"
             )
+            status, late = adapter_call(
+                a, fresh["token"], "POST", "/adapter/v1/replies/next", {}
+            )
+            assert status == 200 and late["redelivered"] is False, late
+            assert late["reply"]["content"] == "old final reply"
             assert adapter_call(
                 a, fresh["token"], "POST", "/adapter/v1/replies/next", {}
             ) == (200, None)
@@ -769,11 +793,14 @@ def replacement_check(original, replacement, node, label):
                 bi["id"],
                 outgoing["request"]["request_id"],
             )
+            # The origin keeps the send's original authorization and session;
+            # reply_delivery names the session holding the reply now.
             assert (
                 origin["adapter_id"] == old["adapter"]["id"]
                 and origin["session_id"] == old_session["id"]
-            )
-            assert origin["reply_delivery"] is None
+            ), origin
+            assert late["delivery"]["session_id"] == candidate["id"], late
+            assert origin["reply_delivery"] == late["delivery"], origin
             assert incoming["request"]["request_id"] == old_delivery["request_id"]
             events = a.cli("activity")
             assert (
@@ -793,6 +820,7 @@ def replacement_check(original, replacement, node, label):
                 a, fresh["token"], "POST", "/adapter/v1/next", {}
             )[1]
             assert new_handoff["delivery"]["session_id"] == candidate["id"]
+            assert new_handoff["redelivered"] is False
             assert (
                 new_handoff["request"]["request_id"]
                 == new_message["request"]["request_id"]
@@ -801,7 +829,7 @@ def replacement_check(original, replacement, node, label):
             a.binary = str(original)
             assert a.start() == ai
             assert connect(a, old)[0] == 403 and connect(a, fresh)[0] == 200
-            assert a.cli("delivery", "inspect", old_delivery["id"]) == old_delivery
+            assert a.cli("delivery", "inspect", old_delivery["id"]) == again["delivery"]
         finally:
             a.stop()
             b.stop()
@@ -887,9 +915,21 @@ def migration(original, replacement, label):
             )
             a.binary = str(replacement)
             assert a.start() == ai
-            assert sql(a, "PRAGMA user_version")[0][0] == 14
+            assert sql(a, "PRAGMA user_version")[0][0] == 15
+            # Version 15 marks every existing item seen at migration time and
+            # leaves every other column unchanged (live delivery slice 2).
             for table, records in rows.items():
-                assert sql(a, "SELECT * FROM " + table) == records
+                columns = [
+                    c for (c,) in sql(a, "SELECT name FROM pragma_table_info(?)", (table,))
+                ]
+                seen = [i for i, c in enumerate(columns) if c.endswith("seen_at")]
+                after = sql(a, "SELECT * FROM " + table)
+                assert [
+                    [v for i, v in enumerate(row) if i not in seen] for row in after
+                ] == [
+                    [v for i, v in enumerate(row) if i not in seen] for row in records
+                ], table
+                assert all(row[i] for row in after for i in seen), table
             assert (
                 a.cli("adapter", "connection", ac["adapter"]["id"])["state"]
                 == "detached"

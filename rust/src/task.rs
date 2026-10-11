@@ -212,6 +212,13 @@ pub struct TaskHandoff {
     /// Whether the agent may pass this task on: the authorization includes
     /// `task.delegate` and the chain allows another hop.
     pub delegable: bool,
+    /// Whether this task was claimed again after its holding authorization
+    /// ended before the task was accepted or rejected.
+    pub redelivered: bool,
+    /// Whether this session adopted the task while it was running.
+    pub adopted: bool,
+    /// The latest progress message, or null.
+    pub progress: Option<String>,
 }
 #[derive(Serialize)]
 pub struct CancelHandoff {
@@ -368,7 +375,7 @@ fn last_event(conn: &Connection, sender: &str, status: &TaskStatus) -> Result<Ta
 }
 /// Appends one event and the state it leaves the task in, with its activity,
 /// in the caller's transaction.
-fn record(
+pub(crate) fn record(
     tx: &Transaction<'_>,
     sender: &str,
     status: &mut TaskStatus,
@@ -435,7 +442,7 @@ fn record(
 }
 /// A task still queued at its deadline becomes `expired`. Returns whether it
 /// changed.
-fn expire(
+pub(crate) fn expire(
     tx: &Transaction<'_>,
     sender: &str,
     request: &TaskRequest,
@@ -645,6 +652,11 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
+        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        if let Some(handoff) = self.claim_returned_task(&tx, &a, &ss)? {
+            tx.commit()?;
+            return Ok(Some(handoff));
+        }
         let pending = {
             let mut stmt = tx.prepare("SELECT t.sender, t.request, t.record FROM received_tasks t WHERE json_extract(t.request, '$.target_agent_id') = ?1 AND json_extract(t.record, '$.state') = 'queued' AND NOT EXISTS (SELECT 1 FROM task_deliveries d WHERE d.sender = t.sender AND d.task_id = t.task_id) AND NOT EXISTS (SELECT 1 FROM task_artifacts a WHERE a.side = 'received' AND a.peer = t.sender AND a.task_id = t.task_id AND a.direction = 'input' AND json_extract(a.record, '$.state') != 'stored') ORDER BY t.rowid LIMIT 100")?;
             stmt.query_map([&ss.agent_id], |row| {
@@ -691,7 +703,7 @@ impl Store {
                 created_at: now(),
             };
             tx.execute(
-                "INSERT INTO task_deliveries VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO task_deliveries (id, sender, task_id, session_id, record) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     d.id,
                     d.sender_host_id,
@@ -711,11 +723,121 @@ impl Store {
                 sender_person,
                 originator_person_id: verified.and_then(|v| v.originator_person_id.clone()),
                 delegable,
+                redelivered: false,
+                adopted: false,
+                progress: None,
             });
             break;
         }
         tx.commit()?;
         Ok(handoff)
+    }
+    /// Claims the oldest task returned to this agent's queue: a running one
+    /// is adopted as it stands, and a queued one is offered again after
+    /// rechecking its authorization as for a new one.
+    fn claim_returned_task(
+        &self,
+        tx: &Transaction<'_>,
+        a: &crate::adapter::Adapter,
+        ss: &crate::model::Session,
+    ) -> Result<Option<TaskHandoff>, Error> {
+        let returned = {
+            let mut stmt = tx.prepare("SELECT d.record, t.request, t.record FROM task_deliveries d JOIN sessions s ON s.id = d.session_id JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE s.agent_id = ?1 AND d.returned_at IS NOT NULL AND json_extract(t.record, '$.state') IN ('queued', 'running') ORDER BY d.rowid")?;
+            stmt.query_map([&ss.agent_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        for (claim, request, status) in returned {
+            let mut d: TaskDelivery = serde_json::from_str(&claim)?;
+            let request: TaskRequest = serde_json::from_str(&request)?;
+            let mut status = status_record(&status)?;
+            let sender = d.sender_host_id.clone();
+            let adopting = status.state == "running";
+            let (delegable, originator) = if adopting {
+                // What acceptance allowed stays; the chain is as verified then.
+                let originator = task_bounds(self, tx, &sender, &request, false)
+                    .ok()
+                    .and_then(|(_, _, v)| v.and_then(|v| v.originator_person_id));
+                (delegable(tx, &sender, &request.task_id)?, originator)
+            } else {
+                if expire(tx, &sender, &request, &mut status)? {
+                    continue;
+                }
+                match recheck(self, tx, &sender, &request) {
+                    Ok(Ok((bounds, verified))) => (
+                        may_delegate(&bounds, verified.as_ref()),
+                        verified.and_then(|v| v.originator_person_id),
+                    ),
+                    Ok(Err(reason)) => {
+                        record(
+                            tx,
+                            &sender,
+                            &mut status,
+                            "rejected",
+                            Some(reason),
+                            None,
+                            None,
+                        )?;
+                        tx.execute(
+                            "UPDATE task_deliveries SET returned_at = NULL WHERE id = ?1",
+                            [&d.id],
+                        )?;
+                        continue;
+                    }
+                    Err(Error::Unavailable(_)) => continue,
+                    Err(e) => return Err(e),
+                }
+            };
+            d.adapter_id = a.id.clone();
+            d.session_id = ss.id.clone();
+            let redeliveries: i64 = if adopting {
+                tx.execute(
+                    "UPDATE task_deliveries SET record = ?1, session_id = ?2, returned_at = NULL, adopted_at = ?3 WHERE id = ?4",
+                    params![serde_json::to_string(&d)?, d.session_id, now(), d.id],
+                )?;
+                tx.query_row(
+                    "SELECT redeliveries FROM task_deliveries WHERE id = ?1",
+                    [&d.id],
+                    |r| r.get(0),
+                )?
+            } else {
+                tx.execute(
+                    "UPDATE task_deliveries SET record = ?1, session_id = ?2, returned_at = NULL, adopted_at = NULL, redeliveries = redeliveries + 1 WHERE id = ?3",
+                    params![serde_json::to_string(&d)?, d.session_id, d.id],
+                )?;
+                1
+            };
+            let progress: Option<String> = if adopting {
+                tx.query_row(
+                    "SELECT json_extract(record, '$.message') FROM task_events WHERE sender = ?1 AND task_id = ?2 AND json_extract(record, '$.kind') = 'progress' ORDER BY sequence DESC LIMIT 1",
+                    params![sender, request.task_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten()
+            } else {
+                None
+            };
+            let (sender_person_id, sender_person) = crate::adapter::sender_person(tx, &sender)?;
+            return Ok(Some(TaskHandoff {
+                delivery: d,
+                task: request,
+                status,
+                sender_person_id,
+                sender_person,
+                originator_person_id: originator,
+                delegable,
+                redelivered: redeliveries > 0,
+                adopted: adopting,
+                progress,
+            }));
+        }
+        Ok(None)
     }
 
     /// Applies an agent's change to a task this session claimed. Each change
@@ -752,7 +874,7 @@ impl Store {
         let (a, ss) = authority(&tx, auth)?;
         let claim: Option<String> = tx
             .query_row(
-                "SELECT record FROM task_deliveries WHERE task_id = ?1 AND session_id = ?2 AND json_extract(record, '$.adapter_id') = ?3 ORDER BY rowid LIMIT 1",
+                "SELECT record FROM task_deliveries WHERE task_id = ?1 AND session_id = ?2 AND returned_at IS NULL AND json_extract(record, '$.adapter_id') = ?3 ORDER BY rowid LIMIT 1",
                 params![id, ss.id, a.id],
                 |r| r.get(0),
             )
@@ -773,23 +895,25 @@ impl Store {
         let d: TaskDelivery = serde_json::from_str(&d)?;
         let sender = d.sender_host_id.as_str();
         let (request, mut status) = received(&tx, sender, id)?.ok_or(Error::NotFound)?;
-        let settled = expire(&tx, sender, &request, &mut status)?;
+        // The call shows the session saw the task, if it decides it, and
+        // a cancellation request it claimed.
+        let at = now();
+        if matches!(change, Change::Accept | Change::Reject(_)) {
+            tx.execute(
+                "UPDATE task_deliveries SET seen_at = COALESCE(seen_at, ?1) WHERE id = ?2",
+                params![at, d.id],
+            )?;
+        }
+        crate::live_delivery::mark_cancel(&tx, &a.id, &ss.id, id, &at)?;
+        crate::live_delivery::mark_updates(&tx, &a.id, &ss.id, id, None, &at)?;
+        expire(&tx, sender, &request, &mut status)?;
         let outcome = self.apply(&tx, sender, &request, &mut status, change);
+        // A refused change records nothing, so what was seen or settled
+        // above is kept either way.
+        tx.commit()?;
         match outcome {
-            Ok(None) => {
-                tx.commit()?;
-                Ok(status)
-            }
-            Ok(Some(refusal)) => {
-                tx.commit()?;
-                Err(refusal)
-            }
-            Err(e) => {
-                if settled {
-                    tx.commit()?;
-                }
-                Err(e)
-            }
+            Ok(None) => Ok(status),
+            Ok(Some(refusal)) | Err(refusal) => Err(refusal),
         }
     }
     /// `Ok(None)` applied (or repeated) the change. `Ok(Some(e))` recorded a
@@ -930,21 +1054,24 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
+        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
         let pending: Option<(String, String)> = tx
             .query_row(
-                "SELECT d.record, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.session_id = ?1 AND json_extract(d.record, '$.adapter_id') = ?2 AND json_extract(d.record, '$.cancel_claimed_at') IS NULL AND json_extract(t.record, '$.state') = 'running' AND json_extract(t.record, '$.cancel_requested') = 1 ORDER BY d.rowid LIMIT 1",
+                "SELECT d.record, t.record FROM task_deliveries d JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE d.session_id = ?1 AND d.returned_at IS NULL AND json_extract(d.record, '$.adapter_id') = ?2 AND json_extract(d.record, '$.cancel_claimed_at') IS NULL AND json_extract(t.record, '$.state') = 'running' AND json_extract(t.record, '$.cancel_requested') = 1 ORDER BY d.rowid LIMIT 1",
                 params![ss.id, a.id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
         let Some((delivery, status)) = pending else {
+            tx.commit()?;
             return Ok(None);
         };
         let mut delivery: TaskDelivery = serde_json::from_str(&delivery)?;
         let status = status_record(&status)?;
         delivery.cancel_claimed_at = Some(now());
+        // The first claim of a cancellation request starts it unseen.
         tx.execute(
-            "UPDATE task_deliveries SET record = ?1 WHERE id = ?2",
+            "UPDATE task_deliveries SET record = ?1, cancel_seen_at = NULL WHERE id = ?2",
             params![serde_json::to_string(&delivery)?, delivery.id],
         )?;
         tx.commit()?;

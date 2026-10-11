@@ -114,6 +114,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 		return nil
 	}
 	add("session doctor", "doctor", "Inspect session readiness", 0)
+	add("session pending", "pending", "List the work the current directory's session still owes", 0)
 	add("session attach", "attach", "Record a session attachment", 0)
 	add("session list", "list", "List session records", 0)
 	add("session inspect", "inspect ID", "Inspect a session", 1)
@@ -397,6 +398,9 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("integration", "", "integration label")
 	case "session list":
 		fs.String("agent", "", "filter by registered agent ID")
+	case "session pending":
+		fs.Bool("json", false, "print the pending work object")
+		fs.Bool("hook", false, "print the pending work as Claude Code SessionStart hook output")
 	case "peer add":
 		fs.String("id", "", "expected host ID")
 		fs.String("public-key", "", "owner-verified public key")

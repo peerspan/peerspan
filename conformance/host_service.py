@@ -316,7 +316,7 @@ def check(binary, label):
             assert host.cli("grant", "list") == []
             assert host.cli("message", "list") == []
             assert host.cli("network", "list") == []
-            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 14
+            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 15
             host.stop()
             assert not (host.state / "admin.sock").exists()
         finally:

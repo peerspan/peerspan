@@ -76,39 +76,81 @@ Existing suites that assume work flows without `capsule_ready` are updated to ca
 ### Seen
 
 Every delivered item has a `seen_at`, set by the daemon when the session that holds it reports it seen:
-- **Inbound delivery:** `reply` with its `delivery_id`, or `mark_seen`.
+- **Inbound delivery:** `reply` with its `delivery_id` (a refused reply does not count), or `mark_seen`.
 - **Reply to the session's own send:** `mark_seen` with its `request_id`, or `send_status` naming it.
 - **Task:** `task_accept` or `task_reject`.
 - **Task update or cancellation request:** `mark_seen` with its `task_id`, or any `task_*` call on that task after the update was forwarded.
 
-New tool `mark_seen` takes `{ids}`, 1 to 100 delivery, request, or task IDs that this session holds. It returns `{seen: [ids]}` and ignores IDs already seen. The instructions ask the model to call it for events it will not otherwise answer. Adapter route: `POST /adapter/v1/seen` with `{ids}`.
+New tool `mark_seen` takes `{ids}`, 1 to 100 delivery, request, or task IDs that this session holds. It returns `{seen: [ids]}` and ignores IDs already seen. If any ID is not held by this session, the route answers 404 and marks none. The instructions ask the model to call it for events it will not otherwise answer. Adapter route: `POST /adapter/v1/seen` with `{ids}`.
 
 ### Redelivery
 
 When an authorization ends, whether replaced by a new attachment of the same agent, expired, or revoked, every item it was forwarded but never saw returns to the agent's queue, if its deadline has not passed. The next verified session of the same agent receives it again with `meta.redelivered` `true`.
 - A sender's view of a returned message is unchanged: it stays accepted.
-- An item is redelivered at most 3 times. After that it is `blocked` for messages, and `failed` with `session never saw the task` for tasks.
+- An item is redelivered at most 3 times, so at most four sessions hold it in all. When the fourth ends without seeing it, it is `blocked` for messages, and `failed` with `session never saw the task` for tasks.
 - Items that were seen are never redelivered.
 - Revocation of the sender's access still blocks queued delivery, as before.
 
+These rules settle the details:
+- **When items return.** Returns happen when a verified session of the agent next claims work or lists `pending_work`: every unseen item held by the agent's ended authorizations (replaced, detached, revoked, or expired) returns then. Ending an authorization may also return them at once; the result is the same.
+- **Forwarded means claimed.** An item counts as forwarded once its session claimed it, including a delivery whose forwarding the adapter never confirmed, and a task or cancellation, which have no confirmation.
+- **Deadlines while returned.** A returned message or task whose deadline passes is handled as a queued one is today: it is not redelivered, and the sender's view follows the existing deadline rules.
+- **Replies and task updates** have no deadline of their own. Past the limit of 3 they are no longer offered and stay unseen; the sender's view is unchanged.
+- **Late arrivals.** A reply or task event that arrives after the authorization it belongs to has ended goes to the agent's next verified session, with `redelivered` `false`, since it was never forwarded. An adopted task's later updates and its children's updates go to the adopting session.
+- **Adoption happens at the claim** through `/adapter/v1/tasks/next`, which only a verified session reaches.
+- **A task past the limit** is still `queued`, since it was never accepted; it moves from `queued` to `failed` with error `session never saw the task`, emitting the usual `failed` event to its sender. This is a new receiver-side transition.
+- **Upgrades.** Migration to version 15 marks every existing handed-off item seen, so nothing from before the upgrade is redelivered.
+- **Owner output** (`GET /v1/deliveries` and similar records) is unchanged.
+- **`message origin`** keeps the original authorization and session of the send, also after a later session claims its reply. Its `reply_delivery` names the session that holds the reply now.
+
 ### Adoption
 
-When an authorization of an agent is verified, it adopts the tasks claimed by the agent's ended authorizations that are `running` or `cancel_requested`. For each adopted task, the session receives a `kind=task` event with `meta.adopted` `true`, its current state, and its latest progress. From then on, only the adopting session may change the task. A delegation chain whose link was adopted continues unchanged. Adoption never moves a task between agents.
+When an authorization of an agent is verified, it adopts the tasks claimed by the agent's ended authorizations that are `running` or `cancel_requested`. For each adopted task, the session receives a `kind=task` event with `meta.adopted` `true`, its current state, and its latest progress (see Events). From then on, only the adopting session may change the task. A delegation chain whose link was adopted continues unchanged. Adoption never moves a task between agents.
 
 ### Pending work
 
-New tool `pending_work` returns `{deliveries, replies, tasks}` for this agent:
-- `deliveries`: unanswered inbound deliveries held by this session, with `delivery_id`, sender address, a preview of the content (first 200 characters), `seen`, and `deadline`;
-- `replies`: unseen replies to this agent's sends;
-- `tasks`: tasks in `queued` (offered to this session), `running`, or `cancel_requested` held by this session, with `task_id`, state, summary, and `deadline`.
+New tool `pending_work` returns `{deliveries, replies, tasks}` for this agent. Field names match the channel event `meta` the model already saw, and each list is ordered oldest first, by when the item first reached this host (so returned and adopted items keep their place):
+- `deliveries`: unanswered inbound deliveries held by this session, each `{delivery_id, request_id, sender_host_id, origin_agent_id, preview, seen, deadline, redelivered}`;
+- `replies`: unseen replies to this agent's sends held by this session, each `{notification_id, request_id, peer_host_id, preview}`;
+- `tasks`: tasks in `queued` (offered to this session), `running`, or `cancel_requested` held by this session, each `{task_id, delivery_id, sender_host_id, state, preview, deadline, adopted}`. Here and in event `meta`, `state` is `cancel_requested` for a running task whose cancellation was requested.
+
+`preview` is the first 200 characters of the content (a task's `input`). `deadline` is null when the item has none. An answered delivery is one the session has replied to.
 
 Adapter route: `GET /adapter/v1/pending`.
 
-The Claude integration's launch adds `--settings` with a JSON file in the session profile directory. The file holds a `SessionStart` hook for the matchers `clear`, `compact`, and `resume`. The hook gives the model the `pending_work` result as additional context, either through an `mcp_tool` hook calling `pending_work` or through a command hook running `capsule session pending --json` for this profile. It changes no global or project Claude Code settings. `capsule session pending [--json]` prints the same object for the current directory's attachment.
+The Claude integration's launch adds `--settings PATH`, where PATH is `claude-settings.json` in the session profile directory, written at launch with mode 0600:
+
+```json
+{"hooks": {"SessionStart": [{"matcher": "clear|compact|resume",
+  "hooks": [{"type": "command", "command": "'/ABSOLUTE/PATH/capsule' session pending --hook"}]}]}}
+```
+
+The command names the absolute path of the `capsule` executable that launched the session, single-quoted for the shell (a `'` in it becomes `'\''`). The CLI passes that path to the integration helper as `capsule_executable` in the `launch` request context: the running executable's absolute path (Go `os.Executable`, Rust `std::env::current_exe`), which in a bundle is `capsule-host`, behaving the same as `capsule`. The helper writes the file itself during `launch`. Claude Code reads a `SessionStart` hook's JSON standard output as hook output, not as context, so `--hook` wraps the list in its documented form. It changes no global or project Claude Code settings, and `--settings` among the user's extra arguments is refused, as `--mcp-config` is.
+
+`capsule session pending [--json | --hook]` prints the same object as `pending_work` for the current directory's attachment (an `attach` profile whose workspace is the current directory, under whichever state directory it was made, since the hook passes no `--state`; with `--state`, only that state's), read through the local administration API (`GET /v1/sessions/{id}/pending`, with the same object). Without `--json` it prints one line per item. With `--hook` it prints `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": TEXT}}`, where TEXT is `Capsule work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. ` followed by the object as compact JSON; when all three lists are empty, it prints nothing. With no attachment for the directory, it prints nothing and exits 0, so the hook never fails a session start.
+
+### Events
+
+The daemon's handoff objects from `/adapter/v1/next`, `/adapter/v1/replies/next`, and `/adapter/v1/tasks/next` gain a top-level `redelivered` boolean, and task handoffs also gain `adopted` (boolean) and `progress` (the latest progress message, or null). The adapter copies them into `meta`. A redelivered `message`, `reply`, or `task` event carries `meta.redelivered` `true`; others carry `false`. An adopted task's `task` event carries `meta.adopted` `true`, `meta.state` (`running` or `cancel_requested`), and `meta.progress` (the latest progress message, omitted when there is none, since Claude Code channel meta values are strings); other `task` events carry `adopted` `false`. The adapter derives `meta.state` from the handoff's `status`.
 
 ### Shared state
 
 The shared schema moves to version 15. It adds `seen_at` and `redeliveries` to handed-off items, and records the adopting authorization on tasks.
+
+The additions are columns, not record fields. Handoff objects, owner records, and the task delivery and notification records keep their current fields, and `received_tasks` records are unchanged, since they are also the peer status record. All columns are added with `ALTER TABLE ... ADD COLUMN`:
+- `deliveries`, `task_update_notifications`: `seen_at TEXT`, `redeliveries INTEGER NOT NULL DEFAULT 0`, `returned_at TEXT`.
+- `task_deliveries`: the same three, plus `cancel_seen_at TEXT` and `adopted_at TEXT`.
+- `adapter_outbound`, for the reply notification in `reply_delivery`: `reply_seen_at TEXT`, `reply_redeliveries INTEGER NOT NULL DEFAULT 0`, `reply_returned_at TEXT`.
+
+Times are RFC3339 text, as in records, and null means not yet:
+- `seen_at` (`reply_seen_at`): when the holding session reported the item seen, as listed under Seen. For a task delivery it is the task itself; `cancel_seen_at` is its cancellation request.
+- `returned_at` (`reply_returned_at`): when the item went back to the agent's queue because its holding authorization ended while it was unseen. While set, no session holds the item, and only a verified session of the same agent may claim it. A claimed task still `running` returns in the same way, for adoption. A claim clears it.
+- `redeliveries` (`reply_redeliveries`): how many times the item was claimed again after a return. Each such claim adds 1, except an adoption. An item whose count is already 3 is not returned. `redelivered` is `redeliveries > 0`.
+- `adopted_at`: when the current holder adopted the task, by claiming it after a return while `running`; null when the holder claimed it while `queued`. `adopted` is `adopted_at` not null.
+
+A claim of a returned item keeps its row and ID (`delivery_id`, `notification_id`) and rebinds it in place: `adapter_id`, `session_id`, and `updated_at` in the record where present, the `session_id` column, and `state` back to `unknown` where the record has one. `cancel_claimed_at` and `cancel_seen_at` are kept, so the adopting session still claims a cancellation request nobody claimed. An ended authorization therefore resolves none of its returned items.
+
+Migration from 14 reads each table's columns through `pragma_table_info` and adds only those missing, as version 14 did, then sets `PRAGMA user_version = 15`. Existing rows take 0 redeliveries and null `returned_at` and `adopted_at`, and the migration sets each seen column (`seen_at`, `cancel_seen_at`, `reply_seen_at`) to the migration time, so nothing from before the upgrade is redelivered. No index is added.
 
 ### Verification
 
@@ -117,7 +159,7 @@ The shared schema moves to version 15. It adds `seen_at` and `redeliveries` to h
 - **Redelivery after replacement:** a message, a reply, and a task forwarded but unseen are redelivered to the next attachment with `redelivered`, and never to the sender twice. Seen items are not redelivered.
 - **Limits:** the redelivery limit of 3, deadlines passing while queued, and revocation blocking a returned message.
 - **Adoption:** a running and a cancel-requested task adopted by the new attachment, the old authorization unable to change them, and a two-link delegation chain completing after the middle agent's session is replaced.
-- **Pending work:** `pending_work` contents, and `capsule session pending --json`.
+- **Pending work:** `pending_work` contents, `capsule session pending --json`, and `--hook` output, including nothing when no work is pending.
 - **Launch settings:** the `--settings` file's hook matchers.
 - **Migration:** schema version 15 from 14.
 

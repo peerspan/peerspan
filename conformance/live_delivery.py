@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Exercise live-session readiness and diagnostics (milestone 9, slice 1) across CLI/daemon pairings.
+"""Exercise live-session delivery (milestone 9, slices 1 and 2) across CLI/daemon pairings.
 
-Written from docs/live-delivery-contract.md ("Slice 1: readiness and diagnostics" and its
-Verification list), with context from the live delivery proposal and the contracts it extends
+Written from docs/live-delivery-contract.md ("Slice 1: readiness and diagnostics", "Slice 2: seen,
+redelivery, adoption, and pending work", and their Verification lists), with context from the live delivery proposal and the contracts it extends
 (agent adapter, outbound, recovery, task, harness integration, launch), independently of the Go and
 Rust hosts and of the Node adapter, which runs here only as a black box.
 
@@ -60,11 +60,51 @@ started first, and its timers run while the other sections do; a status watcher 
   flows without another `capsule_ready`). (A new attachment of a previously verified agent
   starting unverified is checked in the fatal stop section, on the replacement attachment.)
 
+Slice 2 sections run after slice 1's migration section, while the silent session's timers run. MCP
+consumers there use `attach claude --no-start` profiles (directory sessions, so `send` and
+`delegate_task` work by address); a session is replaced by closing its consumer and attaching the
+same project again. Raw adapters end authorizations by revocation. bob's `target` agent answers
+alice's sends and accepts her delegations through a raw adapter. The version 15 columns are read
+from host.db, since the contract lists them as shared state.
+
+- seen: `reply`, `mark_seen` (delivery, request, and task IDs; repeats ignored; 0, 101, and
+  unknown IDs refused), `send_status`, `task_accept`, `task_reject`, `task_progress` after a
+  forwarded cancellation request, and `task_status` after a forwarded update, observed in
+  `pending_work` and in `seen_at`, `cancel_seen_at`, and `reply_seen_at`; owner delivery records
+  without the new fields;
+- redelivery after replacement: an unseen message, reply, and offered task reach the next
+  attachment with `redelivered` true, keeping their IDs and rows; a late reply arrives with
+  `redelivered` false; seen and rejected items are not redelivered; `pending_work` on the new
+  session; `redeliveries`, `returned_at`, `adopted_at`; the sender's record unchanged and one
+  reply and one set of task events reaching the sender;
+- adoption: running and cancel-requested tasks adopted with `adopted`, `state`, and `progress`
+  (omitted when none), the old authorization and another agent refused, the adopting session
+  finishing them; raw task handoffs with `adopted`, `progress`, and `redelivered`, and a later
+  cancellation request reaching the adopting session;
+- delegation chain after replacement: a third host (carol); bob -> alice/mid -> carol/end, with
+  alice's middle session replaced while carol works; the child's later update reaches the adopting
+  session and the chain completes;
+- pending work: `pending_work`'s exact fields and order, previews of 200 characters, the
+  administration route, `session pending --json` and its lines, `--hook` output (the lead sentence
+  and compact pending_work JSON, nothing when no work is pending), nothing and exit 0 without an
+  attachment, and the raw `GET /adapter/v1/pending` and `POST /adapter/v1/seen`;
+- launch settings: `--settings` naming `claude-settings.json` in the profile, mode 0600, its exact
+  content with matcher `clear|compact|resume` and the single-quoted absolute CLI path (also one
+  containing a quote), the hook command's output, no global or project settings, and `--settings`
+  refused among the user's arguments;
+- limits: a message blocked and a task failed (`session never saw the task`) after 3
+  redeliveries, a reply no longer offered after 3, deadlines passing while queued, and revocation
+  (`deny`) blocking a returned message;
+- migration to 15: a schema 14 host (`--baseline14`, milestone 9 slice 1) with handed-off items,
+  upgraded: the columns added, existing items marked seen and not redelivered.
+
 Ambiguities are listed in the suite questions file and marked "Q:" below; checks take the most
 literal reading. Needs Python 3, capsule-peer-probe, Node, and the Go coordinator.
+`--slice1-only` skips the slice 2 sections.
 Exits non-zero listing every failed section.
 """
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -73,6 +113,7 @@ import secrets
 import shutil
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -83,7 +124,7 @@ import traceback
 from coordination import Coordinator, wait_for
 from host_service import UnixHTTPConnection, stop_all
 from launch_directory import DirectoryHost
-from launch_onboarding import Failure, near, need
+from launch_onboarding import Failure, near, need, parse_time
 from peer_messaging import request_id, set_probe, timestamp
 from tasks import task_id
 
@@ -99,6 +140,23 @@ CLIENT_PROTOCOL = '2025-11-25'
 LATE_PROTOCOL = '2026-07-28'
 NONCE = re.compile(r'[0-9a-fA-F]{32}')
 TASK_TOOLS_PREFIX = 'task_'
+# Slice 2.
+LIMIT = 3
+PREVIEW = 200
+NEVER_SAW = 'session never saw the task'
+SETTINGS_FILE = 'claude-settings.json'
+MATCHER = 'clear|compact|resume'
+# `session pending --hook`: additionalContext is this lead followed by the object as compact JSON.
+HOOK_LEAD = ('Capsule work this session still owes, listed after /clear, compaction, or resume. Finish each task '
+             'with the task_* tools and answer each delivery with reply; call pending_work for the current list. ')
+DELIVERY_KEYS = {'delivery_id', 'request_id', 'sender_host_id', 'origin_agent_id', 'preview', 'seen', 'deadline',
+                 'redelivered'}
+REPLY_KEYS = {'notification_id', 'request_id', 'peer_host_id', 'preview'}
+TASK_KEYS = {'task_id', 'delivery_id', 'sender_host_id', 'state', 'preview', 'deadline', 'adopted'}
+SEEN_COLUMNS = {'seen_at', 'redeliveries', 'returned_at'}
+MIGRATED_COLUMNS = {'deliveries': SEEN_COLUMNS, 'task_update_notifications': SEEN_COLUMNS,
+                    'task_deliveries': SEEN_COLUMNS | {'cancel_seen_at', 'adopted_at'},
+                    'adapter_outbound': {'reply_seen_at', 'reply_redeliveries', 'reply_returned_at'}}
 
 # The fixture `claude`: answers `--version` and `auth status` (exactly those arguments) from files beside it, so a check can change them; any other invocation is a launch, printing its arguments,
 # cwd, and the MCP_PROTOCOL_NEGOTIATION environment variable as one JSON line. Every call is logged.
@@ -358,6 +416,71 @@ def user_version(host):
         return connection.execute('PRAGMA user_version').fetchone()[0]
 
 
+def flag(meta, key):
+    """A boolean in channel meta: Claude Code meta values are strings, so true and false arrive as JSON text.
+    True, False, or None (absent or anything else)."""
+    value = meta.get(key)
+    if value in (True, 'true'):
+        return True
+    if value in (False, 'false'):
+        return False
+    return None
+
+
+def same_time(a, b):
+    if a is None or b is None:
+        return a is None and b is None
+    return parse_time(a) == parse_time(b)
+
+
+def shell_quoted(path):
+    return "'" + path.replace("'", "'\\''") + "'"
+
+
+def expected_settings(capsule):
+    """The --settings file's content (Pending work)."""
+    return {'hooks': {'SessionStart': [{'matcher': MATCHER, 'hooks': [
+        {'type': 'command', 'command': f'{shell_quoted(capsule)} session pending --hook'}]}]}}
+
+
+def hook_output(stdout, pending):
+    """`session pending --hook` output for a nonempty pending object: the SessionStart hookSpecificOutput whose
+    additionalContext is HOOK_LEAD followed by the object as compact JSON (compared parsed). Returns a failure
+    description, or None."""
+    try:
+        value = json.loads(stdout)
+    except ValueError:
+        return 'stdout is not one JSON object'
+    if not (isinstance(value, dict) and set(value) == {'hookSpecificOutput'}
+            and isinstance(value['hookSpecificOutput'], dict)
+            and set(value['hookSpecificOutput']) == {'hookEventName', 'additionalContext'}
+            and value['hookSpecificOutput']['hookEventName'] == 'SessionStart'
+            and isinstance(value['hookSpecificOutput']['additionalContext'], str)):
+        return 'not {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": TEXT}}'
+    text = value['hookSpecificOutput']['additionalContext']
+    if not text.startswith(HOOK_LEAD):
+        return 'additionalContext does not start with the lead sentence'
+    rest = text[len(HOOK_LEAD):]
+    if '\n' in rest or rest != rest.strip():
+        return 'the object after the lead is not compact JSON'
+    try:
+        if json.loads(rest) != pending:
+            return 'the object after the lead differs from pending_work'
+    except ValueError:
+        return 'the text after the lead is not a JSON object'
+    return None
+
+
+def rows(host, query, args=()):
+    """Rows of the host's database as dicts (the version 15 columns are shared state)."""
+    connection = sqlite3.connect(host.state / 'host.db', timeout=10)
+    try:
+        connection.row_factory = sqlite3.Row
+        return [dict(r) for r in connection.execute(query, args)]
+    finally:
+        connection.close()
+
+
 class StatusWatcher:
     """Samples GET /v1/status every 2 seconds: (monotonic time, channel_unverified items)."""
 
@@ -386,9 +509,11 @@ class StatusWatcher:
 
 
 class Pairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, baseline, root):
+    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, baseline, root, baseline14=None, slices=(1, 2)):
         self.label, self.cli_binary, self.daemon, self.node, self.root = label, cli_binary, daemon_binary, node, root
         self.baseline = baseline
+        self.baseline14 = baseline14
+        self.slices = slices
         self.coord = Coordinator(coord_binary, root / 'coord')
         self.results = []
         self.hosts = {}
@@ -914,7 +1039,8 @@ class Pairing:
         h.stop()
         h.binary, h.cli_binary = str(self.daemon), str(self.cli_binary)
         h.start()
-        need(user_version(h) == 14, 'Shared state: the schema moves to version 14', user_version(h))
+        # A slice 2 host continues to version 15 (checked in the migration to 15 section).
+        need(user_version(h) >= 14, 'Shared state: the schema moves to version 14', user_version(h))
         need(h.cli('agent', 'list') == agents, 'existing state is preserved', agents)
         fields = self.connection_object(secret['adapter']['id'], host=h)
         need(fields['channel_verified_at'] is None, 'Existing authorizations migrate as unverified', fields)
@@ -1031,6 +1157,932 @@ class Pairing:
              'session list still reports channel verified after the restart', sessions)
         return 'verified across restart'
 
+    # --- slice 2: helpers --------------------------------------------------------------------------------
+
+    def slice2_fixture(self):
+        if not getattr(self, '_slice2_fixture', None):
+            self._slice2_fixture = Fixture(self.root / 'fixtures' / 'slice2')
+        return self._slice2_fixture
+
+    def attach_profile(self, workspace, name=None):
+        """`attach claude --no-start` in workspace: a directory session (it may send and delegate by address) whose
+        profile records the workspace. Run again for the same workspace once the adapter has exited, it sets up a new
+        authorization for the same agent, replacing the old one (launch contract, Re-attaching)."""
+        workspace.mkdir(parents=True, exist_ok=True)
+        args = ['attach', 'claude', '--directory', str(workspace), '--integrations', str(INTEGRATIONS),
+                '--runner', str(self.node), '--option', f'executable={self.slice2_fixture().path}',
+                '--expires-in', '2h', '--no-start']
+        if name:
+            args[2:2] = ['--name', name]
+        result = self.a.run(*args, cwd=str(self.root), timeout=90)
+        need(result.returncode == 0, 'attach claude --no-start', args, result.stdout[-500:], result.stderr[-500:])
+        out = json.loads(result.stdout)
+        need((Path(out['profile']) / 'mcp.json').exists(), 'attach writes an MCP profile', out)
+        return out
+
+    def verified(self, profile, name):
+        """A consumer on profile that answers the hello event with capsule_ready."""
+        c = self.consumer(Path(profile), name)
+        _, hello = c.wait_event('hello', timeout=20)
+        failed, value = c.tool('capsule_ready', {'nonce': hello['meta']['nonce']})
+        need(not failed and value == {'ready': True}, 'capsule_ready', failed, value)
+        return c
+
+    def raw_for(self, host, agent, directory=False):
+        """A raw adapter on a new session of agent, connected and verified."""
+        status, body = host.call('POST', '/v1/adapters/setup', {
+            'agent_id': agent['id'], 'session_id': 'session_' + secrets.token_hex(16), 'integration': 'test',
+            'expires_at': timestamp(7200), 'directory': directory})
+        need(status == 201, 'POST /v1/adapters/setup', agent.get('name'), status, body)
+        raw = RawAdapter(host, body['credential'])
+        status, value = raw.call('POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)})
+        need(200 <= status < 300, 'POST /adapter/v1/ready', status, value)
+        return raw
+
+    def end(self, raw, host=None):
+        """End an authorization by revoking it (one of the three ways the Redelivery section names)."""
+        (host or self.a).cli('adapter', 'revoke', raw.adapter['id'])
+
+    @staticmethod
+    def claim(raw, path, match, timeout=30):
+        """Poll a claim route until a handoff matching match arrives; the handoff, or None at the timeout."""
+        # Claiming consumes: a handoff that does not match is kept on the raw adapter for later claims.
+        kept = raw.__dict__.setdefault('kept', {}).setdefault(path, [])
+        for index, value in enumerate(kept):
+            if match(value):
+                return kept.pop(index)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status, value = raw.call('POST', path, {})
+            need(status == 200, f'{path} answers 200', status, value)
+            if value and match(value):
+                return value
+            if value:
+                kept.append(value)
+            else:
+                time.sleep(0.3)
+        return None
+
+    def claims_nothing(self, raw, path, match, rule, seconds=5):
+        found = self.claim(raw, path, match, timeout=seconds)
+        need(found is None, rule, found)
+
+    def bob_target(self):
+        """bob's raw target adapter, verified: it answers alice's sends and accepts her delegations."""
+        if not getattr(self, '_bob_target', None):
+            self._bob_target = self.raw_for(self.b, self.agent['target'])
+            self._bob_tasks = set()
+        return self._bob_target
+
+    def bob_answer(self, rid, content):
+        raw = self.bob_target()
+        handoff = self.claim(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid, timeout=40)
+        need(handoff, 'bob\'s target receives alice\'s send', rid)
+        status, value = raw.call('POST', f"/adapter/v1/deliveries/{handoff['delivery']['id']}/reply",
+                                 {'content': content})
+        need(status == 200, 'bob replies', status, value)
+
+    def bob_accept(self, tid):
+        raw = self.bob_target()
+        handoff = self.claim(raw, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == tid, timeout=40)
+        need(handoff, 'bob\'s target receives alice\'s delegation', tid)
+        status, value = raw.call('POST', f'/adapter/v1/tasks/{tid}/accept', {})
+        need(status == 200, 'bob accepts the delegation', status, value)
+
+    def bob_task(self, tid):
+        status, record = self.b.call('GET', f"/v1/tasks/{self.ids['a']}/{tid}")
+        need(status == 200, 'bob\'s task record', tid, status, record)
+        return record
+
+    def bob_events(self, tid):
+        status, events = self.b.call('GET', f"/v1/tasks/{self.ids['a']}/{tid}/events")
+        need(status == 200 and isinstance(events, list), 'bob\'s task events', status, events)
+        return events
+
+    def bob_state(self, tid, state, timeout=60):
+        return wait_for(lambda: (r := self.bob_task(tid))['status'] and r['status']['state'] == state and r,
+                        timeout=timeout, message=f'bob sees {tid} {state}')
+
+    def bob_outbound(self, rid):
+        status, record = self.b.call('GET', f"/v1/outbound/{self.ids['a']}/{rid}")
+        need(status == 200, 'bob\'s outbound record', rid, status, record)
+        return record
+
+    def deliveries_for(self, rid, host=None):
+        return [d['delivery'] for d in (host or self.a).cli('delivery', 'list')
+                if d['delivery'].get('request_id') == rid]
+
+    def event(self, c, kind, key, value, since=0.0, timeout=30, where=None):
+        """The first channel event of kind whose meta[key] is value."""
+        _, params = c.wait_event(kind, since=since, timeout=timeout,
+                                 where=lambda p: (p.get('meta') or {}).get(key) == value
+                                 and (where is None or where(p)))
+        return params
+
+    def events_named(self, c, key, value, since=0.0, kinds=None):
+        return [p for _, p in c.channel(since) if (p.get('meta') or {}).get(key) == value
+                and (kinds is None or (p.get('meta') or {}).get('kind') in kinds)]
+
+    def pending(self, c):
+        failed, value = c.tool('pending_work', {})
+        need(not failed and isinstance(value, dict), 'pending_work returns an object', failed, value)
+        need(set(value) == {'deliveries', 'replies', 'tasks'}, 'pending_work returns {deliveries, replies, tasks}',
+             value)
+        for name, keys in (('deliveries', DELIVERY_KEYS), ('replies', REPLY_KEYS), ('tasks', TASK_KEYS)):
+            need(isinstance(value[name], list), f'pending_work {name} is a list', value[name])
+            for item in value[name]:
+                need(set(item) == keys, f'Pending work: each {name} item is exactly {sorted(keys)}', item)
+        return value
+
+    def mark_seen(self, c, ids, expected, rule):
+        failed, value = c.tool('mark_seen', {'ids': ids})
+        need(not failed and value == {'seen': expected}, rule, ids, failed, value)
+
+    # --- slice 2: sections -------------------------------------------------------------------------------
+
+    def check_seen(self):
+        """Seen by reply, mark_seen, send_status, and the task_* tools, observed in pending_work and the v15 columns."""
+        a, net = self.a, self.net
+        out = self.attach_profile(self.root / 'projects' / 'seer', 'seer')
+        self.seer = {'first': out, 'agent_id': out['agent']['id'], 'workspace': self.root / 'projects' / 'seer'}
+        c1 = self.verified(out['profile'], 'seer-1')
+        self.seer_c1 = c1
+        self.seer_old_secret = self.secret(Path(out['profile']))
+        m, r, t, d = {}, {}, {}, {}
+
+        # Inbound messages: m1 answered with reply, m2 marked seen, m3 left unseen.
+        for key in ('m1', 'm2', 'm3'):
+            rid = self.send_from_bob('seer', f'seer message {key}')
+            meta = self.event(c1, 'message', 'request_id', rid)['meta']
+            need(flag(meta, 'redelivered') is False, 'Events: a first delivery carries meta.redelivered false', meta)
+            m[key] = (rid, meta['delivery_id'])
+        failed, value = c1.tool('reply', {'delivery_id': m['m1'][1], 'content': 'answered m1'})
+        need(not failed, 'reply to m1', value)
+        self.mark_seen(c1, [m['m2'][1]], [m['m2'][1]], 'mark_seen with a delivery ID returns {seen: [ids]}')
+        self.mark_seen(c1, [m['m2'][1]], [], 'mark_seen ignores IDs already seen')
+        self.mark_seen(c1, [m['m1'][1]], [], 'reply set seen: mark_seen then ignores that delivery')
+        failed, value = c1.tool('mark_seen', {'ids': []})
+        need(failed, 'mark_seen takes 1 to 100 IDs: none is an error', value)
+        failed, value = c1.tool('mark_seen', {'ids': ['delivery_' + secrets.token_hex(16) for _ in range(101)]})
+        need(failed, 'mark_seen takes 1 to 100 IDs: 101 is an error', value)
+        # Q: an ID this session does not hold is read literally (it takes IDs this session holds) as an error.
+        failed, value = c1.tool('mark_seen', {'ids': ['delivery_' + secrets.token_hex(16)]})
+        need(failed, 'mark_seen takes IDs this session holds: an unknown ID is an error', value)
+
+        # Replies to the session's own sends: r1 by send_status, r2 by mark_seen with its request_id, r3 unseen.
+        for key in ('r1', 'r2', 'r3'):
+            failed, sent = c1.tool('send', {'to': 'bob/target', 'network': net, 'content': f'seer asks {key}'})
+            need(not failed and sent.get('request_id'), 'MCP send by to', sent)
+            rid = sent['request_id']
+            self.bob_answer(rid, f'bob answers {key}')
+            meta = self.event(c1, 'reply', 'request_id', rid, timeout=60)['meta']
+            need(flag(meta, 'redelivered') is False, 'Events: a first reply event carries meta.redelivered false',
+                 meta)
+            r[key] = (rid, meta.get('notification_id'))
+        failed, value = c1.tool('send_status', {'request_id': r['r1'][0]})
+        need(not failed, 'send_status naming r1', value)
+        self.mark_seen(c1, [r['r2'][0]], [r['r2'][0]], 'mark_seen with a request ID (a reply to this session\'s send)')
+
+        # Tasks: t1 accepted with progress, t2 rejected, t3 and t4 cancel requested and seen (mark_seen; a task_*
+        # call), t5 offered and unseen, t6 accepted with an unseen cancellation request.
+        for key in ('t1', 't2', 't3', 't4', 't5', 't6'):
+            tid = self.task_from_bob('seer', f'seer task {key}')
+            meta = self.event(c1, 'task', 'task_id', tid)['meta']
+            need(flag(meta, 'redelivered') is False and flag(meta, 'adopted') is False,
+                 'Events: a first task event carries redelivered false and adopted false', meta)
+            t[key] = (tid, meta.get('delivery_id'))
+        for key in ('t1', 't3', 't4', 't6'):
+            failed, value = c1.tool('task_accept', {'task_id': t[key][0]})
+            need(not failed, f'task_accept {key}', value)
+        failed, value = c1.tool('task_progress', {'task_id': t['t1'][0], 'message': 'step one'})
+        need(not failed, 'task_progress t1', value)
+        failed, value = c1.tool('task_reject', {'task_id': t['t2'][0], 'reason': 'not mine'})
+        need(not failed, 'task_reject t2', value)
+        for key in ('t3', 't4', 't6'):
+            self.b.cli('task', 'cancel', '--peer', self.ids['a'], t[key][0])
+            self.event(c1, 'task_cancel_requested', 'task_id', t[key][0], timeout=40)
+        self.mark_seen(c1, [t['t3'][0]], [t['t3'][0]], 'mark_seen with a task ID (a cancellation request)')
+        failed, value = c1.tool('task_progress', {'task_id': t['t4'][0], 'message': 'stopping soon'})
+        need(not failed, 'task_progress t4 after its cancellation request was forwarded', value)
+
+        # Task updates of this session's delegations: d1 by mark_seen, d2 by task_status, d3 unseen. Q: the Verification
+        # list names redelivery of messages, replies, and tasks only, so task update redelivery is not checked.
+        for key in ('d1', 'd2', 'd3'):
+            failed, record = c1.tool('delegate_task', {'to': 'bob/target', 'network': net,
+                                                      'input': f'seer delegates {key}'})
+            need(not failed and record.get('task_id'), 'MCP delegate_task by to', record)
+            tid = record['task_id']
+            self.bob_accept(tid)
+            self.event(c1, 'task_update', 'task_id', tid, timeout=60,
+                       where=lambda p: p['meta'].get('event_kind') == 'accepted')
+            d[key] = tid
+        updates = {key: [row['id'] for row in rows(a, 'SELECT id FROM task_update_notifications WHERE task_id=?',
+                                                   (tid,))] for key, tid in d.items()}
+        self.mark_seen(c1, [d['d1']], [d['d1']], 'mark_seen with a task ID (task updates)')
+        failed, value = c1.tool('task_status', {'task_id': d['d2']})
+        need(not failed, 'task_status d2', value)
+        self.seer.update(m=m, r=r, t=t, d=d)
+
+        # The model's view: pending_work.
+        value = self.pending(c1)
+        need([x['delivery_id'] for x in value['deliveries']] == [m['m2'][1], m['m3'][1]],
+             'pending_work deliveries: unanswered deliveries oldest first (m1 answered by reply is gone)',
+             value['deliveries'])
+        need([x['seen'] for x in value['deliveries']] == [True, False],
+             'pending_work: seen true after mark_seen, false otherwise', value['deliveries'])
+        need([x['request_id'] for x in value['replies']] == [r['r3'][0]],
+             'pending_work replies: only unseen replies (send_status and mark_seen set seen)', value['replies'])
+        need([(x['task_id'], x['state']) for x in value['tasks']]
+             == [(t['t1'][0], 'running'), (t['t3'][0], 'cancel_requested'), (t['t4'][0], 'cancel_requested'),
+                 (t['t5'][0], 'queued'), (t['t6'][0], 'cancel_requested')],
+             'pending_work tasks: queued, running, and cancel_requested tasks oldest first (rejected t2 is gone)',
+             value['tasks'])
+
+        # The daemon's record: the version 15 columns.
+        def column(table, key, value_, name):
+            found = rows(a, f'SELECT * FROM {table} WHERE {key}=?', (value_,))
+            need(len(found) == 1 and name in found[0], f'Shared state: {table}.{name} for {value_}', found)
+            return found[0][name]
+        for key, seen in (('m1', True), ('m2', True), ('m3', False)):
+            got = column('deliveries', 'id', m[key][1], 'seen_at')
+            need(bool(got) == seen, f'Seen: deliveries.seen_at for {key} ({"reply" if key == "m1" else "mark_seen"})'
+                 if seen else 'Seen: an unseen delivery has seen_at null', key, got)
+        for key, seen in (('r1', True), ('r2', True), ('r3', False)):
+            got = column('adapter_outbound', 'request_id', r[key][0], 'reply_seen_at')
+            need(bool(got) == seen, 'Seen: adapter_outbound.reply_seen_at set by send_status and mark_seen, null '
+                 'otherwise', key, got)
+        for key, seen, cancel in (('t1', True, None), ('t2', True, None), ('t3', True, True), ('t4', True, True),
+                                  ('t5', False, None), ('t6', True, False)):
+            got = column('task_deliveries', 'task_id', t[key][0], 'seen_at')
+            need(bool(got) == seen, 'Seen: task_deliveries.seen_at set by task_accept and task_reject, null '
+                 'for an offered task', key, got)
+            if cancel is not None:
+                got = column('task_deliveries', 'task_id', t[key][0], 'cancel_seen_at')
+                need(bool(got) == cancel, 'Seen: cancel_seen_at set by mark_seen (task ID) or a task_* call after '
+                     'the cancellation request was forwarded', key, got)
+        for key, seen in (('d1', True), ('d2', True), ('d3', False)):
+            for nid in updates[key]:
+                got = column('task_update_notifications', 'id', nid, 'seen_at')
+                need(bool(got) == seen, 'Seen: task_update_notifications.seen_at set by mark_seen (task ID) or a '
+                     'task_* call (task_status) after the update was forwarded', key, nid, got)
+        # Owner output and records are unchanged: no seen fields in delivery records.
+        record = self.deliveries_for(m['m2'][0])
+        need(len(record) == 1 and not {'seen_at', 'redeliveries', 'returned_at'} & set(record[0]),
+             'Owner output (delivery list) is unchanged: the additions are columns, not record fields', record)
+        return 'reply, mark_seen, send_status, task_accept/reject, task_progress, task_status'
+
+    def check_redelivery(self):
+        need(getattr(self, 'seer', None) and 't' in self.seer, 'needs the seen section')
+        a, b, net, s = self.a, self.b, self.net, self.seer
+        m, r, t = s['m'], s['r'], s['t']
+        c1 = self.seer_c1
+        before_m3 = self.bob_outbound(m['m3'][0])
+        need(before_m3['state'] == 'accepted', 'm3 accepted before the replacement', before_m3)
+        # A late arrival: a send whose reply comes after the authorization ended.
+        failed, sent = c1.tool('send', {'to': 'bob/target', 'network': net, 'content': 'seer asks r4'})
+        need(not failed and sent.get('request_id'), 'MCP send by to', sent)
+        r4 = sent['request_id']
+        c1.close()
+        second = self.attach_profile(s['workspace'])
+        need(second['agent']['id'] == s['agent_id'] and second['session_id'] != s['first']['session_id'],
+             'attach again: a new attachment of the same agent', second, s['first'])
+        old = self.seer_old_secret['adapter']['id']
+        need(self.connection(old) in ('revoked', 'detached', 'expired'),
+             'the old authorization ended (replaced)', self.connection(old))
+        self.bob_answer(r4, 'bob answers r4 late')
+        marked = time.monotonic()
+        c2 = self.verified(second['profile'], 'seer-2')
+        self.seer_c2, self.seer_second = c2, second
+
+        meta = self.event(c2, 'message', 'request_id', m['m3'][0], since=marked)['meta']
+        need(flag(meta, 'redelivered') is True, 'Redelivery: an unseen message reaches the next session with '
+             'meta.redelivered true', meta)
+        need(meta.get('delivery_id') == m['m3'][1], 'A claim of a returned item keeps its delivery_id', meta,
+             m['m3'][1])
+        meta = self.event(c2, 'reply', 'request_id', r['r3'][0], since=marked, timeout=60)['meta']
+        need(flag(meta, 'redelivered') is True, 'Redelivery: an unseen reply reaches the next session with '
+             'meta.redelivered true', meta)
+        need(meta.get('notification_id') == r['r3'][1], 'A claim of a returned reply keeps its notification_id',
+             meta, r['r3'][1])
+        meta = self.event(c2, 'task', 'task_id', t['t5'][0], since=marked)['meta']
+        need(flag(meta, 'redelivered') is True and flag(meta, 'adopted') is False,
+             'Redelivery: an unseen offered task reaches the next session with redelivered true, adopted false', meta)
+        if t['t5'][1]:
+            need(meta.get('delivery_id') == t['t5'][1], 'the returned task keeps its delivery_id', meta)
+        meta = self.event(c2, 'reply', 'request_id', r4, since=marked, timeout=60)['meta']
+        need(flag(meta, 'redelivered') is False, 'Late arrivals: a reply arriving after its authorization ended goes '
+             'to the next verified session with redelivered false', meta)
+        time.sleep(4)
+        for key in ('m1', 'm2'):
+            need(not self.events_named(c2, 'request_id', m[key][0], marked),
+                 f'Items that were seen are never redelivered ({key})', key)
+        for key in ('r1', 'r2'):
+            need(not self.events_named(c2, 'request_id', r[key][0], marked, kinds=('reply',)),
+                 f'Seen replies are never redelivered ({key})', key)
+        need(not self.events_named(c2, 'task_id', t['t2'][0], marked), 'a rejected task is not redelivered')
+        for key in ('m3',):
+            need(len(self.events_named(c2, 'request_id', m[key][0], marked)) == 1, 'redelivered once to the session')
+
+        # pending_work on the new session: the returned items, and not the seen item the old session held.
+        value = self.pending(c2)
+        need([(x['delivery_id'], x['redelivered'], x['seen']) for x in value['deliveries']]
+             == [(m['m3'][1], True, False)],
+             'pending_work: the redelivered delivery (redelivered true); m2, seen by the ended session, is not held '
+             'by this one', value['deliveries'])
+        need([x['request_id'] for x in value['replies']] == [r['r3'][0], r4],
+             'pending_work: the returned reply and the late reply, oldest first', value['replies'])
+        # Q: where adopted tasks fall in "oldest first" is not said; the tasks are compared as a set here.
+        need({x['task_id']: x['adopted'] for x in value['tasks']}
+             == {t['t1'][0]: True, t['t3'][0]: True, t['t4'][0]: True, t['t5'][0]: False, t['t6'][0]: True},
+             'pending_work: adopted tasks adopted true, the redelivered offer adopted false', value['tasks'])
+
+        # The daemon's record.
+        def one(table, key, value_):
+            found = rows(a, f'SELECT * FROM {table} WHERE {key}=?', (value_,))
+            need(len(found) == 1, f'one {table} row for {value_} (a claim of a returned item keeps its row)', found)
+            return found[0]
+        row = one('deliveries', 'id', m['m3'][1])
+        need(row.get('redeliveries') == 1 and row.get('returned_at') is None and not row.get('seen_at'),
+             'deliveries: redeliveries 1 after one return and claim; a claim clears returned_at', row)
+        row = one('task_deliveries', 'task_id', t['t5'][0])
+        need(row.get('redeliveries') == 1 and row.get('adopted_at') is None,
+             'task_deliveries: a redelivered offer counts 1 and is not adopted', row)
+        row = one('task_deliveries', 'task_id', t['t1'][0])
+        need(row.get('redeliveries') == 0 and row.get('adopted_at'),
+             'task_deliveries: adoption sets adopted_at and does not count as a redelivery', row)
+        row = one('adapter_outbound', 'request_id', r['r3'][0])
+        need(row.get('reply_redeliveries') == 1, 'adapter_outbound.reply_redeliveries 1', row)
+        row = one('adapter_outbound', 'request_id', r4)
+        need(row.get('reply_redeliveries') == 0, 'a late reply was never forwarded: reply_redeliveries 0', row)
+
+        # The sender's view is unchanged, and nothing reaches the sender twice.
+        after = self.bob_outbound(m['m3'][0])
+        need(after['state'] == 'accepted' and after.get('attempts') == before_m3.get('attempts'),
+             'A sender\'s view of a returned message is unchanged: it stays accepted', before_m3, after)
+        need(len(self.deliveries_for(m['m3'][0])) == 1, 'the receiver keeps one delivery for the returned message')
+        need([e['kind'] for e in self.bob_events(t['t5'][0])] == ['queued'],
+             'the sender of a returned task sees no new event', self.bob_events(t['t5'][0]))
+        failed, value = c2.tool('reply', {'delivery_id': m['m3'][1], 'content': 'answered after redelivery'})
+        need(not failed, 'the new session replies to the redelivered message', value)
+
+        def replied():
+            out = b.cli('message', 'reply', '--peer', self.ids['a'], m['m3'][0])
+            return out if out.get('state') == 'replied' else None
+        out = wait_for(replied, timeout=40, message='bob fetches the reply')
+        need('answered after redelivery' in json.dumps(out), 'the sender gets the new session\'s reply', out)
+        failed, value = c2.tool('reply', {'delivery_id': m['m3'][1], 'content': 'answered after redelivery'})
+        need(not failed, 'an identical repeat returns the saved reply', value)
+        failed, value = c2.tool('task_accept', {'task_id': t['t5'][0]})
+        need(not failed, 'the new session accepts the redelivered task', value)
+        failed, value = c2.tool('task_complete', {'task_id': t['t5'][0], 'status': 'succeeded', 'output': 't5 done'})
+        need(not failed, 'and completes it', value)
+        self.bob_state(t['t5'][0], 'succeeded')
+        kinds = [e['kind'] for e in self.bob_events(t['t5'][0])]
+        need(kinds == ['queued', 'accepted', 'succeeded'], 'the sender sees the redelivered task once', kinds)
+        self.mark_seen(c2, [r['r3'][0], r4], [r['r3'][0], r4], 'mark_seen the returned and late replies')
+        return 'message, reply, task redelivered; late reply; seen items kept back'
+
+    def check_adoption(self):
+        need(getattr(self, 'seer_c2', None), 'needs the redelivery section')
+        a, t, c2 = self.a, self.seer['t'], self.seer_c2
+        expected = {'t1': ('running', 'step one'), 't3': ('cancel_requested', None),
+                    't4': ('cancel_requested', 'stopping soon'), 't6': ('cancel_requested', None)}
+        for key, (state, progress) in expected.items():
+            found = self.events_named(c2, 'task_id', t[key][0], kinds=('task',))
+            need(len(found) == 1, f'Adoption: one task event for the adopted task {key}', found)
+            meta = found[0]['meta']
+            need(flag(meta, 'adopted') is True and meta.get('state') == state,
+                 f'Adoption: meta.adopted true and meta.state {state} ({key})', meta)
+            need(flag(meta, 'redelivered') is False, 'an adoption is not a redelivery', meta)
+            if progress is None:
+                need('progress' not in meta, 'meta.progress is omitted when there is none', meta)
+            else:
+                need(meta.get('progress') == progress, 'meta.progress is the latest progress message', meta)
+        # The old authorization cannot change them.
+        old = RawAdapter(a, self.seer_old_secret)
+        status, value = old.connect()
+        need(status != 200, 'the old (replaced) authorization cannot connect', status, value)
+        for path, body in ((f"/adapter/v1/tasks/{t['t1'][0]}/progress", {'message': 'from the old session'}),
+                           (f"/adapter/v1/tasks/{t['t3'][0]}/cancelled", {})):
+            status, value = old.request('POST', path, body)
+            need(not 200 <= status < 300, 'Adoption: the old authorization is unable to change an adopted task',
+                 path, status, value)
+        need('from the old session' not in json.dumps(self.bob_events(t['t1'][0])), 'nothing changed')
+        # Another agent's session gets none of them, and cannot change them.
+        stranger = self.register(a, 'stranger', 'alice')
+        raw = self.raw_for(a, stranger)
+        ours = {t[k][0] for k in t}
+        self.claims_nothing(raw, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] in ours,
+                            'Adoption never moves a task between agents')
+        status, value = raw.call('POST', f"/adapter/v1/tasks/{t['t1'][0]}/progress", {'message': 'stranger'})
+        need(status in (403, 404), 'another agent\'s session cannot change an adopted task', status, value)
+        # Only the adopting session changes them.
+        for call, args in (('task_progress', {'task_id': t['t1'][0], 'message': 'after adoption'}),
+                           ('task_complete', {'task_id': t['t1'][0], 'status': 'succeeded', 'output': 't1 done'}),
+                           ('task_cancelled', {'task_id': t['t3'][0]}),
+                           ('task_complete', {'task_id': t['t4'][0], 'status': 'succeeded', 'output': 't4 done'}),
+                           ('task_cancelled', {'task_id': t['t6'][0]})):
+            failed, value = c2.tool(call, args)
+            need(not failed, f'the adopting session may change the task ({call})', args, value)
+        self.bob_state(t['t1'][0], 'succeeded')
+        self.bob_state(t['t3'][0], 'cancelled')
+        self.bob_state(t['t4'][0], 'succeeded')
+        self.bob_state(t['t6'][0], 'cancelled')
+        need('after adoption' in json.dumps(self.bob_events(t['t1'][0])), 'the adopted progress reaches the sender')
+
+        # Raw handoffs: adopted, progress, and redelivered at the top level; a later cancellation request goes to the
+        # adopting session.
+        agent = self.register(a, 'rawadopt', 'alice')
+        r1 = self.raw_for(a, agent)
+        ta, tb = self.task_from_bob('rawadopt', 'raw adopt a'), self.task_from_bob('rawadopt', 'raw adopt b')
+        for tid in (ta, tb):
+            h = self.claim(r1, '/adapter/v1/tasks/next', lambda v, tid=tid: v['task']['task_id'] == tid)
+            need(h and h.get('redelivered') is False and h.get('adopted') is False and 'progress' in h
+                 and h['progress'] is None, 'Events: a task handoff gains redelivered false, adopted false, and '
+                 'progress null', h)
+            status, value = r1.call('POST', f'/adapter/v1/tasks/{tid}/accept', {})
+            need(status == 200, 'accept', status, value)
+        status, value = r1.call('POST', f'/adapter/v1/tasks/{ta}/progress', {'message': 'halfway'})
+        need(status == 200, 'progress', status, value)
+        self.end(r1)
+        r2 = self.raw_for(a, agent)
+        for tid, progress in ((ta, 'halfway'), (tb, None)):
+            h = self.claim(r2, '/adapter/v1/tasks/next', lambda v, tid=tid: v['task']['task_id'] == tid)
+            need(h and h.get('adopted') is True and h.get('progress') == progress and h.get('redelivered') is False
+                 and h['status']['state'] == 'running',
+                 'Adoption happens at the claim through /adapter/v1/tasks/next: adopted true, the latest progress, '
+                 'redelivered false', h)
+        self.b.cli('task', 'cancel', '--peer', self.ids['a'], tb)
+        h = self.claim(r2, '/adapter/v1/tasks/cancels/next', lambda v: tb in json.dumps(v), timeout=40)
+        need(h, 'An adopted task\'s later cancellation request goes to the adopting session')
+        for path, body in ((f'/adapter/v1/tasks/{ta}/complete', {'status': 'succeeded', 'output': 'a'}),
+                           (f'/adapter/v1/tasks/{tb}/cancelled', {})):
+            status, value = r2.call('POST', path, body)
+            need(status == 200, 'the adopting raw session finishes the task', path, status, value)
+        return 'running and cancel_requested adopted; old and other sessions refused'
+
+    def check_chain(self):
+        """bob/origin -> alice/mid -> carol/end; alice's middle session is replaced while carol works."""
+        a, b, net = self.a, self.b, self.net
+        c = self.host('c')
+        self.ids['c'] = c.start()['id']
+        token = a.cli('invite', 'carol', '--network', net)['token']
+        c.cli('join', token)
+        for h in (a, b, c):
+            wait_for(lambda h=h: len(h.cli('network', 'members', net)) == 3, timeout=40, message='three members')
+        c.cli('allow', 'everyone', '--network', net)
+        a.cli('allow', 'bob', '--delegate', '--network', net)
+        for h in (a, b, c):
+            try:
+                h.cli('network', 'sync', net)
+            except AssertionError:
+                pass
+        origin = self.register(b, 'origin', 'bob')
+        end = self.register(c, 'end', 'carol')
+        rorigin = self.raw_for(b, origin, directory=True)
+        rend = self.raw_for(c, end)
+        workspace = self.root / 'projects' / 'mid'
+        first = self.attach_profile(workspace, 'mid')
+        m1 = self.verified(first['profile'], 'mid-1')
+
+        def listed(h, address):
+            h.call('POST', f'/v1/directory/refresh?network={net}', {})
+            return any(x.get('address') == address for x in h.directory(net)[1].get('agents', []))
+        wait_for(lambda: listed(b, 'alice/mid'), timeout=40, message='alice/mid in bob\'s directory')
+        wait_for(lambda: listed(a, 'carol/end'), timeout=40, message='carol/end in alice\'s directory')
+        parent = task_id()
+        status, record = rorigin.call('POST', '/adapter/v1/delegations', {
+            'to': 'alice/mid', 'network': net, 'task_id': parent, 'input': 'review, pass part on',
+            'delegation_depth': 1})
+        need(status == 200, 'bob\'s origin delegates to alice/mid with delegation_depth 1', status, record)
+        meta = self.event(m1, 'task', 'task_id', parent, timeout=60)['meta']
+        need(flag(meta, 'delegable') is True, 'the middle task is delegable', meta)
+        failed, value = m1.tool('task_accept', {'task_id': parent})
+        need(not failed, 'mid accepts', value)
+        failed, forward = m1.tool('delegate_task', {'to': 'carol/end', 'network': net, 'input': 'your part',
+                                                   'parent_task_id': parent})
+        need(not failed and forward.get('task_id'), 'mid forwards to carol/end with parent_task_id', forward)
+        child = forward['task_id']
+        h = self.claim(rend, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == child, timeout=60)
+        need(h and len(h['task'].get('delegation') or []) == 2, 'carol receives the two-link chain', h)
+        status, value = rend.call('POST', f'/adapter/v1/tasks/{child}/accept', {})
+        need(status == 200, 'carol accepts', status, value)
+        self.event(m1, 'task_update', 'task_id', child, timeout=60,
+                   where=lambda p: p['meta'].get('event_kind') == 'accepted')
+
+        # Replace the middle session.
+        m1.close()
+        second = self.attach_profile(workspace)
+        need(second['agent']['id'] == first['agent']['id'], 'the same agent', second)
+        marked = time.monotonic()
+        m2 = self.verified(second['profile'], 'mid-2')
+        meta = self.event(m2, 'task', 'task_id', parent, since=marked)['meta']
+        need(flag(meta, 'adopted') is True and meta.get('state') == 'running',
+             'Adoption: the middle link\'s task is adopted, running', meta)
+        status, value = rend.call('POST', f'/adapter/v1/tasks/{child}/complete',
+                                  {'status': 'succeeded', 'output': 'carol result'})
+        need(status == 200, 'carol completes', status, value)
+        update = self.event(m2, 'task_update', 'task_id', child, since=marked, timeout=60,
+                            where=lambda p: p['meta'].get('event_kind') == 'succeeded')
+        need('carol result' in json.dumps(update), 'Late arrivals: the child\'s updates go to the adopting session',
+             update)
+        failed, value = m2.tool('task_complete', {'task_id': parent, 'status': 'succeeded',
+                                                 'output': 'combined: carol result'})
+        need(not failed, 'the adopting session completes the middle task', value)
+
+        def done():
+            status, record = rorigin.call('GET', f'/adapter/v1/delegations/{parent}')
+            return record if status == 200 and (record.get('status') or {}).get('state') == 'succeeded' else None
+        record = wait_for(done, timeout=60, message='the chain completes at bob\'s origin')
+        need('combined: carol result' in json.dumps(record) or 'combined' in json.dumps(self.b.call(
+            'GET', f"/v1/tasks/{self.ids['a']}/{parent}/events")[1]),
+             'the originator gets the middle agent\'s output', record)
+        status, local = a.call('GET', f"/v1/tasks/{self.ids['c']}/{child}")
+        need(status == 200 and local['status']['state'] == 'succeeded' and len(local.get('delegation') or []) == 2,
+             'A delegation chain whose link was adopted continues unchanged', status, local)
+        self.mid = m2
+        return 'two-link chain completed after the middle session was replaced'
+
+    def check_pending(self):
+        a, b, net = self.a, self.b, self.net
+        workspace = self.root / 'projects' / 'pender'
+        out = self.attach_profile(workspace, 'pender')
+        session_id = out['session_id']
+        p = self.verified(out['profile'], 'pender')
+        self.pender = (workspace, p)
+        long = 'é' * 150 + 'x' * 150  # 300 characters, 450 UTF-8 bytes
+        sent = {}
+        for key, text in (('pm1', long), ('pm2', 'short two'), ('pm3', 'answer me')):
+            rid = self.send_from_bob('pender', text)
+            sent[key] = (rid, self.event(p, 'message', 'request_id', rid)['meta'])
+        failed, value = p.tool('reply', {'delivery_id': sent['pm3'][1]['delivery_id'], 'content': 'done'})
+        need(not failed, 'reply pm3', value)
+        self.mark_seen(p, [sent['pm2'][1]['delivery_id']], [sent['pm2'][1]['delivery_id']], 'mark_seen pm2')
+        tasks = {}
+        for key, text in (('pt1', long), ('pt2', 'run me'), ('pt3', 'cancel me'), ('pt4', 'finish me'),
+                          ('pt5', 'reject me')):
+            tid = self.task_from_bob('pender', text)
+            tasks[key] = (tid, self.event(p, 'task', 'task_id', tid)['meta'])
+        for key in ('pt2', 'pt3', 'pt4'):
+            need(not p.tool('task_accept', {'task_id': tasks[key][0]})[0], f'task_accept {key}')
+        need(not p.tool('task_complete', {'task_id': tasks['pt4'][0], 'status': 'succeeded', 'output': 'x'})[0],
+             'task_complete pt4')
+        need(not p.tool('task_reject', {'task_id': tasks['pt5'][0], 'reason': 'no'})[0], 'task_reject pt5')
+        b.cli('task', 'cancel', '--peer', self.ids['a'], tasks['pt3'][0])
+        self.event(p, 'task_cancel_requested', 'task_id', tasks['pt3'][0], timeout=40)
+        replies = {}
+        for key, answer in (('pr1', long[::-1]), ('pr2', 'seen answer')):
+            failed, value = p.tool('send', {'to': 'bob/target', 'network': net, 'content': f'pender asks {key}'})
+            need(not failed, 'MCP send', value)
+            self.bob_answer(value['request_id'], answer)
+            replies[key] = (value['request_id'], self.event(p, 'reply', 'request_id', value['request_id'],
+                                                            timeout=60)['meta'], answer)
+        self.mark_seen(p, [replies['pr2'][0]], [replies['pr2'][0]], 'mark_seen pr2')
+
+        value = self.pending(p)
+        expected = []
+        for key, text, seen in (('pm1', long, False), ('pm2', 'short two', True)):
+            rid, meta = sent[key]
+            expected.append({'delivery_id': meta['delivery_id'], 'request_id': rid, 'sender_host_id': self.ids['b'],
+                             'origin_agent_id': meta.get('origin_agent_id'), 'preview': text[:PREVIEW], 'seen': seen,
+                             'deadline': self.bob_outbound(rid)['request']['deadline'], 'redelivered': False})
+        got = value['deliveries']
+        need([x['delivery_id'] for x in got] == [x['delivery_id'] for x in expected],
+             'pending_work deliveries: unanswered deliveries held by this session, oldest first', got, expected)
+        for item, want in zip(got, expected):
+            need(same_time(item['deadline'], want['deadline']), 'a delivery\'s deadline', item, want)
+            need({k: v for k, v in item.items() if k != 'deadline'} == {k: v for k, v in want.items() if k != 'deadline'},
+                 'pending_work delivery fields match the event meta; preview is the first 200 characters', item, want)
+        rid, meta, answer = replies['pr1']
+        want = [{'notification_id': meta.get('notification_id'), 'request_id': rid, 'peer_host_id': self.ids['b'],
+                 'preview': answer[:PREVIEW]}]
+        need(value['replies'] == want, 'pending_work replies: unseen replies {notification_id, request_id, '
+             'peer_host_id, preview}', value['replies'], want)
+        got = value['tasks']
+        order = [('pt1', 'queued', long), ('pt2', 'running', 'run me'), ('pt3', 'cancel_requested', 'cancel me')]
+        need([(x['task_id'], x['state']) for x in got] == [(tasks[k][0], s) for k, s, _ in order],
+             'pending_work tasks: queued, running, and cancel_requested held by this session, oldest first', got)
+        for item, (key, state, text) in zip(got, order):
+            tid, meta = tasks[key]
+            need(item['sender_host_id'] == self.ids['b'] and item['preview'] == text[:PREVIEW]
+                 and item['adopted'] is False and same_time(item['deadline'], self.bob_task(tid)['request']['deadline'])
+                 and isinstance(item['delivery_id'], str) and item['delivery_id'].startswith('delivery_')
+                 and item['delivery_id'] == meta.get('delivery_id', item['delivery_id']),
+                 'pending_work task fields', item, meta)
+
+        status, admin = a.call('GET', f'/v1/sessions/{session_id}/pending')
+        need(status == 200 and admin == value, 'GET /v1/sessions/{id}/pending returns the same object', status, admin)
+        result = a.run('session', 'pending', '--json', cwd=str(workspace))
+        need(result.returncode == 0, 'session pending --json exits 0', result.returncode, result.stderr[-300:])
+        need(json.loads(result.stdout) == value, 'session pending --json prints the same object as pending_work for '
+             'the current directory\'s attachment', result.stdout[-800:])
+        # The hook passes no --state: the attach profile is found under whichever state directory made it.
+        result = a.run(argv=[a.cli_binary, 'session', 'pending', '--json'], cwd=str(workspace))
+        need(result.returncode == 0 and json.loads(result.stdout or 'null') == value,
+             'session pending --json without --state finds the attach profile whose workspace is the current '
+             'directory', result.returncode, result.stdout[-500:], result.stderr[-300:])
+        result = a.run('session', 'pending', cwd=str(workspace))
+        lines = [x for x in result.stdout.splitlines() if x.strip()]
+        need(result.returncode == 0 and len(lines) == 6, 'session pending without --json prints one line per item',
+             result.returncode, result.stdout)
+        for argv in (None, [a.cli_binary, 'session', 'pending', '--hook']):
+            result = a.run('session', 'pending', '--hook', argv=argv, cwd=str(workspace))
+            need(result.returncode == 0 and hook_output(result.stdout, value) is None,
+                 'session pending --hook prints {"hookSpecificOutput": {"hookEventName": "SessionStart", '
+                 '"additionalContext": LEAD + compact pending_work JSON}}', argv is None,
+                 hook_output(result.stdout, value), result.returncode, result.stdout[-800:], result.stderr[-300:])
+        # An attachment with all three lists empty: --hook prints nothing.
+        idle_ws = self.root / 'projects' / 'idle'
+        idle = self.attach_profile(idle_ws, 'idle')
+        status, listed = a.call('GET', f"/v1/sessions/{idle['session_id']}/pending")
+        need(status == 200 and listed == {'deliveries': [], 'replies': [], 'tasks': []},
+             'an idle attachment has no pending work', status, listed)
+        result = a.run('session', 'pending', '--hook', cwd=str(idle_ws))
+        need(result.returncode == 0 and result.stdout == '',
+             'session pending --hook prints nothing when all three lists are empty', result.returncode,
+             result.stdout, result.stderr[-300:])
+        empty = self.root / 'projects' / 'none'
+        empty.mkdir(parents=True, exist_ok=True)
+        for flags in (('--json',), ('--hook',), ()):
+            result = a.run('session', 'pending', *flags, cwd=str(empty))
+            need(result.returncode == 0 and result.stdout == '',
+                 'With no attachment for the directory, session pending prints nothing and exits 0', flags,
+                 result.returncode, result.stdout, result.stderr[-300:])
+
+        # The adapter route, with a raw adapter.
+        agent = self.register(a, 'rawpend', 'alice')
+        raw = self.raw_for(a, agent)
+        rid = self.send_from_bob('rawpend', 'for the raw route')
+        h = self.claim(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid, timeout=40)
+        need(h and h.get('redelivered') is False, 'Events: a message handoff gains redelivered false', h)
+        need(not {'seen_at', 'redeliveries'} & set(h['delivery']), 'handoff objects keep their fields', h)
+        did = h['delivery']['id']
+        status, listed = raw.call('GET', '/adapter/v1/pending')
+        need(status == 200 and [x['delivery_id'] for x in listed.get('deliveries', [])] == [did]
+             and listed['deliveries'][0]['seen'] is False and listed['replies'] == [] and listed['tasks'] == [],
+             'GET /adapter/v1/pending', status, listed)
+        status, admin = a.call('GET', f"/v1/sessions/{raw.adapter['session_id']}/pending")
+        need(status == 200 and admin == listed, 'the adapter route and the administration route agree', admin, listed)
+        status, value = raw.call('POST', '/adapter/v1/seen', {'ids': [did]})
+        need(status == 200 and value == {'seen': [did]}, 'POST /adapter/v1/seen with {ids}', status, value)
+        status, value = raw.call('POST', '/adapter/v1/seen', {'ids': [did]})
+        need(status == 200 and value == {'seen': []}, 'POST /adapter/v1/seen ignores IDs already seen', status, value)
+        for ids in ([], ['delivery_' + secrets.token_hex(16) for _ in range(101)]):
+            status, value = raw.call('POST', '/adapter/v1/seen', {'ids': ids})
+            need(status == 400, 'POST /adapter/v1/seen takes 1 to 100 IDs', len(ids), status, value)
+        status, listed = raw.call('GET', '/adapter/v1/pending')
+        need(status == 200 and listed['deliveries'][0]['seen'] is True, 'pending: seen true after the route', listed)
+        return '2 deliveries, 1 reply, 3 tasks; session pending and both routes agree'
+
+    def check_settings(self):
+        a = self.a
+        agent = self.register(a, 'settled', 'alice')
+        directory, _ = self.profile('settled', agent, self.slice2_fixture())
+        workspace = self.root / 'workspace-settled'
+        workspace.mkdir(exist_ok=True)
+        cli = str(Path(self.cli_binary).resolve())
+
+        def launch(argv=None, extra=('--name', 'hooked')):
+            args = ['session', 'start', '--directory', str(directory), '--workspace', str(workspace), '--', *extra]
+            result = a.run(*args, argv=[argv, '--state', str(a.state), *args] if argv else None)
+            lines = [x for x in result.stdout.splitlines() if x.startswith('{')]
+            return result, (json.loads(lines[-1]) if lines else None)
+
+        result, launched = launch()
+        need(result.returncode == 0 and launched, 'session start launches the fixture claude', result.returncode,
+             result.stdout[-400:], result.stderr[-400:])
+        args = launched['arguments']
+        need(args.count('--settings') == 1, 'Launch adds --settings PATH once', args)
+        path = Path(args[args.index('--settings') + 1])
+        need(path.is_absolute() and path.resolve() == (directory / SETTINGS_FILE).resolve(),
+             'PATH is claude-settings.json in the session profile directory', path, directory)
+        need(args[-2:] == ['--name', 'hooked'], 'the user\'s arguments are kept', args)
+        need(stat.S_IMODE(path.stat().st_mode) == 0o600, 'the settings file is written with mode 0600',
+             oct(path.stat().st_mode))
+        settings = json.loads(path.read_text())
+        need(settings == expected_settings(cli), 'the settings file holds exactly the SessionStart hook for '
+             f'"{MATCHER}" running \'CAPSULE\' session pending --hook', settings, expected_settings(cli))
+        need(settings['hooks']['SessionStart'][0]['matcher'] == MATCHER, 'the hook matchers: clear|compact|resume')
+        home = Path(self.a.private_env()['HOME'])
+        need(not (workspace / '.claude').exists() and not (home / '.claude' / 'settings.json').exists(),
+             'It changes no global or project Claude Code settings')
+        command = settings['hooks']['SessionStart'][0]['hooks'][0]['command']
+        result = subprocess.run(['sh', '-c', command], cwd=str(workspace), env=a.environment(), capture_output=True,
+                                text=True, timeout=60)
+        need(result.returncode == 0 and result.stdout == '', 'the hook command, run in a workspace with no attachment, '
+             'prints nothing and exits 0', result.returncode, result.stdout, result.stderr[-300:])
+        if getattr(self, 'pender', None):
+            ws, consumer = self.pender
+            result = subprocess.run(['sh', '-c', command], cwd=str(ws), env=a.environment(), capture_output=True,
+                                    text=True, timeout=60)
+            pending = self.pending(consumer)
+            need(result.returncode == 0 and hook_output(result.stdout, pending) is None,
+                 'the hook command, run in an attached project, prints the --hook form of the pending_work object',
+                 hook_output(result.stdout, pending), result.returncode, result.stdout[-500:], result.stderr[-300:])
+        # --settings among the user's arguments is refused, as --mcp-config is.
+        result, launched = launch(extra=('--settings', str(workspace / 'mine.json')))
+        need(result.returncode != 0 and launched is None, '--settings among the user\'s extra arguments is refused',
+             result.returncode, result.stdout[-300:])
+        # A capsule path containing a quote: '\'' inside single quotes.
+        quoted = self.root / "it's here"
+        quoted.mkdir(exist_ok=True)
+        copy = quoted / Path(cli).name
+        shutil.copy2(cli, copy)
+        result, launched = launch(argv=str(copy))
+        need(result.returncode == 0 and launched, 'session start from a copied CLI', result.returncode,
+             result.stderr[-400:])
+        settings = json.loads(path.read_text())
+        need(settings == expected_settings(str(copy.resolve())),
+             'the command single-quotes the absolute path of the capsule executable that launched the session '
+             '(a \' in it becomes \'\\\'\')', settings, str(copy))
+        result = subprocess.run(['sh', '-c', settings['hooks']['SessionStart'][0]['hooks'][0]['command']],
+                                cwd=str(workspace), env=a.environment(), capture_output=True, text=True, timeout=60)
+        need(result.returncode == 0, 'the quoted command runs in the shell', result.returncode, result.stderr[-300:])
+        return f'{SETTINGS_FILE} 0600, matcher {MATCHER}'
+
+    def check_limits(self):
+        a, b, net = self.a, self.b, self.net
+        notes = []
+        # The redelivery limit of 3: a message and a task forwarded to four sessions in turn, never seen.
+        agent = self.register(a, 'bouncer', 'alice')
+        rid = self.send_from_bob('bouncer', 'bounce me')
+        tid = self.task_from_bob('bouncer', 'bounce task')
+        flags, task_flags, delivery_ids = [], [], set()
+        for index in range(LIMIT + 1):
+            raw = self.raw_for(a, agent)
+            h = self.claim(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid)
+            need(h, f'session {index + 1} receives the unseen message ({LIMIT} redeliveries)', index)
+            flags.append(h.get('redelivered'))
+            delivery_ids.add(h['delivery']['id'])
+            if index % 2 == 0:
+                # Forwarded means claimed: an unconfirmed delivery returns too.
+                raw.call('POST', f"/adapter/v1/deliveries/{h['delivery']['id']}/forwarded", {})
+            h = self.claim(raw, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == tid)
+            need(h, f'session {index + 1} is offered the unseen task', index)
+            task_flags.append((h.get('redelivered'), h.get('adopted')))
+            self.end(raw)
+        # Q: "redelivered at most 3 times" is read as four handoffs in all (the first, then 3 redeliveries), the item
+        # failing when the fourth holder ends; this matches redeliveries counting claims after a return, up to 3.
+        need(flags == [False, True, True, True], 'Events: handoffs carry redelivered false, then true for each '
+             'redelivery', flags)
+        need(task_flags == [(False, False)] + [(True, False)] * LIMIT, 'task handoffs: redelivered, not adopted',
+             task_flags)
+        need(len(delivery_ids) == 1, 'a returned message keeps its delivery ID', delivery_ids)
+        raw = self.raw_for(a, agent)
+        self.claims_nothing(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid,
+                            'An item is redelivered at most 3 times (message)')
+        self.claims_nothing(raw, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == tid,
+                            'An item is redelivered at most 3 times (task)')
+        wait_for(lambda: [d['state'] for d in self.deliveries_for(rid)] == ['blocked'], timeout=20,
+                 message='the message blocked after 3 redeliveries')
+        need(self.bob_outbound(rid)['state'] == 'accepted', 'the sender\'s view of the message stays accepted')
+        record = self.bob_state(tid, 'failed')
+        events = self.bob_events(tid)
+        need(events[-1]['kind'] == 'failed' and NEVER_SAW in json.dumps(events[-1]),
+             'A task past the limit moves from queued to failed with "session never saw the task", emitting the '
+             'usual failed event to its sender', events, record)
+        need([e['kind'] for e in events] == ['queued', 'failed'], 'no other events for the never-accepted task',
+             events)
+        row = rows(a, 'SELECT * FROM deliveries WHERE id=?', (delivery_ids.pop(),))
+        need(row and row[0].get('redeliveries') == LIMIT, 'deliveries.redeliveries is 3', row)
+        notes.append('message blocked, task failed after 3')
+
+        # Replies have no deadline; past the limit they are no longer offered and stay unseen.
+        asker = self.register(a, 'asker', 'alice')
+        raw = self.raw_for(a, asker, directory=True)
+        rq = request_id()
+        status, value = raw.call('POST', '/adapter/v1/send', {'to': 'bob/target', 'network': net, 'request_id': rq,
+                                                              'content': 'ask'})
+        need(status == 200, 'asker sends by address', status, value)
+        self.bob_answer(rq, 'answer to asker')
+        reply_flags = []
+        for index in range(LIMIT + 1):
+            if index:
+                raw = self.raw_for(a, asker, directory=True)
+            h = self.claim(raw, '/adapter/v1/replies/next', lambda v: rq in json.dumps(v), timeout=60)
+            need(h, f'session {index + 1} receives the unseen reply', index)
+            reply_flags.append(h.get('redelivered'))
+            self.end(raw)
+        need(reply_flags == [False, True, True, True], 'reply handoffs: redelivered after each return', reply_flags)
+        raw = self.raw_for(a, asker, directory=True)
+        self.claims_nothing(raw, '/adapter/v1/replies/next', lambda v: rq in json.dumps(v),
+                            'Replies past the limit of 3 are no longer offered')
+        row = rows(a, 'SELECT * FROM adapter_outbound WHERE request_id=?', (rq,))
+        need(row and row[0].get('reply_redeliveries') == LIMIT and row[0].get('reply_seen_at') is None,
+             'and stay unseen (reply_redeliveries 3, reply_seen_at null)', row)
+        notes.append('reply not offered after 3')
+
+        # Deadlines passing while queued.
+        lapser = self.register(a, 'lapser', 'alice')
+        deadline = timestamp(40)
+        out = b.cli('send', 'alice/lapser', 'short-lived', '--network', net, '--deadline', deadline)
+        rid = out['request']['request_id']
+        out = b.cli('task', 'alice/lapser', 'short-lived task', '--network', net, '--deadline', deadline)
+        tid = out['request']['task_id']
+        raw = self.raw_for(a, lapser)
+        need(self.claim(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid, timeout=30),
+             'the short-lived message is claimed')
+        need(self.claim(raw, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == tid, timeout=30),
+             'the short-lived task is claimed')
+        self.end(raw)
+        remaining = (parse_time(deadline) - datetime.now(timezone.utc)).total_seconds() + 3
+        need(remaining > 3, 'the authorization ended before the deadline', remaining)
+        time.sleep(remaining)
+        raw = self.raw_for(a, lapser)
+        self.claims_nothing(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid,
+                            'a returned message whose deadline passed while queued is not redelivered')
+        self.claims_nothing(raw, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == tid,
+                            'a returned task whose deadline passed while queued is not redelivered')
+        # Q: the contract does not say how a returned message whose deadline passed is recorded; only that it is not
+        # redelivered and the sender's view is unchanged is checked.
+        self.bob_state(tid, 'expired')
+        need(self.bob_outbound(rid)['state'] == 'accepted', 'the sender\'s view of the message stays accepted')
+        notes.append('deadline')
+
+        # Revocation of the sender's access blocks a returned message.
+        shut = self.register(a, 'shut', 'alice')
+        rid = self.send_from_bob('shut', 'returned then blocked')
+        raw = self.raw_for(a, shut)
+        need(self.claim(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid), 'claimed')
+        self.end(raw)
+        a.cli('deny', 'bob', '--network', net)
+        try:
+            raw = self.raw_for(a, shut)
+            self.claims_nothing(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid,
+                                'Revocation of the sender\'s access blocks a returned message')
+            wait_for(lambda: [d['state'] for d in self.deliveries_for(rid)] == ['blocked'], timeout=20,
+                     message='the returned message recorded blocked')
+        finally:
+            a.cli('allow', 'bob', '--network', net)
+            try:
+                b.cli('network', 'sync', net)
+            except AssertionError:
+                pass
+        notes.append('revocation')
+        return ', '.join(notes)
+
+    def check_migration15(self):
+        if self.baseline14 is None:
+            raise Failure('migration to 15 needs --baseline14 (a capsule-host at schema 14, milestone 9 slice 1)')
+        a, b, net = self.a, self.b, self.net
+        h = DirectoryHost(self.baseline14, self.baseline14, self.root / 'migration15', self.root / 'user-migration15')
+        self.hosts['migration15'] = h
+        self.ids['m'] = h.start()['id']
+        need(user_version(h) == 14, 'the baseline host writes schema 14', user_version(h))
+        members = len(a.cli('network', 'members', net)) + 1
+        token = a.cli('invite', 'mia', '--network', net)['token']
+        h.cli('join', token)
+        wait_for(lambda: len(b.cli('network', 'members', net)) == members
+                 and len(h.cli('network', 'members', net)) == members, timeout=40, message='mia\'s host a member')
+        h.cli('allow', 'bob', '--network', net)
+        try:
+            b.cli('network', 'sync', net)
+        except AssertionError:
+            pass
+        keeper = h.cli('agent', 'register', '--name', 'keeper', '--owner', 'mia')
+        raw = self.raw_for(h, keeper)
+        rid = b.cli('send', 'mia/keeper', 'before the upgrade', '--network', net)['request']['request_id']
+        t1 = b.cli('task', 'mia/keeper', 'offered before the upgrade', '--network', net)['request']['task_id']
+        t2 = b.cli('task', 'mia/keeper', 'running before the upgrade', '--network', net)['request']['task_id']
+        handoff = self.claim(raw, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid, timeout=60)
+        need(handoff, 'the baseline host hands off the message')
+        raw.call('POST', f"/adapter/v1/deliveries/{handoff['delivery']['id']}/forwarded", {})
+        for tid in (t1, t2):
+            need(self.claim(raw, '/adapter/v1/tasks/next', lambda v, tid=tid: v['task']['task_id'] == tid,
+                            timeout=60), 'the baseline host hands off the task', tid)
+        status, value = raw.call('POST', f'/adapter/v1/tasks/{t2}/accept', {})
+        need(status == 200, 'accept before the upgrade', status, value)
+        agents = h.cli('agent', 'list')
+        h.stop()
+        h.binary, h.cli_binary = str(self.daemon), str(self.cli_binary)
+        h.start()
+        need(user_version(h) == 15, 'Shared state: the schema moves to version 15', user_version(h))
+        need(h.cli('agent', 'list') == agents, 'existing state is preserved')
+        for table, columns in MIGRATED_COLUMNS.items():
+            present = {r['name'] for r in rows(h, f'SELECT name FROM pragma_table_info(\'{table}\')')}
+            need(columns <= present, f'Shared state: {table} gains {sorted(columns)}', sorted(present))
+        row = rows(h, 'SELECT * FROM deliveries WHERE id=?', (handoff['delivery']['id'],))
+        need(row and row[0]['seen_at'] and row[0]['redeliveries'] == 0 and row[0]['returned_at'] is None,
+             'Upgrades: migration marks existing deliveries seen, with 0 redeliveries and null returned_at', row)
+        for tid in (t1, t2):
+            row = rows(h, 'SELECT * FROM task_deliveries WHERE task_id=?', (tid,))
+            need(row and row[0]['seen_at'] and row[0]['cancel_seen_at'] and row[0]['redeliveries'] == 0
+                 and row[0]['returned_at'] is None and row[0]['adopted_at'] is None,
+                 'Upgrades: existing task deliveries seen (seen_at and cancel_seen_at), 0 redeliveries, null '
+                 'returned_at and adopted_at', row)
+        self.end(raw, host=h)
+        fresh = self.raw_for(h, keeper)
+        self.claims_nothing(fresh, '/adapter/v1/next', lambda v: v['request']['request_id'] == rid,
+                            'nothing from before the upgrade is redelivered (message)')
+        self.claims_nothing(fresh, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == t1,
+                            'nothing from before the upgrade is redelivered (offered task)')
+        # Q: adoption does not depend on seen, so a task running before the upgrade is read as adopted.
+        adopted = self.claim(fresh, '/adapter/v1/tasks/next', lambda v: v['task']['task_id'] == t2, timeout=10)
+        need(adopted and adopted.get('adopted') is True, 'a task running before the upgrade is adopted by the next '
+             'verified session', adopted)
+        h.stop()
+        return '14 to 15'
+
     # --- the pairing ---------------------------------------------------------------------------------------
 
     def run(self):
@@ -1083,6 +2135,17 @@ class Pairing:
         self.section('fatal stop', self.check_fatal)
         self.section('deadlines', self.check_deadlines)
         self.section('migration', self.check_migration)
+        # Slice 2 (skipped with --slice1-only). These run while the silent session's timers do.
+        if 2 in self.slices:
+            for name, check in (('seen', self.check_seen),
+                                ('redelivery after replacement', self.check_redelivery),
+                                ('adoption', self.check_adoption),
+                                ('delegation chain after replacement', self.check_chain),
+                                ('pending work', self.check_pending),
+                                ('launch settings', self.check_settings),
+                                ('limits', self.check_limits),
+                                ('migration to 15', self.check_migration15)):
+                self.section(name, check)
         self.section('hello re-sent once', self.check_resend)
         self.section('item 13', self.check_item13)
         self.section('daemon restart', self.check_restart)
@@ -1117,9 +2180,11 @@ class Pairing:
             self.coord.logs.close()
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, baseline, label, logs=None):
+def run_pairing(coord_binary, cli_binary, daemon_binary, node, baseline, label, logs=None, baseline14=None,
+                slices=(1, 2)):
     with tempfile.TemporaryDirectory(prefix='capsule-live-delivery-') as temporary:
-        pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, node, baseline, Path(temporary))
+        pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, node, baseline, Path(temporary),
+                          baseline14, slices)
         started = time.monotonic()
         try:
             pairing.run()
@@ -1148,6 +2213,10 @@ def main():
     parser.add_argument('--node', type=Path, required=True, help='Node 22 or newer, for the MCP adapter')
     parser.add_argument('--baseline', type=Path,
                         help='a capsule-host from before milestone 9 (schema 13), for the migration section')
+    parser.add_argument('--baseline14', type=Path,
+                        help='a capsule-host from milestone 9 slice 1 (schema 14), for the migration to 15 section')
+    parser.add_argument('--slice1-only', action='store_true',
+                        help='skip the slice 2 sections (slice 1 sections always run: slice 2 runs inside their setup)')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
     parser.add_argument('--parallel', action='store_true', help='run the pairings at the same time')
     parser.add_argument('--logs', type=Path, help='save daemon, coordinator, and adapter logs of failing pairings here')
@@ -1162,13 +2231,15 @@ def main():
         if binaries[cli] is None or binaries[daemon] is None:
             parser.error(f'pairing {pairing} needs --rust')
     baseline = args.baseline.resolve() if args.baseline else None
+    baseline14 = args.baseline14.resolve() if args.baseline14 else None
     outcomes = {}
 
     def one(pairing):
         cli, _, daemon = pairing.partition('/')
         label = f'{cli} CLI, {daemon} daemon'
         outcomes[label] = run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], args.node.resolve(),
-                                      baseline, label, args.logs)
+                                      baseline, label, args.logs, baseline14,
+                                      (1,) if args.slice1_only else (1, 2))
     if args.parallel:
         threads = [threading.Thread(target=one, args=(p,)) for p in pairings]
         for t in threads:

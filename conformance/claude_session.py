@@ -177,10 +177,14 @@ class ClaudeSession:
         time.sleep(0.1)
         os.write(self.master, b"\r")
 
+    def transcript_paths(self):
+        """This experiment's explicitly selected UUID transcript."""
+        return list((Path.home() / ".claude/projects").glob("*/" + self.sid + ".jsonl"))
+
     def assistant_said(self, marker):
         self.running()
         # Read only this experiment's explicitly selected UUID transcript.
-        for path in (Path.home() / ".claude/projects").glob("*/" + self.sid + ".jsonl"):
+        for path in self.transcript_paths():
             for line in path.read_text().splitlines():
                 try:
                     entry = json.loads(line)
@@ -196,11 +200,11 @@ class ClaudeSession:
                         return True
         return False
 
-    def tool_exchanges(self, name):
-        """Read tool calls/results only from this experiment's UUID transcript."""
+    def tool_exchanges(self, name, paths=None):
+        """Read tool calls/results only from this experiment's UUID transcript (or the given transcripts)."""
         self.running()
         calls = {}
-        for path in (Path.home() / ".claude/projects").glob("*/" + self.sid + ".jsonl"):
+        for path in self.transcript_paths() if paths is None else paths:
             for line in path.read_text().splitlines():
                 try:
                     entry = json.loads(line)

@@ -1099,13 +1099,47 @@ impl Store {
         Ok(out)
     }
     /// A task submitted with this credential; any other is not found.
+    /// A task an ended authorization of the same agent submitted is found
+    /// too, since its updates now come to this session.
     pub fn delegation(&self, auth: &AdapterAuth, task_id: &str) -> Result<OutboundTask, Error> {
         let conn = self.connection()?;
-        let (a, _) = authority(&conn, auth)?;
-        let mut out: OutboundTask = read(
+        let (a, ss) = authority(&conn, auth)?;
+        let own: Option<String> = conn
+            .query_row(
+                "SELECT record FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 ORDER BY rowid LIMIT 1",
+                params![task_id, a.id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let record = match own {
+            Some(record) => record,
+            None => {
+                let candidates = {
+                    let mut stmt = conn.prepare("SELECT record, json_extract(record, '$.adapter_id') FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.request.origin.agent_id') = ?2 AND json_extract(record, '$.adapter_id') IS NOT NULL ORDER BY rowid")?;
+                    stmt.query_map(params![task_id, ss.agent_id], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?
+                };
+                let mut found = None;
+                for (record, creator) in candidates {
+                    if crate::live_delivery::ended(&conn, &creator)? {
+                        found = Some(record);
+                        break;
+                    }
+                }
+                found.ok_or(Error::NotFound)?
+            }
+        };
+        let mut out: OutboundTask = serde_json::from_str(&record)?;
+        // Following a task shows the updates handed off for it were seen.
+        crate::live_delivery::mark_updates(
             &conn,
-            "SELECT record FROM outbound_tasks WHERE task_id = ?1 AND json_extract(record, '$.adapter_id') = ?2 ORDER BY rowid LIMIT 1",
-            params![task_id, a.id],
+            &a.id,
+            &ss.id,
+            task_id,
+            Some(&out.peer_host_id),
+            &now(),
         )?;
         fill(&conn, &mut out)?;
         Ok(out)
@@ -1255,20 +1289,67 @@ impl Store {
         Ok(result)
     }
 
-    /// Hands the originating session the oldest stored event of its tasks
-    /// that it has not been given.
+    /// Hands this session the oldest task update it is owed: one returned
+    /// to the agent's queue, then one of its own tasks, or of a task whose
+    /// creating authorization of the agent has ended, not yet handed off.
     pub fn next_task_update(&self, auth: &AdapterAuth) -> Result<Option<TaskUpdate>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = crate::adapter_connection::verified_authority(&tx, auth)?;
-        let pending: Option<(String, String, i64, String)> = tx
+        crate::live_delivery::return_items(&tx, &ss.agent_id)?;
+        let returned: Option<String> = tx
             .query_row(
-                "SELECT e.peer, e.task_id, e.sequence, e.record FROM outbound_task_events e JOIN outbound_tasks t ON t.peer = e.peer AND t.task_id = e.task_id WHERE json_extract(t.record, '$.adapter_id') = ?1 AND json_extract(t.record, '$.request.origin.session_id') = ?2 AND NOT EXISTS (SELECT 1 FROM task_update_notifications n WHERE n.peer = e.peer AND n.task_id = e.task_id AND n.sequence = e.sequence) ORDER BY e.rowid LIMIT 1",
-                params![a.id, ss.id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                "SELECT n.record FROM task_update_notifications n JOIN sessions s ON s.id = json_extract(n.record, '$.session_id') WHERE s.agent_id = ?1 AND n.returned_at IS NOT NULL ORDER BY n.rowid LIMIT 1",
+                [&ss.agent_id],
+                |r| r.get(0),
             )
             .optional()?;
+        if let Some(record) = returned {
+            let mut n: TaskUpdateNotification = serde_json::from_str(&record)?;
+            n.adapter_id = a.id.clone();
+            n.session_id = ss.id.clone();
+            n.state = "unknown".into();
+            n.updated_at = now();
+            tx.execute(
+                "UPDATE task_update_notifications SET record = ?1, redeliveries = redeliveries + 1, returned_at = NULL WHERE id = ?2",
+                params![serde_json::to_string(&n)?, n.id],
+            )?;
+            let event: TaskEvent = read(
+                &tx,
+                "SELECT record FROM outbound_task_events WHERE peer = ?1 AND task_id = ?2 AND sequence = ?3",
+                params![n.peer_host_id, n.task_id, n.sequence],
+            )?;
+            tx.commit()?;
+            return Ok(Some(TaskUpdate { delivery: n, event }));
+        }
+        type Row = (String, String, i64, String, String, Option<String>);
+        let candidates: Vec<Row> = {
+            let mut stmt = tx.prepare(
+                "SELECT e.peer, e.task_id, e.sequence, e.record, json_extract(t.record, '$.adapter_id'), json_extract(t.record, '$.request.origin.session_id') FROM outbound_task_events e JOIN outbound_tasks t ON t.peer = e.peer AND t.task_id = e.task_id WHERE json_extract(t.record, '$.request.origin.agent_id') = ?1 AND json_extract(t.record, '$.adapter_id') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM task_update_notifications n WHERE n.peer = e.peer AND n.task_id = e.task_id AND n.sequence = e.sequence) ORDER BY e.rowid",
+            )?;
+            stmt.query_map([&ss.agent_id], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut ended = crate::live_delivery::Ended::default();
+        let mut pending = None;
+        for (peer, task_id, sequence, event, creator, session) in candidates {
+            let own = creator == a.id && session.as_deref() == Some(ss.id.as_str());
+            if own || ended.check(&tx, &creator)? {
+                pending = Some((peer, task_id, sequence, event));
+                break;
+            }
+        }
         let Some((peer, task_id, sequence, event)) = pending else {
+            tx.commit()?;
             return Ok(None);
         };
         let at = now();
@@ -1284,7 +1365,7 @@ impl Store {
             updated_at: at,
         };
         tx.execute(
-            "INSERT INTO task_update_notifications VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO task_update_notifications (id, peer, task_id, sequence, record) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 n.id,
                 n.peer_host_id,
@@ -1309,7 +1390,7 @@ impl Store {
         let (a, ss) = authority(&tx, auth)?;
         let mut n: TaskUpdateNotification = read(
             &tx,
-            "SELECT record FROM task_update_notifications WHERE id = ?1",
+            "SELECT record FROM task_update_notifications WHERE id = ?1 AND returned_at IS NULL",
             [id],
         )?;
         if n.adapter_id != a.id || n.session_id != ss.id {

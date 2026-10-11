@@ -490,7 +490,7 @@ func (s *Store) prepareAddressSend(ctx context.Context, token AdapterAuth, r Ada
 		}
 		return out, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_outbound VALUES (?, ?, ?, ?, NULL, 0, NULL)`, out.PeerHostID, out.Request.RequestID, a.ID, ss.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_outbound (peer, request_id, adapter_id, session_id, route_id, next_poll_at, reply_delivery) VALUES (?, ?, ?, ?, NULL, 0, NULL)`, out.PeerHostID, out.Request.RequestID, a.ID, ss.ID); err != nil {
 		return out, err
 	}
 	if err = countSend(ctx, tx, a.ID, "message", out.PeerHostID, out.Request.RequestID, now); err != nil {

@@ -34,7 +34,7 @@ DELIVERY_KEYS = {'id', 'sender_host_id', 'task_id', 'target_agent_id', 'session_
                  'cancel_claimed_at', 'created_at'}
 NOTIFICATION_KEYS = {'id', 'peer_host_id', 'task_id', 'sequence', 'adapter_id', 'session_id', 'state', 'created_at',
                      'updated_at'}
-HANDOFF_KEYS = {'delivery', 'task', 'status', 'sender_person_id', 'sender_person', 'originator_person_id', 'delegable'}
+HANDOFF_KEYS = {'delivery', 'task', 'status', 'sender_person_id', 'sender_person', 'originator_person_id', 'delegable', 'redelivered', 'adopted', 'progress'}
 LAPSED = 'authorization lapsed before acceptance'
 # Event polling backs off to a minute while nothing changes.
 POLL = 75
@@ -603,16 +603,16 @@ def migration_check(original, replacement, label):
             sql(host, 'PRAGMA user_version = 8')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 14
+            assert sql(host, 'PRAGMA user_version')[0][0] == 15
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(TASK_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('task', 'list') == []
             host.stop()
             # A newer version is refused, without changes.
-            sql(host, 'PRAGMA user_version = 15')
+            sql(host, 'PRAGMA user_version = 16')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 15
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 16
         finally:
             stop_all((host,))
     print(f'PASS {label}: v8→v13 migration; version 14 refused', flush=True)

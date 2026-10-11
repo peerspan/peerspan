@@ -287,7 +287,7 @@ func TestPolicyDeliveriesMigrationToVersion12(t *testing.T) {
 	defer s.Close()
 	var version int
 	var sql string
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 14 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 15 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'").Scan(&sql); err != nil || sql != "CREATE TABLE policy_deliveries (network_id TEXT NOT NULL, person_id TEXT NOT NULL, target TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, person_id, target))" {

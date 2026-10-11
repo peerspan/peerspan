@@ -1,6 +1,6 @@
 # Reliable delivery into live sessions
 
-Status: slice 1 implemented; decisions settled with the owner on 2026-10-10 (see [Decisions](#decisions)). This is roadmap milestone 9, the live-session delivery track. The [live delivery contract](live-delivery-contract.md) specifies it.
+Status: implemented; decisions settled with the owner on 2026-10-10 (see [Decisions](#decisions)). This is roadmap milestone 9, the live-session delivery track. The [live delivery contract](live-delivery-contract.md) specifies it.
 
 ## Problem
 

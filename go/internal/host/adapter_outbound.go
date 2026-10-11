@@ -117,6 +117,9 @@ type ReplyDelivery struct {
 type ReplyHandoff struct {
 	Delivery ReplyDelivery `json:"delivery"`
 	Reply    Reply         `json:"reply"`
+	// Redelivered marks a reply claimed again after its holding
+	// authorization ended without seeing it.
+	Redelivered bool `json:"redelivered"`
 }
 
 type OutboundOrigin struct {
@@ -132,7 +135,7 @@ type OutboundOrigin struct {
 func (s *Store) OutboundOrigin(ctx context.Context, peer, id string) (OutboundOrigin, error) {
 	out := OutboundOrigin{PeerHostID: peer, RequestID: id}
 	var delivery sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT adapter_id,session_id,route_id,reply_delivery FROM adapter_outbound WHERE peer = ? AND request_id = ?`, peer, id).Scan(&out.AdapterID, &out.SessionID, &out.RouteID, &delivery)
+	err := s.db.QueryRowContext(ctx, `SELECT o.adapter_id,c.session_id,o.route_id,o.reply_delivery FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id WHERE o.peer = ? AND o.request_id = ?`, peer, id).Scan(&out.AdapterID, &out.SessionID, &out.RouteID, &delivery)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -431,7 +434,7 @@ func (s *Store) PrepareAdapterSend(ctx context.Context, token AdapterAuth, r Ada
 	if err = insertOutbound(ctx, tx, out); err != nil {
 		return out, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_outbound VALUES (?, ?, ?, ?, ?, 0, NULL)`, out.PeerHostID, out.Request.RequestID, a.ID, ss.ID, route.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO adapter_outbound (peer, request_id, adapter_id, session_id, route_id, next_poll_at, reply_delivery) VALUES (?, ?, ?, ?, ?, 0, NULL)`, out.PeerHostID, out.Request.RequestID, a.ID, ss.ID, route.ID); err != nil {
 		return out, err
 	}
 	if err = appendEvent(ctx, tx, "adapter.message_queued", out.PeerHostID+"/"+out.Request.RequestID, timestamp(time.Now())); err != nil {
@@ -451,6 +454,9 @@ func insertOutbound(ctx context.Context, tx *sql.Tx, out OutboundMessage) error 
 	return appendEvent(ctx, tx, "message.queued", out.PeerHostID+"/"+out.Request.RequestID, timestamp(time.Now()))
 }
 func (s *Store) NextReply(ctx context.Context, token AdapterAuth) (*ReplyHandoff, error) {
+	if err := s.returnEnded(ctx, token); err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -463,9 +469,46 @@ func (s *Store) NextReply(ctx context.Context, token AdapterAuth) (*ReplyHandoff
 	if err = requireVerified(ctx, tx, a.ID); err != nil {
 		return nil, err
 	}
+	now := time.Now()
+	at := timestamp(now)
+	// A reply returned by the agent's ended authorizations is claimed again
+	// in place, keeping its notification ID.
+	var record, data string
+	err = tx.QueryRowContext(ctx, `SELECT o.reply_delivery,r.record FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id JOIN sessions ss ON ss.id = o.session_id WHERE o.reply_returned_at IS NOT NULL AND o.reply_delivery IS NOT NULL AND ss.agent_id = ? ORDER BY o.rowid LIMIT 1`, ss.AgentID).Scan(&record, &data)
+	if err == nil {
+		var d ReplyDelivery
+		var reply Reply
+		if err = json.Unmarshal([]byte(record), &d); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal([]byte(data), &reply); err != nil {
+			return nil, err
+		}
+		d.AdapterID, d.SessionID, d.State, d.UpdatedAt = a.ID, ss.ID, "unknown", at
+		encoded, err := json.Marshal(d)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET reply_delivery = ?, session_id = ?, reply_returned_at = NULL, reply_redeliveries = reply_redeliveries + 1 WHERE peer = ? AND request_id = ?`, string(encoded), ss.ID, d.PeerHostID, d.RequestID); err != nil {
+			return nil, err
+		}
+		if err = appendEvent(ctx, tx, "reply.handoff", d.ID, at); err != nil {
+			return nil, err
+		}
+		return &ReplyHandoff{Delivery: d, Reply: reply, Redelivered: true}, tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	// Otherwise the oldest unclaimed reply to this session's sends, or to
+	// sends of the agent's ended authorizations, which arrived after they
+	// ended.
+	ended, err := endedAdapters(ctx, tx, ss.AgentID, now)
+	if err != nil {
+		return nil, err
+	}
 	var peer, id string
-	var data string
-	err = tx.QueryRowContext(ctx, `SELECT o.peer,o.request_id,r.record FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id WHERE o.adapter_id = ? AND o.session_id = ? AND o.reply_delivery IS NULL ORDER BY o.rowid LIMIT 1`, a.ID, ss.ID).Scan(&peer, &id, &data)
+	err = tx.QueryRowContext(ctx, `SELECT o.peer,o.request_id,r.record FROM adapter_outbound o JOIN outbound_replies r ON r.peer = o.peer AND r.request_id = o.request_id JOIN sessions ss ON ss.id = o.session_id WHERE o.reply_delivery IS NULL AND ((o.adapter_id = ? AND o.session_id = ?) OR (ss.agent_id = ? AND o.adapter_id IN (SELECT value FROM json_each(?)))) ORDER BY o.rowid LIMIT 1`, a.ID, ss.ID, ss.AgentID, jsonList(ended)).Scan(&peer, &id, &data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -480,13 +523,13 @@ func (s *Store) NextReply(ctx context.Context, token AdapterAuth) (*ReplyHandoff
 	if err != nil {
 		return nil, err
 	}
-	at := timestamp(time.Now())
 	d := ReplyDelivery{ID: nid, PeerHostID: peer, RequestID: id, AdapterID: a.ID, SessionID: ss.ID, State: "unknown", CreatedAt: at, UpdatedAt: at}
 	encoded, err := json.Marshal(d)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET reply_delivery = ? WHERE peer = ? AND request_id = ?`, string(encoded), peer, id); err != nil {
+	// The first claim is a new handoff: it starts unseen.
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET reply_delivery = ?, session_id = ?, reply_seen_at = NULL WHERE peer = ? AND request_id = ?`, string(encoded), ss.ID, peer, id); err != nil {
 		return nil, err
 	}
 	if err = appendEvent(ctx, tx, "reply.handoff", nid, at); err != nil {
@@ -504,7 +547,7 @@ func (s *Store) ReplyForwarded(ctx context.Context, token AdapterAuth, id string
 	if err != nil {
 		return ReplyDelivery{}, err
 	}
-	d, err := readJSON[ReplyDelivery](tx.QueryRowContext(ctx, `SELECT reply_delivery FROM adapter_outbound WHERE json_extract(reply_delivery,'$.id') = ? AND adapter_id = ? AND session_id = ?`, id, a.ID, ss.ID))
+	d, err := readJSON[ReplyDelivery](tx.QueryRowContext(ctx, `SELECT reply_delivery FROM adapter_outbound WHERE json_extract(reply_delivery,'$.id') = ? AND json_extract(reply_delivery,'$.adapter_id') = ? AND session_id = ? AND reply_returned_at IS NULL`, id, a.ID, ss.ID))
 	if err != nil {
 		return d, err
 	}
@@ -527,56 +570,29 @@ func (s *Store) ReplyForwarded(ctx context.Context, token AdapterAuth, id string
 
 type replyJob struct{ peer, id string }
 
+// nextReplyJob picks a send whose reply is still to be fetched, while a
+// session can receive it: the sending authorization's own, or, once that
+// authorization has ended, any verified session of the same agent, which
+// receives replies that arrive late.
 func (s *Store) nextReplyJob(ctx context.Context) (*replyJob, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT o.peer,o.request_id,c.record FROM adapter_outbound o JOIN adapter_credentials c ON c.id = o.adapter_id JOIN sessions ss ON ss.id = o.session_id JOIN adapter_connections ac ON ac.adapter_id = o.adapter_id WHERE ac.lease_until_ms > ? AND ss.state = 'attached' AND o.next_poll_at <= ? AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) ORDER BY o.next_poll_at,o.rowid LIMIT 100`, time.Now().UnixMilli(), time.Now().UnixMilli())
+	now := time.Now()
+	var job replyJob
+	err = tx.QueryRowContext(ctx, `SELECT o.peer,o.request_id FROM adapter_outbound o JOIN sessions ss ON ss.id = o.session_id WHERE o.next_poll_at <= ?1 AND NOT EXISTS (SELECT 1 FROM outbound_replies r WHERE r.peer = o.peer AND r.request_id = o.request_id) AND EXISTS (SELECT 1 FROM sessions s2 JOIN adapter_credentials c2 ON c2.session_id = s2.id JOIN adapter_connections x2 ON x2.adapter_id = c2.id WHERE s2.agent_id = ss.agent_id AND s2.state = 'attached' AND x2.lease_until_ms > ?1 AND json_extract(c2.record, '$.revoked_at') IS NULL AND json_extract(c2.record, '$.expires_at') > ?2 AND (c2.id = o.adapter_id OR x2.channel_verified_at IS NOT NULL)) ORDER BY o.next_poll_at,o.rowid LIMIT 1`, now.UnixMilli(), timestamp(now)).Scan(&job.peer, &job.id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	var job *replyJob
-	var inactive []replyJob
-	for rows.Next() {
-		var p, i, data string
-		if err = rows.Scan(&p, &i, &data); err != nil {
-			break
-		}
-		var a Adapter
-		if err = json.Unmarshal([]byte(data), &a); err != nil {
-			break
-		}
-		var exp time.Time
-		exp, err = parseTime(a.ExpiresAt)
-		if err != nil {
-			break
-		}
-		if a.RevokedAt == nil && exp.After(time.Now()) {
-			job = &replyJob{p, i}
-			break
-		}
-		inactive = append(inactive, replyJob{p, i})
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET next_poll_at = ? WHERE peer = ? AND request_id = ?`, now.Add(10*time.Second).UnixMilli(), job.peer, job.id); err != nil {
 		return nil, err
 	}
-	for _, old := range inactive {
-		if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET next_poll_at = ? WHERE peer = ? AND request_id = ?`, int64(1<<63-1), old.peer, old.id); err != nil {
-			return nil, err
-		}
-	}
-	if job != nil {
-		if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET next_poll_at = ? WHERE peer = ? AND request_id = ?`, time.Now().Add(10*time.Second).UnixMilli(), job.peer, job.id); err != nil {
-			return nil, err
-		}
-	}
-	return job, tx.Commit()
+	return &job, tx.Commit()
 }
 func (s *Store) RunReplyWorkers(ctx context.Context) {
 	var workers sync.WaitGroup

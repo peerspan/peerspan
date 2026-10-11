@@ -93,6 +93,7 @@ type Store struct {
 	tasks     taskWork      // the in-memory task poll schedule
 	limits    coordinatorLimits
 	directory directoryState // the in-memory agent directory per network
+	returns   liveReturns    // ended authorizations whose items were returned
 	moves     moveState      // move lookups and repair imports per network
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
@@ -150,7 +151,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 14 {
+	if version < 0 || version > 15 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -226,6 +227,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 14 {
 		if err = migrateChannel(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
+	if version < 15 {
+		if err = migrateLiveDelivery(ctx, tx); err != nil {
 			return nil, err
 		}
 	}

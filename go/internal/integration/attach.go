@@ -62,15 +62,34 @@ func HostProfiles(host string) ([]*Profile, error) {
 // WorkspaceProfile finds the attach profile of state whose recorded
 // workspace is the given directory, for session start and doctor.
 func WorkspaceProfile(state, workspace string) (string, error) {
-	root, err := SessionsDir()
+	found, err := WorkspaceProfiles(state, workspace)
 	if err != nil {
 		return "", err
 	}
-	if workspace, err = filepath.EvalSymlinks(workspace); err != nil {
-		return "", err
+	switch len(found) {
+	case 0:
+		return "", errors.New("no attach profile for this directory; run capsule attach HARNESS here, or give --directory")
+	case 1:
+		return found[0], nil
 	}
-	if state, err = filepath.Abs(state); err != nil {
-		return "", err
+	return "", errors.New("several attach profiles record this directory; give --directory: " + strings.Join(found, ", "))
+}
+
+// WorkspaceProfiles lists, sorted, the attach profiles of state whose
+// recorded workspace is the given directory; an empty state matches the
+// profiles of every state.
+func WorkspaceProfiles(state, workspace string) ([]string, error) {
+	root, err := SessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	if workspace, err = filepath.EvalSymlinks(workspace); err != nil {
+		return nil, err
+	}
+	if state != "" {
+		if state, err = filepath.Abs(state); err != nil {
+			return nil, err
+		}
 	}
 	matches, _ := filepath.Glob(filepath.Join(root, "*", "*", "profile.json"))
 	var found []string
@@ -80,16 +99,10 @@ func WorkspaceProfile(state, workspace string) (string, error) {
 			continue
 		}
 		p, err := ReadProfile(dir)
-		if err == nil && p.Workspace == workspace && p.State == state {
+		if err == nil && p.Workspace == workspace && (state == "" || p.State == state) {
 			found = append(found, dir)
 		}
 	}
 	sort.Strings(found)
-	switch len(found) {
-	case 0:
-		return "", errors.New("no attach profile for this directory; run capsule attach HARNESS here, or give --directory")
-	case 1:
-		return found[0], nil
-	}
-	return "", errors.New("several attach profiles record this directory; give --directory: " + strings.Join(found, ", "))
+	return found, nil
 }

@@ -334,6 +334,15 @@ pub enum SessionCommand {
         #[arg(long)]
         directory: Option<PathBuf>,
     },
+    /// Show the work the current directory's attached session still owes
+    Pending {
+        /// Print the pending work object as JSON
+        #[arg(long)]
+        json: bool,
+        /// Print the pending work as Claude Code SessionStart hook output
+        #[arg(long)]
+        hook: bool,
+    },
 
     /// Record an attachment to a registered agent
     Attach {
@@ -1222,7 +1231,8 @@ impl Command {
             | Self::Session(
                 SessionCommand::Setup { .. }
                 | SessionCommand::Start { .. }
-                | SessionCommand::Doctor { .. },
+                | SessionCommand::Doctor { .. }
+                | SessionCommand::Pending { .. },
             )
             | Self::Person(_)
             | Self::Join { .. }

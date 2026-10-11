@@ -1005,21 +1005,47 @@ func (s *Store) PrepareAdapterTask(ctx context.Context, auth AdapterAuth, r Adap
 
 // AdapterTask is the local record of a task this credential submitted.
 func (s *Store) AdapterTask(ctx context.Context, auth AdapterAuth, id string) (OutboundTask, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return OutboundTask{}, err
 	}
 	defer tx.Rollback()
-	a, _, err := adapterAuthority(ctx, tx, auth)
+	a, ss, err := adapterAuthority(ctx, tx, auth)
 	if err != nil {
 		return OutboundTask{}, err
 	}
-	return readJSON[OutboundTask](tx.QueryRowContext(ctx, `SELECT record FROM outbound_tasks WHERE task_id = ? AND json_extract(record, '$.adapter_id') = ? ORDER BY rowid LIMIT 1`, id, a.ID))
+	out, err := agentOutboundTask(ctx, tx, a, ss, id)
+	if err != nil {
+		return out, err
+	}
+	// task_status on the task reports its forwarded updates seen.
+	if _, _, err = markTaskSeen(ctx, tx, a.ID, ss.ID, id, false, timestamp(time.Now())); err != nil {
+		return out, err
+	}
+	return out, tx.Commit()
+}
+
+// agentOutboundTask is a task this credential submitted, or one an ended
+// authorization of the same agent submitted, whose updates now come to this
+// session.
+func agentOutboundTask(ctx context.Context, tx *sql.Tx, a Adapter, ss Session, id string) (OutboundTask, error) {
+	out, err := readJSON[OutboundTask](tx.QueryRowContext(ctx, `SELECT record FROM outbound_tasks WHERE task_id = ? AND json_extract(record, '$.adapter_id') = ? ORDER BY rowid LIMIT 1`, id, a.ID))
+	if !errors.Is(err, ErrNotFound) {
+		return out, err
+	}
+	ended, err := endedAdapters(ctx, tx, ss.AgentID, time.Now())
+	if err != nil {
+		return out, err
+	}
+	return readJSON[OutboundTask](tx.QueryRowContext(ctx, `SELECT record FROM outbound_tasks WHERE task_id = ? AND json_extract(record, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND json_extract(record, '$.request.origin.agent_id') = ? ORDER BY rowid LIMIT 1`, id, jsonList(ended), ss.AgentID))
 }
 
 // NextTaskUpdate claims the oldest stored event of a task this credential's
 // session submitted that has not been handed to it.
 func (s *Store) NextTaskUpdate(ctx context.Context, auth AdapterAuth) (*TaskUpdateHandoff, error) {
+	if err := s.returnEnded(ctx, auth); err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -1032,9 +1058,38 @@ func (s *Store) NextTaskUpdate(ctx context.Context, auth AdapterAuth) (*TaskUpda
 	if err = requireVerified(ctx, tx, a.ID); err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	var h TaskUpdateHandoff
 	var record string
-	err = tx.QueryRowContext(ctx, `SELECT e.peer, e.task_id, e.record FROM outbound_task_events e JOIN outbound_tasks t ON t.peer = e.peer AND t.task_id = e.task_id WHERE json_extract(t.record, '$.adapter_id') = ? AND json_extract(t.record, '$.request.origin.session_id') = ? AND NOT EXISTS (SELECT 1 FROM task_update_notifications n WHERE n.peer = e.peer AND n.task_id = e.task_id AND n.sequence = e.sequence) ORDER BY e.rowid LIMIT 1`, a.ID, ss.ID).Scan(&h.Delivery.PeerHostID, &h.Delivery.TaskID, &record)
+	// An update returned by the agent's ended authorizations is claimed
+	// again in place, keeping its notification ID.
+	var notification string
+	err = tx.QueryRowContext(ctx, `SELECT n.record, e.record FROM task_update_notifications n JOIN sessions ss ON ss.id = json_extract(n.record, '$.session_id') JOIN outbound_task_events e ON e.peer = n.peer AND e.task_id = n.task_id AND e.sequence = n.sequence WHERE n.returned_at IS NOT NULL AND ss.agent_id = ? ORDER BY n.rowid LIMIT 1`, ss.AgentID).Scan(&notification, &record)
+	if err == nil {
+		if err = json.Unmarshal([]byte(notification), &h.Delivery); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal([]byte(record), &h.Event); err != nil {
+			return nil, err
+		}
+		h.Delivery.AdapterID, h.Delivery.SessionID, h.Delivery.State, h.Delivery.UpdatedAt = a.ID, ss.ID, "unknown", timestamp(now)
+		if err = putJSON(ctx, tx, `UPDATE task_update_notifications SET record = ?, returned_at = NULL, redeliveries = redeliveries + 1 WHERE id = ?`, h.Delivery, h.Delivery.ID); err != nil {
+			return nil, err
+		}
+		return &h, tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	// Otherwise the oldest unclaimed event of a task this session submitted,
+	// or of one an ended authorization of its agent submitted: an event that
+	// arrived after that authorization ended, including the updates of tasks
+	// forwarded from a task this session adopted.
+	ended, err := endedAdapters(ctx, tx, ss.AgentID, now)
+	if err != nil {
+		return nil, err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT e.peer, e.task_id, e.record FROM outbound_task_events e JOIN outbound_tasks t ON t.peer = e.peer AND t.task_id = e.task_id WHERE ((json_extract(t.record, '$.adapter_id') = ? AND json_extract(t.record, '$.request.origin.session_id') = ?) OR (json_extract(t.record, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND json_extract(t.record, '$.request.origin.agent_id') = ?)) AND NOT EXISTS (SELECT 1 FROM task_update_notifications n WHERE n.peer = e.peer AND n.task_id = e.task_id AND n.sequence = e.sequence) ORDER BY e.rowid LIMIT 1`, a.ID, ss.ID, jsonList(ended), ss.AgentID).Scan(&h.Delivery.PeerHostID, &h.Delivery.TaskID, &record)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1066,7 +1121,7 @@ func (s *Store) TaskUpdateForwarded(ctx context.Context, auth AdapterAuth, id st
 	if err != nil {
 		return TaskUpdateDelivery{}, err
 	}
-	d, err := readJSON[TaskUpdateDelivery](tx.QueryRowContext(ctx, `SELECT record FROM task_update_notifications WHERE id = ? AND json_extract(record, '$.adapter_id') = ? AND json_extract(record, '$.session_id') = ?`, id, a.ID, ss.ID))
+	d, err := readJSON[TaskUpdateDelivery](tx.QueryRowContext(ctx, `SELECT record FROM task_update_notifications WHERE id = ? AND json_extract(record, '$.adapter_id') = ? AND json_extract(record, '$.session_id') = ? AND returned_at IS NULL`, id, a.ID, ss.ID))
 	if err != nil || d.State == "forwarded" {
 		return d, err
 	}

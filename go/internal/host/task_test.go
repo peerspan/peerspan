@@ -415,6 +415,11 @@ func TestTaskRefusesOtherSessionsAndLapsedAuthorization(t *testing.T) {
 	// acceptance rejects a queued task at handoff, and at acceptance.
 	accepted := f.submit("keep going", time.Hour)
 	atHandoff := f.submit("lapse at handoff", time.Hour)
+	// The detached session never saw its task, so it returns to the agent's
+	// queue and the new session claims it again first (live delivery).
+	if h := must(f.receiver.NextTask(ctx, otherAuth)); h == nil || h.Task.TaskID != out.Request.TaskID || !h.Redelivered {
+		t.Fatalf("redelivery: %+v", h)
+	}
 	if h := must(f.receiver.NextTask(ctx, otherAuth)); h == nil || h.Task.TaskID != accepted.Request.TaskID {
 		t.Fatalf("claim: %+v", h)
 	}
@@ -634,7 +639,7 @@ func TestTaskMigrationToVersion10(t *testing.T) {
 	s = must(Open(ctx, dir))
 	defer s.Close()
 	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 14 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 15 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if kept := must(s.Agent(ctx, agent.ID)); kept.Name != "kept" {

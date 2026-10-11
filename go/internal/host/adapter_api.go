@@ -71,12 +71,14 @@ func AdapterHandler(store *Store) http.Handler {
 	adapterOutboundRoutes(mux, store, token)
 	adapterConnectionRoutes(mux, store, token)
 	adapterTaskRoutes(mux, store, token)
+	adapterLiveDeliveryRoutes(mux, store, token)
 	return mux
 }
 func localAdapterRoutes(mux *http.ServeMux, store *Store) {
 	localSetupRoute(mux, store)
 	localOutboundRoutes(mux, store)
 	localConnectionRoutes(mux, store)
+	localLiveDeliveryRoutes(mux, store)
 	mux.HandleFunc("POST /v1/adapters", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateAdapter
 		if !decode(w, r, &req, "session_id", "expires_at") {

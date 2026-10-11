@@ -77,6 +77,9 @@ type Handoff struct {
 	// bound to, if any, in the first network by ID that binds it.
 	SenderPersonID *string `json:"sender_person_id"`
 	SenderPerson   *string `json:"sender_person"`
+	// Redelivered marks a message claimed again after its holding
+	// authorization ended without seeing it.
+	Redelivered bool `json:"redelivered"`
 }
 type Reply struct {
 	SenderHostID   string `json:"sender_host_id"`
@@ -294,6 +297,9 @@ func credentialAuthority(ctx context.Context, tx *sql.Tx, token string) (Adapter
 }
 
 func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, error) {
+	if err := s.returnEnded(ctx, token); err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -305,6 +311,13 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 	}
 	if err = requireVerified(ctx, tx, a.ID); err != nil {
 		return nil, err
+	}
+	// Messages returned by the agent's ended authorizations come first.
+	if h, err := s.claimReturnedDelivery(ctx, tx, a, ss); err != nil || h != nil {
+		if err != nil {
+			return nil, err
+		}
+		return h, tx.Commit()
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT m.sender,m.request FROM received_messages m WHERE json_extract(m.request,'$.target_agent_id') = ? AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.sender = m.sender AND d.request_id = m.request_id) ORDER BY m.rowid LIMIT 100`, ss.AgentID)
 	if err != nil {
@@ -372,7 +385,7 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 		if e != nil {
 			return nil, e
 		}
-		if _, e = tx.ExecContext(ctx, `INSERT INTO deliveries VALUES (?, ?, ?, ?, ?)`, id, p.sender, d.RequestID, ss.ID, string(data)); e != nil {
+		if _, e = tx.ExecContext(ctx, `INSERT INTO deliveries (id, sender, request_id, session_id, record) VALUES (?, ?, ?, ?, ?)`, id, p.sender, d.RequestID, ss.ID, string(data)); e != nil {
 			return nil, e
 		}
 		kind := "message.handoff"
@@ -392,6 +405,93 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 	}
 	return result, tx.Commit()
 }
+
+// claimReturnedDelivery claims the oldest returned message of the session's
+// agent, rechecking its authorization as a first handoff does: a recoverable
+// denial leaves it returned, and a final one blocks it.
+func (s *Store) claimReturnedDelivery(ctx context.Context, tx *sql.Tx, a Adapter, ss Session) (*Handoff, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT d.record, m.request FROM deliveries d JOIN received_messages m ON m.sender = d.sender AND m.request_id = d.request_id WHERE d.returned_at IS NOT NULL AND json_extract(d.record, '$.target_agent_id') = ? ORDER BY d.rowid LIMIT 100`, ss.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	type returned struct {
+		delivery Delivery
+		request  MessageRequest
+	}
+	var items []returned
+	for rows.Next() {
+		var p returned
+		var record, request string
+		if err = rows.Scan(&record, &request); err != nil {
+			break
+		}
+		if err = json.Unmarshal([]byte(record), &p.delivery); err != nil {
+			break
+		}
+		if err = json.Unmarshal([]byte(request), &p.request); err != nil {
+			break
+		}
+		items = append(items, p)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range items {
+		g, err := s.messageBounds(ctx, tx, p.delivery.SenderHostID, p.request, true)
+		if errors.Is(err, ErrUnavailable) {
+			continue
+		}
+		if err != nil && !errors.Is(err, ErrForbidden) {
+			return nil, err
+		}
+		if err == nil {
+			usable, recoverable, e := s.grantConnected(ctx, tx, p.delivery.SenderHostID, g)
+			if e != nil {
+				return nil, e
+			}
+			if !usable && recoverable {
+				continue
+			}
+			if !usable {
+				err = ErrForbidden
+			}
+		}
+		d := p.delivery
+		at := timestamp(time.Now())
+		if err != nil {
+			d.State, d.UpdatedAt = "blocked", at
+			if _, e := tx.ExecContext(ctx, `UPDATE deliveries SET returned_at = NULL WHERE id = ?`, d.ID); e != nil {
+				return nil, e
+			}
+			if e := updateDelivery(ctx, tx, d, "message.blocked"); e != nil {
+				return nil, e
+			}
+			continue
+		}
+		d.AdapterID, d.SessionID, d.State, d.UpdatedAt = a.ID, ss.ID, "unknown", at
+		data, e := json.Marshal(d)
+		if e != nil {
+			return nil, e
+		}
+		if _, e = tx.ExecContext(ctx, `UPDATE deliveries SET record = ?, session_id = ?, returned_at = NULL, redeliveries = redeliveries + 1 WHERE id = ?`, string(data), ss.ID, d.ID); e != nil {
+			return nil, e
+		}
+		if e = appendEvent(ctx, tx, "message.handoff", d.ID, at); e != nil {
+			return nil, e
+		}
+		h := &Handoff{Delivery: d, Request: p.request, Redelivered: true}
+		if h.SenderPersonID, h.SenderPerson, e = senderPerson(ctx, tx, d.SenderHostID); e != nil {
+			return nil, e
+		}
+		return h, nil
+	}
+	return nil, nil
+}
+
 func (s *Store) Delivery(ctx context.Context, id string) (Delivery, error) {
 	return readJSON[Delivery](s.db.QueryRowContext(ctx, `SELECT record FROM deliveries WHERE id = ?`, id))
 }
@@ -423,11 +523,20 @@ func ownedDelivery(ctx context.Context, tx *sql.Tx, token AdapterAuth, id string
 	if err != nil {
 		return Delivery{}, err
 	}
-	d, err := readJSON[Delivery](tx.QueryRowContext(ctx, `SELECT record FROM deliveries WHERE id = ?`, id))
+	var record string
+	var returned bool
+	err = tx.QueryRowContext(ctx, `SELECT record, returned_at IS NOT NULL FROM deliveries WHERE id = ?`, id).Scan(&record, &returned)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Delivery{}, ErrNotFound
+	}
 	if err != nil {
+		return Delivery{}, err
+	}
+	var d Delivery
+	if err = json.Unmarshal([]byte(record), &d); err != nil {
 		return d, err
 	}
-	if d.AdapterID != a.ID || d.SessionID != ss.ID || d.State == "blocked" {
+	if d.AdapterID != a.ID || d.SessionID != ss.ID || d.State == "blocked" || returned {
 		return d, ErrForbidden
 	}
 	return d, nil
@@ -487,12 +596,16 @@ func (s *Store) Reply(ctx context.Context, token AdapterAuth, id, content string
 	if int64(len(content)) > g.maxMessageBytes {
 		return Reply{}, ErrForbidden
 	}
+	// A reply reports the delivery seen.
+	if _, err = tx.ExecContext(ctx, `UPDATE deliveries SET seen_at = COALESCE(seen_at, ?) WHERE id = ?`, timestamp(time.Now()), d.ID); err != nil {
+		return Reply{}, err
+	}
 	old, err := readJSON[Reply](tx.QueryRowContext(ctx, `SELECT record FROM received_replies WHERE sender = ? AND request_id = ?`, d.SenderHostID, d.RequestID))
 	if err == nil {
 		if old.Content != content {
 			return old, ErrConflict
 		}
-		return old, nil
+		return old, tx.Commit()
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return old, err

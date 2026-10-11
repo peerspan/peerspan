@@ -1,7 +1,8 @@
 // Claude-specific configuration, checks, and launch plans. Capsule owns the
 // profile, credential, destination scopes, and all daemon lifecycle requests.
 import {constants} from 'node:fs';
-import {access, open, readFile, realpath} from 'node:fs/promises';
+import {access, open, readFile, readlink, realpath, rename, unlink} from 'node:fs/promises';
+import {randomBytes} from 'node:crypto';
 import {basename, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
@@ -75,6 +76,41 @@ async function launchProgram(claude) {
   // A multi-call binary (busybox, uutils) selects its applet by name.
   return {program: env, args: [...(basename(env) === 'env' ? [] : ['env']), ...launchEnvironment, claude]};
 }
+// capsuleExecutable names the capsule executable running this launch: the
+// CLI's own path when it passes one, otherwise this helper's parent process,
+// which the CLI runs directly.
+async function capsuleExecutable(context) {
+  const given = context.capsule_executable;
+  if (given !== undefined) {
+    if (typeof given !== 'string' || !given.startsWith('/') || given.includes('\0')) throw new Error('Invalid capsule executable path.');
+    return given;
+  }
+  try { return await readlink(`/proc/${process.ppid}/exe`); }
+  catch { throw new Error('Could not find the capsule executable that started this launch; update the capsule CLI so it passes capsule_executable.'); }
+}
+const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
+// sessionSettings adds a SessionStart hook that lists owed Capsule work after
+// /clear, compaction, or resume; it changes no global or project settings.
+function sessionSettings(capsule) {
+  return {hooks: {SessionStart: [{matcher: 'clear|compact|resume',
+    hooks: [{type: 'command', command: `${shellQuote(capsule)} session pending --hook`}]}]}};
+}
+// writePrivate atomically replaces a 0600 file in the private profile directory.
+async function writePrivate(path, content) {
+  const temporary = join(dirname(path), `.${basename(path)}.${randomBytes(8).toString('hex')}`);
+  const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try {
+    await file.writeFile(content);
+    await file.sync();
+  } catch (error) {
+    await file.close();
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
+  await file.close();
+  try { await rename(temporary, path); }
+  catch (error) { await unlink(temporary).catch(() => {}); throw error; }
+}
 function configuration(context, state) {
   return {mcpServers: {capsule: {command: state.node, args: [state.channel, '--socket', context.adapter_socket, '--credential-file', context.credential_file]}}};
 }
@@ -111,14 +147,16 @@ async function main(request) {
     return response;
   }
   const extra = context.arguments;
-  if (!Array.isArray(extra) || extra.some(arg => typeof arg !== 'string' || arg.includes('\0')) || extra.some(arg => /^--(?:mcp-config|channels|dangerously-load-development-channels)(?:=|$)/.test(arg))) {
-    throw new Error('Claude arguments cannot override the prepared MCP configuration or channel selection.');
+  if (!Array.isArray(extra) || extra.some(arg => typeof arg !== 'string' || arg.includes('\0')) || extra.some(arg => /^--(?:mcp-config|settings|channels|dangerously-load-development-channels)(?:=|$)/.test(arg))) {
+    throw new Error('Claude arguments cannot override the prepared MCP configuration, session settings, or channel selection.');
   }
   await configurationCheck(context, state, checks);
   const launcher = await launchProgram(state.executable);
+  const settings = join(context.directory, 'claude-settings.json');
+  await writePrivate(settings, JSON.stringify(sessionSettings(await capsuleExecutable(context))) + '\n');
   response.launch = {
     program: launcher.program,
-    args: [...launcher.args, '--mcp-config', join(context.directory, 'mcp.json'), '--dangerously-load-development-channels', 'server:capsule',
+    args: [...launcher.args, '--mcp-config', join(context.directory, 'mcp.json'), '--settings', settings, '--dangerously-load-development-channels', 'server:capsule',
       '--allowedTools', tools.map(tool => 'mcp__capsule__' + tool.name).join(','), ...extra],
   };
   return response;
