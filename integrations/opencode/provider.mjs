@@ -6,6 +6,7 @@ import { provider, configCheck } from '../shared/provider.mjs';
 import { Client, serverURL } from './client.mjs';
 import { inspect } from './inspection.mjs';
 import { readBinding } from './binding.mjs';
+import { toolSocketPath } from '../shared/tools.mjs';
 const directory = dirname(fileURLToPath(import.meta.url)),
   bridge = join(directory, 'bridge.mjs'),
   plugin = join(directory, 'plugin.mjs');
@@ -20,7 +21,7 @@ function configuration(context) {
     ...(context.options['auth-file'] && { auth_file: resolve(context.options['auth-file']) }),
     socket: context.adapter_socket,
     credential: context.credential_file,
-    tool_socket: join(context.directory, 'tools.sock')
+    tool_socket: toolSocketPath(join(context.directory, 'tools.sock'))
   };
 }
 async function prerequisites(config, checks) {

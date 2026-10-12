@@ -72,6 +72,10 @@ route budgets remain daemon-enforced. Restarting the sidecar cannot adopt a
 previously bound attachment; authorize a fresh setup after its old lease expires.
 Already-queued input remains in Codex if Capsule disconnects.
 
+After a crash, `capsule attach codex` can reclaim the matching private socket
+once it confirms the old gateway has no listener. It retains live sockets and
+unrelated files, and still follows the daemon's lease/replacement rules.
+
 ## Limits and verification
 
 This targets Codex's experimental 0.160.0 protocol. It requires an exposed local

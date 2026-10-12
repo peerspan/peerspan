@@ -140,7 +140,7 @@ export async function run(config, { emit = () => {} } = {}) {
       session_id: config.session_id,
       socket: config.tool_socket,
       profile: config.credential
-    });
+    }, { gateway });
     if (!closing) {
       adapter.start();
       emit({ type: 'ready', session_id: config.session_id });

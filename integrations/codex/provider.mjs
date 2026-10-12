@@ -3,12 +3,13 @@ import { realpath, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { command, executable, configCheck, provider } from '../shared/provider.mjs';
+import { toolSocketPath } from '../shared/tools.mjs';
 import { inspectExisting } from './connection.mjs';
 const directory = dirname(fileURLToPath(import.meta.url)),
   bridge = join(directory, 'bridge.mjs'),
   mcp = join(directory, 'mcp.mjs');
 function configuration(context, state) {
-  const toolSocket = join(context.directory, 'tools.sock');
+  const toolSocket = toolSocketPath(join(context.directory, 'tools.sock'));
   return {
     version: 1,
     thread_id: context.options.thread,

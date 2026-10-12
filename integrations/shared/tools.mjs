@@ -1,19 +1,64 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import http from 'node:http';
-import { chmod, lstat } from 'node:fs/promises';
-export async function toolGateway(socket, callerSession, adapter, emit = () => {}) {
-  // A previous crashed bridge's private socket may remain. Never unlink an
-  // arbitrary file or another account's socket.
+import { createConnection } from 'node:net';
+import { dirname, join } from 'node:path';
+import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
+const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
+const socketDirectory = () => `/tmp/capsule-tools-${process.getuid()}`;
+
+// macOS has a 104-byte sun_path, including its terminating NUL. Profiles
+// containing a full host ID commonly exceed it. Use a stable private path
+// so both the native client and crash recovery select the same gateway.
+export function toolSocketPath(path) {
+  if (Buffer.byteLength(path) <= 103) return path;
+  const digest = createHash('sha256').update(path).digest('hex').slice(0, 32);
+  return join(socketDirectory(), digest + '.sock');
+}
+
+async function reclaimSocket(socket) {
+  if (dirname(socket) === socketDirectory()) {
+    await mkdir(socketDirectory(), { mode: 0o700 }).catch((error) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+  }
+  const parent = await lstat(dirname(socket));
+  if (!parent.isDirectory() || parent.uid !== process.getuid() || parent.mode & 0o077)
+    throw new Error('Capsule tool sockets must be in a private owned directory.');
+  let stat;
   try {
-    const stat = await lstat(socket);
-    if (!stat.isSocket() || stat.uid !== process.getuid())
-      throw new Error('Unexpected Capsule tool socket.');
-    throw new Error(
-      'A Capsule tool socket already exists; inspect the previous bridge before removing it.'
-    );
+    stat = await lstat(socket);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  if (!stat.isSocket() || stat.uid !== process.getuid() || stat.mode & 0o077)
+    throw new Error('Unexpected Capsule tool socket.');
+  // Only an explicit refusal proves a leftover socket has no listener.
+  // Timeouts and other errors retain it, as does a successful connection.
+  const live = await new Promise((resolve, reject) => {
+    const probe = createConnection({ path: socket });
+    probe.setTimeout(1000, () => {
+      probe.destroy();
+      reject(new Error('Could not confirm that the previous Capsule bridge stopped.'));
+    });
+    probe.once('connect', () => { probe.destroy(); resolve(true); });
+    probe.once('error', (error) => {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOENT') resolve(false);
+      else reject(error);
+    });
+  });
+  if (live) throw new Error('A Capsule tool socket is already serving a bridge.');
+  try {
+    if (!sameFile(stat, await lstat(socket)))
+      throw new Error('The Capsule tool socket changed during recovery.');
+    await unlink(socket);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
+}
+
+export async function toolGateway(socket, callerSession, adapter, emit = () => {}) {
+  await reclaimSocket(socket);
   const server = http.createServer(async (request, response) => {
     const reply = (status, value) => {
       response.writeHead(status, { 'Content-Type': 'application/json' });
@@ -54,8 +99,21 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
     server.once('error', reject);
     server.listen(socket, resolve);
   });
-  await chmod(socket, 0o600);
+  let owned;
+  try {
+    await chmod(socket, 0o600);
+    owned = await lstat(socket);
+  } catch (error) {
+    await new Promise((resolve) => server.close(resolve));
+    throw error;
+  }
   return {
+    socket,
+    ownsSocket: async () => {
+      if (!server.listening) return false;
+      try { return sameFile(owned, await lstat(socket)); }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    },
     close: () =>
       new Promise((resolve) => {
         server.closeAllConnections();

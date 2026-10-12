@@ -102,6 +102,12 @@ only read-only checks; model availability and consumption remain unverified.
 
 ## Verification
 
+After a sidecar crash or reboot, run `capsule attach opencode` again with the
+same conversation options once the previous lease/reconnect protection lapses.
+The new gateway reclaims its owned dead socket and matching stale binding;
+manual file deletion is unnecessary. A live bridge or unrelated binding is
+retained. A previously bound credential still requires fresh attachment.
+
 ```sh
 node --test integrations/opencode/*.test.mjs integrations/shared/*.test.mjs
 python3 conformance/opencode_integration.py --go GO_BINARY --rust RUST_BINARY --node NODE_BINARY
