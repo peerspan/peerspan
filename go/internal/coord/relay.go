@@ -162,6 +162,9 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn, sequence int64)
 		return
 	}
 	alpn := conn.ConnectionState().NegotiatedProtocol
+	// Even a refused authenticated client still uses this identity's
+	// listener. Keep that retirement signal in the bounded telemetry cache.
+	r.s.hosts.record(sequence, id.String(), time.Now())
 	start := time.Now()
 	var c *relayConn
 	defer func() {
@@ -198,7 +201,6 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn, sequence int64)
 	r.conns[id] = c
 	r.members[id] = cachedNetworks{networks: networks, fetched: r.now()}
 	r.mu.Unlock()
-	r.s.hosts.record(sequence, id.String(), time.Now())
 	if old != nil {
 		old.close()
 	}
@@ -505,8 +507,7 @@ func (s *Server) handshake(ctx context.Context, c net.Conn) error {
 	return nil
 }
 
-// dispatch routes a negotiated connection by ALPN. Only admitted relay
-// connections count toward the listener's identity.
+// dispatch routes a negotiated connection by ALPN.
 func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListener, sequence int64) {
 	tc, ok := c.(*tls.Conn)
 	if !ok {
