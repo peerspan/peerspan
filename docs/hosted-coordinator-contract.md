@@ -99,7 +99,7 @@ A coordinator has an ordered list of identities, numbered from 0. Identity 0 is 
 `capsule-coord run --listen HOST:PORT` presents the latest identity. `--previous-listen SEQUENCE=HOST:PORT`, repeatable, also serves an earlier identity on another address, with its key, its STUN responder, and its relay. All listeners share one database and one relay, so hosts connected through different identities relay to each other. A sequence that is not an earlier identity exits 2 before listening.
 - Responses to register, join, and sync gain `successors`: the chain from the identity the request reached to the latest, in order, or `[]` from the latest identity. The identity a request reached is, among the identities with the key its listener presents, the one whose address equals the request's `Host` header, or else the earliest of them. Hosts send `Host` equal to the pinned `coordinator_address`, so one listener can serve an old and a new name for the same key.
 - The `start` log line gains `previous_listen`: `[{sequence, listen}]`, empty without the flag. `/healthz` reports the latest identity's `id`.
-- Metric `capsule_coord_identity_hosts{sequence}` (gauge): distinct hosts that completed a request or opened a relay connection through that identity's listener in the last 24 hours, since the process started. It is how the operator tells when an old listener can stop.
+- Metric `capsule_coord_identity_hosts{sequence}` (gauge): distinct hosts that completed a successful coordination request or were admitted to a relay connection through that identity's listener in the last 24 hours, since the process started. Each identity retains at most 4,096 host IDs, with age-based cleanup on traffic as well as scrapes. Saturation adds one overflow marker, retained for 24 hours after the last untracked host, so a listener cannot report zero while an untracked host may still use it. It is how the operator tells when an old listener can stop; above the cap it is a bounded count rather than an exact cardinality.
 
 ### Hosts
 
@@ -148,6 +148,8 @@ A move is a strict JSON object with `network_id`, `sequence`, `address`, `public
 - `POST /coord/v1/networks/import` with `{name, root_public_key, map}`, where `map` carries the signed fields of a map as the caller holds them (`members`, `rotations`, `attestations`, `revocations`, `persons`, `admins`, `groups`, `policies`, `move`, and every other signed field the map serves). The coordinator verifies each statement as on its own submission route, in dependency order, and merges: it adds what it lacks and keeps what it has when its own is newer. Entries that fail verification are skipped, not fatal. The caller must be a current member of the result, otherwise 403. An unknown network is registered (201) and counts toward `--max-networks-per-ip`; an existing one returns 200. Both return `{added, skipped, map}`, where `added` and `skipped` count statements. Members' addresses and candidates come from their own syncs.
 - A coordinator keeps serving a network after a move away from it: syncs return the map with `move`, and joins still succeed, so invites issued before the move keep working while the old coordinator runs.
 
+**Invite expiry during import.** An invite-backed host or person already recorded at this coordinator can be re-submitted after expiry. A missing record must pass the coordinator's current-time expiry check, even when its holder signed an earlier `joined_at`: that time is not proof of prior admission. A verified current-root attestation for the host and member label independently authorizes host recovery after expiry; a signed host/person admission also remains valid under its existing rules. Without such authorization, the entry is skipped, and a caller left without membership is refused with 403. An expired unused invite cannot establish membership through import.
+
 ### Moving a network
 
 `capsule network move --coordinator HOST:PORT --coordinator-key KEY [--network ID]` (in `help advanced`) is run on a host whose operator is the root holder or a current administrator; it picks the signer as the other administrator commands do. It:
@@ -173,7 +175,9 @@ A host learns a move from the map's `move`, from a peer push, or from a peer loo
 
 ### Repair
 
-After each sync, a host compares the map with what it holds. It imports when the map lacks a statement it holds: a current member (including itself), a rotation or attestation, a revocation, a person, admission, or binding, an administrator delegation, a group or policy version higher than the map's, or a move with a higher sequence. A 403 or 404 for an unknown network also triggers an import, followed by a sync. A host imports at most once per network per sync interval. Import makes repair complete for restores: the runbook's restore section says members re-submit, and only addresses wait for each member's next sync.
+After each sync, a host compares the map with what it holds. It imports when the map lacks a statement it holds: a current member (including itself), a rotation or attestation, a revocation, a person, admission, or binding, an administrator delegation, a group or policy version higher than the map's, or a move with a higher sequence. A 403 or 404 for an unknown network also triggers an import, followed by a sync. A host imports at most once per network per sync interval. Import repairs restored state subject to the admission/expiry rules above; addresses wait for each member's own sync.
+
+If a backup or destination coordinator lacks an invite-backed record whose invite has since expired, automatic import cannot prove its historical admission. The root holder or a current administrator must issue a fresh host/person admission (or the root holder supply a current host attestation). Records already in the backup still recover automatically. A future trusted admission-receipt protocol may remove this recovery step; joiner timestamps cannot substitute for it.
 
 ### Verification
 
@@ -186,6 +190,7 @@ After each sync, a host compares the map with what it holds. It imports when the
 - a join with an invite issued before the move, through the previous coordinator, ending at the new coordinator with its membership there;
 - repair after a restore from an older backup: members, persons, a group, a policy, and a revocation made after the backup reappear at the coordinator without administrator action, and a member that joined after the backup syncs again;
 - import refusals: a caller that is not a member (403) and invalid entries skipped.
+- expired unused host/person invites cannot introduce missing records through import, including with backdated `joined_at`; recorded admissions remain reusable after expiry; current-root host attestations and fresh administrator admissions permit recovery without trusting the asserted time.
 
 ## Slice 4: launch
 

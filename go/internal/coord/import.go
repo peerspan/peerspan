@@ -400,8 +400,8 @@ func (im *importer) person(ctx context.Context, chain membership.Chain, raw json
 	return im.s.admitPersonIn(ctx, im.tx, chain, proof, true)
 }
 
-// member adds a member host the coordinator lacks, verified as a join is but
-// without the invite's expiry, which applied when the host first joined. Its
+// member adds a member host the coordinator lacks, verified as a join is.
+// A joiner's asserted time does not prove an expired invite was redeemed. Its
 // address and candidates stay empty until its own sync. A host admitted by
 // public key whose admission the new root renewed has it replaced.
 func (im *importer) member(ctx context.Context, chain membership.Chain, raw json.RawMessage) error {
@@ -453,6 +453,14 @@ func (im *importer) member(ctx context.Context, chain membership.Chain, raw json
 				err = fmt.Errorf("%w: host is already a member through another invite", errConflict)
 			}
 			return err
+		}
+		expires, _ := membership.ParseTime(m.InviteExpiresAt)
+		if !expires.After(im.s.Now()) {
+			// A current-root attestation independently authorizes this host.
+			// Otherwise recovery needs a fresh administrator admission.
+			if a, ok := attested[m.HostPublicKey]; !ok || a.Member != m.Member {
+				return fmt.Errorf("%w: missing membership has an expired invite; obtain a fresh host admission", errForbidden)
+			}
 		}
 		if err = im.s.checkMembers(ctx, tx, network); err != nil {
 			return err

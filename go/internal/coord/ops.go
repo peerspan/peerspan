@@ -221,7 +221,9 @@ func (s *Server) observe(mux *http.ServeMux, next http.Handler) http.Handler {
 				host = membership.HostID(public)
 			}
 		}
-		s.hosts.record(s.requestSequence(r.Context()), host, time.Now())
+		if recorder.status >= 200 && recorder.status < 300 && route != "other" {
+			s.hosts.record(s.requestSequence(r.Context()), host, time.Now())
+		}
 		var limited *limitError
 		if errors.As(recorder.err, &limited) {
 			s.metrics.refused(limited.limit)
@@ -373,7 +375,7 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "capsule_coord_limit_refusals_total{limit=%s} %d\n", labelValue(limit), m.refusals[limit])
 	}
 	m.mu.Unlock()
-	family("capsule_coord_identity_hosts", "gauge", "Distinct hosts that completed a request or opened a relay connection through each identity's listener in the last 24 hours.")
+	family("capsule_coord_identity_hosts", "gauge", "Recent admitted hosts per identity, bounded to 4096 tracked IDs plus an overflow marker.")
 	seen := s.hosts.counts(time.Now())
 	for _, sequence := range s.sortedSequences() {
 		fmt.Fprintf(&b, "capsule_coord_identity_hosts{sequence=\"%d\"} %d\n", sequence, seen[sequence])

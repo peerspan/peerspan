@@ -108,6 +108,7 @@ type Server struct {
 	identities []coordIdentity
 	key        ed25519.PrivateKey
 	identity   Identity
+	handshakes chan struct{}
 	Now        func() time.Time
 	relay      *relayServer
 	// Limits apply to new networks, joins, and relayed bytes; set before Serve.
@@ -213,6 +214,7 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 		return nil, err
 	}
 	s := &Server{Now: time.Now, Limits: DefaultLimits, Log: slog.New(slog.DiscardHandler), metrics: newMetrics()}
+	s.handshakes = make(chan struct{}, coordinatorMaxHandshakes)
 	s.relay = newRelayServer(s)
 	defer func() {
 		if err != nil {
@@ -466,9 +468,19 @@ func (s *Server) serveListener(ctx context.Context, listener net.Listener, handl
 				}
 				return
 			}
+			select {
+			case s.handshakes <- struct{}{}:
+			default:
+				_ = c.Close()
+				continue
+			}
 			active.Add(1)
 			go func() {
 				defer active.Done()
+				if err := s.handshake(serveCtx, c); err != nil {
+					_ = c.Close()
+					return
+				}
 				s.dispatch(serveCtx, c, httpConns, sequence)
 			}()
 		}

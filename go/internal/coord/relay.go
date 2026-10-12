@@ -18,15 +18,17 @@ import (
 
 // Relay limits from the coordination contract.
 const (
-	relayMaxConnections = 4096
-	relayIdleTimeout    = 45 * time.Second
-	relayQueueBytes     = 1 << 20
-	relayRateBytes      = 8 << 20
-	relayBurstBytes     = 8 << 20
-	relayMembershipTTL  = 5 * time.Second
-	relayHandshake      = 10 * time.Second
-	relayWriteTimeout   = 10 * time.Second
-	relayUnreachableGap = time.Second
+	relayMaxConnections      = 4096
+	coordinatorMaxHandshakes = 128
+	relayMaxRefused          = 64
+	relayIdleTimeout         = 45 * time.Second
+	relayQueueBytes          = 1 << 20
+	relayRateBytes           = 8 << 20
+	relayBurstBytes          = 8 << 20
+	relayMembershipTTL       = 5 * time.Second
+	relayHandshake           = 10 * time.Second
+	relayWriteTimeout        = 10 * time.Second
+	relayUnreachableGap      = time.Second
 	// relayChangedGap bounds changed frames per network per connection;
 	// later changes coalesce into the next frame.
 	relayChangedGap = 250 * time.Millisecond
@@ -45,10 +47,11 @@ type relayServer struct {
 	ttl      time.Duration
 	now      func() time.Time
 
-	mu      sync.Mutex
-	conns   map[relay.HostID]*relayConn
-	members map[relay.HostID]cachedNetworks
-	usage   relayUsage
+	mu         sync.Mutex
+	admissions chan struct{}
+	conns      map[relay.HostID]*relayConn
+	members    map[relay.HostID]cachedNetworks
+	usage      relayUsage
 }
 
 type cachedNetworks struct {
@@ -57,16 +60,17 @@ type cachedNetworks struct {
 }
 
 type relayConn struct {
-	id      relay.HostID
-	conn    net.Conn
-	out     chan []byte
-	done    chan struct{}
-	once    sync.Once
-	mu      sync.Mutex
-	queued  int
-	tokens  float64
-	refill  time.Time
-	refused map[relay.HostID]time.Time
+	id           relay.HostID
+	conn         net.Conn
+	out          chan []byte
+	done         chan struct{}
+	once         sync.Once
+	mu           sync.Mutex
+	queued       int
+	tokens       float64
+	refill       time.Time
+	refused      map[relay.HostID]time.Time
+	refusedSweep time.Time
 	// v2 connections negotiated capsule-relay/2 and receive changed frames.
 	v2      bool
 	notices map[string]*notice
@@ -83,7 +87,8 @@ type notice struct {
 func newRelayServer(s *Server) *relayServer {
 	return &relayServer{s: s, maxConns: relayMaxConnections, idle: relayIdleTimeout, queue: relayQueueBytes,
 		rate: relayRateBytes, burst: relayBurstBytes, ttl: relayMembershipTTL, now: time.Now,
-		conns: map[relay.HostID]*relayConn{}, members: map[relay.HostID]cachedNetworks{}}
+		admissions: make(chan struct{}, coordinatorMaxHandshakes),
+		conns:      map[relay.HostID]*relayConn{}, members: map[relay.HostID]cachedNetworks{}}
 }
 
 // networksOf returns the networks a host belongs to, refreshed at most every
@@ -113,7 +118,13 @@ func (r *relayServer) networksOf(ctx context.Context, id relay.HostID) (map[stri
 		return nil, err
 	}
 	r.mu.Lock()
-	r.members[id] = cachedNetworks{networks: networks, fetched: now}
+	// Cache only live registrations. Rejected identities and disconnected
+	// hosts must not accumulate state; conns bounds this cache's cardinality.
+	if len(networks) > 0 && r.conns[id] != nil {
+		r.members[id] = cachedNetworks{networks: networks, fetched: now}
+	} else {
+		delete(r.members, id)
+	}
 	r.mu.Unlock()
 	return networks, nil
 }
@@ -140,7 +151,7 @@ func (r *relayServer) sharedNetwork(ctx context.Context, a, b relay.HostID) (str
 
 // serve runs one authenticated relay connection until it fails, goes idle,
 // is replaced, or ctx ends.
-func (r *relayServer) serve(ctx context.Context, conn *tls.Conn) {
+func (r *relayServer) serve(ctx context.Context, conn *tls.Conn, sequence int64) {
 	defer conn.Close()
 	public, err := tlsid.PeerKey(conn.ConnectionState())
 	if err != nil {
@@ -151,25 +162,43 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn) {
 		return
 	}
 	alpn := conn.ConnectionState().NegotiatedProtocol
-	c := &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{},
-		v2: alpn == relay.ALPNv2, notices: map[string]*notice{}}
 	start := time.Now()
+	var c *relayConn
 	defer func() {
+		var in, out int64
+		if c != nil {
+			in, out = c.bytesIn.Load(), c.bytesOut.Load()
+		}
 		r.s.Log.LogAttrs(context.Background(), slog.LevelInfo, "relay", slog.String("host", id.String()), slog.String("alpn", alpn),
-			slog.Int64("bytes_in", c.bytesIn.Load()), slog.Int64("bytes_out", c.bytesOut.Load()), slog.Float64("duration_ms", milliseconds(time.Since(start))))
+			slog.Int64("bytes_in", in), slog.Int64("bytes_out", out), slog.Float64("duration_ms", milliseconds(time.Since(start))))
 	}()
-	if networks, err := r.networksOf(ctx, id); err != nil || len(networks) == 0 {
+	// Check admission before allocating the connection's output queue.
+	// TLS negotiation is already complete, so independently bound callers
+	// waiting for the serialized database admission lookup.
+	select {
+	case r.admissions <- struct{}{}:
+	default:
+		return
+	}
+	networks, err := func() (map[string]bool, error) {
+		defer func() { <-r.admissions }()
+		return r.networksOf(ctx, id)
+	}()
+	if err != nil || len(networks) == 0 {
 		return
 	}
 	r.mu.Lock()
-	// The cap counts current registrations; a replacement does not add one.
 	old := r.conns[id]
 	if old == nil && len(r.conns) >= r.maxConns {
 		r.mu.Unlock()
 		return
 	}
+	c = &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{},
+		v2: alpn == relay.ALPNv2, notices: map[string]*notice{}}
 	r.conns[id] = c
+	r.members[id] = cachedNetworks{networks: networks, fetched: r.now()}
 	r.mu.Unlock()
+	r.s.hosts.record(sequence, id.String(), time.Now())
 	if old != nil {
 		old.close()
 	}
@@ -178,6 +207,7 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn) {
 		r.mu.Lock()
 		if r.conns[id] == c {
 			delete(r.conns, id)
+			delete(r.members, id)
 		}
 		r.mu.Unlock()
 	}()
@@ -217,7 +247,18 @@ func (r *relayServer) forward(ctx context.Context, src *relayConn, dest relay.Ho
 	}
 	if !charged {
 		now := r.now()
+		if now.Sub(src.refusedSweep) >= relayUnreachableGap {
+			for id, at := range src.refused {
+				if now.Sub(at) >= relayUnreachableGap {
+					delete(src.refused, id)
+				}
+			}
+			src.refusedSweep = now
+		}
 		if last, ok := src.refused[dest]; !ok || now.Sub(last) >= relayUnreachableGap {
+			if !ok && len(src.refused) >= relayMaxRefused {
+				return // Bound random-destination bookkeeping and notifications.
+			}
 			src.refused[dest] = now
 			src.enqueue(r, frame(relay.FrameUnreachable, dest[:]))
 		}
@@ -448,25 +489,32 @@ func (l *connListener) Close() error {
 
 func (l *connListener) Addr() net.Addr { return l.addr }
 
-// dispatch completes the TLS handshake and routes the connection by ALPN.
-// A relay connection counts its host toward the listener's identity.
+// handshake releases its admission slot as soon as negotiation completes;
+// established relay connections must not occupy handshake slots.
+func (s *Server) handshake(ctx context.Context, c net.Conn) error {
+	defer func() { <-s.handshakes }()
+	tc, ok := c.(*tls.Conn)
+	if !ok {
+		return nil
+	}
+	_ = tc.SetDeadline(time.Now().Add(relayHandshake))
+	if err := tc.HandshakeContext(ctx); err != nil {
+		return err
+	}
+	_ = tc.SetDeadline(time.Time{})
+	return nil
+}
+
+// dispatch routes a negotiated connection by ALPN. Only admitted relay
+// connections count toward the listener's identity.
 func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListener, sequence int64) {
 	tc, ok := c.(*tls.Conn)
 	if !ok {
 		httpConns.push(c)
 		return
 	}
-	_ = tc.SetDeadline(time.Now().Add(relayHandshake))
-	if err := tc.HandshakeContext(ctx); err != nil {
-		_ = tc.Close()
-		return
-	}
-	_ = tc.SetDeadline(time.Time{})
 	if protocol := tc.ConnectionState().NegotiatedProtocol; protocol == relay.ALPN || protocol == relay.ALPNv2 {
-		if public, err := tlsid.PeerKey(tc.ConnectionState()); err == nil {
-			s.hosts.record(sequence, membership.HostID(public), time.Now())
-		}
-		s.relay.serve(ctx, tc)
+		s.relay.serve(ctx, tc, sequence)
 		return
 	}
 	httpConns.push(tc)

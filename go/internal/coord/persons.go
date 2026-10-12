@@ -265,8 +265,8 @@ func (s *Server) admitPerson(ctx context.Context, caller, network string, data [
 }
 
 // admitPersonIn verifies and stores a person admission as the persons route
-// does. An imported person invite is not checked for expiry: it was redeemed
-// when the person was first admitted.
+// does. Import may reuse an already admitted person, but cannot introduce an
+// expired invite claim based only on the holder's asserted redemption time.
 func (s *Server) admitPersonIn(ctx context.Context, tx *sql.Tx, chain membership.Chain, proof membership.PersonProof, imported bool) error {
 	network := chain.NetworkID
 	key, _, err := chain.VerifyPerson(proof)
@@ -312,7 +312,7 @@ func (s *Server) admitPersonIn(ctx context.Context, tx *sql.Tx, chain membership
 		case err == nil:
 		case errors.Is(err, sql.ErrNoRows):
 			expires, _ := membership.ParseTime(m.InviteExpiresAt)
-			if !imported && !expires.After(s.Now()) {
+			if !expires.After(s.Now()) {
 				return fmt.Errorf("%w: person invite has expired", errForbidden)
 			}
 			if _, err = putStatement(ctx, tx, network, kindPersonInvite, m.InvitePublicKey, json.RawMessage(jsonString(key))); err != nil {

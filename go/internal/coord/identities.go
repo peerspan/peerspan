@@ -310,12 +310,18 @@ func (s *Server) withSuccessors(r *http.Request, m *membership.Map) any {
 // identityHostWindow is how long a host counts toward its listener's
 // capsule_coord_identity_hosts.
 const identityHostWindow = 24 * time.Hour
+const identityHostLimit = 4096
+const identityHostSweep = time.Minute
 
 // identityHosts records when each host last completed a request or opened a
 // relay connection through each identity's listener.
 type identityHosts struct {
 	mu   sync.Mutex
 	seen map[int64]map[string]time.Time
+	// Overflow preserves the retirement safety signal without retaining
+	// unbounded identities. A saturated listener cannot report zero yet.
+	overflow  map[int64]time.Time
+	lastSweep time.Time
 }
 
 func (h *identityHosts) record(sequence int64, host string, now time.Time) {
@@ -326,25 +332,50 @@ func (h *identityHosts) record(sequence int64, host string, now time.Time) {
 	defer h.mu.Unlock()
 	if h.seen == nil {
 		h.seen = map[int64]map[string]time.Time{}
+		h.overflow = map[int64]time.Time{}
+	}
+	if now.Sub(h.lastSweep) >= identityHostSweep {
+		h.prune(now)
 	}
 	if h.seen[sequence] == nil {
 		h.seen[sequence] = map[string]time.Time{}
 	}
-	h.seen[sequence][host] = now
+	if _, exists := h.seen[sequence][host]; exists || len(h.seen[sequence]) < identityHostLimit {
+		h.seen[sequence][host] = now
+	} else {
+		h.overflow[sequence] = now
+	}
 }
 
-// counts drops hosts older than the window and counts the rest by sequence.
-func (h *identityHosts) counts(now time.Time) map[int64]int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	counts := map[int64]int{}
-	for sequence, hosts := range h.seen {
+// prune requires the mutex and runs on traffic as well as scrapes.
+func (h *identityHosts) prune(now time.Time) {
+	for _, hosts := range h.seen {
 		for host, at := range hosts {
 			if now.Sub(at) > identityHostWindow {
 				delete(hosts, host)
 			}
 		}
+	}
+	for sequence, at := range h.overflow {
+		if now.Sub(at) > identityHostWindow {
+			delete(h.overflow, sequence)
+		}
+	}
+	h.lastSweep = now
+}
+
+// counts reports a bounded count, including an overflow marker while any
+// untracked host may still be within the retirement window.
+func (h *identityHosts) counts(now time.Time) map[int64]int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	counts := map[int64]int{}
+	h.prune(now)
+	for sequence, hosts := range h.seen {
 		counts[sequence] = len(hosts)
+		if _, ok := h.overflow[sequence]; ok {
+			counts[sequence]++
+		}
 	}
 	return counts
 }
