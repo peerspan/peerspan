@@ -225,7 +225,7 @@ Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the ow
 
 ### Acceptance against the hosted coordinator
 
-Once the owner has deployed it and provided the name and key, `conformance/launch_acceptance.py` and `conformance/live_launch_agents.py` run with bundles built for it (their default coordinator), with consent for this machine to contact it. Their results are recorded as `docs/results/launch-acceptance-hosted.json` and `docs/results/launch-live-hosted.json`.
+Once the owner has deployed it and provided the name and key, `conformance/launch_acceptance.py` and `conformance/live_launch_agents.py` run with bundles built for it (their default coordinator), with consent for this machine to contact it. Both take `--coordinator HOST:PORT` and `--coordinator-key KEY` in place of the loopback coordinator they start otherwise; with them, `--output` is required and the results record the address and key. Their results are recorded as `docs/results/launch-acceptance-hosted.json` and `docs/results/launch-live-hosted.json`. Runs against a staging instance are recorded as `docs/results/launch-acceptance-staging.json` and `docs/results/launch-live-staging.json`.
 
 ### Verification
 

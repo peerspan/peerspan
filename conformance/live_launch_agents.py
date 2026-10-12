@@ -5,7 +5,8 @@ Written from docs/launch-contract.md ("Slice 5: acceptance", Live run).
 
 Three persons on one host as the invoking user: alice (Go), bob (Rust), and
 carol (Go) by default (--mix). Preparation, not part of the path: the harness
-builds capsule-coord and runs it on loopback, packages the bundles with it as
+builds capsule-coord and runs it on loopback (or, with --coordinator and
+--coordinator-key, uses a deployed one), packages the bundles with it as
 the default coordinator (as launch_acceptance.py does), and extracts them.
 Each person has their own XDG_CONFIG_HOME, XDG_STATE_HOME, and daemon, run in
 the foreground with `capsule run` from the installed bundle; HOME is shared,
@@ -71,7 +72,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent_adapter import Channel  # noqa: E402
 from claude_session import ClaudeSession, session_environment  # noqa: E402
 from claude_session import wait_for as wait_live  # noqa: E402
-from launch_acceptance import REPO, first_json, package_bundles, start_coordinator, tail  # noqa: E402
+from launch_acceptance import (REPO, external_coordinator, first_json, package_bundles,  # noqa: E402
+                               start_coordinator, tail)
 from tasks import channel_event, tool  # noqa: E402
 
 PERSONS = ('alice', 'bob', 'carol')
@@ -589,9 +591,17 @@ def main():
     parser.add_argument('--repo', type=Path, default=REPO, help='checkout to package from')
     parser.add_argument('--output', type=Path, help='results file (default docs/results/launch-live.json when live)')
     parser.add_argument('--keep', action='store_true', help='keep the work directory')
+    parser.add_argument('--coordinator', metavar='HOST:PORT',
+                        help='use this deployed coordinator instead of one on loopback; needs --coordinator-key '
+                             'and, when live, --output')
+    parser.add_argument('--coordinator-key', metavar='KEY', help="the deployed coordinator's public key")
     args = parser.parse_args()
     if not args.fixture and not args.claude:
         parser.error('--claude is required unless --fixture')
+    if bool(args.coordinator) != bool(args.coordinator_key):
+        parser.error('--coordinator and --coordinator-key go together')
+    if args.coordinator and not args.fixture and not args.output:
+        parser.error('--output is required with --coordinator')
     if len(args.mix) != 3 or set(args.mix) - set(NAMES):
         parser.error('--mix is three of G and R')
     output = args.output or (None if args.fixture else REPO / 'docs/results/launch-live.json')
@@ -611,7 +621,10 @@ def main():
     commands = []
     try:
         (work / 'bin').mkdir()
-        coord, address, key = start_coordinator(args.repo.resolve(), work)
+        if args.coordinator:
+            coord, address, key = external_coordinator(args.coordinator, args.coordinator_key)
+        else:
+            coord, address, key = start_coordinator(args.repo.resolve(), work)
         archives, release = package_bundles(args.repo.resolve(), node, work, address, key, sorted(set(impls)))
         bundles = {}
         for impl, (archive, _checksum, root) in archives.items():
@@ -654,6 +667,10 @@ def main():
             'checked_at': datetime.now(timezone.utc).isoformat(),
             'mode': 'fixture' if args.fixture else 'live',
             'contract': 'docs/launch-contract.md, Slice 5: acceptance (live run)',
+            'coordinator': ({'address': args.coordinator, 'public_key': args.coordinator_key,
+                             'description': 'deployed coordinator, built into the bundles as the default'}
+                            if args.coordinator else
+                            'capsule-coord from the checkout on loopback, built into the bundles as the default'),
             'persons': {p.name: {'implementation': p.impl, 'address': p.address, 'host_id': p.host_id} for p in people},
             'release': release,
             'commands': commands,
@@ -679,7 +696,9 @@ def main():
                                   'flow; tool_calls come from each session\'s own transcript; alice_terminal_text is '
                                   'the model\'s own report, not host state.')
             report['limitations'] = [
-                'Three persons as one OS user on one host, over loopback, not separate machines.',
+                'Three persons as one OS user on one host, not separate machines; '
+                + ('coordination over the internet to the deployed coordinator, peer traffic on this host.'
+                   if args.coordinator else 'over loopback.'),
                 'Alice\'s prompt names the tools and addresses; bob and carol were not prompted and acted on the '
                 'channel events alone, following the instructions alice\'s task carried.',
             ]

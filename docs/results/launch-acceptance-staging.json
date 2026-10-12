@@ -1,0 +1,3073 @@
+{
+  "checked_at": "2026-10-12T02:21:35.598900+00:00",
+  "contract": "docs/launch-contract.md, Slice 5: acceptance (scripted run); path from docs/quick-start.md",
+  "environment": {
+    "systemd": "systemd 252",
+    "node": "v22.20.0",
+    "python": "3.12.13",
+    "kernel": "6.1.0-53-amd64",
+    "architecture": "x86_64"
+  },
+  "pace_seconds": 0,
+  "coordinator": {
+    "address": "coord.example.com:443",
+    "public_key": "2zb29q0w7ZcVfjilPmfnNBwgCALUQDQ39MrzIqZjJfY=",
+    "description": "deployed coordinator, built into the bundles as the default"
+  },
+  "release": {
+    "go": {
+      "archive": "capsule-0.0.0-acceptance-linux-amd64-go.tar.gz",
+      "sha256": "4dac38f3eeffbe1c15cafb04fa6c11a1a0c5afbae6a2c3e93eec23e28d77d520",
+      "checksum_verified": true,
+      "release": {
+        "version": "0.0.0-acceptance",
+        "implementation": "go",
+        "source_revision": "917eba5c692b357175203ef88e41abf71402401d",
+        "source_dirty": true,
+        "os": "linux",
+        "architecture": "amd64",
+        "node_requirement": ">=22",
+        "rust_libc": "glibc (builder baseline; rust bundles only)"
+      }
+    },
+    "rust": {
+      "archive": "capsule-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+      "sha256": "deb0447094d44945cc8af0e939995991e21685b8d79e3cf23ffea8111931a1d3",
+      "checksum_verified": true,
+      "release": {
+        "version": "0.0.0-acceptance",
+        "implementation": "rust",
+        "source_revision": "917eba5c692b357175203ef88e41abf71402401d",
+        "source_dirty": true,
+        "os": "linux",
+        "architecture": "amd64",
+        "node_requirement": ">=22",
+        "rust_libc": "glibc (builder baseline; rust bundles only)"
+      }
+    }
+  },
+  "runs": [
+    {
+      "run": "solo-go",
+      "path": "solo",
+      "implementations": {
+        "M1": "go",
+        "M2": "go"
+      },
+      "users": {
+        "M1": "capsule-acc-1",
+        "M2": "capsule-acc-2"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-1",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.5
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-1",
+          "implementation": "go",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 4.74
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-1",
+          "implementation": "go",
+          "command": "capsule invite capsule-acc-1",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.03
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-1",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_239fdd796a6e49ae219d50b87a750521",
+              "name": "claude",
+              "address": "capsule-acc-1/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M1→M2",
+          "command": "copy ~/.config/capsule/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
+          "kind": "copy",
+          "exit": 0
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-2",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.47
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-2",
+          "implementation": "go",
+          "command": "capsule join TOKEN",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.26,
+          "taken_from_output": {
+            "TOKEN": "the join line printed by M1 `capsule invite capsule-acc-1`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-2",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_59dcad06396e5393735134e75a54b2a4",
+              "name": "claude-cerebral-work-1",
+              "address": "capsule-acc-1/claude-cerebral-work-1"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 7,
+        "copy": 1
+      },
+      "expected_counts": {
+        "capsule": 7,
+        "copy": 1
+      },
+      "addresses": {
+        "M1": "capsule-acc-1/claude",
+        "M2": "capsule-acc-1/claude-cerebral-work-1"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 7,
+            "copy": 1
+          }
+        },
+        {
+          "check": "attach names and addresses (M2 is claude-HOSTNAME)",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M1": "capsule-acc-1/claude",
+            "M2": "capsule-acc-1/claude-cerebral-work-1"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-1/claude",
+                "host_id": "host_e14d1c4dbd8fba7b463920be0556b2c2f9ce41c8d987ab21d562e3e19b3fa42e",
+                "agent_id": "agent_239fdd796a6e49ae219d50b87a750521",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-1/.config/capsule/sessions/host_e14d1c4dbd8fba7b463920be0556b2c2f9ce41c8d987ab21d562e3e19b3fa42e/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-1/claude-cerebral-work-1",
+                "host_id": "host_6b49641ff6c8adaf3048c9776a6e6279fe210418f00f76ad53ffabeb3216893e",
+                "agent_id": "agent_59dcad06396e5393735134e75a54b2a4",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-2/.config/capsule/sessions/host_6b49641ff6c8adaf3048c9776a6e6279fe210418f00f76ad53ffabeb3216893e/claude-cerebral-work-1/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-1/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-2/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "capsule-acc-1/claude-cerebral-work-1": [
+              "message.append",
+              "task.submit",
+              "task.delegate"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-1/claude": [
+              "message.append",
+              "task.submit",
+              "task.delegate"
+            ]
+          }
+        },
+        {
+          "check": "send capsule-acc-1/claude-cerebral-work-1 ends accepted, citing self",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-1/claude-cerebral-work-1 reaches the receiver, citing self",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-1/claude ends accepted, citing self",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-1/claude reaches the receiver, citing self",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [],
+      "passed": true,
+      "error": null
+    },
+    {
+      "run": "solo-rust",
+      "path": "solo",
+      "implementations": {
+        "M1": "rust",
+        "M2": "rust"
+      },
+      "users": {
+        "M1": "capsule-acc-3",
+        "M2": "capsule-acc-4"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-3",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.4
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-3",
+          "implementation": "rust",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.59
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-3",
+          "implementation": "rust",
+          "command": "capsule invite capsule-acc-3",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.05
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-3",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "capsule-acc-3/claude",
+              "id": "agent_ed3d0403ccebac91f88cf49af10e494b",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M1→M2",
+          "command": "copy ~/.config/capsule/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
+          "kind": "copy",
+          "exit": 0
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-4",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.47
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-4",
+          "implementation": "rust",
+          "command": "capsule join TOKEN",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.99,
+          "taken_from_output": {
+            "TOKEN": "the join line printed by M1 `capsule invite capsule-acc-3`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-4",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "capsule-acc-3/claude-cerebral-work-1",
+              "id": "agent_3d40f9911bccd5e12443e161b2744fd2",
+              "name": "claude-cerebral-work-1"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 7,
+        "copy": 1
+      },
+      "expected_counts": {
+        "capsule": 7,
+        "copy": 1
+      },
+      "addresses": {
+        "M1": "capsule-acc-3/claude",
+        "M2": "capsule-acc-3/claude-cerebral-work-1"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 7,
+            "copy": 1
+          }
+        },
+        {
+          "check": "attach names and addresses (M2 is claude-HOSTNAME)",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M1": "capsule-acc-3/claude",
+            "M2": "capsule-acc-3/claude-cerebral-work-1"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-3/claude",
+                "agent_id": "agent_ed3d0403ccebac91f88cf49af10e494b",
+                "connected": true,
+                "host_id": "host_9fe553172bb04b98370477d695d2f00ba5bef96e9064e7e557a29ec3db4b7fbf"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-3/.config/capsule/sessions/host_9fe553172bb04b98370477d695d2f00ba5bef96e9064e7e557a29ec3db4b7fbf/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-3/claude-cerebral-work-1",
+                "agent_id": "agent_3d40f9911bccd5e12443e161b2744fd2",
+                "connected": true,
+                "host_id": "host_9ca0eec379fcc3677ef3f5164a7be9c3d4f4d82fd2634862b7307ebb0b1f06f2"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-4/.config/capsule/sessions/host_9ca0eec379fcc3677ef3f5164a7be9c3d4f4d82fd2634862b7307ebb0b1f06f2/claude-cerebral-work-1/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-3/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-4/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "capsule-acc-3/claude-cerebral-work-1": [
+              "message.append",
+              "task.submit",
+              "task.delegate"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-3/claude": [
+              "message.append",
+              "task.submit",
+              "task.delegate"
+            ]
+          }
+        },
+        {
+          "check": "send capsule-acc-3/claude-cerebral-work-1 ends accepted, citing self",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-3/claude-cerebral-work-1 reaches the receiver, citing self",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-3/claude ends accepted, citing self",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-3/claude reaches the receiver, citing self",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "self",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [],
+      "passed": true,
+      "error": null
+    },
+    {
+      "run": "pair-go",
+      "path": "pair",
+      "implementations": {
+        "M1": "go",
+        "M2": "go"
+      },
+      "users": {
+        "M1": "capsule-acc-5",
+        "M2": "capsule-acc-6"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-5",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.4
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-5",
+          "implementation": "go",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 5.41
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-5",
+          "implementation": "go",
+          "command": "capsule invite bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-6",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.44
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-6",
+          "implementation": "go",
+          "command": "capsule join TOKEN",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 3.83,
+          "taken_from_output": {
+            "TOKEN": "the join line printed by M1 `capsule invite bob`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-6",
+          "implementation": "go",
+          "command": "capsule allow capsule-acc-5",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.6
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-6",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_2940a79add6c823c9c579325a1153ebf",
+              "name": "claude",
+              "address": "bob/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-5",
+          "implementation": "go",
+          "command": "capsule allow bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.66
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-5",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_a5aab275c3549fe3e3e914704693a79c",
+              "name": "claude",
+              "address": "capsule-acc-5/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 9
+      },
+      "expected_counts": {
+        "capsule": 9
+      },
+      "addresses": {
+        "M2": "bob/claude",
+        "M1": "capsule-acc-5/claude"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 9
+          }
+        },
+        {
+          "check": "attach names and addresses",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M2": "bob/claude",
+            "M1": "capsule-acc-5/claude"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-5/claude",
+                "host_id": "host_0bb8c8d6b8040abdefb786f99b17fb87bc570c05a50594593d6c770f5d94a715",
+                "agent_id": "agent_a5aab275c3549fe3e3e914704693a79c",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-5/.config/capsule/sessions/host_0bb8c8d6b8040abdefb786f99b17fb87bc570c05a50594593d6c770f5d94a715/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "bob/claude",
+                "host_id": "host_f3582bedc82c3a8e4f7dc4b0bc541e9a0f318cf3919a35d6c7282f1ecb924e8e",
+                "agent_id": "agent_2940a79add6c823c9c579325a1153ebf",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-6/.config/capsule/sessions/host_f3582bedc82c3a8e4f7dc4b0bc541e9a0f318cf3919a35d6c7282f1ecb924e8e/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-5/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-6/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-5/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-5/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-5/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [
+        "alice is the person label network create takes from M1's login name (capsule-acc-5); bob types it in `capsule allow`."
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "run": "pair-rust",
+      "path": "pair",
+      "implementations": {
+        "M1": "rust",
+        "M2": "rust"
+      },
+      "users": {
+        "M1": "capsule-acc-7",
+        "M2": "capsule-acc-8"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-7",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.45
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-7",
+          "implementation": "rust",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.56
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-7",
+          "implementation": "rust",
+          "command": "capsule invite bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-8",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.55
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-8",
+          "implementation": "rust",
+          "command": "capsule join TOKEN",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.32,
+          "taken_from_output": {
+            "TOKEN": "the join line printed by M1 `capsule invite bob`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-8",
+          "implementation": "rust",
+          "command": "capsule allow capsule-acc-7",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.92
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-8",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "bob/claude",
+              "id": "agent_3aa76089c4bd6afbb97e498b9d5b82d7",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-7",
+          "implementation": "rust",
+          "command": "capsule allow bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.9
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-7",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "capsule-acc-7/claude",
+              "id": "agent_93c30f3d6f21a114a7e9cedcab787b98",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 9
+      },
+      "expected_counts": {
+        "capsule": 9
+      },
+      "addresses": {
+        "M2": "bob/claude",
+        "M1": "capsule-acc-7/claude"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 9
+          }
+        },
+        {
+          "check": "attach names and addresses",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M2": "bob/claude",
+            "M1": "capsule-acc-7/claude"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-7/claude",
+                "agent_id": "agent_93c30f3d6f21a114a7e9cedcab787b98",
+                "connected": true,
+                "host_id": "host_6b5c5417b2eda2abb0d949355c8dd13482a2dd78b4cade7544b2819a09d1cf26"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-7/.config/capsule/sessions/host_6b5c5417b2eda2abb0d949355c8dd13482a2dd78b4cade7544b2819a09d1cf26/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "bob/claude",
+                "agent_id": "agent_3aa76089c4bd6afbb97e498b9d5b82d7",
+                "connected": true,
+                "host_id": "host_20961261a47a6d555a6f907a67907a28a544bae83a7e4a4d783905cc974bf40e"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-8/.config/capsule/sessions/host_20961261a47a6d555a6f907a67907a28a544bae83a7e4a4d783905cc974bf40e/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-7/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-8/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-7/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-7/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-7/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [
+        "alice is the person label network create takes from M1's login name (capsule-acc-7); bob types it in `capsule allow`."
+      ],
+      "passed": true,
+      "error": null
+    },
+    {
+      "run": "team-go",
+      "path": "team",
+      "implementations": {
+        "M1": "go",
+        "M2": "go",
+        "M3": "go"
+      },
+      "users": {
+        "M1": "capsule-acc-9",
+        "M2": "capsule-acc-10",
+        "M3": "capsule-acc-11"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-9",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.46
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-9",
+          "implementation": "go",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 4.21
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-9",
+          "implementation": "go",
+          "command": "capsule invite bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-9",
+          "implementation": "go",
+          "command": "capsule invite carol",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-9",
+          "implementation": "go",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.55
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-9",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_55e04c821f7b1dd962159cb01504f675",
+              "name": "claude",
+              "address": "capsule-acc-9/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-10",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.46
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-10",
+          "implementation": "go",
+          "command": "capsule join TOKEN_BOB",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 3.85,
+          "taken_from_output": {
+            "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-10",
+          "implementation": "go",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.64
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-10",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_1a017de28c50df76238b53aceb0c09b6",
+              "name": "claude",
+              "address": "bob/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-11",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.42
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-11",
+          "implementation": "go",
+          "command": "capsule join TOKEN_CAROL",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 3.85,
+          "taken_from_output": {
+            "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
+          }
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-11",
+          "implementation": "go",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.66
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-11",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_1e9ee97c6b694045a1b230760a3325e2",
+              "name": "claude",
+              "address": "carol/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 14
+      },
+      "expected_counts": {
+        "capsule": 14
+      },
+      "addresses": {
+        "M1": "capsule-acc-9/claude",
+        "M2": "bob/claude",
+        "M3": "carol/claude"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 14
+          }
+        },
+        {
+          "check": "attach names and addresses",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M1": "capsule-acc-9/claude",
+            "M2": "bob/claude",
+            "M3": "carol/claude"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-9/claude",
+                "host_id": "host_aadccb45dbbf1c06a5c760c0b36369c127d6fcf4aabbaf48ce7720f466e41f62",
+                "agent_id": "agent_55e04c821f7b1dd962159cb01504f675",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-9/.config/capsule/sessions/host_aadccb45dbbf1c06a5c760c0b36369c127d6fcf4aabbaf48ce7720f466e41f62/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "bob/claude",
+                "host_id": "host_8f246ead65b3aea290beb93400aa7d23a285573171aa4a085844b3d21fcbc012",
+                "agent_id": "agent_1a017de28c50df76238b53aceb0c09b6",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-10/.config/capsule/sessions/host_8f246ead65b3aea290beb93400aa7d23a285573171aa4a085844b3d21fcbc012/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "carol/claude",
+                "host_id": "host_73d5c79566c9c6d39ffccf5501305ada96f71086f18ec6442e2ba3386d610f81",
+                "agent_id": "agent_1e9ee97c6b694045a1b230760a3325e2",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-11/.config/capsule/sessions/host_73d5c79566c9c6d39ffccf5501305ada96f71086f18ec6442e2ba3386d610f81/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-9/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-10/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-11/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "carol/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-9/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "carol/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "capsule-acc-9/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send carol/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task carol/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-9/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-9/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send carol/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task carol/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-9/claude ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-9/claude reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [],
+      "passed": true,
+      "error": null
+    },
+    {
+      "run": "team-rust",
+      "path": "team",
+      "implementations": {
+        "M1": "rust",
+        "M2": "rust",
+        "M3": "rust"
+      },
+      "users": {
+        "M1": "capsule-acc-12",
+        "M2": "capsule-acc-13",
+        "M3": "capsule-acc-14"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-12",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.47
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-12",
+          "implementation": "rust",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.61
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-12",
+          "implementation": "rust",
+          "command": "capsule invite bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.05
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-12",
+          "implementation": "rust",
+          "command": "capsule invite carol",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.05
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-12",
+          "implementation": "rust",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.94
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-12",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "capsule-acc-12/claude",
+              "id": "agent_c7fb1acc0e360033eeb9a92fce4829b0",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-13",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.42
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-13",
+          "implementation": "rust",
+          "command": "capsule join TOKEN_BOB",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.32,
+          "taken_from_output": {
+            "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-13",
+          "implementation": "rust",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.89
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-13",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "bob/claude",
+              "id": "agent_076535afb2df2ba70f1d6fb3293d401b",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-14",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.49
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-14",
+          "implementation": "rust",
+          "command": "capsule join TOKEN_CAROL",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.36,
+          "taken_from_output": {
+            "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
+          }
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-14",
+          "implementation": "rust",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.97
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-14",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "carol/claude",
+              "id": "agent_8e72b909a9a00a52744ba5008efc093d",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 14
+      },
+      "expected_counts": {
+        "capsule": 14
+      },
+      "addresses": {
+        "M1": "capsule-acc-12/claude",
+        "M2": "bob/claude",
+        "M3": "carol/claude"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 14
+          }
+        },
+        {
+          "check": "attach names and addresses",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M1": "capsule-acc-12/claude",
+            "M2": "bob/claude",
+            "M3": "carol/claude"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-12/claude",
+                "agent_id": "agent_c7fb1acc0e360033eeb9a92fce4829b0",
+                "connected": true,
+                "host_id": "host_8e94f7720ceed867787d698867134d5c636a5a08473224be156095c85d7e9b84"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-12/.config/capsule/sessions/host_8e94f7720ceed867787d698867134d5c636a5a08473224be156095c85d7e9b84/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "bob/claude",
+                "agent_id": "agent_076535afb2df2ba70f1d6fb3293d401b",
+                "connected": true,
+                "host_id": "host_d44e68ba5d1478f1c8fec3b671f0c2b9ecf2f872ac6ec0ff724c763dc83d1f8d"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-13/.config/capsule/sessions/host_d44e68ba5d1478f1c8fec3b671f0c2b9ecf2f872ac6ec0ff724c763dc83d1f8d/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "carol/claude",
+                "agent_id": "agent_8e72b909a9a00a52744ba5008efc093d",
+                "connected": true,
+                "host_id": "host_56738186b194d2f5c05757f4ad8e027602b8d2f4e474bd4f1e777faea0cd46b0"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-14/.config/capsule/sessions/host_56738186b194d2f5c05757f4ad8e027602b8d2f4e474bd4f1e777faea0cd46b0/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-12/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-13/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-14/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "carol/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-12/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "carol/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "capsule-acc-12/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send carol/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task carol/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-12/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-12/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send carol/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task carol/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-12/claude ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-12/claude reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [],
+      "passed": true,
+      "error": null
+    },
+    {
+      "run": "team-mixed",
+      "path": "team",
+      "implementations": {
+        "M1": "go",
+        "M2": "rust",
+        "M3": "go"
+      },
+      "users": {
+        "M1": "capsule-acc-15",
+        "M2": "capsule-acc-16",
+        "M3": "capsule-acc-17"
+      },
+      "commands": [
+        {
+          "machine": "M1",
+          "user": "capsule-acc-15",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.42
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-15",
+          "implementation": "go",
+          "command": "capsule network create acme",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 5.5
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-15",
+          "implementation": "go",
+          "command": "capsule invite bob",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.06
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-15",
+          "implementation": "go",
+          "command": "capsule invite carol",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.07
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-15",
+          "implementation": "go",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.06
+        },
+        {
+          "machine": "M1",
+          "user": "capsule-acc-15",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_c9abe2d7041679b645f31be58e799fa5",
+              "name": "claude",
+              "address": "capsule-acc-15/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-16",
+          "implementation": "rust",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.44
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-16",
+          "implementation": "rust",
+          "command": "capsule join TOKEN_BOB",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.38,
+          "taken_from_output": {
+            "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-16",
+          "implementation": "rust",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.03
+        },
+        {
+          "machine": "M2",
+          "user": "capsule-acc-16",
+          "implementation": "rust",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "address": "bob/claude",
+              "id": "agent_3629cbd89d66816e1dd41857b84095b6",
+              "name": "claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-17",
+          "implementation": "go",
+          "command": "capsule install",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.53
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-17",
+          "implementation": "go",
+          "command": "capsule join TOKEN_CAROL",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.78,
+          "taken_from_output": {
+            "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
+          }
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-17",
+          "implementation": "go",
+          "command": "capsule allow everyone",
+          "kind": "capsule",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 1.73
+        },
+        {
+          "machine": "M3",
+          "user": "capsule-acc-17",
+          "implementation": "go",
+          "command": "capsule attach claude",
+          "kind": "capsule",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_8d85dd3df52ced1df8cbcef57daf36a6",
+              "name": "claude",
+              "address": "carol/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "capsule session start"
+          }
+        }
+      ],
+      "counts": {
+        "capsule": 14
+      },
+      "expected_counts": {
+        "capsule": 14
+      },
+      "addresses": {
+        "M1": "capsule-acc-15/claude",
+        "M2": "bob/claude",
+        "M3": "carol/claude"
+      },
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "capsule": 14
+          }
+        },
+        {
+          "check": "attach names and addresses",
+          "machine": null,
+          "passed": true,
+          "detail": {
+            "M1": "capsule-acc-15/claude",
+            "M2": "bob/claude",
+            "M3": "carol/claude"
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "capsule-acc-15/claude",
+                "host_id": "host_c5037d80cfb1d3e9402f788e71858407a869cd4d7663e530bd6657c4855dc5a7",
+                "agent_id": "agent_c9abe2d7041679b645f31be58e799fa5",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-15/.config/capsule/sessions/host_c5037d80cfb1d3e9402f788e71858407a869cd4d7663e530bd6657c4855dc5a7/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "bob/claude",
+                "agent_id": "agent_3629cbd89d66816e1dd41857b84095b6",
+                "connected": true,
+                "host_id": "host_93f7904108fca96cd4d29b8604cbf78c55903a9e377071b695d11e76e8451385"
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-16/.config/capsule/sessions/host_93f7904108fca96cd4d29b8604cbf78c55903a9e377071b695d11e76e8451385/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "tools": [
+              "capsule_ready",
+              "list_destinations",
+              "list_agents",
+              "send",
+              "send_status",
+              "reply",
+              "task_accept",
+              "task_reject",
+              "task_progress",
+              "task_complete",
+              "task_cancelled",
+              "delegate_task",
+              "task_status",
+              "artifact_save"
+            ],
+            "mine": [
+              {
+                "address": "carol/claude",
+                "host_id": "host_f18942606c6829720d23027eeb624d85c6612b84b5cdf73d4214254e41e3994d",
+                "agent_id": "agent_8d85dd3df52ced1df8cbcef57daf36a6",
+                "connected": true
+              }
+            ],
+            "launch_arguments": [
+              "--mcp-config",
+              "/home/capsule-acc-17/.config/capsule/sessions/host_f18942606c6829720d23027eeb624d85c6612b84b5cdf73d4214254e41e3994d/claude/mcp.json",
+              "--dangerously-load-development-channels",
+              "server:capsule",
+              "--allowedTools",
+              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+            ]
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-15/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "active": true,
+              "installed": true,
+              "linger": true,
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-16/.config/systemd/user/capsule.service"
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "exit": 0,
+            "service": {
+              "manager": "systemd",
+              "unit": "/home/capsule-acc-17/.config/systemd/user/capsule.service",
+              "installed": true,
+              "active": true,
+              "linger": true
+            },
+            "attention": [],
+            "stderr": ""
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "carol/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "capsule-acc-15/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "carol/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "capsule-acc-15/claude": [
+              "message.append",
+              "task.submit"
+            ],
+            "bob/claude": [
+              "message.append",
+              "task.submit"
+            ]
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send carol/claude ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task carol/claude reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-15/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-15/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send carol/claude ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task carol/claude reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send capsule-acc-15/claude ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task capsule-acc-15/claude reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "send bob/claude ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        },
+        {
+          "check": "task bob/claude reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true,
+          "detail": {
+            "submit_state": "accepted",
+            "cited": "policy",
+            "in_receiver_session": true
+          }
+        }
+      ],
+      "notes": [],
+      "passed": true,
+      "error": null
+    }
+  ],
+  "passed": true,
+  "cleanup": {
+    "errors": [],
+    "leftovers": {
+      "users": [],
+      "homes": [],
+      "linger": [],
+      "processes": []
+    }
+  }
+}

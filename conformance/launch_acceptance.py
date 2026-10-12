@@ -6,7 +6,8 @@ docs/quick-start.md. It is an end-to-end check, not a conformance suite.
 
 Preparation, not counted:
 - builds `capsule-coord` from the checkout and runs it on loopback, standing in
-  for the hosted coordinator;
+  for the hosted coordinator, or, with --coordinator and --coordinator-key,
+  uses a deployed one after checking that its port accepts a connection;
 - packages each needed implementation with `scripts/package-release.sh`, with
   CAPSULE_COORDINATOR and CAPSULE_COORDINATOR_KEY naming that coordinator, and
   verifies each archive's checksum;
@@ -305,6 +306,22 @@ def start_coordinator(repo, work):
     return process, address, info['public_key']
 
 
+def external_coordinator(address, key):
+    """A deployed coordinator named by --coordinator and --coordinator-key; returns (None, address, key).
+
+    Checks only that its TCP port accepts a connection: the runs themselves show whether it serves.
+    """
+    host, _, port = address.rpartition(':')
+    if not host or not port.isdigit():
+        raise SystemExit(f'--coordinator must be HOST:PORT, not {address!r}')
+    try:
+        with socket.create_connection((host.strip('[]'), int(port)), timeout=10):
+            pass
+    except OSError as error:
+        raise SystemExit(f'coordinator {address} is not reachable: {error}')
+    return None, address, key
+
+
 def package_bundles(repo, node, work, address, key, implementations):
     """scripts/package-release.sh for each implementation, with the coordinator as the default.
 
@@ -389,7 +406,11 @@ class Harness:
             raise SystemExit('launch_acceptance: ' + '; '.join(problems))
 
     def start_coordinator(self):
-        self.coord, self.coord_address, self.coord_key = start_coordinator(self.repo, self.work)
+        if self.args.coordinator:
+            self.coord, self.coord_address, self.coord_key = external_coordinator(self.args.coordinator,
+                                                                                   self.args.coordinator_key)
+        else:
+            self.coord, self.coord_address, self.coord_key = start_coordinator(self.repo, self.work)
 
     def package(self, implementations):
         self.archives, self.release = package_bundles(self.repo, self.node, self.work, self.coord_address,
@@ -942,7 +963,11 @@ def main():
     parser.add_argument('--node', type=Path, default=Path('node'), help='Node 22 executable to give the machines')
     parser.add_argument('--run', action='append', choices=sorted(RUNS), help='run only these (repeatable)')
     parser.add_argument('--repo', type=Path, default=REPO, help='checkout to package and build the coordinator from')
-    parser.add_argument('--output', type=Path, default=REPO / 'docs/results/launch-acceptance.json')
+    parser.add_argument('--output', type=Path,
+                        help='results file (default docs/results/launch-acceptance.json; required with --coordinator)')
+    parser.add_argument('--coordinator', metavar='HOST:PORT',
+                        help='use this deployed coordinator instead of one on loopback; needs --coordinator-key')
+    parser.add_argument('--coordinator-key', metavar='KEY', help="the deployed coordinator's public key")
     parser.add_argument('--pace', type=float, default=0,
                         help='seconds to wait whenever the path moves to another machine, before each attach, and '
                              'before the checks (default 0: none); a diagnostic for coordination latency, '
@@ -950,6 +975,11 @@ def main():
     parser.add_argument('--keep', action='store_true', help='leave users, units, and the work directory')
     parser.add_argument('--cleanup', action='store_true', help=f'remove every {USER_PREFIX}N user and exit')
     args = parser.parse_args()
+    if bool(args.coordinator) != bool(args.coordinator_key):
+        parser.error('--coordinator and --coordinator-key go together')
+    if args.coordinator and not args.output:
+        parser.error('--output is required with --coordinator')
+    args.output = args.output or REPO / 'docs/results/launch-acceptance.json'
     if args.cleanup:
         if os.geteuid() != 0:
             raise SystemExit('needs root')
@@ -994,7 +1024,10 @@ def main():
                         'python': platform.python_version(), 'kernel': platform.release(),
                         'architecture': platform.machine()},
         'pace_seconds': args.pace,
-        'coordinator': 'capsule-coord from the checkout on loopback, built into the bundles as the default',
+        'coordinator': ({'address': args.coordinator, 'public_key': args.coordinator_key,
+                         'description': 'deployed coordinator, built into the bundles as the default'}
+                        if args.coordinator else
+                        'capsule-coord from the checkout on loopback, built into the bundles as the default'),
         'release': harness.release,
         'runs': reports,
         'passed': bool(reports) and all(r['passed'] for r in reports) and len(reports) == len(selected),

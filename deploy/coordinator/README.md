@@ -161,7 +161,7 @@ Before announcing, restore the replica onto a **second, throwaway** server and c
 The coordinator can share a VM, such as an existing DigitalOcean droplet, if that VM has a static public address, nothing already serving the chosen port over TCP or UDP, and only administrators you trust with the coordinator's key. Nothing may sit in front of the port (no proxy or TLS terminator). Then:
 - Choose a free port before building bundles, since hosts pin it: 443 if nothing else serves it, or for example 7400.
 - With ufw active (common on Ubuntu), run `install.sh --listen 0.0.0.0:PORT`: it adds the two ufw rules and nothing else. Without ufw, always pass `--no-firewall` and open TCP and UDP on the port in the firewall you use: the default `nftables` mode would drop the other services' traffic.
-- Replication still needs an SSE-C bucket (step 2), which can be at any provider that supports it, such as Hetzner Object Storage or AWS S3; check before using another.
+- Replication still needs an SSE-C bucket (step 2), which can be at any provider that supports it, such as Hetzner Object Storage or AWS S3; check before using another. DigitalOcean Spaces works: with Litestream v0.5.17 it accepts SSE-C on single and multipart uploads and refuses reads, HEAD requests, and restores without the key or with another one (`LITESTREAM_ENDPOINT=https://REGION.digitaloceanspaces.com`). s3cmd cannot send an SSE-C key, so test a provider with Litestream itself.
 
 The steps above are otherwise the same. Skip the Cloud Firewall in step 1 unless the provider has an equivalent, in which case open the same port there.
 
