@@ -614,6 +614,8 @@ After the handshake, both directions carry frames: one type byte, a 2-byte big-e
 | `0x03` unreachable | relay → host | destination host ID | The destination has no current relay connection, or the two hosts share no network. Sent at most once per second per destination. |
 | `0x04` ping | either | empty | Keepalive; ignored on receipt. |
 
+This table is version 1 (`capsule-relay/1`). Version 2 adds `0x05 changed` and version 3 adds `0x06 presence`; both are specified in the [launch contract](launch-contract.md), slices 5 and 6.
+
 A datagram is 1 to 1,500 bytes; a host drops a larger outgoing datagram locally instead of sending it. A send frame addressed to the sender itself is treated as unreachable. An unknown frame type, an oversized or truncated frame, or a frame of a type invalid for its direction closes the connection. Hosts send a ping after 15 seconds without sending any frame. The coordinator closes a relay connection after 45 seconds without receiving one.
 
 ### Forwarding and limits
