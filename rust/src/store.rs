@@ -26,6 +26,9 @@ CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT N
 PRAGMA user_version = 1;
 ";
 
+/// Serializes directory queries to one host in one network.
+pub(crate) type HostQueryLock = Arc<tokio::sync::Mutex<()>>;
+
 /// Local persistence and installation ownership. Network coordination is not
 /// required. The process lock lives for as long as the connection does.
 pub struct Store {
@@ -79,6 +82,10 @@ pub struct Store {
     /// notifications, by (network, host), with whether another arrived
     /// during the one in flight and so needs one more after it.
     pub(crate) presence_refreshes: Mutex<BTreeMap<(String, String), bool>>,
+    /// One lock per (network, host), held by every directory refresh across
+    /// its query and cache update, so two queries to a host never overlap
+    /// and an older answer never replaces a newer one.
+    pub(crate) host_queries: Mutex<BTreeMap<(String, String), HostQueryLock>>,
     /// Seconds between periodic policy syncs with siblings.
     pub(crate) policy_sync_interval: AtomicU64,
     /// Policy deliveries and sibling syncs in progress, so each runs once.
@@ -249,6 +256,7 @@ impl Store {
             presence_wake: tokio::sync::Notify::new(),
             presence: Mutex::new(Default::default()),
             presence_refreshes: Mutex::new(BTreeMap::new()),
+            host_queries: Mutex::new(BTreeMap::new()),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),
             coordinator_limits: Mutex::new(BTreeMap::new()),

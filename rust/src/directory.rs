@@ -1040,6 +1040,17 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry
             siblings.clone(),
         );
         queries.spawn(async move {
+            // Taken before a permit, so waiting for another refresh of this
+            // host holds none.
+            let Ok(lock) = store.host_queries.lock().map(|mut locks| {
+                locks
+                    .entry((network.clone(), host.clone()))
+                    .or_default()
+                    .clone()
+            }) else {
+                return;
+            };
+            let _query = lock.lock().await;
             let Ok(_permit) = permits.acquire_owned().await else {
                 return;
             };
