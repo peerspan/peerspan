@@ -363,7 +363,7 @@ func (s *Server) tlsConfigFor(sequence int64) (*tls.Config, error) {
 	config.ClientAuth = tls.RequireAnyClientCert
 	// The relay shares this listener and is selected by ALPN.
 	// Version 2 is preferred when a host offers it.
-	config.NextProtos = []string{"http/1.1", relay.ALPNv2, relay.ALPN}
+	config.NextProtos = []string{"http/1.1", relay.ALPNv3, relay.ALPNv2, relay.ALPN}
 	cache := &tlsid.Cache{Key: identity.key, Name: identity.identity.ID}
 	if _, err := cache.Get(); err != nil {
 		return nil, err

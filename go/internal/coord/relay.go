@@ -29,8 +29,9 @@ const (
 	relayHandshake           = 10 * time.Second
 	relayWriteTimeout        = 10 * time.Second
 	relayUnreachableGap      = time.Second
-	// relayChangedGap bounds changed frames per network per connection;
-	// later changes coalesce into the next frame.
+	// relayChangedGap bounds changed frames per network per connection, and
+	// presence frames per (network, source host) per connection; later ones
+	// coalesce into the next frame.
 	relayChangedGap = 250 * time.Millisecond
 )
 
@@ -71,9 +72,14 @@ type relayConn struct {
 	refill       time.Time
 	refused      map[relay.HostID]time.Time
 	refusedSweep time.Time
-	// v2 connections negotiated capsule-relay/2 and receive changed frames.
-	v2      bool
+	// version is the negotiated relay version: 2 and later receive changed
+	// frames, and 3 sends and receives presence frames.
+	version int
+	// notices holds the state of frames sent on this connection: changed
+	// frames per network, and presence frames per network and source host.
+	// inbound holds the state of presence frames this host sent, per network.
 	notices map[string]*notice
+	inbound map[string]*notice
 	// Frame bytes read and written, for the relay log line.
 	bytesIn, bytesOut atomic.Int64
 }
@@ -197,7 +203,7 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn, sequence int64)
 		return
 	}
 	c = &relayConn{id: id, conn: conn, out: make(chan []byte, 4096), done: make(chan struct{}), tokens: r.burst, refill: r.now(), refused: map[relay.HostID]time.Time{},
-		v2: alpn == relay.ALPNv2, notices: map[string]*notice{}}
+		version: relayVersion(alpn), notices: map[string]*notice{}, inbound: map[string]*notice{}}
 	r.conns[id] = c
 	r.members[id] = cachedNetworks{networks: networks, fetched: r.now()}
 	r.mu.Unlock()
@@ -223,10 +229,16 @@ func (r *relayServer) serve(ctx context.Context, conn *tls.Conn, sequence int64)
 		if err != nil {
 			return
 		}
-		if kind != relay.FrameSend {
-			continue
+		switch kind {
+		case relay.FrameSend:
+			r.forward(ctx, c, dest, datagram)
+		case relay.FramePresence:
+			// Version 1 and 2 connections never carry presence frames.
+			if c.version < 3 {
+				return
+			}
+			r.presence(ctx, c, string(datagram))
 		}
-		r.forward(ctx, c, dest, datagram)
 	}
 }
 
@@ -276,11 +288,7 @@ func (r *relayServer) connections() map[string]int {
 	defer r.mu.Unlock()
 	counts := map[string]int{}
 	for _, c := range r.conns {
-		if c.v2 {
-			counts[relay.ALPNv2]++
-		} else {
-			counts[relay.ALPN]++
-		}
+		counts[relayALPN(c.version)]++
 	}
 	return counts
 }
@@ -324,7 +332,7 @@ func (r *relayServer) changed(network string) {
 		r.mu.Lock()
 		c := r.conns[id]
 		r.mu.Unlock()
-		if c != nil && c.v2 {
+		if c != nil && c.version >= 2 {
 			c.notify(r, network)
 		}
 	}
@@ -333,11 +341,22 @@ func (r *relayServer) changed(network string) {
 // notify sends a changed frame for a network now, or, within relayChangedGap
 // of the previous one, once when the gap ends.
 func (c *relayConn) notify(r *relayServer, network string) {
+	c.throttle(r, c.notices, network, func() {
+		if c.enqueue(r, frame(relay.FrameChanged, []byte(network))) {
+			r.s.metrics.notified.Add(1)
+		}
+	})
+}
+
+// throttle runs send for key now, or, within relayChangedGap of its previous
+// run, once when the gap ends; requests during the gap coalesce into that one.
+// Nothing runs once the connection has closed.
+func (c *relayConn) throttle(r *relayServer, notices map[string]*notice, key string, send func()) {
 	c.mu.Lock()
-	n := c.notices[network]
+	n := notices[key]
 	if n == nil {
 		n = &notice{}
-		c.notices[network] = n
+		notices[key] = n
 	}
 	if n.pending {
 		c.mu.Unlock()
@@ -348,9 +367,7 @@ func (c *relayConn) notify(r *relayServer, network string) {
 	if n.last.IsZero() || wait <= 0 {
 		n.last = now
 		c.mu.Unlock()
-		if c.enqueue(r, frame(relay.FrameChanged, []byte(network))) {
-			r.s.metrics.notified.Add(1)
-		}
+		send()
 		return
 	}
 	n.pending = true
@@ -362,11 +379,87 @@ func (c *relayConn) notify(r *relayServer, network string) {
 		select {
 		case <-c.done:
 		default:
-			if c.enqueue(r, frame(relay.FrameChanged, []byte(network))) {
-				r.s.metrics.notified.Add(1)
-			}
+			send()
 		}
 	})
+}
+
+// relayVersion is the relay protocol version an ALPN selects.
+func relayVersion(alpn string) int {
+	switch alpn {
+	case relay.ALPNv3:
+		return 3
+	case relay.ALPNv2:
+		return 2
+	}
+	return 1
+}
+
+// relayALPN is the ALPN of a relay protocol version.
+func relayALPN(version int) string {
+	switch version {
+	case 3:
+		return relay.ALPNv3
+	case 2:
+		return relay.ALPNv2
+	}
+	return relay.ALPN
+}
+
+// presence handles a presence frame from a version 3 connection. It is
+// forwarded only when its sender is a current member of that network, at most
+// once per network per relayChangedGap from this connection, later ones
+// coalescing into the next; anything else is dropped without a reply.
+// Nothing about it is stored.
+func (r *relayServer) presence(ctx context.Context, src *relayConn, network string) {
+	networks, err := r.networksOf(ctx, src.id)
+	if err != nil || !networks[network] {
+		return
+	}
+	src.throttle(r, src.inbound, network, func() { r.announce(src.id, network) })
+}
+
+// announce forwards a member's presence to the current version 3 relay
+// connection of every other current member of the network, at most once per
+// (network, source host) per connection per relayChangedGap.
+func (r *relayServer) announce(source relay.HostID, network string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := r.s.db.QueryContext(ctx, `SELECT host_id FROM members WHERE network_id = ?`, network)
+	if err != nil {
+		return
+	}
+	var hosts []relay.HostID
+	member := false
+	for rows.Next() {
+		var host string
+		if rows.Scan(&host) != nil {
+			continue
+		}
+		id, err := relay.ParseHostID(host)
+		switch {
+		case err != nil:
+		case id == source:
+			member = true
+		default:
+			hosts = append(hosts, id)
+		}
+	}
+	rows.Close()
+	// The sender may have been revoked since its frame arrived.
+	if !member {
+		return
+	}
+	data := frame(relay.FramePresence, source[:], []byte(network))
+	key := network + "\x00" + source.String()
+	for _, id := range hosts {
+		r.mu.Lock()
+		c := r.conns[id]
+		r.mu.Unlock()
+		if c != nil && c.version >= 3 {
+			c.throttle(r, c.notices, key, func() { c.enqueue(r, data) })
+		}
+	}
 }
 
 func frame(kind byte, parts ...[]byte) []byte {
@@ -514,7 +607,7 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, httpConns *connListen
 		httpConns.push(c)
 		return
 	}
-	if protocol := tc.ConnectionState().NegotiatedProtocol; protocol == relay.ALPN || protocol == relay.ALPNv2 {
+	if protocol := tc.ConnectionState().NegotiatedProtocol; protocol == relay.ALPN || protocol == relay.ALPNv2 || protocol == relay.ALPNv3 {
 		s.relay.serve(ctx, tc, sequence)
 		return
 	}

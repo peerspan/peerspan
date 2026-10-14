@@ -329,7 +329,7 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	family("capsule_coord_relay_connections", "gauge", "Open relay connections, by negotiated ALPN.")
 	conns := s.relay.connections()
-	for _, alpn := range []string{relay.ALPN, relay.ALPNv2} {
+	for _, alpn := range []string{relay.ALPN, relay.ALPNv2, relay.ALPNv3} {
 		fmt.Fprintf(&b, "capsule_coord_relay_connections{alpn=%s} %d\n", labelValue(alpn), conns[alpn])
 	}
 

@@ -13,10 +13,12 @@ import (
 )
 
 // ALPN selects the relay protocol on the coordinator's TLS listener. Version
-// 2 adds the changed frame; hosts offer it first and coordinators prefer it.
+// 2 adds the changed frame and version 3 the presence frame; hosts offer the
+// newest first and coordinators prefer it.
 const (
 	ALPN   = "capsule-relay/1"
 	ALPNv2 = "capsule-relay/2"
+	ALPNv3 = "capsule-relay/3"
 )
 
 const (
@@ -27,6 +29,10 @@ const (
 	// FrameChanged (version 2, relay to host) carries a network ID whose map
 	// or stored statements changed.
 	FrameChanged byte = 0x05
+	// FramePresence (version 3, both directions). From a host it carries a
+	// network ID in which the host's presence changed; from a relay, the
+	// source host ID and then the network ID.
+	FramePresence byte = 0x06
 )
 
 const (
@@ -74,8 +80,11 @@ func Write(w io.Writer, kind byte, parts ...[]byte) error {
 }
 
 // Read decodes one frame. fromHost selects which frame types are valid: a host
-// sends send and ping frames; a relay sends receive, unreachable, ping, and
-// (version 2) changed, whose network ID is returned as the datagram.
+// sends send, ping, and (version 3) presence frames; a relay sends receive,
+// unreachable, ping, (version 2) changed, and (version 3) presence frames.
+// The network ID of changed and presence frames is returned as the datagram,
+// and a relayed presence frame's source host ID as the peer. Callers check
+// that the negotiated version allows the frame type.
 // Any invalid frame is an error, and the caller closes the connection.
 func Read(r *bufio.Reader, fromHost bool) (kind byte, peer HostID, datagram []byte, err error) {
 	var header [3]byte
@@ -110,6 +119,17 @@ func Read(r *bufio.Reader, fromHost bool) (kind byte, peer HostID, datagram []by
 			return 0, peer, nil, errors.New("relay changed frame has no network ID")
 		}
 		return kind, peer, payload, nil
+	case kind == FramePresence && fromHost:
+		if size == 0 {
+			return 0, peer, nil, errors.New("relay presence frame has no network ID")
+		}
+		return kind, peer, payload, nil
+	case kind == FramePresence && !fromHost:
+		if size < HostIDSize+1 {
+			return 0, peer, nil, errors.New("relay presence frame is truncated")
+		}
+		copy(peer[:], payload)
+		return kind, peer, payload[HostIDSize:], nil
 	case kind == FrameUnreachable && !fromHost:
 		if size != HostIDSize {
 			return 0, peer, nil, errors.New("relay unreachable frame has the wrong size")
