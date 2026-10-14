@@ -70,6 +70,15 @@ pub struct Store {
     /// Wakes the directory worker after a notified sync, so it refreshes a
     /// changed network at once.
     pub(crate) directory_wake: tokio::sync::Notify,
+    /// Wakes the presence worker when this host's presence may have changed.
+    pub(crate) presence_wake: tokio::sync::Notify,
+    /// Presence notifications still to send, and when each network's was
+    /// last sent.
+    pub(crate) presence: Mutex<crate::presence::State>,
+    /// Single-host directory refreshes started by other hosts' presence
+    /// notifications, by (network, host), with whether another arrived
+    /// during the one in flight and so needs one more after it.
+    pub(crate) presence_refreshes: Mutex<BTreeMap<(String, String), bool>>,
     /// Seconds between periodic policy syncs with siblings.
     pub(crate) policy_sync_interval: AtomicU64,
     /// Policy deliveries and sibling syncs in progress, so each runs once.
@@ -237,6 +246,9 @@ impl Store {
             changed_syncs: Mutex::new(BTreeMap::new()),
             coordinator_moves: Mutex::new(BTreeMap::new()),
             directory_wake: tokio::sync::Notify::new(),
+            presence_wake: tokio::sync::Notify::new(),
+            presence: Mutex::new(Default::default()),
+            presence_refreshes: Mutex::new(BTreeMap::new()),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),
             coordinator_limits: Mutex::new(BTreeMap::new()),
@@ -314,6 +326,7 @@ impl Store {
         )?;
         append_event(&tx, "agent.registered", &agent.id, &agent.created_at)?;
         tx.commit()?;
+        self.presence_changed();
         Ok(agent)
     }
 
@@ -436,6 +449,7 @@ impl Store {
         )?;
         append_event(&tx, "session.detached", id, &session.updated_at)?;
         tx.commit()?;
+        self.presence_changed();
         Ok(session)
     }
 

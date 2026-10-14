@@ -1047,6 +1047,7 @@ async fn run_daemon(
     let retention = capsule_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let policy_sync = capsule_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
     let directory = capsule_host::directory::worker(store.clone(), peer_shutdown.clone());
+    let presence = capsule_host::presence::worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             capsule_host::quic::serve(store, peer_shutdown).await?;
@@ -1086,6 +1087,10 @@ async fn run_daemon(
         },
         async {
             directory.await;
+            Ok(())
+        },
+        async {
+            presence.await;
             Ok(())
         },
         async {

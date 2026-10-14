@@ -206,6 +206,15 @@ fn transport(store: &Arc<Store>) -> anyhow::Result<Arc<Transport>> {
     sweep_relays(&transport);
     Ok(transport)
 }
+/// The daemon's relay connections, if its peer endpoint exists.
+pub(crate) fn relays(store: &Arc<Store>) -> Option<Arc<Relays>> {
+    store
+        .peer_transport
+        .lock()
+        .ok()?
+        .as_ref()
+        .map(|t| t.relays.clone())
+}
 /// The daemon's path discovery, if its peer endpoint exists.
 pub(crate) fn discovery(store: &Arc<Store>) -> Option<Arc<Discovery>> {
     store

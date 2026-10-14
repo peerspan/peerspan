@@ -1111,6 +1111,56 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry
     }
 }
 
+/// On another host's `presence` (relay version 3): refreshes only that
+/// host's entry, when this host is in the network and its map lists the host
+/// as a current member; otherwise ignores it. At most one such refresh per
+/// (network, host) is in flight, and one arriving meanwhile causes one more.
+pub(crate) fn presence(store: &Arc<Store>, host: String, network: String) {
+    let key = (network.clone(), host.clone());
+    let Ok(mut running) = store.presence_refreshes.lock() else {
+        return;
+    };
+    if let Some(again) = running.get_mut(&key) {
+        *again = true;
+        return;
+    }
+    running.insert(key.clone(), false);
+    drop(running);
+    let store = store.clone();
+    tokio::spawn(async move {
+        loop {
+            let (lookup, member) = (network.clone(), host.clone());
+            let known = blocking(store.clone(), move |s| {
+                let conn = s.connection()?;
+                let in_network: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM networks WHERE id = ?1)",
+                    [&lookup],
+                    |r| r.get(0),
+                )?;
+                Ok(in_network
+                    && s.other_members(&conn, &lookup)?
+                        .iter()
+                        .any(|m| m.host_id == member))
+            })
+            .await
+            .unwrap_or(false);
+            if known {
+                refresh(store.clone(), network.clone(), Some(host.clone()), false).await;
+            }
+            let Ok(mut running) = store.presence_refreshes.lock() else {
+                return;
+            };
+            match running.get_mut(&key) {
+                Some(again) if known && *again => *again = false,
+                _ => {
+                    running.remove(&key);
+                    return;
+                }
+            }
+        }
+    });
+}
+
 /// Refreshes networks now and waits at most 10 seconds; an unfinished
 /// refresh completes in the background.
 pub(crate) async fn refresh_now(store: &Arc<Store>, networks: Vec<String>, only: Option<String>) {

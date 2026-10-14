@@ -301,6 +301,7 @@ impl Store {
         }
         let c = status(&tx, &a, &ss)?;
         tx.commit()?;
+        self.presence_changed();
         Ok(c)
     }
     /// `POST /adapter/v1/ready`: records that this authorization's session
@@ -318,6 +319,7 @@ impl Store {
         )?;
         let c = status(&tx, &a, &ss)?;
         tx.commit()?;
+        self.presence_changed();
         Ok(c)
     }
     pub fn rotate_adapter(&self, id: &str) -> Result<AdapterCredential, Error> {

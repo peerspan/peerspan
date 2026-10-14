@@ -19,7 +19,10 @@ use std::{
     io::{self, IoSliceMut},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU8, Ordering},
+    },
     task::{Context, Poll},
     time::Duration,
 };
@@ -35,6 +38,9 @@ pub(crate) const ALPN: &[u8] = b"capsule-relay/1";
 /// Version 2: version 1 plus the coordinator's `changed` frame (launch
 /// slice 5). Hosts offer it first.
 pub(crate) const ALPN_V2: &[u8] = b"capsule-relay/2";
+/// Version 3: version 2 plus the `presence` frame in both directions
+/// (launch slice 6). Hosts offer it first.
+pub(crate) const ALPN_V3: &[u8] = b"capsule-relay/3";
 pub(crate) const MAX_DATAGRAM: usize = 1500;
 const HOST_ID: usize = 32;
 const HEADER: usize = 3;
@@ -50,7 +56,8 @@ const RECEIVE: u8 = 0x02;
 const UNREACHABLE: u8 = 0x03;
 const PING: u8 = 0x04;
 const CHANGED: u8 = 0x05;
-/// The longest network ID a `changed` frame may carry.
+const PRESENCE: u8 = 0x06;
+/// The longest network ID a `changed` or `presence` frame may carry.
 const MAX_NETWORK_ID: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +78,15 @@ pub(crate) enum Frame {
     Changed {
         network: String,
     },
+    /// This host's presence in a network changed (host → relay, version 3).
+    Presence {
+        network: String,
+    },
+    /// Another host's presence in a network changed (relay → host, version 3).
+    PresenceOf {
+        host: [u8; HOST_ID],
+        network: String,
+    },
 }
 
 pub(crate) fn encode(frame: &Frame) -> Vec<u8> {
@@ -80,6 +96,8 @@ pub(crate) fn encode(frame: &Frame) -> Vec<u8> {
         Frame::Unreachable { host } => (UNREACHABLE, Some(host), &[]),
         Frame::Ping => (PING, None, &[]),
         Frame::Changed { network } => (CHANGED, None, network.as_bytes()),
+        Frame::Presence { network } => (PRESENCE, None, network.as_bytes()),
+        Frame::PresenceOf { host, network } => (PRESENCE, Some(host), network.as_bytes()),
     };
     let length = host.map_or(0, |_| HOST_ID) + datagram.len();
     let mut out = Vec::with_capacity(HEADER + length);
@@ -93,7 +111,8 @@ pub(crate) fn encode(frame: &Frame) -> Vec<u8> {
 }
 
 /// Decodes one frame from the front of `buf`. `Ok(None)` means more bytes are
-/// needed. Any error closes the relay connection.
+/// needed. Any error closes the relay connection. A `presence` frame decodes
+/// in its relay → host form, the only one a host receives.
 pub(crate) fn decode(buf: &[u8]) -> anyhow::Result<Option<(Frame, usize)>> {
     if buf.len() < HEADER {
         return Ok(None);
@@ -105,6 +124,7 @@ pub(crate) fn decode(buf: &[u8]) -> anyhow::Result<Option<(Frame, usize)>> {
         UNREACHABLE => length == HOST_ID,
         PING => length == 0,
         CHANGED => (1..=MAX_NETWORK_ID).contains(&length),
+        PRESENCE => (HOST_ID + 1..=HOST_ID + MAX_NETWORK_ID).contains(&length),
         other => anyhow::bail!("unknown relay frame type {other:#04x}"),
     };
     if !valid {
@@ -127,6 +147,11 @@ pub(crate) fn decode(buf: &[u8]) -> anyhow::Result<Option<(Frame, usize)>> {
         CHANGED => Frame::Changed {
             network: String::from_utf8(payload.to_vec())
                 .map_err(|_| anyhow::anyhow!("relay changed frame is not UTF-8"))?,
+        },
+        PRESENCE => Frame::PresenceOf {
+            host: host(),
+            network: String::from_utf8(payload[HOST_ID..].to_vec())
+                .map_err(|_| anyhow::anyhow!("relay presence frame is not UTF-8"))?,
         },
         _ => Frame::Ping,
     };
@@ -169,6 +194,8 @@ pub(crate) struct Coordinator {
 struct Client {
     frames: mpsc::Sender<Vec<u8>>,
     connected: watch::Receiver<bool>,
+    /// The negotiated version of the current connection, 0 while down.
+    version: Arc<AtomicU8>,
     /// Kept for every network membership; otherwise opened on demand.
     persistent: bool,
     /// When an on-demand client was first seen without a relayed connection.
@@ -247,18 +274,21 @@ impl Relays {
         }
         let (frames, outgoing) = mpsc::channel(QUEUE);
         let (status, connected) = watch::channel(false);
+        let version = Arc::new(AtomicU8::new(0));
         let task = tokio::spawn(run(
             self.clone(),
             store.clone(),
             coordinator.clone(),
             outgoing,
             status,
+            version.clone(),
         ));
         state.clients.insert(
             coordinator.clone(),
             Client {
                 frames,
                 connected,
+                version,
                 persistent,
                 idle_since: None,
                 task,
@@ -348,6 +378,27 @@ impl Relays {
             datagram: datagram.to_vec(),
         }));
     }
+    /// Queues a `presence` frame for `network` on the relay connection to
+    /// `coordinator`, only when that connection is up on version 3. Returns
+    /// whether it was queued.
+    pub(crate) fn presence(&self, coordinator: &Coordinator, network: &str) -> bool {
+        if network.is_empty() || network.len() > MAX_NETWORK_ID {
+            return false;
+        }
+        let Ok(state) = self.state.lock() else {
+            return false;
+        };
+        let Some(client) = state.clients.get(coordinator) else {
+            return false;
+        };
+        client.version.load(Ordering::Acquire) == 3
+            && client
+                .frames
+                .try_send(encode(&Frame::Presence {
+                    network: network.to_owned(),
+                }))
+                .is_ok()
+    }
     /// Queues one datagram for `host` through its current relay route.
     pub(crate) fn send_host(&self, host: &[u8; HOST_ID], datagram: &[u8]) {
         if let Some(addr) = self.address_for(host) {
@@ -369,14 +420,30 @@ async fn run(
     coordinator: Coordinator,
     mut outgoing: mpsc::Receiver<Vec<u8>>,
     status: watch::Sender<bool>,
+    negotiated: Arc<AtomicU8>,
 ) {
     let mut backoff = Duration::from_secs(1);
     loop {
         match connect(&store, &coordinator).await {
-            Ok((stream, v2)) => {
+            Ok((stream, version)) => {
                 backoff = Duration::from_secs(1);
+                negotiated.store(version, Ordering::Release);
                 let _ = status.send(true);
-                let ended = session(&relays, &store, &coordinator, stream, v2, &mut outgoing).await;
+                if version >= 3 {
+                    // Leases did not survive a restart and peers may hold an
+                    // older view: announce every network on this coordinator.
+                    crate::presence::reconnected(&store, &coordinator);
+                }
+                let ended = session(
+                    &relays,
+                    &store,
+                    &coordinator,
+                    stream,
+                    version,
+                    &mut outgoing,
+                )
+                .await;
+                negotiated.store(0, Ordering::Release);
                 let _ = status.send(false);
                 if let Err(error) = ended {
                     eprintln!("relay {}: {error}", coordinator.address);
@@ -389,15 +456,15 @@ async fn run(
     }
 }
 
-/// Connects and returns the stream with whether version 2 was negotiated.
+/// Connects and returns the stream with the negotiated version.
 async fn connect(
     store: &Arc<Store>,
     coordinator: &Coordinator,
-) -> anyhow::Result<(tokio_rustls::client::TlsStream<TcpStream>, bool)> {
+) -> anyhow::Result<(tokio_rustls::client::TlsStream<TcpStream>, u8)> {
     let (host, _) =
         membership::split_host_port(&coordinator.address).map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut config = pinned_client_config(store.clone(), coordinator.key.clone(), ALPN)?;
-    config.alpn_protocols = vec![ALPN_V2.to_vec(), ALPN.to_vec()];
+    config.alpn_protocols = vec![ALPN_V3.to_vec(), ALPN_V2.to_vec(), ALPN.to_vec()];
     let name = rustls::pki_types::ServerName::try_from(host)?;
     let attempt = async {
         let stream = TcpStream::connect(&coordinator.address).await?;
@@ -411,16 +478,18 @@ async fn connect(
     let stream = tokio::time::timeout(Duration::from_secs(5), attempt)
         .await
         .map_err(|_| anyhow::anyhow!("relay connect timed out"))??;
-    let v2 = match stream.get_ref().1.alpn_protocol() {
-        Some(p) if p == ALPN_V2 => true,
-        Some(p) if p == ALPN => false,
+    let version = match stream.get_ref().1.alpn_protocol() {
+        Some(p) if p == ALPN_V3 => 3,
+        Some(p) if p == ALPN_V2 => 2,
+        Some(p) if p == ALPN => 1,
         _ => anyhow::bail!(
-            "coordinator did not negotiate {} or {}",
+            "coordinator did not negotiate {}, {}, or {}",
+            String::from_utf8_lossy(ALPN_V3),
             String::from_utf8_lossy(ALPN_V2),
             String::from_utf8_lossy(ALPN)
         ),
     };
-    Ok((stream, v2))
+    Ok((stream, version))
 }
 
 async fn session(
@@ -428,7 +497,7 @@ async fn session(
     store: &Arc<Store>,
     coordinator: &Coordinator,
     stream: tokio_rustls::client::TlsStream<TcpStream>,
-    v2: bool,
+    version: u8,
     outgoing: &mut mpsc::Receiver<Vec<u8>>,
 ) -> anyhow::Result<()> {
     let (mut reader, mut writer) = tokio::io::split(stream);
@@ -439,6 +508,11 @@ async fn session(
                 Ok(None) => return Ok::<_, anyhow::Error>(()),
                 Err(_) => encode(&Frame::Ping),
             };
+            // A presence queued for an earlier version 3 connection is not
+            // legal on an older one.
+            if frame.first() == Some(&PRESENCE) && version < 3 {
+                continue;
+            }
             writer.write_all(&frame).await?;
         }
     };
@@ -453,13 +527,25 @@ async fn session(
                         relays.deliver(host, datagram, coordinator)
                     }
                     Frame::Unreachable { .. } | Frame::Ping => {}
-                    Frame::Changed { network } if v2 => {
+                    Frame::Changed { network } if version >= 2 => {
                         crate::network::changed(store, network);
                     }
                     Frame::Changed { .. } => {
                         anyhow::bail!("relay sent a changed frame on version 1")
                     }
-                    Frame::Send { .. } => anyhow::bail!("relay sent a host-only frame type"),
+                    Frame::PresenceOf { host, network } if version >= 3 => {
+                        crate::directory::presence(
+                            store,
+                            format!("host_{}", hex::encode(host)),
+                            network,
+                        );
+                    }
+                    Frame::PresenceOf { .. } => {
+                        anyhow::bail!("relay sent a presence frame on version {version}")
+                    }
+                    Frame::Send { .. } | Frame::Presence { .. } => {
+                        anyhow::bail!("relay sent a host-only frame type")
+                    }
                 }
             }
             let n = reader.read(&mut chunk).await?;

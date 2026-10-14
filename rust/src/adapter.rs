@@ -367,6 +367,9 @@ impl Store {
             [&a.id],
         )?;
         append_event(tx, "adapter.created", &a.id, &now())?;
+        // Replacing an authorization ends its lease. The worker reads once
+        // the caller's transaction has released the connection.
+        self.presence_changed();
         Ok(AdapterCredential {
             adapter: a,
             token,
@@ -405,6 +408,7 @@ impl Store {
         )?;
         append_event(&tx, "adapter.revoked", id, &at)?;
         tx.commit()?;
+        self.presence_changed();
         Ok(a)
     }
     pub fn adapter_session(&self, token: &AdapterAuth) -> Result<Session, Error> {
