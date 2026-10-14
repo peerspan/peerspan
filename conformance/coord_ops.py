@@ -14,12 +14,12 @@ Sections:
   API; the coordination port answering 404 for the ops paths; other loopback literals accepted; a
   non-loopback or non-literal `--ops-listen` (including `localhost`) refused with exit 2 and the text line
   `error: --ops-listen must be a loopback address` before anything listens; no extra listener without the
-  flag; `limit_refusals_total` (all three limits) and `relay_connections` (both ALPNs) exposed at 0 from
-  the start;
+  flag; `limit_refusals_total` (all three limits) and `relay_connections` (every relay ALPN: `/1`, `/2`,
+  and `/3`) exposed at 0 from the start;
 - metrics: every listed name with its type and label names, and default histogram buckets; `networks` and
   `member_hosts` before and after create, joins, and a revocation; `limit_refusals_total{limit="members"}`
-  after a join refused under `--max-members`; `relay_connections` by ALPN for running hosts and a raw
-  version 1 connection; `relay_bytes_total` growing with relay traffic (a raw relayed datagram, and joins
+  after a join refused under `--max-members`; `relay_connections` by ALPN for running hosts (on version 3)
+  and a raw version 1 connection; `relay_bytes_total` growing with relay traffic (a raw relayed datagram, and joins
   and messages); `requests_total` for sync, an unmatched path, and a wrong method (both route `other`);
   `changes_notified_total` after a policy change; no label value equal to a network, host, or person ID,
   or an IP address;
@@ -93,6 +93,8 @@ from coordination import decode_token, wait_for  # noqa: E402
 from host_service import die_with_parent, stop_all  # noqa: E402
 from launch_directory import DirectoryHost  # noqa: E402
 from launch_push import RawRelay, V1, V2, SEND, seed_of  # noqa: E402
+
+V3 = 'capsule-relay/3'
 from launch_service import Key, RawNetwork, token_membership  # noqa: E402
 from peer_messaging import available_port, request_id, set_probe, timestamp  # noqa: E402
 
@@ -609,9 +611,10 @@ class Suite:
                  and m.value('capsule_coord_limit_refusals_total') == 0,
                  'limit_refusals_total is exposed for all three limits from the start, at 0',
                  m.series('capsule_coord_limit_refusals_total'))
-            need({l['alpn'] for l, _ in m.series('capsule_coord_relay_connections')} == {V1, V2}
+            need({l['alpn'] for l, _ in m.series('capsule_coord_relay_connections')} == {V1, V2, V3}
                  and m.value('capsule_coord_relay_connections') == 0,
-                 'relay_connections is exposed for both ALPNs from the start, at 0',
+                 'relay_connections is exposed for every relay ALPN (capsule-relay/1, /2, and /3) from the start, '
+                 'at 0',
                  m.series('capsule_coord_relay_connections'))
             status, _, body = ops_request(c0.ops_host, c0.ops_port, 'GET', '/healthz')
             need(status == 200, 'GET /healthz returns 200 when a database read completes', status, body)
@@ -736,8 +739,9 @@ class Suite:
         expect({l['limit'] for l, _ in m.series('capsule_coord_limit_refusals_total')} == LIMITS,
                'limit_refusals_total is exposed for all three limits from the start',
                m.series('capsule_coord_limit_refusals_total'))
-        expect({l['alpn'] for l, _ in m.series('capsule_coord_relay_connections')} == {V1, V2},
-               'relay_connections is exposed for both ALPNs from the start', m.series('capsule_coord_relay_connections'))
+        expect({l['alpn'] for l, _ in m.series('capsule_coord_relay_connections')} == {V1, V2, V3},
+               'relay_connections is exposed for every relay ALPN (capsule-relay/1, /2, and /3) from the start',
+               m.series('capsule_coord_relay_connections'))
         a, c1 = self.hosts['alice'], self.c1
 
         # Create.
@@ -788,10 +792,11 @@ class Suite:
         expect(m.value('capsule_coord_member_hosts') == 4, 'member_hosts is unchanged by a refused join',
                m.value('capsule_coord_member_hosts'))
 
-        # Relay connections: one version 2 connection per running member host.
+        # Relay connections: one version 3 connection per running member host (hosts offer /3 first, and a
+        # version 3 coordinator selects it).
         gauge_becomes('capsule_coord_relay_connections', 3,
-                      'relay_connections{alpn="capsule-relay/2"} counts the three running member hosts',
-                      timeout=60, alpn=V2)
+                      'relay_connections{alpn="capsule-relay/3"} counts the three running member hosts',
+                      timeout=60, alpn=V3)
         relayed_before = scrape(c1).value('capsule_coord_relay_bytes_total')
         raw = self.raw(seed_of(self.hosts['w']), (V1,))
         need(raw.selected == V1, 'a version 1 relay connection', raw.selected)
@@ -1334,7 +1339,7 @@ class Suite:
                                  'request has network for a route with a network ID', e)
                     elif e['msg'] == 'relay':
                         need(isinstance(e.get('host'), str) and e['host'].startswith('host_')
-                             and e.get('alpn') in (V1, V2) and isinstance(e.get('bytes_in'), int)
+                             and e.get('alpn') in (V1, V2, V3) and isinstance(e.get('bytes_in'), int)
                              and isinstance(e.get('bytes_out'), int)
                              and isinstance(e.get('duration_ms'), (int, float)),
                              'relay has host, alpn, bytes_in, bytes_out, and duration_ms', e)
