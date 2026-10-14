@@ -546,6 +546,7 @@ class RawAdapter:
         self.host, self.token, self.adapter = host, credential['token'], credential['adapter']
         self.instance = 'instance_' + secrets.token_hex(32)
         self.renewing = False
+        self.stopped = threading.Event()
         self.last_renewal = None
         self.thread = None
 
@@ -578,20 +579,21 @@ class RawAdapter:
 
     def renew(self):
         self.renewing = True
+        self.stopped.clear()
 
         def loop():
-            while self.renewing:
-                time.sleep(4)
-                if self.renewing:
-                    try:
-                        self.connect()
-                    except OSError:
-                        pass
+            # Waiting on the event, not sleeping, so that stop() returns at once.
+            while not self.stopped.wait(4):
+                try:
+                    self.connect()
+                except OSError:
+                    pass
         self.thread = threading.Thread(target=loop, daemon=True)
         self.thread.start()
 
     def stop(self):
         self.renewing = False
+        self.stopped.set()
         if self.thread is not None:
             self.thread.join(timeout=6)
 
@@ -1031,9 +1033,9 @@ class Pairing:
             else:
                 a1.cli('adapter', 'revoke', raw.adapter['id'])
             origin = time.monotonic()
-            raw.stop()
             self.reflected(f'a {command}', lambda n, agent=agent: (self.state(n, agent['id']) or (None,))[0] is False,
                            origin)
+            raw.stop()  # after the measurement, which must not include the suite's own work
             notes[command] = {n: self.state(n, agent['id']) for n in OBSERVERS}
         agent = self.register('a1', 'fresh', 'alice')
         origin = time.monotonic()
@@ -1159,8 +1161,19 @@ class Pairing:
              'in, or for an unknown network (receiver: payloads)',
              {r: [(p[:32].hex()[:12], p[32:]) for p in ps] for r, ps in stray.items()})
         need(w3.open and m3.open, 'dropped presence frames do not close the connection', w3.closed_at, m3.closed_at)
+        # Pings and relayed peer datagrams (0x02 receive, such as hosts' directory queries to these member keys)
+        # are ordinary traffic; anything else would be a reply to the dropped frames.
         replies = w3.kinds(since=mark) + m3.kinds(since=mark)
-        need(not [k for k in replies if k != PING], 'It drops other presence frames without a reply', replies)
+        need(not [k for k in replies if k not in (PING, RECEIVE)], 'It drops other presence frames without a '
+             'reply (frame kinds received other than ping and receive)', replies)
+        names = {raw_id(i): n for n, i in self.ids.items()}
+        datagrams = {}
+        for name, r in (('w3', w3), ('m', m3)):
+            for _, p in r.received(kind=RECEIVE, since=mark):
+                key = f'{names.get(p[:32], p[:32].hex()[:12])}->{name}'
+                datagrams[key] = datagrams.get(key, 0) + 1
+        if datagrams:
+            notes.append(f'relayed datagrams while the drops were checked (source->receiver: count) {datagrams}')
         # Control: m's presence in the side network reaches the other side members.
         mark = time.monotonic()
         m3.send(presence_to_relay(self.side))
@@ -1328,6 +1341,7 @@ class Pairing:
         try:
             for raw in self.adapters:
                 raw.renewing = False
+                raw.stopped.set()
             for raw in self.raws:
                 raw.close()
             for channel in self.channels:
