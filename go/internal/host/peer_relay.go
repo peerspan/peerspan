@@ -296,12 +296,17 @@ type relayClient struct {
 	network Network
 	packets *packetConn
 	out     chan []byte
-	// ctrl carries presence frames, which are not dropped behind datagrams.
-	ctrl      chan []byte
+	// announce wakes the writer for pending presence, which is not dropped
+	// behind datagrams.
+	announce  chan struct{}
 	cancel    context.CancelFunc
 	connected chan struct{}
 	mu        sync.Mutex
 	up        bool
+	// pending holds the networks whose presence awaits a frame. A set, not a
+	// queue: presence carries no state, so repeated signals for a network
+	// collapse into one and none is lost while the connection lasts.
+	pending map[string]struct{}
 	// version is the relay version of the established connection, else 0.
 	version int
 	// persistent clients belong to a listening host; on-demand clients close
@@ -372,23 +377,39 @@ func (r *relayClient) run(ctx context.Context) {
 	}
 }
 
-// presence queues a presence frame for a network when the connection is up
-// at version 3. Older connections never carry presence frames.
+// presence marks a network's presence for sending when the connection is up
+// at version 3. Older connections never carry presence frames; a connection
+// that is down announces every network once it is up again.
 func (r *relayClient) presence(network string) {
 	r.mu.Lock()
 	ok := r.up && r.version >= 3
+	if ok {
+		r.pending[network] = struct{}{}
+	}
 	r.mu.Unlock()
 	if !ok {
 		return
 	}
-	var frame frameBytes
-	if relay.Write(&frame, relay.FramePresence, []byte(network)) != nil {
-		return
-	}
 	select {
-	case r.ctrl <- frame:
+	case r.announce <- struct{}{}:
 	default:
 	}
+}
+
+// takePending returns the presence frames awaiting sending and clears them.
+func (r *relayClient) takePending() [][]byte {
+	r.mu.Lock()
+	networks := r.pending
+	r.pending = map[string]struct{}{}
+	r.mu.Unlock()
+	frames := make([][]byte, 0, len(networks))
+	for network := range networks {
+		var frame frameBytes
+		if relay.Write(&frame, relay.FramePresence, []byte(network)) == nil {
+			frames = append(frames, frame)
+		}
+	}
+	return frames
 }
 
 // session runs one relay connection until it fails.
@@ -422,15 +443,11 @@ func (r *relayClient) session(ctx context.Context) error {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	// Presence queued for an earlier connection is stale: this one announces
-	// presence afresh.
-	for drained := false; !drained; {
-		select {
-		case <-r.ctrl:
-		default:
-			drained = true
-		}
-	}
+	// Presence pending from an earlier connection is stale: this one
+	// announces presence afresh.
+	r.mu.Lock()
+	r.pending = map[string]struct{}{}
+	r.mu.Unlock()
 	r.setUp(true, version)
 	defer r.setUp(false, 0)
 	if version >= 3 {
@@ -463,22 +480,26 @@ func (r *relayClient) session(ctx context.Context) error {
 	ping := time.NewTimer(relayPingAfter)
 	defer ping.Stop()
 	for {
-		var frame []byte
+		var frames [][]byte
 		select {
 		case err := <-failed:
 			return err
 		case <-ctx.Done():
 			return ctx.Err()
-		case frame = <-r.out:
-		case frame = <-r.ctrl:
+		case frame := <-r.out:
+			frames = [][]byte{frame}
+		case <-r.announce:
+			frames = r.takePending()
 		case <-ping.C:
 			var p frameBytes
 			_ = relay.Write(&p, relay.FramePing)
-			frame = p
+			frames = [][]byte{p}
 		}
-		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if _, err := conn.Write(frame); err != nil {
-			return err
+		for _, frame := range frames {
+			_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if _, err := conn.Write(frame); err != nil {
+				return err
+			}
 		}
 		ping.Reset(relayPingAfter)
 	}
@@ -526,7 +547,7 @@ func (s *Store) relayFor(n Network, persistent bool) (*relayClient, error) {
 		s.peer.relays = map[string]*relayClient{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &relayClient{store: s, network: n, packets: s.peer.packets, out: make(chan []byte, 1024), ctrl: make(chan []byte, 64), cancel: cancel, connected: make(chan struct{})}
+	client := &relayClient{store: s, network: n, packets: s.peer.packets, out: make(chan []byte, 1024), announce: make(chan struct{}, 1), pending: map[string]struct{}{}, cancel: cancel, connected: make(chan struct{})}
 	client.persistent.Store(persistent)
 	client.touch()
 	s.peer.relays[key] = client
