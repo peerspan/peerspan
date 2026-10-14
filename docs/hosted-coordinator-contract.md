@@ -28,7 +28,7 @@ Decisions recorded in the proposal: one VM; key in the database with encrypted b
 | `capsule_coord_limit_refusals_total` | counter | `limit` | Refusals with 429, by limit: `members`, `networks_per_ip`, or `relay_bytes`. Relay drops count once per dropped frame. |
 | `capsule_coord_changes_notified_total` | counter | — | `changed` frames sent. |
 
-Gauges reflect the database and live connections at scrape time. Counters start at 0 when the process starts; `limit_refusals_total` is exposed for all three limits and `relay_connections` for both ALPNs from the start, at 0.
+Gauges reflect the database and live connections at scrape time. Counters start at 0 when the process starts; `limit_refusals_total` is exposed for all three limits and `relay_connections` for every relay ALPN (`capsule-relay/1`, `/2`, and `/3`) from the start, at 0.
 
 ### Logs
 
