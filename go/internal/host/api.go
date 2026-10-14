@@ -84,7 +84,7 @@ func Handler(store *Store) http.Handler {
 	localTaskRoutes(mux, store)
 	localStatusRoutes(mux, store)
 	localDirectoryRoutes(mux, store)
-	return mux
+	return store.presenceTouching(mux)
 }
 
 // decode reads a strict JSON object of the allowed fields, without nulls;

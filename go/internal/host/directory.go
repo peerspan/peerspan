@@ -336,8 +336,12 @@ type directoryState struct {
 type networkDirectory struct {
 	refreshedAt *time.Time
 	hosts       map[string]*directoryHost
-	// refresh serializes refreshes of this network.
+	// refresh serializes refreshes of the whole network.
 	refresh sync.Mutex
+	// queries serializes the queries of each host, so a single-host refresh
+	// (after a presence notification) need not wait for a whole-network
+	// refresh to finish with slower hosts, and results apply in order.
+	queries map[string]*sync.Mutex
 }
 
 type directoryHost struct {
@@ -367,7 +371,7 @@ func (d *directoryState) networkDir(network string) *networkDirectory {
 	defer d.mu.Unlock()
 	n := d.networks[network]
 	if n == nil {
-		n = &networkDirectory{hosts: map[string]*directoryHost{}}
+		n = &networkDirectory{hosts: map[string]*directoryHost{}, queries: map[string]*sync.Mutex{}}
 		d.networks[network] = n
 	}
 	return n
@@ -461,14 +465,17 @@ func (s *Store) RunDirectory(ctx context.Context) {
 
 // refreshDirectory queries every current member of a network other than
 // this host, or only one host when only is set. A host that fails keeps its
-// previous agents.
+// previous agents. Whole-network refreshes run one at a time; a single-host
+// refresh waits only for queries of that host.
 // retry marks a synchronous refresh, which retries a host that may not
 // have learned of a change yet.
 func (s *Store) refreshDirectory(ctx context.Context, network, only string, retry bool) error {
 	d := s.directoryInit()
 	nd := d.networkDir(network)
-	nd.refresh.Lock()
-	defer nd.refresh.Unlock()
+	if only == "" {
+		nd.refresh.Lock()
+		defer nd.refresh.Unlock()
+	}
 	members, err := s.NetworkMembers(ctx, network)
 	if errors.Is(err, ErrNotFound) {
 		d.mu.Lock()
@@ -494,6 +501,7 @@ func (s *Store) refreshDirectory(ctx context.Context, network, only string, retr
 	for id := range nd.hosts {
 		if !current[id] {
 			delete(nd.hosts, id)
+			delete(nd.queries, id)
 		}
 	}
 	for id := range current {
@@ -501,12 +509,21 @@ func (s *Store) refreshDirectory(ctx context.Context, network, only string, retr
 			nd.hosts[id] = &directoryHost{state: hostStatePending}
 		}
 	}
+	locks := map[string]*sync.Mutex{}
+	for _, id := range targets {
+		if nd.queries[id] == nil {
+			nd.queries[id] = &sync.Mutex{}
+		}
+		locks[id] = nd.queries[id]
+	}
 	d.mu.Unlock()
 	var queries sync.WaitGroup
 	for _, id := range targets {
 		queries.Add(1)
 		go func() {
 			defer queries.Done()
+			locks[id].Lock()
+			defer locks[id].Unlock()
 			select {
 			case d.queries <- struct{}{}:
 			case <-ctx.Done():

@@ -86,6 +86,7 @@ type Store struct {
 	// relayWake wakes RunRelays when this host creates or joins a network, so it
 	// becomes reachable through the new coordinator without waiting to poll.
 	relayWake chan struct{}
+	presence  presenceState // presence notifications sent and received
 
 	retry     outboundRetry // automatic retry state for uncertain sends
 	agent     personAgent   // the ssh-agent for policy renewal
@@ -117,7 +118,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("state directory must be a private directory (mode 0700): %s", dir)
 	}
-	s := &Store{dir: dir, relayWake: make(chan struct{}, 1)}
+	s := &Store{dir: dir, relayWake: make(chan struct{}, 1), presence: newPresenceState()}
 	defer func() {
 		if err != nil {
 			_ = s.Close()

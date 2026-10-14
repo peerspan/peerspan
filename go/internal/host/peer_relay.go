@@ -292,14 +292,18 @@ func (c *packetConn) SetWriteBuffer(bytes int) error { return c.udp.SetWriteBuff
 // relayClient keeps one relay connection to a coordinator, reconnecting with
 // backoff while its context lives.
 type relayClient struct {
-	store     *Store
-	network   Network
-	packets   *packetConn
-	out       chan []byte
+	store   *Store
+	network Network
+	packets *packetConn
+	out     chan []byte
+	// ctrl carries presence frames, which are not dropped behind datagrams.
+	ctrl      chan []byte
 	cancel    context.CancelFunc
 	connected chan struct{}
 	mu        sync.Mutex
 	up        bool
+	// version is the relay version of the established connection, else 0.
+	version int
 	// persistent clients belong to a listening host; on-demand clients close
 	// after relayOnDemandIdle without relayed traffic. QUIC connections idle
 	// out after 30 seconds, so by then no relayed connection uses the client.
@@ -368,11 +372,31 @@ func (r *relayClient) run(ctx context.Context) {
 	}
 }
 
+// presence queues a presence frame for a network when the connection is up
+// at version 3. Older connections never carry presence frames.
+func (r *relayClient) presence(network string) {
+	r.mu.Lock()
+	ok := r.up && r.version >= 3
+	r.mu.Unlock()
+	if !ok {
+		return
+	}
+	var frame frameBytes
+	if relay.Write(&frame, relay.FramePresence, []byte(network)) != nil {
+		return
+	}
+	select {
+	case r.ctrl <- frame:
+	default:
+	}
+}
+
 // session runs one relay connection until it fails.
 func (r *relayClient) session(ctx context.Context) error {
-	// Version 2 adds change notifications; a version 1 coordinator selects 1,
-	// and interval syncs remain the only way to learn of changes.
-	config, err := r.store.coordinatorTLS(r.network, relay.ALPNv2, relay.ALPN)
+	// Version 2 adds change notifications and version 3 presence
+	// notifications. A coordinator that knows neither selects 1, and interval
+	// syncs and directory refreshes remain the only way to learn of changes.
+	config, err := r.store.coordinatorTLS(r.network, relay.ALPNv3, relay.ALPNv2, relay.ALPN)
 	if err != nil {
 		return err
 	}
@@ -385,13 +409,33 @@ func (r *relayClient) session(ctx context.Context) error {
 	}
 	conn := raw.(*tls.Conn)
 	defer conn.Close()
-	if protocol := conn.ConnectionState().NegotiatedProtocol; protocol != relay.ALPN && protocol != relay.ALPNv2 {
-		return errors.New("coordinator did not negotiate " + relay.ALPNv2 + " or " + relay.ALPN)
+	version := 0
+	switch conn.ConnectionState().NegotiatedProtocol {
+	case relay.ALPNv3:
+		version = 3
+	case relay.ALPNv2:
+		version = 2
+	case relay.ALPN:
+		version = 1
+	default:
+		return errors.New("coordinator did not negotiate " + relay.ALPNv3 + ", " + relay.ALPNv2 + ", or " + relay.ALPN)
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	r.setUp(true)
-	defer r.setUp(false)
+	// Presence queued for an earlier connection is stale: this one announces
+	// presence afresh.
+	for drained := false; !drained; {
+		select {
+		case <-r.ctrl:
+		default:
+			drained = true
+		}
+	}
+	r.setUp(true, version)
+	defer r.setUp(false, 0)
+	if version >= 3 {
+		go r.store.relayConnected(r)
+	}
 	failed := make(chan error, 1)
 	go func() {
 		reader := bufio.NewReaderSize(conn, 64<<10)
@@ -407,6 +451,12 @@ func (r *relayClient) session(ctx context.Context) error {
 				r.packets.deliver(peer, data, r)
 			case relay.FrameChanged:
 				r.store.networkChanged(string(data))
+			case relay.FramePresence:
+				if version < 3 {
+					failed <- errors.New("presence frame on a relay connection before version 3")
+					return
+				}
+				r.store.presenceReceived(r, peer, string(data))
 			}
 		}
 	}()
@@ -420,6 +470,7 @@ func (r *relayClient) session(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case frame = <-r.out:
+		case frame = <-r.ctrl:
 		case <-ping.C:
 			var p frameBytes
 			_ = relay.Write(&p, relay.FramePing)
@@ -433,9 +484,10 @@ func (r *relayClient) session(ctx context.Context) error {
 	}
 }
 
-func (r *relayClient) setUp(up bool) {
+func (r *relayClient) setUp(up bool, version int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.version = version
 	if up && !r.up {
 		close(r.connected)
 	}
@@ -474,7 +526,7 @@ func (s *Store) relayFor(n Network, persistent bool) (*relayClient, error) {
 		s.peer.relays = map[string]*relayClient{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &relayClient{store: s, network: n, packets: s.peer.packets, out: make(chan []byte, 1024), cancel: cancel, connected: make(chan struct{})}
+	client := &relayClient{store: s, network: n, packets: s.peer.packets, out: make(chan []byte, 1024), ctrl: make(chan []byte, 64), cancel: cancel, connected: make(chan struct{})}
 	client.persistent.Store(persistent)
 	client.touch()
 	s.peer.relays[key] = client
@@ -512,6 +564,7 @@ func (s *Store) RunRelays(ctx context.Context) {
 	s.changesMu.Lock()
 	s.changesCtx = ctx
 	s.changesMu.Unlock()
+	go s.runPresence(ctx)
 	ticker := time.NewTicker(relayManagerRefresh)
 	defer ticker.Stop()
 	for {
