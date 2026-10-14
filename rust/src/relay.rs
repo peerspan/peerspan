@@ -33,6 +33,17 @@ use tokio::{
 };
 use tokio_rustls::TlsConnector;
 
+/// What became of a `presence` frame handed to [`Relays::presence`].
+pub(crate) enum Presence {
+    /// Queued on a version 3 connection.
+    Queued,
+    /// The connection's queue is full of other frames; try again shortly.
+    Busy,
+    /// No version 3 connection: the announcement when one is established
+    /// covers it.
+    Unsent,
+}
+
 /// Version 1 of the relay protocol.
 pub(crate) const ALPN: &[u8] = b"capsule-relay/1";
 /// Version 2: version 1 plus the coordinator's `changed` frame (launch
@@ -379,25 +390,27 @@ impl Relays {
         }));
     }
     /// Queues a `presence` frame for `network` on the relay connection to
-    /// `coordinator`, only when that connection is up on version 3. Returns
-    /// whether it was queued.
-    pub(crate) fn presence(&self, coordinator: &Coordinator, network: &str) -> bool {
+    /// `coordinator`, only when that connection is up on version 3.
+    pub(crate) fn presence(&self, coordinator: &Coordinator, network: &str) -> Presence {
         if network.is_empty() || network.len() > MAX_NETWORK_ID {
-            return false;
+            return Presence::Unsent;
         }
         let Ok(state) = self.state.lock() else {
-            return false;
+            return Presence::Unsent;
         };
         let Some(client) = state.clients.get(coordinator) else {
-            return false;
+            return Presence::Unsent;
         };
-        client.version.load(Ordering::Acquire) == 3
-            && client
-                .frames
-                .try_send(encode(&Frame::Presence {
-                    network: network.to_owned(),
-                }))
-                .is_ok()
+        if client.version.load(Ordering::Acquire) != 3 {
+            return Presence::Unsent;
+        }
+        match client.frames.try_send(encode(&Frame::Presence {
+            network: network.to_owned(),
+        })) {
+            Ok(()) => Presence::Queued,
+            Err(mpsc::error::TrySendError::Full(_)) => Presence::Busy,
+            Err(mpsc::error::TrySendError::Closed(_)) => Presence::Unsent,
+        }
     }
     /// Queues one datagram for `host` through its current relay route.
     pub(crate) fn send_host(&self, host: &[u8; HOST_ID], datagram: &[u8]) {

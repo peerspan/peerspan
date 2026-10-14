@@ -9,7 +9,13 @@
 //! earliest live lease lapses (nothing else runs then), and every 30 seconds
 //! as a fallback. Sends are at most one per network per 250 milliseconds;
 //! a change within that window is sent when it ends.
-use crate::{api::blocking, membership, model::Error, relay::Coordinator, store::Store};
+use crate::{
+    api::blocking,
+    membership,
+    model::Error,
+    relay::{Coordinator, Presence},
+    store::Store,
+};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::{
@@ -24,6 +30,8 @@ const WINDOW: Duration = Duration::from_millis(250);
 /// Recomputes the presence at least this often, in case a change was not
 /// signalled.
 const FALLBACK: Duration = Duration::from_secs(30);
+/// How soon to retry a `presence` that found its relay queue full.
+const BUSY_RETRY: Duration = Duration::from_millis(50);
 
 /// Networks with a `presence` still to send, and when each was last sent.
 #[derive(Default)]
@@ -141,11 +149,20 @@ async fn flush(store: &Arc<Store>) -> Option<Instant> {
             return true;
         }
         // Without a version 3 connection there is nobody to tell; the
-        // announcement on (re)connection covers it.
-        if relays.as_ref().is_some_and(|r| r.presence(coordinator, id)) {
-            sent.insert(id.clone(), now);
+        // announcement on (re)connection covers it. A full queue keeps the
+        // network pending, since nothing else would announce it again.
+        match relays.as_ref().map(|r| r.presence(coordinator, id)) {
+            Some(Presence::Queued) => {
+                sent.insert(id.clone(), now);
+                false
+            }
+            Some(Presence::Busy) => {
+                let due = now + BUSY_RETRY;
+                next = Some(next.map_or(due, |n| n.min(due)));
+                true
+            }
+            Some(Presence::Unsent) | None => false,
         }
-        false
     });
     next
 }
