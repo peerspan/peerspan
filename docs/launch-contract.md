@@ -729,3 +729,50 @@ The attach launch is checked by `conformance/launch_directory.py`, which existin
 - `launch_acceptance.py` passes every run, and its results file shows the counts above;
 - `live_launch_agents.py` completes once with real models, and its results file is committed;
 - the quick start documents exactly the counted path, and the [manual agent testing guide](manual-agent-testing.md) is presented as the advanced path.
+
+## Slice 6: presence notifications
+
+Decided with the owner on 2026-10-14:
+- a host's directory learns that another host's session connected or disconnected when it happens, not at the next 5-minute refresh (observed on the test network: a peer whose session had completed its readiness handshake and answered a message still showed `connected: false` until `agents --refresh`);
+- the host whose presence changed announces it through the coordinator relay, which every member host already keeps open, so hosts without `--peer-listen` are told too;
+- the announcement is only a signal: receivers refresh that one host through the existing [peer route](#peer-route), so the coordinator carries no agent names, sessions, or authorizations, and receivers trust nothing they have not fetched from the host itself;
+- a timed refresh of stale entries was rejected in favour of this.
+
+### Presence
+
+A host's **presence** in a network is what its peer route would serve for its local agents, ignoring `authorizations`: the set of agents and each agent's `connected` and `channel` (see the [live delivery contract](live-delivery-contract.md)). A **presence change** is any change to it, including:
+- a session's authorization becoming verified (`capsule_ready`);
+- an adapter's lease being taken, or lapsing after its last renewal, whether the adapter exited cleanly or not;
+- a session's detachment, or its authorization's revocation, replacement, or expiry;
+- an agent registered or removed.
+
+Policy and grant changes are not presence changes. Policies already reach other hosts through `changed`. Grants are not covered by this slice.
+
+### Protocol
+
+The relay protocol gains version 3, ALPN `capsule-relay/3`. It is version 2 plus one frame type, used in both directions:
+
+| Type | Direction | Payload | Meaning |
+| --- | --- | --- | --- |
+| `0x06` presence | host → relay | the network ID, as UTF-8 | My presence in this network changed. |
+| `0x06` presence | relay → host | the source host ID, then the network ID as UTF-8 | That host's presence in this network changed; refresh it. |
+
+- Hosts offer `capsule-relay/3`, then `/2`, then `/1`. A coordinator that knows version 3 selects it. Version 1 and 2 connections never carry `0x06`. A host on a version 1 or 2 connection sends no `presence`, and learns of others' presence through the refreshes it already does.
+- **Sending host.** After a presence change in a network, the host sends `presence` for that network on its current relay connection to that network's coordinator, and to each coordinator if the change touches several networks. It sends at most one `presence` per network per 250 milliseconds. Later changes in that window are sent together once it ends, so the last change is always announced. After it starts, and after any relay connection is (re)established, it sends one `presence` for each of its networks on that coordinator, because its leases did not survive the restart and peers may hold an older view.
+- **Coordinator.** It forwards a `presence` only when the sending host is a current, unrevoked member of that network. It forwards to the current version 3 relay connection of every other current, unrevoked member of the network, whether or not that member runs with `--peer-listen`. It forwards at most one `presence` per (network, source host) per receiving connection per 250 milliseconds, coalescing later ones into the next. It drops other `presence` frames without a reply and stores nothing about them.
+- **Receiving host.** On `presence` from a host that is a current member of that network in its own map, it refreshes that one host's directory entry at once, as the directory's refresh does per host: the same query, timeout, and failure rule (a failed query keeps the host's previous agents, marked with the error). Other hosts' entries and `refreshed_at` are untouched. At most one such query per (network, host) is in flight; a `presence` arriving during one causes one more query after it. It ignores `presence` for a network it is not in, or from a host it does not know as a member. The 5-minute refresh, the refresh after a map change, and on-demand refreshes continue unchanged as the fallback.
+
+**Privacy.** The coordinator learns when a host's presence in a network changes, but not which agent changed or how. This is the same kind of timing it already sees for relayed traffic. Hosts that cannot accept this disable it by not offering version 3; they keep the 5-minute refresh.
+
+### Verification
+
+Presence notifications are checked by a new `conformance/launch_presence.py`, written from this contract by an author independent of both implementations, across all Go/Rust pairings with the Go coordinator, `--probe`, and `--node`. With a 30-second coordination interval and the coordinator reachable, it covers:
+- version 3 negotiation, and a version 2 host neither sending nor receiving `presence` but still seeing a change after `agents --refresh`;
+- a session verifying with `capsule_ready` showing as `connected: true`, `channel: verified` in `GET /v1/directory` on every other member within 2 seconds, including a member without `--peer-listen`;
+- a lease without verification showing `channel: unverified`, `connected: false` within 2 seconds;
+- a clean adapter exit, and a killed adapter, each showing as `connected: false` within 2 seconds of the lease lapsing;
+- a detach, a revocation, and an agent registration, each reflected within 2 seconds;
+- only the changed host is queried: other hosts' entries keep their `refreshed_at`;
+- a burst of connects and disconnects ending in the correct final state, with at most one query in flight per host;
+- a restart of the changed host's daemon reflected on the others without `--refresh`;
+- the coordinator not forwarding a `presence` from a non-member, or for a network the sender is not in, and a receiver ignoring one for a network it is not in.
