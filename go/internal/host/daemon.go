@@ -16,13 +16,13 @@ func DefaultStateDir() (string, error) {
 		if !filepath.IsAbs(dir) {
 			return "", errors.New("XDG_STATE_HOME must be an absolute path")
 		}
-		return filepath.Join(dir, "capsule", "host"), nil
+		return filepath.Join(dir, "peerspan", "host"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", "capsule", "host"), nil
+	return filepath.Join(home, ".local", "state", "peerspan", "host"), nil
 }
 
 // Listen is called after Open has acquired the exclusive state lock. A stale

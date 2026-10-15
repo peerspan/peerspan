@@ -38,7 +38,7 @@ func (o *PersonOutcome) skip(reason, next string) *PersonOutcome {
 }
 
 func bindCommand(network string) string {
-	return "capsule-host network bind --network " + network
+	return "peerspan-host network bind --network " + network
 }
 
 // personAdmitted reports whether personKey is a currently valid person of
@@ -76,7 +76,7 @@ func (s *Store) createWithPerson(ctx context.Context, r CreateNetwork) (JoinResu
 	id := membership.PersonID(raw)
 	out := &PersonOutcome{PersonID: &id}
 	result.Person = out
-	admit := fmt.Sprintf("capsule-host network admit --network %s --person '%s' --member %s, then %s", n.ID, membership.SSHAuthorizedKey(raw), r.Member, bindCommand(n.ID))
+	admit := fmt.Sprintf("peerspan-host network admit --network %s --person '%s' --member %s, then %s", n.ID, membership.SSHAuthorizedKey(raw), r.Member, bindCommand(n.ID))
 	if n.LastSyncAt == nil || n.LastSyncError != nil {
 		out.skip("the network is not registered with the coordinator yet", admit)
 		return result, nil
@@ -92,7 +92,7 @@ func (s *Store) createWithPerson(ctx context.Context, r CreateNetwork) (JoinResu
 	// The creator's person also becomes the first administrator, so they can
 	// administer from any of their machines.
 	if _, err = s.DelegateAdmin(ctx, n.ID, DelegateAdmin{Person: id}); err != nil {
-		out.skip("the person was not made an administrator: "+err.Error(), fmt.Sprintf("capsule-host network delegate-admin --network %s --person %s, then %s", n.ID, id, next))
+		out.skip("the person was not made an administrator: "+err.Error(), fmt.Sprintf("peerspan-host network delegate-admin --network %s --person %s, then %s", n.ID, id, next))
 		return result, nil
 	}
 	out.Next = &next
@@ -138,7 +138,7 @@ func (s *Store) completePerson(ctx context.Context, n Network, personKey, token 
 		}
 		if err = s.redeemPerson(ctx, n, *invite, key); err != nil {
 			return out.skip("the person was not admitted: "+err.Error(),
-				fmt.Sprintf("capsule-host network redeem-person --token %s, then %s", token, bindCommand(n.ID)))
+				fmt.Sprintf("peerspan-host network redeem-person --token %s, then %s", token, bindCommand(n.ID)))
 		}
 	}
 	out.Admitted = true

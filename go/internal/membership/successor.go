@@ -24,7 +24,7 @@ var successorFields = []string{"sequence", "previous_public_key", "address", "pu
 
 // SuccessorStatement is the text a successor's previous key signs.
 func SuccessorStatement(sequence int64, previousPublicKey, address, publicKey, signedAt string) []byte {
-	return []byte(strings.Join([]string{"capsule-coordinator-successor-v1", strconv.FormatInt(sequence, 10), previousPublicKey, address, publicKey, signedAt}, "\n"))
+	return []byte(strings.Join([]string{"peerspan-coordinator-successor-v1", strconv.FormatInt(sequence, 10), previousPublicKey, address, publicKey, signedAt}, "\n"))
 }
 
 // SignSuccessor signs a successor with the previous identity's key.

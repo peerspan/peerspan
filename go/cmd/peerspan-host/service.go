@@ -23,12 +23,12 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// The daemon as a user service: capsule install and uninstall, and the
+// The daemon as a user service: peerspan install and uninstall, and the
 // service part of status. Service tools are found on PATH.
 
 const (
-	systemdUnitName   = "capsule.service"
-	launchdLabel      = "dev.capsule.host"
+	systemdUnitName   = "peerspan.service"
+	launchdLabel      = "dev.peerspan.host"
 	firstPeerPort     = 7401
 	lastPeerPort      = 7499
 	installSocketWait = 10 * time.Second
@@ -189,7 +189,7 @@ func (m *serviceManager) render(args []string, agentSocket string) string {
 		for i, arg := range args {
 			quoted[i] = systemdQuote(arg)
 		}
-		b.WriteString("[Unit]\nDescription=Capsule host daemon\n\n[Service]\n")
+		b.WriteString("[Unit]\nDescription=Peerspan host daemon\n\n[Service]\n")
 		b.WriteString("ExecStart=" + strings.Join(quoted, " ") + "\n")
 		if agentSocket != "" {
 			b.WriteString("Environment=" + systemdQuote("SSH_AUTH_SOCK="+agentSocket) + "\n")
@@ -425,7 +425,7 @@ func serviceAttention(st serviceStatus, daemonRunning bool) []host.AttentionItem
 	var items []host.AttentionItem
 	if !st.Installed && daemonRunning {
 		items = append(items, host.AttentionItem{Kind: "service_not_installed", Subject: "service",
-			Detail: "the daemon runs outside a user service and stops when you log out or reboot", Command: "capsule install"})
+			Detail: "the daemon runs outside a user service and stops when you log out or reboot", Command: "peerspan install"})
 	}
 	if st.Installed && st.Manager != nil && *st.Manager == "systemd" && st.Linger != nil && !*st.Linger {
 		items = append(items, host.AttentionItem{Kind: "linger_disabled", Subject: "service",

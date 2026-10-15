@@ -24,7 +24,7 @@ import (
 
 var ErrInvalid = errors.New("invalid membership")
 
-const TokenPrefix = "capsule-invite-v1."
+const TokenPrefix = "peerspan-invite-v1."
 
 // Membership is the signed chain proving that a host joined a network.
 type Membership struct {
@@ -201,10 +201,10 @@ func ValidCoordinatorAddress(value string) bool {
 }
 
 func InviteStatement(networkID, invitePublicKey, member, expiresAt string) []byte {
-	return []byte(strings.Join([]string{"capsule-invite-v1", networkID, invitePublicKey, member, expiresAt}, "\n"))
+	return []byte(strings.Join([]string{"peerspan-invite-v1", networkID, invitePublicKey, member, expiresAt}, "\n"))
 }
 func MemberStatement(networkID, invitePublicKey, hostPublicKey, joinedAt string) []byte {
-	return []byte(strings.Join([]string{"capsule-member-v1", networkID, invitePublicKey, hostPublicKey, joinedAt}, "\n"))
+	return []byte(strings.Join([]string{"peerspan-member-v1", networkID, invitePublicKey, hostPublicKey, joinedAt}, "\n"))
 }
 
 // Invite creates a one-time invite key for member, signed by the genesis root.

@@ -115,7 +115,7 @@ func relativeExpiryDuration(value string) (time.Duration, error) {
 
 // pendingHookLead introduces the pending work in the session start hook's
 // context.
-const pendingHookLead = "Capsule work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. "
+const pendingHookLead = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. "
 
 // runSessionPending prints the pending work of the current directory's
 // attachment, read through the local administration API. Without an

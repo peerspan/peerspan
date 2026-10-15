@@ -89,7 +89,7 @@ func networkCreateOrJoin(ctx context.Context, client host.Client, command string
 			label = tokenMember(join.Token)
 		}
 		hostname, _ := os.Hostname()
-		if err := choice.Save(fmt.Sprintf("capsule %s@%s", label, hostname)); err != nil {
+		if err := choice.Save(fmt.Sprintf("peerspan %s@%s", label, hostname)); err != nil {
 			return fmt.Errorf("the host joined, but the new person key could not be saved to %s: %w", choice.Path, err)
 		}
 		return nil
@@ -208,7 +208,7 @@ func inviteOutput(result json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(result, &invite); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"network_id": invite.NetworkID, "member": invite.Member, "invite_expires_at": invite.InviteExpiresAt, "token": invite.Token, "join": "capsule join " + invite.Token})
+	return json.Marshal(map[string]any{"network_id": invite.NetworkID, "member": invite.Member, "invite_expires_at": invite.InviteExpiresAt, "token": invite.Token, "join": "peerspan join " + invite.Token})
 }
 
 func callInto(ctx context.Context, client host.Client, method, path string, body any, into *map[string]any) error {

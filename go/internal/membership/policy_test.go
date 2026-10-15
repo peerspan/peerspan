@@ -10,7 +10,7 @@ import (
 )
 
 // Policy vector from docs/coordination-contract.md.
-const policyVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy54wZKMJ5nBPfB3XakG7muQtkw2rjuhFVU+oWwluflHQKmEqNNa3l4MB1x5cdPmyXJduUMs9R24za8w4kW0bDg=="
+const policyVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQI7LAL0jJtpQWmoMSHjIs49S3ZgRu1H8/I7LHRJ/N58B81ZTDeV854NluBUedCUW8GgzjOOTHLEM5pfE/iGPog8="
 
 func vectorPolicy(t *testing.T) Policy {
 	t.Helper()
@@ -34,7 +34,7 @@ func TestPolicyVectorReproduces(t *testing.T) {
 	if p.Signature != policyVector {
 		t.Fatalf("policy signature %s, want %s", p.Signature, policyVector)
 	}
-	want := strings.Join([]string{"capsule-policy-v1", vector.NetworkID, personPublic, "1", "2026-10-10T00:00:00Z", "2026-10-17T00:00:00Z",
+	want := strings.Join([]string{"peerspan-policy-v1", vector.NetworkID, personPublic, "1", "2026-10-10T00:00:00Z", "2026-10-17T00:00:00Z",
 		"rule", "reviewer", "person:" + otherIDVector + " group:backend", "message.append", "65536 false",
 		"rule", "triage", "network", "message.append", "4096 true"}, "\n")
 	if string(p.Message()) != want {
@@ -187,7 +187,7 @@ func TestAgentPrincipal(t *testing.T) {
 }
 
 // Policy vector with max_artifact_bytes, cross-checked with ssh-keygen -Y sign.
-const policyArtifactVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGaZoSLXB4mfYtcitytb/FSRHPWfWO9ccCJCeCjSHNdTcKmOAqDW7dIY4AQIIaVkOU0M+rQMJGDYfvkT+5dnQBw=="
+const policyArtifactVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQM53FmawC5CSxjCe7Vko24T8Nwgm7KauP0HIie0h+zrLpWGllaBfSB0oOJVnL/hZamrfIgt6wJiBJWwRA5JnogM="
 
 func TestPolicyArtifactVector(t *testing.T) {
 	owner := KeySigner{mustSeed(t, personSeed)}
@@ -199,7 +199,7 @@ func TestPolicyArtifactVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := strings.Join([]string{"capsule-policy-v1", vector.NetworkID, personPublic, "2", "2026-10-10T00:00:00Z", "2026-10-17T00:00:00Z",
+	want := strings.Join([]string{"peerspan-policy-v1", vector.NetworkID, personPublic, "2", "2026-10-10T00:00:00Z", "2026-10-17T00:00:00Z",
 		"rule", "reviewer", "person:" + otherIDVector, "message.append task.submit", "65536 false 1048576",
 		"rule", "triage", "network", "task.submit", "4096 true"}, "\n")
 	if string(p.Message()) != want {
@@ -252,7 +252,7 @@ func TestPolicyHashAndPreference(t *testing.T) {
 	p := vectorPolicy(t)
 	sum := sha256.Sum256(p.Message())
 	// The contract's policy vector hashes to this; Rust must agree.
-	if got := PolicyHash(p); got != hex.EncodeToString(sum[:]) || got != "fc64a927a0308568c0a24cb48cd4d659ed8efebc8816b086bba465067a74a834" {
+	if got := PolicyHash(p); got != hex.EncodeToString(sum[:]) || got != "26aef9dc978f7da4509ca4595195125839d5306f4eb951c0cedb61467df51ab1" {
 		t.Fatalf("policy hash %s", got)
 	}
 	other := p

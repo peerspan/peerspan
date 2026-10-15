@@ -18,7 +18,7 @@ import (
 )
 
 // The generated key (launch slice 3): when network create or join finds no
-// person key, the CLI generates one at $XDG_CONFIG_HOME/capsule/person_ed25519.
+// person key, the CLI generates one at $XDG_CONFIG_HOME/peerspan/person_ed25519.
 // It is the only person key a daemon reads, to renew policies.
 
 // Key sources reported as person.key.source.
@@ -29,7 +29,7 @@ const (
 	SourceNew       = "new"
 )
 
-// GeneratedKeyPath is $XDG_CONFIG_HOME/capsule/person_ed25519, by default
+// GeneratedKeyPath is $XDG_CONFIG_HOME/peerspan/person_ed25519, by default
 // under ~/.config.
 func GeneratedKeyPath() (string, error) {
 	dir := os.Getenv("XDG_CONFIG_HOME")
@@ -40,7 +40,7 @@ func GeneratedKeyPath() (string, error) {
 		}
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "capsule", "person_ed25519"), nil
+	return filepath.Join(dir, "peerspan", "person_ed25519"), nil
 }
 
 // LoadPrivateFile loads an unencrypted OpenSSH ssh-ed25519 private key file.

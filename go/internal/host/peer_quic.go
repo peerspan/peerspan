@@ -22,7 +22,7 @@ import (
 
 // PeerALPN identifies the peer protocol: one HTTP/1.1 exchange per QUIC
 // bidirectional stream.
-const PeerALPN = "capsule-peer/1"
+const PeerALPN = "peerspan-peer/1"
 
 const (
 	peerHandshakeTimeout = 5 * time.Second
@@ -75,7 +75,7 @@ type cachedPeerConn struct {
 // fast instead of waiting for a timeout.
 func (s *Store) statelessResetKey() *quic.StatelessResetKey {
 	mac := hmac.New(sha256.New, s.privateKey.Seed())
-	mac.Write([]byte("capsule-peer stateless reset"))
+	mac.Write([]byte("peerspan-peer stateless reset"))
 	var key quic.StatelessResetKey
 	copy(key[:], mac.Sum(nil))
 	return &key

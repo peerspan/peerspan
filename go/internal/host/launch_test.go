@@ -119,7 +119,7 @@ func TestStatusAttention(t *testing.T) {
 		t.Fatal(err)
 	}
 	st = must(s.Status(ctx))
-	if len(st.Attention) != 2 || st.Attention[0].Kind != "credential_expiring" || st.Attention[0].Subject != fixed.Adapter.ID || st.Attention[1].Kind != "artifact_quota" || st.Attention[1].Command != "capsule artifact prune" {
+	if len(st.Attention) != 2 || st.Attention[0].Kind != "credential_expiring" || st.Attention[0].Subject != fixed.Adapter.ID || st.Attention[1].Kind != "artifact_quota" || st.Attention[1].Command != "peerspan artifact prune" {
 		t.Fatalf("attention: %+v", st.Attention)
 	}
 	if len(st.Agents) != 2 || st.Agents[0].ID != idle.ID || st.Agents[0].Sessions[0].ID != bare.ID || st.Agents[0].Sessions[0].AdapterID != nil {

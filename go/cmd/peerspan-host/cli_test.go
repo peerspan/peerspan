@@ -50,11 +50,11 @@ func TestFlagAndArgumentParsing(t *testing.T) {
 		values     []string
 		dash       int
 	}{
-		{[]string{"agent", "register", "--state", "private state", "--capability", "a,b", "--capability=c"}, "capsule-host agent register", nil, "private state", "capability", []string{"a,b", "c"}, -1},
-		{[]string{"message", "inspect", "id with spaces", "--peer=host_x", "--state=/private"}, "capsule-host message inspect", []string{"id with spaces"}, "/private", "", nil, -1},
-		{[]string{"network", "group", "set", "--person-key=/keys/my key", "--person", "a,b", "--person", "c"}, "capsule-host network group set", nil, "", "person", []string{"a,b", "c"}, -1},
-		{[]string{"serve", "--state=/private"}, "capsule-host run", nil, "/private", "", nil, -1},
-		{[]string{"session", "start", "--directory", "setup dir", "--", "--help", "--state", "harness state"}, "capsule-host session start", []string{"--help", "--state", "harness state"}, "", "", nil, 0},
+		{[]string{"agent", "register", "--state", "private state", "--capability", "a,b", "--capability=c"}, "peerspan-host agent register", nil, "private state", "capability", []string{"a,b", "c"}, -1},
+		{[]string{"message", "inspect", "id with spaces", "--peer=host_x", "--state=/private"}, "peerspan-host message inspect", []string{"id with spaces"}, "/private", "", nil, -1},
+		{[]string{"network", "group", "set", "--person-key=/keys/my key", "--person", "a,b", "--person", "c"}, "peerspan-host network group set", nil, "", "person", []string{"a,b", "c"}, -1},
+		{[]string{"serve", "--state=/private"}, "peerspan-host run", nil, "/private", "", nil, -1},
+		{[]string{"session", "start", "--directory", "setup dir", "--", "--help", "--state", "harness state"}, "peerspan-host session start", []string{"--help", "--state", "harness state"}, "", "", nil, 0},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			root := newCommand(io.Discard, io.Discard)
@@ -72,7 +72,7 @@ func TestFlagAndArgumentParsing(t *testing.T) {
 								t.Fatalf("values %v: %v", values, err)
 							}
 						}
-						if strings.HasPrefix(tc.path, "capsule-host network") && personKey(cmd.Flags()) != "/keys/my key" {
+						if strings.HasPrefix(tc.path, "peerspan-host network") && personKey(cmd.Flags()) != "/keys/my key" {
 							t.Fatal("person key was not parsed")
 						}
 						return nil

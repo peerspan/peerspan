@@ -51,8 +51,8 @@ Ed25519 is deterministic. Both implementations must reproduce these exactly:
 | Host seed / public | `AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=` / `7UkoxijRwsbq6QM4kFmVYSlZJzpcY/k2NsFGFKyHN9E=` |
 | Host ID | `host_b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709` |
 | Member, expiry, joined | `alice`, `2026-11-01T00:00:00Z`, `2026-10-05T12:00:00Z` |
-| `invite_signature` | `3WTE8i0clTO4PNMXiWiCgVkYWUzS8nCySGhYZWXDwBmz7K416+cmh5Qb6mSrCU+MNDuSudNWXklbsCc8m+Y4Cw==` |
-| `host_signature` | `YD6gwCNa6yQT1ofoSqCR4iDpvG4887BtCcZsGXebPSfX4siZx6z6XnzY2AYM5GoAzdX1SsNIAG4I/kkkIQLWCg==` |
+| `invite_signature` | `jCdKpz/36wwIgHnZmbIALehw0KPuFefRlkKMmgIv3f1aJfCpfqf4bDJm/WUbI2ONX5oW+ZN4i08YSsCWwusCAg==` |
+| `host_signature` | `V5T2OGpQUQ7F6923mnjWVeyYGopVhMNz6eLP4V0WQSqlPJHS59w+YE1CSDapAAA3w8dxKqxmVFm0R55l7W8SBw==` |
 
 ### Invite token
 
@@ -137,11 +137,11 @@ Each is carried as a strict JSON object of its named fields plus `signature`; `e
 
 | Statement | `signature` |
 | --- | --- |
-| Host revocation of the host key, by the genesis root | `651E7LldaU/s+qQra4F9e6uJ5sDvFfYI0Nc+x4WdmfciBtVME9wp+fNq034EGTB2utFOLkPxhOg3k8gujAI7Ag==` |
-| Invite revocation of the invite key, by the genesis root | `XyB3LsP1IaDW5saYFuHlIr4IVvrELl9hmDW9sX3PNAVeUfJaOzx5gnv6YSkGScAR+8ymDzYLYZ+VQ4leDNBhCQ==` |
-| Leave, by the host key | `xM3Wn7Rl4G9jcG0fRUbbXjyFmWz1WcO4IC/tg8MrFOe9zEwWroQuSjo5Xhh92Mkwimg45gxfRCeOoxZC6/OeAA==` |
-| Rotation to the new root at epoch 1, by the genesis root | `etkSBT7+to1vTCpIt+m5PMyO93tht5QhAmnxVMNCwmreGUrXmCcI4YWqxfznXx6WHe8rNZ/jK7N2FWUiy9N2Bw==` |
-| Attestation of the host key at epoch 1, by the new root | `TBfNG88UlHWcSV6f79Ie1RApfqPr36hehooyjGebNB50FTB1tl9neEm42Ja13jXniAc+hU1YpRxcFVzfsF+iBg==` |
+| Host revocation of the host key, by the genesis root | `jclqdyH6N8H3WoO07mGA1trPc7WpmmvKIH1zibL1m9+zFoIK6ppGXuC7k8oXFhF8IWYtmuGGy70xBTsvkYzSCw==` |
+| Invite revocation of the invite key, by the genesis root | `pF9qtTO3npiuO+rf47SQ5PpgiSlq6dWYlIQPT+DTFO0PN9Yxf1bmacK83dinaY4qu+KMyk3JNnZW8v1CxZiJCA==` |
+| Leave, by the host key | `36abHHiIjCXzpVFnssBQAEV+guYtiZGp3hsd5JmpBSH9f8VnZun74fql4G622oBx4aQHZ733k+nSdAfI1xPmDg==` |
+| Rotation to the new root at epoch 1, by the genesis root | `gbWynmghmMqYfKSbPS5tnw20vNrvq8QqugZ4pJQ1IvhSUy0aO2VLtB7+VPFMJpinw7q+zyG52lMGyfaCSWPbCQ==` |
+| Attestation of the host key at epoch 1, by the new root | `oqBN8M8UY8e9c41wKnms8ZwWoH9zoHjMc0lwYi8iYWtLykbyts25SRgt+s1agJmbBIfGAx8nJp0QaP3yzx1IAw==` |
 
 ### Root chain and member validity
 
@@ -226,14 +226,14 @@ Each statement is carried as a strict JSON object of its fields plus `signature`
 
 | Statement | `signature` |
 | --- | --- |
-| Person admission | `57pOZqduTPBJKqC2gEAjW23pzd7zwul08CTAxX2KBRSlI36JJfb5WNf8x9LOlaLKK1jBL2r72mLJXIkpTYi+BA==` |
-| Person invite | `DOs/7yFxVmC3IuPAcfqlF1EDczkw0++1gRZOjIQNCcK7d3nOPFDZoWcnrhMpBIzdLlEF6fR52K45m8TXGKNVAQ==` |
-| Person membership | `FP3SdKMjbdMcRQIsfMffRb6mnyqnDnX4hxj/cTz6DHyWeozcrRxdGU+/lYLEakp8tiS/jwOiCLJA/7DXhfOrDw==` |
-| Person removal | `gIGBRuXaZVCyEU+jkM1JUxo88yDrpZ8k7JbmKGObmeF14QeY2//Wdrn4CgetByjN4szTFbssvtuS6ynt3O8jBA==` |
-| Host admission | `fYyNXrDCWJs61KeT2macWLkh/D+WVMI1i10iiC2mpFoQ9fz7EhDhy8KXAr+zjRfpdRzhzpGfAfEF4dBcMYGUCw==` |
-| Host binding `host_signature` (host key) | `xv+sVNH6/g1gJrknO2ImE97qrROduO2Oe0U4gvqcddbHibmhzR28SRWf7RtYUDizWnWE4Eufy3F1aijw6uvSDg==` |
-| Host binding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADAULCAWp02fy0fuxtv6fhaI8PHqxyBPr6SzVcTupgU0xsTYIMciLKFSVOaqYIOshUcKvNhgbAmBsiz6Cbe7UBw==` |
-| Host unbinding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkiK02ZWdpz63BExI0ccVmkrPSaSUJEVrherPRCB7IWIDjvE6x1VieH2UJnMuWmp5tiXmTHuTs4mxDyehsUr4AA==` |
+| Person admission | `AteZLyZq4ZRDskSXA2B3z5ef4kxP6ZPAAdH9xa40fzuzMaln3zGp0HdR6Alb6JdNWkf4xA6YDVwW5hrnYumDCQ==` |
+| Person invite | `0HACBZUtFLmsLMHRFb4LtaLtYf4G2nI4gC2vMxNRSa3o7Wadv66pbAHYP/Z4f0lh1JdM/vEW3mgl+ey1HGNbDQ==` |
+| Person membership | `qilofSGbTLjciUbkxth503LIM8V5GxmtQytdRk5c1BD2e/7iJ7hipZRTRI9aIUO3WqkS7XohJlrCMN4bFz31Dw==` |
+| Person removal | `Qw4rMkm3w7+P29EirszYiHa5aHcEek31WwW0SnZTqzd2jSWTN8BgIQ4xjMs59nj3m1SqxEhf5XAhG8jsGLp4BQ==` |
+| Host admission | `eDc17Z64tWiMiwrS1M/WPTlQEnnrzKjafR9VuQIYo0CxHZbXZHvetrYhmjNss1GBitTvzAabMMB9x/NVwzReBQ==` |
+| Host binding `host_signature` (host key) | `Cs9bDLLc4dP2hppQO1hOoEDRiiNBEGZf/ffsxPiqsUT+DFvFzkk91ikVyqMKcHfVY9EBpoknj+s4EnC7k3gOAQ==` |
+| Host binding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQP3tgz3wWKkPfmQ/ZITbSIDUAz0nlbAJlaF5kdSFFJsoKS4SYIKScjsbnX73tyCVmIiekX2vBkXdqwKLJrbrCA0=` |
+| Host unbinding (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQJXOR4aLniMbQzrThHujvY0iAmDG9ptZ4EWVDYn2wKiWlANqa0MFpwbAO2S2iC2EuElmSjYCM//Sz23WbhFKdAc=` |
 
 Ed25519 is deterministic, so an implementation holding the person seed must reproduce these `SSHSIG` blobs byte for byte.
 
@@ -378,10 +378,10 @@ Group names are 1–64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `
 
 | Statement | `signature` |
 | --- | --- |
-| Delegation of the person, by the genesis root (raw) | `lmKnLMD6XXbYk4pExnNpxbFHR9bZccZWHmlTq7Yssam9dkzfeE7n/2rKom9raC5FmPM7HY7P/TLzx1Vn43zlAg==` |
-| Removal of the person as administrator with `revoke_admitted` `true`, by the genesis root (raw) | `R1qwK9h6ZU+QyzpsXKf5fZWFzqDo0CoTYyi3S/KReuGQn6Dbr0KRGaMDwsciCb6ANbAF5Ye2Vs6V/qBnWwoABA==` |
-| Host admission (member `carol`) signed by the administrator (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGcn2mQsdrkxxBpUyZFanSkCt4bNXYd5C9IjqaLeEs9HxQBscBZYl7WlhEUHuoffN6pW+hZDICMZH5jTfbs4mAg==` |
-| Group `backend`, version 1, with both persons, signed by the administrator (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAVIvTT/9fTeKaYW0R9edFKS2bknw2Pu/MYty3zhnrayKHhm+lT0xtwfNsdawnv4hFr7UW5PDYaHTIflrZ/f9MAA==` |
+| Delegation of the person, by the genesis root (raw) | `Lyfxr+rP0KdHx1qziif9X0KJ1aXCA3wxHQYofwptOAoYHq2fIAhK+kD8mF1GyyF/Kn2zBOH70P17YD2kCQBKBQ==` |
+| Removal of the person as administrator with `revoke_admitted` `true`, by the genesis root (raw) | `IniB2OCVaCcC7RqYuR7Er1ZQMx83mhAs9GYjYSAQw2AaTbsJ8n3Qoj+3MFL0bsWujvhu4OGPqKAj1wXMxannBw==` |
+| Host admission (member `carol`) signed by the administrator (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQM3rbU3AdWJe6aK++xaJX9jLWFTA13B/dDI+N45tsD2Bth8jsxk2e0A0UQGRJlpBh3jIoWQAT1BnmHqTupPcNw8=` |
+| Group `backend`, version 1, with both persons, signed by the administrator (`SSHSIG`) | `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQJ8BRATXZY4iPbocOCfUvJpR8/FLoXx+sowzBd3SIgxl1j7wnUcpiDGLIMzOSzkFa6a3lShI3r+qTeKn7nJOBwE=` |
 
 ### Validity
 
@@ -479,7 +479,7 @@ The JSON is `{network_id, person_public_key, version, issued_at, valid_until, ru
 - `reviewer` for `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2 group:backend`, `message.append`, `65536 false`;
 - `triage` for `network`, `message.append`, `4096 true`.
 
-Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy54wZKMJ5nBPfB3XakG7muQtkw2rjuhFVU+oWwluflHQKmEqNNa3l4MB1x5cdPmyXJduUMs9R24za8w4kW0bDg==`.
+Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQI7LAL0jJtpQWmoMSHjIs49S3ZgRu1H8/I7LHRJ/N58B81ZTDeV854NluBUedCUW8GgzjOOTHLEM5pfE/iGPog8=`.
 
 **Versions.** A policy is valid if its owner is a current person, its signature verifies, and it falls within its validity window. Allow 5 minutes of clock skew before `issued_at`. For each owner, the highest valid version applies. The coordinator refuses a version that is not higher with 409. Hosts persist the highest version they have verified and never accept a lower one. A renewal is a new version with the same rules and a new validity window. The map gains `policies`: the newest valid policy of every person, visible to every member.
 
@@ -554,7 +554,7 @@ A coordinator could otherwise withhold a newer policy, such as a withdrawal, fro
 
 **Accepting a policy.** A host stores a policy delivered by the coordinator, by a peer, or by its owner's CLI when the policy verifies (owner a current person, valid signature, inside its validity window), and either:
 - its version is higher than the stored one; or
-- its version is equal and its signed statement has a lower lowercase hex SHA-256 than the stored one's. The hash covers the UTF-8 bytes of the signed statement's lines, not the JSON; the policy test vector above hashes to `fc64a927a0308568c0a24cb48cd4d659ed8efebc8816b086bba465067a74a834`.
+- its version is equal and its signed statement has a lower lowercase hex SHA-256 than the stored one's. The hash covers the UTF-8 bytes of the signed statement's lines, not the JSON; the policy test vector above hashes to `26aef9dc978f7da4509ca4595195125839d5306f4eb951c0cedb61467df51ab1`.
 
 The tie-break lets hosts converge without coordination when siblings sign the same version concurrently, as simultaneous renewals do. The coordinator keeps refusing an equal version with 409, so it may hold the tie-break's loser; receivers always evaluate their own newest stored version. A host never accepts a lower version. Each stored policy records `network.policy_updated`.
 

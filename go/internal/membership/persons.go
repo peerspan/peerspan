@@ -19,8 +19,8 @@ const (
 	KindPerson = "person" // a person removal in a map's revocations
 	KindUnbind = "unbind" // a host unbinding in a map's revocations
 
-	PersonTokenPrefix = "capsule-person-invite-v1."
-	DescriptorPrefix  = "capsule-network-v1."
+	PersonTokenPrefix = "peerspan-person-invite-v1."
+	DescriptorPrefix  = "peerspan-network-v1."
 )
 
 func PersonID(key ed25519.PublicKey) string { return digestID("person_", key) }
@@ -89,25 +89,25 @@ type HostUnbinding struct {
 func epoch(e int64) string { return strconv.FormatInt(e, 10) }
 
 func (a PersonAdmission) Message() []byte {
-	return statement("capsule-person-admit-v1", a.NetworkID, epoch(a.Epoch), a.PersonPublicKey, a.Member, a.AdmittedAt)
+	return statement("peerspan-person-admit-v1", a.NetworkID, epoch(a.Epoch), a.PersonPublicKey, a.Member, a.AdmittedAt)
 }
 func PersonInviteStatement(network string, inviteEpoch int64, invitePublicKey, member, expiresAt string) []byte {
-	return statement("capsule-person-invite-v1", network, epoch(inviteEpoch), invitePublicKey, member, expiresAt)
+	return statement("peerspan-person-invite-v1", network, epoch(inviteEpoch), invitePublicKey, member, expiresAt)
 }
 func PersonMemberStatement(network, invitePublicKey, personPublicKey, joinedAt string) []byte {
-	return statement("capsule-person-member-v1", network, invitePublicKey, personPublicKey, joinedAt)
+	return statement("peerspan-person-member-v1", network, invitePublicKey, personPublicKey, joinedAt)
 }
 func (r PersonRemoval) Message() []byte {
-	return statement("capsule-person-remove-v1", r.NetworkID, r.PersonPublicKey, r.RemovedAt)
+	return statement("peerspan-person-remove-v1", r.NetworkID, r.PersonPublicKey, r.RemovedAt)
 }
 func (a HostAdmission) Message() []byte {
-	return statement("capsule-host-admit-v1", a.NetworkID, epoch(a.Epoch), a.HostPublicKey, a.Member, a.AdmittedAt)
+	return statement("peerspan-host-admit-v1", a.NetworkID, epoch(a.Epoch), a.HostPublicKey, a.Member, a.AdmittedAt)
 }
 func (b HostBinding) Message() []byte {
-	return statement("capsule-host-bind-v1", b.NetworkID, b.PersonPublicKey, b.HostPublicKey, b.BoundAt)
+	return statement("peerspan-host-bind-v1", b.NetworkID, b.PersonPublicKey, b.HostPublicKey, b.BoundAt)
 }
 func (u HostUnbinding) Message() []byte {
-	return statement("capsule-host-unbind-v1", u.NetworkID, u.PersonPublicKey, u.HostPublicKey, u.UnboundAt)
+	return statement("peerspan-host-unbind-v1", u.NetworkID, u.PersonPublicKey, u.HostPublicKey, u.UnboundAt)
 }
 
 func (a *PersonAdmission) UnmarshalJSON(data []byte) error {

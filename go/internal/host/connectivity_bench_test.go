@@ -20,7 +20,7 @@ import (
 )
 
 func TestConnectivityBenchmark(t *testing.T) {
-	output := os.Getenv("CAPSULE_BENCH_OUTPUT")
+	output := os.Getenv("PEERSPAN_BENCH_OUTPUT")
 	if output == "" {
 		t.Skip("opt-in benchmark driven by conformance/connectivity_bench.py")
 	}
@@ -34,8 +34,8 @@ func TestConnectivityBenchmark(t *testing.T) {
 		}
 		return fallback
 	}
-	count, cold := parameter("CAPSULE_BENCH_COUNT", 200), parameter("CAPSULE_BENCH_COLD", 20)
-	warmup, concurrency := parameter("CAPSULE_BENCH_WARMUP", 20), parameter("CAPSULE_BENCH_CONCURRENCY", 8)
+	count, cold := parameter("PEERSPAN_BENCH_COUNT", 200), parameter("PEERSPAN_BENCH_COLD", 20)
+	warmup, concurrency := parameter("PEERSPAN_BENCH_WARMUP", 20), parameter("PEERSPAN_BENCH_CONCURRENCY", 8)
 	if count < 1 || cold < 1 || warmup < 0 || concurrency < 1 || concurrency > 16 {
 		t.Fatal("invalid workload parameters")
 	}
@@ -184,7 +184,7 @@ func TestConnectivityBenchmark(t *testing.T) {
 		workloads = append(workloads, map[string]any{"content_bytes": size, "sequential_seconds": sequential, "concurrent_seconds": samples, "concurrent_wall_seconds": wall})
 	}
 	disconnect()
-	report := map[string]any{"backend": "capsule-go", "cold_first_echo_seconds": coldSeconds, "workloads": workloads, "count": count, "cold": cold, "warmup": warmup, "concurrency": concurrency}
+	report := map[string]any{"backend": "peerspan-go", "cold_first_echo_seconds": coldSeconds, "workloads": workloads, "count": count, "cold": cold, "warmup": warmup, "concurrency": concurrency}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		t.Fatal(err)

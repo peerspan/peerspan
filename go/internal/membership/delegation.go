@@ -54,7 +54,7 @@ func (l *Link) UnmarshalJSON(data []byte) error {
 
 // Message is the link's signed statement.
 func (l Link) Message() []byte {
-	return statement("capsule-delegation-v1", l.NetworkID, strconv.FormatInt(l.Index, 10), l.Previous, l.IssuerHostID, l.AudienceHostID, l.TaskID, l.OriginatorAgentID, strings.Join(l.Principals, " "), l.Deadline, strconv.FormatInt(l.Depth, 10))
+	return statement("peerspan-delegation-v1", l.NetworkID, strconv.FormatInt(l.Index, 10), l.Previous, l.IssuerHostID, l.AudienceHostID, l.TaskID, l.OriginatorAgentID, strings.Join(l.Principals, " "), l.Deadline, strconv.FormatInt(l.Depth, 10))
 }
 
 // Hash is what the next link's previous names: the SHA-256 of this link's

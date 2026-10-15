@@ -67,13 +67,13 @@ const channelUnverifiedAfter = 120 * time.Second
 const adapterSendDeadline = time.Hour
 
 // MinimumClaudeVersion is the oldest Claude Code release whose channel
-// delivery Capsule supports.
+// delivery Peerspan supports.
 const MinimumClaudeVersion = "2.1.187"
 
 // ChannelUnverifiedDetail is the status item 13 message, also used by
 // session doctor.
 func ChannelUnverifiedDetail(agent string) string {
-	return fmt.Sprintf("the session of agent %s holds a lease but has not confirmed that it receives Capsule's channel events (capsule_ready), so no messages or tasks are delivered to it. Likely causes: the organization has not enabled channels (channelsEnabled); the provider does not support channels; the Claude Code version is older than %s; or the session was started without the channel flag", agent, MinimumClaudeVersion)
+	return fmt.Sprintf("the session of agent %s holds a lease but has not confirmed that it receives Peerspan's channel events (peerspan_ready), so no messages or tasks are delivered to it. Likely causes: the organization has not enabled channels (channelsEnabled); the provider does not support channels; the Claude Code version is older than %s; or the session was started without the channel flag", agent, MinimumClaudeVersion)
 }
 
 var errChannelNotVerified = &codedError{status: http.StatusConflict, code: "conflict", message: "channel not verified"}
@@ -185,7 +185,7 @@ func channelAttention(ctx context.Context, tx *sql.Tx, now time.Time, attend fun
 			return err
 		}
 		if now.Sub(at) > channelUnverifiedAfter {
-			attend("channel_unverified", u.agent, ChannelUnverifiedDetail(u.agent), "capsule session doctor")
+			attend("channel_unverified", u.agent, ChannelUnverifiedDetail(u.agent), "peerspan session doctor")
 		}
 	}
 	return nil

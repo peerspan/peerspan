@@ -50,7 +50,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 
 func newCommand(out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
-		Use: "capsule-coord", Short: "Run the Capsule coordination service",
+		Use: "peerspan-coord", Short: "Run the Peerspan coordination service",
 		Long:         "Coordination stores signed membership chains and serves network maps. It carries no collaboration traffic, and hosts verify every chain it serves.",
 		SilenceUsage: true, SilenceErrors: true, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },

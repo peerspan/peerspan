@@ -9,12 +9,12 @@ import (
 )
 
 // Attach profiles are session setup directories at
-// $XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME that record the
+// $XDG_CONFIG_HOME/peerspan/sessions/HOST_ID/AGENT_NAME that record the
 // project they serve as workspace. A profile being replaced is kept at
 // .AGENT_NAME.old until its replacement is set up; names never start with a
 // dot.
 
-// SessionsDir is $XDG_CONFIG_HOME/capsule/sessions, by default under
+// SessionsDir is $XDG_CONFIG_HOME/peerspan/sessions, by default under
 // ~/.config.
 func SessionsDir() (string, error) {
 	dir := os.Getenv("XDG_CONFIG_HOME")
@@ -25,7 +25,7 @@ func SessionsDir() (string, error) {
 		}
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "capsule", "sessions"), nil
+	return filepath.Join(dir, "peerspan", "sessions"), nil
 }
 
 // ReadProfile loads and validates the profile in a setup directory.
@@ -68,7 +68,7 @@ func WorkspaceProfile(state, workspace string) (string, error) {
 	}
 	switch len(found) {
 	case 0:
-		return "", errors.New("no attach profile for this directory; run capsule attach HARNESS here, or give --directory")
+		return "", errors.New("no attach profile for this directory; run peerspan attach HARNESS here, or give --directory")
 	case 1:
 		return found[0], nil
 	}

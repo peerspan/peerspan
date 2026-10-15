@@ -44,8 +44,8 @@ VECTOR = {'network_id': 'net_' + '0123456789abcdef' * 4, 'index': 0, 'previous':
           'audience_host_id': 'host_24f6ed6acbfe1009c030d7ca567c33ca4830911498236b5561a6c82abec5de28',
           'task_id': 'task_00112233445566778899aabbccddeeff', 'originator_agent_id': 'agent_' + '0f' * 16,
           'principals': ['network'], 'deadline': '2026-10-10T00:00:00Z', 'depth': 2,
-          'signature': '/0HegHFCfUgKX6UpzfgGus1zCT+yenfwMXilPs5/XmW1OOWJM8QzNHS1XTchodJnQ5ceCXm2a+fHE1TSGssbDA=='}
-VECTOR_HASH = '008fbde97103a352b90839c243a0400d5b96427c3cc41aa56950fe559d7e8dae'
+          'signature': 'S2sFkjmIIkmXC6D4qNIerxRpeYZ0GNL22iWGjG2TPLCX1PnV+x0sGr7rG8BfOHS4hzyQRiSh//2Rh8ZwhhliCQ=='}
+VECTOR_HASH = 'bc5f57c2363071701a685c896296288dbb90d293604e20ee6ca38153bbc474a3'
 
 
 def statement(link):

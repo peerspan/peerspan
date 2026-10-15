@@ -313,11 +313,11 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 	family := func(name, kind, help string) {
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, kind)
 	}
-	family("capsule_coord_info", "gauge", "The build's version, always 1.")
-	fmt.Fprintf(&b, "capsule_coord_info{version=%s} 1\n", labelValue(Version))
+	family("peerspan_coord_info", "gauge", "The build's version, always 1.")
+	fmt.Fprintf(&b, "peerspan_coord_info{version=%s} 1\n", labelValue(Version))
 	for _, gauge := range []struct{ name, help, query string }{
-		{"capsule_coord_networks", "Registered networks.", `SELECT COUNT(*) FROM networks`},
-		{"capsule_coord_member_hosts", "Current member hosts across networks, excluding revoked and departed hosts.", `SELECT COUNT(*) FROM members`},
+		{"peerspan_coord_networks", "Registered networks.", `SELECT COUNT(*) FROM networks`},
+		{"peerspan_coord_member_hosts", "Current member hosts across networks, excluding revoked and departed hosts.", `SELECT COUNT(*) FROM members`},
 	} {
 		n, err := s.countRows(r.Context(), gauge.query)
 		if err != nil {
@@ -327,15 +327,15 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 		family(gauge.name, "gauge", gauge.help)
 		fmt.Fprintf(&b, "%s %d\n", gauge.name, n)
 	}
-	family("capsule_coord_relay_connections", "gauge", "Open relay connections, by negotiated ALPN.")
+	family("peerspan_coord_relay_connections", "gauge", "Open relay connections, by negotiated ALPN.")
 	conns := s.relay.connections()
 	for _, alpn := range []string{relay.ALPN, relay.ALPNv2, relay.ALPNv3} {
-		fmt.Fprintf(&b, "capsule_coord_relay_connections{alpn=%s} %d\n", labelValue(alpn), conns[alpn])
+		fmt.Fprintf(&b, "peerspan_coord_relay_connections{alpn=%s} %d\n", labelValue(alpn), conns[alpn])
 	}
 
 	m := s.metrics
 	m.mu.Lock()
-	family("capsule_coord_requests_total", "counter", "Coordination API requests by route template and HTTP status.")
+	family("peerspan_coord_requests_total", "counter", "Coordination API requests by route template and HTTP status.")
 	keys := make([]requestKey, 0, len(m.requests))
 	for key := range m.requests {
 		keys = append(keys, key)
@@ -344,9 +344,9 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 		return keys[i].route < keys[j].route || keys[i].route == keys[j].route && keys[i].code < keys[j].code
 	})
 	for _, key := range keys {
-		fmt.Fprintf(&b, "capsule_coord_requests_total{route=%s,code=\"%d\"} %d\n", labelValue(key.route), key.code, m.requests[key])
+		fmt.Fprintf(&b, "peerspan_coord_requests_total{route=%s,code=\"%d\"} %d\n", labelValue(key.route), key.code, m.requests[key])
 	}
-	family("capsule_coord_request_seconds", "histogram", "Coordination API request duration by route template.")
+	family("peerspan_coord_request_seconds", "histogram", "Coordination API request duration by route template.")
 	routes := make([]string, 0, len(m.durations))
 	for route := range m.durations {
 		routes = append(routes, route)
@@ -357,31 +357,31 @@ func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 		var cumulative uint64
 		for i, upper := range requestBuckets {
 			cumulative += h.counts[i]
-			fmt.Fprintf(&b, "capsule_coord_request_seconds_bucket{route=%s,le=\"%s\"} %d\n", label, formatFloat(upper), cumulative)
+			fmt.Fprintf(&b, "peerspan_coord_request_seconds_bucket{route=%s,le=\"%s\"} %d\n", label, formatFloat(upper), cumulative)
 		}
-		fmt.Fprintf(&b, "capsule_coord_request_seconds_bucket{route=%s,le=\"+Inf\"} %d\n", label, h.count)
-		fmt.Fprintf(&b, "capsule_coord_request_seconds_sum{route=%s} %s\n", label, formatFloat(h.sum))
-		fmt.Fprintf(&b, "capsule_coord_request_seconds_count{route=%s} %d\n", label, h.count)
+		fmt.Fprintf(&b, "peerspan_coord_request_seconds_bucket{route=%s,le=\"+Inf\"} %d\n", label, h.count)
+		fmt.Fprintf(&b, "peerspan_coord_request_seconds_sum{route=%s} %s\n", label, formatFloat(h.sum))
+		fmt.Fprintf(&b, "peerspan_coord_request_seconds_count{route=%s} %d\n", label, h.count)
 	}
-	family("capsule_coord_limit_refusals_total", "counter", "Refusals with 429 and dropped relay frames, by limit.")
+	family("peerspan_coord_limit_refusals_total", "counter", "Refusals with 429 and dropped relay frames, by limit.")
 	limits := make([]string, 0, len(m.refusals))
 	for limit := range m.refusals {
 		limits = append(limits, limit)
 	}
 	sort.Strings(limits)
 	for _, limit := range limits {
-		fmt.Fprintf(&b, "capsule_coord_limit_refusals_total{limit=%s} %d\n", labelValue(limit), m.refusals[limit])
+		fmt.Fprintf(&b, "peerspan_coord_limit_refusals_total{limit=%s} %d\n", labelValue(limit), m.refusals[limit])
 	}
 	m.mu.Unlock()
-	family("capsule_coord_identity_hosts", "gauge", "Recent authenticated hosts per identity, bounded to 4096 tracked IDs plus an overflow marker.")
+	family("peerspan_coord_identity_hosts", "gauge", "Recent authenticated hosts per identity, bounded to 4096 tracked IDs plus an overflow marker.")
 	seen := s.hosts.counts(time.Now())
 	for _, sequence := range s.sortedSequences() {
-		fmt.Fprintf(&b, "capsule_coord_identity_hosts{sequence=\"%d\"} %d\n", sequence, seen[sequence])
+		fmt.Fprintf(&b, "peerspan_coord_identity_hosts{sequence=\"%d\"} %d\n", sequence, seen[sequence])
 	}
-	family("capsule_coord_relay_bytes_total", "counter", "Relayed datagram bytes, as counted for --relay-bytes-per-month.")
-	fmt.Fprintf(&b, "capsule_coord_relay_bytes_total %d\n", m.relayBytes.Load())
-	family("capsule_coord_changes_notified_total", "counter", "Changed frames sent.")
-	fmt.Fprintf(&b, "capsule_coord_changes_notified_total %d\n", m.notified.Load())
+	family("peerspan_coord_relay_bytes_total", "counter", "Relayed datagram bytes, as counted for --relay-bytes-per-month.")
+	fmt.Fprintf(&b, "peerspan_coord_relay_bytes_total %d\n", m.relayBytes.Load())
+	family("peerspan_coord_changes_notified_total", "counter", "Changed frames sent.")
+	fmt.Fprintf(&b, "peerspan_coord_changes_notified_total %d\n", m.notified.Load())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	_, _ = io.WriteString(w, b.String())

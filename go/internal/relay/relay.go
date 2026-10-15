@@ -1,5 +1,5 @@
 // Package relay defines the frames that carry already-encrypted peer QUIC
-// datagrams between hosts and the capsule-coord relay. A relay never sees
+// datagrams between hosts and the peerspan-coord relay. A relay never sees
 // plaintext: the peer TLS connection runs end to end inside the datagrams.
 package relay
 
@@ -16,9 +16,9 @@ import (
 // 2 adds the changed frame and version 3 the presence frame; hosts offer the
 // newest first and coordinators prefer it.
 const (
-	ALPN   = "capsule-relay/1"
-	ALPNv2 = "capsule-relay/2"
-	ALPNv3 = "capsule-relay/3"
+	ALPN   = "peerspan-relay/1"
+	ALPNv2 = "peerspan-relay/2"
+	ALPNv3 = "peerspan-relay/3"
 )
 
 const (

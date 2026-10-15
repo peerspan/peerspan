@@ -30,17 +30,17 @@ func TestDelegationLinkVector(t *testing.T) {
 	if l0.IssuerHostID != "host_56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c" || l1.IssuerHostID != "host_24f6ed6acbfe1009c030d7ca567c33ca4830911498236b5561a6c82abec5de28" {
 		t.Fatalf("host IDs: %s %s", l0.IssuerHostID, l1.IssuerHostID)
 	}
-	statement := "capsule-delegation-v1\nnet_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n0\nnone\nhost_56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c\nhost_24f6ed6acbfe1009c030d7ca567c33ca4830911498236b5561a6c82abec5de28\ntask_00112233445566778899aabbccddeeff\nagent_0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f\nnetwork\n2026-10-10T00:00:00Z\n2"
+	statement := "peerspan-delegation-v1\nnet_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n0\nnone\nhost_56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c\nhost_24f6ed6acbfe1009c030d7ca567c33ca4830911498236b5561a6c82abec5de28\ntask_00112233445566778899aabbccddeeff\nagent_0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f\nnetwork\n2026-10-10T00:00:00Z\n2"
 	if string(l0.Message()) != statement {
 		t.Fatalf("statement: %q", l0.Message())
 	}
-	if l0.Signature != "/0HegHFCfUgKX6UpzfgGus1zCT+yenfwMXilPs5/XmW1OOWJM8QzNHS1XTchodJnQ5ceCXm2a+fHE1TSGssbDA==" {
+	if l0.Signature != "S2sFkjmIIkmXC6D4qNIerxRpeYZ0GNL22iWGjG2TPLCX1PnV+x0sGr7rG8BfOHS4hzyQRiSh//2Rh8ZwhhliCQ==" {
 		t.Fatalf("signature 0: %s", l0.Signature)
 	}
-	if l0.Hash() != "008fbde97103a352b90839c243a0400d5b96427c3cc41aa56950fe559d7e8dae" || l1.Previous != l0.Hash() {
+	if l0.Hash() != "bc5f57c2363071701a685c896296288dbb90d293604e20ee6ca38153bbc474a3" || l1.Previous != l0.Hash() {
 		t.Fatalf("hash 0: %s", l0.Hash())
 	}
-	if l1.Signature != "8ia6PgHdHMr0Nd/e1Etgk/X9K6CXmx2ECHMBU55sJp0BdWvcL09B5a8rHnym+2fcTFpw0dfY9EStHIwWWnKuCA==" || l1.Hash() != "b08c4c997950063e8110c791131b6e66c530fa3ecf18df4c17a4f7ff329753bd" {
+	if l1.Signature != "p084GJDwcslS5CxDwZqspuxecXittC3XEV2UyGHMSX26xoCN49NAOFeWdfzKpRNfYoSBYaEe5nO4AGAXqyzuDA==" || l1.Hash() != "3b01028b7cb9b4d5ed6f23ba49e92966030711983a17792a11edd23834926d1c" {
 		t.Fatalf("link 1: %s %s", l1.Signature, l1.Hash())
 	}
 	if VerifyLink(k0.Public().(ed25519.PublicKey), l0) != nil || VerifyLink(k1.Public().(ed25519.PublicKey), l1) != nil {
@@ -56,7 +56,7 @@ func TestDelegationLinkVector(t *testing.T) {
 	}
 	// JSON keys follow the table order.
 	data, _ := json.Marshal(l0)
-	if !strings.HasPrefix(string(data), `{"network_id":"net_0123`) || !strings.Contains(string(data), `"principals":["network"],"deadline":"2026-10-10T00:00:00Z","depth":2,"signature":"/0He`) {
+	if !strings.HasPrefix(string(data), `{"network_id":"net_0123`) || !strings.Contains(string(data), `"principals":["network"],"deadline":"2026-10-10T00:00:00Z","depth":2,"signature":"S2sF`) {
 		t.Fatalf("json: %s", data)
 	}
 	var back Link

@@ -97,14 +97,14 @@ func loadManifest(root, id, runner string) (Manifest, error) {
 		return Manifest{}, errors.New("use a valid --harness ID")
 	}
 	if root == "" {
-		root = os.Getenv("CAPSULE_INTEGRATIONS_DIR")
+		root = os.Getenv("PEERSPAN_INTEGRATIONS_DIR")
 	}
 	if root == "" {
 		binary, err := os.Executable()
 		if err != nil {
 			return Manifest{}, err
 		}
-		root = filepath.Join(filepath.Dir(binary), "..", "share", "capsule", "integrations")
+		root = filepath.Join(filepath.Dir(binary), "..", "share", "peerspan", "integrations")
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -273,15 +273,15 @@ func provider(ctx context.Context, p *Profile, op, workspace string, args []stri
 	}}
 	if op == "launch" {
 		// The launch names the running CLI, which the Claude integration's
-		// session start hook runs as `capsule session pending --hook`.
+		// session start hook runs as `peerspan session pending --hook`.
 		executable, err := os.Executable()
 		if err == nil {
 			executable, err = filepath.Abs(executable)
 		}
 		if err != nil {
-			return providerResult{}, fmt.Errorf("could not find the running capsule executable: %w", err)
+			return providerResult{}, fmt.Errorf("could not find the running peerspan executable: %w", err)
 		}
-		input["context"].(map[string]any)["capsule_executable"] = executable
+		input["context"].(map[string]any)["peerspan_executable"] = executable
 	}
 	data, err := json.Marshal(input)
 	if err != nil || len(data) > limit {

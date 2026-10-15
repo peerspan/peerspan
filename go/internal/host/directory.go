@@ -924,7 +924,7 @@ func (s *Store) nameConflicts(ctx context.Context, tx *sql.Tx, attend func(kind,
 			case "claude-code":
 				harness = "claude"
 			}
-			attend("agent_name_conflict", n.network+"/"+name, fmt.Sprintf("agent %s (%s) on this host shares its name with your agent on %s; addresses by name are ambiguous", name, locals[name].id, strings.Join(ids, ", ")), "capsule attach "+harness+" --name NEW")
+			attend("agent_name_conflict", n.network+"/"+name, fmt.Sprintf("agent %s (%s) on this host shares its name with your agent on %s; addresses by name are ambiguous", name, locals[name].id, strings.Join(ids, ", ")), "peerspan attach "+harness+" --name NEW")
 		}
 	}
 	return nil

@@ -598,7 +598,7 @@ func (p *Profile) Launchable() bool { return p.Harness.supports("launch") }
 // the daemon's existing atomic setup/rotation API.
 func Run(ctx context.Context, o Options, out io.Writer) error {
 	if o.Program == "" {
-		o.Program = "capsule-host"
+		o.Program = "peerspan-host"
 	}
 	if o.Action == "setup" {
 		p, err := Setup(ctx, o)

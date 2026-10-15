@@ -23,9 +23,9 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// programName is the base name the CLI was invoked as, capsule or
-// capsule-host; help and diagnostics use it.
-var programName = "capsule-host"
+// programName is the base name the CLI was invoked as, peerspan or
+// peerspan-host; help and diagnostics use it.
+var programName = "peerspan-host"
 
 // exitStatus ends the CLI with a status code and no error message.
 type exitStatus int

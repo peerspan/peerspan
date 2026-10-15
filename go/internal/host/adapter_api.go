@@ -25,7 +25,7 @@ func AdapterHandler(store *Store) http.Handler {
 		if !ok {
 			return AdapterAuth{}
 		}
-		instance := r.Header.Values("X-Capsule-Instance")
+		instance := r.Header.Values("X-Peerspan-Instance")
 		if len(instance) != 1 {
 			return AdapterAuth{Token: value}
 		}

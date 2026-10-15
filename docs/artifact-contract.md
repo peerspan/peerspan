@@ -25,7 +25,7 @@ Artifacts are **off unless allowed**. A `task.submit` grant or policy rule carri
   - `reviewer` for `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2`, `message.append task.submit`, line 5 `65536 false 1048576`;
   - `triage` for `network`, `task.submit`, line 5 `4096 true`.
 
-  Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGaZoSLXB4mfYtcitytb/FSRHPWfWO9ccCJCeCjSHNdTcKmOAqDW7dIY4AQIIaVkOU0M+rQMJGDYfvkT+5dnQBw==`.
+  Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQM53FmawC5CSxjCe7Vko24T8Nwgm7KauP0HIie0h+zrLpWGllaBfSB0oOJVnL/hZamrfIgt6wJiBJWwRA5JnogM=`.
 - **Submission:** a request whose input manifest total exceeds the authorizing bound returns 403, as an oversized input does.
 - **Results:** the bound is the one checked when the agent accepted the task. It is stored as an internal `max_artifact_bytes` key in the received task's record and never served. A completion whose result total, plus the input total, exceeds it returns 403 and changes nothing. Later revocation does not affect an accepted task, as for its other results.
 

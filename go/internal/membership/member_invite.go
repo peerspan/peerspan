@@ -12,7 +12,7 @@ import (
 // MemberTokenPrefix marks a member invite: one invite key signed by the root
 // both as a host invite and as a person invite, so a single token can join a
 // host and admit the person who runs it.
-const MemberTokenPrefix = "capsule-member-invite-v1."
+const MemberTokenPrefix = "peerspan-member-invite-v1."
 
 // MemberToken is a host invite token plus the person half of the same invite.
 type MemberToken struct {

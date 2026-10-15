@@ -1,4 +1,4 @@
-// Package coord implements capsule-coord, the coordination service. It stores
+// Package coord implements peerspan-coord, the coordination service. It stores
 // signed membership chains, enforces single use of invite keys, records
 // advertised addresses, and serves network maps. It is trusted for
 // availability only: hosts verify every chain they receive.
@@ -126,13 +126,13 @@ func DefaultStateDir() (string, error) {
 		if !filepath.IsAbs(dir) {
 			return "", errors.New("XDG_STATE_HOME must be an absolute path")
 		}
-		return filepath.Join(dir, "capsule", "coord"), nil
+		return filepath.Join(dir, "peerspan", "coord"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", "capsule", "coord"), nil
+	return filepath.Join(home, ".local", "state", "peerspan", "coord"), nil
 }
 
 func privateDir(dir string, create bool) (string, error) {

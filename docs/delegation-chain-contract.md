@@ -49,7 +49,7 @@ Bindings are read from the verifier's current membership view.
   - originator agent `agent_0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f`;
   - principals `network`, deadline `2026-10-10T00:00:00Z`, depth 2.
 
-  Its signature is `/0HegHFCfUgKX6UpzfgGus1zCT+yenfwMXilPs5/XmW1OOWJM8QzNHS1XTchodJnQ5ceCXm2a+fHE1TSGssbDA==`, and its hash is `008fbde97103a352b90839c243a0400d5b96427c3cc41aa56950fe559d7e8dae`.
+  Its signature is `S2sFkjmIIkmXC6D4qNIerxRpeYZ0GNL22iWGjG2TPLCX1PnV+x0sGr7rG8BfOHS4hzyQRiSh//2Rh8ZwhhliCQ==`, and its hash is `bc5f57c2363071701a685c896296288dbb90d293604e20ee6ca38153bbc474a3`.
 - **Link 1:** signed by the second key, with the following fields:
   - the same network and originator agent;
   - index 1, with that hash as `previous`;
@@ -57,7 +57,7 @@ Bindings are read from the verifier's current membership view.
   - task `task_ffeeddccbbaa99887766554433221100`;
   - principals `network`, deadline `2026-10-09T12:00:00Z`, depth 1.
 
-  Its signature is `8ia6PgHdHMr0Nd/e1Etgk/X9K6CXmx2ECHMBU55sJp0BdWvcL09B5a8rHnym+2fcTFpw0dfY9EStHIwWWnKuCA==`.
+  Its signature is `p084GJDwcslS5CxDwZqspuxecXittC3XEV2UyGHMSX26xoCN49NAOFeWdfzKpRNfYoSBYaEe5nO4AGAXqyzuDA==`.
 
 ## Verification
 

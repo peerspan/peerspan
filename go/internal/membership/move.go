@@ -27,7 +27,7 @@ var moveFields = []string{"network_id", "sequence", "address", "public_key", "mo
 
 // MoveStatement is the text a move's signer signs.
 func MoveStatement(network string, sequence int64, address, publicKey, movedAt string) []byte {
-	return statement("capsule-coordinator-move-v1", network, strconv.FormatInt(sequence, 10), address, publicKey, movedAt)
+	return statement("peerspan-coordinator-move-v1", network, strconv.FormatInt(sequence, 10), address, publicKey, movedAt)
 }
 
 func (m Move) Message() []byte {

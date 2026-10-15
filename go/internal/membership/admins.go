@@ -160,10 +160,10 @@ type GroupDefinition struct {
 }
 
 func (d AdminDelegation) Message() []byte {
-	return statement("capsule-admin-delegate-v1", d.NetworkID, strconv.FormatInt(d.Epoch, 10), d.PersonPublicKey, d.DelegatedAt)
+	return statement("peerspan-admin-delegate-v1", d.NetworkID, strconv.FormatInt(d.Epoch, 10), d.PersonPublicKey, d.DelegatedAt)
 }
 func (r AdminRemoval) Message() []byte {
-	return statement(append([]string{"capsule-admin-remove-v1", r.NetworkID, r.PersonPublicKey, strconv.FormatBool(r.RevokeAdmitted), r.RemovedAt}, r.Kept...)...)
+	return statement(append([]string{"peerspan-admin-remove-v1", r.NetworkID, r.PersonPublicKey, strconv.FormatBool(r.RevokeAdmitted), r.RemovedAt}, r.Kept...)...)
 }
 
 // StatementDigest is the lowercase hex SHA-256 of a statement's signed lines.
@@ -189,7 +189,7 @@ func validKept(r AdminRemoval) bool {
 	return true
 }
 func (g GroupDefinition) Message() []byte {
-	return statement(append([]string{"capsule-group-v1", g.NetworkID, g.Name, strconv.FormatInt(g.Version, 10), g.DefinedAt}, g.Members...)...)
+	return statement(append([]string{"peerspan-group-v1", g.NetworkID, g.Name, strconv.FormatInt(g.Version, 10), g.DefinedAt}, g.Members...)...)
 }
 
 func (d *AdminDelegation) UnmarshalJSON(data []byte) error {

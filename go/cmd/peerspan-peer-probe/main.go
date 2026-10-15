@@ -1,14 +1,14 @@
-// capsule-peer-probe is a conformance test client for the peer wire format. It
+// peerspan-peer-probe is a conformance test client for the peer wire format. It
 // presents a certificate for the given host key but performs no pin check, so
 // suites can exercise the peer router directly. It is not a daemon client.
 //
 // Subcommands let suites forge delegation chains:
 //
-//	capsule-peer-probe sign-link (--state DIR | --seed-hex HEX) --network-id ID --index N --previous P
+//	peerspan-peer-probe sign-link (--state DIR | --seed-hex HEX) --network-id ID --index N --previous P
 //	    --issuer HOST --audience HOST --task-id ID --originator-agent ID --principal P [--principal P ...]
 //	    --deadline TIME --depth N
-//	capsule-peer-probe link-hash < LINK_JSON
-//	capsule-peer-probe submit-task (--state DIR | --seed-hex HEX) --address IP:PORT --request JSON --chain JSON
+//	peerspan-peer-probe link-hash < LINK_JSON
+//	peerspan-peer-probe submit-task (--state DIR | --seed-hex HEX) --address IP:PORT --request JSON --chain JSON
 //
 // sign-link prints the link signed with that host key, exactly as given:
 // principals keep their order and nothing is validated. link-hash prints the
@@ -171,7 +171,7 @@ func newSubmitTaskCommand() *cobra.Command {
 }
 
 func newExchangeCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "capsule-peer-probe", Short: "Send a conformance request directly to a peer", Args: cobra.NoArgs, SilenceErrors: true, SilenceUsage: true}
+	cmd := &cobra.Command{Use: "peerspan-peer-probe", Short: "Send a conformance request directly to a peer", Args: cobra.NoArgs, SilenceErrors: true, SilenceUsage: true}
 	fs := cmd.Flags()
 	seedHex := fs.String("seed-hex", "", "32-byte Ed25519 seed, hex")
 	state := fs.String("state", "", "host state directory whose key authenticates, instead of --seed-hex")
@@ -201,7 +201,7 @@ func newExchangeCommand() *cobra.Command {
 
 // exchange sends one request and prints {status, body}.
 func exchange(key ed25519.PrivateKey, address, alpn, method, path string, payload []byte) error {
-	cert, err := tlsid.Certificate(key, "capsule-peer-probe", time.Now())
+	cert, err := tlsid.Certificate(key, "peerspan-peer-probe", time.Now())
 	if err != nil {
 		return err
 	}

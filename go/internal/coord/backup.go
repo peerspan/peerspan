@@ -17,7 +17,7 @@ import (
 // Backup and restore of the coordinator database. A backup includes the
 // private key, so every file written here is mode 0600.
 
-// BackupResult is printed by capsule-coord backup.
+// BackupResult is printed by peerspan-coord backup.
 type BackupResult struct {
 	File        string `json:"file"`
 	Bytes       int64  `json:"bytes"`
@@ -25,7 +25,7 @@ type BackupResult struct {
 	UserVersion int    `json:"user_version"`
 }
 
-// RestoreResult is printed by capsule-coord restore.
+// RestoreResult is printed by peerspan-coord restore.
 type RestoreResult struct {
 	ID          string  `json:"id"`
 	UserVersion int     `json:"user_version"`

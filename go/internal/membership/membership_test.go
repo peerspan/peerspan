@@ -14,10 +14,10 @@ var vector = Membership{
 	Member:          "alice",
 	InvitePublicKey: "gTl3Dqh9F19Wo1Rmw0x+zMuNipG07jeiXfYPW4/Js5Q=",
 	InviteExpiresAt: "2026-11-01T00:00:00Z",
-	InviteSignature: "3WTE8i0clTO4PNMXiWiCgVkYWUzS8nCySGhYZWXDwBmz7K416+cmh5Qb6mSrCU+MNDuSudNWXklbsCc8m+Y4Cw==",
+	InviteSignature: "jCdKpz/36wwIgHnZmbIALehw0KPuFefRlkKMmgIv3f1aJfCpfqf4bDJm/WUbI2ONX5oW+ZN4i08YSsCWwusCAg==",
 	HostPublicKey:   "7UkoxijRwsbq6QM4kFmVYSlZJzpcY/k2NsFGFKyHN9E=",
 	JoinedAt:        "2026-10-05T12:00:00Z",
-	HostSignature:   "YD6gwCNa6yQT1ofoSqCR4iDpvG4887BtCcZsGXebPSfX4siZx6z6XnzY2AYM5GoAzdX1SsNIAG4I/kkkIQLWCg==",
+	HostSignature:   "V5T2OGpQUQ7F6923mnjWVeyYGopVhMNz6eLP4V0WQSqlPJHS59w+YE1CSDapAAA3w8dxKqxmVFm0R55l7W8SBw==",
 }
 
 const (
@@ -167,7 +167,7 @@ func TestTokenRoundTripAndChecks(t *testing.T) {
 			t.Errorf("mutation %d accepted", i)
 		}
 	}
-	for _, bad := range []string{"", encoded[len(TokenPrefix):], encoded + "=", "capsule-invite-v1.!!"} {
+	for _, bad := range []string{"", encoded[len(TokenPrefix):], encoded + "=", "peerspan-invite-v1.!!"} {
 		if _, err := DecodeToken(bad, time.Now()); err == nil {
 			t.Errorf("accepted %q", bad)
 		}

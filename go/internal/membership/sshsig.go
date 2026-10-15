@@ -15,7 +15,7 @@ import (
 // signatures. Only ssh-ed25519 keys are supported.
 
 const (
-	PersonNamespace = "capsule-person-v1"
+	PersonNamespace = "peerspan-person-v1"
 	sshsigMagic     = "SSHSIG"
 	sshsigHash      = "sha512"
 	sshEd25519      = "ssh-ed25519"

@@ -50,14 +50,14 @@ type IdentityInfo struct {
 	Address   *string `json:"address"`
 }
 
-// Info is printed by capsule-coord info: the latest identity and all of them.
+// Info is printed by peerspan-coord info: the latest identity and all of them.
 type Info struct {
 	ID         string         `json:"id"`
 	PublicKey  string         `json:"public_key"`
 	Identities []IdentityInfo `json:"identities"`
 }
 
-// SuccessorResult is printed by capsule-coord successor.
+// SuccessorResult is printed by peerspan-coord successor.
 type SuccessorResult struct {
 	Sequence  int64                `json:"sequence"`
 	ID        string               `json:"id"`
@@ -308,7 +308,7 @@ func (s *Server) withSuccessors(r *http.Request, m *membership.Map) any {
 }
 
 // identityHostWindow is how long a host counts toward its listener's
-// capsule_coord_identity_hosts.
+// peerspan_coord_identity_hosts.
 const identityHostWindow = 24 * time.Hour
 const identityHostLimit = 4096
 const identityHostSweep = time.Minute

@@ -124,7 +124,7 @@ func (s *Store) resolveAddress(ctx context.Context, to, network, action, origin 
 		}
 		return addressTarget{}, &codedError{status: http.StatusConflict, code: "ambiguous", message: fmt.Sprintf("the address %s names more than one agent: %s; use HOST_ID/AGENT or --network", to, strings.Join(names, ", ")), matches: listed}
 	case matches[0].local:
-		return addressTarget{}, &codedError{status: http.StatusBadRequest, code: "local", message: fmt.Sprintf("the address %s names an agent on this host; Capsule has no local delivery", to), matches: []AddressMatch{}}
+		return addressTarget{}, &codedError{status: http.StatusBadRequest, code: "local", message: fmt.Sprintf("the address %s names an agent on this host; Peerspan has no local delivery", to), matches: []AddressMatch{}}
 	}
 	return matches[0], nil
 }

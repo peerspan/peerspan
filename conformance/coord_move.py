@@ -232,12 +232,12 @@ def check_vector(keys):
     # Self-checks of this suite's encodings against the coordination contract's vectors.
     revoke = ['capsule-revoke-host-v1', VECTOR['network_id'], VECTOR['host_public'], '2026-10-07T00:00:00Z']
     need(base64.b64encode(sign_bytes(root, '\n'.join(revoke).encode())).decode() ==
-         '651E7LldaU/s+qQra4F9e6uJ5sDvFfYI0Nc+x4WdmfciBtVME9wp+fNq034EGTB2utFOLkPxhOg3k8gujAI7Ag==',
+         'jclqdyH6N8H3WoO07mGA1trPc7WpmmvKIH1zibL1m9+zFoIK6ppGXuC7k8oXFhF8IWYtmuGGy70xBTsvkYzSCw==',
          'self-check: the host revocation vector (raw root signature)')
     bind = ['capsule-host-bind-v1', VECTOR['network_id'], VECTOR['person_public'], VECTOR['host_public'],
             '2026-10-08T00:00:00Z']
     need(sshsig(person, bind) ==
-         'U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADAULCAWp02fy0fuxtv6fhaI8PHqxyBPr6SzVcTupgU0xsTYIMciLKFSVOaqYIOshUcKvNhgbAmBsiz6Cbe7UBw==',
+         'U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQP3tgz3wWKkPfmQ/ZITbSIDUAz0nlbAJlaF5kdSFFJsoKS4SYIKScjsbnX73tyCVmIiekX2vBkXdqwKLJrbrCA0=',
          'self-check: the host binding SSHSIG vector')
     m = root_move(root, VECTOR['network_id'], 1, VECTOR['address'], VECTOR['new_public'], VECTOR['moved_at'])
     need(raw_verify(root.b64, move_lines(m), m['signature'], keys), 'the computed root move verifies')

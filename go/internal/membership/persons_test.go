@@ -17,13 +17,13 @@ const (
 	personIDVector  = "person_7599776c3085e3f9da0d13071eb0b4ab50fd2bf64c06dd92c2365af3a328eca3"
 	personAt        = "2026-10-08T00:00:00Z"
 	personInviteExp = "2026-11-01T00:00:00Z"
-	bindingVector   = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADAULCAWp02fy0fuxtv6fhaI8PHqxyBPr6SzVcTupgU0xsTYIMciLKFSVOaqYIOshUcKvNhgbAmBsiz6Cbe7UBw=="
-	unbindingVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkiK02ZWdpz63BExI0ccVmkrPSaSUJEVrherPRCB7IWIDjvE6x1VieH2UJnMuWmp5tiXmTHuTs4mxDyehsUr4AA=="
-	admissionVector = "57pOZqduTPBJKqC2gEAjW23pzd7zwul08CTAxX2KBRSlI36JJfb5WNf8x9LOlaLKK1jBL2r72mLJXIkpTYi+BA=="
-	inviteVector    = "DOs/7yFxVmC3IuPAcfqlF1EDczkw0++1gRZOjIQNCcK7d3nOPFDZoWcnrhMpBIzdLlEF6fR52K45m8TXGKNVAQ=="
-	memberVector    = "FP3SdKMjbdMcRQIsfMffRb6mnyqnDnX4hxj/cTz6DHyWeozcrRxdGU+/lYLEakp8tiS/jwOiCLJA/7DXhfOrDw=="
-	removalVector   = "gIGBRuXaZVCyEU+jkM1JUxo88yDrpZ8k7JbmKGObmeF14QeY2//Wdrn4CgetByjN4szTFbssvtuS6ynt3O8jBA=="
-	hostAdmitVector = "fYyNXrDCWJs61KeT2macWLkh/D+WVMI1i10iiC2mpFoQ9fz7EhDhy8KXAr+zjRfpdRzhzpGfAfEF4dBcMYGUCw=="
+	bindingVector   = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQP3tgz3wWKkPfmQ/ZITbSIDUAz0nlbAJlaF5kdSFFJsoKS4SYIKScjsbnX73tyCVmIiekX2vBkXdqwKLJrbrCA0="
+	unbindingVector = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQJXOR4aLniMbQzrThHujvY0iAmDG9ptZ4EWVDYn2wKiWlANqa0MFpwbAO2S2iC2EuElmSjYCM//Sz23WbhFKdAc="
+	admissionVector = "AteZLyZq4ZRDskSXA2B3z5ef4kxP6ZPAAdH9xa40fzuzMaln3zGp0HdR6Alb6JdNWkf4xA6YDVwW5hrnYumDCQ=="
+	inviteVector    = "0HACBZUtFLmsLMHRFb4LtaLtYf4G2nI4gC2vMxNRSa3o7Wadv66pbAHYP/Z4f0lh1JdM/vEW3mgl+ey1HGNbDQ=="
+	memberVector    = "qilofSGbTLjciUbkxth503LIM8V5GxmtQytdRk5c1BD2e/7iJ7hipZRTRI9aIUO3WqkS7XohJlrCMN4bFz31Dw=="
+	removalVector   = "Qw4rMkm3w7+P29EirszYiHa5aHcEek31WwW0SnZTqzd2jSWTN8BgIQ4xjMs59nj3m1SqxEhf5XAhG8jsGLp4BQ=="
+	hostAdmitVector = "eDc17Z64tWiMiwrS1M/WPTlQEnnrzKjafR9VuQIYo0CxHZbXZHvetrYhmjNss1GBitTvzAabMMB9x/NVwzReBQ=="
 )
 
 func TestPersonVectorsReproduce(t *testing.T) {
@@ -43,7 +43,7 @@ func TestPersonVectorsReproduce(t *testing.T) {
 	if err = binding.SignHost(mustSeed(t, hostSeed)); err != nil {
 		t.Fatal(err)
 	}
-	if binding.HostSignature != "xv+sVNH6/g1gJrknO2ImE97qrROduO2Oe0U4gvqcddbHibmhzR28SRWf7RtYUDizWnWE4Eufy3F1aijw6uvSDg==" {
+	if binding.HostSignature != "Cs9bDLLc4dP2hppQO1hOoEDRiiNBEGZf/ffsxPiqsUT+DFvFzkk91ikVyqMKcHfVY9EBpoknj+s4EnC7k3gOAQ==" {
 		t.Errorf("binding host_signature %s", binding.HostSignature)
 	}
 	unbinding, err := SignHostUnbinding(signer, net, vector.HostPublicKey, personAt)
@@ -94,7 +94,7 @@ func TestPersonVectorsReproduce(t *testing.T) {
 
 func TestSSHSIGRejectsTamperingNamespaceAndKeyType(t *testing.T) {
 	person := KeySigner{mustSeed(t, personSeed)}
-	message := []byte("capsule test")
+	message := []byte("peerspan test")
 	good, err := SignSSHSIG(person, message)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestSSHSIGRejectsTamperingNamespaceAndKeyType(t *testing.T) {
 	if err = VerifySSHSIG(person.PublicKey(), message, good); err != nil {
 		t.Fatal(err)
 	}
-	if VerifySSHSIG(person.PublicKey(), []byte("capsule tesT"), good) == nil {
+	if VerifySSHSIG(person.PublicKey(), []byte("peerspan tesT"), good) == nil {
 		t.Fatal("changed message verified")
 	}
 	other := mustSeed(t, hostSeed).Public().(ed25519.PublicKey)

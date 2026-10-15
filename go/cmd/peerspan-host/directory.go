@@ -231,9 +231,9 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 		return identity.ID + "/" + name
 	}
 	print := func(p *integration.Profile, reused bool) error {
-		next := "capsule session doctor"
+		next := "peerspan session doctor"
 		if p.Launchable() {
-			next = "capsule session start"
+			next = "peerspan session start"
 		}
 		result := map[string]any{
 			"agent": attachAgent{agent.ID, agent.Name, address(agent.Name)}, "session_id": p.SessionID, "adapter_id": p.AdapterID,

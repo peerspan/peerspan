@@ -98,7 +98,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 // in JSON order. A nonzero max_artifact_bytes is appended to the fifth line,
 // so policies without artifacts sign as before.
 func (p Policy) Message() []byte {
-	lines := []string{"capsule-policy-v1", p.NetworkID, p.PersonPublicKey, strconv.FormatInt(p.Version, 10), p.IssuedAt, p.ValidUntil}
+	lines := []string{"peerspan-policy-v1", p.NetworkID, p.PersonPublicKey, strconv.FormatInt(p.Version, 10), p.IssuedAt, p.ValidUntil}
 	for _, r := range p.Rules {
 		bounds := strconv.FormatInt(r.MaxMessageBytes, 10) + " " + strconv.FormatBool(r.AllowDisconnected)
 		if r.MaxArtifactBytes != 0 {

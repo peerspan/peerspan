@@ -134,14 +134,14 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return st, err
 	}
 	if failed > 0 {
-		attend("tasks_failed", strconv.Itoa(failed), fmt.Sprintf("%d outbound tasks failed, were rejected, or expired in the last 24 hours", failed), "capsule task list")
+		attend("tasks_failed", strconv.Itoa(failed), fmt.Sprintf("%d outbound tasks failed, were rejected, or expired in the last 24 hours", failed), "peerspan task list")
 	}
 	st.Artifacts.Quota = s.quota()
 	if st.Artifacts.StoredBytes, st.Artifacts.PendingBytes, err = artifactUsage(ctx, tx); err != nil {
 		return st, err
 	}
 	if used := st.Artifacts.StoredBytes + st.Artifacts.PendingBytes; used*10 > st.Artifacts.Quota*9 {
-		attend("artifact_quota", "artifacts", fmt.Sprintf("%d of %d artifact bytes are stored or pending", used, st.Artifacts.Quota), "capsule artifact prune")
+		attend("artifact_quota", "artifacts", fmt.Sprintf("%d of %d artifact bytes are stored or pending", used, st.Artifacts.Quota), "peerspan artifact prune")
 	}
 	s.personAgentAttention(owners, attend)
 	if err = s.nameConflicts(ctx, tx, attend); err != nil {
@@ -177,7 +177,7 @@ func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, ow
 	for _, n := range networks {
 		ns := NetworkStatus{ID: n.ID, Name: n.Name, Coordinator: n.CoordinatorAddress, LastSyncAt: n.LastSyncAt, LastSyncError: n.LastSyncError}
 		if n.LastSyncError != nil {
-			attend("coordination_error", n.ID, *n.LastSyncError, "capsule network sync "+n.ID)
+			attend("coordination_error", n.ID, *n.LastSyncError, "peerspan network sync "+n.ID)
 		}
 		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM network_members WHERE network_id = ?`, n.ID).Scan(&ns.Members); err != nil {
 			return nil, err
@@ -197,7 +197,7 @@ func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, ow
 				if p, ok := g.storedPolicy(key); ok {
 					ns.Policy = &StatusPolicy{Version: p.Version, ValidUntil: p.ValidUntil}
 					owners[n.ID] = key
-					renew := "capsule access renew --network " + n.ID
+					renew := "peerspan access renew --network " + n.ID
 					until, _ := membership.ParseTime(p.ValidUntil)
 					switch {
 					case !now.Before(until):
@@ -238,7 +238,7 @@ func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, ow
 					if rec.Error != nil {
 						detail += ": " + *rec.Error
 					}
-					attend("policy_delivery_failing", n.ID+"/"+target, detail, "capsule access sync --network "+n.ID)
+					attend("policy_delivery_failing", n.ID+"/"+target, detail, "peerspan access sync --network "+n.ID)
 				}
 			}
 			deliveries.Close()
@@ -321,7 +321,7 @@ func agentStatus(ctx context.Context, tx *sql.Tx, now time.Time, attend func(kin
 				view.AdapterID, view.Connection, view.ExpiresAt, view.Renewable = &id, &c.State, &expires, chosen.Renewable
 				exp, _ := parseTime(expires)
 				if usable && !chosen.Renewable && ss.State == SessionAttached && !exp.After(now.Add(credentialAttentionWindow)) {
-					attend("credential_expiring", id, "the session credential expires at "+expires, "capsule session setup --agent "+agents[i].ID+" --harness "+ss.Integration)
+					attend("credential_expiring", id, "the session credential expires at "+expires, "peerspan session setup --agent "+agents[i].ID+" --harness "+ss.Integration)
 				}
 			}
 			agents[i].Sessions = append(agents[i].Sessions, view)
@@ -386,7 +386,7 @@ func (s *Store) personAgentAttention(owners map[string]string, attend func(kind,
 			continue
 		}
 		detail := err.Error()
-		attend("person_agent_unreachable", network, detail, "capsule install")
+		attend("person_agent_unreachable", network, detail, "peerspan install")
 	}
 }
 

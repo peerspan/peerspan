@@ -455,7 +455,7 @@ func TestArtifactUploadHoldAndRoutes(t *testing.T) {
 	}
 	req = httptest.NewRequest("POST", "/adapter/v1/artifacts?name=a", bytes.NewReader([]byte("adapter")))
 	req.Header.Set("Authorization", "Bearer "+f.auth.Token)
-	req.Header.Set("X-Capsule-Instance", f.auth.Instance)
+	req.Header.Set("X-Peerspan-Instance", f.auth.Instance)
 	w = httptest.NewRecorder()
 	adapter.ServeHTTP(w, req)
 	if w.Code != 200 {

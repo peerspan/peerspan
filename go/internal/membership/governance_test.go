@@ -22,11 +22,11 @@ func TestGovernanceVectorsReproduce(t *testing.T) {
 	}
 	net := vector.NetworkID
 	checks := []struct{ name, got, want string }{
-		{"host revocation", SignHostRevocation(root, net, vector.HostPublicKey, vectorAt).Signature, "651E7LldaU/s+qQra4F9e6uJ5sDvFfYI0Nc+x4WdmfciBtVME9wp+fNq034EGTB2utFOLkPxhOg3k8gujAI7Ag=="},
-		{"invite revocation", SignInviteRevocation(root, net, vector.InvitePublicKey, vectorAt).Signature, "XyB3LsP1IaDW5saYFuHlIr4IVvrELl9hmDW9sX3PNAVeUfJaOzx5gnv6YSkGScAR+8ymDzYLYZ+VQ4leDNBhCQ=="},
-		{"leave", SignLeave(host, net, vectorAt).Signature, "xM3Wn7Rl4G9jcG0fRUbbXjyFmWz1WcO4IC/tg8MrFOe9zEwWroQuSjo5Xhh92Mkwimg45gxfRCeOoxZC6/OeAA=="},
-		{"rotation", SignRotation(root, net, 1, next.Public().(ed25519.PublicKey), vectorAt).Signature, "etkSBT7+to1vTCpIt+m5PMyO93tht5QhAmnxVMNCwmreGUrXmCcI4YWqxfznXx6WHe8rNZ/jK7N2FWUiy9N2Bw=="},
-		{"attestation", SignAttestation(next, net, 1, vector.HostPublicKey, "alice", vectorAt).Signature, "TBfNG88UlHWcSV6f79Ie1RApfqPr36hehooyjGebNB50FTB1tl9neEm42Ja13jXniAc+hU1YpRxcFVzfsF+iBg=="},
+		{"host revocation", SignHostRevocation(root, net, vector.HostPublicKey, vectorAt).Signature, "jclqdyH6N8H3WoO07mGA1trPc7WpmmvKIH1zibL1m9+zFoIK6ppGXuC7k8oXFhF8IWYtmuGGy70xBTsvkYzSCw=="},
+		{"invite revocation", SignInviteRevocation(root, net, vector.InvitePublicKey, vectorAt).Signature, "pF9qtTO3npiuO+rf47SQ5PpgiSlq6dWYlIQPT+DTFO0PN9Yxf1bmacK83dinaY4qu+KMyk3JNnZW8v1CxZiJCA=="},
+		{"leave", SignLeave(host, net, vectorAt).Signature, "36abHHiIjCXzpVFnssBQAEV+guYtiZGp3hsd5JmpBSH9f8VnZun74fql4G622oBx4aQHZ733k+nSdAfI1xPmDg=="},
+		{"rotation", SignRotation(root, net, 1, next.Public().(ed25519.PublicKey), vectorAt).Signature, "gbWynmghmMqYfKSbPS5tnw20vNrvq8QqugZ4pJQ1IvhSUy0aO2VLtB7+VPFMJpinw7q+zyG52lMGyfaCSWPbCQ=="},
+		{"attestation", SignAttestation(next, net, 1, vector.HostPublicKey, "alice", vectorAt).Signature, "oqBN8M8UY8e9c41wKnms8ZwWoH9zoHjMc0lwYi8iYWtLykbyts25SRgt+s1agJmbBIfGAx8nJp0QaP3yzx1IAw=="},
 	}
 	for _, c := range checks {
 		if c.got != c.want {

@@ -14,8 +14,8 @@ import (
 
 func newCommand(out, errOut io.Writer) *cobra.Command {
 	root := &cobra.Command{
-		Use: programName, Short: "Run and control a local Capsule host daemon",
-		Long: `Run and control a local Capsule host daemon.
+		Use: programName, Short: "Run and control a local Peerspan host daemon",
+		Long: `Run and control a local Peerspan host daemon.
 
 Person keys are ssh-ed25519 keys in ssh-agent (SSH_AUTH_SOCK), or --person-key
 PATH naming a public key in the agent or an unencrypted OpenSSH private key file.
@@ -369,7 +369,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("expires-in", "", "relative credential lifetime (1m to 720h); excludes --expires-at")
 		fs.Int64("max-sends-per-hour", 100, "sends and delegations by address the session may make in any 60 minutes, 1 to 10000")
 		fs.StringArray("option", nil, "integration-specific KEY=VALUE; repeatable")
-		fs.String("integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")
+		fs.String("integrations", "", "integration bundle directory; defaults to PEERSPAN_INTEGRATIONS_DIR or installation")
 		fs.String("runner", "", "integration helper executable override")
 		fs.Bool("no-start", false, "set up only, print the result, and do not start the harness")
 	case "agents":
@@ -518,7 +518,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("advertise", "", "peer address advertised to coordination; defaults to a specific bind address")
 		fs.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
 		fs.String("person-agent", os.Getenv("SSH_AUTH_SOCK"), "ssh-agent socket for renewing access policies; defaults to SSH_AUTH_SOCK")
-		fs.String("person-key-file", "", "CLI-generated person key file for renewing access policies when the ssh-agent lacks the key; defaults to $XDG_CONFIG_HOME/capsule/person_ed25519, used while it exists")
+		fs.String("person-key-file", "", "CLI-generated person key file for renewing access policies when the ssh-agent lacks the key; defaults to $XDG_CONFIG_HOME/peerspan/person_ed25519, used while it exists")
 		fs.Int64("artifact-quota", host.DefaultArtifactQuota, "bytes of task artifacts this host stores, including pending fetches")
 	case "session setup", "session start", "session doctor":
 		if command == "setup" {
@@ -528,7 +528,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		}
 		if command == "setup" {
 			fs.String("harness", "", "installed harness integration ID")
-			fs.String("integrations", "", "integration bundle directory; defaults to CAPSULE_INTEGRATIONS_DIR or installation")
+			fs.String("integrations", "", "integration bundle directory; defaults to PEERSPAN_INTEGRATIONS_DIR or installation")
 			fs.String("runner", "", "integration helper executable override")
 			fs.String("agent", "", "registered agent ID")
 			fs.String("expires-at", "", "future RFC3339 authorization expiry; by default the authorization is renewable")

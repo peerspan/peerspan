@@ -1,7 +1,7 @@
 package host
 
 // A test executable exposing control only through the production private Unix
-// socket. The network echo endpoint never exists in shipped capsule-host.
+// socket. The network echo endpoint never exists in shipped peerspan-host.
 import (
 	"bufio"
 	"bytes"
@@ -23,7 +23,7 @@ import (
 )
 
 func TestConnectivityNetworkHelper(t *testing.T) {
-	state := os.Getenv("CAPSULE_NET_STATE")
+	state := os.Getenv("PEERSPAN_NET_STATE")
 	if state == "" {
 		t.Skip("opt-in network fixture helper")
 	}
@@ -34,7 +34,7 @@ func TestConnectivityNetworkHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	bind := os.Getenv("CAPSULE_NET_BIND")
+	bind := os.Getenv("PEERSPAN_NET_BIND")
 	if bind == "" {
 		bind = "0.0.0.0:7401"
 	}

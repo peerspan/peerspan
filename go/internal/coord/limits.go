@@ -28,7 +28,7 @@ type Limits struct {
 	RelayBytesPerMonth int64
 }
 
-// DefaultLimits are capsule-coord run's defaults.
+// DefaultLimits are peerspan-coord run's defaults.
 var DefaultLimits = Limits{MaxMembers: 50, MaxNetworksPerIP: 20, RelayBytesPerMonth: 10_000_000_000}
 
 // Limit names, as reported in a 429 body.

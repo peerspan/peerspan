@@ -73,19 +73,19 @@ type Revocation struct {
 func statement(lines ...string) []byte { return []byte(strings.Join(lines, "\n")) }
 
 func (r HostRevocation) Message() []byte {
-	return statement("capsule-revoke-host-v1", r.NetworkID, r.HostPublicKey, r.RevokedAt)
+	return statement("peerspan-revoke-host-v1", r.NetworkID, r.HostPublicKey, r.RevokedAt)
 }
 func (r InviteRevocation) Message() []byte {
-	return statement("capsule-revoke-invite-v1", r.NetworkID, r.InvitePublicKey, r.RevokedAt)
+	return statement("peerspan-revoke-invite-v1", r.NetworkID, r.InvitePublicKey, r.RevokedAt)
 }
 func (l Leave) Message() []byte {
-	return statement("capsule-leave-v1", l.NetworkID, l.HostPublicKey, l.LeftAt)
+	return statement("peerspan-leave-v1", l.NetworkID, l.HostPublicKey, l.LeftAt)
 }
 func (r Rotation) Message() []byte {
-	return statement("capsule-root-rotate-v1", r.NetworkID, strconv.FormatInt(r.Epoch, 10), r.PreviousRootPublicKey, r.RootPublicKey, r.RotatedAt)
+	return statement("peerspan-root-rotate-v1", r.NetworkID, strconv.FormatInt(r.Epoch, 10), r.PreviousRootPublicKey, r.RootPublicKey, r.RotatedAt)
 }
 func (a Attestation) Message() []byte {
-	return statement("capsule-attest-v1", a.NetworkID, strconv.FormatInt(a.Epoch, 10), a.HostPublicKey, a.Member, a.AttestedAt)
+	return statement("peerspan-attest-v1", a.NetworkID, strconv.FormatInt(a.Epoch, 10), a.HostPublicKey, a.Member, a.AttestedAt)
 }
 
 func (r *HostRevocation) UnmarshalJSON(data []byte) error {

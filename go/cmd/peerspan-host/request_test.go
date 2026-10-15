@@ -14,7 +14,7 @@ func request(args []string, errOut io.Writer) (method, path string, body any, er
 	replace = func(cmd *cobra.Command) {
 		if cmd.RunE != nil && cmd != root {
 			cmd.RunE = func(cmd *cobra.Command, positional []string) error {
-				parts := strings.Fields(strings.TrimPrefix(cmd.CommandPath(), "capsule-host "))
+				parts := strings.Fields(strings.TrimPrefix(cmd.CommandPath(), "peerspan-host "))
 				var buildErr error
 				method, path, body, buildErr = buildRequest(append(parts, positional...), cmd.Flags())
 				return buildErr

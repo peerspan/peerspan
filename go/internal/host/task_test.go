@@ -591,7 +591,7 @@ func TestAdapterTaskHTTPBodies(t *testing.T) {
 	call := func(path, body string) int {
 		req := httptest.NewRequest("POST", path, strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+f.auth.Token)
-		req.Header.Set("X-Capsule-Instance", f.auth.Instance)
+		req.Header.Set("X-Peerspan-Instance", f.auth.Instance)
 		w := httptest.NewRecorder()
 		AdapterHandler(f.receiver).ServeHTTP(w, req)
 		return w.Code
@@ -616,7 +616,7 @@ func TestAdapterTaskHTTPBodies(t *testing.T) {
 	var status TaskStatus
 	req := httptest.NewRequest("POST", base+"/cancelled", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer "+f.auth.Token)
-	req.Header.Set("X-Capsule-Instance", f.auth.Instance)
+	req.Header.Set("X-Peerspan-Instance", f.auth.Instance)
 	w := httptest.NewRecorder()
 	AdapterHandler(f.receiver).ServeHTTP(w, req)
 	if w.Code != http.StatusConflict || json.Unmarshal(w.Body.Bytes(), &status) != nil {
