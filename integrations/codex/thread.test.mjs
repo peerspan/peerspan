@@ -91,7 +91,7 @@ test('ambiguous queue acknowledgement is never retried', async () => {
   await assert.rejects(thread.submit('one'), /response lost/);
   assert.equal(thread.pending.length, 0);
 });
-test('Capsule input cannot jump ahead of an owner message in the native queue', async () => {
+test('Peerspan input cannot jump ahead of an owner message in the native queue', async () => {
   const rpc = new Fake(),
     thread = new ExistingThread(rpc, 'original');
   await thread.attach();

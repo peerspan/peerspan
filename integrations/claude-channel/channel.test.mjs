@@ -32,7 +32,7 @@ test('channel meta holds only strings, as Claude Code requires', () => {
 });
 
 test('credentials must be private regular files; symlinks are refused', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'capsule-channel-'));
+  const directory = await mkdtemp(join(tmpdir(), 'peerspan-channel-'));
   try {
     const path = join(directory, 'credential.json');
     const credential = { token: `token_${'a'.repeat(64)}`, adapter: { id: `adapter_${'c'.repeat(32)}`, session_id: `session_${'b'.repeat(32)}` } };
@@ -63,12 +63,12 @@ test('a lost claim reconnects without forwarding uncertain content again', async
     }
     return null;
   } });
-  // Answer the readiness hello with capsule_ready, as the model would.
+  // Answer the readiness hello with peerspan_ready, as the model would.
   const callTool = channel.server._requestHandlers.get('tools/call');
   channel.server.notification = async event => {
     notifications.push(event);
     if (event.params.meta.kind === 'hello')
-      void callTool({ method: 'tools/call', params: { name: 'capsule_ready', arguments: { nonce: event.params.meta.nonce } } }, {});
+      void callTool({ method: 'tools/call', params: { name: 'peerspan_ready', arguments: { nonce: event.params.meta.nonce } } }, {});
   };
   try {
     channel.server.oninitialized();

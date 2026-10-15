@@ -4,7 +4,7 @@ import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
-const socketDirectory = () => `/tmp/capsule-tools-${process.getuid()}`;
+const socketDirectory = () => `/tmp/peerspan-tools-${process.getuid()}`;
 
 // macOS has a 104-byte sun_path, including its terminating NUL. Profiles
 // containing a full host ID commonly exceed it. Use a stable private path
@@ -23,7 +23,7 @@ async function reclaimSocket(socket) {
   }
   const parent = await lstat(dirname(socket));
   if (!parent.isDirectory() || parent.uid !== process.getuid() || parent.mode & 0o077)
-    throw new Error('Capsule tool sockets must be in a private owned directory.');
+    throw new Error('Peerspan tool sockets must be in a private owned directory.');
   let stat;
   try {
     stat = await lstat(socket);
@@ -32,14 +32,14 @@ async function reclaimSocket(socket) {
     throw error;
   }
   if (!stat.isSocket() || stat.uid !== process.getuid() || stat.mode & 0o077)
-    throw new Error('Unexpected Capsule tool socket.');
+    throw new Error('Unexpected Peerspan tool socket.');
   // Only an explicit refusal proves a leftover socket has no listener.
   // Timeouts and other errors retain it, as does a successful connection.
   const live = await new Promise((resolve, reject) => {
     const probe = createConnection({ path: socket });
     probe.setTimeout(1000, () => {
       probe.destroy();
-      reject(new Error('Could not confirm that the previous Capsule bridge stopped.'));
+      reject(new Error('Could not confirm that the previous Peerspan bridge stopped.'));
     });
     probe.once('connect', () => { probe.destroy(); resolve(true); });
     probe.once('error', (error) => {
@@ -47,10 +47,10 @@ async function reclaimSocket(socket) {
       else reject(error);
     });
   });
-  if (live) throw new Error('A Capsule tool socket is already serving a bridge.');
+  if (live) throw new Error('A Peerspan tool socket is already serving a bridge.');
   try {
     if (!sameFile(stat, await lstat(socket)))
-      throw new Error('The Capsule tool socket changed during recovery.');
+      throw new Error('The Peerspan tool socket changed during recovery.');
     await unlink(socket);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
@@ -123,7 +123,7 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
 }
 export async function proxyTool(socket, callerSession, name, args) {
   // Allocate at the harness side of this extra hop so a lost gateway response
-  // still leaves the caller with the exact ID the Capsule host may have saved.
+  // still leaves the caller with the exact ID the Peerspan host may have saved.
   const requestId =
     name === 'send'
       ? (args?.request_id ?? `request_${randomBytes(16).toString('hex')}`)
@@ -154,18 +154,18 @@ export async function proxyTool(socket, callerSession, name, args) {
             if (size > 1048576) response.destroy();
             else chunks.push(chunk);
           });
-          response.on('error', () => reject(new Error('Capsule tool response unavailable.')));
+          response.on('error', () => reject(new Error('Peerspan tool response unavailable.')));
           response.on('end', () => {
             if (response.statusCode !== 200) {
               reject(
-                new Error('This harness session is not authorized for this Capsule attachment.')
+                new Error('This harness session is not authorized for this Peerspan attachment.')
               );
               return;
             }
             try {
               resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
             } catch {
-              reject(new Error('Invalid Capsule tool response.'));
+              reject(new Error('Invalid Peerspan tool response.'));
             }
           });
         }
@@ -173,7 +173,7 @@ export async function proxyTool(socket, callerSession, name, args) {
       request.on('error', () =>
         reject(
           new Error(
-            'Capsule bridge unavailable; an uncertain send must be checked with send_status.'
+            'Peerspan bridge unavailable; an uncertain send must be checked with send_status.'
           )
         )
       );

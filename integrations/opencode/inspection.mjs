@@ -27,13 +27,13 @@ export async function inspect(client, config) {
   );
   if (!loaded)
     throw new Error(
-      'Install the Capsule OpenCode plugin once with this bindings directory, then reload OpenCode while idle.'
+      'Install the Peerspan OpenCode plugin once with this bindings directory, then reload OpenCode while idle.'
     );
   const ids = await client.request('GET', '/experimental/tool/ids');
   if (
     !Array.isArray(ids) ||
     !tools.every((tool) => ids.includes(toolName(tool.name)))
   )
-    throw new Error('The configured Capsule plugin tools are not loaded.');
+    throw new Error('The configured Peerspan plugin tools are not loaded.');
   return session;
 }

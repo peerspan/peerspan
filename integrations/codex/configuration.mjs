@@ -19,7 +19,7 @@ async function read(rpc) {
 export async function installEntry(rpc, name, entry) {
   const current = await read(rpc);
   if (current.entries[name] && !owned(current.entries[name], entry))
-    throw new Error('The selected Capsule MCP name is already configured differently.');
+    throw new Error('The selected Peerspan MCP name is already configured differently.');
   await rpc.request('config/value/write', {
     keyPath: 'mcp_servers.' + name,
     value: entry,
@@ -31,7 +31,7 @@ export async function removeEntry(rpc, name, entry) {
   const current = await read(rpc);
   if (!current.entries[name]) return;
   if (!owned(current.entries[name], entry))
-    throw new Error('The Capsule MCP entry was edited; it was retained.');
+    throw new Error('The Peerspan MCP entry was edited; it was retained.');
   await rpc.request('config/value/write', {
     keyPath: 'mcp_servers.' + name,
     value: null,

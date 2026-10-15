@@ -58,7 +58,7 @@ export class Connection extends EventEmitter {
   async initialize() {
     await this.opened;
     await this.request('initialize', {
-      clientInfo: { name: 'capsule', title: 'Capsule', version: '0.1.0' },
+      clientInfo: { name: 'peerspan', title: 'Peerspan', version: '0.1.0' },
       capabilities: { experimentalApi: true }
     });
     this.write({ method: 'initialized' });
@@ -91,7 +91,7 @@ export class Connection extends EventEmitter {
     this.ws.terminate();
   }
   close() {
-    this.fail(new Error('Capsule disconnected from Codex.'));
+    this.fail(new Error('Peerspan disconnected from Codex.'));
   }
 }
 export async function inspectExisting(socket, threadId) {

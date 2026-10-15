@@ -2,9 +2,9 @@ import { tool } from '@opencode-ai/plugin';
 import { tools } from '../shared/adapter.mjs';
 import { readBinding, toolName } from './binding.mjs';
 import { proxyTool } from '../shared/tools.mjs';
-export async function Capsule(_input, { bindings } = {}) {
+export async function Peerspan(_input, { bindings } = {}) {
   if (typeof bindings !== 'string' || !bindings.startsWith('/'))
-    throw new Error('Capsule requires a private absolute bindings directory.');
+    throw new Error('Peerspan requires a private absolute bindings directory.');
   const schema = tool.schema;
   const string = (property) => {
     let result = schema.string();

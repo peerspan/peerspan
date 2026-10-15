@@ -38,7 +38,7 @@ export async function run(config, { emit = () => {} } = {}) {
         emit({
           type: 'configuration_cleanup_unconfirmed',
           detail:
-            'Capsule could not confirm cleanup of its MCP entry; inspect it before removing it.'
+            'Peerspan could not confirm cleanup of its MCP entry; inspect it before removing it.'
         });
       }
     }
@@ -88,7 +88,7 @@ export async function run(config, { emit = () => {} } = {}) {
       onFatal: (error) => {
         void close(error);
       },
-      reattach: 'capsule attach codex'
+      reattach: 'peerspan attach codex'
     });
     if (closing) throw new Error('Attachment stopped during setup.');
     gateway = await toolGateway(config.tool_socket, config.thread_id, adapter, emit);
@@ -129,7 +129,7 @@ async function main() {
     if (values.json) process.stdout.write(JSON.stringify(event) + '\n');
     else if (event.type === 'ready')
       process.stdout.write(
-        'Capsule attached to existing Codex thread ' +
+        'Peerspan attached to existing Codex thread ' +
           event.thread_id +
           '. Stop this bridge with Ctrl-C; Codex continues running.\n'
       );
@@ -140,6 +140,6 @@ async function main() {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
   main().catch(() => {
-    process.stderr.write('Capsule could not attach to the selected Codex session.\n');
+    process.stderr.write('Peerspan could not attach to the selected Codex session.\n');
     process.exitCode = 1;
   });

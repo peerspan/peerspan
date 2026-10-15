@@ -45,7 +45,7 @@ async function prerequisites(config, checks) {
     add(
       'existing_session',
       true,
-      'The existing OpenCode conversation and Capsule plugin are available. Model availability is unverified.'
+      'The existing OpenCode conversation and Peerspan plugin are available. Model availability is unverified.'
     );
   } catch (error) {
     add('existing_session', false, error.message);
@@ -74,7 +74,7 @@ await provider(async ({ operation, context }) => {
       const existing = await readBinding(config.bindings, config.session_id);
       if (existing.profile !== config.credential)
         throw new Error(
-          'This OpenCode conversation already has a Capsule binding. Inspect its sidecar before replacing it.'
+          'This OpenCode conversation already has a Peerspan binding. Inspect its sidecar before replacing it.'
         );
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;

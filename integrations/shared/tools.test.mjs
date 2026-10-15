@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { proxyTool } from './tools.mjs';
 test('a lost gateway response preserves the caller send ID for status and identical retry', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'capsule-proxy-'));
+  const directory = await mkdtemp(join(tmpdir(), 'peerspan-proxy-'));
   const socket = join(directory, 'tools.sock'),
     requests = [];
   const server = http.createServer(async (req, res) => {

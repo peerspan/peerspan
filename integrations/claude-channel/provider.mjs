@@ -1,4 +1,4 @@
-// Claude-specific configuration, checks, and launch plans. Capsule owns the
+// Claude-specific configuration, checks, and launch plans. Peerspan owns the
 // profile, credential, destination scopes, and all daemon lifecycle requests.
 import {constants} from 'node:fs';
 import {access, open, readFile, readlink, realpath, rename, unlink} from 'node:fs/promises';
@@ -41,7 +41,7 @@ async function prerequisites(state, checks) {
   try { claude = await executable(state.executable); }
   catch (error) { check('executable', false, error.message); return; }
   const version = command(claude, ['--version']);
-  const compatible = command(claude, ['--mcp-config', '{}', '--dangerously-load-development-channels', 'server:capsule', '--version']);
+  const compatible = command(claude, ['--mcp-config', '{}', '--dangerously-load-development-channels', 'server:peerspan', '--version']);
   check('executable', version.ok && compatible.ok, compatible.ok ? 'Claude Code accepts the channel launch flags.' : 'This Claude installation does not accept the required channel launch flags.');
   const minimum = minimumVersion.join('.');
   const parsed = version.ok ? /^(\d+)\.(\d+)\.(\d+)(?=\s|$)/.exec(version.output.trim()) : null;
@@ -76,24 +76,24 @@ async function launchProgram(claude) {
   // A multi-call binary (busybox, uutils) selects its applet by name.
   return {program: env, args: [...(basename(env) === 'env' ? [] : ['env']), ...launchEnvironment, claude]};
 }
-// capsuleExecutable names the capsule executable running this launch: the
+// peerspanExecutable names the peerspan executable running this launch: the
 // CLI's own path when it passes one, otherwise this helper's parent process,
 // which the CLI runs directly.
-async function capsuleExecutable(context) {
-  const given = context.capsule_executable;
+async function peerspanExecutable(context) {
+  const given = context.peerspan_executable;
   if (given !== undefined) {
-    if (typeof given !== 'string' || !given.startsWith('/') || given.includes('\0')) throw new Error('Invalid capsule executable path.');
+    if (typeof given !== 'string' || !given.startsWith('/') || given.includes('\0')) throw new Error('Invalid peerspan executable path.');
     return given;
   }
   try { return await readlink(`/proc/${process.ppid}/exe`); }
-  catch { throw new Error('Could not find the capsule executable that started this launch; update the capsule CLI so it passes capsule_executable.'); }
+  catch { throw new Error('Could not find the peerspan executable that started this launch; update the peerspan CLI so it passes peerspan_executable.'); }
 }
 const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
-// sessionSettings adds a SessionStart hook that lists owed Capsule work after
+// sessionSettings adds a SessionStart hook that lists owed Peerspan work after
 // /clear, compaction, or resume; it changes no global or project settings.
-function sessionSettings(capsule) {
+function sessionSettings(peerspan) {
   return {hooks: {SessionStart: [{matcher: 'clear|compact|resume',
-    hooks: [{type: 'command', command: `${shellQuote(capsule)} session pending --hook`}]}]}};
+    hooks: [{type: 'command', command: `${shellQuote(peerspan)} session pending --hook`}]}]}};
 }
 // writePrivate atomically replaces a 0600 file in the private profile directory.
 async function writePrivate(path, content) {
@@ -112,7 +112,7 @@ async function writePrivate(path, content) {
   catch (error) { await unlink(temporary).catch(() => {}); throw error; }
 }
 function configuration(context, state) {
-  return {mcpServers: {capsule: {command: state.node, args: [state.channel, '--socket', context.adapter_socket, '--credential-file', context.credential_file]}}};
+  return {mcpServers: {peerspan: {command: state.node, args: [state.channel, '--socket', context.adapter_socket, '--credential-file', context.credential_file]}}};
 }
 async function configurationCheck(context, state, checks) {
   let file;
@@ -153,11 +153,11 @@ async function main(request) {
   await configurationCheck(context, state, checks);
   const launcher = await launchProgram(state.executable);
   const settings = join(context.directory, 'claude-settings.json');
-  await writePrivate(settings, JSON.stringify(sessionSettings(await capsuleExecutable(context))) + '\n');
+  await writePrivate(settings, JSON.stringify(sessionSettings(await peerspanExecutable(context))) + '\n');
   response.launch = {
     program: launcher.program,
-    args: [...launcher.args, '--mcp-config', join(context.directory, 'mcp.json'), '--settings', settings, '--dangerously-load-development-channels', 'server:capsule',
-      '--allowedTools', tools.map(tool => 'mcp__capsule__' + tool.name).join(','), ...extra],
+    args: [...launcher.args, '--mcp-config', join(context.directory, 'mcp.json'), '--settings', settings, '--dangerously-load-development-channels', 'server:peerspan',
+      '--allowedTools', tools.map(tool => 'mcp__peerspan__' + tool.name).join(','), ...extra],
   };
   return response;
 }

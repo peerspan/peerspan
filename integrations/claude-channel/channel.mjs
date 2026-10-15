@@ -28,7 +28,7 @@ export function channelParams(params) {
 // revision it agreed with Claude Code, which the adapter reports on connect.
 function channelServer(adapter, negotiated) {
   const server = new Server(
-    { name: 'capsule', version: '0.1.0' },
+    { name: 'peerspan', version: '0.1.0' },
     {
       capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
       instructions
@@ -55,7 +55,7 @@ function channelServer(adapter, negotiated) {
     }
   };
 }
-const reattach = 'capsule attach claude';
+const reattach = 'peerspan attach claude';
 export function createChannel(options) {
   let channel;
   const negotiated = {};
@@ -137,7 +137,7 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch(() => {
     process.stderr.write(
-      'Capsule channel could not start; check its arguments and private credential file.\n'
+      'Peerspan channel could not start; check its arguments and private credential file.\n'
     );
     process.exitCode = 1;
   });

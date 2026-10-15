@@ -17,7 +17,7 @@ function configuration(context, state) {
     socket: context.adapter_socket,
     credential: context.credential_file,
     tool_socket: toolSocket,
-    server_name: 'capsule_' + context.session_id.slice(8),
+    server_name: 'peerspan_' + context.session_id.slice(8),
     mcp_entry: {
       command: state.node,
       args: [mcp, '--socket', toolSocket, '--thread', context.options.thread],

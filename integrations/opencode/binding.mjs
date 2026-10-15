@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, lstat, open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { privateJSON } from '../shared/provider.mjs';
-// OpenCode tool names carry a capsule_ prefix, once.
-export const toolName = (name) => (name.startsWith('capsule_') ? name : 'capsule_' + name);
+// OpenCode tool names carry a peerspan_ prefix, once.
+export const toolName = (name) => (name.startsWith('peerspan_') ? name : 'peerspan_' + name);
 export function bindingPath(directory, session) {
   if (!/^ses_[a-zA-Z0-9]{20,64}$/.test(session))
     throw new Error('Invalid OpenCode session identity.');
@@ -13,7 +13,7 @@ export function bindingPath(directory, session) {
 export async function readBinding(directory, session) {
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.uid !== process.getuid() || stat.mode & 0o077)
-    throw new Error('Capsule bindings must be in a private owned directory.');
+    throw new Error('Peerspan bindings must be in a private owned directory.');
   const result = await privateJSON(bindingPath(directory, session), 4096);
   if (
     result.version !== 1 ||
@@ -23,7 +23,7 @@ export async function readBinding(directory, session) {
     typeof result.profile !== 'string' ||
     !result.profile.startsWith('/')
   )
-    throw new Error('Invalid Capsule session binding.');
+    throw new Error('Invalid Peerspan session binding.');
   return result;
 }
 export async function publishBinding(directory, session, binding, { gateway } = {}) {
@@ -32,7 +32,7 @@ export async function publishBinding(directory, session, binding, { gateway } = 
   });
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.uid !== process.getuid() || stat.mode & 0o077)
-    throw new Error('Capsule bindings must be in a private owned directory.');
+    throw new Error('Peerspan bindings must be in a private owned directory.');
   const path = bindingPath(directory, session);
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
   let file, previous, temp, owned;
@@ -58,7 +58,7 @@ export async function publishBinding(directory, session, binding, { gateway } = 
     if (temp) {
       const current = await lstat(path);
       if (current.dev !== previous.dev || current.ino !== previous.ino || !(await gateway.ownsSocket()))
-        throw new Error('Capsule binding changed during recovery; it was retained.');
+        throw new Error('Peerspan binding changed during recovery; it was retained.');
       await rename(temp, path);
     }
   } catch (error) {
@@ -73,7 +73,7 @@ export async function publishBinding(directory, session, binding, { gateway } = 
     const stat = await lstat(path);
     if (stat.dev !== owned.dev || stat.ino !== owned.ino ||
         current.profile !== binding.profile || current.socket !== binding.socket)
-      throw new Error('Capsule binding changed; it was retained.');
+      throw new Error('Peerspan binding changed; it was retained.');
     await unlink(path);
   };
 }

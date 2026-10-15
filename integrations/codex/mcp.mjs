@@ -8,10 +8,10 @@ const { values } = parseArgs({
   options: { socket: { type: 'string' }, thread: { type: 'string' } }
 });
 if (!values.socket?.startsWith('/') || !values.thread)
-  throw new Error('Provide a Capsule tool socket and the selected Codex thread.');
+  throw new Error('Provide a Peerspan tool socket and the selected Codex thread.');
 // This MCP consumer never reads credentials, owns a lease, or claims a message.
 const server = new Server(
-  { name: 'capsule', version: '0.1.0' },
+  { name: 'peerspan', version: '0.1.0' },
   { capabilities: { tools: {} }, instructions }
 );
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools }));
@@ -20,7 +20,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return {
       isError: true,
       content: [
-        { type: 'text', text: 'This Codex thread is not selected for this Capsule attachment.' }
+        { type: 'text', text: 'This Codex thread is not selected for this Peerspan attachment.' }
       ]
     };
   try {

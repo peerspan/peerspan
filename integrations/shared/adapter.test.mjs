@@ -10,7 +10,7 @@ const adapterId = 'adapter_' + 'a'.repeat(32),
   sessionId = 'session_' + 'b'.repeat(32);
 const entry = (name, digit) => ({ name, size: 1, sha256: digit.repeat(64), media_type: 'application/octet-stream' });
 // The readiness handshake (live delivery contract): answer the hello event
-// with capsule_ready before any work flows.
+// with peerspan_ready before any work flows.
 function readyAdapter(options) {
   const adapter = createAdapter({
     ...options,
@@ -18,7 +18,7 @@ function readyAdapter(options) {
       path === '/adapter/v1/ready' ? {} : options.call(method, path, body),
     notify: async (event) => {
       if (event.meta.kind === 'hello') {
-        void adapter.callTool('capsule_ready', { nonce: event.meta.nonce });
+        void adapter.callTool('peerspan_ready', { nonce: event.meta.nonce });
         return;
       }
       return options.notify(event);
@@ -480,7 +480,7 @@ test('artifact paths are uploaded before delegate_task and task_complete; artifa
 });
 
 test('adapterTransfer streams files over the socket and never overwrites', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'capsule-transfer-'));
+  const directory = await mkdtemp(join(tmpdir(), 'peerspan-transfer-'));
   const socket = join(directory, 'adapter.sock');
   const seen = [];
   const server = http.createServer((request, response) => {
