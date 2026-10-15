@@ -89,6 +89,37 @@ pub async fn agents(
             ))
         })
         .collect();
+    let members = local
+        .get(format!("/v1/networks/{}/members", encoded(network)))
+        .await?;
+    let mut endpoints = std::collections::BTreeMap::new();
+    let mut hosts: Vec<String> = directory["agents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a["host_id"].as_str().map(str::to_owned))
+        .collect();
+    hosts.push(host.clone());
+    for id in hosts {
+        if endpoints.contains_key(&id) {
+            continue;
+        }
+        let path = if id == host {
+            json!({"path": "local"})
+        } else {
+            local
+                .get(format!("/v1/peers/{}/path", encoded(&id)))
+                .await
+                .unwrap_or_else(|_| json!({"path": "none"}))
+        };
+        endpoints.insert(id.clone(), endpoint(&path, &members, &id));
+    }
+    let endpoint_of = |id: &Value| {
+        id.as_str()
+            .and_then(|id| endpoints.get(id))
+            .cloned()
+            .unwrap_or(json!({"address": null, "path": "none"}))
+    };
     let listed = directory["agents"].as_array().cloned().unwrap_or_default();
     let mut reachable: Vec<Value> = listed
         .iter()
@@ -102,6 +133,7 @@ pub async fn agents(
                 "connected": a["connected"],
                 "host_state": states.get(host).cloned().unwrap_or_else(|| "pending".into()),
                 "actions": union(&a["authorizations"]),
+                "endpoint": endpoint_of(&a["host_id"]),
             })
         })
         .collect();
@@ -141,6 +173,7 @@ pub async fn agents(
             "host_id": host,
             "agent_id": agent["id"],
             "connected": connected,
+            "endpoint": endpoint_of(&json!(host)),
         }));
     }
     if person.is_some() {
@@ -150,6 +183,7 @@ pub async fn agents(
                 "host_id": a["host_id"],
                 "agent_id": a["agent_id"],
                 "connected": a["connected"],
+                "endpoint": endpoint_of(&a["host_id"]),
             }));
         }
     }
@@ -225,7 +259,7 @@ pub async fn agents(
             format!(", host {}", text(&a["host_state"]))
         };
         println!(
-            "  {}  {}  {}{answered}",
+            "  {}  {}  {}{answered}  {}",
             text(&a["address"]),
             list(&a["actions"]),
             if a["connected"] == true {
@@ -233,6 +267,7 @@ pub async fn agents(
             } else {
                 "not connected"
             },
+            endpoint_text(&a["endpoint"]),
         );
     }
     println!("\nMine:");
@@ -241,7 +276,7 @@ pub async fn agents(
     }
     for a in &mine {
         println!(
-            "  {}  {}",
+            "  {}  {}  {}",
             a["address"]
                 .as_str()
                 .unwrap_or(a["agent_id"].as_str().unwrap_or("-")),
@@ -250,6 +285,7 @@ pub async fn agents(
             } else {
                 "not connected"
             },
+            endpoint_text(&a["endpoint"]),
         );
     }
     println!("\nInbound:");
@@ -333,4 +369,36 @@ pub async fn task_to(socket: &Path, args: Vec<String>) -> anyhow::Result<Value> 
     )
     .await
     .context("local host daemon request timed out")?
+}
+
+/// A host's endpoint as `agents` shows it: a direct path's endpoint,
+/// otherwise the member's map address (advertised, else first candidate)
+/// with the path as reported. It grants nothing.
+fn endpoint(path: &Value, members: &Value, host: &str) -> Value {
+    let kind = path["path"].as_str().unwrap_or("none");
+    if kind == "direct" && path["endpoint"].is_string() {
+        return json!({"address": path["endpoint"], "path": "direct"});
+    }
+    let address = members
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|m| m["host_id"].as_str() == Some(host))
+        .and_then(|m| {
+            m["address"]
+                .as_str()
+                .filter(|a| !a.is_empty())
+                .or_else(|| m["candidates"][0].as_str())
+        });
+    json!({"address": address, "path": kind})
+}
+
+/// An endpoint in the readable layout.
+fn endpoint_text(e: &Value) -> String {
+    let path = e["path"].as_str().unwrap_or("none");
+    match e["address"].as_str() {
+        None => path.to_owned(),
+        Some(a) if path == "direct" || path == "local" => a.to_owned(),
+        Some(a) => format!("{a} ({path})"),
+    }
 }

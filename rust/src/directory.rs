@@ -743,7 +743,12 @@ impl Store {
 
     /// `GET /adapter/v1/agents`: the addressable directory agents a
     /// directory session may reach, with the union of what it may do.
-    pub fn adapter_agents(&self, auth: &AdapterAuth) -> Result<Vec<Value>, Error> {
+    /// Each entry comes with its host ID and that host's map address, for
+    /// the route to add the endpoint.
+    pub fn adapter_agents(
+        &self,
+        auth: &AdapterAuth,
+    ) -> Result<Vec<(String, Option<String>, Value)>, Error> {
         let (a, session) = {
             let conn = self.connection()?;
             crate::adapter::authority(&conn, auth)?
@@ -772,9 +777,15 @@ impl Store {
             if actions.is_empty() {
                 continue;
             }
+            let members = {
+                let conn = self.connection()?;
+                self.stored_members(&conn, &c.network_id)?
+            };
             result.push((
                 address.clone(),
                 c.network_id.clone(),
+                c.host_id.clone(),
+                map_address(&members, &c.host_id),
                 json!({
                     "address": address,
                     "network_id": c.network_id,
@@ -786,7 +797,10 @@ impl Store {
             ));
         }
         result.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-        Ok(result.into_iter().map(|(_, _, v)| v).collect())
+        Ok(result
+            .into_iter()
+            .map(|(_, _, host, address, v)| (host, address, v))
+            .collect())
     }
 
     /// Status item 12: names this host's person uses for more than one
@@ -1508,7 +1522,40 @@ async fn agents_route(
     headers: HeaderMap,
 ) -> Result<Json<Vec<Value>>, Error> {
     let auth = crate::adapter::token(&headers);
+    let agents = blocking(store.clone(), move |s| s.adapter_agents(&auth)).await?;
     Ok(Json(
-        blocking(store, move |s| s.adapter_agents(&auth)).await?,
+        agents
+            .into_iter()
+            .map(|(host, address, mut v)| {
+                v["endpoint"] = endpoint(&store, &host, address);
+                v
+            })
+            .collect(),
     ))
+}
+
+/// A member's advertised address in a network map, else its first
+/// candidate.
+pub(crate) fn map_address(members: &[crate::network::Member], host: &str) -> Option<String> {
+    let m = members.iter().find(|m| m.host_id == host)?;
+    if !m.address.is_empty() {
+        return Some(m.address.clone());
+    }
+    m.candidates.first().cloned()
+}
+
+/// How this host reaches `host` now: a direct path's endpoint, otherwise
+/// the map address with the path as reported, or `local` for this host.
+/// It grants nothing.
+pub(crate) fn endpoint(store: &Arc<Store>, host: &str, map: Option<String>) -> Value {
+    if host == store.identity().id {
+        return json!({"address": map, "path": "local"});
+    }
+    match crate::quic::path_status(store, host) {
+        Ok(p) if p.path == "direct" && p.endpoint.is_some() => {
+            json!({"address": p.endpoint, "path": "direct"})
+        }
+        Ok(p) => json!({"address": map, "path": p.path}),
+        Err(_) => json!({"address": map, "path": "none"}),
+    }
 }

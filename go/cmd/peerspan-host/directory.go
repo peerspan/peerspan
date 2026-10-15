@@ -71,29 +71,71 @@ func readHostPersons(ctx context.Context, client host.Client) (host.Status, host
 	return st, p, nil
 }
 
-// suffixed is base-suffix with the suffix lowercased, characters outside
-// the addressable set replaced by '-', and cut to fit 64 characters.
-func suffixed(base, suffix string) string {
-	clean := []byte(strings.ToLower(suffix))
-	for i, c := range clean {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
-			clean[i] = '-'
+// namePart lowercases a name part and replaces characters outside the
+// addressable set with '-'.
+func namePart(text string) string {
+	var b strings.Builder
+	for _, c := range strings.ToLower(text) {
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-' {
+			b.WriteRune(c)
+		} else {
+			b.WriteByte('-')
 		}
 	}
-	name := base + "-" + string(clean)
-	if len(name) > 64 {
-		name = name[:64]
-	}
-	return name
+	return b.String()
 }
 
-// numbered is name with -N appended, cutting name to fit 64 characters.
-func numbered(name string, n int) string {
-	suffix := fmt.Sprintf("-%d", n)
-	if len(name)+len(suffix) > 64 {
-		name = name[:64-len(suffix)]
+// fittedName joins parts with '-' and appends tail, cutting the parts from
+// the end so the name fits in 64 characters: the host name (parts[1])
+// first, then the project (parts[2]), then the base (parts[0]), each down
+// to 1 character before the next. The tail is never cut.
+func fittedName(parts []string, tail string) string {
+	cut := slices.Clone(parts)
+	length := func() int { return len(strings.Join(cut, "-")) + len(tail) }
+	for _, i := range []int{1, 2, 0} {
+		if i >= len(cut) {
+			continue
+		}
+		if over := length() - 64; over > 0 {
+			cut[i] = cut[i][:max(1, len(cut[i])-over)]
+		}
 	}
-	return name + suffix
+	return strings.Join(cut, "-") + tail
+}
+
+// defaultAgentName is the first free default name for attach:
+// BASE-HOSTNAME, else BASE-HOSTNAME-PROJECT when that is used on this
+// host, or BASE-HOSTNAME-HHHH with a growing prefix of the host ID when it
+// is used only on another host, then the last of these with -2, -3, and so
+// on.
+func defaultAgentName(base, hostname, project, hostID string, usedHere, free func(string) bool) string {
+	hostname, _, _ = strings.Cut(hostname, ".")
+	hostname = namePart(hostname)
+	if hostname == "" {
+		hostname = "host"
+	}
+	parts := []string{base, hostname}
+	first := fittedName(parts, "")
+	if free(first) {
+		return first
+	}
+	tail := ""
+	if usedHere(first) {
+		parts = append(parts, namePart(project))
+	} else {
+		hex := strings.TrimPrefix(hostID, "host_")
+		for digits := 4; digits <= min(32, len(hex)); digits += 2 {
+			tail = "-" + hex[:digits]
+			if free(fittedName(parts, tail)) {
+				break
+			}
+		}
+	}
+	name := fittedName(parts, tail)
+	for n := 2; !free(name); n++ {
+		name = fittedName(parts, fmt.Sprintf("%s-%d", tail, n))
+	}
+	return name
 }
 
 type attachAgent struct {
@@ -340,21 +382,9 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 			}
 		} else {
 			free := func(name string) bool { return local(name) == nil && remote(name) == "" }
-			name = base
-			if !free(name) {
-				stem := ""
-				if local(base) != nil {
-					stem = suffixed(base, filepath.Base(workspace))
-				} else {
-					hostname, _ := os.Hostname()
-					hostname, _, _ = strings.Cut(hostname, ".")
-					stem = suffixed(base, hostname)
-				}
-				name = stem
-				for n := 2; !free(name); n++ {
-					name = numbered(stem, n)
-				}
-			}
+			hostname, _ := os.Hostname()
+			usedHere := func(name string) bool { return local(name) != nil }
+			name = defaultAgentName(base, hostname, filepath.Base(workspace), identity.ID, usedHere, free)
 		}
 		if agent == nil {
 			owner := persons.label
@@ -432,15 +462,53 @@ type reachableAgent struct {
 	HostID    string   `json:"host_id"`
 	AgentID   string   `json:"agent_id"`
 	Connected bool     `json:"connected"`
-	HostState string   `json:"host_state"`
-	Actions   []string `json:"actions"`
+	HostState string        `json:"host_state"`
+	Actions   []string      `json:"actions"`
+	Endpoint  host.Endpoint `json:"endpoint"`
 }
 
 type mineAgent struct {
 	Address   string `json:"address"`
 	HostID    string `json:"host_id"`
-	AgentID   string `json:"agent_id"`
-	Connected bool   `json:"connected"`
+	AgentID   string        `json:"agent_id"`
+	Connected bool          `json:"connected"`
+	Endpoint  host.Endpoint `json:"endpoint"`
+}
+
+// endpoints reports each host's endpoint as agents shows it, from the
+// network map and the peer paths.
+func endpoints(ctx context.Context, client host.Client, network, self string) (func(string) host.Endpoint, error) {
+	members, err := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/members")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]host.Endpoint{}
+	return func(id string) host.Endpoint {
+		if e, ok := seen[id]; ok {
+			return e
+		}
+		e := host.Endpoint{Address: host.MapAddress(members, id), Path: "local"}
+		if id != self {
+			path, err := call[host.PeerPath](ctx, client, "GET", "/v1/peers/"+url.PathEscape(id)+"/path")
+			if err != nil {
+				path = host.PeerPath{HostID: id, Path: "none"}
+			}
+			e = host.EndpointFrom(path, members, id)
+		}
+		seen[id] = e
+		return e
+	}, nil
+}
+
+// endpointText is an endpoint in the readable layout.
+func endpointText(e host.Endpoint) string {
+	switch {
+	case e.Address == nil:
+		return e.Path
+	case e.Path == "direct" || e.Path == "local":
+		return *e.Address
+	}
+	return *e.Address + " (" + e.Path + ")"
 }
 
 type inboundRule struct {
@@ -468,6 +536,10 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 	if err != nil {
 		return err
 	}
+	endpoint, err := endpoints(ctx, client, network, st.HostID)
+	if err != nil {
+		return err
+	}
 	states := map[string]string{}
 	for _, h := range d.Hosts {
 		states[h.HostID] = h.State
@@ -491,9 +563,9 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 				actions = append(actions, action)
 			}
 		}
-		reachable = append(reachable, reachableAgent{*a.Address, a.HostID, a.AgentID, a.Connected, states[a.HostID], actions})
+		reachable = append(reachable, reachableAgent{*a.Address, a.HostID, a.AgentID, a.Connected, states[a.HostID], actions, endpoint(a.HostID)})
 		if person != "" && a.PersonID != nil && *a.PersonID == person {
-			mine = append(mine, mineAgent{*a.Address, a.HostID, a.AgentID, a.Connected})
+			mine = append(mine, mineAgent{*a.Address, a.HostID, a.AgentID, a.Connected, endpoint(a.HostID)})
 		}
 	}
 	// This host's own agents, addressed as the directory would address them.
@@ -533,7 +605,7 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 				connected = connected || !reported || (channel != nil && *channel == host.ChannelVerified)
 			}
 		}
-		mine = append(mine, mineAgent{address, st.HostID, a.ID, connected})
+		mine = append(mine, mineAgent{address, st.HostID, a.ID, connected, endpoint(st.HostID)})
 	}
 	sort.SliceStable(mine, func(i, j int) bool {
 		if mine[i].Address != mine[j].Address {
@@ -578,7 +650,7 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		if a.HostState != "ok" {
 			answered = "host " + a.HostState + " at the last refresh"
 		}
-		fmt.Fprintf(out, "  %s  %s; %s; %s\n", a.Address, strings.Join(a.Actions, ", "), connected, answered)
+		fmt.Fprintf(out, "  %s  %s; %s; %s; %s\n", a.Address, strings.Join(a.Actions, ", "), connected, answered, endpointText(a.Endpoint))
 	}
 	fmt.Fprintln(out, "\nMine:")
 	if len(mine) == 0 {
@@ -589,7 +661,7 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		if a.Connected {
 			connected = "connected"
 		}
-		fmt.Fprintf(out, "  %s  %s\n", a.Address, connected)
+		fmt.Fprintf(out, "  %s  %s  %s\n", a.Address, connected, endpointText(a.Endpoint))
 	}
 	fmt.Fprintln(out, "\nInbound:")
 	labels := map[string]string{}

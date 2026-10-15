@@ -1327,42 +1327,62 @@ fn suffix(text: &str) -> String {
         })
         .collect()
 }
-/// `stem` with `tail` appended, cutting the stem so the name fits in 64
-/// characters.
-fn fitted(stem: &str, tail: &str) -> String {
-    let room = 64usize.saturating_sub(tail.len());
-    let mut stem: String = stem.chars().take(room).collect();
-    while stem.len() > room {
-        stem.pop();
+/// `parts` joined with `-` and `tail` appended, cutting the parts from the
+/// end so the name fits in 64 characters: the host name (`parts[1]`)
+/// first, then the project (`parts[2]`), then the base (`parts[0]`), each
+/// down to 1 character before the next. The tail is never cut.
+fn fitted(parts: &[String], tail: &str) -> String {
+    let mut cut = parts.to_vec();
+    for i in [1, 2, 0] {
+        let Some(part) = cut.get(i) else { continue };
+        let over = (cut.join("-").len() + tail.len()).saturating_sub(64);
+        let keep = part.len().saturating_sub(over).max(1);
+        cut[i].truncate(keep);
     }
-    format!("{stem}{tail}")
+    format!("{}{tail}", cut.join("-"))
 }
-/// The first free default name: the base name, else `BASE-PROJECT` when the
-/// base name is used on this host, or `BASE-HOSTNAME` when it is used only
-/// on another host, then with `-2`, `-3`, and so on.
+
+/// The first free default name: `BASE-HOSTNAME`, else
+/// `BASE-HOSTNAME-PROJECT` when that is used on this host, or
+/// `BASE-HOSTNAME-HHHH` with a growing prefix of the host ID when it is
+/// used only on another host, then the last of these with `-2`, `-3`, and
+/// so on.
 fn default_name(
     base: &str,
+    hostname: &str,
     project: &str,
+    host_id: &str,
     local: &BTreeSet<String>,
     remote: &BTreeMap<String, String>,
 ) -> String {
     let free = |name: &str| !local.contains(name) && !remote.contains_key(name);
-    if free(base) {
-        return base.to_owned();
+    let mut short = suffix(hostname.split('.').next().unwrap_or_default());
+    if short.is_empty() {
+        short = "host".into();
     }
-    let stem = if local.contains(base) {
-        format!("{base}-{}", suffix(project))
-    } else {
-        let host = crate::hostname();
-        let short = host.split('.').next().unwrap_or_default().to_owned();
-        format!("{base}-{}", suffix(&short))
-    };
-    let first = fitted(&stem, "");
+    let mut parts = vec![base.to_owned(), short];
+    let first = fitted(&parts, "");
     if free(&first) {
         return first;
     }
+    let mut tail = String::new();
+    if local.contains(&first) {
+        parts.push(suffix(project));
+    } else {
+        let hex = host_id.strip_prefix("host_").unwrap_or(host_id);
+        for digits in (4..=hex.len().min(32)).step_by(2) {
+            tail = format!("-{}", &hex[..digits]);
+            if free(&fitted(&parts, &tail)) {
+                break;
+            }
+        }
+    }
+    let name = fitted(&parts, &tail);
+    if free(&name) {
+        return name;
+    }
     (2u64..)
-        .map(|n| fitted(&stem, &format!("-{n}")))
+        .map(|n| fitted(&parts, &format!("{tail}-{n}")))
         .find(|name| free(name))
         .expect("an unused suffix exists")
 }
@@ -1654,7 +1674,14 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                                 .map(|n| n.to_string_lossy().into_owned())
                                 .unwrap_or_default();
                             let names = local.keys().cloned().collect();
-                            default_name(&base, &project, &names, &remote)
+                            default_name(
+                                &base,
+                                &crate::hostname(),
+                                &project,
+                                &host,
+                                &names,
+                                &remote,
+                            )
                         }
                     };
                     let owner = label

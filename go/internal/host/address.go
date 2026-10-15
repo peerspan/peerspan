@@ -703,6 +703,52 @@ type AdapterAgent struct {
 	Actions          []string `json:"actions"`
 	MaxMessageBytes  int64    `json:"max_message_bytes"`
 	MaxArtifactBytes int64    `json:"max_artifact_bytes"`
+	Endpoint         Endpoint `json:"endpoint"`
+}
+
+// Endpoint is how this host reaches another host now, or this host's own
+// address in its network map. It helps people tell machines apart, may be
+// stale, and grants nothing.
+type Endpoint struct {
+	Address *string `json:"address"`
+	Path    string  `json:"path"`
+}
+
+// MapAddress is a member's advertised address in a network map, else its
+// first candidate, else nil.
+func MapAddress(members []NetworkMember, hostID string) *string {
+	for _, m := range members {
+		if m.HostID != hostID {
+			continue
+		}
+		if m.Address != "" {
+			return &m.Address
+		}
+		if len(m.Candidates) > 0 {
+			return &m.Candidates[0]
+		}
+	}
+	return nil
+}
+
+// EndpointFrom combines a peer path with the network map: a direct path's
+// endpoint, otherwise the map address with the path as reported.
+func EndpointFrom(path PeerPath, members []NetworkMember, hostID string) Endpoint {
+	if path.Path == "direct" && path.Endpoint != nil {
+		return Endpoint{Address: path.Endpoint, Path: "direct"}
+	}
+	return Endpoint{Address: MapAddress(members, hostID), Path: path.Path}
+}
+
+func (s *Store) endpointOf(ctx context.Context, members []NetworkMember, hostID string) Endpoint {
+	if hostID == s.identity.ID {
+		return Endpoint{Address: MapAddress(members, hostID), Path: "local"}
+	}
+	path, err := s.PeerPath(ctx, hostID)
+	if err != nil {
+		path = PeerPath{HostID: hostID, Path: "none"}
+	}
+	return EndpointFrom(path, members, hostID)
 }
 
 // AdapterAgents is GET /adapter/v1/agents: the directory's addressable
@@ -735,7 +781,7 @@ func (s *Store) AdapterAgents(ctx context.Context, token AdapterAuth) ([]Adapter
 			if entry.Address == nil {
 				continue
 			}
-			agent := AdapterAgent{Address: *entry.Address, NetworkID: n.ID, Connected: entry.Connected}
+			agent := AdapterAgent{Address: *entry.Address, NetworkID: n.ID, Connected: entry.Connected, Endpoint: s.endpointOf(ctx, members, entry.HostID)}
 			have := map[string]bool{}
 			applies := false
 			for _, a := range entry.Authorizations {
