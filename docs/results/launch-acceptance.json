@@ -1,24 +1,24 @@
 {
-  "checked_at": "2026-10-10T10:26:02.834261+00:00",
+  "checked_at": "2026-10-15T17:43:52.732175+00:00",
   "contract": "docs/launch-contract.md, Slice 5: acceptance (scripted run); path from docs/quick-start.md",
   "environment": {
     "systemd": "systemd 252",
-    "node": "v22.20.0",
+    "node": "v22.23.3",
     "python": "3.12.13",
     "kernel": "6.1.0-53-amd64",
     "architecture": "x86_64"
   },
   "pace_seconds": 0,
-  "coordinator": "capsule-coord from the checkout on loopback, built into the bundles as the default",
+  "coordinator": "peerspan-coord from the checkout on loopback, built into the bundles as the default",
   "release": {
     "go": {
-      "archive": "capsule-0.0.0-acceptance-linux-amd64-go.tar.gz",
-      "sha256": "2ab72e94c0b34fdf32d481ac49a4106395a35bf8e8bd9d79c1e5798cf33554c3",
+      "archive": "peerspan-0.0.0-acceptance-linux-amd64-go.tar.gz",
+      "sha256": "8ac5f59c7007f9652ab4b4ef7388761ffcea01b4db93c5734742bb26226458ee",
       "checksum_verified": true,
       "release": {
         "version": "0.0.0-acceptance",
         "implementation": "go",
-        "source_revision": "f4cd4291206f496e313a8ed3e3be0262be773ade",
+        "source_revision": "31539238a65f71f5b2fa4dd032819bf8f42c47c9",
         "source_dirty": true,
         "os": "linux",
         "architecture": "amd64",
@@ -27,13 +27,13 @@
       }
     },
     "rust": {
-      "archive": "capsule-0.0.0-acceptance-linux-amd64-rust.tar.gz",
-      "sha256": "d91a5200c9a9f72999cb015e11cd38c060d1bc804ef3889e03ab729b65ab43b0",
+      "archive": "peerspan-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+      "sha256": "aa6d8aac1e4a5dedd1bf433a595943c2c22e99db01d752ca96d62e997091bf9e",
       "checksum_verified": true,
       "release": {
         "version": "0.0.0-acceptance",
         "implementation": "rust",
-        "source_revision": "f4cd4291206f496e313a8ed3e3be0262be773ade",
+        "source_revision": "31539238a65f71f5b2fa4dd032819bf8f42c47c9",
         "source_dirty": true,
         "os": "linux",
         "architecture": "amd64",
@@ -51,123 +51,123 @@
         "M2": "go"
       },
       "users": {
-        "M1": "capsule-acc-1",
-        "M2": "capsule-acc-2"
+        "M1": "peerspan-acc-1",
+        "M2": "peerspan-acc-2"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-1",
+          "user": "peerspan-acc-1",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.42
+          "seconds": 0.5
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-1",
+          "user": "peerspan-acc-1",
           "implementation": "go",
-          "command": "capsule network create acme",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.14
+          "seconds": 0.39
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-1",
+          "user": "peerspan-acc-1",
           "implementation": "go",
-          "command": "capsule invite capsule-acc-1",
-          "kind": "capsule",
+          "command": "peerspan invite peerspan-acc-1",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.02
+          "seconds": 0.05
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-1",
+          "user": "peerspan-acc-1",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_98f955bf875323e6f488b4bd0e2a97bb",
+              "id": "agent_c43d3212fb6b830a8cdd50bb5c600b81",
               "name": "claude",
-              "address": "capsule-acc-1/claude"
+              "address": "peerspan-acc-1/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M1→M2",
-          "command": "copy ~/.config/capsule/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
+          "command": "copy ~/.config/peerspan/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
           "kind": "copy",
           "exit": 0
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-2",
+          "user": "peerspan-acc-2",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.54
+          "seconds": 0.47
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-2",
+          "user": "peerspan-acc-2",
           "implementation": "go",
-          "command": "capsule join TOKEN",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.12,
+          "seconds": 0.27,
           "taken_from_output": {
-            "TOKEN": "the join line printed by M1 `capsule invite capsule-acc-1`"
+            "TOKEN": "the join line printed by M1 `peerspan invite peerspan-acc-1`"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-2",
+          "user": "peerspan-acc-2",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_f52905fd0753bc54745095e127ca75c3",
+              "id": "agent_2c81b9b0f81115caf408ee4627a9d085",
               "name": "claude-cerebral-work-1",
-              "address": "capsule-acc-1/claude-cerebral-work-1"
+              "address": "peerspan-acc-1/claude-cerebral-work-1"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 7,
+        "peerspan": 7,
         "copy": 1
       },
       "expected_counts": {
-        "capsule": 7,
+        "peerspan": 7,
         "copy": 1
       },
       "addresses": {
-        "M1": "capsule-acc-1/claude",
-        "M2": "capsule-acc-1/claude-cerebral-work-1"
+        "M1": "peerspan-acc-1/claude",
+        "M2": "peerspan-acc-1/claude-cerebral-work-1"
       },
       "checks": [
         {
@@ -175,7 +175,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 7,
+            "peerspan": 7,
             "copy": 1
           }
         },
@@ -184,8 +184,8 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "M1": "capsule-acc-1/claude",
-            "M2": "capsule-acc-1/claude-cerebral-work-1"
+            "M1": "peerspan-acc-1/claude",
+            "M2": "peerspan-acc-1/claude-cerebral-work-1"
           }
         },
         {
@@ -194,7 +194,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -211,19 +213,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-1/claude",
-                "host_id": "host_1e1fc5291bd544b5eb13f3e0b7659f2fc5bddaa31522e91fb5047c95e4376077",
-                "agent_id": "agent_98f955bf875323e6f488b4bd0e2a97bb",
+                "address": "peerspan-acc-1/claude",
+                "host_id": "host_0d25fa19c3aaa30a396c2223a382f1e610cdbccd878a408af0d62f72300c3472",
+                "agent_id": "agent_c43d3212fb6b830a8cdd50bb5c600b81",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-1/.config/capsule/sessions/host_1e1fc5291bd544b5eb13f3e0b7659f2fc5bddaa31522e91fb5047c95e4376077/claude/mcp.json",
+              "/home/peerspan-acc-1/.config/peerspan/sessions/host_0d25fa19c3aaa30a396c2223a382f1e610cdbccd878a408af0d62f72300c3472/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-1/.config/peerspan/sessions/host_0d25fa19c3aaa30a396c2223a382f1e610cdbccd878a408af0d62f72300c3472/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -233,7 +237,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -250,19 +256,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-1/claude-cerebral-work-1",
-                "host_id": "host_1caa6d69b57b06f01d0f285741f4d0489ca37d61d9a68611e241f101d7ca9d6c",
-                "agent_id": "agent_f52905fd0753bc54745095e127ca75c3",
+                "address": "peerspan-acc-1/claude-cerebral-work-1",
+                "host_id": "host_6c0bad0cda8ede65431e19f832041f1102a6d1219df18176ecec664f17467667",
+                "agent_id": "agent_2c81b9b0f81115caf408ee4627a9d085",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-2/.config/capsule/sessions/host_1caa6d69b57b06f01d0f285741f4d0489ca37d61d9a68611e241f101d7ca9d6c/claude-cerebral-work-1/mcp.json",
+              "/home/peerspan-acc-2/.config/peerspan/sessions/host_6c0bad0cda8ede65431e19f832041f1102a6d1219df18176ecec664f17467667/claude-cerebral-work-1/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-2/.config/peerspan/sessions/host_6c0bad0cda8ede65431e19f832041f1102a6d1219df18176ecec664f17467667/claude-cerebral-work-1/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -274,7 +282,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-1/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-1/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -291,7 +299,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-2/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-2/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -305,7 +313,7 @@
           "machine": "M1",
           "passed": true,
           "detail": {
-            "capsule-acc-1/claude-cerebral-work-1": [
+            "peerspan-acc-1/claude-cerebral-work-1": [
               "message.append",
               "task.submit",
               "task.delegate"
@@ -317,7 +325,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-1/claude": [
+            "peerspan-acc-1/claude": [
               "message.append",
               "task.submit",
               "task.delegate"
@@ -325,7 +333,7 @@
           }
         },
         {
-          "check": "send capsule-acc-1/claude-cerebral-work-1 ends accepted, citing self",
+          "check": "send peerspan-acc-1/claude-cerebral-work-1 ends accepted, citing self",
           "machine": "M1",
           "passed": true,
           "detail": {
@@ -335,7 +343,7 @@
           }
         },
         {
-          "check": "task capsule-acc-1/claude-cerebral-work-1 reaches the receiver, citing self",
+          "check": "task peerspan-acc-1/claude-cerebral-work-1 reaches the receiver, citing self",
           "machine": "M1",
           "passed": true,
           "detail": {
@@ -345,7 +353,7 @@
           }
         },
         {
-          "check": "send capsule-acc-1/claude ends accepted, citing self",
+          "check": "send peerspan-acc-1/claude ends accepted, citing self",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -355,7 +363,7 @@
           }
         },
         {
-          "check": "task capsule-acc-1/claude reaches the receiver, citing self",
+          "check": "task peerspan-acc-1/claude reaches the receiver, citing self",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -377,123 +385,123 @@
         "M2": "rust"
       },
       "users": {
-        "M1": "capsule-acc-3",
-        "M2": "capsule-acc-4"
+        "M1": "peerspan-acc-3",
+        "M2": "peerspan-acc-4"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-3",
+          "user": "peerspan-acc-3",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.43
+          "seconds": 0.46
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-3",
+          "user": "peerspan-acc-3",
           "implementation": "rust",
-          "command": "capsule network create acme",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.1
+          "seconds": 0.3
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-3",
+          "user": "peerspan-acc-3",
           "implementation": "rust",
-          "command": "capsule invite capsule-acc-3",
-          "kind": "capsule",
+          "command": "peerspan invite peerspan-acc-3",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.02
+          "seconds": 0.05
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-3",
+          "user": "peerspan-acc-3",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "address": "capsule-acc-3/claude",
-              "id": "agent_3da3c075a2544010df2f108d2fe30cd2",
+              "address": "peerspan-acc-3/claude",
+              "id": "agent_84437d405a0818259bb9b9dc9e8c70e1",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M1→M2",
-          "command": "copy ~/.config/capsule/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
+          "command": "copy ~/.config/peerspan/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
           "kind": "copy",
           "exit": 0
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-4",
+          "user": "peerspan-acc-4",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.48
+          "seconds": 0.45
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-4",
+          "user": "peerspan-acc-4",
           "implementation": "rust",
-          "command": "capsule join TOKEN",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.08,
+          "seconds": 0.19,
           "taken_from_output": {
-            "TOKEN": "the join line printed by M1 `capsule invite capsule-acc-3`"
+            "TOKEN": "the join line printed by M1 `peerspan invite peerspan-acc-3`"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-4",
+          "user": "peerspan-acc-4",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "address": "capsule-acc-3/claude-cerebral-work-1",
-              "id": "agent_30f0d4268d04f965b1d5a54a8ff5caa0",
+              "address": "peerspan-acc-3/claude-cerebral-work-1",
+              "id": "agent_e874913c6c9cb4df8b70eae856f00ec6",
               "name": "claude-cerebral-work-1"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 7,
+        "peerspan": 7,
         "copy": 1
       },
       "expected_counts": {
-        "capsule": 7,
+        "peerspan": 7,
         "copy": 1
       },
       "addresses": {
-        "M1": "capsule-acc-3/claude",
-        "M2": "capsule-acc-3/claude-cerebral-work-1"
+        "M1": "peerspan-acc-3/claude",
+        "M2": "peerspan-acc-3/claude-cerebral-work-1"
       },
       "checks": [
         {
@@ -501,7 +509,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 7,
+            "peerspan": 7,
             "copy": 1
           }
         },
@@ -510,8 +518,8 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "M1": "capsule-acc-3/claude",
-            "M2": "capsule-acc-3/claude-cerebral-work-1"
+            "M1": "peerspan-acc-3/claude",
+            "M2": "peerspan-acc-3/claude-cerebral-work-1"
           }
         },
         {
@@ -520,7 +528,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -537,19 +547,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-3/claude",
-                "agent_id": "agent_3da3c075a2544010df2f108d2fe30cd2",
+                "address": "peerspan-acc-3/claude",
+                "agent_id": "agent_84437d405a0818259bb9b9dc9e8c70e1",
                 "connected": true,
-                "host_id": "host_0ede282da8cdc7678360f870df75180c2c186a0e509a7687b7c2edbd65033541"
+                "host_id": "host_852f891d852e751ebbefd92131d0b6a6b40f70ec27b6f567cf6bcaf7144de16a"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-3/.config/capsule/sessions/host_0ede282da8cdc7678360f870df75180c2c186a0e509a7687b7c2edbd65033541/claude/mcp.json",
+              "/home/peerspan-acc-3/.config/peerspan/sessions/host_852f891d852e751ebbefd92131d0b6a6b40f70ec27b6f567cf6bcaf7144de16a/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-3/.config/peerspan/sessions/host_852f891d852e751ebbefd92131d0b6a6b40f70ec27b6f567cf6bcaf7144de16a/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -559,7 +571,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -576,19 +590,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-3/claude-cerebral-work-1",
-                "agent_id": "agent_30f0d4268d04f965b1d5a54a8ff5caa0",
+                "address": "peerspan-acc-3/claude-cerebral-work-1",
+                "agent_id": "agent_e874913c6c9cb4df8b70eae856f00ec6",
                 "connected": true,
-                "host_id": "host_8886b6ea3111478bb167024fd778b163d184ac6664376f86313df73351f02dd4"
+                "host_id": "host_7d684a04f4169cefdb7037ca32c9a3bd215fe3dc0e1867c42cdcf56bf9df4039"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-4/.config/capsule/sessions/host_8886b6ea3111478bb167024fd778b163d184ac6664376f86313df73351f02dd4/claude-cerebral-work-1/mcp.json",
+              "/home/peerspan-acc-4/.config/peerspan/sessions/host_7d684a04f4169cefdb7037ca32c9a3bd215fe3dc0e1867c42cdcf56bf9df4039/claude-cerebral-work-1/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-4/.config/peerspan/sessions/host_7d684a04f4169cefdb7037ca32c9a3bd215fe3dc0e1867c42cdcf56bf9df4039/claude-cerebral-work-1/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -603,7 +619,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-3/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-3/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -620,7 +636,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-4/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-4/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -631,7 +647,7 @@
           "machine": "M1",
           "passed": true,
           "detail": {
-            "capsule-acc-3/claude-cerebral-work-1": [
+            "peerspan-acc-3/claude-cerebral-work-1": [
               "message.append",
               "task.submit",
               "task.delegate"
@@ -643,7 +659,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-3/claude": [
+            "peerspan-acc-3/claude": [
               "message.append",
               "task.submit",
               "task.delegate"
@@ -651,7 +667,7 @@
           }
         },
         {
-          "check": "send capsule-acc-3/claude-cerebral-work-1 ends accepted, citing self",
+          "check": "send peerspan-acc-3/claude-cerebral-work-1 ends accepted, citing self",
           "machine": "M1",
           "passed": true,
           "detail": {
@@ -661,7 +677,7 @@
           }
         },
         {
-          "check": "task capsule-acc-3/claude-cerebral-work-1 reaches the receiver, citing self",
+          "check": "task peerspan-acc-3/claude-cerebral-work-1 reaches the receiver, citing self",
           "machine": "M1",
           "passed": true,
           "detail": {
@@ -671,7 +687,7 @@
           }
         },
         {
-          "check": "send capsule-acc-3/claude ends accepted, citing self",
+          "check": "send peerspan-acc-3/claude ends accepted, citing self",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -681,7 +697,7 @@
           }
         },
         {
-          "check": "task capsule-acc-3/claude reaches the receiver, citing self",
+          "check": "task peerspan-acc-3/claude reaches the receiver, citing self",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -703,135 +719,135 @@
         "M2": "go"
       },
       "users": {
-        "M1": "capsule-acc-5",
-        "M2": "capsule-acc-6"
+        "M1": "peerspan-acc-5",
+        "M2": "peerspan-acc-6"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-5",
+          "user": "peerspan-acc-5",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
-          "cwd": "~",
-          "exit": 0,
-          "seconds": 0.41
-        },
-        {
-          "machine": "M1",
-          "user": "capsule-acc-5",
-          "implementation": "go",
-          "command": "capsule network create acme",
-          "kind": "capsule",
-          "cwd": "~",
-          "exit": 0,
-          "seconds": 0.12
-        },
-        {
-          "machine": "M1",
-          "user": "capsule-acc-5",
-          "implementation": "go",
-          "command": "capsule invite bob",
-          "kind": "capsule",
-          "cwd": "~",
-          "exit": 0,
-          "seconds": 0.01
-        },
-        {
-          "machine": "M2",
-          "user": "capsule-acc-6",
-          "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.43
         },
         {
-          "machine": "M2",
-          "user": "capsule-acc-6",
+          "machine": "M1",
+          "user": "peerspan-acc-5",
           "implementation": "go",
-          "command": "capsule join TOKEN",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.16,
-          "taken_from_output": {
-            "TOKEN": "the join line printed by M1 `capsule invite bob`"
-          }
-        },
-        {
-          "machine": "M2",
-          "user": "capsule-acc-6",
-          "implementation": "go",
-          "command": "capsule allow capsule-acc-5",
-          "kind": "capsule",
-          "cwd": "~",
-          "exit": 0,
-          "seconds": 0.06
-        },
-        {
-          "machine": "M2",
-          "user": "capsule-acc-6",
-          "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
-          "cwd": "~/src/project",
-          "background": true,
-          "exit": null,
-          "launched": true,
-          "output": {
-            "agent": {
-              "id": "agent_fdf76be35ec5422eedc5e6513ee800a0",
-              "name": "claude",
-              "address": "bob/claude"
-            },
-            "reused": false,
-            "unchecked_hosts": [],
-            "next": "capsule session start"
-          }
+          "seconds": 0.29
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-5",
+          "user": "peerspan-acc-5",
           "implementation": "go",
-          "command": "capsule allow bob",
-          "kind": "capsule",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.04
+        },
+        {
+          "machine": "M2",
+          "user": "peerspan-acc-6",
+          "implementation": "go",
+          "command": "peerspan install",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.49
+        },
+        {
+          "machine": "M2",
+          "user": "peerspan-acc-6",
+          "implementation": "go",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.27,
+          "taken_from_output": {
+            "TOKEN": "the join line printed by M1 `peerspan invite bob`"
+          }
+        },
+        {
+          "machine": "M2",
+          "user": "peerspan-acc-6",
+          "implementation": "go",
+          "command": "peerspan allow peerspan-acc-5",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.22
         },
         {
-          "machine": "M1",
-          "user": "capsule-acc-5",
+          "machine": "M2",
+          "user": "peerspan-acc-6",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_3914736f543c1f763f813bf736b4ece2",
+              "id": "agent_cf563c9bce770ea1fcb29a6f4abd1c00",
               "name": "claude",
-              "address": "capsule-acc-5/claude"
+              "address": "bob/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
+          }
+        },
+        {
+          "machine": "M1",
+          "user": "peerspan-acc-5",
+          "implementation": "go",
+          "command": "peerspan allow bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.19
+        },
+        {
+          "machine": "M1",
+          "user": "peerspan-acc-5",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "background": true,
+          "exit": null,
+          "launched": true,
+          "output": {
+            "agent": {
+              "id": "agent_87bb1b1d885cfeeb61ddccf4d9ce3624",
+              "name": "claude",
+              "address": "peerspan-acc-5/claude"
+            },
+            "reused": false,
+            "unchecked_hosts": [],
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 9
+        "peerspan": 9
       },
       "expected_counts": {
-        "capsule": 9
+        "peerspan": 9
       },
       "addresses": {
         "M2": "bob/claude",
-        "M1": "capsule-acc-5/claude"
+        "M1": "peerspan-acc-5/claude"
       },
       "checks": [
         {
@@ -839,7 +855,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 9
+            "peerspan": 9
           }
         },
         {
@@ -848,7 +864,7 @@
           "passed": true,
           "detail": {
             "M2": "bob/claude",
-            "M1": "capsule-acc-5/claude"
+            "M1": "peerspan-acc-5/claude"
           }
         },
         {
@@ -857,7 +873,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -874,19 +892,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-5/claude",
-                "host_id": "host_78990d7fa483cda26c5219ef839b997482fcb7ed563f5441145766badfe5eced",
-                "agent_id": "agent_3914736f543c1f763f813bf736b4ece2",
+                "address": "peerspan-acc-5/claude",
+                "host_id": "host_ac44ff12082ac3471c7b36e49b91addc2e16d0844cc6de5e89e1754ed1bd1c6a",
+                "agent_id": "agent_87bb1b1d885cfeeb61ddccf4d9ce3624",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-5/.config/capsule/sessions/host_78990d7fa483cda26c5219ef839b997482fcb7ed563f5441145766badfe5eced/claude/mcp.json",
+              "/home/peerspan-acc-5/.config/peerspan/sessions/host_ac44ff12082ac3471c7b36e49b91addc2e16d0844cc6de5e89e1754ed1bd1c6a/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-5/.config/peerspan/sessions/host_ac44ff12082ac3471c7b36e49b91addc2e16d0844cc6de5e89e1754ed1bd1c6a/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -896,7 +916,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -914,18 +936,20 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "host_id": "host_3d175197fcbed532ffbf762bd5c26523fe623912c3fba9c2509240ca49666549",
-                "agent_id": "agent_fdf76be35ec5422eedc5e6513ee800a0",
+                "host_id": "host_a7cc69984845d44c6eb9e88ff3d2afd5190eb161caadf0fba8d79a18a7478e9c",
+                "agent_id": "agent_cf563c9bce770ea1fcb29a6f4abd1c00",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-6/.config/capsule/sessions/host_3d175197fcbed532ffbf762bd5c26523fe623912c3fba9c2509240ca49666549/claude/mcp.json",
+              "/home/peerspan-acc-6/.config/peerspan/sessions/host_a7cc69984845d44c6eb9e88ff3d2afd5190eb161caadf0fba8d79a18a7478e9c/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-6/.config/peerspan/sessions/host_a7cc69984845d44c6eb9e88ff3d2afd5190eb161caadf0fba8d79a18a7478e9c/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -937,7 +961,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-5/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-5/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -954,7 +978,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-6/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-6/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -979,7 +1003,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-5/claude": [
+            "peerspan-acc-5/claude": [
               "message.append",
               "task.submit"
             ]
@@ -1006,7 +1030,7 @@
           }
         },
         {
-          "check": "send capsule-acc-5/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-5/claude ends accepted, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -1016,7 +1040,7 @@
           }
         },
         {
-          "check": "task capsule-acc-5/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-5/claude reaches the receiver, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -1027,7 +1051,7 @@
         }
       ],
       "notes": [
-        "alice is the person label network create takes from M1's login name (capsule-acc-5); bob types it in `capsule allow`."
+        "alice is the person label network create takes from M1's login name (peerspan-acc-5); bob types it in `peerspan allow`."
       ],
       "passed": true,
       "error": null
@@ -1040,79 +1064,79 @@
         "M2": "rust"
       },
       "users": {
-        "M1": "capsule-acc-7",
-        "M2": "capsule-acc-8"
+        "M1": "peerspan-acc-7",
+        "M2": "peerspan-acc-8"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-7",
+          "user": "peerspan-acc-7",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.45
+          "seconds": 0.42
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-7",
+          "user": "peerspan-acc-7",
           "implementation": "rust",
-          "command": "capsule network create acme",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.17
+          "seconds": 0.24
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-7",
+          "user": "peerspan-acc-7",
           "implementation": "rust",
-          "command": "capsule invite bob",
-          "kind": "capsule",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.03
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-8",
+          "user": "peerspan-acc-8",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.49
+          "seconds": 0.5
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-8",
+          "user": "peerspan-acc-8",
           "implementation": "rust",
-          "command": "capsule join TOKEN",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.2,
+          "seconds": 0.19,
           "taken_from_output": {
-            "TOKEN": "the join line printed by M1 `capsule invite bob`"
+            "TOKEN": "the join line printed by M1 `peerspan invite bob`"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-8",
+          "user": "peerspan-acc-8",
           "implementation": "rust",
-          "command": "capsule allow capsule-acc-7",
-          "kind": "capsule",
+          "command": "peerspan allow peerspan-acc-7",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.11
+          "seconds": 0.17
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-8",
+          "user": "peerspan-acc-8",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
@@ -1120,55 +1144,55 @@
           "output": {
             "agent": {
               "address": "bob/claude",
-              "id": "agent_7da6e4ba82a64ca4929e6db8c8fb841f",
+              "id": "agent_2b1e9fb3d9e62c7997624f8125d4b792",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-7",
+          "user": "peerspan-acc-7",
           "implementation": "rust",
-          "command": "capsule allow bob",
-          "kind": "capsule",
+          "command": "peerspan allow bob",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.14
+          "seconds": 0.22
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-7",
+          "user": "peerspan-acc-7",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "address": "capsule-acc-7/claude",
-              "id": "agent_762550627370675f4e703f62a8a7746b",
+              "address": "peerspan-acc-7/claude",
+              "id": "agent_8c65f49f0f2b91b0d2f7ddccb15ac45e",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 9
+        "peerspan": 9
       },
       "expected_counts": {
-        "capsule": 9
+        "peerspan": 9
       },
       "addresses": {
         "M2": "bob/claude",
-        "M1": "capsule-acc-7/claude"
+        "M1": "peerspan-acc-7/claude"
       },
       "checks": [
         {
@@ -1176,7 +1200,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 9
+            "peerspan": 9
           }
         },
         {
@@ -1185,7 +1209,7 @@
           "passed": true,
           "detail": {
             "M2": "bob/claude",
-            "M1": "capsule-acc-7/claude"
+            "M1": "peerspan-acc-7/claude"
           }
         },
         {
@@ -1194,7 +1218,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -1211,19 +1237,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-7/claude",
-                "agent_id": "agent_762550627370675f4e703f62a8a7746b",
+                "address": "peerspan-acc-7/claude",
+                "agent_id": "agent_8c65f49f0f2b91b0d2f7ddccb15ac45e",
                 "connected": true,
-                "host_id": "host_f41967c78c552c11dd448d913b2e0ea720836e67349fe50ec2f6da72ce1c0ded"
+                "host_id": "host_f0ca780862fce5bfc243287923e62bbb4ce75a8971ea9cf5b4c901a65f7a811a"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-7/.config/capsule/sessions/host_f41967c78c552c11dd448d913b2e0ea720836e67349fe50ec2f6da72ce1c0ded/claude/mcp.json",
+              "/home/peerspan-acc-7/.config/peerspan/sessions/host_f0ca780862fce5bfc243287923e62bbb4ce75a8971ea9cf5b4c901a65f7a811a/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-7/.config/peerspan/sessions/host_f0ca780862fce5bfc243287923e62bbb4ce75a8971ea9cf5b4c901a65f7a811a/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -1233,7 +1261,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -1251,18 +1281,20 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "agent_id": "agent_7da6e4ba82a64ca4929e6db8c8fb841f",
+                "agent_id": "agent_2b1e9fb3d9e62c7997624f8125d4b792",
                 "connected": true,
-                "host_id": "host_c0e004662625787fc46b7199cbc299bbc99945a0611d1a08e2c8289bca3df643"
+                "host_id": "host_a8cf0ab2c678c22836e63cf1bb9e49be91c1a91e9bccfb9b1e1d866c67fff469"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-8/.config/capsule/sessions/host_c0e004662625787fc46b7199cbc299bbc99945a0611d1a08e2c8289bca3df643/claude/mcp.json",
+              "/home/peerspan-acc-8/.config/peerspan/sessions/host_a8cf0ab2c678c22836e63cf1bb9e49be91c1a91e9bccfb9b1e1d866c67fff469/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-8/.config/peerspan/sessions/host_a8cf0ab2c678c22836e63cf1bb9e49be91c1a91e9bccfb9b1e1d866c67fff469/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -1277,7 +1309,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-7/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-7/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -1294,7 +1326,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-8/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-8/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -1316,7 +1348,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-7/claude": [
+            "peerspan-acc-7/claude": [
               "message.append",
               "task.submit"
             ]
@@ -1343,7 +1375,7 @@
           }
         },
         {
-          "check": "send capsule-acc-7/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-7/claude ends accepted, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -1353,7 +1385,7 @@
           }
         },
         {
-          "check": "task capsule-acc-7/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-7/claude reaches the receiver, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -1364,7 +1396,7 @@
         }
       ],
       "notes": [
-        "alice is the person label network create takes from M1's login name (capsule-acc-7); bob types it in `capsule allow`."
+        "alice is the person label network create takes from M1's login name (peerspan-acc-7); bob types it in `peerspan allow`."
       ],
       "passed": true,
       "error": null
@@ -1378,199 +1410,199 @@
         "M3": "go"
       },
       "users": {
-        "M1": "capsule-acc-9",
-        "M2": "capsule-acc-10",
-        "M3": "capsule-acc-11"
+        "M1": "peerspan-acc-9",
+        "M2": "peerspan-acc-10",
+        "M3": "peerspan-acc-11"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-9",
+          "user": "peerspan-acc-9",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.47
+          "seconds": 0.43
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-9",
+          "user": "peerspan-acc-9",
           "implementation": "go",
-          "command": "capsule network create acme",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.34
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-9",
+          "user": "peerspan-acc-9",
           "implementation": "go",
-          "command": "capsule invite bob",
-          "kind": "capsule",
-          "cwd": "~",
-          "exit": 0,
-          "seconds": 0.09
-        },
-        {
-          "machine": "M1",
-          "user": "capsule-acc-9",
-          "implementation": "go",
-          "command": "capsule invite carol",
-          "kind": "capsule",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.04
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-9",
+          "user": "peerspan-acc-9",
           "implementation": "go",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan invite carol",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.05
+        },
+        {
+          "machine": "M1",
+          "user": "peerspan-acc-9",
+          "implementation": "go",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.17
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-9",
+          "user": "peerspan-acc-9",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_209be3713f41cf479c11b79a385ec3ab",
+              "id": "agent_6ceafc2f0d830430cf0ae23786eabb75",
               "name": "claude",
-              "address": "capsule-acc-9/claude"
+              "address": "peerspan-acc-9/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-10",
+          "user": "peerspan-acc-10",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.53
+          "seconds": 0.46
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-10",
+          "user": "peerspan-acc-10",
           "implementation": "go",
-          "command": "capsule join TOKEN_BOB",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN_BOB",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.35,
+          "seconds": 0.27,
           "taken_from_output": {
-            "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
+            "TOKEN_BOB": "the join line printed by M1 `peerspan invite bob`"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-10",
+          "user": "peerspan-acc-10",
           "implementation": "go",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.22
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-10",
+          "user": "peerspan-acc-10",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_133da9f2a77d8e88e0842212bfe0117a",
+              "id": "agent_3f3708e2307b9cee26db60d287835d45",
               "name": "claude",
               "address": "bob/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-11",
+          "user": "peerspan-acc-11",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.45
+          "seconds": 0.42
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-11",
+          "user": "peerspan-acc-11",
           "implementation": "go",
-          "command": "capsule join TOKEN_CAROL",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN_CAROL",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.31,
+          "seconds": 0.55,
           "taken_from_output": {
-            "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
+            "TOKEN_CAROL": "the join line printed by M1 `peerspan invite carol`"
           }
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-11",
+          "user": "peerspan-acc-11",
           "implementation": "go",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.19
+          "seconds": 0.44
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-11",
+          "user": "peerspan-acc-11",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_29b67d3a1d78a3a931b3b6966e1ae9cb",
+              "id": "agent_cf7f6a7bad6aebf5eb165d859d26305b",
               "name": "claude",
               "address": "carol/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 14
+        "peerspan": 14
       },
       "expected_counts": {
-        "capsule": 14
+        "peerspan": 14
       },
       "addresses": {
-        "M1": "capsule-acc-9/claude",
+        "M1": "peerspan-acc-9/claude",
         "M2": "bob/claude",
         "M3": "carol/claude"
       },
@@ -1580,7 +1612,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 14
+            "peerspan": 14
           }
         },
         {
@@ -1588,7 +1620,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "M1": "capsule-acc-9/claude",
+            "M1": "peerspan-acc-9/claude",
             "M2": "bob/claude",
             "M3": "carol/claude"
           }
@@ -1599,7 +1631,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -1616,19 +1650,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-9/claude",
-                "host_id": "host_fcec886657194140caae4af10cebb291a81d23ecbee63f8a1399eccc81f5648c",
-                "agent_id": "agent_209be3713f41cf479c11b79a385ec3ab",
+                "address": "peerspan-acc-9/claude",
+                "host_id": "host_3f2e7d6e9b27fc76d847dba9b7548fe07af18817d2fc572241fb5bb06ca63935",
+                "agent_id": "agent_6ceafc2f0d830430cf0ae23786eabb75",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-9/.config/capsule/sessions/host_fcec886657194140caae4af10cebb291a81d23ecbee63f8a1399eccc81f5648c/claude/mcp.json",
+              "/home/peerspan-acc-9/.config/peerspan/sessions/host_3f2e7d6e9b27fc76d847dba9b7548fe07af18817d2fc572241fb5bb06ca63935/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-9/.config/peerspan/sessions/host_3f2e7d6e9b27fc76d847dba9b7548fe07af18817d2fc572241fb5bb06ca63935/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -1638,7 +1674,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -1656,18 +1694,20 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "host_id": "host_4537002db14348f36fde0e65d22092e082a5fe4455fe2cbf3552b7d29cade4b9",
-                "agent_id": "agent_133da9f2a77d8e88e0842212bfe0117a",
+                "host_id": "host_746bf8915f93b1923d2032211ee6d3703244e2d60bffc8e904af81ab7a241c82",
+                "agent_id": "agent_3f3708e2307b9cee26db60d287835d45",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-10/.config/capsule/sessions/host_4537002db14348f36fde0e65d22092e082a5fe4455fe2cbf3552b7d29cade4b9/claude/mcp.json",
+              "/home/peerspan-acc-10/.config/peerspan/sessions/host_746bf8915f93b1923d2032211ee6d3703244e2d60bffc8e904af81ab7a241c82/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-10/.config/peerspan/sessions/host_746bf8915f93b1923d2032211ee6d3703244e2d60bffc8e904af81ab7a241c82/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -1677,7 +1717,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -1695,18 +1737,20 @@
             "mine": [
               {
                 "address": "carol/claude",
-                "host_id": "host_bad9d0e83d4d6e25f1386a3c9b8d2fdb4ab4a7479251c1074394f9e957b853ff",
-                "agent_id": "agent_29b67d3a1d78a3a931b3b6966e1ae9cb",
+                "host_id": "host_58423a5b0462c9578fa3d3890d44f9f44b63fb63ace56886d7fce33c7aadfd1f",
+                "agent_id": "agent_cf7f6a7bad6aebf5eb165d859d26305b",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-11/.config/capsule/sessions/host_bad9d0e83d4d6e25f1386a3c9b8d2fdb4ab4a7479251c1074394f9e957b853ff/claude/mcp.json",
+              "/home/peerspan-acc-11/.config/peerspan/sessions/host_58423a5b0462c9578fa3d3890d44f9f44b63fb63ace56886d7fce33c7aadfd1f/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-11/.config/peerspan/sessions/host_58423a5b0462c9578fa3d3890d44f9f44b63fb63ace56886d7fce33c7aadfd1f/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -1718,7 +1762,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-9/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-9/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -1735,7 +1779,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-10/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-10/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -1752,7 +1796,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-11/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-11/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -1781,7 +1825,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-9/claude": [
+            "peerspan-acc-9/claude": [
               "message.append",
               "task.submit"
             ],
@@ -1796,7 +1840,7 @@
           "machine": "M3",
           "passed": true,
           "detail": {
-            "capsule-acc-9/claude": [
+            "peerspan-acc-9/claude": [
               "message.append",
               "task.submit"
             ],
@@ -1847,7 +1891,7 @@
           }
         },
         {
-          "check": "send capsule-acc-9/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-9/claude ends accepted, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -1857,7 +1901,7 @@
           }
         },
         {
-          "check": "task capsule-acc-9/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-9/claude reaches the receiver, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -1887,7 +1931,7 @@
           }
         },
         {
-          "check": "send capsule-acc-9/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-9/claude ends accepted, citing policy",
           "machine": "M3",
           "passed": true,
           "detail": {
@@ -1897,7 +1941,7 @@
           }
         },
         {
-          "check": "task capsule-acc-9/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-9/claude reaches the receiver, citing policy",
           "machine": "M3",
           "passed": true,
           "detail": {
@@ -1940,121 +1984,121 @@
         "M3": "rust"
       },
       "users": {
-        "M1": "capsule-acc-12",
-        "M2": "capsule-acc-13",
-        "M3": "capsule-acc-14"
+        "M1": "peerspan-acc-12",
+        "M2": "peerspan-acc-13",
+        "M3": "peerspan-acc-14"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-12",
+          "user": "peerspan-acc-12",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.55
+          "seconds": 0.47
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-12",
+          "user": "peerspan-acc-12",
           "implementation": "rust",
-          "command": "capsule network create acme",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.28
+          "seconds": 0.27
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-12",
+          "user": "peerspan-acc-12",
           "implementation": "rust",
-          "command": "capsule invite bob",
-          "kind": "capsule",
-          "cwd": "~",
-          "exit": 0,
-          "seconds": 0.05
-        },
-        {
-          "machine": "M1",
-          "user": "capsule-acc-12",
-          "implementation": "rust",
-          "command": "capsule invite carol",
-          "kind": "capsule",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
           "seconds": 0.06
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-12",
+          "user": "peerspan-acc-12",
           "implementation": "rust",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan invite carol",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.18
+          "seconds": 0.05
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-12",
+          "user": "peerspan-acc-12",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.21
+        },
+        {
+          "machine": "M1",
+          "user": "peerspan-acc-12",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "address": "capsule-acc-12/claude",
-              "id": "agent_20fa898ab2276fd8a72c238592d89c49",
+              "address": "peerspan-acc-12/claude",
+              "id": "agent_0b96321bb5180356fd0455b4f6774547",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-13",
+          "user": "peerspan-acc-13",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.4
+          "seconds": 0.43
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-13",
+          "user": "peerspan-acc-13",
           "implementation": "rust",
-          "command": "capsule join TOKEN_BOB",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN_BOB",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.14,
+          "seconds": 0.24,
           "taken_from_output": {
-            "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
+            "TOKEN_BOB": "the join line printed by M1 `peerspan invite bob`"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-13",
+          "user": "peerspan-acc-13",
           "implementation": "rust",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.21
+          "seconds": 0.33
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-13",
+          "user": "peerspan-acc-13",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
@@ -2062,53 +2106,53 @@
           "output": {
             "agent": {
               "address": "bob/claude",
-              "id": "agent_0b081f9b212013b773b75d8082de394c",
+              "id": "agent_2e38ce73e6ac026ba0d106c458007f81",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-14",
+          "user": "peerspan-acc-14",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.5
+          "seconds": 0.58
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-14",
+          "user": "peerspan-acc-14",
           "implementation": "rust",
-          "command": "capsule join TOKEN_CAROL",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN_CAROL",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.21,
+          "seconds": 0.23,
           "taken_from_output": {
-            "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
+            "TOKEN_CAROL": "the join line printed by M1 `peerspan invite carol`"
           }
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-14",
+          "user": "peerspan-acc-14",
           "implementation": "rust",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.28
+          "seconds": 0.24
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-14",
+          "user": "peerspan-acc-14",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
@@ -2116,23 +2160,23 @@
           "output": {
             "agent": {
               "address": "carol/claude",
-              "id": "agent_28e39dee0a21b246be651e47f671e2a0",
+              "id": "agent_09bf733e9e40f0e1e2dd6f6dcf7f5a5b",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 14
+        "peerspan": 14
       },
       "expected_counts": {
-        "capsule": 14
+        "peerspan": 14
       },
       "addresses": {
-        "M1": "capsule-acc-12/claude",
+        "M1": "peerspan-acc-12/claude",
         "M2": "bob/claude",
         "M3": "carol/claude"
       },
@@ -2142,7 +2186,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 14
+            "peerspan": 14
           }
         },
         {
@@ -2150,7 +2194,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "M1": "capsule-acc-12/claude",
+            "M1": "peerspan-acc-12/claude",
             "M2": "bob/claude",
             "M3": "carol/claude"
           }
@@ -2161,7 +2205,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -2178,19 +2224,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-12/claude",
-                "agent_id": "agent_20fa898ab2276fd8a72c238592d89c49",
+                "address": "peerspan-acc-12/claude",
+                "agent_id": "agent_0b96321bb5180356fd0455b4f6774547",
                 "connected": true,
-                "host_id": "host_447554a5af19d88cf91bfc833079f67955f75824a3149e26f39352b986dcfd16"
+                "host_id": "host_43bdbf2333adab93cbcc67bfe4160b326fea36c5feaf31e396a754aff4e5c18b"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-12/.config/capsule/sessions/host_447554a5af19d88cf91bfc833079f67955f75824a3149e26f39352b986dcfd16/claude/mcp.json",
+              "/home/peerspan-acc-12/.config/peerspan/sessions/host_43bdbf2333adab93cbcc67bfe4160b326fea36c5feaf31e396a754aff4e5c18b/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-12/.config/peerspan/sessions/host_43bdbf2333adab93cbcc67bfe4160b326fea36c5feaf31e396a754aff4e5c18b/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -2200,7 +2248,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -2218,18 +2268,20 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "agent_id": "agent_0b081f9b212013b773b75d8082de394c",
+                "agent_id": "agent_2e38ce73e6ac026ba0d106c458007f81",
                 "connected": true,
-                "host_id": "host_262c68564d2a5c7987a62eeb0462ba80964cad8793408b7455cb68b6518931ce"
+                "host_id": "host_c023f7c50eddba0d830cef8d59410fda673b0dcb2981522f40f76076edda3896"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-13/.config/capsule/sessions/host_262c68564d2a5c7987a62eeb0462ba80964cad8793408b7455cb68b6518931ce/claude/mcp.json",
+              "/home/peerspan-acc-13/.config/peerspan/sessions/host_c023f7c50eddba0d830cef8d59410fda673b0dcb2981522f40f76076edda3896/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-13/.config/peerspan/sessions/host_c023f7c50eddba0d830cef8d59410fda673b0dcb2981522f40f76076edda3896/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -2239,7 +2291,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -2257,18 +2311,20 @@
             "mine": [
               {
                 "address": "carol/claude",
-                "agent_id": "agent_28e39dee0a21b246be651e47f671e2a0",
+                "agent_id": "agent_09bf733e9e40f0e1e2dd6f6dcf7f5a5b",
                 "connected": true,
-                "host_id": "host_e2fd9dbd83204970c744c52ff07b832d3cfca2987807e7c3e196f5a1c46fe1dc"
+                "host_id": "host_ccd869edf96af174126395422ee41367457b16fa4f88ba8d3535953c930d58c5"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-14/.config/capsule/sessions/host_e2fd9dbd83204970c744c52ff07b832d3cfca2987807e7c3e196f5a1c46fe1dc/claude/mcp.json",
+              "/home/peerspan-acc-14/.config/peerspan/sessions/host_ccd869edf96af174126395422ee41367457b16fa4f88ba8d3535953c930d58c5/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-14/.config/peerspan/sessions/host_ccd869edf96af174126395422ee41367457b16fa4f88ba8d3535953c930d58c5/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -2283,7 +2339,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-12/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-12/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -2300,7 +2356,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-13/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-13/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -2317,7 +2373,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-14/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-14/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -2343,7 +2399,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-12/claude": [
+            "peerspan-acc-12/claude": [
               "message.append",
               "task.submit"
             ],
@@ -2358,7 +2414,7 @@
           "machine": "M3",
           "passed": true,
           "detail": {
-            "capsule-acc-12/claude": [
+            "peerspan-acc-12/claude": [
               "message.append",
               "task.submit"
             ],
@@ -2409,7 +2465,7 @@
           }
         },
         {
-          "check": "send capsule-acc-12/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-12/claude ends accepted, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -2419,7 +2475,7 @@
           }
         },
         {
-          "check": "task capsule-acc-12/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-12/claude reaches the receiver, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -2449,7 +2505,7 @@
           }
         },
         {
-          "check": "send capsule-acc-12/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-12/claude ends accepted, citing policy",
           "machine": "M3",
           "passed": true,
           "detail": {
@@ -2459,7 +2515,7 @@
           }
         },
         {
-          "check": "task capsule-acc-12/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-12/claude reaches the receiver, citing policy",
           "machine": "M3",
           "passed": true,
           "detail": {
@@ -2502,121 +2558,121 @@
         "M3": "go"
       },
       "users": {
-        "M1": "capsule-acc-15",
-        "M2": "capsule-acc-16",
-        "M3": "capsule-acc-17"
+        "M1": "peerspan-acc-15",
+        "M2": "peerspan-acc-16",
+        "M3": "peerspan-acc-17"
       },
       "commands": [
         {
           "machine": "M1",
-          "user": "capsule-acc-15",
+          "user": "peerspan-acc-15",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.44
+          "seconds": 0.54
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-15",
+          "user": "peerspan-acc-15",
           "implementation": "go",
-          "command": "capsule network create acme",
-          "kind": "capsule",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.35
+          "seconds": 0.37
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-15",
+          "user": "peerspan-acc-15",
           "implementation": "go",
-          "command": "capsule invite bob",
-          "kind": "capsule",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.04
+          "seconds": 0.07
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-15",
+          "user": "peerspan-acc-15",
           "implementation": "go",
-          "command": "capsule invite carol",
-          "kind": "capsule",
+          "command": "peerspan invite carol",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.08
+          "seconds": 0.05
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-15",
+          "user": "peerspan-acc-15",
           "implementation": "go",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.15
+          "seconds": 0.13
         },
         {
           "machine": "M1",
-          "user": "capsule-acc-15",
+          "user": "peerspan-acc-15",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_d5ce15f74426b06088897ee77413e498",
+              "id": "agent_2025953a719702e586e9284b21184b53",
               "name": "claude",
-              "address": "capsule-acc-15/claude"
+              "address": "peerspan-acc-15/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-16",
+          "user": "peerspan-acc-16",
           "implementation": "rust",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.42
+          "seconds": 0.55
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-16",
+          "user": "peerspan-acc-16",
           "implementation": "rust",
-          "command": "capsule join TOKEN_BOB",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN_BOB",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.31,
+          "seconds": 0.2,
           "taken_from_output": {
-            "TOKEN_BOB": "the join line printed by M1 `capsule invite bob`"
+            "TOKEN_BOB": "the join line printed by M1 `peerspan invite bob`"
           }
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-16",
+          "user": "peerspan-acc-16",
           "implementation": "rust",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.28
+          "seconds": 0.15
         },
         {
           "machine": "M2",
-          "user": "capsule-acc-16",
+          "user": "peerspan-acc-16",
           "implementation": "rust",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
@@ -2624,77 +2680,77 @@
           "output": {
             "agent": {
               "address": "bob/claude",
-              "id": "agent_5e1f1a943e02d9e884af2d488d0cbf96",
+              "id": "agent_08735bdf3cec1feb383fff6471ee9a43",
               "name": "claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-17",
+          "user": "peerspan-acc-17",
           "implementation": "go",
-          "command": "capsule install",
-          "kind": "capsule",
+          "command": "peerspan install",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.45
+          "seconds": 0.49
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-17",
+          "user": "peerspan-acc-17",
           "implementation": "go",
-          "command": "capsule join TOKEN_CAROL",
-          "kind": "capsule",
+          "command": "peerspan join TOKEN_CAROL",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.42,
+          "seconds": 0.21,
           "taken_from_output": {
-            "TOKEN_CAROL": "the join line printed by M1 `capsule invite carol`"
+            "TOKEN_CAROL": "the join line printed by M1 `peerspan invite carol`"
           }
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-17",
+          "user": "peerspan-acc-17",
           "implementation": "go",
-          "command": "capsule allow everyone",
-          "kind": "capsule",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
           "cwd": "~",
           "exit": 0,
-          "seconds": 0.26
+          "seconds": 0.06
         },
         {
           "machine": "M3",
-          "user": "capsule-acc-17",
+          "user": "peerspan-acc-17",
           "implementation": "go",
-          "command": "capsule attach claude",
-          "kind": "capsule",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
           "cwd": "~/src/project",
           "background": true,
           "exit": null,
           "launched": true,
           "output": {
             "agent": {
-              "id": "agent_a70c6f7e253ca0efa617654d3fae681f",
+              "id": "agent_5f63de7b9ce30f477977cc6d6ae2c8a8",
               "name": "claude",
               "address": "carol/claude"
             },
             "reused": false,
             "unchecked_hosts": [],
-            "next": "capsule session start"
+            "next": "peerspan session start"
           }
         }
       ],
       "counts": {
-        "capsule": 14
+        "peerspan": 14
       },
       "expected_counts": {
-        "capsule": 14
+        "peerspan": 14
       },
       "addresses": {
-        "M1": "capsule-acc-15/claude",
+        "M1": "peerspan-acc-15/claude",
         "M2": "bob/claude",
         "M3": "carol/claude"
       },
@@ -2704,7 +2760,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "capsule": 14
+            "peerspan": 14
           }
         },
         {
@@ -2712,7 +2768,7 @@
           "machine": null,
           "passed": true,
           "detail": {
-            "M1": "capsule-acc-15/claude",
+            "M1": "peerspan-acc-15/claude",
             "M2": "bob/claude",
             "M3": "carol/claude"
           }
@@ -2723,7 +2779,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -2740,19 +2798,21 @@
             ],
             "mine": [
               {
-                "address": "capsule-acc-15/claude",
-                "host_id": "host_27704dbc666d59a0578601fc147eadaee5e4e58d722f020009184f2d6da77a22",
-                "agent_id": "agent_d5ce15f74426b06088897ee77413e498",
+                "address": "peerspan-acc-15/claude",
+                "host_id": "host_f266c57908e58e28bf2c152e182b5db1ae8ba091f8f410688e16b06c8105b523",
+                "agent_id": "agent_2025953a719702e586e9284b21184b53",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-15/.config/capsule/sessions/host_27704dbc666d59a0578601fc147eadaee5e4e58d722f020009184f2d6da77a22/claude/mcp.json",
+              "/home/peerspan-acc-15/.config/peerspan/sessions/host_f266c57908e58e28bf2c152e182b5db1ae8ba091f8f410688e16b06c8105b523/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-15/.config/peerspan/sessions/host_f266c57908e58e28bf2c152e182b5db1ae8ba091f8f410688e16b06c8105b523/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -2762,7 +2822,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -2780,18 +2842,20 @@
             "mine": [
               {
                 "address": "bob/claude",
-                "agent_id": "agent_5e1f1a943e02d9e884af2d488d0cbf96",
+                "agent_id": "agent_08735bdf3cec1feb383fff6471ee9a43",
                 "connected": true,
-                "host_id": "host_81b7d883628742b1228e5ed6068a470c6806635767eaed0f95775664a7f6c838"
+                "host_id": "host_03f3d7f97548270a3e11af7775c6867913a1250df40770155a6cf4494de283a2"
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-16/.config/capsule/sessions/host_81b7d883628742b1228e5ed6068a470c6806635767eaed0f95775664a7f6c838/claude/mcp.json",
+              "/home/peerspan-acc-16/.config/peerspan/sessions/host_03f3d7f97548270a3e11af7775c6867913a1250df40770155a6cf4494de283a2/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-16/.config/peerspan/sessions/host_03f3d7f97548270a3e11af7775c6867913a1250df40770155a6cf4494de283a2/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -2801,7 +2865,9 @@
           "passed": true,
           "detail": {
             "tools": [
-              "capsule_ready",
+              "peerspan_ready",
+              "mark_seen",
+              "pending_work",
               "list_destinations",
               "list_agents",
               "send",
@@ -2819,18 +2885,20 @@
             "mine": [
               {
                 "address": "carol/claude",
-                "host_id": "host_60000c66184c9da323a1dae66ee031df27b67f15d3646f9006e302ac472ddfc5",
-                "agent_id": "agent_a70c6f7e253ca0efa617654d3fae681f",
+                "host_id": "host_d84f4e548a99d0bd00ef3cf3827a2f0fbf68cc6ac425c8452dde72482fc1c300",
+                "agent_id": "agent_5f63de7b9ce30f477977cc6d6ae2c8a8",
                 "connected": true
               }
             ],
             "launch_arguments": [
               "--mcp-config",
-              "/home/capsule-acc-17/.config/capsule/sessions/host_60000c66184c9da323a1dae66ee031df27b67f15d3646f9006e302ac472ddfc5/claude/mcp.json",
+              "/home/peerspan-acc-17/.config/peerspan/sessions/host_d84f4e548a99d0bd00ef3cf3827a2f0fbf68cc6ac425c8452dde72482fc1c300/claude/mcp.json",
+              "--settings",
+              "/home/peerspan-acc-17/.config/peerspan/sessions/host_d84f4e548a99d0bd00ef3cf3827a2f0fbf68cc6ac425c8452dde72482fc1c300/claude/claude-settings.json",
               "--dangerously-load-development-channels",
-              "server:capsule",
+              "server:peerspan",
               "--allowedTools",
-              "mcp__capsule__capsule_ready,mcp__capsule__list_destinations,mcp__capsule__list_agents,mcp__capsule__send,mcp__capsule__send_status,mcp__capsule__reply,mcp__capsule__task_accept,mcp__capsule__task_reject,mcp__capsule__task_progress,mcp__capsule__task_complete,mcp__capsule__task_cancelled,mcp__capsule__delegate_task,mcp__capsule__task_status,mcp__capsule__artifact_save"
+              "mcp__peerspan__peerspan_ready,mcp__peerspan__mark_seen,mcp__peerspan__pending_work,mcp__peerspan__list_destinations,mcp__peerspan__list_agents,mcp__peerspan__send,mcp__peerspan__send_status,mcp__peerspan__reply,mcp__peerspan__task_accept,mcp__peerspan__task_reject,mcp__peerspan__task_progress,mcp__peerspan__task_complete,mcp__peerspan__task_cancelled,mcp__peerspan__delegate_task,mcp__peerspan__task_status,mcp__peerspan__artifact_save"
             ]
           }
         },
@@ -2842,7 +2910,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-15/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-15/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -2862,7 +2930,7 @@
               "installed": true,
               "linger": true,
               "manager": "systemd",
-              "unit": "/home/capsule-acc-16/.config/systemd/user/capsule.service"
+              "unit": "/home/peerspan-acc-16/.config/systemd/user/peerspan.service"
             },
             "attention": [],
             "stderr": ""
@@ -2876,7 +2944,7 @@
             "exit": 0,
             "service": {
               "manager": "systemd",
-              "unit": "/home/capsule-acc-17/.config/systemd/user/capsule.service",
+              "unit": "/home/peerspan-acc-17/.config/systemd/user/peerspan.service",
               "installed": true,
               "active": true,
               "linger": true
@@ -2905,7 +2973,7 @@
           "machine": "M2",
           "passed": true,
           "detail": {
-            "capsule-acc-15/claude": [
+            "peerspan-acc-15/claude": [
               "message.append",
               "task.submit"
             ],
@@ -2920,7 +2988,7 @@
           "machine": "M3",
           "passed": true,
           "detail": {
-            "capsule-acc-15/claude": [
+            "peerspan-acc-15/claude": [
               "message.append",
               "task.submit"
             ],
@@ -2971,7 +3039,7 @@
           }
         },
         {
-          "check": "send capsule-acc-15/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-15/claude ends accepted, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -2981,7 +3049,7 @@
           }
         },
         {
-          "check": "task capsule-acc-15/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-15/claude reaches the receiver, citing policy",
           "machine": "M2",
           "passed": true,
           "detail": {
@@ -3011,7 +3079,7 @@
           }
         },
         {
-          "check": "send capsule-acc-15/claude ends accepted, citing policy",
+          "check": "send peerspan-acc-15/claude ends accepted, citing policy",
           "machine": "M3",
           "passed": true,
           "detail": {
@@ -3021,7 +3089,7 @@
           }
         },
         {
-          "check": "task capsule-acc-15/claude reaches the receiver, citing policy",
+          "check": "task peerspan-acc-15/claude reaches the receiver, citing policy",
           "machine": "M3",
           "passed": true,
           "detail": {
