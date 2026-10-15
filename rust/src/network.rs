@@ -120,12 +120,12 @@ fn empty_if_null<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Er
 }
 
 /// The coordinator this build uses when `network create` names none, from
-/// `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` at build time. A build
+/// `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` at build time. A build
 /// with only one of the two has no default.
 pub fn default_coordinator() -> Option<(&'static str, &'static str)> {
     match (
-        option_env!("CAPSULE_COORDINATOR"),
-        option_env!("CAPSULE_COORDINATOR_KEY"),
+        option_env!("PEERSPAN_COORDINATOR"),
+        option_env!("PEERSPAN_COORDINATOR_KEY"),
     ) {
         (Some(address), Some(key)) if !address.is_empty() && !key.is_empty() => {
             Some((address, key))
@@ -4808,7 +4808,7 @@ pub async fn join_with_descriptor(store: Arc<Store>, text: String) -> Result<Net
 
 /// The follow-up command that finishes a skipped person step, for display.
 fn bind_command(network: &str) -> String {
-    format!("capsule-host network bind --network {network}")
+    format!("peerspan-host network bind --network {network}")
 }
 fn admit_command(network: &str, person: &str, member: &str) -> String {
     let line = persons::parse_ssh_public_line(person)
@@ -4822,7 +4822,7 @@ fn admit_command(network: &str, person: &str, member: &str) -> String {
         })
         .unwrap_or_else(|_| person.to_owned());
     format!(
-        "an administrator runs: capsule-host network admit --network {network} --person '{line}' --member {member}; then: {}",
+        "an administrator runs: peerspan-host network admit --network {network} --person '{line}' --member {member}; then: {}",
         bind_command(network)
     )
 }
@@ -4874,7 +4874,7 @@ async fn person_step(
                 outcome.next = Some(match e {
                     Error::Conflict(_) => admit_command(&network.id, &key, "OTHER_LABEL"),
                     _ => format!(
-                        "capsule-host network redeem-person --token {text}; then: {}",
+                        "peerspan-host network redeem-person --token {text}; then: {}",
                         bind_command(&network.id)
                     ),
                 });

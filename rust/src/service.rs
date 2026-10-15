@@ -11,8 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SYSTEMD_UNIT: &str = "capsule.service";
-const LAUNCHD_LABEL: &str = "dev.capsule.host";
+const SYSTEMD_UNIT: &str = "peerspan.service";
+const LAUNCHD_LABEL: &str = "dev.peerspan.host";
 const DEFAULT_PORTS: std::ops::RangeInclusive<u16> = 7401..=7499;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -185,7 +185,7 @@ fn unit_text(manager: Manager, arguments: &[String], agent: Option<&str>) -> Str
                 .map(|a| format!("Environment={}\n", unit_word(&format!("SSH_AUTH_SOCK={a}"))))
                 .unwrap_or_default();
             format!(
-                "[Unit]\nDescription=Capsule host daemon\n\n[Service]\nExecStart={exec}\n{environment}Restart=on-failure\n\n[Install]\nWantedBy=default.target\n"
+                "[Unit]\nDescription=Peerspan host daemon\n\n[Service]\nExecStart={exec}\n{environment}Restart=on-failure\n\n[Install]\nWantedBy=default.target\n"
             )
         }
         Manager::Launchd => {
@@ -442,7 +442,7 @@ pub(crate) fn attention(service: &Value) -> Vec<Value> {
             "kind": "service_not_installed",
             "subject": "service",
             "detail": "the host daemon runs outside a user service and will not start at login",
-            "command": "capsule install",
+            "command": "peerspan install",
         }));
     }
     if service["manager"] == "systemd" && service["installed"] == true && service["linger"] == false

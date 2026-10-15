@@ -1,7 +1,7 @@
 use std::process::{Command, Output};
 
 fn cli(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_capsule-host"))
+    Command::new(env!("CARGO_BIN_EXE_peerspan-host"))
         .args(args)
         .env_remove("HOME")
         .env_remove("XDG_STATE_HOME")
@@ -58,7 +58,7 @@ fn an_explicit_person_key_that_cannot_be_used_fails_before_any_request() {
     .unwrap();
     let rsa = dir.path().join("rsa.pub");
     std::fs::write(&rsa, "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQC0 rsa\n").unwrap();
-    let token = "capsule-invite-v1.e30";
+    let token = "peerspan-invite-v1.e30";
     for key in [
         missing.as_str(),
         encrypted.to_str().unwrap(),
@@ -92,7 +92,7 @@ fn an_explicit_person_key_that_cannot_be_used_fails_before_any_request() {
                 key,
             ],
         ] {
-            let output = Command::new(env!("CARGO_BIN_EXE_capsule-host"))
+            let output = Command::new(env!("CARGO_BIN_EXE_peerspan-host"))
                 .args(&args)
                 .env_remove("SSH_AUTH_SOCK")
                 .output()

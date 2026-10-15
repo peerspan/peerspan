@@ -23,10 +23,10 @@ use std::{
     time::Duration,
 };
 
-pub const NAMESPACE: &str = "capsule-person-v1";
-pub const PERSON_TOKEN_PREFIX: &str = "capsule-person-invite-v1.";
-pub const DESCRIPTOR_PREFIX: &str = "capsule-network-v1.";
-pub const MEMBER_TOKEN_PREFIX: &str = "capsule-member-invite-v1.";
+pub const NAMESPACE: &str = "peerspan-person-v1";
+pub const PERSON_TOKEN_PREFIX: &str = "peerspan-person-invite-v1.";
+pub const DESCRIPTOR_PREFIX: &str = "peerspan-network-v1.";
+pub const MEMBER_TOKEN_PREFIX: &str = "peerspan-member-invite-v1.";
 const KEY_TYPE: &str = "ssh-ed25519";
 
 pub fn person_id(key: &[u8]) -> String {
@@ -394,14 +394,14 @@ fn agent_sign(socket: &Path, key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>, Err
     Ok(raw.to_vec())
 }
 /// The generated person key's path (launch slice 3):
-/// `$XDG_CONFIG_HOME/capsule/person_ed25519`, by default under `~/.config`.
+/// `$XDG_CONFIG_HOME/peerspan/person_ed25519`, by default under `~/.config`.
 pub fn generated_key_path() -> Option<std::path::PathBuf> {
     let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
         Some(dir) => std::path::PathBuf::from(dir),
         None => std::path::PathBuf::from(std::env::var_os("HOME").filter(|h| !h.is_empty())?)
             .join(".config"),
     };
-    Some(base.join("capsule").join("person_ed25519"))
+    Some(base.join("peerspan").join("person_ed25519"))
 }
 /// The OpenSSH SHA256 fingerprint of an `ssh-ed25519` key.
 pub fn fingerprint(key: &[u8; 32]) -> String {
@@ -544,7 +544,7 @@ impl PersonAdmission {
     }
     fn lines<'a>(&'a self, epoch: &'a str) -> [&'a str; 6] {
         [
-            "capsule-person-admit-v1",
+            "peerspan-person-admit-v1",
             &self.network_id,
             epoch,
             &self.person_public_key,
@@ -620,7 +620,7 @@ impl HostAdmission {
     }
     fn lines<'a>(&'a self, epoch: &'a str) -> [&'a str; 6] {
         [
-            "capsule-host-admit-v1",
+            "peerspan-host-admit-v1",
             &self.network_id,
             epoch,
             &self.host_public_key,
@@ -686,7 +686,7 @@ fn person_invite_lines<'a>(
     expires: &'a str,
 ) -> [&'a str; 6] {
     [
-        "capsule-person-invite-v1",
+        "peerspan-person-invite-v1",
         network,
         epoch,
         invite,
@@ -722,7 +722,7 @@ impl PersonMembership {
     }
     fn member_lines(&self) -> [&str; 5] {
         [
-            "capsule-person-member-v1",
+            "peerspan-person-member-v1",
             &self.network_id,
             &self.invite_public_key,
             &self.person_public_key,
@@ -782,7 +782,7 @@ impl PersonRemoval {
     }
     fn lines(&self) -> [&str; 4] {
         [
-            "capsule-person-remove-v1",
+            "peerspan-person-remove-v1",
             &self.network_id,
             &self.person_public_key,
             &self.removed_at,
@@ -837,7 +837,7 @@ pub struct HostBinding {
 impl HostBinding {
     fn lines(&self) -> [&str; 5] {
         [
-            "capsule-host-bind-v1",
+            "peerspan-host-bind-v1",
             &self.network_id,
             &self.person_public_key,
             &self.host_public_key,
@@ -893,7 +893,7 @@ pub struct HostUnbinding {
 impl HostUnbinding {
     fn lines(&self) -> [&str; 5] {
         [
-            "capsule-host-unbind-v1",
+            "peerspan-host-unbind-v1",
             &self.network_id,
             &self.person_public_key,
             &self.host_public_key,
@@ -931,7 +931,7 @@ fn decode_prefixed<T: DeserializeOwned>(prefix: &str, text: &str, what: &str) ->
     let body = text
         .trim()
         .strip_prefix(prefix)
-        .ok_or_else(|| invalid(&format!("not a capsule {what}")))?;
+        .ok_or_else(|| invalid(&format!("not a peerspan {what}")))?;
     let json = URL_SAFE_NO_PAD
         .decode(body)
         .map_err(|_| invalid(&format!("invalid {what} encoding")))?;
@@ -1265,20 +1265,20 @@ mod tests {
     const AT: &str = "2026-10-08T00:00:00Z";
     const EXPIRES: &str = "2026-11-01T00:00:00Z";
     const ADMIT_SIG: &str =
-        "57pOZqduTPBJKqC2gEAjW23pzd7zwul08CTAxX2KBRSlI36JJfb5WNf8x9LOlaLKK1jBL2r72mLJXIkpTYi+BA==";
+        "AteZLyZq4ZRDskSXA2B3z5ef4kxP6ZPAAdH9xa40fzuzMaln3zGp0HdR6Alb6JdNWkf4xA6YDVwW5hrnYumDCQ==";
     const INVITE_SIG: &str =
-        "DOs/7yFxVmC3IuPAcfqlF1EDczkw0++1gRZOjIQNCcK7d3nOPFDZoWcnrhMpBIzdLlEF6fR52K45m8TXGKNVAQ==";
+        "0HACBZUtFLmsLMHRFb4LtaLtYf4G2nI4gC2vMxNRSa3o7Wadv66pbAHYP/Z4f0lh1JdM/vEW3mgl+ey1HGNbDQ==";
     const MEMBER_SIG: &str =
-        "FP3SdKMjbdMcRQIsfMffRb6mnyqnDnX4hxj/cTz6DHyWeozcrRxdGU+/lYLEakp8tiS/jwOiCLJA/7DXhfOrDw==";
+        "qilofSGbTLjciUbkxth503LIM8V5GxmtQytdRk5c1BD2e/7iJ7hipZRTRI9aIUO3WqkS7XohJlrCMN4bFz31Dw==";
     const REMOVE_SIG: &str =
-        "gIGBRuXaZVCyEU+jkM1JUxo88yDrpZ8k7JbmKGObmeF14QeY2//Wdrn4CgetByjN4szTFbssvtuS6ynt3O8jBA==";
+        "Qw4rMkm3w7+P29EirszYiHa5aHcEek31WwW0SnZTqzd2jSWTN8BgIQ4xjMs59nj3m1SqxEhf5XAhG8jsGLp4BQ==";
     const HOST_ADMIT_SIG: &str =
-        "fYyNXrDCWJs61KeT2macWLkh/D+WVMI1i10iiC2mpFoQ9fz7EhDhy8KXAr+zjRfpdRzhzpGfAfEF4dBcMYGUCw==";
-    const BIND_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADAULCAWp02fy0fuxtv6fhaI8PHqxyBPr6SzVcTupgU0xsTYIMciLKFSVOaqYIOshUcKvNhgbAmBsiz6Cbe7UBw==";
+        "eDc17Z64tWiMiwrS1M/WPTlQEnnrzKjafR9VuQIYo0CxHZbXZHvetrYhmjNss1GBitTvzAabMMB9x/NVwzReBQ==";
+    const BIND_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQP3tgz3wWKkPfmQ/ZITbSIDUAz0nlbAJlaF5kdSFFJsoKS4SYIKScjsbnX73tyCVmIiekX2vBkXdqwKLJrbrCA0=";
     const HOST_SEED: &str = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=";
     const BIND_HOST_SIG: &str =
-        "xv+sVNH6/g1gJrknO2ImE97qrROduO2Oe0U4gvqcddbHibmhzR28SRWf7RtYUDizWnWE4Eufy3F1aijw6uvSDg==";
-    const UNBIND_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkiK02ZWdpz63BExI0ccVmkrPSaSUJEVrherPRCB7IWIDjvE6x1VieH2UJnMuWmp5tiXmTHuTs4mxDyehsUr4AA==";
+        "Cs9bDLLc4dP2hppQO1hOoEDRiiNBEGZf/ffsxPiqsUT+DFvFzkk91ikVyqMKcHfVY9EBpoknj+s4EnC7k3gOAQ==";
+    const UNBIND_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQJXOR4aLniMbQzrThHujvY0iAmDG9ptZ4EWVDYn2wKiWlANqa0MFpwbAO2S2iC2EuElmSjYCM//Sz23WbhFKdAc=";
 
     fn root() -> SigningKey {
         membership::seed(ROOT_SEED).unwrap()
@@ -1369,7 +1369,7 @@ mod tests {
         let decoded = PersonInviteToken::decode(&token.encode()).unwrap();
         assert_eq!(decoded, token);
         assert!(
-            PersonInviteToken::decode(&token.encode().replace("capsule-person", "capsule-host"))
+            PersonInviteToken::decode(&token.encode().replace("peerspan-person", "peerspan-host"))
                 .is_err()
         );
     }
@@ -1473,7 +1473,7 @@ mod tests {
 
     #[test]
     fn sshsig_rejects_wrong_namespace_hash_and_key_type() {
-        let lines = ["capsule-host-bind-v1", NETWORK, PERSON, HOST, AT];
+        let lines = ["peerspan-host-bind-v1", NETWORK, PERSON, HOST, AT];
         verify_sshsig(PERSON, &lines, BIND_SIG).unwrap();
         // A signature made under another namespace, with the same key.
         let key = membership::seed(PERSON_SEED).unwrap();
@@ -1571,7 +1571,7 @@ mod tests {
         let mut wrong = d.clone();
         wrong.root_public_key = HOST.into();
         assert!(Descriptor::decode(&wrong.encode()).is_err());
-        assert!(Descriptor::decode("capsule-network-v1.e30").is_err());
+        assert!(Descriptor::decode("peerspan-network-v1.e30").is_err());
     }
 
     #[test]

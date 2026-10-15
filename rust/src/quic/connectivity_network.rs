@@ -83,12 +83,12 @@ async fn command(store: Arc<Store>, cmd: Value) -> Result<Value> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "opt-in separate-process network helper"]
 async fn connectivity_network_helper() -> Result<()> {
-    let directory = std::env::var("CAPSULE_NET_STATE")?;
+    let directory = std::env::var("PEERSPAN_NET_STATE")?;
     let store = Arc::new(Store::open(std::path::Path::new(&directory))?);
     store.set_coordination_interval(1);
     listen(
         &store,
-        std::env::var("CAPSULE_NET_BIND")
+        std::env::var("PEERSPAN_NET_BIND")
             .unwrap_or_else(|_| "0.0.0.0:7401".into())
             .parse()?,
     )?;

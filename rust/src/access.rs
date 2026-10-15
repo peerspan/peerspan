@@ -8,11 +8,11 @@ use crate::{
     integration::DaemonError,
 };
 use anyhow::{Context, bail};
-use capsule_host::{
+use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
+use peerspan_host::{
     persons::{self, PersonSigner},
     policy::{ACTION, ALL_AGENTS, DELEGATE_ACTION, Policy, Rule, TASK_ACTION},
 };
-use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -59,7 +59,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
         .as_ref()
         .map(duration_of)
         .transpose()?
-        .unwrap_or(TimeDelta::days(capsule_host::policy::DEFAULT_VALID_DAYS));
+        .unwrap_or(TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS));
     let mut rules = current
         .as_ref()
         .map(|p| p.rules.clone())
@@ -225,7 +225,7 @@ fn is_person_id(value: &str) -> bool {
 }
 
 /// The largest `--files` bound: 1 GiB.
-const SIZE_LIMIT: i64 = capsule_host::artifact::MAX_BOUND;
+const SIZE_LIMIT: i64 = peerspan_host::artifact::MAX_BOUND;
 
 /// A byte count with an optional `K`, `M`, or `G` suffix (powers of 1024),
 /// from 1 byte to 1 GiB.
@@ -304,7 +304,7 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
     };
     let network = resolved(network);
     let scope = agent.cloned().unwrap_or_else(|| ALL_AGENTS.to_owned());
-    if capsule_host::membership::label(&scope).is_err() {
+    if peerspan_host::membership::label(&scope).is_err() {
         bail!("invalid agent name {scope:?}");
     }
     let mut rule = Rule {
@@ -392,7 +392,7 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
         }
     }
     rules.retain(|r| !r.principals.is_empty());
-    let mut duration = TimeDelta::days(capsule_host::policy::DEFAULT_VALID_DAYS);
+    let mut duration = TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS);
     if !allow {
         if removed == 0 {
             return Ok(Some(json!({

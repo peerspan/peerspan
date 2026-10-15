@@ -25,7 +25,7 @@ PRAGMA user_version = 11;
 ";
 
 /// The first line of every link's signed statement.
-const TAG: &str = "capsule-delegation-v1";
+const TAG: &str = "peerspan-delegation-v1";
 /// Chains have at most 3 links: 3 hops past the originator.
 pub const MAX_LINKS: usize = 3;
 /// A link names at most 16 principals.

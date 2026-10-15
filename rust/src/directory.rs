@@ -1236,7 +1236,7 @@ pub(crate) async fn resolve(
         [one] if one.local => Err(coded(
             400,
             "local",
-            format!("{to} names an agent on this host; Capsule has no local delivery"),
+            format!("{to} names an agent on this host; Peerspan has no local delivery"),
             json!({ "matches": [] }),
         )),
         [one] => Ok(one.clone()),

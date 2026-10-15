@@ -235,7 +235,7 @@ impl Rule {
 impl Policy {
     fn lines(&self) -> Vec<String> {
         let mut lines = vec![
-            "capsule-policy-v1".to_owned(),
+            "peerspan-policy-v1".to_owned(),
             self.network_id.clone(),
             self.person_public_key.clone(),
             self.version.to_string(),
@@ -1116,7 +1116,7 @@ mod tests {
     const PERSON_SEED: &str = "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU=";
     const SECOND_ID: &str =
         "person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2";
-    const POLICY_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAy54wZKMJ5nBPfB3XakG7muQtkw2rjuhFVU+oWwluflHQKmEqNNa3l4MB1x5cdPmyXJduUMs9R24za8w4kW0bDg==";
+    const POLICY_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQI7LAL0jJtpQWmoMSHjIs49S3ZgRu1H8/I7LHRJ/N58B81ZTDeV854NluBUedCUW8GgzjOOTHLEM5pfE/iGPog8=";
 
     fn owner() -> PersonSigner {
         PersonSigner::File(ed25519_dalek::SigningKey::from_bytes(
@@ -1195,7 +1195,7 @@ mod tests {
     }
     #[test]
     fn artifact_bounds_extend_the_signed_rule_line_only_when_nonzero() {
-        const ARTIFACT_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGaZoSLXB4mfYtcitytb/FSRHPWfWO9ccCJCeCjSHNdTcKmOAqDW7dIY4AQIIaVkOU0M+rQMJGDYfvkT+5dnQBw==";
+        const ARTIFACT_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQM53FmawC5CSxjCe7Vko24T8Nwgm7KauP0HIie0h+zrLpWGllaBfSB0oOJVnL/hZamrfIgt6wJiBJWwRA5JnogM=";
         let rules = vec![
             Rule {
                 agent: "reviewer".into(),

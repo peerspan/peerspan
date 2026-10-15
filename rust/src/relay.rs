@@ -45,13 +45,13 @@ pub(crate) enum Presence {
 }
 
 /// Version 1 of the relay protocol.
-pub(crate) const ALPN: &[u8] = b"capsule-relay/1";
+pub(crate) const ALPN: &[u8] = b"peerspan-relay/1";
 /// Version 2: version 1 plus the coordinator's `changed` frame (launch
 /// slice 5). Hosts offer it first.
-pub(crate) const ALPN_V2: &[u8] = b"capsule-relay/2";
+pub(crate) const ALPN_V2: &[u8] = b"peerspan-relay/2";
 /// Version 3: version 2 plus the `presence` frame in both directions
 /// (launch slice 6). Hosts offer it first.
-pub(crate) const ALPN_V3: &[u8] = b"capsule-relay/3";
+pub(crate) const ALPN_V3: &[u8] = b"peerspan-relay/3";
 pub(crate) const MAX_DATAGRAM: usize = 1500;
 const HOST_ID: usize = 32;
 const HEADER: usize = 3;

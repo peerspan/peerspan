@@ -733,9 +733,9 @@ struct ReplyRequest {
 }
 pub(crate) fn token(headers: &HeaderMap) -> AdapterAuth {
     let value = bearer(headers);
-    let instance = if headers.get_all("X-Capsule-Instance").iter().count() == 1 {
+    let instance = if headers.get_all("X-Peerspan-Instance").iter().count() == 1 {
         headers
-            .get("X-Capsule-Instance")
+            .get("X-Peerspan-Instance")
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default()
             .to_owned()

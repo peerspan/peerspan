@@ -1,17 +1,17 @@
-//! Benchmark-only echo over the actual Capsule endpoint, identity and stream code.
+//! Benchmark-only echo over the actual Peerspan endpoint, identity and stream code.
 use super::*;
 use anyhow::{Result, ensure};
 #[path = "../../../conformance/connectivity/driver.rs"]
 pub(super) mod driver;
 
 #[derive(Clone)]
-struct Capsule {
+struct Peerspan {
     sender: Arc<Store>,
     transport: Arc<Transport>,
     target: Peer,
     connection: Arc<Mutex<Option<Connection>>>,
 }
-impl driver::Backend for Capsule {
+impl driver::Backend for Peerspan {
     async fn connect(&self) -> Result<()> {
         let key = peer_key(&self.target).map_err(|e| anyhow::anyhow!("{e}"))?;
         let connection = self
@@ -93,13 +93,13 @@ async fn connectivity_benchmark() -> Result<()> {
     let result = tokio::time::timeout(
         Duration::from_secs(240),
         driver::run(
-            Capsule {
+            Peerspan {
                 sender,
                 transport: client.clone(),
                 target,
                 connection: Arc::new(Mutex::new(None)),
             },
-            "capsule-rust",
+            "peerspan-rust",
         ),
     )
     .await?;

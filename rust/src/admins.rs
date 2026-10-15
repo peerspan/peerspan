@@ -23,7 +23,7 @@ pub struct AdminDelegation {
 impl AdminDelegation {
     fn lines<'a>(&'a self, epoch: &'a str) -> [&'a str; 5] {
         [
-            "capsule-admin-delegate-v1",
+            "peerspan-admin-delegate-v1",
             &self.network_id,
             epoch,
             &self.person_public_key,
@@ -78,7 +78,7 @@ pub struct AdminRemoval {
 impl AdminRemoval {
     fn lines(&self) -> Vec<&str> {
         let mut lines = vec![
-            "capsule-admin-remove-v1",
+            "peerspan-admin-remove-v1",
             &self.network_id,
             &self.person_public_key,
             if self.revoke_admitted {
@@ -189,7 +189,7 @@ fn person_id_shape(id: &str) -> bool {
 impl Group {
     fn lines(&self) -> Vec<String> {
         let mut lines = vec![
-            "capsule-group-v1".to_owned(),
+            "peerspan-group-v1".to_owned(),
             self.network_id.clone(),
             self.name.clone(),
             self.version.to_string(),
@@ -440,11 +440,11 @@ mod tests {
         "person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2";
     const AT: &str = "2026-10-09T00:00:00Z";
     const DELEGATE_SIG: &str =
-        "lmKnLMD6XXbYk4pExnNpxbFHR9bZccZWHmlTq7Yssam9dkzfeE7n/2rKom9raC5FmPM7HY7P/TLzx1Vn43zlAg==";
+        "Lyfxr+rP0KdHx1qziif9X0KJ1aXCA3wxHQYofwptOAoYHq2fIAhK+kD8mF1GyyF/Kn2zBOH70P17YD2kCQBKBQ==";
     const REMOVE_SIG: &str =
-        "R1qwK9h6ZU+QyzpsXKf5fZWFzqDo0CoTYyi3S/KReuGQn6Dbr0KRGaMDwsciCb6ANbAF5Ye2Vs6V/qBnWwoABA==";
-    const HOST_ADMIT_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGcn2mQsdrkxxBpUyZFanSkCt4bNXYd5C9IjqaLeEs9HxQBscBZYl7WlhEUHuoffN6pW+hZDICMZH5jTfbs4mAg==";
-    const GROUP_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAARY2Fwc3VsZS1wZXJzb24tdjEAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAVIvTT/9fTeKaYW0R9edFKS2bknw2Pu/MYty3zhnrayKHhm+lT0xtwfNsdawnv4hFr7UW5PDYaHTIflrZ/f9MAA==";
+        "IniB2OCVaCcC7RqYuR7Er1ZQMx83mhAs9GYjYSAQw2AaTbsJ8n3Qoj+3MFL0bsWujvhu4OGPqKAj1wXMxannBw==";
+    const HOST_ADMIT_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQM3rbU3AdWJe6aK++xaJX9jLWFTA13B/dDI+N45tsD2Bth8jsxk2e0A0UQGRJlpBh3jIoWQAT1BnmHqTupPcNw8=";
+    const GROUP_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQJ8BRATXZY4iPbocOCfUvJpR8/FLoXx+sowzBd3SIgxl1j7wnUcpiDGLIMzOSzkFa6a3lShI3r+qTeKn7nJOBwE=";
 
     fn root() -> ed25519_dalek::SigningKey {
         membership::seed(ROOT_SEED).unwrap()

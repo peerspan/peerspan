@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "capsule-host",
-    about = "Run and control a local Capsule host daemon",
+    name = "peerspan-host",
+    about = "Run and control a local Peerspan host daemon",
     after_help = "Session attachment records metadata; a scoped adapter connects an opted-in session.",
     disable_help_subcommand = true
 )]
@@ -49,11 +49,11 @@ pub enum Command {
         #[arg(long, value_name = "SOCKET")]
         person_agent: Option<PathBuf>,
         /// Bytes of storage for task artifacts: stored files plus pending fetches
-        #[arg(long, value_name = "BYTES", default_value_t = capsule_host::artifact::DEFAULT_QUOTA, value_parser = clap::value_parser!(i64).range(1..))]
+        #[arg(long, value_name = "BYTES", default_value_t = peerspan_host::artifact::DEFAULT_QUOTA, value_parser = clap::value_parser!(i64).range(1..))]
         artifact_quota: i64,
         /// CLI-generated person key file for renewing access policies when
         /// the ssh-agent lacks the key; defaults to
-        /// $XDG_CONFIG_HOME/capsule/person_ed25519, used while it exists
+        /// $XDG_CONFIG_HOME/peerspan/person_ed25519, used while it exists
         #[arg(long, value_name = "PATH")]
         person_key_file: Option<PathBuf>,
     },
@@ -655,7 +655,7 @@ pub enum GrantCommand {
         #[arg(long, value_parser = ["message.append", "task.submit", "task.delegate"], default_value = "message.append")]
         action: String,
         /// Total input and result artifact bytes a task may carry (task.submit only)
-        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=capsule_host::artifact::MAX_BOUND))]
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=peerspan_host::artifact::MAX_BOUND))]
         max_artifact_bytes: i64,
     },
     List,
@@ -685,7 +685,7 @@ pub enum AccessCommand {
         #[arg(long = "action", value_name = "ACTION", value_parser = ["message.append", "task.submit", "task.delegate"])]
         actions: Vec<String>,
         /// Total input and result artifact bytes a task may carry (task.submit only)
-        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=capsule_host::artifact::MAX_BOUND))]
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..=peerspan_host::artifact::MAX_BOUND))]
         max_artifact_bytes: i64,
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
@@ -1813,7 +1813,7 @@ mod tests {
     use clap::Parser;
 
     fn body(args: &[&str]) -> Value {
-        let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
+        let cli = Cli::try_parse_from([&["peerspan-host"], args].concat()).unwrap();
         cli.command.unwrap().request().unwrap().body.unwrap()
     }
 
@@ -1821,7 +1821,7 @@ mod tests {
     fn access_sync_posts_or_reads_the_status() {
         let request = |args: &[&str]| {
             let cli =
-                Cli::try_parse_from([&["capsule-host", "access", "sync"], args].concat()).unwrap();
+                Cli::try_parse_from([&["peerspan-host", "access", "sync"], args].concat()).unwrap();
             let r = cli.command.unwrap().request().unwrap();
             (r.method, r.path, r.body)
         };
@@ -1834,7 +1834,7 @@ mod tests {
             (Method::GET, "/v1/networks/net_x/policy/sync".into(), None)
         );
         // Without --network the CLI fills in the only network first.
-        let mut omitted = Cli::try_parse_from(["capsule-host", "access", "sync"])
+        let mut omitted = Cli::try_parse_from(["peerspan-host", "access", "sync"])
             .unwrap()
             .command
             .unwrap();
@@ -1843,7 +1843,7 @@ mod tests {
 
     #[test]
     fn networks_may_be_omitted_except_where_explicit() {
-        let parse = |args: &[&str]| Cli::try_parse_from([&["capsule-host"], args].concat());
+        let parse = |args: &[&str]| Cli::try_parse_from([&["peerspan-host"], args].concat());
         for args in [
             &["network", "members"][..],
             &["network", "sync"],
@@ -1874,7 +1874,7 @@ mod tests {
     #[test]
     fn expiries_resolve_before_requests() {
         let resolved = |args: &[&str]| {
-            let mut command = Cli::try_parse_from([&["capsule-host"], args].concat())
+            let mut command = Cli::try_parse_from([&["peerspan-host"], args].concat())
                 .unwrap()
                 .command
                 .unwrap();
@@ -1961,9 +1961,9 @@ mod tests {
                 .map(|l| l.trim().split("  ").next().unwrap().to_owned())
                 .collect()
         }
-        let help = command_line("capsule").render_help().to_string();
+        let help = command_line("peerspan").render_help().to_string();
         assert_eq!(listed(&help), MAIN_COMMANDS);
-        assert!(!help.contains("capsule-host"));
+        assert!(!help.contains("peerspan-host"));
         assert!(
             help.trim_end()
                 .lines()
@@ -1971,7 +1971,7 @@ mod tests {
                 .unwrap()
                 .contains("help advanced")
         );
-        let advanced = listed(&advanced_help("capsule"));
+        let advanced = listed(&advanced_help("peerspan"));
         for path in
             MAIN_COMMANDS
                 .iter()
@@ -2013,7 +2013,7 @@ mod tests {
         assert!(
             Cli::try_parse_from(
                 [
-                    &["capsule-host"],
+                    &["peerspan-host"],
                     &send[..],
                     &["--from-session", "session_s"]
                 ]
@@ -2043,7 +2043,7 @@ mod tests {
         );
         assert!(
             Cli::try_parse_from(
-                [&["capsule-host"], &create[..], &["--action", "shell.exec"]].concat()
+                [&["peerspan-host"], &create[..], &["--action", "shell.exec"]].concat()
             )
             .is_err()
         );
@@ -2076,7 +2076,7 @@ mod tests {
             assert!(
                 Cli::try_parse_from(
                     [
-                        &["capsule-host"],
+                        &["peerspan-host"],
                         &create[..],
                         &["--max-artifact-bytes", bad]
                     ]
@@ -2086,7 +2086,7 @@ mod tests {
             );
         }
         let path = |args: &[&str]| {
-            let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
+            let cli = Cli::try_parse_from([&["peerspan-host"], args].concat()).unwrap();
             let request = cli.command.unwrap().request().unwrap();
             (request.method, request.path)
         };
@@ -2099,7 +2099,7 @@ mod tests {
             (Method::POST, "/v1/artifacts/prune".into())
         );
         let submit = Cli::try_parse_from([
-            "capsule-host",
+            "peerspan-host",
             "task",
             "submit",
             "--peer",
@@ -2127,7 +2127,7 @@ mod tests {
         assert_eq!(artifacts.len(), 2);
         assert_eq!(artifact_types, ["text/plain"]);
         let saved = Cli::try_parse_from([
-            "capsule-host",
+            "peerspan-host",
             "task",
             "artifact",
             "--peer",
@@ -2139,7 +2139,8 @@ mod tests {
         ])
         .unwrap();
         assert!(saved.command.unwrap().request().is_none());
-        let run = Cli::try_parse_from(["capsule-host", "run", "--artifact-quota", "1024"]).unwrap();
+        let run =
+            Cli::try_parse_from(["peerspan-host", "run", "--artifact-quota", "1024"]).unwrap();
         assert!(matches!(
             run.command,
             Some(Command::Run {
@@ -2147,7 +2148,7 @@ mod tests {
                 ..
             })
         ));
-        assert!(Cli::try_parse_from(["capsule-host", "run", "--artifact-quota", "0"]).is_err());
+        assert!(Cli::try_parse_from(["peerspan-host", "run", "--artifact-quota", "0"]).is_err());
     }
 
     #[test]
@@ -2155,7 +2156,7 @@ mod tests {
         let submit = [
             "task", "submit", "--peer", "host_x", "--agent", "agent_y", "--input", "do it",
         ];
-        let cli = Cli::try_parse_from([&["capsule-host"], &submit[..]].concat()).unwrap();
+        let cli = Cli::try_parse_from([&["peerspan-host"], &submit[..]].concat()).unwrap();
         let request = cli.command.unwrap().request().unwrap();
         assert_eq!(request.path, "/v1/tasks");
         let plain = request.body.unwrap();
@@ -2189,7 +2190,7 @@ mod tests {
             json!({"agent_id": "agent_a", "session_id": "session_s"})
         );
         let path = |args: &[&str]| {
-            let cli = Cli::try_parse_from([&["capsule-host"], args].concat()).unwrap();
+            let cli = Cli::try_parse_from([&["peerspan-host"], args].concat()).unwrap();
             let r = cli.command.unwrap().request().unwrap();
             (r.method, r.path)
         };
@@ -2239,7 +2240,7 @@ mod tests {
             body(&[&route[..], &["--delegation-depth", "2"]].concat())["delegation_depth"],
             2
         );
-        let parse = |args: &[&str]| Cli::try_parse_from([&["capsule-host"], args].concat());
+        let parse = |args: &[&str]| Cli::try_parse_from([&["peerspan-host"], args].concat());
         assert!(parse(&[&route[..], &["--delegation-depth", "3"]].concat()).is_err());
         assert!(parse(&[&route[..], &["--action", "task.delegate"]].concat()).is_err());
     }
@@ -2284,7 +2285,7 @@ mod tests {
             json!({"sender_host_id": "host_p", "task_id": "task_p"})
         );
         let parse =
-            |args: &[&str]| Cli::try_parse_from([&["capsule-host"], &submit[..], args].concat());
+            |args: &[&str]| Cli::try_parse_from([&["peerspan-host"], &submit[..], args].concat());
         assert!(parse(&["--delegation-depth", "3"]).is_err());
         assert!(parse(&["--parent-sender", "host_p"]).is_err());
         assert!(parse(&["--parent-task", "task_p"]).is_err());
@@ -2316,7 +2317,7 @@ mod tests {
         assert!(
             Cli::try_parse_from(
                 [
-                    &["capsule-host"][..],
+                    &["peerspan-host"][..],
                     &[
                         "access",
                         "allow",

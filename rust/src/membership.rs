@@ -9,7 +9,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const TOKEN_PREFIX: &str = "capsule-invite-v1.";
+pub const TOKEN_PREFIX: &str = "peerspan-invite-v1.";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -136,10 +136,10 @@ pub fn statement_digest(lines: &[&str]) -> String {
 }
 
 pub fn invite_statement(network: &str, invite: &str, member: &str, expires: &str) -> String {
-    ["capsule-invite-v1", network, invite, member, expires].join("\n")
+    ["peerspan-invite-v1", network, invite, member, expires].join("\n")
 }
 pub fn member_statement(network: &str, invite: &str, host: &str, joined: &str) -> String {
-    ["capsule-member-v1", network, invite, host, joined].join("\n")
+    ["peerspan-member-v1", network, invite, host, joined].join("\n")
 }
 
 /// Root-signed invite fields, before an invite key signs a host.
@@ -232,7 +232,7 @@ impl Membership {
     /// The digest of the invite statement `invite_signature` signs.
     pub fn digest(&self) -> String {
         statement_digest(&[
-            "capsule-invite-v1",
+            "peerspan-invite-v1",
             &self.network_id,
             &self.invite_public_key,
             &self.member,
@@ -290,7 +290,7 @@ impl InviteToken {
     pub fn decode(token: &str) -> Result<Self, Error> {
         let body = token
             .strip_prefix(TOKEN_PREFIX)
-            .ok_or_else(|| invalid("not a capsule invite token"))?;
+            .ok_or_else(|| invalid("not a peerspan invite token"))?;
         let json = URL_SAFE_NO_PAD
             .decode(body)
             .map_err(|_| invalid("invalid invite token encoding"))?;
@@ -424,7 +424,7 @@ pub(crate) fn check_network(network: &str, expected: &str) -> Result<(), Error> 
 }
 
 /// The first line of a coordinator successor statement.
-pub const SUCCESSOR_CONTEXT: &str = "capsule-coordinator-successor-v1";
+pub const SUCCESSOR_CONTEXT: &str = "peerspan-coordinator-successor-v1";
 
 /// A coordinator identity signed by the previous identity's key, as a
 /// coordinator serves it in `successors`.
@@ -530,7 +530,7 @@ impl HostRevocation {
     }
     fn lines(&self) -> [&str; 4] {
         [
-            "capsule-revoke-host-v1",
+            "peerspan-revoke-host-v1",
             &self.network_id,
             &self.host_public_key,
             &self.revoked_at,
@@ -582,7 +582,7 @@ impl InviteRevocation {
     }
     fn lines(&self) -> [&str; 4] {
         [
-            "capsule-revoke-invite-v1",
+            "peerspan-revoke-invite-v1",
             &self.network_id,
             &self.invite_public_key,
             &self.revoked_at,
@@ -629,7 +629,7 @@ pub struct Leave {
 impl Leave {
     fn lines(&self) -> [&str; 4] {
         [
-            "capsule-leave-v1",
+            "peerspan-leave-v1",
             &self.network_id,
             &self.host_public_key,
             &self.left_at,
@@ -668,7 +668,7 @@ impl Rotation {
         verify_lines(
             &self.previous_root_public_key,
             &[
-                "capsule-root-rotate-v1",
+                "peerspan-root-rotate-v1",
                 &self.network_id,
                 epoch,
                 &self.previous_root_public_key,
@@ -702,7 +702,7 @@ impl Rotation {
         let previous_root_public_key = previous.public_key_b64();
         let epoch_text = epoch.to_string();
         let signature = previous.sign(&[
-            "capsule-root-rotate-v1",
+            "peerspan-root-rotate-v1",
             network,
             &epoch_text,
             &previous_root_public_key,
@@ -753,7 +753,14 @@ impl Attestation {
     ) -> Result<Self, Error> {
         let epoch_text = epoch.to_string();
         Ok(Self {
-            signature: root.sign(&["capsule-attest-v1", network, &epoch_text, host, member, at])?,
+            signature: root.sign(&[
+                "peerspan-attest-v1",
+                network,
+                &epoch_text,
+                host,
+                member,
+                at,
+            ])?,
             network_id: network.into(),
             epoch,
             host_public_key: host.into(),
@@ -773,7 +780,7 @@ impl Attestation {
         verify_lines(
             root,
             &[
-                "capsule-attest-v1",
+                "peerspan-attest-v1",
                 network,
                 &epoch_text,
                 &self.host_public_key,
@@ -846,9 +853,9 @@ mod tests {
     const HOST: &str = "7UkoxijRwsbq6QM4kFmVYSlZJzpcY/k2NsFGFKyHN9E=";
     const HOST_ID: &str = "host_b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709";
     const INVITE_SIG: &str =
-        "3WTE8i0clTO4PNMXiWiCgVkYWUzS8nCySGhYZWXDwBmz7K416+cmh5Qb6mSrCU+MNDuSudNWXklbsCc8m+Y4Cw==";
+        "jCdKpz/36wwIgHnZmbIALehw0KPuFefRlkKMmgIv3f1aJfCpfqf4bDJm/WUbI2ONX5oW+ZN4i08YSsCWwusCAg==";
     const HOST_SIG: &str =
-        "YD6gwCNa6yQT1ofoSqCR4iDpvG4887BtCcZsGXebPSfX4siZx6z6XnzY2AYM5GoAzdX1SsNIAG4I/kkkIQLWCg==";
+        "V5T2OGpQUQ7F6923mnjWVeyYGopVhMNz6eLP4V0WQSqlPJHS59w+YE1CSDapAAA3w8dxKqxmVFm0R55l7W8SBw==";
 
     fn vector() -> Membership {
         let root = seed(ROOT_SEED).unwrap();
@@ -978,27 +985,27 @@ mod tests {
         let host = HostRevocation::sign(&root, NETWORK, HOST, AT);
         assert_eq!(
             host.signature,
-            "651E7LldaU/s+qQra4F9e6uJ5sDvFfYI0Nc+x4WdmfciBtVME9wp+fNq034EGTB2utFOLkPxhOg3k8gujAI7Ag=="
+            "jclqdyH6N8H3WoO07mGA1trPc7WpmmvKIH1zibL1m9+zFoIK6ppGXuC7k8oXFhF8IWYtmuGGy70xBTsvkYzSCw=="
         );
         host.verify(NETWORK, &roots).unwrap();
         let invite = InviteRevocation::sign(&root, NETWORK, INVITE, AT);
         assert_eq!(
             invite.signature,
-            "XyB3LsP1IaDW5saYFuHlIr4IVvrELl9hmDW9sX3PNAVeUfJaOzx5gnv6YSkGScAR+8ymDzYLYZ+VQ4leDNBhCQ=="
+            "pF9qtTO3npiuO+rf47SQ5PpgiSlq6dWYlIQPT+DTFO0PN9Yxf1bmacK83dinaY4qu+KMyk3JNnZW8v1CxZiJCA=="
         );
         invite.verify(NETWORK, &roots).unwrap();
         let leave = Leave::sign(&seed(HOST_SEED).unwrap(), NETWORK, AT);
         assert_eq!(leave.host_public_key, HOST);
         assert_eq!(
             leave.signature,
-            "xM3Wn7Rl4G9jcG0fRUbbXjyFmWz1WcO4IC/tg8MrFOe9zEwWroQuSjo5Xhh92Mkwimg45gxfRCeOoxZC6/OeAA=="
+            "36abHHiIjCXzpVFnssBQAEV+guYtiZGp3hsd5JmpBSH9f8VnZun74fql4G622oBx4aQHZ733k+nSdAfI1xPmDg=="
         );
         leave.verify(NETWORK).unwrap();
         let rotation = Rotation::sign(&root, NETWORK, 1, NEW_ROOT, AT);
         assert_eq!(rotation.previous_root_public_key, ROOT);
         assert_eq!(
             rotation.signature,
-            "etkSBT7+to1vTCpIt+m5PMyO93tht5QhAmnxVMNCwmreGUrXmCcI4YWqxfznXx6WHe8rNZ/jK7N2FWUiy9N2Bw=="
+            "gbWynmghmMqYfKSbPS5tnw20vNrvq8QqugZ4pJQ1IvhSUy0aO2VLtB7+VPFMJpinw7q+zyG52lMGyfaCSWPbCQ=="
         );
         assert_eq!(
             verify_chain(NETWORK, ROOT, std::slice::from_ref(&rotation)).unwrap(),
@@ -1007,7 +1014,7 @@ mod tests {
         let attestation = Attestation::sign(&new_root, NETWORK, 1, HOST, "alice", AT);
         assert_eq!(
             attestation.signature,
-            "TBfNG88UlHWcSV6f79Ie1RApfqPr36hehooyjGebNB50FTB1tl9neEm42Ja13jXniAc+hU1YpRxcFVzfsF+iBg=="
+            "oqBN8M8UY8e9c41wKnms8ZwWoH9zoHjMc0lwYi8iYWtLykbyts25SRgt+s1agJmbBIfGAx8nJp0QaP3yzx1IAw=="
         );
         attestation.verify(NETWORK, 1, NEW_ROOT).unwrap();
         // Strict JSON shapes.

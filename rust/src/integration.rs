@@ -298,7 +298,7 @@ fn load_manifest(
     }
     let root = root
         .or_else(|| {
-            std::env::var_os("CAPSULE_INTEGRATIONS_DIR")
+            std::env::var_os("PEERSPAN_INTEGRATIONS_DIR")
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
         })
@@ -307,7 +307,7 @@ fn load_manifest(
                 .unwrap_or_default()
                 .parent()
                 .unwrap_or(Path::new("."))
-                .join("../share/capsule/integrations")
+                .join("../share/peerspan/integrations")
         });
     let entries = fs::read_dir(&root)
         .context("integration directory is missing; specify --integrations DIR")?;
@@ -378,7 +378,7 @@ async fn provider(
     // `session pending`.
     if op == "launch" {
         let executable = absolute(&std::env::current_exe()?)?;
-        input["context"]["capsule_executable"] = json!(executable);
+        input["context"]["peerspan_executable"] = json!(executable);
     }
     let bytes = serde_json::to_vec(&input)?;
     if bytes.len() > LIMIT as usize {
@@ -939,7 +939,7 @@ async fn inspect(p: &Profile, mut checks: Vec<Check>) -> Value {
             Some(_) => {
                 let agent = call(p, Method::GET, &format!("/v1/agents/{}", p.agent_id), None).await.ok();
                 let name = agent.as_ref().and_then(|a| a["name"].as_str()).filter(|n| !n.is_empty()).unwrap_or(&p.agent_id);
-                checks.push(Check::new("channel", false, &format!("unverified: {}", capsule_host::status::channel_unverified_detail(name))))
+                checks.push(Check::new("channel", false, &format!("unverified: {}", peerspan_host::status::channel_unverified_detail(name))))
             }
         }
         checks.push(match connection["protocol_version"].as_str() {
@@ -1117,9 +1117,9 @@ async fn start(
     Err(Command::new(program).args(plan.args).exec()).context("harness launch failed")
 }
 
-/// `$XDG_CONFIG_HOME/capsule/sessions`, where `attach` keeps its profiles.
+/// `$XDG_CONFIG_HOME/peerspan/sessions`, where `attach` keeps its profiles.
 fn sessions_root() -> anyhow::Result<PathBuf> {
-    let key = capsule_host::persons::generated_key_path().context(
+    let key = peerspan_host::persons::generated_key_path().context(
         "cannot locate the configuration directory: neither XDG_CONFIG_HOME nor HOME is set",
     )?;
     Ok(key
@@ -1181,7 +1181,7 @@ fn workspace_profiles(state: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         .collect())
 }
 /// Introduces the pending work in the session start hook's context.
-const PENDING_HOOK_LEAD: &str = "Capsule work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. ";
+const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. ";
 
 /// `session pending`: the work the current directory's attached session
 /// still owes. Without an attachment it prints nothing, so a session start
@@ -1288,7 +1288,7 @@ fn attached_profile(state: &Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let matches = attached_profiles(state)?;
     match matches.as_slice() {
         [] => bail!(
-            "no attach profile for this directory; run capsule attach HARNESS, or give --directory"
+            "no attach profile for this directory; run peerspan attach HARNESS, or give --directory"
         ),
         [one] => Ok(one.clone()),
         many => bail!(
@@ -1387,7 +1387,7 @@ async fn wait_for_lease(
         )
     };
     eprintln!(
-        "capsule: the session for {workspace} is connected; waiting up to 16 seconds for its lease to expire"
+        "peerspan: the session for {workspace} is connected; waiting up to 16 seconds for its lease to expire"
     );
     let deadline = tokio::time::Instant::now() + Duration::from_secs(16);
     loop {
@@ -1530,9 +1530,9 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     let launching = |p: &Profile| !no_start && p.harness.supports("launch");
     let print = |agent_id: &str, agent_name: &str, p: &Profile, profile: &Path, reused: bool| {
         let next = if p.harness.supports("launch") {
-            "capsule session start"
+            "peerspan session start"
         } else {
-            "capsule session doctor"
+            "peerspan session doctor"
         };
         let value = json!({
             "agent": {"id": agent_id, "name": agent_name, "address": address(agent_name)},
@@ -1625,7 +1625,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             let recorded = |id: &str| profiles.iter().any(|(_, p)| p.agent_id == id);
             let reuse = match &wanted {
                 Some(wanted) => {
-                    if !capsule_host::directory::addressable(wanted) {
+                    if !peerspan_host::directory::addressable(wanted) {
                         bail!(
                             "invalid agent name {wanted:?}: use 1-64 lowercase letters, digits, '.', '_', or '-', starting with a letter or digit"
                         )

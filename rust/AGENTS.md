@@ -12,4 +12,4 @@ Implement working slices rather than empty modules. SQLite operations belong on 
 
 Use Clap with typed commands and arguments for the Rust CLI. Keep parsing separate from daemon lifecycle and local request execution. Preserve the shared command contract when extending the CLI.
 
-Run `cargo fmt --check`, `cargo test --locked`, and `cargo clippy --locked --all-targets -- -D warnings`. When external behavior changes, run the shared suite that covers it: `conformance/host_service.py` for local administration, `conformance/peer_messaging.py` for peer transport, and `conformance/coordination.py` with the Go `capsule-coord` binary for enrollment. Rust has no coordinator binary.
+Run `cargo fmt --check`, `cargo test --locked`, and `cargo clippy --locked --all-targets -- -D warnings`. When external behavior changes, run the shared suite that covers it: `conformance/host_service.py` for local administration, `conformance/peer_messaging.py` for peer transport, and `conformance/coordination.py` with the Go `peerspan-coord` binary for enrollment. Rust has no coordinator binary.

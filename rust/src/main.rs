@@ -7,12 +7,12 @@ mod service;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
-use capsule_host::{api, membership, model, persons, store::Store};
 use clap::FromArgMatches;
 use cli::Cli;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
+use peerspan_host::{api, membership, model, persons, store::Store};
 use serde_json::{Value, json};
 use std::{
     env, fs,
@@ -28,10 +28,10 @@ use tokio::{
 
 static PROGRAM: OnceLock<&'static str> = OnceLock::new();
 
-/// The base name this binary was invoked as, `capsule` or `capsule-host`;
+/// The base name this binary was invoked as, `peerspan` or `peerspan-host`;
 /// help and hints name it.
 pub(crate) fn program() -> &'static str {
-    PROGRAM.get().copied().unwrap_or("capsule-host")
+    PROGRAM.get().copied().unwrap_or("peerspan-host")
 }
 
 #[tokio::main]
@@ -44,7 +44,7 @@ async fn main() {
                 .map(|n| n.to_string_lossy().into_owned())
         })
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "capsule-host".into());
+        .unwrap_or_else(|| "peerspan-host".into());
     PROGRAM.get_or_init(|| Box::leak(name.into_boxed_str()));
     let cli = cli::command_line(program())
         .try_get_matches()
@@ -198,7 +198,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             "member": value["member"],
             "invite_expires_at": value["invite_expires_at"],
             "token": token,
-            "join": format!("capsule join {}", token.as_str().unwrap_or_default()),
+            "join": format!("peerspan join {}", token.as_str().unwrap_or_default()),
         });
     }
     println!("{}", serde_json::to_string_pretty(&value)?);
@@ -790,7 +790,7 @@ impl KeyChoice {
         };
         let result = (|| -> anyhow::Result<()> {
             use std::{io::Write, os::unix::fs::OpenOptionsExt};
-            let comment = format!("capsule {label}@{}", hostname());
+            let comment = format!("peerspan {label}@{}", hostname());
             let dir = path.parent().context("invalid key path")?;
             fs::create_dir_all(dir)?;
             fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
@@ -944,10 +944,10 @@ fn default_directory() -> anyhow::Result<PathBuf> {
         if !directory.is_absolute() {
             bail!("XDG_STATE_HOME must be an absolute path");
         }
-        return Ok(directory.join("capsule/host"));
+        return Ok(directory.join("peerspan/host"));
     }
     let home = env::var_os("HOME").context("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".local/state/capsule/host"))
+    Ok(PathBuf::from(home).join(".local/state/peerspan/host"))
 }
 
 /// Removes the socket on orderly shutdown. A crash leaves a stale socket that
@@ -1010,7 +1010,7 @@ async fn run_daemon(
     );
     let listening = match peer_listen {
         Some(address) => {
-            let bound = capsule_host::quic::listen(&store, address)?;
+            let bound = peerspan_host::quic::listen(&store, address)?;
             let advertised = match advertise {
                 Some(address) => address.to_string(),
                 None if !bound.ip().is_unspecified() => bound.to_string(),
@@ -1026,7 +1026,7 @@ async fn run_daemon(
     let mut adapter_shutdown = peer_shutdown.clone();
     let adapter = axum::serve(
         adapter_listener,
-        capsule_host::adapter::router(store.clone()),
+        peerspan_host::adapter::router(store.clone()),
     )
     .with_graceful_shutdown(async move {
         let _ = adapter_shutdown.changed().await;
@@ -1038,21 +1038,21 @@ async fn run_daemon(
             let _ = shutdown.send(true);
         })
         .into_future();
-    let coordination = capsule_host::network::coordinate(store.clone(), peer_shutdown.clone());
+    let coordination = peerspan_host::network::coordinate(store.clone(), peer_shutdown.clone());
     let reply_workers =
-        capsule_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
-    let retries = capsule_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
-    let tasks = capsule_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
-    let expiry = capsule_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
-    let retention = capsule_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
-    let policy_sync = capsule_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
-    let directory = capsule_host::directory::worker(store.clone(), peer_shutdown.clone());
-    let presence = capsule_host::presence::worker(store.clone(), peer_shutdown.clone());
+        peerspan_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
+    let retries = peerspan_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
+    let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
+    let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
+    let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
+    let policy_sync = peerspan_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
+    let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
+    let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
-            capsule_host::quic::serve(store, peer_shutdown).await?;
+            peerspan_host::quic::serve(store, peer_shutdown).await?;
         } else {
-            capsule_host::quic::keep_without_listener(store, peer_shutdown).await;
+            peerspan_host::quic::keep_without_listener(store, peer_shutdown).await;
         }
         Ok::<_, anyhow::Error>(())
     };
@@ -1172,7 +1172,7 @@ async fn artifact_command(command: &cli::Command, socket: &Path) -> anyhow::Resu
                 let media_type = artifact_types
                     .get(index)
                     .map(String::as_str)
-                    .unwrap_or(capsule_host::artifact::DEFAULT_MEDIA_TYPE);
+                    .unwrap_or(peerspan_host::artifact::DEFAULT_MEDIA_TYPE);
                 let entry =
                     tokio::time::timeout(TRANSFER_TIMEOUT, upload(socket, path, &name, media_type))
                         .await
@@ -1303,7 +1303,7 @@ async fn upload(socket: &Path, path: &Path, name: &str, media_type: &str) -> any
         .header("Host", "localhost")
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", len)
-        .body(capsule_host::artifact::FileBody::new(file, len))?;
+        .body(peerspan_host::artifact::FileBody::new(file, len))?;
     let response = sender.send_request(request).await?;
     if !response.status().is_success() {
         return Err(failure(response).await);

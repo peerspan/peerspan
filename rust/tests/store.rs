@@ -1,4 +1,4 @@
-use capsule_host::{
+use peerspan_host::{
     model::{AttachSession, RegisterAgent},
     store::Store,
 };

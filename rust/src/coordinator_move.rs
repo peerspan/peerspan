@@ -29,7 +29,7 @@ use std::{
 };
 
 /// The first line of a coordinator move statement.
-pub const MOVE_CONTEXT: &str = "capsule-coordinator-move-v1";
+pub const MOVE_CONTEXT: &str = "peerspan-coordinator-move-v1";
 /// `signer` of a move signed by the network root.
 pub const ROOT_SIGNER: &str = "root";
 /// Failed syncs after which a host asks its peers for a move.

@@ -118,7 +118,7 @@ pub async fn agents(
     let mut mine = Vec::new();
     for agent in status["agents"].as_array().into_iter().flatten() {
         let name = agent["name"].as_str().unwrap_or_default();
-        if !capsule_host::directory::addressable(name) {
+        if !peerspan_host::directory::addressable(name) {
             continue;
         }
         let duplicate = person.is_some()
@@ -313,7 +313,7 @@ pub async fn task_to(socket: &Path, args: Vec<String>) -> anyhow::Result<Value> 
                     socket,
                     path,
                     &name,
-                    capsule_host::artifact::DEFAULT_MEDIA_TYPE,
+                    peerspan_host::artifact::DEFAULT_MEDIA_TYPE,
                 ),
             )
             .await

@@ -43,13 +43,13 @@ const KINDS: [&str; 13] = [
 /// before status reports `channel_unverified`.
 const CHANNEL_UNVERIFIED_AFTER: TimeDelta = TimeDelta::seconds(120);
 
-/// The oldest Claude Code release whose channel delivery Capsule supports.
+/// The oldest Claude Code release whose channel delivery Peerspan supports.
 pub const MINIMUM_CLAUDE_VERSION: &str = "2.1.187";
 
 /// The status item 13 message, which `session doctor` also uses.
 pub fn channel_unverified_detail(agent: &str) -> String {
     format!(
-        "the session of agent {agent} holds a lease but has not confirmed that it receives Capsule's channel events (capsule_ready), so no messages or tasks are delivered to it. Likely causes: the organization has not enabled channels (channelsEnabled); the provider does not support channels; the Claude Code version is older than {MINIMUM_CLAUDE_VERSION}; or the session was started without the channel flag"
+        "the session of agent {agent} holds a lease but has not confirmed that it receives Peerspan's channel events (peerspan_ready), so no messages or tasks are delivered to it. Likely causes: the organization has not enabled channels (channelsEnabled); the provider does not support channels; the Claude Code version is older than {MINIMUM_CLAUDE_VERSION}; or the session was started without the channel flag"
     )
 }
 
@@ -101,13 +101,13 @@ impl Store {
                     "coordination_error",
                     id.clone(),
                     error.clone(),
-                    format!("capsule network sync {id}"),
+                    format!("peerspan network sync {id}"),
                 ));
             }
             if let Some(p) = &policy
                 && let (Some(issued), Some(until)) = (time(&p.issued_at), time(&p.valid_until))
             {
-                let renew = format!("capsule access renew --network {id}");
+                let renew = format!("peerspan access renew --network {id}");
                 if now >= until {
                     attention.push(item(
                         "policy_expired",
@@ -137,7 +137,7 @@ impl Store {
                     "person_agent_unreachable",
                     id.clone(),
                     format!("the daemon cannot renew this person's access policy: {problem}"),
-                    "capsule install".into(),
+                    "peerspan install".into(),
                 ));
             }
             for d in deliveries.iter().filter(|d| d.attempts >= 1) {
@@ -150,7 +150,7 @@ impl Store {
                         d.attempts,
                         d.error.as_deref().unwrap_or("unknown error")
                     ),
-                    format!("capsule access sync --network {id}"),
+                    format!("peerspan access sync --network {id}"),
                 ));
             }
             networks.push(json!({
@@ -236,7 +236,7 @@ impl Store {
                         session.id, a.expires_at
                     ),
                     format!(
-                        "capsule session setup --agent {} --harness {}",
+                        "peerspan session setup --agent {} --harness {}",
                         session.agent_id, session.integration
                     ),
                 ));
@@ -251,7 +251,7 @@ impl Store {
                 format!(
                     "{failed} outbound tasks failed, were rejected, or expired in the last 24 hours"
                 ),
-                "capsule task list".into(),
+                "peerspan task list".into(),
             ));
         }
         let artifacts = self.artifact_list()?;
@@ -266,7 +266,7 @@ impl Store {
                     artifacts.stored_bytes + artifacts.pending_bytes,
                     artifacts.quota
                 ),
-                "capsule artifact prune".into(),
+                "peerspan artifact prune".into(),
             ));
         }
         let joined: Vec<String> = networks
@@ -293,7 +293,7 @@ impl Store {
                 format!(
                     "another agent of this host's person in network {network} is also named {name}; rename this host's agent in its project"
                 ),
-                format!("capsule attach {harness} --name NEW"),
+                format!("peerspan attach {harness} --name NEW"),
             ));
         }
         for agent in self.unverified_channels(now)? {
@@ -301,7 +301,7 @@ impl Store {
                 "channel_unverified",
                 agent.clone(),
                 channel_unverified_detail(&agent),
-                "capsule session doctor".into(),
+                "peerspan session doctor".into(),
             ));
         }
         attention.sort_by(|a, b| {

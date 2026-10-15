@@ -1,6 +1,6 @@
 # Rust agent host daemon
 
-This directory contains the Rust implementation of Capsule’s host daemon, developed alongside the [Go implementation](../go/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance suite; the implementation to release as OSS remains undecided. The commands below run from this directory.
+This directory contains the Rust implementation of Peerspan’s host daemon, developed alongside the [Go implementation](../go/README.md). Both follow the [shared contract](../docs/host-service-contract.md) and repository-level conformance suite; the implementation to release as OSS remains undecided. The commands below run from this directory.
 
 ## Run the foundation
 
@@ -8,23 +8,23 @@ The daemon owns a durable local identity, registered agents, session attachment 
 
 ```bash
 cargo build --locked
-./target/debug/capsule-host --state /tmp/capsule-rust-state run
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state run
 ```
 
 From another terminal:
 
 ```bash
-./target/debug/capsule-host --state /tmp/capsule-rust-state info
-./target/debug/capsule-host --state /tmp/capsule-rust-state agent register --name bob --owner bob --capability conversation
-./target/debug/capsule-host --state /tmp/capsule-rust-state agent list
-./target/debug/capsule-host --state /tmp/capsule-rust-state session attach --agent AGENT_ID --integration test
-./target/debug/capsule-host --state /tmp/capsule-rust-state session list
-./target/debug/capsule-host --state /tmp/capsule-rust-state activity
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state info
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state agent register --name bob --owner bob --capability conversation
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state agent list
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state session attach --agent AGENT_ID --integration test
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state session list
+./target/debug/peerspan-host --state /tmp/peerspan-rust-state activity
 ```
 
-Without `--state`, state lives in `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
+Without `--state`, state lives in `$XDG_STATE_HOME/peerspan/host` or `$HOME/.local/state/peerspan/host`. Use separate explicit directories when running both implementations. An existing state directory must have private permissions (0700).
 
-Agent identity survives restarts. Session attachments become detached on restart and remain inspectable; the original running adapter can recover its bound attachment under a new connection lease. An attachment is registry metadata; the shared [Claude channel adapter](../integrations/claude-channel/README.md) connects an explicitly opted-in session, including scoped outbound sends and automatic replies. Hosts do not launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Signed enrollment is specified in the [coordination contract](../docs/coordination-contract.md); the coordinator itself is the Go `capsule-coord` binary. Membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
+Agent identity survives restarts. Session attachments become detached on restart and remain inspectable; the original running adapter can recover its bound attachment under a new connection lease. An attachment is registry metadata; the shared [Claude channel adapter](../integrations/claude-channel/README.md) connects an explicitly opted-in session, including scoped outbound sends and automatic replies. Hosts do not launch agent processes. Capability names and owner labels are metadata, not access grants or verified network identities. Known-host TLS messaging and inbound grants are specified in the [peer contract](../docs/peer-messaging-contract.md). Signed enrollment is specified in the [coordination contract](../docs/coordination-contract.md); the coordinator itself is the Go `peerspan-coord` binary. Membership revocation, the full collaboration operations, and runtime execution remain subsequent milestones.
 
 ## Source structure
 
@@ -52,7 +52,7 @@ There are no empty modules for future runtime features. The SQLite connection ru
 ```bash
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
-python3 ../conformance/host_service.py --rust ./target/debug/capsule-host
+python3 ../conformance/host_service.py --rust ./target/debug/peerspan-host
 ```
 
 `host_service.py` checks the running binary, including crash recovery, process exclusivity, concurrent duplicate registration, and atomic activity recording. Peer and enrollment checks need the Go binaries as well: `peer_messaging.py` and `coordination.py` from the repository root. `docs/host-service-contract.md` defines the initial common behavior; the peer and coordination contracts extend it.

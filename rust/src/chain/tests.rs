@@ -58,18 +58,18 @@ fn links_reproduce_the_shared_vector() {
     assert_eq!(
         link0.statement(),
         format!(
-            "capsule-delegation-v1\n{NET}\n0\nnone\n{}\n{}\ntask_00112233445566778899aabbccddeeff\n{originator}\nnetwork\n2026-10-10T00:00:00Z\n2",
+            "peerspan-delegation-v1\n{NET}\n0\nnone\n{}\n{}\ntask_00112233445566778899aabbccddeeff\n{originator}\nnetwork\n2026-10-10T00:00:00Z\n2",
             id_of(&k0),
             id_of(&k1)
         )
     );
     assert_eq!(
         link0.signature,
-        "/0HegHFCfUgKX6UpzfgGus1zCT+yenfwMXilPs5/XmW1OOWJM8QzNHS1XTchodJnQ5ceCXm2a+fHE1TSGssbDA=="
+        "S2sFkjmIIkmXC6D4qNIerxRpeYZ0GNL22iWGjG2TPLCX1PnV+x0sGr7rG8BfOHS4hzyQRiSh//2Rh8ZwhhliCQ=="
     );
     assert_eq!(
         link0.digest(),
-        "008fbde97103a352b90839c243a0400d5b96427c3cc41aa56950fe559d7e8dae"
+        "bc5f57c2363071701a685c896296288dbb90d293604e20ee6ca38153bbc474a3"
     );
     let link1 = Link::sign(
         &k1,
@@ -88,11 +88,11 @@ fn links_reproduce_the_shared_vector() {
     assert_eq!(link1.previous, link0.digest());
     assert_eq!(
         link1.signature,
-        "8ia6PgHdHMr0Nd/e1Etgk/X9K6CXmx2ECHMBU55sJp0BdWvcL09B5a8rHnym+2fcTFpw0dfY9EStHIwWWnKuCA=="
+        "p084GJDwcslS5CxDwZqspuxecXittC3XEV2UyGHMSX26xoCN49NAOFeWdfzKpRNfYoSBYaEe5nO4AGAXqyzuDA=="
     );
     assert_eq!(
         link1.digest(),
-        "b08c4c997950063e8110c791131b6e66c530fa3ecf18df4c17a4f7ff329753bd"
+        "3b01028b7cb9b4d5ed6f23ba49e92966030711983a17792a11edd23834926d1c"
     );
     let key = |k: &SigningKey| STANDARD.encode(k.verifying_key().as_bytes());
     assert!(link0.verify(&key(&k0)) && link1.verify(&key(&k1)));

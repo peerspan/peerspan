@@ -26,14 +26,14 @@ use std::{
 };
 use tokio::{sync::watch, task::JoinSet};
 
-pub(crate) const ALPN: &[u8] = b"capsule-peer/1";
+pub(crate) const ALPN: &[u8] = b"peerspan-peer/1";
 const HANDSHAKE: Duration = Duration::from_secs(5);
 const IDLE: Duration = Duration::from_secs(30);
 const MAX_CONNECTIONS: usize = 64;
 const MAX_STREAMS: u32 = 16;
 const MAX_BODY: usize = 1 << 20;
 const MAX_HEADERS: usize = 64 * 1024;
-const SERVER_NAME: &str = "capsule-peer";
+const SERVER_NAME: &str = "peerspan-peer";
 const CID_LENGTH: usize = 4;
 /// A direct attempt is bounded so a relay fallback still fits the request bound.
 const DIRECT_HANDSHAKE: Duration = Duration::from_secs(2);
@@ -138,10 +138,10 @@ fn endpoint(
         discovery,
     ))
 }
-/// HMAC-SHA256(host key seed, "capsule-peer stateless reset").
+/// HMAC-SHA256(host key seed, "peerspan-peer stateless reset").
 fn reset_key(seed: &[u8]) -> Vec<u8> {
     let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, seed);
-    ring::hmac::sign(&key, b"capsule-peer stateless reset")
+    ring::hmac::sign(&key, b"peerspan-peer stateless reset")
         .as_ref()
         .to_vec()
 }
@@ -1550,7 +1550,7 @@ mod tests {
     fn stateless_reset_key_matches_go_derivation() {
         assert_eq!(
             hex::encode(reset_key(&[1; 32])),
-            "f4eab59f27ab42a4ef063c10e4ec5e9360836198f1979427e8dd36a612839715"
+            "f3a7a6d03341cd2f67814def4cbb6e8496ff741d358ad21fb2077d1a4c510c4d"
         );
     }
 

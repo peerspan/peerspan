@@ -9,7 +9,9 @@ use crate::{
 };
 use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use capsule_host::{
+use ed25519_dalek::SigningKey;
+use hyper::Method;
+use peerspan_host::{
     admins::{AdminDelegation, AdminRemoval, Group},
     coordinator_move::{CoordinatorMove, ROOT_SIGNER},
     membership::{self, HostRevocation, InviteRevocation, KeySigner, Rotation},
@@ -19,8 +21,6 @@ use capsule_host::{
         PersonSigner,
     },
 };
-use ed25519_dalek::SigningKey;
-use hyper::Method;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
