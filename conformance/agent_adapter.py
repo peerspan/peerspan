@@ -49,7 +49,7 @@ def adapter_call(host, token, method, path, body=None, raw=None, socket_name='ad
         connected = adapter_call(host, token, 'POST', '/adapter/v1/connect',
                                  {'instance_id': key}, instance=key, auto_connect=False)[0]
         # The raw fixture client verifies its channel once, as an adapter does
-        # after the model calls capsule_ready, before it first claims work.
+        # after the model calls peerspan_ready, before it first claims work.
         if connected == 200 and path in WORK_ROUTES and not owned.get('verified'):
             ready = adapter_call(host, token, 'POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)},
                                  instance=key, auto_connect=False)[0]
@@ -65,7 +65,7 @@ def adapter_call(host, token, method, path, body=None, raw=None, socket_name='ad
         if isinstance(payload, str):
             payload = payload.encode()
         headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}
-        if key: headers['X-Capsule-Instance'] = key
+        if key: headers['X-Peerspan-Instance'] = key
         conn.request(method, path, payload, headers)
         response = conn.getresponse()
         encoded = response.read()
@@ -98,7 +98,7 @@ def credential(host, session):
 
 
 def check_v2_migration(original_binary, replacement_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-adapter-migration-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-adapter-migration-') as directory:
         root = Path(directory)
         sender = PeerHost(original_binary, root / 'sender')
         receiver = PeerHost(original_binary, root / 'receiver')
@@ -178,18 +178,18 @@ class Channel:
         self.reader = threading.Thread(target=self.read, daemon=True)
         self.reader.start()
         result = self.call('initialize', {'protocolVersion': '2025-11-25', 'capabilities': {},
-                                         'clientInfo': {'name': 'capsule-conformance', 'version': '1'}})
+                                         'clientInfo': {'name': 'peerspan-conformance', 'version': '1'}})
         assert result['protocolVersion'] == '2025-11-25'
         assert result['capabilities']['experimental'] == {'claude/channel': {}}
         self.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
         self.handshake()
 
     def handshake(self):
-        # Live delivery readiness: answer the hello event with capsule_ready
+        # Live delivery readiness: answer the hello event with peerspan_ready
         # before any work flows, as a model receiving channel events would.
         hello = self.notification()
         assert hello['meta']['kind'] == 'hello', hello
-        ready = self.call('tools/call', {'name': 'capsule_ready', 'arguments': {'nonce': hello['meta']['nonce']}})
+        ready = self.call('tools/call', {'name': 'peerspan_ready', 'arguments': {'nonce': hello['meta']['nonce']}})
         assert not ready.get('isError') and json.loads(ready['content'][0]['text']) == {'ready': True}, ready
 
     def read(self):
@@ -252,7 +252,7 @@ class Channel:
 
 
 def check(sender_binary, receiver_binary, node, script, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-adapter-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-adapter-') as directory:
         root = Path(directory)
         sender = PeerHost(sender_binary, root / 'sender')
         receiver = PeerHost(receiver_binary, root / 'receiver')
@@ -294,7 +294,7 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert sender.cli('message', 'reply', '--peer', b['id'], rid)['state'] == 'pending'
             channel = Channel(node, script, receiver, secret, root)
             tools = channel.call('tools/list', {})['tools']
-            assert [tool['name'] for tool in tools] == ['capsule_ready', 'mark_seen', 'pending_work', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
+            assert [tool['name'] for tool in tools] == ['peerspan_ready', 'mark_seen', 'pending_work', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
             event = channel.notification()
             assert event['content'] == first['request']['content']
             assert event['meta']['request_id'] == rid
@@ -450,7 +450,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--node', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     args = parser.parse_args()
     set_probe(args.probe.resolve(strict=True))
     script = Path(__file__).resolve().parents[1] / 'integrations/claude-channel/channel.mjs'

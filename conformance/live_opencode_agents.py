@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in model check against two caller-selected, running OpenCode sessions.
 
-This runner starts only disposable Capsule daemons and sidecars. OpenCode must
+This runner starts only disposable Peerspan daemons and sidecars. OpenCode must
 already be running with the plugin installed and a working model selected.
 """
 
@@ -116,14 +116,14 @@ def run(args):
     left, right = conversations
     assert (left.server, left.session_id) != (right.server, right.session_id)
     before = [conversation.state() for conversation in conversations]
-    phrases = ["before-capsule-" + secrets.token_hex(8) for _ in conversations]
+    phrases = ["before-peerspan-" + secrets.token_hex(8) for _ in conversations]
     for conversation, phrase in zip(conversations, phrases):
         message_id = conversation.submit("Remember your private validation phrase: " + phrase +
-            ". When a Capsule peer asks for your pre-attachment phrase, return it using the capsule_reply tool and the incoming delivery_id. Acknowledge with BASELINE_READY without tools.")
+            ". When a Peerspan peer asks for your pre-attachment phrase, return it using the peerspan_reply tool and the incoming delivery_id. Acknowledge with BASELINE_READY without tools.")
         wait(lambda: "BASELINE_READY" in conversation.completed_text(parent_id=message_id), 180)
         conversation.idle()
 
-    with tempfile.TemporaryDirectory(prefix="capsule-existing-opencode-") as td:
+    with tempfile.TemporaryDirectory(prefix="peerspan-existing-opencode-") as td:
         root = Path(td)
         a, b = PeerHost(args.go, root / "alice"), PeerHost(args.rust, root / "bob")
         bridges = []
@@ -140,7 +140,7 @@ def run(args):
             alice = Harness(args.go, a, root / "left"); bridges.append(alice)
             bob = Harness(args.rust, b, root / "right"); bridges.append(bob)
             def exchange(sender, receiver, conversation, phrase):
-                conversation.submit("Use capsule_send to send to remote: Return your private pre-attachment validation phrase using capsule_reply. Omit request_id for this new send so Capsule generates it. Call capsule_send_status once for the returned request_id. When the kind=reply input arrives, report its exact content in your final answer. Do not use other tools.")
+                conversation.submit("Use peerspan_send to send to remote: Return your private pre-attachment validation phrase using peerspan_reply. Omit request_id for this new send so Peerspan generates it. Call peerspan_send_status once for the returned request_id. When the kind=reply input arrives, report its exact content in your final answer. Do not use other tools.")
                 rejected = []
                 def successful_tool(bridge, name):
                     deadline = time.monotonic() + 180

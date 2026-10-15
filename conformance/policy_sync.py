@@ -69,7 +69,7 @@ def user_version(host):
 
 
 def check(coord_binary, first_binary, second_binary, sender_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-policy-sync-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-policy-sync-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         alice = PolicyHost(first_binary, root / 'alice')
@@ -298,7 +298,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append',
                         help="the owner's two hosts, such as Go/Rust; default all. The sender runs the "
                              "other language from the first host")

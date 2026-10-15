@@ -8,7 +8,7 @@ implementations. Runs every Go/Rust pairing X/Y with one Go coordinator per pair
 (the network's creator), carol's host, and the stopped watcher hosts run X; bob's host, dave's host
 (started without --peer-listen), and the later joiners run Y. Every host's CLI is its daemon's
 implementation, every host has its own HOME and XDG_CONFIG_HOME (so persons use generated keys,
-and nothing touches the real ~/.config/capsule), and every daemon runs with a 30-second
+and nothing touches the real ~/.config/peerspan), and every daemon runs with a 30-second
 coordination interval, so only a notification can deliver a change within 2 seconds.
 
 A raw TLS client offering relay ALPNs (as conformance/relay.py builds one) observes frames with the
@@ -16,7 +16,7 @@ key of a member host whose daemon is stopped. The same client, holding a running
 displaces that host's relay connection for a moment (one relay connection per host is current), so
 the fallbacks are exercised while that host cannot be notified. Each pairing reports these sections:
 
-- version 2 negotiation: `capsule-relay/2` selected when offered first, `capsule-relay/1` when
+- version 2 negotiation: `peerspan-relay/2` selected when offered first, `peerspan-relay/1` when
   only it is offered;
 - changes reach members: a join, a binding, a policy, a group change, and a revocation each
   reaching every other running member within 2 seconds, with `changed` (0x05, the network ID)
@@ -40,7 +40,7 @@ the fallbacks are exercised while that host cannot be notified. Each pairing rep
   with `destination` and `parent_task_id`, and MCP `delegate_task` with `delegation_depth` through
   the real adapter.
 
-Needs openssl, capsule-peer-probe, and Node for the MCP case. Exits non-zero listing every failed section.
+Needs openssl, peerspan-peer-probe, and Node for the MCP case. Exits non-zero listing every failed section.
 """
 import argparse
 from datetime import datetime, timezone
@@ -71,7 +71,7 @@ from tasks import task_id, tool
 INTERVAL = 30
 BOUND = 2.0  # "within 2 seconds"
 SLACK = 0.3  # polling period plus local API latency
-V1, V2 = 'capsule-relay/1', 'capsule-relay/2'
+V1, V2 = 'peerspan-relay/1', 'peerspan-relay/2'
 SEND, RECEIVE, UNREACHABLE, PING, CHANGED = 1, 2, 3, 4, 5
 COALESCE = 0.25
 JITTER = 0.05
@@ -369,10 +369,10 @@ class Pairing:
 
     def check_negotiation(self):
         v2 = self.raw('w2', (V2, V1))
-        need(v2.selected == V2, 'Hosts offer capsule-relay/2 before capsule-relay/1, and coordinators select '
+        need(v2.selected == V2, 'Hosts offer peerspan-relay/2 before peerspan-relay/1, and coordinators select '
              'version 2 when offered', v2.selected)
         v1 = self.raw('w1', (V1,))
-        need(v1.selected == V1, 'A version 1 host (offering only capsule-relay/1) gets version 1', v1.selected)
+        need(v1.selected == V1, 'A version 1 host (offering only peerspan-relay/1) gets version 1', v1.selected)
         # A stranger's key: the protocol is selected in the handshake, then a non-member is closed.
         only = RawRelay(self.coord, secrets.token_bytes(32), self.certs, (V2,))
         self.raws.append(only)
@@ -418,10 +418,10 @@ class Pairing:
         self.join('a2', 'alice', person=False)
         self.running.append('a2')
         self.all_see([self.ids['a2']], timeout=40)
-        target = a2.config / 'capsule'
+        target = a2.config / 'peerspan'
         target.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name in ('person_ed25519', 'person_ed25519.pub'):
-            shutil.copy2(hosts['a1'].config / 'capsule' / name, target / name)
+            shutil.copy2(hosts['a1'].config / 'peerspan' / name, target / name)
         started = time.monotonic()
         out = a2.cli('network', 'bind', '--network', self.net)
         need(out.get('person_id') == self.person['alice'], 'network bind binds a2 to alice', out)
@@ -664,10 +664,10 @@ class Pairing:
         self.join('a3', 'alice', person=False)
         self.running.append('a3')
         wait_for(lambda: self.ids['a3'] in self.members('a2'), timeout=40, message='a3 known to a2')
-        target = a3.config / 'capsule'
+        target = a3.config / 'peerspan'
         target.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name in ('person_ed25519', 'person_ed25519.pub'):
-            shutil.copy2(self.hosts['a1'].config / 'capsule' / name, target / name)
+            shutil.copy2(self.hosts['a1'].config / 'peerspan' / name, target / name)
         # Alice's second host is not notified of the binding, so it answers a3 with [] rather than self.
         hold = Holder(self.coord, seed_of(a2), self.certs)
         try:
@@ -1007,7 +1007,7 @@ class Pairing:
 
 
 def run_pairing(coord_binary, x, y, node, label, logs=None):
-    with tempfile.TemporaryDirectory(prefix='capsule-push-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-push-') as temporary:
         pairing = Pairing(label, x, y, coord_binary, node, Path(temporary))
         started = time.monotonic()
         try:
@@ -1033,7 +1033,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, required=True, help='Node for the MCP delegate_task case')
     parser.add_argument('--pairing', action='append',
                         help='X/Y, such as Go/Rust: alice\'s and carol\'s hosts run X, bob\'s and dave\'s Y; '

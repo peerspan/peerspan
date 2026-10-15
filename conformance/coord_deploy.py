@@ -9,41 +9,41 @@ would: `litestream.yml` (to learn which variables the Litestream environment fil
 `README.md` (for the SSE-C key and the restore procedure from the replica).
 
 Needs root, Docker, openssl, tcpdump, and nsenter. Everything runs locally: a `debian:12` image with systemd
-as init (built as `capsule-m8s4-suite-debian12-systemd`), privileged with a private cgroup namespace (the
+as init (built as `peerspan-m8s4-suite-debian12-systemd`), privileged with a private cgroup namespace (the
 cgroup v2 setup Docker needs for systemd), on its own bridge network with fixed addresses; a MinIO server
 (`cgr.dev/chainguard/minio`, since the upstream MinIO images are no longer published) serving TLS with a CA
 the suite generates; an `ubuntu:24.04` image with systemd as init and ufw (built as
-`capsule-m8s4-suite-ubuntu2404-systemd`, ufw's module loading and sysctl file emptied); and `debian:11` and
+`peerspan-m8s4-suite-ubuntu2404-systemd`, ufw's module loading and sysctl file emptied); and `debian:11` and
 `ubuntu:22.04` containers for the distribution refusal. Every container, image,
-network, and volume the suite creates is named `capsule-m8s4-suite-*`; all are removed at the end, as are
+network, and volume the suite creates is named `peerspan-m8s4-suite-*`; all are removed at the end, as are
 the base images it pulled, unless `--keep`. Inside the systemd image, units that would act on the shared
 machine's kernel through a privileged container (sysctl, binfmt, module loading, audit, udev) are masked.
 install.sh, nftables, ufw, and systemctl only ever run inside containers. Hosts run on this machine with HOME
-and XDG_CONFIG_HOME redirected under a temporary directory; the real ~/.config/capsule is never touched.
+and XDG_CONFIG_HOME redirected under a temporary directory; the real ~/.config/peerspan is never touched.
 
 Sections:
 
-- archive: `scripts/package-coordinator.sh VERSION` writes `dist/capsule-coord-VERSION-linux-ARCH.tar.gz`
+- archive: `scripts/package-coordinator.sh VERSION` writes `dist/peerspan-coord-VERSION-linux-ARCH.tar.gz`
   and `.sha256` (checked with `sha256sum -c` from dist/, as the quick start checks bundles); every member
-  under `capsule-coord-VERSION-linux-ARCH/`; `bin/capsule-coord` executable; `share/capsule-coord/deploy/`
+  under `peerspan-coord-VERSION-linux-ARCH/`; `bin/peerspan-coord` executable; `share/peerspan-coord/deploy/`
   byte for byte the files of the repository's `deploy/coordinator/` (compared by digest), including
   install.sh (executable), the units, the env example, litestream.yml, and README.md; `release.json` with
   exactly version, os `linux`, architecture ARCH, and source_revision (the repository's HEAD); a second run
-  with the same VERSION refused with the outputs unchanged, and accepted with CAPSULE_PACKAGE_OVERWRITE=1
+  with the same VERSION refused with the outputs unchanged, and accepted with PEERSPAN_PACKAGE_OVERWRITE=1
   as package-release.sh does (Q1); a second VERSION built for the upgrade;
 - install: in a fresh Debian 12 container, `install.sh --listen 0.0.0.0:443` from the extracted archive:
   exit 0; stdout exactly `{id, public_key, listen, litestream, firewall}` with listen `0.0.0.0:443`, litestream
-  `not configured`, firewall `nftables`, and the identity equal to `capsule-coord info` and `/healthz`; stderr saying Litestream
-  is not configured; no private key material in either stream; the static `capsule-coord` system user;
-  `/usr/local/bin/capsule-coord` equal to the archive's binary; both units installed; the env file; the
+  `not configured`, firewall `nftables`, and the identity equal to `peerspan-coord info` and `/healthz`; stderr saying Litestream
+  is not configured; no private key material in either stream; the static `peerspan-coord` system user;
+  `/usr/local/bin/peerspan-coord` equal to the archive's binary; both units installed; the env file; the
   state directory (0700, owned by the user, not a symbolic link) and coord.db (0600); Litestream installed at
   a 0.5 version whose binary equals the published release's (fetched from GitHub by the suite and checked
   against the release's published checksums, when reachable); the installed unit equal to the shipped one
   plus exactly `AmbientCapabilities=CAP_NET_BIND_SERVICE` and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`,
   the running process with exactly that capability in its ambient and bounding sets, running as the user;
-  `capsule-coord` enabled and active, `litestream` disabled and inactive; the coordinator listening on TCP
-  and UDP 443 and the ops listener on 127.0.0.1:9464 only; `capsule_coord_info{version}` equal to VERSION;
-- firewall: the input hook is in the table `inet capsule_coord`, included from /etc/nftables.conf, with
+  `peerspan-coord` enabled and active, `litestream` disabled and inactive; the coordinator listening on TCP
+  and UDP 443 and the ops listener on 127.0.0.1:9464 only; `peerspan_coord_info{version}` equal to VERSION;
+- firewall: the input hook is in the table `inet peerspan_coord`, included from /etc/nftables.conf, with
   nftables.service enabled; it drops by default, accepts established traffic, TCP 22, TCP 443, and
   UDP 443, and nothing else (loopback and ICMP accepts reported, Q2); from this machine TCP 443 connects,
   STUN on UDP 443 answers, TCP 22 is refused rather than dropped (the container has no sshd), and TCP 9464,
@@ -53,21 +53,21 @@ Sections:
   machine; each daemon runs in its own network namespace (a plain debian:12 container on its own network,
   with the binary and state mounted), because hosts sharing this machine's interfaces find each other
   directly and the contract asks for relayed messages (Go creator with Rust joiner, and the reverse), see each
-  other, and exchange relayed messages both ways while `capsule_coord_relay_connections` counts both and
-  `capsule_coord_relay_bytes_total` grows;
+  other, and exchange relayed messages both ways while `peerspan_coord_relay_connections` counts both and
+  `peerspan_coord_relay_bytes_total` grows;
 - re-run: the same command again prints the same JSON and changes nothing: binaries, units, env file (with
   a marker line the suite added, so an existing env file is kept), user, state directory modes, nftables
   ruleset, unit states, and the running service (same InvocationID, Q3);
 - upgrade: `install.sh --upgrade` from the second VERSION's archive: exit 0, the same JSON with firewall
   `unchanged`, the nftables ruleset untouched, the new binary
-  in place, the service restarted, `capsule_coord_info{version}` the new VERSION, hosts syncing again;
-- failed upgrade: `--upgrade` from an archive whose `capsule-coord run` never serves: exit 1, the previous
+  in place, the service restarted, `peerspan_coord_info{version}` the new VERSION, hosts syncing again;
+- failed upgrade: `--upgrade` from an archive whose `peerspan-coord run` never serves: exit 1, the previous
   binary restored, the service active with the same identity and version, hosts syncing;
 - upgrade with --no-firewall: `--upgrade --no-firewall` (either order) exits 2 and changes nothing;
 - ubuntu with ufw: in an Ubuntu 24.04 container with ufw active and two rules of its own (22/tcp, 8080/tcp), the
   same install checks with firewall `ufw`; `ufw show added` gains exactly two allow rules for 443 over TCP and
-  UDP commented capsule-coord and loses none; the rest of ufw (defaults, logging, its other files) unchanged;
-  no `inet capsule_coord` table and /etc/nftables.conf unchanged (Q12); from this machine 443/tcp connects,
+  UDP commented peerspan-coord and loses none; the rest of ufw (defaults, logging, its other files) unchanged;
+  no `inet peerspan_coord` table and /etc/nftables.conf unchanged (Q12); from this machine 443/tcp connects,
   STUN answers, 8080 is refused (its rule kept), 9464 dropped; a re-run prints the same JSON and adds no
   duplicate; `--upgrade` prints firewall `unchanged` and leaves ufw alone;
 - no firewall (debian): `--no-firewall` in a fresh Debian container: firewall `none`, the install checks, no
@@ -126,22 +126,22 @@ from coord_ops import Metrics, OpsHost  # noqa: E402
 from host_service import die_with_parent, stop_all  # noqa: E402
 from peer_messaging import request_id, set_probe, timestamp  # noqa: E402
 
-PREFIX = 'capsule-m8s4-suite-'
+PREFIX = 'peerspan-m8s4-suite-'
 BASE_IMAGE = 'debian:12'
 MINIO_IMAGE = 'cgr.dev/chainguard/minio:latest'
 UBUNTU_IMAGE = 'ubuntu:24.04'
 OTHER_IMAGES = ('debian:11', 'ubuntu:22.04')
 SYSTEMD_IMAGE = PREFIX + 'debian12-systemd'
 UBUNTU_SYSTEMD_IMAGE = PREFIX + 'ubuntu2404-systemd'
-STATE = '/var/lib/capsule-coord'
-ENV_FILE = '/etc/capsule-coord/capsule-coord.env'
-LITESTREAM_ENV = '/etc/capsule-coord/litestream.env'
-SSE_KEY = '/etc/capsule-coord/litestream-sse.key'
-BINARY = '/usr/local/bin/capsule-coord'
+STATE = '/var/lib/peerspan-coord'
+ENV_FILE = '/etc/peerspan-coord/peerspan-coord.env'
+LITESTREAM_ENV = '/etc/peerspan-coord/litestream.env'
+SSE_KEY = '/etc/peerspan-coord/litestream-sse.key'
+BINARY = '/usr/local/bin/peerspan-coord'
 LISTEN = '0.0.0.0:443'
 OPS = '127.0.0.1:9464'
-BUCKET = 'capsule-m8s4-suite-replicas'
-MINIO_USER = 'capsulesuite'
+BUCKET = 'peerspan-m8s4-suite-replicas'
+MINIO_USER = 'peerspansuite'
 MINIO_PASSWORD = secrets.token_hex(16)
 CAP_NET_BIND_SERVICE = 1 << 10
 INSTALL_FIELDS = {'id', 'public_key', 'listen', 'litestream', 'firewall'}
@@ -398,8 +398,8 @@ class Container:
         return Metrics(result.stdout)
 
     def info(self):
-        result = self.sh(f'runuser -u capsule-coord -- {BINARY} --state {STATE} info')
-        need(result.returncode == 0, '`capsule-coord info` reads the installed state', result.returncode,
+        result = self.sh(f'runuser -u peerspan-coord -- {BINARY} --state {STATE} info')
+        need(result.returncode == 0, '`peerspan-coord info` reads the installed state', result.returncode,
              result.stderr[-500:])
         return json.loads(result.stdout)
 
@@ -728,7 +728,7 @@ class Suite:
         certs.mkdir()
         ssl_run = lambda *a: run(['openssl', *a], check=True, cwd=certs)  # noqa: E731
         ssl_run('req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'ca.key',
-                '-out', 'ca.crt', '-days', '2', '-subj', '/CN=capsule-m8s4-suite-ca')
+                '-out', 'ca.crt', '-days', '2', '-subj', '/CN=peerspan-m8s4-suite-ca')
         ssl_run('req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'private.key',
                 '-out', 'server.csr', '-subj', '/CN=minio')
         (certs / 'ext').write_text(f'subjectAltName=IP:{self.minio_ip},DNS:minio\nbasicConstraints=CA:FALSE\n'
@@ -788,7 +788,7 @@ class Suite:
 
     def install(self, c, top, *args, capture=None):
         """Run the archive's install.sh as root with cwd at the extracted archive: (code, stdout, stderr)."""
-        script = f'{top}/share/capsule-coord/deploy/install.sh'
+        script = f'{top}/share/peerspan-coord/deploy/install.sh'
         cap = None
         if capture:
             cap = Capture(c, self.root / f'{capture}.pcap')
@@ -836,7 +836,7 @@ class Suite:
         script = self.repo / 'scripts' / 'package-coordinator.sh'
         need(script.exists(), 'scripts/package-coordinator.sh exists', str(script))
         e = dict(os.environ)
-        e.pop('CAPSULE_PACKAGE_OVERWRITE', None)
+        e.pop('PEERSPAN_PACKAGE_OVERWRITE', None)
         e.update(env or {})
         return run(['bash', str(script), version], timeout=1800, cwd=self.repo, env=e)
 
@@ -846,7 +846,7 @@ class Suite:
         arch = {'x86_64': 'amd64', 'amd64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}.get(machine, machine)
         notes = []
         for version in (self.v1, self.v2):
-            stem = f'capsule-coord-{version}-linux-{arch}'
+            stem = f'peerspan-coord-{version}-linux-{arch}'
             path, checksum = dist / f'{stem}.tar.gz', dist / f'{stem}.tar.gz.sha256'
             need(not path.exists() and not checksum.exists(), '(suite) the version is fresh', str(path))
             result = self.package(version)
@@ -867,24 +867,24 @@ class Suite:
                 need(all(n == stem or n.startswith(stem + '/') for n in names),
                      f'every archive member is under {stem}/', [n for n in names if not n.startswith(stem)][:5])
                 files = {m.name[len(stem) + 1:]: m for m in members if m.isfile()}
-                need('bin/capsule-coord' in files and files['bin/capsule-coord'].mode & 0o111,
-                     'the archive holds an executable bin/capsule-coord', sorted(files))
+                need('bin/peerspan-coord' in files and files['bin/peerspan-coord'].mode & 0o111,
+                     'the archive holds an executable bin/peerspan-coord', sorted(files))
                 need('release.json' in files, 'the archive holds release.json', sorted(files))
                 release = json.loads(tar.extractfile(files['release.json']).read())
-                deploy = {n[len('share/capsule-coord/deploy/'):]: m for n, m in files.items()
-                          if n.startswith('share/capsule-coord/deploy/')}
+                deploy = {n[len('share/peerspan-coord/deploy/'):]: m for n, m in files.items()
+                          if n.startswith('share/peerspan-coord/deploy/')}
                 digests = {n: sha256_bytes(tar.extractfile(m).read()) for n, m in deploy.items()}
                 install_mode = deploy['install.sh'].mode if 'install.sh' in deploy else 0
                 out = self.root / f'archive-{version}'
                 out.mkdir()
                 extract_all(tar, out)
-            for required in ('install.sh', 'capsule-coord.service', 'capsule-coord.env.example', 'litestream.yml',
+            for required in ('install.sh', 'peerspan-coord.service', 'peerspan-coord.env.example', 'litestream.yml',
                              'litestream.service', 'README.md'):
-                need(required in deploy, f'share/capsule-coord/deploy/ holds {required}', sorted(deploy))
+                need(required in deploy, f'share/peerspan-coord/deploy/ holds {required}', sorted(deploy))
             need(install_mode & 0o111, 'install.sh is executable in the archive', oct(install_mode))
             source = self.repo / 'deploy' / 'coordinator'
             repo_files = {str(p.relative_to(source)): sha256_file(p) for p in source.rglob('*') if p.is_file()}
-            need(repo_files == digests, 'share/capsule-coord/deploy/ holds exactly the files in deploy/coordinator/, '
+            need(repo_files == digests, 'share/peerspan-coord/deploy/ holds exactly the files in deploy/coordinator/, '
                  'byte for byte', sorted(set(repo_files) ^ set(digests)),
                  sorted(n for n in repo_files if n in digests and repo_files[n] != digests[n]))
             head = run(['git', '-C', str(self.repo), 'rev-parse', 'HEAD'], check=True).stdout.strip()
@@ -897,7 +897,7 @@ class Suite:
                  or head.startswith(str(release['source_revision'])[:12]),
                  'release.json source_revision is the repository\'s revision', release['source_revision'], head)
             self.archives[version] = {'path': path, 'top': stem, 'dir': out / stem, 'release': release,
-                                      'binary': sha256_file(out / stem / 'bin' / 'capsule-coord')}
+                                      'binary': sha256_file(out / stem / 'bin' / 'peerspan-coord')}
             notes.append(f'{path.name} ({path.stat().st_size} bytes, revision {release["source_revision"]})')
         # Refusing to overwrite.
         path = self.archives[self.v1]['path']
@@ -908,9 +908,9 @@ class Suite:
              result.returncode, result.stderr[-500:])
         after = (sha256_file(path), sha256_file(checksum), path.stat().st_mtime_ns, checksum.stat().st_mtime_ns)
         need(before == after, 'a refused run leaves the archive and its .sha256 unchanged')
-        # Q1: "as package-release.sh does" includes its explicit CAPSULE_PACKAGE_OVERWRITE=1.
-        result = self.package(self.v1, {'CAPSULE_PACKAGE_OVERWRITE': '1'})
-        need(result.returncode == 0, 'with CAPSULE_PACKAGE_OVERWRITE=1 the archive is rebuilt, as package-release.sh '
+        # Q1: "as package-release.sh does" includes its explicit PEERSPAN_PACKAGE_OVERWRITE=1.
+        result = self.package(self.v1, {'PEERSPAN_PACKAGE_OVERWRITE': '1'})
+        need(result.returncode == 0, 'with PEERSPAN_PACKAGE_OVERWRITE=1 the archive is rebuilt, as package-release.sh '
              'does (Q1)', result.returncode, result.stderr[-500:])
         check = run(['sha256sum', '-c', checksum.name], cwd=path.parent)
         need(check.returncode == 0, 'the rebuilt pair verifies', check.stdout, check.stderr)
@@ -920,7 +920,7 @@ class Suite:
             out.mkdir()
             extract_all(tar, out)
         self.archives[self.v1]['dir'] = out / self.archives[self.v1]['top']
-        self.archives[self.v1]['binary'] = sha256_file(self.archives[self.v1]['dir'] / 'bin' / 'capsule-coord')
+        self.archives[self.v1]['binary'] = sha256_file(self.archives[self.v1]['dir'] / 'bin' / 'peerspan-coord')
         return '; '.join(notes)
 
     # 2. install
@@ -954,16 +954,16 @@ class Suite:
         self.no_private_key((stdout, stderr), out['public_key'], rule)
         info = c.info()
         need(info['id'] == out['id'] and info['public_key'] == out['public_key'],
-             f'{rule}: the printed id and public_key are the coordinator\'s (`capsule-coord info`)', info, out)
+             f'{rule}: the printed id and public_key are the coordinator\'s (`peerspan-coord info`)', info, out)
         status, body = c.healthz()
         need(status == 200 and body == {'status': 'ok', 'id': out['id']}, f'{rule}: /healthz answers ok with the id',
              status, body)
         # The user.
-        passwd = c.sh('getent passwd capsule-coord').stdout.strip().split(':')
-        need(len(passwd) == 7, f'{rule}: install.sh creates the capsule-coord user', passwd)
+        passwd = c.sh('getent passwd peerspan-coord').stdout.strip().split(':')
+        need(len(passwd) == 7, f'{rule}: install.sh creates the peerspan-coord user', passwd)
         need(int(passwd[2]) < 1000 and passwd[6].endswith(('nologin', 'false')),
-             f'{rule}: capsule-coord is a system user without a login shell', passwd)
-        need(c.sh('getent group capsule-coord').returncode == 0, f'{rule}: capsule-coord has its group')
+             f'{rule}: peerspan-coord is a system user without a login shell', passwd)
+        need(c.sh('getent group peerspan-coord').returncode == 0, f'{rule}: peerspan-coord has its group')
         # Files and modes.
         st = c.stat(BINARY)
         need(st and st[0] == 'regular file' and st[2] == 'root' and st[1] & 0o111 and not st[1] & 0o022,
@@ -974,16 +974,16 @@ class Suite:
         need(st and st[0] == 'regular file' and not st[1] & 0o002, f'{rule}: {ENV_FILE} is installed, not world '
              'writable', st)
         env = c.read(ENV_FILE) or ''
-        need(re.search(r'^\s*CAPSULE_COORD_LISTEN\s*=\s*"?0\.0\.0\.0:443"?\s*$', env, re.M),
-             f'{rule}: the env file sets CAPSULE_COORD_LISTEN to the --listen address', env)
+        need(re.search(r'^\s*PEERSPAN_COORD_LISTEN\s*=\s*"?0\.0\.0\.0:443"?\s*$', env, re.M),
+             f'{rule}: the env file sets PEERSPAN_COORD_LISTEN to the --listen address', env)
         st = c.stat(STATE)
-        need(st and st[0] == 'directory' and st[1] == 0o700 and st[2] == 'capsule-coord',
-             f'{rule}: {STATE} is a directory (not a symbolic link), 0700, owned by capsule-coord', st)
+        need(st and st[0] == 'directory' and st[1] == 0o700 and st[2] == 'peerspan-coord',
+             f'{rule}: {STATE} is a directory (not a symbolic link), 0700, owned by peerspan-coord', st)
         st = c.stat(f'{STATE}/coord.db')
-        need(st and st[1] == 0o600 and st[2] == 'capsule-coord', f'{rule}: coord.db is 0600, owned by capsule-coord',
+        need(st and st[1] == 0o600 and st[2] == 'peerspan-coord', f'{rule}: coord.db is 0600, owned by peerspan-coord',
              st)
         paths = {}
-        for unit in ('capsule-coord', 'litestream'):
+        for unit in ('peerspan-coord', 'litestream'):
             fragment = c.show(unit, 'FragmentPath').get('FragmentPath', '')
             need(fragment and c.stat(fragment), f'{rule}: the {unit} unit is installed', fragment)
             st = c.stat(fragment)
@@ -993,9 +993,9 @@ class Suite:
         if c is self.coord:
             self.unit_paths = paths
         # The unit gains exactly CAP_NET_BIND_SERVICE for port 443.
-        shipped = (self.archives[version]['dir'] / 'share' / 'capsule-coord' / 'deploy' /
-                   'capsule-coord.service').read_text()
-        installed = c.out('systemctl cat capsule-coord')
+        shipped = (self.archives[version]['dir'] / 'share' / 'peerspan-coord' / 'deploy' /
+                   'peerspan-coord.service').read_text()
+        installed = c.out('systemctl cat peerspan-coord')
         added = multiset_minus(unit_directives(installed), unit_directives(shipped))
         removed = multiset_minus(unit_directives(shipped), unit_directives(installed))
         # Q7: "gains ... and nothing else" read as the installed unit (with drop-ins) being the shipped unit plus
@@ -1006,29 +1006,29 @@ class Suite:
                                'Service/CapabilityBoundingSet=CAP_NET_BIND_SERVICE'] and not removed,
              f'{rule}: with port 443 the unit gains exactly AmbientCapabilities= and CapabilityBoundingSet= '
              'CAP_NET_BIND_SERVICE, and nothing else (Q7)', added, removed)
-        props = c.show('capsule-coord', 'AmbientCapabilities', 'CapabilityBoundingSet', 'User', 'MainPID',
+        props = c.show('peerspan-coord', 'AmbientCapabilities', 'CapabilityBoundingSet', 'User', 'MainPID',
                        'NoNewPrivileges', 'DynamicUser')
         need(props.get('AmbientCapabilities') == 'cap_net_bind_service'
              and props.get('CapabilityBoundingSet') == 'cap_net_bind_service',
              f'{rule}: systemd applies exactly cap_net_bind_service as ambient and bounding set', props)
-        need(props.get('User') == 'capsule-coord' and props.get('DynamicUser') == 'no',
-             f'{rule}: the service runs as the static capsule-coord user', props)
+        need(props.get('User') == 'peerspan-coord' and props.get('DynamicUser') == 'no',
+             f'{rule}: the service runs as the static peerspan-coord user', props)
         status_text = c.out(f'cat /proc/{props["MainPID"]}/status')
         fields = dict(line.split(':', 1) for line in status_text.splitlines() if ':' in line)
         uid = fields['Uid'].split()[0]
-        need(uid == passwd[2], f'{rule}: the coordinator process runs as capsule-coord', fields['Uid'], passwd[2])
+        need(uid == passwd[2], f'{rule}: the coordinator process runs as peerspan-coord', fields['Uid'], passwd[2])
         for field in ('CapAmb', 'CapBnd', 'CapEff', 'CapPrm'):
             need(int(fields[field].strip(), 16) == CAP_NET_BIND_SERVICE,
                  f'{rule}: the coordinator process\'s {field} is exactly CAP_NET_BIND_SERVICE', fields[field])
         # Service states without Litestream.
-        need(c.unit_state('capsule-coord') == ('enabled', 'active'), f'{rule}: capsule-coord is enabled and active',
-             c.unit_state('capsule-coord'))
+        need(c.unit_state('peerspan-coord') == ('enabled', 'active'), f'{rule}: peerspan-coord is enabled and active',
+             c.unit_state('peerspan-coord'))
         need(c.unit_state('litestream') == ('disabled', 'inactive'),
              f'{rule}: without Litestream configured its unit stays disabled (and inactive)',
              c.unit_state('litestream'))
         # Sockets.
         sockets = c.out('ss -Hlntup')
-        listening = {(line.split()[0], line.split()[4]) for line in sockets.splitlines() if 'capsule-coord' in line}
+        listening = {(line.split()[0], line.split()[4]) for line in sockets.splitlines() if 'peerspan-coord' in line}
         wildcard = {'0.0.0.0:443', '*:443', '[::]:443'}
         need(any(('tcp', a) in listening for a in wildcard) and any(('udp', a) in listening for a in wildcard),
              f'{rule}: the coordinator listens on TCP and UDP 443 on every address', sockets)
@@ -1036,9 +1036,9 @@ class Suite:
         need(not any(a.endswith(':9464') and a != OPS for _, a in listening), f'{rule}: the ops port is loopback '
              'only', sockets)
         metrics = c.metrics()
-        versions = metrics.series('capsule_coord_info')
+        versions = metrics.series('peerspan_coord_info')
         need(len(versions) == 1 and versions[0][0].get('version') == version and versions[0][1] == 1,
-             f'{rule}: capsule_coord_info{{version}} is the archive\'s VERSION', versions)
+             f'{rule}: peerspan_coord_info{{version}} is the archive\'s VERSION', versions)
 
     def verify_litestream(self, version):
         """The installed Litestream binary equals the published release's, checked against its checksums."""
@@ -1090,10 +1090,10 @@ class Suite:
                 ch = item['chain']
                 chains[(ch['family'], ch['table'], ch['name'])] = ch
         need(chains, 'nftables has an input hook chain', ruleset[:5])
-        need(any(k[:2] == ('inet', 'capsule_coord') for k in chains),
-             'the input hook chain is in the dedicated table `inet capsule_coord`', sorted(chains))
+        need(any(k[:2] == ('inet', 'peerspan_coord') for k in chains),
+             'the input hook chain is in the dedicated table `inet peerspan_coord`', sorted(chains))
         boot = self.nft_boot_tables(c)
-        need('capsule_coord' in boot, 'the `inet capsule_coord` table is included from /etc/nftables.conf',
+        need('peerspan_coord' in boot, 'the `inet peerspan_coord` table is included from /etc/nftables.conf',
              c.read('/etc/nftables.conf'))
         need(c.unit_state('nftables')[0] == 'enabled', 'nftables.service is enabled, so the table loads at boot',
              c.unit_state('nftables'))
@@ -1174,11 +1174,11 @@ class Suite:
             text += c.sh(f'cat {pattern}').stdout
         return text
 
-    def capsule_table(self, c):
-        """Whether nftables holds the table `inet capsule_coord`."""
+    def peerspan_table(self, c):
+        """Whether nftables holds the table `inet peerspan_coord`."""
         result = c.sh('nft list tables')
         need(result.returncode == 0, '(suite) `nft list tables` works in the container', result.stderr)
-        return bool(re.search(r'^table inet capsule_coord$', result.stdout, re.M))
+        return bool(re.search(r'^table inet peerspan_coord$', result.stdout, re.M))
 
     def tcp(self, ip, port, timeout=4):
         started = time.monotonic()
@@ -1213,7 +1213,7 @@ class Suite:
             s.connect((ip, port))
             for _ in range(2):
                 try:
-                    s.send(b'capsule-m8s4-suite')
+                    s.send(b'peerspan-m8s4-suite')
                     s.recv(100)
                     return False
                 except ConnectionRefusedError:
@@ -1304,13 +1304,13 @@ class Suite:
                 r = self.network_record(name, net)
                 need(r['coordinator_address'] == self.coord_address and r['coordinator_public_key'] == key,
                      'hosts pin the container\'s address and the printed public_key', r)
-        before = self.coord.metrics().value('capsule_coord_relay_bytes_total')
-        eventually(lambda: self.coord.metrics().value('capsule_coord_relay_connections') >= 2, 60,
-                   'capsule_coord_relay_connections counts both relay-only hosts',
-                   lambda: self.coord.metrics().series('capsule_coord_relay_connections'))
+        before = self.coord.metrics().value('peerspan_coord_relay_bytes_total')
+        eventually(lambda: self.coord.metrics().value('peerspan_coord_relay_connections') >= 2, 60,
+                   'peerspan_coord_relay_connections counts both relay-only hosts',
+                   lambda: self.coord.metrics().series('peerspan_coord_relay_connections'))
         for sender, receiver in (('alice', 'bob'), ('bob', 'alice')):
             self.send(sender, receiver)
-        after = self.coord.metrics().value('capsule_coord_relay_bytes_total')
+        after = self.coord.metrics().value('peerspan_coord_relay_bytes_total')
         need(after > before, 'relay_bytes_total grows with the messages (they are relayed)', before, after)
         self.state['hosts up'] = True
         return f'networks {self.net1[:16]}… (Go creator) and {self.net2[:16]}… (Rust creator); relayed ' \
@@ -1323,19 +1323,19 @@ class Suite:
         files = [BINARY, ENV_FILE, self.litestream_bin, *self.unit_paths.values()]
         listing = c.out('for f in ' + ' '.join(shlex.quote(f) for f in files) +
                         '; do stat -c "%n %F %a %U %G %s" "$f"; sha256sum "$f"; done; '
-                        f'stat -c "%n %F %a %U %G" {STATE} {STATE}/coord.db /etc/capsule-coord; '
-                        'ls -la /etc/capsule-coord; getent passwd capsule-coord; getent group capsule-coord; '
-                        'find /etc/systemd/system -name "*capsule*" -o -name "*litestream*" | sort; '
-                        'systemctl cat capsule-coord litestream')
+                        f'stat -c "%n %F %a %U %G" {STATE} {STATE}/coord.db /etc/peerspan-coord; '
+                        'ls -la /etc/peerspan-coord; getent passwd peerspan-coord; getent group peerspan-coord; '
+                        'find /etc/systemd/system -name "*peerspan*" -o -name "*litestream*" | sort; '
+                        'systemctl cat peerspan-coord litestream')
         ruleset = re.sub(r'counter packets \d+ bytes \d+', 'counter', c.out('nft list ruleset'))
-        units = (c.unit_state('capsule-coord'), c.unit_state('litestream'))
-        invocation = c.show('capsule-coord', 'InvocationID', 'MainPID')
+        units = (c.unit_state('peerspan-coord'), c.unit_state('litestream'))
+        invocation = c.show('peerspan-coord', 'InvocationID', 'MainPID')
         mtimes = c.out('stat -c "%n %Y" ' + ' '.join(shlex.quote(f) for f in files))
         return {'files': listing, 'nftables': ruleset, 'units': units, 'service': invocation}, mtimes
 
     def check_rerun(self):
         c = self.coord
-        c.out(f'printf "# capsule-m8s4-suite marker\\n" >> {ENV_FILE}')
+        c.out(f'printf "# peerspan-m8s4-suite marker\\n" >> {ENV_FILE}')
         before, mtimes_before = self.snapshot()
         code, stdout, stderr = self.install(c, f'/root/{self.archives[self.v1]["top"]}', '--listen', LISTEN,
                                             capture='re-run')
@@ -1343,7 +1343,7 @@ class Suite:
         out = self.printed(stdout, 're-run')
         need(out == self.identity, 're-running prints the same JSON (same identity)', out, self.identity)
         after, mtimes_after = self.snapshot()
-        need('capsule-m8s4-suite marker' in (c.read(ENV_FILE) or ''), 'an existing env file is kept')
+        need('peerspan-m8s4-suite marker' in (c.read(ENV_FILE) or ''), 'an existing env file is kept')
         for key in ('files', 'nftables', 'units'):
             need(before[key] == after[key], f're-running changes nothing ({key})',
                  diff_text(before[key], after[key]))
@@ -1358,7 +1358,7 @@ class Suite:
     def check_upgrade(self):
         c = self.coord
         top = self.extract(c, self.v2)
-        invocation = c.show('capsule-coord', 'InvocationID')['InvocationID']
+        invocation = c.show('peerspan-coord', 'InvocationID')['InvocationID']
         ruleset = self.snapshot()[0]['nftables']
         moment = utcnow()
         code, stdout, stderr = self.install(c, top, '--upgrade', capture='upgrade')
@@ -1369,13 +1369,13 @@ class Suite:
         need(self.snapshot()[0]['nftables'] == ruleset, '--upgrade never touches the firewall (nftables ruleset)')
         need(sha256_bytes(c.read_bytes(BINARY)) == self.archives[self.v2]['binary'],
              '--upgrade replaces the binary with the extracted archive\'s')
-        need(c.show('capsule-coord', 'InvocationID')['InvocationID'] != invocation, '--upgrade restarts the service')
+        need(c.show('peerspan-coord', 'InvocationID')['InvocationID'] != invocation, '--upgrade restarts the service')
         status, body = c.healthz()
         need(status == 200 and body == {'status': 'ok', 'id': self.identity['id']}, '/healthz after the upgrade',
              status, body)
-        versions = c.metrics().series('capsule_coord_info')
+        versions = c.metrics().series('peerspan_coord_info')
         need(len(versions) == 1 and versions[0][0].get('version') == self.v2,
-             'capsule_coord_info{version} is the new VERSION after --upgrade', versions)
+             'peerspan_coord_info{version} is the new VERSION after --upgrade', versions)
         need(c.info()['public_key'] == self.identity['public_key'], 'the key is unchanged after --upgrade')
         if self.state.get('hosts up'):
             self.synced_after(('alice', 'bob'), moment, 60, 'after the upgrade')
@@ -1385,23 +1385,23 @@ class Suite:
         c = self.coord
         current = sha256_bytes(c.read_bytes(BINARY))
         source = f'/root/{self.archives[self.v2]["top"]}'
-        bad = '/root/capsule-m8s4-suite-bad'
+        bad = '/root/peerspan-m8s4-suite-bad'
         # A binary that behaves for every subcommand but never serves: `run` sleeps without listening.
-        c.out(f'rm -rf {bad} && cp -a {source} {bad} && mkdir -p /opt/capsule-m8s4-suite && '
-              f'cp {source}/bin/capsule-coord /opt/capsule-m8s4-suite/real-coord && '
-              f'chmod 0755 /opt/capsule-m8s4-suite /opt/capsule-m8s4-suite/real-coord')
-        c.write(f'{bad}/bin/capsule-coord', '#!/bin/sh\nfor a in "$@"; do [ "$a" = run ] && exec sleep 600; done\n'
-                'exec /opt/capsule-m8s4-suite/real-coord "$@"\n', mode='0755')
+        c.out(f'rm -rf {bad} && cp -a {source} {bad} && mkdir -p /opt/peerspan-m8s4-suite && '
+              f'cp {source}/bin/peerspan-coord /opt/peerspan-m8s4-suite/real-coord && '
+              f'chmod 0755 /opt/peerspan-m8s4-suite /opt/peerspan-m8s4-suite/real-coord')
+        c.write(f'{bad}/bin/peerspan-coord', '#!/bin/sh\nfor a in "$@"; do [ "$a" = run ] && exec sleep 600; done\n'
+                'exec /opt/peerspan-m8s4-suite/real-coord "$@"\n', mode='0755')
         moment = utcnow()
         code, stdout, stderr = self.install(c, bad, '--upgrade', capture='failed-upgrade')
         need(code == 1, 'an upgrade whose binary fails health exits 1', code, stdout[-400:], stderr[-800:])
         need(sha256_bytes(c.read_bytes(BINARY)) == current, 'the previous binary is restored')
         eventually(lambda: c.healthz()[0] == 200, 30, 'the service is healthy again after the rollback',
-                   lambda: c.sh('systemctl status capsule-coord --no-pager').stdout[-600:])
-        need(c.unit_state('capsule-coord') == ('enabled', 'active'), 'the service is active after the rollback',
-             c.unit_state('capsule-coord'))
+                   lambda: c.sh('systemctl status peerspan-coord --no-pager').stdout[-600:])
+        need(c.unit_state('peerspan-coord') == ('enabled', 'active'), 'the service is active after the rollback',
+             c.unit_state('peerspan-coord'))
         need(c.healthz()[1] == {'status': 'ok', 'id': self.identity['id']}, 'the identity is unchanged')
-        versions = c.metrics().series('capsule_coord_info')
+        versions = c.metrics().series('peerspan_coord_info')
         need(versions and versions[0][0].get('version') == self.v2, 'the running version is the previous one',
              versions)
         if self.state.get('hosts up'):
@@ -1414,14 +1414,14 @@ class Suite:
         # The other archive, so that an upgrade wrongly carried out would show in the binary.
         top = f'/root/{self.archives[self.v1]["top"]}'
         binary = sha256_bytes(c.read_bytes(BINARY))
-        invocation = c.show('capsule-coord', 'InvocationID')['InvocationID']
+        invocation = c.show('peerspan-coord', 'InvocationID')['InvocationID']
         ruleset = self.snapshot()[0]['nftables']
         for args in (('--upgrade', '--no-firewall'), ('--no-firewall', '--upgrade')):
             code, stdout, stderr = self.install(c, top, *args)
             need(code == 2, f'install.sh {" ".join(args)} is a usage error (exit 2)', code, stdout[-300:],
                  stderr[-500:])
             need(sha256_bytes(c.read_bytes(BINARY)) == binary, f'{" ".join(args)} leaves the binary in place')
-            need(c.show('capsule-coord', 'InvocationID')['InvocationID'] == invocation,
+            need(c.show('peerspan-coord', 'InvocationID')['InvocationID'] == invocation,
                  f'{" ".join(args)} does not restart the service')
             need(self.snapshot()[0]['nftables'] == ruleset, f'{" ".join(args)} leaves the firewall alone')
         return 'exit 2 in both orders'
@@ -1456,13 +1456,13 @@ class Suite:
         return status, files
 
     def ufw_firewall_state(self, c):
-        return {'rules': self.ufw_rules(c), 'rest': self.ufw_rest(c), 'table': self.capsule_table(c),
+        return {'rules': self.ufw_rules(c), 'rest': self.ufw_rest(c), 'table': self.peerspan_table(c),
                 'nftables.conf': c.read('/etc/nftables.conf')}
 
     def check_ubuntu_ufw(self):
         c = self.start_ubuntu('ubuntu-ufw', self.spare_ips[0])
         before = self.ufw_firewall_state(c)
-        need(not before['table'], '(suite) no capsule_coord table before the install')
+        need(not before['table'], '(suite) no peerspan_coord table before the install')
         top = self.extract(c, self.v1)
         code, stdout, stderr = self.install(c, top, '--listen', LISTEN, capture='ubuntu-install')
         need(code == 0, 'on Ubuntu 24.04 install.sh --listen 0.0.0.0:443 exits 0', code, stdout[-600:],
@@ -1475,13 +1475,13 @@ class Suite:
         added = multiset_minus(after['rules'], before['rules'])
         need(not removed, 'ufw: the other ufw rules stay in place', removed, after['rules'])
         rule = re.compile(r"ufw allow (?:in )?(?:443/(tcp|udp)|proto (tcp|udp) (?:from any )?to any port 443)"
-                          r" comment '?capsule-coord'?")
+                          r" comment '?peerspan-coord'?")
         protocols = sorted(next(p for p in m.groups() if p) for m in map(rule.fullmatch, added) if m)
         need(len(added) == 2 and protocols == ['tcp', 'udp'], 'ufw: install.sh adds exactly two allow rules, the '
-             'coordination port over TCP and over UDP, commented capsule-coord', added)
+             'coordination port over TCP and over UDP, commented peerspan-coord', added)
         need(after['rest'] == before['rest'], 'ufw: nothing else in ufw changes (defaults, logging, its other files, '
              'still active)', diff_text(before['rest'], after['rest']))
-        need(not after['table'], 'ufw: install.sh writes no `inet capsule_coord` nftables table')
+        need(not after['table'], 'ufw: install.sh writes no `inet peerspan_coord` nftables table')
         # Q12: "writes no nftables table" read as including /etc/nftables.conf (which loads tables at boot).
         need(after['nftables.conf'] == before['nftables.conf'], 'ufw: /etc/nftables.conf is unchanged (Q12)',
              diff_text(before['nftables.conf'], after['nftables.conf']))
@@ -1527,7 +1527,7 @@ class Suite:
         out = self.printed(stdout, 'Debian --no-firewall')
         need(out['firewall'] == 'none', 'Debian: with --no-firewall, firewall is `none`', out)
         self.check_installed(c, out, stdout, stderr, self.v1, 'Debian --no-firewall')
-        need(not self.capsule_table(c), 'Debian: --no-firewall writes no `inet capsule_coord` table')
+        need(not self.peerspan_table(c), 'Debian: --no-firewall writes no `inet peerspan_coord` table')
         need(firewall() == before, 'Debian: --no-firewall changes no firewall (ruleset, /etc/nftables.conf, '
              'nftables.service)', diff_text(before, firewall()))
         need(self.tcp(c.ip, 443) == 'open', 'Debian: TCP 443 is reachable with no firewall written')
@@ -1545,12 +1545,12 @@ class Suite:
         need(code == 0 and self.printed(stdout, 'Debian default after --no-firewall')['firewall'] == 'nftables',
              'Debian: install.sh without --no-firewall then writes the nftables table', code, stdout,
              stderr[-500:])
-        need(self.capsule_table(c), 'Debian: the `inet capsule_coord` table is loaded')
+        need(self.peerspan_table(c), 'Debian: the `inet peerspan_coord` table is loaded')
         code, stdout, stderr = self.install(c, top, '--listen', LISTEN, '--no-firewall')
         need(code == 0 and self.printed(stdout, 'Debian --no-firewall after nftables')['firewall'] == 'none',
              'Debian: --no-firewall after an nftables install exits 0 with firewall `none`', code, stdout,
              stderr[-500:])
-        need(self.capsule_table(c), '`none` does not remove a table written by an earlier run')
+        need(self.peerspan_table(c), '`none` does not remove a table written by an earlier run')
         self.docker.remove_container(c.name)
         return 'no table, ruleset unchanged; upgrade with --no-firewall exit 2; earlier table kept'
 
@@ -1568,7 +1568,7 @@ class Suite:
         after = self.ufw_firewall_state(c)
         need(after['rules'] == before['rules'], 'Ubuntu: --no-firewall adds no ufw rule', before['rules'],
              after['rules'])
-        need(not after['table'], 'Ubuntu: --no-firewall writes no `inet capsule_coord` table')
+        need(not after['table'], 'Ubuntu: --no-firewall writes no `inet peerspan_coord` table')
         need(after == before, 'Ubuntu: --no-firewall changes no firewall', diff_text(before, after))
         need(self.tcp(c.ip, 443) == 'dropped', 'Ubuntu: with ufw active and no rule added, TCP 443 stays closed '
              'until the owner opens it')
@@ -1591,7 +1591,7 @@ class Suite:
 
     def litestream_env(self):
         """The Litestream env file: the variables litestream.yml (as shipped) references, filled for MinIO."""
-        deploy = self.archives[self.v1]['dir'] / 'share' / 'capsule-coord' / 'deploy'
+        deploy = self.archives[self.v1]['dir'] / 'share' / 'peerspan-coord' / 'deploy'
         text = (deploy / 'litestream.yml').read_text()
         values_text = '\n'.join(line.split('#', 1)[0] for line in text.splitlines())
         names = set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', values_text)) | set(
@@ -1614,7 +1614,7 @@ class Suite:
             elif 'REGION' in upper:
                 values[name] = 'us-east-1'
             elif upper.endswith('PATH') and 'KEY' not in upper:
-                values[name] = 'capsule-coord'
+                values[name] = 'peerspan-coord'
             elif 'FORCE_PATH_STYLE' in upper:
                 values[name] = 'true'
             elif 'SSE' in upper and 'PATH' in upper or 'KEY_FILE' in upper:
@@ -1628,7 +1628,7 @@ class Suite:
         return ''.join(f'{k}={v}\n' for k, v in sorted(values.items())), text
 
     def runbook(self):
-        return (self.archives[self.v1]['dir'] / 'share' / 'capsule-coord' / 'deploy' / 'README.md').read_text()
+        return (self.archives[self.v1]['dir'] / 'share' / 'peerspan-coord' / 'deploy' / 'README.md').read_text()
 
     def runbook_key_commands(self):
         """The runbook's Hetzner step 2 commands that create the SSE-C key (its `cat` for the password manager
@@ -1645,7 +1645,7 @@ class Suite:
     def configure_litestream(self, c):
         env, _ = self.litestream_env()
         c.write(LITESTREAM_ENV, env, mode='0600')
-        c.copy_in(self.ca, '/usr/local/share/ca-certificates/capsule-m8s4-suite-ca.crt')
+        c.copy_in(self.ca, '/usr/local/share/ca-certificates/peerspan-m8s4-suite-ca.crt')
         c.out('update-ca-certificates >/dev/null')
         commands = self.runbook_key_commands()
         if commands:
@@ -1684,9 +1684,9 @@ class Suite:
                    'the litestream unit is enabled and active', lambda: c.sh('systemctl status litestream '
                                                                              '--no-pager; journalctl -u litestream '
                                                                              '-n 30 --no-pager').stdout[-1500:])
-        need(c.unit_state('capsule-coord') == ('enabled', 'active'), 'capsule-coord stays enabled and active')
+        need(c.unit_state('peerspan-coord') == ('enabled', 'active'), 'peerspan-coord stays enabled and active')
         user = c.show('litestream', 'User').get('User')
-        need(user == 'capsule-coord', 'Litestream runs as the coordinator\'s user', user)
+        need(user == 'peerspan-coord', 'Litestream runs as the coordinator\'s user', user)
         if self.state.get('hosts up'):
             # A change to replicate.
             self.hosts['alice'].cli('agent', 'register', '--name', 'replicated', '--owner', 'alice')
@@ -1749,8 +1749,8 @@ class Suite:
         status, body = b.healthz()
         need(status == 200 and body == {'status': 'ok', 'id': self.identity['id']}, '/healthz on the restored server',
              status, body)
-        need(b.unit_state('capsule-coord') == ('enabled', 'active'), 'capsule-coord runs on the restored server',
-             b.unit_state('capsule-coord'))
+        need(b.unit_state('peerspan-coord') == ('enabled', 'active'), 'peerspan-coord runs on the restored server',
+             b.unit_state('peerspan-coord'))
         self.synced_after(('alice', 'bob', 'carol'), moment, 120, 'after the restore', nets=[self.net1])
         self.synced_after(('alice', 'bob'), moment, 120, 'after the restore', nets=[self.net2])
         # Repair: carol joined after the last replicated transaction; a fresh joiner learns it from the coordinator.
@@ -1811,10 +1811,10 @@ class Suite:
     def configure_litestream_fresh(self, b):
         """The fresh server gets the env file and the same SSE-C key (from the owner's password manager)."""
         env, _ = self.litestream_env()
-        b.out('install -d -m 0755 /etc/capsule-coord')
+        b.out('install -d -m 0755 /etc/peerspan-coord')
         b.write(LITESTREAM_ENV, env, mode='0600')
         b.write(SSE_KEY, self.sse_key_file_bytes(), mode='0600')
-        b.copy_in(self.ca, '/usr/local/share/ca-certificates/capsule-m8s4-suite-ca.crt')
+        b.copy_in(self.ca, '/usr/local/share/ca-certificates/peerspan-m8s4-suite-ca.crt')
         b.out('update-ca-certificates >/dev/null')
 
     def sse_key_file_bytes(self):
@@ -1833,14 +1833,14 @@ class Suite:
             c = Container(self.docker, name, None)
             top = self.extract(c, self.v1)
             before = c.out('ls -a /usr/local/bin /etc /var/lib | sha256sum; getent passwd | sha256sum')
-            result = c.sh(f'./share/capsule-coord/deploy/install.sh --listen {LISTEN}', cwd=top, timeout=120)
+            result = c.sh(f'./share/peerspan-coord/deploy/install.sh --listen {LISTEN}', cwd=top, timeout=120)
             need(result.returncode == 1, f'install.sh exits 1 on another distribution ({image})', result.returncode,
                  result.stdout[-300:], result.stderr[-500:])
             after = c.out('ls -a /usr/local/bin /etc /var/lib | sha256sum; getent passwd | sha256sum')
             need(before == after, f'a refused install on {image} changes nothing (no user, binary, '
-                 '/etc/capsule-coord, or state)')
-            need(c.sh('getent passwd capsule-coord').returncode != 0 and c.sh(f'test -e {BINARY}').returncode != 0,
-                 f'no capsule-coord user or binary on {image}')
+                 '/etc/peerspan-coord, or state)')
+            need(c.sh('getent passwd peerspan-coord').returncode != 0 and c.sh(f'test -e {BINARY}').returncode != 0,
+                 f'no peerspan-coord user or binary on {image}')
             last = result.stderr.strip().splitlines()[-1][:120] if result.stderr.strip() else 'exit 1'
             notes.append(f'{image}: {last}')
             self.docker.remove_container(name)
@@ -1891,18 +1891,18 @@ def diff_text(a, b):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--go', type=Path, required=True, help='Go capsule-host')
-    parser.add_argument('--rust', type=Path, required=True, help='Rust capsule-host')
+    parser.add_argument('--go', type=Path, required=True, help='Go peerspan-host')
+    parser.add_argument('--rust', type=Path, required=True, help='Rust peerspan-host')
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parent.parent,
                         help='repository root, for scripts/package-coordinator.sh (default: this checkout)')
-    parser.add_argument('--probe', type=Path, help='capsule-peer-probe (optional; set for shared helpers)')
+    parser.add_argument('--probe', type=Path, help='peerspan-peer-probe (optional; set for shared helpers)')
     parser.add_argument('--keep', action='store_true', help='keep containers, networks, images, and dist files')
     parser.add_argument('--logs', type=Path, help='save install outputs and host logs here when a section fails')
     args = parser.parse_args()
     args.go, args.rust, args.repo = (p.resolve(strict=True) for p in (args.go, args.rust, args.repo))
     if args.probe:
         set_probe(args.probe.resolve(strict=True))
-    with tempfile.TemporaryDirectory(prefix='capsule-coord-deploy-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-coord-deploy-') as temporary:
         suite = Suite(args, Path(temporary))
         try:
             suite.run()
@@ -1941,7 +1941,7 @@ def save_logs(suite, directory):
         except (OSError, ValueError, AttributeError):
             pass
     if suite.coord is not None:
-        for unit in ('capsule-coord', 'litestream'):
+        for unit in ('peerspan-coord', 'litestream'):
             try:
                 text = suite.coord.sh(f'journalctl -u {unit} --no-pager -n 400').stdout
                 (directory / f'journal-{unit}.log').write_text(text)

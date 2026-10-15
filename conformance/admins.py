@@ -46,7 +46,7 @@ def statements(host, network, kind):
 
 
 def group_lines(g):
-    return ['capsule-group-v1', g['network_id'], g['name'], str(g['version']), g['defined_at'], *g['members']]
+    return ['peerspan-group-v1', g['network_id'], g['name'], str(g['version']), g['defined_at'], *g['members']]
 
 
 def inject(coord, kind, subject, statement):
@@ -56,7 +56,7 @@ def inject(coord, kind, subject, statement):
 
 
 def check(coord_binary, creator_binary, joiner_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-admins-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-admins-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         names = ('alice', 'bob', 'carol', 'dave', 'erin', 'frank')
@@ -97,10 +97,10 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             use_agent(agents['pat'])
             person_invite = bob.cli('network', 'invite-person', '--network', net, '--member', 'tess',
                                     '--expires-at', timestamp(600))
-            assert person_invite['token'].startswith('capsule-person-invite-v1.'), person_invite
+            assert person_invite['token'].startswith('peerspan-person-invite-v1.'), person_invite
             for statement in statements(bob, net, 'host_admission'):
                 if statement['host_public_key'] == ids['carol']['public_key']:
-                    ssh_verify(['capsule-host-admit-v1', net, '0', statement['host_public_key'], 'carol',
+                    ssh_verify(['peerspan-host-admit-v1', net, '0', statement['host_public_key'], 'carol',
                                 statement['admitted_at']], statement['signature'], keys['pat'][1], root)
 
             # A non-administrator is refused with 403, through the CLI and the API.
@@ -153,7 +153,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             # one) makes resolution fail with the candidates listed.
             twin = {'network_id': net, 'epoch': 0, 'person_public_key': keys['stranger'][2], 'member': 'SAM',
                     'admitted_at': timestamp(0)}
-            twin['signature'] = ssh_sign(['capsule-person-admit-v1', net, '0', twin['person_public_key'], 'SAM',
+            twin['signature'] = ssh_sign(['peerspan-person-admit-v1', net, '0', twin['person_public_key'], 'SAM',
                                           twin['admitted_at']], keys['pat'][0], root)
             with coord_db(coord) as db:
                 db.execute('INSERT INTO statements (network_id, kind, subject, statement) VALUES (?, ?, ?, ?)',
@@ -178,7 +178,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert not removal['revoke_admitted'] and len(removal['kept']) == 1, removal
             backdated = {'network_id': net, 'epoch': 0, 'host_public_key': ids['frank']['public_key'], 'member': 'frank',
                          'admitted_at': '2020-01-01T00:00:00Z'}
-            backdated['signature'] = ssh_sign(['capsule-host-admit-v1', net, '0', backdated['host_public_key'], 'frank',
+            backdated['signature'] = ssh_sign(['peerspan-host-admit-v1', net, '0', backdated['host_public_key'], 'frank',
                                                backdated['admitted_at']], keys['rhea'][0], root)
             with coord_db(coord) as db:
                 db.execute('INSERT INTO members (network_id, host_id, invite_public_key, membership, address, updated_at, '
@@ -228,13 +228,13 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             # carol and an admitted member, signed by quinn or forged.
             for signer in ('quinn', 'stranger'):
                 revocation = {'network_id': net, 'host_public_key': ids['carol']['public_key'], 'revoked_at': timestamp(0)}
-                revocation['signature'] = ssh_sign(['capsule-revoke-host-v1', net, revocation['host_public_key'],
+                revocation['signature'] = ssh_sign(['peerspan-revoke-host-v1', net, revocation['host_public_key'],
                                                     revocation['revoked_at']], keys[signer][0], root)
                 inject(coord, 'host', ids['carol']['public_key'], revocation)
                 _, _, mallory_raw = ssh_key(root / 'keys', f'mallory-{signer}')
                 admission = {'network_id': net, 'epoch': 0, 'host_public_key': mallory_raw, 'member': 'mallory',
                              'admitted_at': timestamp(0)}
-                admission['signature'] = ssh_sign(['capsule-host-admit-v1', net, '0', mallory_raw, 'mallory',
+                admission['signature'] = ssh_sign(['peerspan-host-admit-v1', net, '0', mallory_raw, 'mallory',
                                                    admission['admitted_at']], keys[signer][0], root)
                 mallory_id = 'host_' + hashlib.sha256(base64.b64decode(mallory_raw)).hexdigest()
                 with coord_db(coord) as db:
@@ -277,7 +277,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert persons(bob, net)[uma_id]['administrator']
             for d in statements(bob, net, 'admin'):
                 if d['person_public_key'] == keys['uma'][2]:
-                    ssh_verify(['capsule-admin-delegate-v1', net, '1', d['person_public_key'], d['delegated_at']],
+                    ssh_verify(['peerspan-admin-delegate-v1', net, '1', d['person_public_key'], d['delegated_at']],
                                d['signature'], keys['sshroot'][1], root)
             kinds = {(e['kind'], e['subject_id']) for e in bob.cli('activity', '--limit', '1000')}
             for event in [('network.admin_delegated', quinn_id), ('network.admin_removed', quinn_id),
@@ -307,7 +307,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append', help='creator/joiner, such as Go/Rust; default all')
     args = parser.parse_args()
     set_probe(args.probe)

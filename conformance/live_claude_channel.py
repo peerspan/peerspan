@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Explicit interactive experiment using authenticated Claude Code and model calls.
 
-Creates only temporary host/config state and enables only the Capsule reply tool.
+Creates only temporary host/config state and enables only the Peerspan reply tool.
 Existing developer sessions/MCP configs are never selected or reconfigured. Claude
 may record trust/session state for this temporary test workspace. Requires Unix
 PTYs and Linux /proc for the deterministic pause of this test's adapter child.
@@ -60,7 +60,7 @@ def adapter_pid(claude_pid, script):
 
 def check(args):
     script = Path(__file__).resolve().parents[1] / 'integrations/claude-channel/channel.mjs'
-    with tempfile.TemporaryDirectory(prefix='capsule-live-channel-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-live-channel-') as directory:
         root = Path(directory)
         sender = PeerHost(args.sender.resolve(), root / 'sender')
         receiver = PeerHost(args.receiver.resolve(), root / 'receiver')
@@ -79,7 +79,7 @@ def check(args):
             secret_path.write_text(json.dumps(secret))
             secret_path.chmod(0o600)
             config = root / 'mcp.json'
-            config.write_text(json.dumps({'mcpServers': {'capsule': {
+            config.write_text(json.dumps({'mcpServers': {'peerspan': {
                 'command': str(args.node.resolve()), 'args': [str(script), '--socket', str(receiver.state / 'adapter.sock'),
                                                             '--credential-file', str(secret_path), '--poll-ms', '100']}}}))
             sid = str(uuid.uuid4())
@@ -87,8 +87,8 @@ def check(args):
             command = [str(args.claude.resolve()), '--session-id', sid,
                        '--strict-mcp-config', '--mcp-config', str(config), '--setting-sources', '',
                        '--settings', '{"disableAllHooks":true}', '--tools', '',
-                       '--allowedTools', 'mcp__capsule__reply', '--permission-mode', 'dontAsk',
-                       '--disable-slash-commands', '--dangerously-load-development-channels', 'server:capsule',
+                       '--allowedTools', 'mcp__peerspan__reply', '--permission-mode', 'dontAsk',
+                       '--disable-slash-commands', '--dangerously-load-development-channels', 'server:peerspan',
                        '--debug-file', str(debug)]
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 100, 0, 0))
@@ -138,15 +138,15 @@ def check(args):
 
             wait_until(lambda: 'Channel notifications registered' in debug_text(), seconds=30)
             protocol = re.search(r'"negotiatedProtocolVersion":"([^"]+)"', debug_text()).group(1)
-            print('Interactive Claude session registered Capsule channel notifications.', flush=True)
+            print('Interactive Claude session registered Peerspan channel notifications.', flush=True)
             grant = receiver.grant(a, agent)
             offset = len(debug_text())
-            first = sender.submit(b, agent, grant, content='Reply through the Capsule reply tool with exactly CAPSULE_LIVE_ONE.')
+            first = sender.submit(b, agent, grant, content='Reply through the Peerspan reply tool with exactly PEERSPAN_LIVE_ONE.')
             rid1 = first['request']['request_id']
             wait_until(lambda: 'Stream started - received first chunk' in debug_text()[offset:], seconds=40)
             first_pending_when_second_sent = not sql(receiver, 'SELECT record FROM received_replies WHERE request_id = ?', (rid1,))
             assert first_pending_when_second_sent, 'first reply completed before the busy-session check'
-            second = sender.submit(b, agent, grant, content='Reply through the Capsule reply tool with exactly CAPSULE_LIVE_TWO.')
+            second = sender.submit(b, agent, grant, content='Reply through the Peerspan reply tool with exactly PEERSPAN_LIVE_TWO.')
             rid2 = second['request']['request_id']
 
             def responses():
@@ -156,8 +156,8 @@ def check(args):
 
             replies = wait_until(responses)
             by_id = {r['request_id']: r for r in replies}
-            assert by_id[rid1]['content'] == 'CAPSULE_LIVE_ONE', by_id[rid1]['content']
-            assert by_id[rid2]['content'] == 'CAPSULE_LIVE_TWO', by_id[rid2]['content']
+            assert by_id[rid1]['content'] == 'PEERSPAN_LIVE_ONE', by_id[rid1]['content']
+            assert by_id[rid2]['content'] == 'PEERSPAN_LIVE_TWO', by_id[rid2]['content']
             assert all(r['session_id'] == session['id'] for r in replies)
             assert sender.cli('message', 'reply', '--peer', b['id'], rid1)['reply'] == by_id[rid1]
             assert sender.cli('message', 'reply', '--peer', b['id'], rid2)['reply'] == by_id[rid2]
@@ -205,7 +205,7 @@ def check(args):
             debug = root / 'claude-debug.log'
             if debug.exists():
                 diagnostics['channel_debug'] = [line for line in debug.read_text().splitlines()
-                    if any(word in line.lower() for word in ['channel', 'capsule', 'protocolversion'])][-25:]
+                    if any(word in line.lower() for word in ['channel', 'peerspan', 'protocolversion'])][-25:]
             print(json.dumps(diagnostics, indent=2), flush=True)
             raise
         finally:

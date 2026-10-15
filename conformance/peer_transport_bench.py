@@ -77,7 +77,7 @@ def percentiles(samples):
 
 
 def run_pairing(sender_binary, receiver_binary, count, concurrency, warmup):
-    with tempfile.TemporaryDirectory(prefix='capsule-bench-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-bench-') as directory:
         root = Path(directory)
         sender, receiver = BenchHost(sender_binary, root / 'sender'), BenchHost(receiver_binary, root / 'receiver')
         try:
@@ -141,8 +141,8 @@ def version(binary):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--go', type=Path, required=True, help='optimized Go capsule-host')
-    parser.add_argument('--rust', type=Path, required=True, help='Rust capsule-host built with --release')
+    parser.add_argument('--go', type=Path, required=True, help='optimized Go peerspan-host')
+    parser.add_argument('--rust', type=Path, required=True, help='Rust peerspan-host built with --release')
     parser.add_argument('--label', required=True, help='what these binaries are, e.g. "TCP/TLS main@abc1234"')
     parser.add_argument('--count', type=int, default=200)
     parser.add_argument('--concurrency', type=int, default=8)

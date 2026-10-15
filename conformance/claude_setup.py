@@ -123,7 +123,7 @@ def setup(client, host, agent, directory, node, claude, script, routes=None):
 
 def check(client, source_binary, receiver_binary, replacement, node, label):
     script = Path(__file__).resolve().parents[1] / "integrations/claude-channel/channel.mjs"
-    with tempfile.TemporaryDirectory(prefix="capsule-claude-setup-") as td:
+    with tempfile.TemporaryDirectory(prefix="peerspan-claude-setup-") as td:
         root = Path(td)
         source, receiver = PeerHost(source_binary, root / "source"), PeerHost(receiver_binary, root / "receiver")
         channels = []

@@ -62,7 +62,7 @@ def rfc3339(moment):
 
 
 def policy_lines(p):
-    lines = ['capsule-policy-v1', p['network_id'], p['person_public_key'], str(p['version']), p['issued_at'],
+    lines = ['peerspan-policy-v1', p['network_id'], p['person_public_key'], str(p['version']), p['issued_at'],
              p['valid_until']]
     for r in p['rules']:
         bounds = f"{r['max_message_bytes']} {'true' if r['allow_disconnected'] else 'false'}"
@@ -161,7 +161,7 @@ def check_agent_principal(alice, bob, carol, ids, net, pat_id, quinn_id, agents)
 
 
 def check(coord_binary, owner_binary, sender_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-policy-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-policy-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         # The owner's host syncs only when asked, so it can lag a sender.
@@ -424,7 +424,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append', help='owner/senders, such as Go/Rust; default all')
     args = parser.parse_args()
     set_probe(args.probe)

@@ -4,7 +4,7 @@
 Runs every Go/Rust CLI and daemon pairing, with one Go coordinator and real
 ssh-agents for the network cases. It covers:
 
-- the name: one binary as `capsule` and `capsule-host`, through symbolic links;
+- the name: one binary as `peerspan` and `peerspan-host`, through symbolic links;
 - help: the root help's command set and order, `help advanced` and
   `--help-advanced` listing every command, and hidden commands' own help;
 - network defaulting with zero, one, and two networks, and the explicit-only
@@ -16,14 +16,14 @@ ssh-agents for the network cases. It covers:
   seconds later, a following route moving with it, `adapter.renewed` recorded
   once, an explicit expiry never moving, and `follows_credential` refused on
   a fixed credential;
-- `GET /v1/status` and `capsule status`: the shape, each deterministic
+- `GET /v1/status` and `peerspan status`: the shape, each deterministic
   attention kind (coordination_error with the coordinator stopped,
   policy_expiring with a crafted policy and no ssh-agent for the daemon,
   policy_delivery_failing with a sibling down, credential_expiring,
   tasks_failed, artifact_quota with a small --artifact-quota), and exit codes
   0, 1, and 2.
 
-The bundle's `bin/capsule` link is covered by installed_bundle.py. Renewal is
+The bundle's `bin/peerspan` link is covered by installed_bundle.py. Renewal is
 checked at the end of each pairing, once more than 60 seconds have passed
 since the credential was issued. Needs OpenSSH (ssh-agent, ssh-add,
 ssh-keygen).
@@ -91,7 +91,7 @@ DAY = 24 * 3600
 # CLI's service checks (slice 2) add no attention to the cases here.
 SERVICE_HOME = Path(tempfile.mkdtemp(prefix='launch-cli-service-'))
 (SERVICE_HOME / 'config/systemd/user').mkdir(parents=True)
-(SERVICE_HOME / 'config/systemd/user/capsule.service').write_text('[Service]\n')
+(SERVICE_HOME / 'config/systemd/user/peerspan.service').write_text('[Service]\n')
 (SERVICE_HOME / 'bin').mkdir()
 for tool, script in {'systemctl': 'echo active', 'loginctl': 'echo Linger=yes'}.items():
     stub = SERVICE_HOME / 'bin' / tool
@@ -177,12 +177,12 @@ def help_of(program, *args):
 
 
 def check_name_and_help(cli_binary, links):
-    """capsule and capsule-host behave alike; the root help lists the main commands only."""
-    for name in ('capsule', 'capsule-host'):
+    """peerspan and peerspan-host behave alike; the root help lists the main commands only."""
+    for name in ('peerspan', 'peerspan-host'):
         link = links / name
         if not link.exists():
             link.symlink_to(cli_binary)
-    short, long = links / 'capsule', links / 'capsule-host'
+    short, long = links / 'peerspan', links / 'peerspan-host'
     for program in (short, long):
         root = help_of(program)
         assert help_of(program, '--help') == root and help_of(program, 'help') == root
@@ -196,8 +196,8 @@ def check_name_and_help(cli_binary, links):
         # Hidden commands keep their own help.
         for path in ('grant create', 'adapter route add', 'network revoke', 'activity', 'access renew'):
             assert '--' in help_of(program, *path.split(), '--help'), path
-    assert 'capsule-host' not in help_of(short), help_of(short)
-    assert 'capsule-host' in help_of(long)
+    assert 'peerspan-host' not in help_of(short), help_of(short)
+    assert 'peerspan-host' in help_of(long)
     assert commands(help_of(short)) == commands(help_of(long))
     return short, long
 
@@ -260,7 +260,7 @@ def renewed(host, adapter_id):
 
 
 def check(coord_binary, cli_binary, daemon_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-launch-cli-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-launch-cli-') as temporary:
         root = Path(temporary)
         (root / 'links').mkdir()
         short, long = check_name_and_help(cli_binary, root / 'links')
@@ -390,9 +390,9 @@ def check(coord_binary, cli_binary, daemon_binary, label):
             items = [(i['kind'], i['subject']) for i in attention(value)]
             assert items == [('credential_expiring', fixed['adapter']['id']), ('tasks_failed', '1'),
                              ('artifact_quota', 'artifacts')], items
-            assert attention(value, 'credential_expiring')[0]['command'].startswith('capsule session setup')
-            assert attention(value, 'tasks_failed')[0]['command'] == 'capsule task list'
-            assert attention(value, 'artifact_quota')[0]['command'] == 'capsule artifact prune'
+            assert attention(value, 'credential_expiring')[0]['command'].startswith('peerspan session setup')
+            assert attention(value, 'tasks_failed')[0]['command'] == 'peerspan task list'
+            assert attention(value, 'artifact_quota')[0]['command'] == 'peerspan artifact prune'
             assert value['artifacts']['stored_bytes'] == QUOTA * 9 // 10 + 1, value['artifacts']
             names = {x['name']: x for x in value['agents']}
             assert set(names) == {'renewing', 'fixed', 'later', 'spare'}, names
@@ -494,7 +494,7 @@ def check(coord_binary, cli_binary, daemon_binary, label):
                 return (v, found[0]) if found else None
             value, item = wait_for(failing, timeout=30, message='policy_delivery_failing')
             check_shape(value)
-            assert item['command'] == f'capsule access sync --network {one}', item
+            assert item['command'] == f'peerspan access sync --network {one}', item
             assert value['networks'][0]['policy_deliveries_pending'] >= 1, value['networks']
             bob.start()
             alice.cli('access', 'sync')
@@ -512,7 +512,7 @@ def check(coord_binary, cli_binary, daemon_binary, label):
             value = alice.status()
             check_shape(value)
             [item] = attention(value, 'policy_expiring')
-            assert item['subject'] == one and item['command'] == f'capsule access renew --network {one}', item
+            assert item['subject'] == one and item['command'] == f'peerspan access renew --network {one}', item
             assert value['networks'][0]['policy'] == {'version': ending['version'], 'valid_until': ending['valid_until']}
             assert not attention(value, 'policy_expired')
 
@@ -539,7 +539,7 @@ def check(coord_binary, cli_binary, daemon_binary, label):
             check_shape(value)
             assert [i['subject'] for i in found] == sorted([one, two]), found
             for i in found:
-                assert i['command'] == f"capsule network sync {i['subject']}", i
+                assert i['command'] == f"peerspan network sync {i['subject']}", i
             assert alice.run('status').returncode == 1
 
             # Renewal, once more than 60 seconds have passed since issue.
@@ -582,7 +582,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append',
                         help='CLI/daemon implementations, such as Go/Rust; repeatable; default all four')
     args = parser.parse_args()

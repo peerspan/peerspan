@@ -4,7 +4,7 @@
 No case below calls `message retry`: the sending daemon must recover each
 uncertain outcome by itself, with the same request ID, and the receiver must
 hold exactly one copy. Uses temporary state, Python's standard library, the
-Go coordinator, and the capsule-peer-probe test client.
+Go coordinator, and the peerspan-peer-probe test client.
 """
 import argparse
 import concurrent.futures
@@ -59,7 +59,7 @@ def accepted_automatically(sender, receiver, peer, rid, seconds):
 
 
 def direct_cases(sender_binary, receiver_binary):
-    with tempfile.TemporaryDirectory(prefix='capsule-retry-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-retry-') as directory:
         root = Path(directory)
         sender, receiver = PeerHost(sender_binary, root / 'sender'), PeerHost(receiver_binary, root / 'receiver')
         try:
@@ -144,7 +144,7 @@ def inspect_offline(sender, peer, rid):
 
 def adapter_case(sender_binary, receiver_binary):
     """An agent's uncertain send resolves through send_status, using one budget unit."""
-    with tempfile.TemporaryDirectory(prefix='capsule-retry-agent-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-retry-agent-') as directory:
         root = Path(directory)
         sender, receiver = PeerHost(sender_binary, root / 'sender'), PeerHost(receiver_binary, root / 'receiver')
         try:
@@ -188,7 +188,7 @@ def adapter_case(sender_binary, receiver_binary):
 
 def connected_case(coord_binary, sender_binary, receiver_binary):
     """A 503 from a receiver whose coordination went stale resolves automatically."""
-    with tempfile.TemporaryDirectory(prefix='capsule-retry-coord-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-retry-coord-') as directory:
         root = Path(directory)
         coord = Coordinator(coord_binary, root / 'coord')
         alice, bob = CoordHost(receiver_binary, root / 'alice'), CoordHost(sender_binary, root / 'bob')
@@ -222,7 +222,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     args = parser.parse_args()
     set_probe(args.probe)
     binaries = {'Go': args.go.resolve(), 'Rust': args.rust.resolve()}

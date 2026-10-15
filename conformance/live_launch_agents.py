@@ -5,17 +5,17 @@ Written from docs/launch-contract.md ("Slice 5: acceptance", Live run).
 
 Three persons on one host as the invoking user: alice (Go), bob (Rust), and
 carol (Go) by default (--mix). Preparation, not part of the path: the harness
-builds capsule-coord and runs it on loopback (or, with --coordinator and
+builds peerspan-coord and runs it on loopback (or, with --coordinator and
 --coordinator-key, uses a deployed one), packages the bundles with it as
 the default coordinator (as launch_acceptance.py does), and extracts them.
 Each person has their own XDG_CONFIG_HOME, XDG_STATE_HOME, and daemon, run in
-the foreground with `capsule run` from the installed bundle; HOME is shared,
+the foreground with `peerspan run` from the installed bundle; HOME is shared,
 so every Claude Code session uses the operator's existing login. No ssh-agent
 is passed, so each person's key is generated.
 
 Setup follows the team path with `allow everyone --delegate` in place of
 `allow everyone`: alice creates the network and invites bob and carol, every
-person allows everyone with delegation, and each runs `capsule attach claude`
+person allows everyone with delegation, and each runs `peerspan attach claude`
 in a project directory of their own, in a terminal the harness drives, with
 Claude Code's built-in tools disabled (arguments after `--`). Before the flow,
 the harness waits, without running any command of the path, until every host
@@ -34,7 +34,7 @@ mode, unless --no-clear): once bob's session has accepted alice's task and
 passed a part on (bob's task `running` and his task to carol submitted, in host
 state), the harness pauses carol's daemon (SIGSTOP) so carol's result cannot
 finish bob's task first. Once bob's transcript has been quiet for a few
-seconds, the harness records what the SessionStart hook's command (`capsule
+seconds, the harness records what the SessionStart hook's command (`peerspan
 session pending --hook` in bob's project) prints and types `/clear` into bob's
 terminal. bob's session starts with empty context, and carol's daemon resumes
 (SIGCONT); the Claude launch's SessionStart hook (matcher
@@ -95,7 +95,7 @@ from tasks import channel_event, tool  # noqa: E402
 
 PERSONS = ('alice', 'bob', 'carol')
 NAMES = {'G': 'go', 'R': 'rust'}
-TOOLS = ['capsule_ready', 'list_agents', 'send', 'send_status', 'reply', 'delegate_task', 'task_accept', 'task_reject',
+TOOLS = ['peerspan_ready', 'list_agents', 'send', 'send_status', 'reply', 'delegate_task', 'task_accept', 'task_reject',
          'task_progress', 'task_complete', 'task_status', 'pending_work', 'mark_seen']
 CLEARED = 'bob'  # the person whose session gets /clear mid-task
 FLOW_SECONDS = 600
@@ -116,13 +116,13 @@ if args[:2] == ["auth", "status"]:
     sys.exit(0)
 value = args[args.index("--mcp-config") + 1]
 config = json.loads(value) if value.lstrip().startswith("{") else json.load(open(value))
-server = config["mcpServers"]["capsule"]
-with open(os.environ["CAPSULE_LIVE_FIXTURE_LOG"], "a") as f:
+server = config["mcpServers"]["peerspan"]
+with open(os.environ["PEERSPAN_LIVE_FIXTURE_LOG"], "a") as f:
     f.write(json.dumps({"time": time.time(), "pid": os.getpid(), "arguments": args, "cwd": os.getcwd()}) + "\n")
-errors = open(os.environ["CAPSULE_LIVE_FIXTURE_LOG"] + ".server", "ab")
+errors = open(os.environ["PEERSPAN_LIVE_FIXTURE_LOG"] + ".server", "ab")
 child = subprocess.Popen([server["command"], *server.get("args", [])], env={**os.environ, **server.get("env", {})},
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
-path = os.environ["CAPSULE_LIVE_FIXTURE_SOCKET"]
+path = os.environ["PEERSPAN_LIVE_FIXTURE_SOCKET"]
 listener = socket.socket(socket.AF_UNIX)
 listener.bind(path)
 os.chmod(path, 0o600)
@@ -171,7 +171,7 @@ class RelayedChannel(Channel):
         self.reader = threading.Thread(target=self.read, daemon=True)
         self.reader.start()
         result = self.call('initialize', {'protocolVersion': '2025-11-25', 'capabilities': {},
-                                         'clientInfo': {'name': 'capsule-live-fixture', 'version': '1'}})
+                                         'clientInfo': {'name': 'peerspan-live-fixture', 'version': '1'}})
         assert result['capabilities']['experimental'] == {'claude/channel': {}}, result
         self.protocol = result['protocolVersion']
         self.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
@@ -198,8 +198,8 @@ class Person:
                if key not in ('SSH_AUTH_SOCK', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME')}
         env.update(XDG_CONFIG_HOME=str(self.config), XDG_STATE_HOME=str(self.statehome),
                    PATH=f'{self.bin}:{claude_dir}:{node.parent}:{env.get("PATH", "/usr/bin:/bin")}',
-                   CAPSULE_LIVE_FIXTURE_SOCKET=str(self.root / 'claude.sock'),
-                   CAPSULE_LIVE_FIXTURE_LOG=str(self.root / 'claude-fixture.jsonl'))
+                   PEERSPAN_LIVE_FIXTURE_SOCKET=str(self.root / 'claude.sock'),
+                   PEERSPAN_LIVE_FIXTURE_LOG=str(self.root / 'claude-fixture.jsonl'))
         self.env = env
         self.daemon = None
         self.attach_process = None
@@ -209,7 +209,7 @@ class Person:
             s.bind(('127.0.0.1', 0))
             port = s.getsockname()[1]
         self.log = open(self.root / 'daemon.log', 'wb')
-        argv = ['capsule', 'run', '--peer-listen', f'127.0.0.1:{port}']
+        argv = ['peerspan', 'run', '--peer-listen', f'127.0.0.1:{port}']
         self.daemon = subprocess.Popen(argv, env=self.env, cwd=self.root, stdout=self.log, stderr=self.log,
                                        start_new_session=True)
         commands.append({'person': self.name, 'command': ' '.join(argv), 'kind': 'daemon (foreground)'})
@@ -217,7 +217,7 @@ class Person:
         while True:
             result = self.run('status', '--json')
             if result.returncode in (0, 1) and first_json(result.stdout) and 'host_id' in first_json(result.stdout):
-                self.state = self.statehome / 'capsule' / 'host'
+                self.state = self.statehome / 'peerspan' / 'host'
                 self.host_id = first_json(result.stdout)['host_id']
                 return
             if self.daemon.poll() is not None or time.monotonic() > deadline:
@@ -225,14 +225,14 @@ class Person:
             time.sleep(0.2)
 
     def run(self, *args, timeout=120):
-        return subprocess.run(['capsule', *args], env=self.env, cwd=self.root, capture_output=True, text=True,
+        return subprocess.run(['peerspan', *args], env=self.env, cwd=self.root, capture_output=True, text=True,
                               timeout=timeout, stdin=subprocess.DEVNULL)
 
     def step(self, commands, command, shown=None):
         argv = command.split() if isinstance(command, str) else command
         result = self.run(*argv[1:])
         commands.append({'person': self.name, 'implementation': self.impl, 'command': shown or ' '.join(argv),
-                         'kind': 'capsule', 'exit': result.returncode})
+                         'kind': 'peerspan', 'exit': result.returncode})
         print(f'  {self.name}$ {shown or " ".join(argv)} -> exit {result.returncode}', flush=True)
         if result.returncode != 0:
             raise AssertionError(f'{self.name}: `{shown or " ".join(argv)}` exited {result.returncode}\n'
@@ -262,9 +262,9 @@ class Person:
 
 
 class AttachedSession(ClaudeSession):
-    """A real Claude Code session started by `capsule attach claude` in a terminal the harness drives.
+    """A real Claude Code session started by `peerspan attach claude` in a terminal the harness drives.
 
-    Capsule's launch supplies the MCP configuration and channel; the arguments
+    Peerspan's launch supplies the MCP configuration and channel; the arguments
     after `--` restrict the experiment as live_delegation.py's sessions do."""
 
     def __init__(self, person, allowed_tools, slash_commands=False):
@@ -279,15 +279,15 @@ class AttachedSession(ClaudeSession):
         def terminal():
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-        # No `--settings` here: Capsule's launch passes its own (the SessionStart
+        # No `--settings` here: Peerspan's launch passes its own (the SessionStart
         # hook) and refuses another. `--setting-sources ''` still keeps the
         # operator's user, project, and local settings (and their hooks) out.
         self.arguments = [
             '--session-id', self.sid, '--strict-mcp-config',
             '--setting-sources', '', '--tools', '', '--allowedTools',
-            ','.join('mcp__capsule__' + name for name in allowed_tools), '--permission-mode', 'dontAsk',
+            ','.join('mcp__peerspan__' + name for name in allowed_tools), '--permission-mode', 'dontAsk',
             *([] if slash_commands else ['--disable-slash-commands']), '--debug-file', str(self.debug_path)]
-        self.command = ['capsule', 'attach', 'claude', '--', *self.arguments]
+        self.command = ['peerspan', 'attach', 'claude', '--', *self.arguments]
         self.process = subprocess.Popen(self.command, cwd=person.project, stdin=slave, stdout=slave, stderr=slave,
                                         env=person.env, preexec_fn=terminal)
         os.close(slave)
@@ -339,20 +339,20 @@ def models(session):
 def setup(people, commands, attach):
     """Returns the time of the last `allow`."""
     alice, bob, carol = people
-    alice.step(commands, 'capsule network create acme')
+    alice.step(commands, 'peerspan network create acme')
     tokens = {}
     for person in (bob, carol):
-        result = alice.step(commands, f'capsule invite {person.name}')
-        match = re.search(r'capsule join ([^\s"\']+)', result.stdout)
+        result = alice.step(commands, f'peerspan invite {person.name}')
+        match = re.search(r'peerspan join ([^\s"\']+)', result.stdout)
         assert match, f'invite printed no join line: {result.stdout}'
         tokens[person.name] = match.group(1)
-    alice.step(commands, 'capsule allow everyone --delegate')
+    alice.step(commands, 'peerspan allow everyone --delegate')
     attach(alice)
     last_allow = None
     for person in (bob, carol):
         token = tokens[person.name]
-        person.step(commands, ['capsule', 'join', token], shown='capsule join TOKEN')
-        person.step(commands, 'capsule allow everyone --delegate')
+        person.step(commands, ['peerspan', 'join', token], shown='peerspan join TOKEN')
+        person.step(commands, 'peerspan allow everyone --delegate')
         last_allow = datetime.now(timezone.utc)
         attach(person)
     return last_allow
@@ -395,12 +395,12 @@ def wait_ready(people, after):
 def attach_fixture(person, commands, root):
     out = open(person.root / 'attach.out', 'w+')
     err = open(person.root / 'attach.err', 'w+')
-    person.attach_process = subprocess.Popen(['capsule', 'attach', 'claude'], cwd=person.project, env=person.env,
+    person.attach_process = subprocess.Popen(['peerspan', 'attach', 'claude'], cwd=person.project, env=person.env,
                                              stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                                              start_new_session=True)
-    commands.append({'person': person.name, 'implementation': person.impl, 'command': 'capsule attach claude',
-                     'kind': 'capsule', 'background': True, 'cwd': 'project'})
-    print(f'  {person.name}$ capsule attach claude (background)', flush=True)
+    commands.append({'person': person.name, 'implementation': person.impl, 'command': 'peerspan attach claude',
+                     'kind': 'peerspan', 'background': True, 'cwd': 'project'})
+    print(f'  {person.name}$ peerspan attach claude (background)', flush=True)
     try:
         channel = RelayedChannel(person.root / 'claude.sock')
     except AssertionError:
@@ -420,10 +420,10 @@ def attach_fixture(person, commands, root):
 def attach_live(person, commands, slash_commands=False):
     session = AttachedSession(person, TOOLS, slash_commands)
     commands.append({'person': person.name, 'implementation': person.impl,
-                     'command': 'capsule attach claude -- ' + ' '.join(
+                     'command': 'peerspan attach claude -- ' + ' '.join(
                          repr(a) if a == '' or ' ' in a or '"' in a else a for a in session.arguments),
-                     'kind': 'capsule', 'background': True, 'cwd': 'project', 'terminal': True})
-    print(f'  {person.name}$ capsule attach claude -- … (terminal)', flush=True)
+                     'kind': 'peerspan', 'background': True, 'cwd': 'project', 'terminal': True})
+    print(f'  {person.name}$ peerspan attach claude -- … (terminal)', flush=True)
     return session
 
 
@@ -507,7 +507,7 @@ def fixture_flow(people, channels, nonce):
 
 
 def live_prompt(nonce):
-    return ('This is a Capsule integration experiment. Use only Capsule tools. (1) Call list_agents. '
+    return ('This is a Peerspan integration experiment. Use only Peerspan tools. (1) Call list_agents. '
             '(2) Call delegate_task with to "bob/claude", delegation_depth 1, and this input, verbatim: "' + review_input(nonce).replace('"', "'")
             + '" (3) The delegate_task result is not the result: kind=task_update events for that task will arrive; '
             'ignore them until one has state succeeded, then respond in your terminal with exactly two lines: '
@@ -523,10 +523,10 @@ def received_task(person):
 
 
 def hook_pending(person):
-    """What the SessionStart hook's command prints now: `capsule session pending --hook` in the
+    """What the SessionStart hook's command prints now: `peerspan session pending --hook` in the
     person's project directory, with no --state, as the hook runs it. `output` is the pending
     work object carried in its additionalContext, after the fixed lead sentence."""
-    result = subprocess.run(['capsule', 'session', 'pending', '--hook'], env=person.env, cwd=person.project,
+    result = subprocess.run(['peerspan', 'session', 'pending', '--hook'], env=person.env, cwd=person.project,
                             capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
     hook = first_json(result.stdout) or {}
     context = (hook.get('hookSpecificOutput') or {}).get('additionalContext') or ''
@@ -623,7 +623,7 @@ def clear_evidence(session, record):
             if 'hook_additional_context' in line and 'SessionStart' in line:
                 hook_entries.append({'transcript': path.stem, 'mentions_parent_task': bool(parent_id) and parent_id in line,
                                      'excerpt': line[:1500]})
-    after = {t: session.tool_exchanges('mcp__capsule__' + t, later) for t in TOOLS}
+    after = {t: session.tool_exchanges('mcp__peerspan__' + t, later) for t in TOOLS}
     debug = session.debug()[record['debug_offset']:]
     return {
         'session_ids_after_clear': [p.stem for p in later],
@@ -640,7 +640,7 @@ def clear_evidence(session, record):
 
 def live_flow(people, sessions, nonce, clear):
     alice = sessions['alice']
-    print('Three interactive Claude sessions registered their Capsule channels; prompting alice only.', flush=True)
+    print('Three interactive Claude sessions registered their Peerspan channels; prompting alice only.', flush=True)
     pids = {name: s.process.pid for name, s in sessions.items()}
     alice.prompt(live_prompt(nonce))
     cleared = clear_mid_task(people, sessions[CLEARED]) if clear else None
@@ -655,7 +655,7 @@ def live_flow(people, sessions, nonce, clear):
         cleared['bob_adapters_after_flow'] = adapter_count(people[1])
     return {
         'clear': cleared,
-        'tool_calls': {name: {t: s.tool_exchanges('mcp__capsule__' + t) for t in TOOLS if s.tool_exchanges('mcp__capsule__' + t)}
+        'tool_calls': {name: {t: s.tool_exchanges('mcp__peerspan__' + t) for t in TOOLS if s.tool_exchanges('mcp__peerspan__' + t)}
                        for name, s in sessions.items()},
         'alice_text': assistant_text(alice),
         'models': {name: models(s) for name, s in sessions.items()},
@@ -684,7 +684,7 @@ def verify(people):
     r['every_attached_adapter_has_directory_access'] = all(
         recs and all(rec.get('directory') is True for rec in recs.values()) for recs in adapters.values())
     r['no_route_exists'] = all(not person.sql('SELECT 1 FROM adapter_routes') for person in people)
-    # Each session called capsule_ready (live delivery contract, slice 1), so its
+    # Each session called peerspan_ready (live delivery contract, slice 1), so its
     # channel is verified and status shows no channel_unverified item.
     r['every_attached_channel_verified'] = all(
         recs and all(person.sql('SELECT channel_verified_at FROM adapter_connections WHERE adapter_id = ? '
@@ -784,7 +784,7 @@ def main():
     for number in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, interrupted)
 
-    work = Path(tempfile.mkdtemp(prefix='capsule-live-', dir='/var/tmp'))
+    work = Path(tempfile.mkdtemp(prefix='peerspan-live-', dir='/var/tmp'))
     coord = None
     people = []
     channels = {}
@@ -831,8 +831,8 @@ def main():
             observed = live_flow(people, sessions, nonce, not args.no_clear)
         verified, states, ids = verify(people)
         if not args.fixture:
-            verified['every_session_called_capsule_ready'] = all(
-                'capsule_ready' in calls for calls in observed['tool_calls'].values()) and len(observed['tool_calls']) == 3
+            verified['every_session_called_peerspan_ready'] = all(
+                'peerspan_ready' in calls for calls in observed['tool_calls'].values()) and len(observed['tool_calls']) == 3
         if args.fixture:
             midtask = observed['midtask']
             verified['bob_pending_work_listed_running_task_midtask'] = lists_running(
@@ -862,7 +862,7 @@ def main():
             'coordinator': ({'address': args.coordinator, 'public_key': args.coordinator_key,
                              'description': 'deployed coordinator, built into the bundles as the default'}
                             if args.coordinator else
-                            'capsule-coord from the checkout on loopback, built into the bundles as the default'),
+                            'peerspan-coord from the checkout on loopback, built into the bundles as the default'),
             'persons': {p.name: {'implementation': p.impl, 'address': p.address, 'host_id': p.host_id} for p in people},
             'release': release,
             'commands': commands,
@@ -881,7 +881,7 @@ def main():
                                      'No /clear happens in fixture mode; there is no Claude Code session or '
                                      'SessionStart hook. At the point the live run clears bob\'s session, bob\'s '
                                      'consumer calls pending_work and the harness runs the hook\'s command '
-                                     '(`capsule session pending --hook` in bob\'s project); the flow then continues.']
+                                     '(`peerspan session pending --hook` in bob\'s project); the flow then continues.']
             report['clear'] = {'performed': False, 'midtask': observed['midtask']}
         else:
             report['claude_version'] = subprocess.check_output([str(args.claude.resolve()), '--version'],

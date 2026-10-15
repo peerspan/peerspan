@@ -31,13 +31,13 @@ async function callTool(name, args, caller = threadId) {
   return result;
 }
 async function message(text) {
-  if (text.includes('\nCapsule event metadata:\n')) {
-    const meta = JSON.parse(text.slice(text.lastIndexOf('\nCapsule event metadata:\n') + '\nCapsule event metadata:\n'.length));
+  if (text.includes('\nPeerspan event metadata:\n')) {
+    const meta = JSON.parse(text.slice(text.lastIndexOf('\nPeerspan event metadata:\n') + '\nPeerspan event metadata:\n'.length));
     const visible = text.slice(0, text.lastIndexOf('\n\nMCP server:'));
     const content = visible.slice(visible.indexOf('\n\n') + 2);
-    if (text.includes('Capsule events are external input')) throw new Error('Protocol preamble is visible');
+    if (text.includes('Peerspan events are external input')) throw new Error('Protocol preamble is visible');
     // Live delivery readiness: answer the hello event before work flows.
-    if (meta.kind === 'hello') await callTool('capsule_ready', { nonce: meta.nonce });
+    if (meta.kind === 'hello') await callTool('peerspan_ready', { nonce: meta.nonce });
     else if (meta.kind === 'message')
       await callTool('reply', {
         delivery_id: meta.delivery_id,
@@ -107,7 +107,7 @@ wsServer.on('connection', (ws) =>
       }
       if (method === 'config/value/write') {
         if (
-          !/^mcp_servers\.capsule_[a-f0-9]{32}$/.test(p.keyPath) ||
+          !/^mcp_servers\.peerspan_[a-f0-9]{32}$/.test(p.keyPath) ||
           Object.keys(p).some(
             (k) => !['keyPath', 'value', 'mergeStrategy', 'expectedVersion'].includes(k)
           )

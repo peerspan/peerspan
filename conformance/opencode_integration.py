@@ -31,7 +31,7 @@ def setup(client,host,agent,directory,node,routes,backend):
                   '--option','bindings='+str(backend.bindings),'--directory',str(directory),'--agent',agent['id'],'--expires-at',timestamp(900),'--routes',str(path))
 
 def check(client,receiver_binary,replacement,node,label):
-    with tempfile.TemporaryDirectory(prefix='capsule-opencode-') as td:
+    with tempfile.TemporaryDirectory(prefix='peerspan-opencode-') as td:
         root=Path(td);a,b=PeerHost(client,root/'a'),PeerHost(receiver_binary,root/'b');harnesses=[];paused=None
         try:
             ai,bi=a.start(),b.start();a.configure(b,bi);b.configure(a,ai)

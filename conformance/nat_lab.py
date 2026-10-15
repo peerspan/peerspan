@@ -199,7 +199,7 @@ def direct_expected(nat, block_udp):
 
 
 def scenario(coord_binary, a_binary, b_binary, nat, block_udp):
-    with tempfile.TemporaryDirectory(prefix='capsule-nat-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-nat-') as directory:
         root = Path(directory)
         lab = Lab(root, nat=nat, block_udp=block_udp)
         coord = alice = bob = None

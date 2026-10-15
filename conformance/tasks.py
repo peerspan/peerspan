@@ -9,7 +9,7 @@ submit response recovered by automatic retry, the full lifecycle, rejection,
 expiry, failure, cancellation, restarts on either side, refusal of transitions
 by another session or credential, revocation before acceptance, submitter-only
 status and events, delegate_task with task_update events, and v8→v11 migration.
-Needs the Go coordinator and capsule-peer-probe; policy cases need OpenSSH.
+Needs the Go coordinator and peerspan-peer-probe; policy cases need OpenSSH.
 """
 import argparse
 import json
@@ -117,7 +117,7 @@ def adapter_for(host, agent, integration='test'):
 
 
 def check(sender_binary, receiver_binary, node, script, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-tasks-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-tasks-') as directory:
         root = Path(directory)
         sender, receiver = PeerHost(sender_binary, root / 'sender'), PeerHost(receiver_binary, root / 'receiver')
         stranger = PeerHost(sender_binary, root / 'stranger')
@@ -513,7 +513,7 @@ def policy_check(coord_binary, owner_binary, sender_binary, label):
     from persons import Agent, person_id, ssh_key, use_agent
     from policy import PolicyHost
     import os
-    with tempfile.TemporaryDirectory(prefix='capsule-task-policy-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-task-policy-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         alice, bob = PolicyHost(owner_binary, root / 'alice'), PolicyHost(sender_binary, root / 'bob')
@@ -592,7 +592,7 @@ def policy_check(coord_binary, owner_binary, sender_binary, label):
 
 
 def migration_check(original, replacement, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-task-migration-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-task-migration-') as directory:
         host = Host(original, Path(directory) / 'host')
         try:
             identity = host.start()
@@ -623,7 +623,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, help='Node.js for the MCP channel cases; skipped without it')
     parser.add_argument('--pairing', action='append', help='sender/receiver, such as Go/Rust; default all')
     parser.add_argument('--skip-policy', action='store_true', help='skip the policy cases (they need OpenSSH)')

@@ -21,7 +21,7 @@ pub async fn malformed<S: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     Ok(())
 }
 
-#[allow(dead_code)] // Capsule exercises its production stream client.
+#[allow(dead_code)] // Peerspan exercises its production stream client.
 pub async fn exchange<S: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     mut send: S,
     recv: R,
@@ -34,7 +34,7 @@ pub async fn exchange<S: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
         "invalid path"
     );
     let head = format!(
-        "POST {path} HTTP/1.1\r\nHost: capsule-peer\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nHost: peerspan-peer\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         payload.len()
     );
     send.write_all(head.as_bytes()).await?;

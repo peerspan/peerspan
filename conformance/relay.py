@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the capsule-coord relay with real Go/Rust hosts.
+"""Exercise the peerspan-coord relay with real Go/Rust hosts.
 
 Runs one Go coordinator with hosts in every sender/receiver pairing. Hosts that
 listen on an unspecified address advertise no direct address, so they are
@@ -24,7 +24,7 @@ from coordination import Coordinator, wait_for
 from peer_messaging import PeerHost, available_port, request_id, set_probe, timestamp
 
 INTERVAL = 1
-RELAY_ALPN = 'capsule-relay/1'
+RELAY_ALPN = 'peerspan-relay/1'
 SEND, RECEIVE, UNREACHABLE, PING = 1, 2, 3, 4
 
 
@@ -105,7 +105,7 @@ def send(sender, receiver, agent, grant, content='hello'):
 
 
 def check(coord_binary, sender_binary, receiver_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-relay-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-relay-') as directory:
         root = Path(directory)
         coord = Coordinator(coord_binary, root / 'coord')
         alice = RelayHost(receiver_binary, root / 'alice')

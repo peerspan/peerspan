@@ -55,7 +55,7 @@ class ClaudeSession:
             json.dumps(
                 {
                     "mcpServers": {
-                        "capsule": {
+                        "peerspan": {
                             "command": str(node),
                             "args": [
                                 str(script),
@@ -92,18 +92,18 @@ class ClaudeSession:
             "--tools",
             "",
             "--allowedTools",
-            ",".join("mcp__capsule__" + name for name in allowed_tools),
+            ",".join("mcp__peerspan__" + name for name in allowed_tools),
             "--permission-mode",
             "dontAsk",
             "--disable-slash-commands",
             "--dangerously-load-development-channels",
-            "server:capsule",
+            "server:peerspan",
             "--debug-file",
             str(self.debug_path),
         ]
         if launch is not None:
             # The public launcher supplies its generated MCP/channel options;
-            # test-only settings still restrict this experiment to Capsule.
+            # test-only settings still restrict this experiment to Peerspan.
             for flag in ["--mcp-config", "--dangerously-load-development-channels"]:
                 index = command.index(flag)
                 del command[index:index + 2]

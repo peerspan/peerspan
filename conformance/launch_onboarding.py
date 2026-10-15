@@ -36,7 +36,7 @@ ssh-agents. Each pairing reports these sections separately:
   both directions, `deny --agent '*'`, and `agent register` refusing `*`;
 - block/unblock: by label, person ID, and host ID.
 
-Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen) and capsule-peer-probe. Exits
+Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen) and peerspan-peer-probe. Exits
 non-zero listing every failed section.
 """
 import argparse
@@ -131,7 +131,7 @@ class OnboardHost(PolicyHost):
 
     @property
     def key_file(self):
-        return self.config / 'capsule' / 'person_ed25519'
+        return self.config / 'peerspan' / 'person_ed25519'
 
     def run(self, *args, sock=DEFAULT, env=None, argv=None):
         e = dict(os.environ)
@@ -368,8 +368,8 @@ class Pairing:
         need(fields[0] == 'ssh-ed25519', 'The generated key is ssh-ed25519', fields)
         if label is not None:
             # suite-questions.md Q11: HOSTNAME as the system host name.
-            need(len(fields) == 3 and fields[2].strip() == f'capsule {label}@{socket.gethostname()}',
-                 'The generated key: comment capsule LABEL@HOSTNAME', fields)
+            need(len(fields) == 3 and fields[2].strip() == f'peerspan {label}@{socket.gethostname()}',
+                 'The generated key: comment peerspan LABEL@HOSTNAME', fields)
         derived = subprocess.run(['ssh-keygen', '-y', '-P', '', '-f', str(private)], capture_output=True, text=True,
                                  timeout=10)
         need(derived.returncode == 0 and derived.stdout.split()[:2] == fields[:2],
@@ -420,7 +420,7 @@ class Pairing:
         result = x.run('network', 'create', 'both', '--name', 'both', *flags, sock=None)
         need(result.returncode != 0 and not x.key_file.exists(), 'Person keys: a refused command creates no key',
              result.stdout, x.key_file)
-        result = x.run('join', 'capsule-member-invite-v1.bm90LWEtdG9rZW4', sock=None)
+        result = x.run('join', 'peerspan-member-invite-v1.bm90LWEtdG9rZW4', sock=None)
         need(result.returncode != 0 and not x.key_file.exists(), 'Person keys: a refused join creates no key',
              result.stdout, x.key_file)
         # --no-person: host-only, generating nothing.
@@ -528,16 +528,16 @@ class Pairing:
             try:
                 need(set(out) == INVITE_KEYS, 'invite prints {network_id, member, invite_expires_at, token, join}', out)
                 need(out['network_id'] == self.net and out['member'] == 'quinn', 'invite issues a member invite', out)
-                need(out['token'].startswith('capsule-member-invite-v1.'), 'invite issues a member invite', out)
+                need(out['token'].startswith('peerspan-member-invite-v1.'), 'invite issues a member invite', out)
                 need(near(out['invite_expires_at'], 7 * DAY), 'invite defaults to 7 days', out)
-                need(out['join'] == f'capsule join {out["token"]}', 'join is the string `capsule join TOKEN`', out)
+                need(out['join'] == f'peerspan join {out["token"]}', 'join is the string `peerspan join TOKEN`', out)
                 timed = self.p1.cli('invite', 'later', '--expires-in', '2h')
                 need(near(timed['invite_expires_at'], 7200, 60), 'invite --expires-in', timed)
             except Failure as error:
                 failures.append(str(error))
         q = self.hosts['quinn']
         if out:
-            # The join line, run verbatim: `capsule` on PATH, and quinn's state at the default location.
+            # The join line, run verbatim: `peerspan` on PATH, and quinn's state at the default location.
             argv = shlex.split(out['join'])
             env = {'PATH': f"{self.root / 'links'}:{os.environ.get('PATH', '')}",
                    'XDG_STATE_HOME': str(self.root / 'xdg-quinn')}
@@ -962,7 +962,7 @@ class Pairing:
         root = self.root
         (root / 'keys').mkdir()
         (root / 'links').mkdir()
-        (root / 'links' / 'capsule').symlink_to(self.cli_binary)
+        (root / 'links' / 'peerspan').symlink_to(self.cli_binary)
         for name in ('pat', 'quinn', 'rhea', 'sol', 'zed', 'two-a', 'two-b'):
             self.keys[name] = ssh_key(root / 'keys', name)
         for name, keys in (('pat', ['pat']), ('quinn', ['quinn']), ('rhea', ['rhea']), ('sol', ['sol']),
@@ -979,7 +979,7 @@ class Pairing:
         self.coord_key = self.coord.start()['public_key']
         for name in ('p1', 'p2', 'p3', 'rhea', 'x', 'forms', 'g1', 'g2', 'g4'):
             self.host(name)
-        self.host('quinn', root / 'xdg-quinn' / 'capsule' / 'host')
+        self.host('quinn', root / 'xdg-quinn' / 'peerspan' / 'host')
         self.p1, self.p2, self.p3 = self.hosts['p1'], self.hosts['p2'], self.hosts['p3']
         for name, sock in (('p1', 'pat'), ('p2', 'pat'), ('p3', 'pat'), ('quinn', 'quinn'), ('rhea', 'rhea'),
                            ('forms', 'sol')):
@@ -1037,7 +1037,7 @@ class Pairing:
 
 
 def run_pairing(coord_binary, cli_binary, daemon_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-onboarding-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-onboarding-') as temporary:
         pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, Path(temporary))
         started = time.monotonic()
         try:
@@ -1061,7 +1061,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
     args = parser.parse_args()
     set_probe(args.probe.resolve())

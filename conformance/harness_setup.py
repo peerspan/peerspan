@@ -44,7 +44,7 @@ def setup(client, host, agent, directory, root, identity="file-fixture", *option
 
 
 def check(client, other_client, daemon, label):
-    with tempfile.TemporaryDirectory(prefix="capsule-harness-setup-") as td:
+    with tempfile.TemporaryDirectory(prefix="peerspan-harness-setup-") as td:
         root = Path(td)
         host = PeerHost(daemon, root / "host")
         try:

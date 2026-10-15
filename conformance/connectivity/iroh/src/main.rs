@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-const ALPN: &[u8] = b"capsule-bench/1";
+const ALPN: &[u8] = b"peerspan-bench/1";
 
 #[derive(Clone)]
 struct Iroh {
@@ -45,14 +45,14 @@ impl driver::Backend for Iroh {
 
 async fn endpoint() -> Result<Endpoint> {
     // Explicit addresses, no public relays or address lookup. Default crate
-    // features remain enabled; TLS tickets are disabled to match Capsule.
+    // features remain enabled; TLS tickets are disabled to match Peerspan.
     let mut builder = Endpoint::builder(presets::Minimal)
         .clear_ip_transports()
         .bind_addr("127.0.0.1:0")?
         .alpns(vec![ALPN.to_vec()])
         .portmapper_config(PortmapperConfig::Disabled)
         .max_tls_tickets(0);
-    if std::env::var("CAPSULE_IROH_GSO_OFF").is_ok() {
+    if std::env::var("PEERSPAN_IROH_GSO_OFF").is_ok() {
         builder = builder.transport_config(
             QuicTransportConfig::builder()
                 .enable_segmentation_offload(false)
@@ -64,13 +64,13 @@ async fn endpoint() -> Result<Endpoint> {
 
 #[tokio::main(worker_threads = 4)]
 async fn main() -> Result<()> {
-    if let Ok(filter) = std::env::var("CAPSULE_NET_TRACE") {
+    if let Ok(filter) = std::env::var("PEERSPAN_NET_TRACE") {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_writer(std::io::stderr)
             .init();
     }
-    match std::env::var("CAPSULE_NET_MODE").as_deref() {
+    match std::env::var("PEERSPAN_NET_MODE").as_deref() {
         Ok("node") => return network::node().await,
         Ok("relay") => return network::relay().await,
         _ => {}

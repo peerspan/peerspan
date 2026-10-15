@@ -3,7 +3,7 @@
 
 The receiver explicitly accepts a third endpoint. Only the relay's allowlist
 excludes it. Changing that allowlist must enable a checked exchange with the
-same endpoint key. This tests an owned iroh callback, not signed Capsule policy.
+same endpoint key. This tests an owned iroh callback, not signed Peerspan policy.
 """
 import argparse
 import json
@@ -27,19 +27,19 @@ def run(binary, root, bounded):
         state = Path(directory)
         try:
             lab.up()
-            env = dict(os.environ, CAPSULE_NET_TRACE='iroh_relay=debug')
+            env = dict(os.environ, PEERSPAN_NET_TRACE='iroh_relay=debug')
             relay_state = state / 'relay'
             relay = Process(lab, 'pub', [str(binary)], relay_state,
-                            dict(env, CAPSULE_NET_MODE='relay', CAPSULE_NET_STATE=str(relay_state)), 'relay').start()
+                            dict(env, PEERSPAN_NET_MODE='relay', PEERSPAN_NET_STATE=str(relay_state)), 'relay').start()
             processes.append(relay)
             relay.ready(relay=True)
             def node(name, side, port):
                 node_state = state / name
-                settings = dict(env, CAPSULE_NET_MODE='node', CAPSULE_NET_STATE=str(node_state),
-                                CAPSULE_NET_BIND=f'0.0.0.0:{port}', CAPSULE_NET_RELAY='https://203.0.113.1:7400',
-                                CAPSULE_NET_CA=str(relay_state / 'relay-cert.der'))
+                settings = dict(env, PEERSPAN_NET_MODE='node', PEERSPAN_NET_STATE=str(node_state),
+                                PEERSPAN_NET_BIND=f'0.0.0.0:{port}', PEERSPAN_NET_RELAY='https://203.0.113.1:7400',
+                                PEERSPAN_NET_CA=str(relay_state / 'relay-cert.der'))
                 if bounded:
-                    settings['CAPSULE_IROH_MATCHED'] = '1'
+                    settings['PEERSPAN_IROH_MATCHED'] = '1'
                 p = Process(lab, 'host' + side, [str(binary)], node_state, settings, name).start()
                 processes.append(p)
                 identity = p.ready()

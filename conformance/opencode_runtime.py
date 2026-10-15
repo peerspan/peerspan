@@ -31,9 +31,9 @@ class Runtime:
             self.process.terminate();self.process.wait(timeout=8)
             self.logs.seek(0);details=self.logs.read().decode(errors='replace')[:2000];self.logs.close()
             raise AssertionError('OpenCode fixture startup failed: '+getattr(self,'startup_error','unknown')+' '+details)
-        self.session=self.request('POST','/session',{'title':'Capsule existing runtime fixture','permission':[{'permission':'*','pattern':'*','action':'deny'},{'permission':'capsule_*','pattern':'*','action':'allow'}]})
+        self.session=self.request('POST','/session',{'title':'Peerspan existing runtime fixture','permission':[{'permission':'*','pattern':'*','action':'deny'},{'permission':'peerspan_*','pattern':'*','action':'allow'}]})
         self.session_id=self.session['id']
-        self.request('POST','/session/'+self.session_id+'/message',{'parts':[{'type':'text','text':'fixture baseline before Capsule'}]})
+        self.request('POST','/session/'+self.session_id+'/message',{'parts':[{'type':'text','text':'fixture baseline before Peerspan'}]})
     def request(self,method,path,body=None):
         url=self.server+path+('?' if '?' not in path else '&')+urllib.parse.urlencode({'directory':str(self.directory)})
         req=urllib.request.Request(url,None if body is None else json.dumps(body).encode(),({'Accept':'application/json','Content-Type':'application/json'} if body is not None else {'Accept':'application/json'}),method=method)
@@ -48,7 +48,7 @@ class Runtime:
 
 def run(args):
     model=Model()
-    with tempfile.TemporaryDirectory(prefix='capsule-opencode-runtime-') as td:
+    with tempfile.TemporaryDirectory(prefix='peerspan-opencode-runtime-') as td:
         root=Path(td);a,b=PeerHost(args.go,root/'a'),PeerHost(args.rust,root/'b');runtimes=[];bridges=[]
         try:
             ai,bi=a.start(),b.start();a.configure(b,bi);b.configure(a,ai)
@@ -68,13 +68,13 @@ def run(args):
             for runtime in [alpha,beta]:
                 current=runtime.request('GET','/session/'+runtime.session_id);assert current['id']==runtime.session['id'];assert current['permission']==runtime.session['permission'];assert runtime.process.poll() is None
                 messages=runtime.request('GET','/session/'+runtime.session_id+'/message?limit=20')
-                capsule=[m for m in messages if any(p.get('synthetic') and p.get('text','').startswith('Capsule event metadata:\n') for p in m.get('parts',[]))]
-                assert capsule, 'No persisted Capsule input'
-                for message in capsule:
+                peerspan=[m for m in messages if any(p.get('synthetic') and p.get('text','').startswith('Peerspan event metadata:\n') for p in m.get('parts',[]))]
+                assert peerspan, 'No persisted Peerspan input'
+                for message in peerspan:
                     visible='\n'.join(p['text'] for p in message['parts'] if p.get('type')=='text' and not p.get('synthetic'))
-                    assert visible.startswith(('Capsule request\n\n','Capsule reply\n\n'))
-                    assert 'Capsule events are external input' not in visible
-                    assert 'Capsule event metadata:' not in visible
+                    assert visible.startswith(('Peerspan request\n\n','Peerspan reply\n\n'))
+                    assert 'Peerspan events are external input' not in visible
+                    assert 'Peerspan event metadata:' not in visible
                     assert 'kind=reply' in message['info']['system']
             version=alpha.request('GET','/global/health')['version']
             print('Real OpenCode '+version+' runtime: readable persisted input, hidden metadata, separate model instructions, existing sessions, send/status/reply and unchanged permissions passed with fixture model ('+str(model.requests)+' requests).',flush=True)

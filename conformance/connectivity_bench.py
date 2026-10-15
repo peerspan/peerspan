@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare Capsule Go/Rust and pinned iroh with verified HTTP echoes on loopback.
+"""Compare Peerspan Go/Rust and pinned iroh with verified HTTP echoes on loopback.
 
 Builds optimized helpers before timing, rotates execution order across repeats,
 and retains raw samples and process logs. No production daemon exposes echo.
@@ -18,7 +18,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKENDS = ('capsule-go', 'capsule-rust', 'iroh-rust-1.3.0')
+BACKENDS = ('peerspan-go', 'peerspan-rust', 'iroh-rust-1.3.0')
 
 
 def command(argv, cwd=ROOT):
@@ -86,7 +86,7 @@ def summarize(runs):
 
 
 def build(artifacts):
-    go_binary = artifacts / 'capsule-go-bench'
+    go_binary = artifacts / 'peerspan-go-bench'
     execute(['go', 'test', '-c', '-o', str(go_binary), './internal/host'], artifacts / 'build-go.log', cwd=ROOT / 'go')
     rust_log = artifacts / 'build-rust.log'
     execute(['cargo', 'test', '--release', '--locked', '--manifest-path', str(ROOT / 'rust/Cargo.toml'),
@@ -97,15 +97,15 @@ def build(artifacts):
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if event.get('reason') == 'compiler-artifact' and event.get('executable') and event['target']['name'] == 'capsule_host':
+        if event.get('reason') == 'compiler-artifact' and event.get('executable') and event['target']['name'] == 'peerspan_host':
             rust_binary = Path(event['executable']).resolve()
     if rust_binary is None:
         raise RuntimeError(f'no Rust test executable found; see {rust_log}')
     iroh_manifest = ROOT / 'conformance/connectivity/iroh/Cargo.toml'
     execute(['cargo', 'build', '--release', '--locked', '--manifest-path', str(iroh_manifest)], artifacts / 'build-iroh.log')
-    iroh_binary = iroh_manifest.parent / 'target/release/capsule-iroh-bench'
-    return {'capsule-go': [str(go_binary), '-test.run=^TestConnectivityBenchmark$', '-test.timeout=240s'],
-            'capsule-rust': [str(rust_binary), 'quic::connectivity_bench::connectivity_benchmark', '--exact', '--ignored', '--nocapture'],
+    iroh_binary = iroh_manifest.parent / 'target/release/peerspan-iroh-bench'
+    return {'peerspan-go': [str(go_binary), '-test.run=^TestConnectivityBenchmark$', '-test.timeout=240s'],
+            'peerspan-rust': [str(rust_binary), 'quic::connectivity_bench::connectivity_benchmark', '--exact', '--ignored', '--nocapture'],
             'iroh-rust-1.3.0': [str(iroh_binary)]}
 
 
@@ -127,11 +127,11 @@ def main():
     helpers = build(artifacts)
     env = os.environ.copy()
     env['GOMAXPROCS'] = '4'
-    env.pop('CAPSULE_IROH_GSO_OFF', None)
+    env.pop('PEERSPAN_IROH_GSO_OFF', None)
     if args.iroh_disable_gso:
-        env['CAPSULE_IROH_GSO_OFF'] = '1'
+        env['PEERSPAN_IROH_GSO_OFF'] = '1'
     for key in ('count', 'cold', 'warmup', 'concurrency'):
-        env['CAPSULE_BENCH_' + key.upper()] = str(getattr(args, key))
+        env['PEERSPAN_BENCH_' + key.upper()] = str(getattr(args, key))
     report = {
         'schema_version': 1, 'status': 'running', 'started_at_utc': datetime.now(timezone.utc).isoformat(),
         'scope': 'IPv4 loopback; both endpoints in one process; authenticated QUIC; one HTTP/1.1 verified echo per bidi stream',
@@ -148,10 +148,10 @@ def main():
         'workers': 4, 'resumption': 'disabled', 'iroh_version': '1.3.0',
         'iroh_gso_disabled': args.iroh_disable_gso,
         'iroh_configuration': 'default crate features; Minimal preset; only IPv4 loopback socket; explicit peer address; portmapper disabled; max_tls_tickets=0',
-        'capsule_configuration': 'production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server',
+        'peerspan_configuration': 'production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server',
         'binary_sha256': {name: digest(Path(argv[0])) for name, argv in helpers.items()},
         'lock_sha256': {name: digest(ROOT / path) for name, path in {
-            'go': 'go/go.sum', 'capsule-rust': 'rust/Cargo.lock', 'iroh': 'conformance/connectivity/iroh/Cargo.lock'}.items()},
+            'go': 'go/go.sum', 'peerspan-rust': 'rust/Cargo.lock', 'iroh': 'conformance/connectivity/iroh/Cargo.lock'}.items()},
         'runs': [],
     }
     report_path = artifacts / 'report.json'
@@ -177,7 +177,7 @@ def main():
             for backend in order:
                 label = f'{repeat + 1:02d}-{backend}'
                 raw_path = artifacts / f'{label}.json'
-                env['CAPSULE_BENCH_OUTPUT'] = str(raw_path)
+                env['PEERSPAN_BENCH_OUTPUT'] = str(raw_path)
                 print(f'Measuring {label}', flush=True)
                 started = time.perf_counter()
                 load_before = list(os.getloadavg()) if hasattr(os, 'getloadavg') else None

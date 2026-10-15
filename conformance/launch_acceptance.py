@@ -5,15 +5,15 @@ Written from docs/launch-contract.md ("Slice 5: acceptance") and
 docs/quick-start.md. It is an end-to-end check, not a conformance suite.
 
 Preparation, not counted:
-- builds `capsule-coord` from the checkout and runs it on loopback, standing in
+- builds `peerspan-coord` from the checkout and runs it on loopback, standing in
   for the hosted coordinator, or, with --coordinator and --coordinator-key,
   uses a deployed one after checking that its port accepts a connection;
 - packages each needed implementation with `scripts/package-release.sh`, with
-  CAPSULE_COORDINATOR and CAPSULE_COORDINATOR_KEY naming that coordinator, and
+  PEERSPAN_COORDINATOR and PEERSPAN_COORDINATOR_KEY naming that coordinator, and
   verifies each archive's checksum;
 - copies the given Node binary into a world-readable directory on every
   machine's PATH (Node 22 is a documented prerequisite);
-- for each machine, creates a new user `capsule-acc-N` with an empty home,
+- for each machine, creates a new user `peerspan-acc-N` with an empty home,
   enables linger for it (as a login would start its systemd user manager),
   copies the archive and checksum into the home, and, as the user, checks the
   checksum, extracts the bundle, and puts its `bin` first on PATH, as the quick
@@ -63,7 +63,7 @@ import traceback
 
 REPO = Path(__file__).resolve().parent.parent
 VERSION = '0.0.0-acceptance'
-USER_PREFIX = 'capsule-acc-'
+USER_PREFIX = 'peerspan-acc-'
 SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', socket.gethostname().split('.')[0].lower())
 RUNS = {
     'solo-go': ('solo', ['go', 'go']),
@@ -74,7 +74,7 @@ RUNS = {
     'team-rust': ('team', ['rust', 'rust', 'rust']),
     'team-mixed': ('team', ['go', 'rust', 'go']),
 }
-EXPECTED_COUNTS = {'solo': {'capsule': 7, 'copy': 1}, 'pair': {'capsule': 9}, 'team': {'capsule': 14}}
+EXPECTED_COUNTS = {'solo': {'peerspan': 7, 'copy': 1}, 'pair': {'peerspan': 9}, 'team': {'peerspan': 14}}
 STEP_TIMEOUT = 120
 LAUNCH_SECONDS = 60
 CHECK_SECONDS = 60
@@ -112,7 +112,7 @@ if value.lstrip().startswith("{"):
 else:
     with open(value) as f:
         config = json.load(f)
-server = config["mcpServers"]["capsule"]
+server = config["mcpServers"]["peerspan"]
 log(event="launched", arguments=args, cwd=os.getcwd(), server_command=server.get("command"))
 os.makedirs(LOG_DIR, mode=0o700, exist_ok=True)
 errors = open(os.path.join(LOG_DIR, "server-%d.log" % os.getpid()), "ab")
@@ -168,7 +168,7 @@ for line in child.stdout:
         meta = (message.get("params") or {}).get("meta") or {}
         if message.get("method") == "notifications/claude/channel" and meta.get("kind") == "hello":
             send({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                  "params": {"name": "capsule_ready", "arguments": {"nonce": meta.get("nonce")}}})
+                  "params": {"name": "peerspan_ready", "arguments": {"nonce": meta.get("nonce")}}})
 log(event="server_exited", code=child.wait())
 sys.exit(1)
 '''
@@ -237,8 +237,8 @@ def remove_user(name):
     env = ['env', '-i', f'HOME={home}', f'USER={name}', f'LOGNAME={name}', f'XDG_RUNTIME_DIR={runtime}',
            'PATH=/usr/local/bin:/usr/bin:/bin']
     if Path(runtime, 'bus').exists():
-        quiet('runuser', '-u', name, '--', *env, 'systemctl', '--user', 'disable', '--now', 'capsule.service')
-    unit = home / '.config/systemd/user/capsule.service'
+        quiet('runuser', '-u', name, '--', *env, 'systemctl', '--user', 'disable', '--now', 'peerspan.service')
+    unit = home / '.config/systemd/user/peerspan.service'
     if unit.exists() or unit.is_symlink():
         unit.unlink()
         if Path(runtime, 'bus').exists():
@@ -274,13 +274,13 @@ def leftovers():
 # Coordinator and bundles, shared with live_launch_agents.py.
 
 def start_coordinator(repo, work):
-    """Build capsule-coord from the checkout and run it on loopback; returns (process, address, public key)."""
-    binary = work / 'bin' / 'capsule-coord'
+    """Build peerspan-coord from the checkout and run it on loopback; returns (process, address, public key)."""
+    binary = work / 'bin' / 'peerspan-coord'
     binary.parent.mkdir(exist_ok=True)
-    result = subprocess.run(['go', '-C', str(repo / 'go'), 'build', '-o', str(binary), './cmd/capsule-coord'],
+    result = subprocess.run(['go', '-C', str(repo / 'go'), 'build', '-o', str(binary), './cmd/peerspan-coord'],
                             capture_output=True, text=True, timeout=900)
     if result.returncode != 0:
-        raise SystemExit('building capsule-coord failed:\n' + result.stderr[-4000:])
+        raise SystemExit('building peerspan-coord failed:\n' + result.stderr[-4000:])
     state = work / 'coord'
     state.mkdir(mode=0o700)
     with socket.socket() as s:
@@ -330,7 +330,7 @@ def package_bundles(repo, node, work, address, key, implementations):
     dist = work / 'dist'
     dist.mkdir()
     env = dict(os.environ, PATH=f'{node.parent}:{os.environ.get("PATH", "")}',
-               CAPSULE_COORDINATOR=address, CAPSULE_COORDINATOR_KEY=key, CAPSULE_PACKAGE_OVERWRITE='1')
+               PEERSPAN_COORDINATOR=address, PEERSPAN_COORDINATOR_KEY=key, PEERSPAN_PACKAGE_OVERWRITE='1')
     results, errors = {}, {}
 
     def build(impl):
@@ -523,8 +523,8 @@ class Machine:
         except subprocess.TimeoutExpired as error:
             return subprocess.CompletedProcess(argv, 124, error.stdout or '', f'timed out after {timeout}s')
 
-    def capsule_json(self, *args, cwd=None):
-        result = self.run(['capsule', *args], cwd=cwd)
+    def peerspan_json(self, *args, cwd=None):
+        result = self.run(['peerspan', *args], cwd=cwd)
         return result, first_json(result.stdout)
 
     def fixture_log(self):
@@ -565,7 +565,7 @@ class Run:
     # Counted steps.
 
     def step(self, machine, command, substitutions=None, cwd=None):
-        """Run one counted Capsule command as the user typed it; return its parsed output."""
+        """Run one counted Peerspan command as the user typed it; return its parsed output."""
         argv = command.split() if isinstance(command, str) else command
         shown = ' '.join(argv)
         for value, placeholder in (substitutions or {}).items():
@@ -574,7 +574,7 @@ class Run:
         started = time.monotonic()
         result = machine.run(argv, cwd=cwd)
         record = {'machine': machine.label, 'user': machine.user, 'implementation': machine.impl,
-                  'command': shown, 'kind': 'capsule', 'cwd': '~' + str((cwd or machine.home))[len(str(machine.home)):],
+                  'command': shown, 'kind': 'peerspan', 'cwd': '~' + str((cwd or machine.home))[len(str(machine.home)):],
                   'exit': result.returncode, 'seconds': round(time.monotonic() - started, 2)}
         if waited:
             record['paced_seconds'] = waited
@@ -589,17 +589,17 @@ class Run:
         return result
 
     def copy_key(self, source, target):
-        """The one counted non-Capsule step: the person key files to the same place."""
-        command = 'copy ~/.config/capsule/person_ed25519 and person_ed25519.pub from M1 to the same place on M2'
+        """The one counted non-Peerspan step: the person key files to the same place."""
+        command = 'copy ~/.config/peerspan/person_ed25519 and person_ed25519.pub from M1 to the same place on M2'
         waited = self.handoff(target)
-        directory = target.home / '.config' / 'capsule'
+        directory = target.home / '.config' / 'peerspan'
         for path in [target.home / '.config', directory]:
             if not path.exists():
                 path.mkdir(mode=0o700)
                 os.chown(path, target.uid, target.gid)
         exit_code = 0
         for name, mode in [('person_ed25519', 0o600), ('person_ed25519.pub', 0o644)]:
-            origin = source.home / '.config' / 'capsule' / name
+            origin = source.home / '.config' / 'peerspan' / name
             if not origin.exists():
                 exit_code = 1
                 break
@@ -610,20 +610,20 @@ class Run:
                               'exit': exit_code, **({'paced_seconds': waited} if waited else {})})
         print(f'  {source.label}→{target.label}: {command} -> exit {exit_code}', flush=True)
         if exit_code:
-            raise Failure(f'{source.label} has no ~/.config/capsule/person_ed25519 to copy')
+            raise Failure(f'{source.label} has no ~/.config/peerspan/person_ed25519 to copy')
 
     def attach(self, machine):
-        """`capsule attach claude` in the project, kept running in the background."""
+        """`peerspan attach claude` in the project, kept running in the background."""
         out = open(self.h.work / f'{self.name}-{machine.label}-attach.out', 'w+')
         err = open(self.h.work / f'{self.name}-{machine.label}-attach.err', 'w+')
         waited = self.handoff(machine, attach=True)
         before = len(machine.fixture_log())
-        process = subprocess.Popen(machine.argv(['capsule', 'attach', 'claude']), cwd=machine.project,
+        process = subprocess.Popen(machine.argv(['peerspan', 'attach', 'claude']), cwd=machine.project,
                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err, start_new_session=True)
         machine.attach_process = process
         self.h.processes.append(process)
         record = {'machine': machine.label, 'user': machine.user, 'implementation': machine.impl,
-                  'command': 'capsule attach claude', 'kind': 'capsule', 'cwd': '~/src/project',
+                  'command': 'peerspan attach claude', 'kind': 'peerspan', 'cwd': '~/src/project',
                   'background': True, 'exit': None}
         if waited:
             record['paced_seconds'] = waited
@@ -653,15 +653,15 @@ class Run:
         stderr, stdout = err.read(), out.read()
         if log is None:
             record['exit'] = process.poll()
-            print(f'  {machine.label}$ capsule attach claude -> exit {record["exit"]} (no launch)', flush=True)
+            print(f'  {machine.label}$ peerspan attach claude -> exit {record["exit"]} (no launch)', flush=True)
             raise Failure(
-                f'{machine.label} ({machine.user}, {machine.impl}): `capsule attach claude` '
+                f'{machine.label} ({machine.user}, {machine.impl}): `peerspan attach claude` '
                 + (f'exited {record["exit"]} without launching Claude Code' if record['exit'] is not None
                    else f'did not start the fixture claude within {LAUNCH_SECONDS}s')
                 + f'\nstdout: {tail(stdout)}\nstderr: {tail(stderr)}\nfixture log: {machine.fixture_log()[before:]}')
         output = first_json(stderr)
         record['launched'] = True
-        print(f'  {machine.label}$ capsule attach claude -> launched (running)', flush=True)
+        print(f'  {machine.label}$ peerspan attach claude -> launched (running)', flush=True)
         if not output or not (output.get('agent') or {}).get('address'):
             raise Failure(f'{machine.label}: attach printed no output object with the address on stderr before '
                           f'launching\nstderr: {tail(stderr)}')
@@ -683,9 +683,9 @@ class Run:
         getattr(self, 'path_' + self.path)(*self.machines)
 
     def token(self, machine, result, who):
-        match = re.search(r'capsule join ([^\s"\']+)', result.stdout)
+        match = re.search(r'peerspan join ([^\s"\']+)', result.stdout)
         if not match:
-            raise Failure(f'{machine.label}: `capsule invite {who}` output lacks the `capsule join TOKEN` line: '
+            raise Failure(f'{machine.label}: `peerspan invite {who}` output lacks the `peerspan join TOKEN` line: '
                           f'{tail(result.stdout)}')
         return match.group(1)
 
@@ -693,52 +693,52 @@ class Run:
         output = first_json(result.stdout) or {}
         label = output.get('member') or ((output.get('person') or {}).get('label'))
         if not label:
-            raise Failure(f'{machine.label}: `capsule network create acme` output names no member label: '
+            raise Failure(f'{machine.label}: `peerspan network create acme` output names no member label: '
                           f'{tail(result.stdout)}')
         return label
 
     def path_solo(self, m1, m2):
-        self.step(m1, 'capsule install')
-        label = self.label_of(m1, self.step(m1, 'capsule network create acme'))
-        self.sources['LABEL'] = 'the member label printed by M1 `capsule network create acme`'
-        token = self.token(m1, self.step(m1, ['capsule', 'invite', label]), label)
-        self.sources['TOKEN'] = f'the join line printed by M1 `capsule invite {label}`'
+        self.step(m1, 'peerspan install')
+        label = self.label_of(m1, self.step(m1, 'peerspan network create acme'))
+        self.sources['LABEL'] = 'the member label printed by M1 `peerspan network create acme`'
+        token = self.token(m1, self.step(m1, ['peerspan', 'invite', label]), label)
+        self.sources['TOKEN'] = f'the join line printed by M1 `peerspan invite {label}`'
         self.attach(m1)
         self.copy_key(m1, m2)
-        self.step(m2, 'capsule install')
-        self.step(m2, ['capsule', 'join', token], {token: 'TOKEN'})
+        self.step(m2, 'peerspan install')
+        self.step(m2, ['peerspan', 'join', token], {token: 'TOKEN'})
         self.attach(m2)
         self.person_labels = {m1.label: label, m2.label: label}
 
     def path_pair(self, m1, m2):
-        self.step(m1, 'capsule install')
-        alice = self.label_of(m1, self.step(m1, 'capsule network create acme'))
-        token = self.token(m1, self.step(m1, 'capsule invite bob'), 'bob')
-        self.sources['TOKEN'] = 'the join line printed by M1 `capsule invite bob`'
-        self.sources['ALICE'] = 'the member label printed by M1 `capsule network create acme` (her login name)'
-        self.step(m2, 'capsule install')
-        self.step(m2, ['capsule', 'join', token], {token: 'TOKEN'})
-        self.step(m2, ['capsule', 'allow', alice])
+        self.step(m1, 'peerspan install')
+        alice = self.label_of(m1, self.step(m1, 'peerspan network create acme'))
+        token = self.token(m1, self.step(m1, 'peerspan invite bob'), 'bob')
+        self.sources['TOKEN'] = 'the join line printed by M1 `peerspan invite bob`'
+        self.sources['ALICE'] = 'the member label printed by M1 `peerspan network create acme` (her login name)'
+        self.step(m2, 'peerspan install')
+        self.step(m2, ['peerspan', 'join', token], {token: 'TOKEN'})
+        self.step(m2, ['peerspan', 'allow', alice])
         self.attach(m2)
-        self.step(m1, 'capsule allow bob')
+        self.step(m1, 'peerspan allow bob')
         self.attach(m1)
         self.person_labels = {m1.label: alice, m2.label: 'bob'}
         self.notes.append(f'alice is the person label network create takes from M1\'s login name ({alice}); '
-                          'bob types it in `capsule allow`.')
+                          'bob types it in `peerspan allow`.')
 
     def path_team(self, m1, m2, m3):
-        self.step(m1, 'capsule install')
-        alice = self.label_of(m1, self.step(m1, 'capsule network create acme'))
+        self.step(m1, 'peerspan install')
+        alice = self.label_of(m1, self.step(m1, 'peerspan network create acme'))
         tokens = {}
         for who in ['bob', 'carol']:
-            tokens[who] = self.token(m1, self.step(m1, ['capsule', 'invite', who]), who)
-            self.sources[f'TOKEN_{who.upper()}'] = f'the join line printed by M1 `capsule invite {who}`'
-        self.step(m1, 'capsule allow everyone')
+            tokens[who] = self.token(m1, self.step(m1, ['peerspan', 'invite', who]), who)
+            self.sources[f'TOKEN_{who.upper()}'] = f'the join line printed by M1 `peerspan invite {who}`'
+        self.step(m1, 'peerspan allow everyone')
         self.attach(m1)
         for machine, who in [(m2, 'bob'), (m3, 'carol')]:
-            self.step(machine, 'capsule install')
-            self.step(machine, ['capsule', 'join', tokens[who]], {tokens[who]: f'TOKEN_{who.upper()}'})
-            self.step(machine, 'capsule allow everyone')
+            self.step(machine, 'peerspan install')
+            self.step(machine, ['peerspan', 'join', tokens[who]], {tokens[who]: f'TOKEN_{who.upper()}'})
+            self.step(machine, 'peerspan allow everyone')
             self.attach(machine)
         self.person_labels = {m1.label: alice, m2.label: 'bob', m3.label: 'carol'}
 
@@ -830,7 +830,7 @@ class Run:
         agent_id = output['agent']['id']
 
         def connected():
-            result, value = machine.capsule_json('agents', '--json')
+            result, value = machine.peerspan_json('agents', '--json')
             if result.returncode != 0 or not value:
                 return False, f'exit {result.returncode}: {tail(result.stderr)}'
             mine = [e for e in value.get('mine', []) if e.get('agent_id') == agent_id]
@@ -840,7 +840,7 @@ class Run:
 
     def check_status(self, machine):
         def status():
-            result, value = machine.capsule_json('status', '--json')
+            result, value = machine.peerspan_json('status', '--json')
             service = (value or {}).get('service')
             good = (result.returncode == 0 and service
                     and service.get('installed') is True and service.get('active') is True
@@ -855,7 +855,7 @@ class Run:
         def listed():
             args = ['agents', '--json'] + (['--refresh'] if refresh else [])
             refresh.append(True)
-            result, value = machine.capsule_json(*args)
+            result, value = machine.peerspan_json(*args)
             if result.returncode != 0 or not value:
                 return False, f'exit {result.returncode}: {tail(result.stderr)}'
             reachable = {e.get('address'): e for e in value.get('reachable', [])}
@@ -876,9 +876,9 @@ class Run:
 
     def check_send(self, machine, address, target, cite):
         text = f'acceptance message {self.nonce} from {machine.label} to {address}'
-        result, value = machine.capsule_json('send', address, text)
+        result, value = machine.peerspan_json('send', address, text)
         if result.returncode != 0 or not value:
-            raise Failure(f'`capsule send {address} TEXT` exited {result.returncode}: '
+            raise Failure(f'`peerspan send {address} TEXT` exited {result.returncode}: '
                           f'{tail(result.stdout)}{tail(result.stderr)}')
         if value.get('state') != 'accepted':
             raise Failure(f'state {value.get("state")}: {value}')
@@ -891,9 +891,9 @@ class Run:
 
     def check_task(self, machine, address, target, cite):
         text = f'acceptance task {self.nonce} from {machine.label} to {address}'
-        result, value = machine.capsule_json('task', address, text)
+        result, value = machine.peerspan_json('task', address, text)
         if result.returncode != 0 or not value:
-            raise Failure(f'`capsule task {address} TEXT` exited {result.returncode}: '
+            raise Failure(f'`peerspan task {address} TEXT` exited {result.returncode}: '
                           f'{tail(result.stdout)}{tail(result.stderr)}')
         if value.get('submit_state') != 'accepted':
             raise Failure(f'submit_state {value.get("submit_state")}: {value}')
@@ -985,7 +985,7 @@ def main():
             raise SystemExit('needs root')
         for name in existing_users():
             remove_user(name)
-        for path in Path('/var/tmp').glob('capsule-acceptance-*'):
+        for path in Path('/var/tmp').glob('peerspan-acceptance-*'):
             shutil.rmtree(path, ignore_errors=True)
         print(json.dumps(leftovers(), indent=2))
         return
@@ -996,7 +996,7 @@ def main():
     for number in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, interrupted)
 
-    work = Path(tempfile.mkdtemp(prefix='capsule-acceptance-', dir='/var/tmp'))
+    work = Path(tempfile.mkdtemp(prefix='peerspan-acceptance-', dir='/var/tmp'))
     work.chmod(0o755)
     (work / 'bin').mkdir()
     harness = Harness(args, work)
@@ -1027,7 +1027,7 @@ def main():
         'coordinator': ({'address': args.coordinator, 'public_key': args.coordinator_key,
                          'description': 'deployed coordinator, built into the bundles as the default'}
                         if args.coordinator else
-                        'capsule-coord from the checkout on loopback, built into the bundles as the default'),
+                        'peerspan-coord from the checkout on loopback, built into the bundles as the default'),
         'release': harness.release,
         'runs': reports,
         'passed': bool(reports) and all(r['passed'] for r in reports) and len(reports) == len(selected),

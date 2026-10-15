@@ -8,12 +8,12 @@ Rust hosts and of the Node adapter, which runs here only as a black box.
 
 Each pairing runs one Go coordinator and two hosts, alice's (A) and bob's (B), both running the
 pairing's daemon and driven by its CLI. Every host has its own HOME and XDG_CONFIG_HOME, so persons
-use generated keys and nothing touches the real ~/.config/capsule. Sessions are prepared with the
+use generated keys and nothing touches the real ~/.config/peerspan. Sessions are prepared with the
 Claude integration (`session setup --harness claude-code`) against a fixture `claude` executable
 that reports a chosen `--version` and `auth status` JSON and, when launched, prints its arguments,
 cwd, and MCP_PROTOCOL_NEGOTIATION. No model runs: the MCP consumer here is deterministic. It starts
 the adapter exactly as the profile's mcp.json describes, initializes MCP, records every channel
-event with its arrival time, and calls `capsule_ready` only when a check says so. Raw adapter
+event with its arrival time, and calls `peerspan_ready` only when a check says so. Raw adapter
 clients (bearer token and instance, as the recovery contract allows) cover the routes directly.
 
 The 60-second hello re-send and the 120-second status item 13 need real time. A silent session is
@@ -21,14 +21,14 @@ started first, and its timers run while the other sections do; a status watcher 
 `GET /v1/status` in the background. Sections, per pairing:
 
 - hello event: the first channel event is `hello` with a fresh 128-bit hex nonce, its content
-  naming `capsule_ready` and the nonce; nothing else (no queued message) follows; the tool list has
-  `capsule_ready` taking `{nonce}`;
+  naming `peerspan_ready` and the nonce; nothing else (no queued message) follows; the tool list has
+  `peerspan_ready` taking `{nonce}`;
 - work routes before verification: the five work routes answer 409 `{code: "conflict", error:
   "channel not verified"}` and claim nothing, the connection object shows `channel`,
   `channel_verified_at` (keeping the first time), and `protocol_version`, while outbound and `GET /adapter/v1/session` work;
   `POST /adapter/v1/ready` needs the credential and a lease, and is idempotent; afterwards the
   queued message and task are claimed;
-- wrong nonce and capsule_ready: a wrong nonce is a tool error and changes nothing; the right one
+- wrong nonce and peerspan_ready: a wrong nonce is a tool error and changes nothing; the right one
   returns `{ready: true}`, the queued message and task arrive, new work flows, and a repeat call
   returns `{ready: true}`;
 - connected: `connected` and `channel` in `GET /v1/directory` on bob's host before and after
@@ -45,7 +45,7 @@ started first, and its timers run while the other sections do; a status watcher 
   `mcp_protocol` for a fixture adapter reporting `2026-07-28`;
 - launch: `session start` launching Claude with `MCP_PROTOCOL_NEGOTIATION=legacy`, and the MCP
   instructions at most 2,048 characters;
-- fatal stop: a replaced instance emits one `disconnected` event naming `capsule attach claude`
+- fatal stop: a replaced instance emits one `disconnected` event naming `peerspan attach claude`
   (or `claude-code`), writes a reason to stderr, and exits 1; the replacement starts unverified;
 - deadlines: adapter sends by address and through routes default to 1 hour, bounded by the
   credential's expiry and, for routes, the route's expiry;
@@ -55,9 +55,9 @@ started first, and its timers run while the other sections do; a status watcher 
   and none after; the lease kept;
 - item 13: `channel_unverified` absent before 120 seconds of unverified lease and present after,
   with subject, command, and message; `status` exiting 1; doctor's channel check carrying the
-  message; then `capsule_ready` clears it and delivers the held message;
+  message; then `peerspan_ready` clears it and delivers the held message;
 - daemon restart: a verified authorization stays verified across a restart of its daemon (work
-  flows without another `capsule_ready`). (A new attachment of a previously verified agent
+  flows without another `peerspan_ready`). (A new attachment of a previously verified agent
   starting unverified is checked in the fatal stop section, on the replacement attachment.)
 
 Slice 2 sections run after slice 1's migration section, while the silent session's timers run. MCP
@@ -99,7 +99,7 @@ from host.db, since the contract lists them as shared state.
   upgraded: the columns added, existing items marked seen and not redelivered.
 
 Ambiguities are listed in the suite questions file and marked "Q:" below; checks take the most
-literal reading. Needs Python 3, capsule-peer-probe, Node, and the Go coordinator.
+literal reading. Needs Python 3, peerspan-peer-probe, Node, and the Go coordinator.
 `--slice1-only` skips the slice 2 sections.
 Exits non-zero listing every failed section.
 """
@@ -147,7 +147,7 @@ NEVER_SAW = 'session never saw the task'
 SETTINGS_FILE = 'claude-settings.json'
 MATCHER = 'clear|compact|resume'
 # `session pending --hook`: additionalContext is this lead followed by the object as compact JSON.
-HOOK_LEAD = ('Capsule work this session still owes, listed after /clear, compaction, or resume. Finish each task '
+HOOK_LEAD = ('Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task '
              'with the task_* tools and answer each delivery with reply; call pending_work for the current list. ')
 DELIVERY_KEYS = {'delivery_id', 'request_id', 'sender_host_id', 'origin_agent_id', 'preview', 'seen', 'deadline',
                  'redelivered'}
@@ -272,7 +272,7 @@ class Consumer:
         self.started = time.monotonic()
         self.initialized = self.call('initialize', {
             'protocolVersion': CLIENT_PROTOCOL, 'capabilities': {},
-            'clientInfo': {'name': 'capsule-live-delivery-conformance', 'version': '1'}})
+            'clientInfo': {'name': 'peerspan-live-delivery-conformance', 'version': '1'}})
         self.negotiated = self.initialized.get('protocolVersion')
         self.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
 
@@ -387,7 +387,7 @@ class RawAdapter:
         try:
             payload = json.dumps(body).encode() if body is not None else None
             headers = {'Authorization': 'Bearer ' + (token or self.token), 'Content-Type': 'application/json',
-                       'X-Capsule-Instance': instance or self.instance}
+                       'X-Peerspan-Instance': instance or self.instance}
             connection.request(method, path, payload, headers)
             response = connection.getresponse()
             data = response.read()
@@ -437,10 +437,10 @@ def shell_quoted(path):
     return "'" + path.replace("'", "'\\''") + "'"
 
 
-def expected_settings(capsule):
+def expected_settings(peerspan):
     """The --settings file's content (Pending work)."""
     return {'hooks': {'SessionStart': [{'matcher': MATCHER, 'hooks': [
-        {'type': 'command', 'command': f'{shell_quoted(capsule)} session pending --hook'}]}]}}
+        {'type': 'command', 'command': f'{shell_quoted(peerspan)} session pending --hook'}]}]}}
 
 
 def hook_output(stdout, pending):
@@ -656,19 +656,19 @@ class Pairing:
         need(isinstance(nonce, str) and NONCE.fullmatch(nonce), 'Hello event: meta.nonce is a 128-bit hex value',
              meta)
         content = first.get('content') or ''
-        need('capsule_ready' in content and nonce in content,
-             'Hello event: its content asks the model to call capsule_ready with that nonce', content)
+        need('peerspan_ready' in content and nonce in content,
+             'Hello event: its content asks the model to call peerspan_ready with that nonce', content)
         self.s1_nonce, self.s1_hello = nonce, self.s1.hellos()[0][0]
         # The message bob queued before this session started stays unclaimed.
         time.sleep(3)
-        need(s1.kinds() == ['hello'], 'Before capsule_ready, no work is forwarded (only the hello event)',
+        need(s1.kinds() == ['hello'], 'Before peerspan_ready, no work is forwarded (only the hello event)',
              s1.kinds())
-        need(not self.deliveries_mention(self.queued_quiet), 'Before capsule_ready, the adapter claims no work',
+        need(not self.deliveries_mention(self.queued_quiet), 'Before peerspan_ready, the adapter claims no work',
              self.queued_quiet)
         tools = {t['name']: t for t in s1.call('tools/list', {})['tools']}
-        ready = tools.get('capsule_ready')
+        ready = tools.get('peerspan_ready')
         need(ready and 'nonce' in (ready.get('inputSchema') or {}).get('properties', {}),
-             'capsule_ready takes {nonce}', ready)
+             'peerspan_ready takes {nonce}', ready)
         self.tools = tools
         return f'nonce {nonce[:8]}…'
 
@@ -749,22 +749,22 @@ class Pairing:
             need(status == 200, f'After verification, {path} answers 200', status, value)
         return 'five routes 409 before, claims after'
 
-    def check_capsule_ready(self):
+    def check_peerspan_ready(self):
         s2 = self.s2
         _, hello = s2.wait_event('hello', timeout=20)
         nonce = hello['meta']['nonce']
         need(nonce != getattr(self, 's1_nonce', None), 'each adapter\'s nonce is fresh', nonce)
         self.observed['eager_before'] = self.directory_state('eager')
         wrong = secrets.token_hex(16)
-        failed, value = s2.tool('capsule_ready', {'nonce': wrong})
-        need(failed, 'capsule_ready: a wrong nonce returns a tool error', value)
+        failed, value = s2.tool('peerspan_ready', {'nonce': wrong})
+        need(failed, 'peerspan_ready: a wrong nonce returns a tool error', value)
         time.sleep(2)
         need(s2.kinds() == ['hello'], 'A wrong nonce changes nothing: no work arrives', s2.kinds())
         self.observed['eager_wrong'] = self.directory_state('eager')
         need(not self.deliveries_mention(self.queued_eager), 'A wrong nonce changes nothing: nothing claimed')
         marked = time.monotonic()
-        failed, value = s2.tool('capsule_ready', {'nonce': nonce})
-        need(not failed and value == {'ready': True}, 'capsule_ready with the matching nonce returns {ready: true}',
+        failed, value = s2.tool('peerspan_ready', {'nonce': nonce})
+        need(not failed and value == {'ready': True}, 'peerspan_ready with the matching nonce returns {ready: true}',
              failed, value)
         _, message = s2.wait_event('message', since=marked, timeout=20,
                                    where=lambda p: p['meta'].get('request_id') == self.queued_eager
@@ -772,22 +772,22 @@ class Pairing:
         _, task = s2.wait_event('task', since=marked, timeout=20, where=lambda p: self.queued_eager_task in json.dumps(p))
         rid = self.send_from_bob('eager', 'after ready')
         s2.wait_event('message', since=marked, timeout=20, where=lambda p: rid in json.dumps(p))
-        failed, value = s2.tool('capsule_ready', {'nonce': nonce})
-        need(not failed and value == {'ready': True}, 'A repeated capsule_ready after readiness returns {ready: true}',
+        failed, value = s2.tool('peerspan_ready', {'nonce': nonce})
+        need(not failed and value == {'ready': True}, 'A repeated peerspan_ready after readiness returns {ready: true}',
              failed, value)
         self.observed['eager_after'] = self.directory_state('eager')
         self.s2_nonce = nonce
-        return 'held message and task delivered after capsule_ready'
+        return 'held message and task delivered after peerspan_ready'
 
     def check_connected(self):
-        need('eager_after' in self.observed, 'needs the capsule_ready section')
+        need('eager_after' in self.observed, 'needs the peerspan_ready section')
         need(self.observed['eager_before'] == (False, 'unverified'),
              'Directory: a lease without verification is connected false, channel unverified',
              self.observed['eager_before'])
         need(self.observed['eager_wrong'] == (False, 'unverified'), 'Directory: still unverified after a wrong nonce',
              self.observed['eager_wrong'])
         need(self.observed['eager_after'] == (True, 'verified'),
-             'Directory: after capsule_ready, connected true and channel verified', self.observed['eager_after'])
+             'Directory: after peerspan_ready, connected true and channel verified', self.observed['eager_after'])
         state = self.directory_state('quiet')
         need(state == (False, 'unverified'), 'Directory: the silent session\'s agent is unverified', state)
         state = self.directory_state('idle')
@@ -868,7 +868,7 @@ class Pairing:
         finally:
             fixture.account(FIRST_PARTY)
 
-        # Unverified: the silent session (a lease, no capsule_ready).
+        # Unverified: the silent session (a lease, no peerspan_ready).
         code, report = self.doctor(self.profiles['quiet'])
         check = check_named(report, 'channel')
         need(check['status'] == 'error' and 'channelsEnabled' in check.get('detail', ''),
@@ -942,8 +942,8 @@ class Pairing:
         directory = self.profiles['doomed']
         s3 = self.consumer(directory, 'doomed')
         _, hello = s3.wait_event('hello', timeout=20)
-        failed, value = s3.tool('capsule_ready', {'nonce': hello['meta']['nonce']})
-        need(not failed, 'capsule_ready', value)
+        failed, value = s3.tool('peerspan_ready', {'nonce': hello['meta']['nonce']})
+        need(not failed, 'peerspan_ready', value)
         adapter_id = self.secret(directory)['adapter']['id']
         wait_for(lambda: self.connection(adapter_id) == 'ready', timeout=10, message='doomed ready')
         s3.signal(signal.SIGSTOP)
@@ -971,8 +971,8 @@ class Pairing:
              [p.get('meta') for _, p in s3.channel(resumed)])
         content = disconnected[0].get('content') or ''
         # HARNESS for this profile: claude-code, or claude, which attach reads as claude-code (launch contract).
-        need(re.search(r'capsule attach claude(-code)?\b', content),
-             'the disconnected event says how to reattach (capsule attach HARNESS in the project)', content)
+        need(re.search(r'peerspan attach claude(-code)?\b', content),
+             'the disconnected event says how to reattach (peerspan attach HARNESS in the project)', content)
         need(len(s3.stderr_text()) > before, 'Fatal stops: the reason is written to stderr', s3.stderr_text()[-300:])
         need(s3.process.returncode == 1, 'Fatal stops: the adapter exits with status 1', s3.process.returncode)
         # The new attachment of this agent, whose earlier authorization was verified, starts unverified.
@@ -1024,7 +1024,7 @@ class Pairing:
 
     def check_migration(self):
         if self.baseline is None:
-            raise Failure('migration needs --baseline (a capsule-host at schema 13)')
+            raise Failure('migration needs --baseline (a peerspan-host at schema 13)')
         h = DirectoryHost(self.baseline, self.baseline, self.root / 'migration', self.root / 'user-migration')
         self.hosts['migration'] = h
         h.start()
@@ -1070,7 +1070,7 @@ class Pairing:
              [round(t - self.s1_hello, 1) for t, _ in hellos])
         gap = hellos[1][0] - hellos[0][0]
         # Q: "within 60 seconds" gives no tolerance; the suite allows 58 to 70 seconds.
-        need(58 <= gap <= 70, 'Re-sending hello: after 60 seconds without capsule_ready', round(gap, 1))
+        need(58 <= gap <= 70, 'Re-sending hello: after 60 seconds without peerspan_ready', round(gap, 1))
         need(hellos[1][1].get('meta', {}).get('nonce') == self.s1_nonce, 'the re-sent hello has the same nonce',
              hellos[1][1].get('meta'))
         need(self.s1.kinds() == ['hello', 'hello'], 'nothing else arrives while unverified', self.s1.kinds())
@@ -1102,7 +1102,7 @@ class Pairing:
              + ' '.join(f'{t - self.s1_hello:.0f}:{int(bool(quiet_items(x)))}' for t, x in reversed(samples)),
              self.connection_object(self.secret(self.profiles['quiet'])['adapter']['id']))
         item = items[0]
-        need(item['command'] == 'capsule session doctor', 'item 13 command: capsule session doctor', item)
+        need(item['command'] == 'peerspan session doctor', 'item 13 command: peerspan session doctor', item)
         detail = item.get('detail', '')
         need('channelsEnabled' in detail, 'item 13 message names channelsEnabled', detail)
         # Q: the other three causes have no fixed wording; the suite looks for their key words.
@@ -1121,10 +1121,10 @@ class Pairing:
         code, report = self.doctor(self.profiles['quiet'])
         need(detail in check_named(report, 'channel').get('detail', ''),
              'doctor\'s channel check fails with the item 13 message', check_named(report, 'channel'), detail)
-        # Now the model calls capsule_ready: the held message arrives and the item goes.
+        # Now the model calls peerspan_ready: the held message arrives and the item goes.
         marked = time.monotonic()
-        failed, value = self.s1.tool('capsule_ready', {'nonce': self.s1_nonce})
-        need(not failed and value == {'ready': True}, 'capsule_ready after the re-send', failed, value)
+        failed, value = self.s1.tool('peerspan_ready', {'nonce': self.s1_nonce})
+        need(not failed and value == {'ready': True}, 'peerspan_ready after the re-send', failed, value)
         self.s1.wait_event('message', since=marked, timeout=20, where=lambda p: self.queued_quiet in json.dumps(p))
         status, body = self.a.call('GET', '/v1/status')
         need(not quiet_items([i for i in body['attention'] if i.get('kind') == 'channel_unverified']),
@@ -1181,11 +1181,11 @@ class Pairing:
         return out
 
     def verified(self, profile, name):
-        """A consumer on profile that answers the hello event with capsule_ready."""
+        """A consumer on profile that answers the hello event with peerspan_ready."""
         c = self.consumer(Path(profile), name)
         _, hello = c.wait_event('hello', timeout=20)
-        failed, value = c.tool('capsule_ready', {'nonce': hello['meta']['nonce']})
-        need(not failed and value == {'ready': True}, 'capsule_ready', failed, value)
+        failed, value = c.tool('peerspan_ready', {'nonce': hello['meta']['nonce']})
+        need(not failed and value == {'ready': True}, 'peerspan_ready', failed, value)
         return c
 
     def raw_for(self, host, agent, directory=False):
@@ -1861,7 +1861,7 @@ class Pairing:
              oct(path.stat().st_mode))
         settings = json.loads(path.read_text())
         need(settings == expected_settings(cli), 'the settings file holds exactly the SessionStart hook for '
-             f'"{MATCHER}" running \'CAPSULE\' session pending --hook', settings, expected_settings(cli))
+             f'"{MATCHER}" running \'PEERSPAN\' session pending --hook', settings, expected_settings(cli))
         need(settings['hooks']['SessionStart'][0]['matcher'] == MATCHER, 'the hook matchers: clear|compact|resume')
         home = Path(self.a.private_env()['HOME'])
         need(not (workspace / '.claude').exists() and not (home / '.claude' / 'settings.json').exists(),
@@ -1883,7 +1883,7 @@ class Pairing:
         result, launched = launch(extra=('--settings', str(workspace / 'mine.json')))
         need(result.returncode != 0 and launched is None, '--settings among the user\'s extra arguments is refused',
              result.returncode, result.stdout[-300:])
-        # A capsule path containing a quote: '\'' inside single quotes.
+        # A peerspan path containing a quote: '\'' inside single quotes.
         quoted = self.root / "it's here"
         quoted.mkdir(exist_ok=True)
         copy = quoted / Path(cli).name
@@ -1893,7 +1893,7 @@ class Pairing:
              result.stderr[-400:])
         settings = json.loads(path.read_text())
         need(settings == expected_settings(str(copy.resolve())),
-             'the command single-quotes the absolute path of the capsule executable that launched the session '
+             'the command single-quotes the absolute path of the peerspan executable that launched the session '
              '(a \' in it becomes \'\\\'\')', settings, str(copy))
         result = subprocess.run(['sh', '-c', settings['hooks']['SessionStart'][0]['hooks'][0]['command']],
                                 cwd=str(workspace), env=a.environment(), capture_output=True, text=True, timeout=60)
@@ -2023,7 +2023,7 @@ class Pairing:
 
     def check_migration15(self):
         if self.baseline14 is None:
-            raise Failure('migration to 15 needs --baseline14 (a capsule-host at schema 14, milestone 9 slice 1)')
+            raise Failure('migration to 15 needs --baseline14 (a peerspan-host at schema 14, milestone 9 slice 1)')
         a, b, net = self.a, self.b, self.net
         h = DirectoryHost(self.baseline14, self.baseline14, self.root / 'migration15', self.root / 'user-migration15')
         self.hosts['migration15'] = h
@@ -2127,7 +2127,7 @@ class Pairing:
 
         self.section('hello event', self.check_hello)
         self.section('work routes before verification', self.check_routes)
-        self.section('wrong nonce and capsule_ready', self.check_capsule_ready)
+        self.section('wrong nonce and peerspan_ready', self.check_peerspan_ready)
         self.section('connected', self.check_connected)
         self.section('doctor', self.check_doctor)
         self.section('protocol', self.check_protocol)
@@ -2182,7 +2182,7 @@ class Pairing:
 
 def run_pairing(coord_binary, cli_binary, daemon_binary, node, baseline, label, logs=None, baseline14=None,
                 slices=(1, 2)):
-    with tempfile.TemporaryDirectory(prefix='capsule-live-delivery-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-live-delivery-') as temporary:
         pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, node, baseline, Path(temporary),
                           baseline14, slices)
         started = time.monotonic()
@@ -2209,12 +2209,12 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, required=True, help='Node 22 or newer, for the MCP adapter')
     parser.add_argument('--baseline', type=Path,
-                        help='a capsule-host from before milestone 9 (schema 13), for the migration section')
+                        help='a peerspan-host from before milestone 9 (schema 13), for the migration section')
     parser.add_argument('--baseline14', type=Path,
-                        help='a capsule-host from milestone 9 slice 1 (schema 14), for the migration to 15 section')
+                        help='a peerspan-host from milestone 9 slice 1 (schema 14), for the migration to 15 section')
     parser.add_argument('--slice1-only', action='store_true',
                         help='skip the slice 2 sections (slice 1 sections always run: slice 2 runs inside their setup)')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')

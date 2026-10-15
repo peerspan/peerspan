@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test a packaged Capsule archive through its installed layout."""
+"""Smoke-test a packaged Peerspan archive through its installed layout."""
 
 import argparse
 from datetime import datetime, timezone
@@ -49,23 +49,23 @@ def safe_members(archive):
 
 
 def check(archive_path, node):
-    with tempfile.TemporaryDirectory(prefix="capsule installed bundle ") as td:
+    with tempfile.TemporaryDirectory(prefix="peerspan installed bundle ") as td:
         root = Path(td)
         with tarfile.open(archive_path, "r:gz") as archive:
             members, original_name = safe_members(archive)
             archive.extractall(root, members=members, filter="data")
 
         original = root / original_name
-        prefix = root / "moved capsule prefix"
+        prefix = root / "moved peerspan prefix"
         original.rename(prefix)
-        binary = prefix / "bin/capsule-host"
-        short = prefix / "bin/capsule"
+        binary = prefix / "bin/peerspan-host"
+        short = prefix / "bin/peerspan"
         metadata = json.loads((prefix / "RELEASE.json").read_text())
         assert metadata["implementation"] in {"go", "rust"}
         assert metadata["os"] == "linux" and metadata["node_requirement"] == ">=22"
         assert os.access(binary, os.X_OK)
-        # bin/capsule is the same binary under its short name, linked relatively.
-        assert short.is_symlink() and os.readlink(short) == "capsule-host", short
+        # bin/peerspan is the same binary under its short name, linked relatively.
+        assert short.is_symlink() and os.readlink(short) == "peerspan-host", short
         assert os.access(short, os.X_OK)
 
         runtime = root / "runtime bin"
@@ -73,10 +73,10 @@ def check(archive_path, node):
         (runtime / "node").symlink_to(node)
         (runtime / "python3").symlink_to(Path(os.sys.executable).resolve())
         old_path = os.environ.get("PATH")
-        old_override = os.environ.pop("CAPSULE_INTEGRATIONS_DIR", None)
+        old_override = os.environ.pop("PEERSPAN_INTEGRATIONS_DIR", None)
         os.environ["PATH"] = os.pathsep.join([str(prefix / "bin"), str(runtime)])
 
-        integrations = prefix / "share/capsule/integrations"
+        integrations = prefix / "share/peerspan/integrations"
         for path in [
             integrations / "shared/adapter.mjs",
             integrations / "claude-channel/integration.json",
@@ -96,7 +96,7 @@ def check(archive_path, node):
             claude = fake_claude(root / "Claude fixture")
             profile = root / "private profile"
             invalid = run(
-                "capsule-host",
+                "peerspan-host",
                 host.state,
                 root,
                 "session",
@@ -115,7 +115,7 @@ def check(archive_path, node):
             )
             assert "whole-minute or whole-hour" in invalid
             configured = run(
-                "capsule-host",
+                "peerspan-host",
                 host.state,
                 root,
                 "session",
@@ -162,7 +162,7 @@ def check(archive_path, node):
             )
             assert "executable is missing" in error
             report = run(
-                "capsule-host",
+                "peerspan-host",
                 host.state,
                 Path("/"),
                 "session",
@@ -173,7 +173,7 @@ def check(archive_path, node):
             )
             assert report["connection"]["state"] == "registered"
             launched = run(
-                "capsule-host",
+                "peerspan-host",
                 host.state,
                 Path("/"),
                 "session",
@@ -198,7 +198,7 @@ def check(archive_path, node):
             tools = channel.call("tools/list", {})["tools"]
             assert "list_destinations" in {tool["name"] for tool in tools}
             ready = run(
-                "capsule-host",
+                "peerspan-host",
                 host.state,
                 Path("/"),
                 "session",
@@ -208,14 +208,14 @@ def check(archive_path, node):
             )
             assert ready["adapter_ready"]
 
-            # Through bin/capsule: the help names it capsule, and it finds the
+            # Through bin/peerspan: the help names it peerspan, and it finds the
             # bundled integrations. Without an expiry the setup is renewable.
-            help_text = subprocess.run(["capsule", "--help"], capture_output=True, text=True, timeout=10,
+            help_text = subprocess.run(["peerspan", "--help"], capture_output=True, text=True, timeout=10,
                                        check=True).stdout
-            assert "capsule-host" not in help_text and "capsule help advanced" in help_text, help_text
+            assert "peerspan-host" not in help_text and "peerspan help advanced" in help_text, help_text
             second = host.cli("agent", "register", "--name", "short-name", "--owner", "tester")
             renewable = run(
-                "capsule",
+                "peerspan",
                 host.state,
                 root,
                 "session",
@@ -235,7 +235,7 @@ def check(archive_path, node):
             assert 86000 <= remaining <= 86400, remaining
             saved = json.loads((root / "short name profile/profile.json").read_text())
             assert Path(saved["harness"]["command"][1]).is_relative_to(prefix)
-            status = subprocess.run(["capsule", "--state", str(host.state), "status", "--json"],
+            status = subprocess.run(["peerspan", "--state", str(host.state), "status", "--json"],
                                     capture_output=True, text=True, timeout=10)
             assert status.returncode in (0, 1), status
             names = {a["name"]: a for a in json.loads(status.stdout)["agents"]}
@@ -250,11 +250,11 @@ def check(archive_path, node):
             else:
                 os.environ["PATH"] = old_path
             if old_override is not None:
-                os.environ["CAPSULE_INTEGRATIONS_DIR"] = old_override
+                os.environ["PEERSPAN_INTEGRATIONS_DIR"] = old_override
 
         print(
             f"PASS {metadata['implementation']} installed bundle: relocated layout, "
-            "packaged MCP runtime, setup, doctor, launch, private files, and bin/capsule"
+            "packaged MCP runtime, setup, doctor, launch, private files, and bin/peerspan"
         )
 
 

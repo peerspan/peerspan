@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise signed enrollment and coordination with real Go/Rust hosts.
 
-Runs one Go capsule-coord with hosts in every creator/joiner pairing. Uses only
+Runs one Go peerspan-coord with hosts in every creator/joiner pairing. Uses only
 Python's standard library and temporary state. A row written straight into the
 coordinator database models a compromised coordinator.
 """
@@ -92,7 +92,7 @@ def send(sender, receiver_id, grant, agent, content):
 
 
 def check(coord_binary, creator_binary, joiner_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-coordination-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-coordination-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         alice = CoordHost(creator_binary, root / 'alice')
@@ -114,9 +114,9 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             assert alice.call('POST', f'/v1/networks/{net}/invites', {'member': 'bob', 'expires_at': timestamp(31 * 86400)})[0] == 400
             # The default is a member invite; host-only invites are tested here.
             member_invite = alice.cli('network', 'invite', '--network', net, '--member', 'bob', '--expires-at', timestamp(600))
-            assert member_invite['token'].startswith('capsule-member-invite-v1.'), member_invite
+            assert member_invite['token'].startswith('peerspan-member-invite-v1.'), member_invite
             invite = alice.cli('network', 'invite', '--network', net, '--member', 'bob', '--expires-at', timestamp(600), '--host-only')
-            assert invite['network_id'] == net and invite['member'] == 'bob' and invite['token'].startswith('capsule-invite-v1.')
+            assert invite['network_id'] == net and invite['member'] == 'bob' and invite['token'].startswith('peerspan-invite-v1.')
             joined = bob.cli('network', 'join', '--token', invite['token'])
             assert joined['id'] == net and joined['administrator'] is False and joined['member'] == 'bob'
             assert joined['coordinator_public_key'] == coordinator['public_key'] and joined['name'] == 'team'
@@ -172,7 +172,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
                                  ('root_public_key', b['public_key']), ('coordinator_public_key', 'AAAA')]:
                 tampered = dict(fields, **{field: value})
                 assert carol.call('POST', '/v1/networks/join', {'token': encode_token(prefix, tampered)})[0] == 400, field
-            for bad in ['', 'capsule-invite-v1.', fresh['token'] + 'x', fresh['token'].replace('capsule-invite-v1.', 'capsule-invite-v2.')]:
+            for bad in ['', 'peerspan-invite-v1.', fresh['token'] + 'x', fresh['token'].replace('peerspan-invite-v1.', 'peerspan-invite-v2.')]:
                 assert carol.call('POST', '/v1/networks/join', {'token': bad})[0] == 400, bad
             assert carol.cli('network', 'list') == []
             assert carol.cli('network', 'join', '--token', fresh['token'])['id'] == net

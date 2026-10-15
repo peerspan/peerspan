@@ -25,7 +25,7 @@ Sections, run once:
   identity reached, `[]` from the latest), including the identity chosen by the `Host` header among those
   with the listener's key (and the earliest for an unknown Host); one database across listeners; STUN on
   each listener's UDP port; relaying between hosts connected through different identities; `/healthz`
-  reporting the latest id; and `capsule_coord_identity_hosts{sequence}` counting distinct hosts per listener.
+  reporting the latest id; and `peerspan_coord_identity_hosts{sequence}` counting distinct hosts per listener.
 
 Sections, per creator/joiner pairing (default all four Go/Rust combinations; alice and frank run the
 creator's implementation, bob, carol, dave, and erin the joiner's):
@@ -57,7 +57,7 @@ creator's implementation, bob, carol, dave, and erin the joiner's):
   that sync and followed on the next. Run for the creator and the joiner host.
 
 Needs openssl. HOME and XDG_CONFIG_HOME are redirected per host under a temporary directory; the real
-~/.config/capsule and systemd are never touched. Open questions are marked with `Q<n>` comments and listed
+~/.config/peerspan and systemd are never touched. Open questions are marked with `Q<n>` comments and listed
 in the suite-questions file given to the owner. Exits non-zero listing every failed section.
 """
 import argparse
@@ -163,7 +163,7 @@ def verify(public_b64, lines, signature_b64, directory):
 
 
 def successor_lines(s):
-    return ['capsule-coordinator-successor-v1', str(s['sequence']), s['previous_public_key'], s['address'],
+    return ['peerspan-coordinator-successor-v1', str(s['sequence']), s['previous_public_key'], s['address'],
             s['public_key'], s['signed_at']]
 
 
@@ -265,7 +265,7 @@ class Port:
 # --- the coordinator ----------------------------------------------------------------------------------------
 
 class Coordinator(OpsCoordinator):
-    """`capsule-coord run` with an ops listener and any `--listen` and `--previous-listen` set per run."""
+    """`peerspan-coord run` with an ops listener and any `--listen` and `--previous-listen` set per run."""
 
     def __init__(self, binary, state, logdir, name):
         super().__init__(binary, state, logdir, name, ops=f'127.0.0.1:{available_port()}')
@@ -308,15 +308,15 @@ class Coordinator(OpsCoordinator):
         return lines[0]
 
     def identity_hosts(self):
-        """{sequence: value} of capsule_coord_identity_hosts at scrape time. Q8: whether a sequence with no
+        """{sequence: value} of peerspan_coord_identity_hosts at scrape time. Q8: whether a sequence with no
         listener or no hosts has a series is not specified; callers treat an absent series as 0."""
         m = scrape(self)
-        need(m.types.get('capsule_coord_identity_hosts') == 'gauge', 'capsule_coord_identity_hosts is a gauge',
-             m.types.get('capsule_coord_identity_hosts'))
+        need(m.types.get('peerspan_coord_identity_hosts') == 'gauge', 'peerspan_coord_identity_hosts is a gauge',
+             m.types.get('peerspan_coord_identity_hosts'))
         values = {}
-        for labels, value in m.series('capsule_coord_identity_hosts'):
+        for labels, value in m.series('peerspan_coord_identity_hosts'):
             need(set(labels) == {'sequence'} and re.fullmatch(r'\d+', labels['sequence']),
-                 'capsule_coord_identity_hosts has exactly the label sequence, a decimal identity number', labels)
+                 'peerspan_coord_identity_hosts has exactly the label sequence, a decimal identity number', labels)
             values[int(labels['sequence'])] = value
         return values
 
@@ -343,7 +343,7 @@ def check_successor_object(s, sequence, previous_key, address, public_key, direc
     need(s['public_key'] == public_key, "the successor names the new identity's key", s, public_key)
     need(isinstance(s['signed_at'], str) and RFC3339.match(s['signed_at']), 'signed_at is an RFC3339 time', s)
     need(verify(previous_key, successor_lines(s), s['signature'], directory),
-         'signature is by previous_public_key over capsule-coordinator-successor-v1, sequence, '
+         'signature is by previous_public_key over peerspan-coordinator-successor-v1, sequence, '
          'previous_public_key, address, public_key, signed_at', s)
 
 
@@ -379,11 +379,11 @@ class StandIn:
         self.requests = []
         cert = directory / f'standin-{secrets.token_hex(4)}.cert'
         subprocess.run(['openssl', 'req', '-new', '-x509', '-key', str(signer.pem), '-out', str(cert), '-subj',
-                        '/CN=capsule-coordinator-standin', '-days', '30'], check=True, capture_output=True, timeout=10)
+                        '/CN=peerspan-coordinator-standin', '-days', '30'], check=True, capture_output=True, timeout=10)
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.context.minimum_version = self.context.maximum_version = ssl.TLSVersion.TLSv1_3
         self.context.load_cert_chain(cert, signer.pem)
-        self.context.set_alpn_protocols(['http/1.1', 'capsule-relay/2', 'capsule-relay/1'])
+        self.context.set_alpn_protocols(['http/1.1', 'peerspan-relay/2', 'peerspan-relay/1'])
         # Q5: the stand-in does not request a client certificate (Python cannot accept an unverifiable
         # self-signed one); it proxies with the one host's key it serves.
         self.listener = socket.socket()
@@ -708,7 +708,7 @@ class CoordinatorChecks:
         def counted():
             values.update(c.identity_hosts())
             return all(values.get(k, 0) == v for k, v in want.items()) and values.get(1, 0) == 0
-        eventually(counted, 30, 'capsule_coord_identity_hosts{sequence} counts distinct hosts per listener',
+        eventually(counted, 30, 'peerspan_coord_identity_hosts{sequence} counts distinct hosts per listener',
                    lambda: (values, want))
         for relay in (relay_b, relay_c):
             relay.close()
@@ -959,7 +959,7 @@ class Pairing:
             values.clear()
             values.update(c.identity_hosts())
             return values.get(2, 0) == len(running) and values.get(0, 0) == 0 and values.get(1, 0) == 0
-        eventually(settled, 30, 'capsule_coord_identity_hosts: every running host on the latest listener, none on '
+        eventually(settled, 30, 'peerspan_coord_identity_hosts: every running host on the latest listener, none on '
                    'the old ones', lambda: values)
         seen = set()
         since = time.monotonic()
@@ -978,9 +978,9 @@ class Pairing:
             values.clear()
             values.update(c.identity_hosts())
             return values.get(0, 0) == 1 and values.get(2, 0) == len(running) + 1
-        eventually(counted, 30, 'capsule_coord_identity_hosts{sequence} counts frank on identity 0 and everyone on 2',
+        eventually(counted, 30, 'peerspan_coord_identity_hosts{sequence} counts frank on identity 0 and everyone on 2',
                    lambda: values)
-        need(values.get(1, 0) == 0, 'capsule_coord_identity_hosts: no host on identity 1, which has no listener',
+        need(values.get(1, 0) == 0, 'peerspan_coord_identity_hosts: no host on identity 1, which has no listener',
              values)
         self.send('frank', 'alice')
         return f'followed in {self.timings["two successors"]}s; identity_hosts {dict(sorted(values.items()))}'
@@ -1263,10 +1263,10 @@ class Suite:
 def main():
     global INTERVAL
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--coord', type=Path, required=True, help='capsule-coord')
-    parser.add_argument('--go', type=Path, required=True, help='Go capsule-host')
-    parser.add_argument('--rust', type=Path, required=True, help='Rust capsule-host')
-    parser.add_argument('--probe', type=Path, help='capsule-peer-probe (optional; set for shared helpers)')
+    parser.add_argument('--coord', type=Path, required=True, help='peerspan-coord')
+    parser.add_argument('--go', type=Path, required=True, help='Go peerspan-host')
+    parser.add_argument('--rust', type=Path, required=True, help='Rust peerspan-host')
+    parser.add_argument('--probe', type=Path, help='peerspan-peer-probe (optional; set for shared helpers)')
     parser.add_argument('--pairing', action='append', choices=('Go/Go', 'Go/Rust', 'Rust/Go', 'Rust/Rust'),
                         help='CREATOR/JOINER to run (repeatable); default all four')
     parser.add_argument('--interval', type=int, default=INTERVAL, help='hosts\' --coordination-interval (seconds)')
@@ -1278,7 +1278,7 @@ def main():
     args.coord, args.go, args.rust = (p.resolve(strict=True) for p in (args.coord, args.go, args.rust))
     if args.probe:
         set_probe(args.probe.resolve(strict=True))
-    with tempfile.TemporaryDirectory(prefix='capsule-coord-successor-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-coord-successor-') as temporary:
         suite = Suite(args, Path(temporary))
         try:
             suite.run()

@@ -74,7 +74,7 @@ def check(go, rust, node, label):
     script = (
         Path(__file__).resolve().parents[1] / "integrations/claude-channel/channel.mjs"
     )
-    with tempfile.TemporaryDirectory(prefix="capsule-outbound-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-outbound-") as directory:
         root = Path(directory)
         a, b, c = (
             PeerHost(go, root / "a"),
@@ -494,7 +494,7 @@ def check(go, rust, node, label):
 
 def migration_check(original_binary, replacement_binary, label):
     """Reopen populated v4 state and fail halfway through its v5 extension."""
-    with tempfile.TemporaryDirectory(prefix="capsule-outbound-migration-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-outbound-migration-") as directory:
         root = Path(directory)
         a = PeerHost(original_binary, root / "a")
         b = PeerHost(original_binary, root / "b")
@@ -607,7 +607,7 @@ def migration_check(original_binary, replacement_binary, label):
 
 
 def network_check(coord_binary, sender_binary, receiver_binary, label):
-    with tempfile.TemporaryDirectory(prefix="capsule-outbound-network-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-outbound-network-") as directory:
         root = Path(directory)
         coord = Coordinator(coord_binary, root / "coord")
         a = CoordHost(sender_binary, root / "a")

@@ -8,7 +8,7 @@ deterministic adapter consumers and no model calls, it covers two- and
 three-hop chains authorized for the originator at the final receiver (by
 policy and by grant), refusal when only the sender is allowed, refused
 forwards (no task.delegate, no chain, depth 0, outside the principals, a
-later deadline, past 3 links), chains forged with capsule-peer-probe
+later deadline, past 3 links), chains forged with peerspan-peer-probe
 (widened principals, depth, or deadline; spliced or reordered links; wrong
 previous, signature, task ID, or audience; replay under another task or to
 another host; expired links; malformed chains), blocks of a middle hop or the
@@ -16,7 +16,7 @@ originator's person and a revoked originator at submission and at handoff,
 cancellation propagated two hops down with each hop's own outcome, MCP
 delegate_task with parent_task_id and the originator fields in meta, the
 shared link test vector, and v10→v11 migration.
-Needs the Go coordinator, capsule-peer-probe, and OpenSSH; Node for MCP.
+Needs the Go coordinator, peerspan-peer-probe, and OpenSSH; Node for MCP.
 """
 import argparse
 import hashlib
@@ -49,7 +49,7 @@ VECTOR_HASH = 'bc5f57c2363071701a685c896296288dbb90d293604e20ee6ca38153bbc474a3'
 
 
 def statement(link):
-    return '\n'.join(['capsule-delegation-v1', link['network_id'], str(link['index']), link['previous'],
+    return '\n'.join(['peerspan-delegation-v1', link['network_id'], str(link['index']), link['previous'],
                       link['issuer_host_id'], link['audience_host_id'], link['task_id'], link['originator_agent_id'],
                       ' '.join(link['principals']), link['deadline'], str(link['depth'])])
 
@@ -154,7 +154,7 @@ def check_vector():
 
 
 def check(binaries, coord_binary, node, script, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-delegation-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-delegation-') as temporary:
         directory = Path(temporary)
         coord = Coordinator(coord_binary, directory / 'coord')
         alice, bob, carol, dave = (PolicyHost(binary, directory / name)
@@ -477,7 +477,7 @@ def check(binaries, coord_binary, node, script, label):
 
 
 def migration_check(original, replacement, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-delegation-migration-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-delegation-migration-') as directory:
         host = Host(original, Path(directory) / 'host')
         try:
             identity = host.start()
@@ -507,7 +507,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, help='Node.js for the MCP cases; skipped without it')
     parser.add_argument('--mix', action='append',
                         help='implementations of alice, bob, carol, and dave, such as GRGR; default GGGG, RRRR, '

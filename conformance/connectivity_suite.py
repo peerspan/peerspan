@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run Capsule/iroh connectivity in disposable routed, NAT and relay fixtures.
+"""Run Peerspan/iroh connectivity in disposable routed, NAT and relay fixtures.
 
 Requires Linux root, iproute2, nftables, tc, conntrack and tcpdump. Uses only
 self-hosted fixture infrastructure. Every failed/censored attempt is retained.
 Control sockets are private Unix sockets; checked peer payloads cross the
-actual production Capsule transport or pinned iroh. No echo route ships.
+actual production Peerspan transport or pinned iroh. No echo route ships.
 """
 import argparse
 import hashlib
@@ -25,8 +25,8 @@ from host_service import UnixHTTPConnection, die_with_parent
 from nat_lab import Lab
 from peer_messaging import timestamp
 
-PAIRS = {'go-go': ('capsule-go', 'capsule-go'), 'go-rust': ('capsule-go', 'capsule-rust'),
-         'rust-go': ('capsule-rust', 'capsule-go'), 'rust-rust': ('capsule-rust', 'capsule-rust'),
+PAIRS = {'go-go': ('peerspan-go', 'peerspan-go'), 'go-rust': ('peerspan-go', 'peerspan-rust'),
+         'rust-go': ('peerspan-rust', 'peerspan-go'), 'rust-rust': ('peerspan-rust', 'peerspan-rust'),
          'iroh': ('iroh-rust-1.3.0', 'iroh-rust-1.3.0'),
          'iroh-bounds': ('iroh-rust-1.3.0', 'iroh-rust-1.3.0')}
 SCENARIOS = ('direct-ipv4', 'direct-ipv6', 'delay-loss', 'mtu-1280', 'cone', 'random-port',
@@ -269,7 +269,7 @@ def run_case(root, helpers, coord_binary, pair, scenario, repeat, count, capture
         relay = None
         if lab.relayed:
             if iroh:
-                relay_env = dict(env, CAPSULE_NET_MODE='relay', CAPSULE_NET_STATE=str(relay_state))
+                relay_env = dict(env, PEERSPAN_NET_MODE='relay', PEERSPAN_NET_STATE=str(relay_state))
                 relay = Process(lab, 'pub', helpers[a_backend][:1], relay_state, relay_env, 'relay').start()
             else:
                 relay = Process(lab, 'pub', [str(coord_binary), '--state', str(relay_state), 'run', '--listen', '203.0.113.1:7400'],
@@ -278,15 +278,15 @@ def run_case(root, helpers, coord_binary, pair, scenario, repeat, count, capture
             relay.ready(relay=True)
         def node(backend, side, name, port=7401):
             state = state_root / name
-            node_env = dict(env, CAPSULE_NET_STATE=str(state), CAPSULE_NET_BIND=f'[::]:{port}' if scenario == 'direct-ipv6' else f'0.0.0.0:{port}')
+            node_env = dict(env, PEERSPAN_NET_STATE=str(state), PEERSPAN_NET_BIND=f'[::]:{port}' if scenario == 'direct-ipv6' else f'0.0.0.0:{port}')
             if backend.startswith('iroh'):
-                node_env['CAPSULE_NET_MODE'] = 'node'
+                node_env['PEERSPAN_NET_MODE'] = 'node'
                 if pair == 'iroh-bounds':
-                    node_env['CAPSULE_IROH_MATCHED']='1'
+                    node_env['PEERSPAN_IROH_MATCHED']='1'
                 argv = helpers[backend][:1]
                 if relay:
-                    node_env.update(CAPSULE_NET_RELAY='https://203.0.113.1:7400', CAPSULE_NET_CA=str(relay_state / 'relay-cert.der'))
-            elif backend == 'capsule-go':
+                    node_env.update(PEERSPAN_NET_RELAY='https://203.0.113.1:7400', PEERSPAN_NET_CA=str(relay_state / 'relay-cert.der'))
+            elif backend == 'peerspan-go':
                 argv = [helpers[backend][0], '-test.run=^TestConnectivityNetworkHelper$', '-test.timeout=3600s']
             else:
                 argv = [helpers[backend][0], 'quic::connectivity_network::connectivity_network_helper', '--exact', '--ignored', '--nocapture']
@@ -412,7 +412,7 @@ def run_case(root, helpers, coord_binary, pair, scenario, repeat, count, capture
         bob.stop()
         event('peer-stopped')
         if scenario == 'peer-address-change':
-            bob.env['CAPSULE_NET_BIND'] = '0.0.0.0:7402'
+            bob.env['PEERSPAN_NET_BIND'] = '0.0.0.0:7402'
             b['address'] = lab.address('B', 7402)
             event('peer-address-changed', address=b['address'])
         bob.start()
@@ -509,8 +509,8 @@ def main():
     build_root.mkdir()
     print(f'Building helpers; evidence: {root}', flush=True)
     helpers = build(build_root)
-    coord = build_root / 'capsule-coord'
-    execute(['go', 'build', '-o', str(coord), './cmd/capsule-coord'], build_root / 'build-coord.log', cwd=ROOT / 'go')
+    coord = build_root / 'peerspan-coord'
+    execute(['go', 'build', '-o', str(coord), './cmd/peerspan-coord'], build_root / 'build-coord.log', cwd=ROOT / 'go')
     report = {'schema_version': 1, 'status': 'running', 'scope': 'controlled local Linux kernel fixtures; no real-world NAT success-rate claim',
               'iroh_version': '1.3.0', 'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
               'source_status': subprocess.check_output(['git', 'status', '--short'], cwd=ROOT, text=True).strip(),
@@ -518,7 +518,7 @@ def main():
               'binary_sha256': {key: digest(Path(value[0])) for key, value in helpers.items()} | {'coordinator': digest(coord)},
               'limitations': ['helper CPU/RSS includes control, payload generation and test runtime',
                              'network byte counters include coordination and probes; captures may duplicate packets',
-                             'iroh relay uses endpoint allowlist in test adapter, not Capsule signed membership',
+                             'iroh relay uses endpoint allowlist in test adapter, not Peerspan signed membership',
                              'latency percentiles show successes; failures and deadline-censored attempts are retained separately',
                              'no external WAN/cellular/corporate network evidence; no security audit'], 'cases': []}
     report['iroh_profiles']={'iroh':'native defaults; TLS tickets and portmapper disabled',

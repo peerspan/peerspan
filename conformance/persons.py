@@ -27,7 +27,7 @@ from host_service import die_with_parent, stop_all
 from peer_messaging import PeerHost, set_probe, timestamp
 
 INTERVAL = 1
-NAMESPACE = 'capsule-person-v1'
+NAMESPACE = 'peerspan-person-v1'
 
 
 class PersonHost(PeerHost):
@@ -122,7 +122,7 @@ def root_sign(host, network, lines, directory):
 
 def binding_lines(b, kind='bind'):
     at = b['bound_at'] if kind == 'bind' else b['unbound_at']
-    return [f'capsule-host-{kind}-v1', b['network_id'], b['person_public_key'], b['host_public_key'], at]
+    return [f'peerspan-host-{kind}-v1', b['network_id'], b['person_public_key'], b['host_public_key'], at]
 
 
 def member(host, network, host_id):
@@ -130,7 +130,7 @@ def member(host, network, host_id):
 
 
 def check(coord_binary, creator_binary, joiner_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-persons-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-persons-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         alice = PersonHost(creator_binary, root / 'alice')
@@ -155,7 +155,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
                                 success=False)
             assert 'forbidden' in refused or 'not found' in refused.lower(), refused
             admitted = alice.cli('network', 'admit', '--network', net, '--host', c['public_key'], '--member', 'carol')
-            assert admitted['host_id'] == c['id'] and admitted['descriptor'].startswith('capsule-network-v1.')
+            assert admitted['host_id'] == c['id'] and admitted['descriptor'].startswith('peerspan-network-v1.')
             assert dave.call('POST', '/v1/networks/join', {'descriptor': admitted['descriptor']})[0] == 403
             joined = carol.cli('network', 'join', '--descriptor', admitted['descriptor'], '--no-person')
             assert joined['id'] == net and joined['member'] == 'carol', joined
@@ -191,7 +191,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             quinn_key, quinn_ssh, quinn_raw = ssh_key(root, 'quinn')
             person_invite = alice.cli('network', 'invite-person', '--network', net, '--member', 'quinn',
                                       '--expires-at', timestamp(600))
-            assert person_invite['token'].startswith('capsule-person-invite-v1.')
+            assert person_invite['token'].startswith('peerspan-person-invite-v1.')
             redeemed = bob.cli('network', 'redeem-person', '--token', person_invite['token'],
                                '--person-key', str(quinn_key))
             assert redeemed['person_id'] == person_id(quinn_raw)
@@ -297,7 +297,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             _, _, tia_raw = ssh_key(root, 'tia')
             admission = {'network_id': net, 'epoch': 1, 'person_public_key': tia_raw, 'member': 'pAt',
                          'admitted_at': timestamp(0)}
-            admission['signature'] = root_sign(alice, net, ['capsule-person-admit-v1', net, '1', tia_raw, 'pAt',
+            admission['signature'] = root_sign(alice, net, ['peerspan-person-admit-v1', net, '1', tia_raw, 'pAt',
                                                             admission['admitted_at']], root)
             with coord_db(coord) as db:
                 db.execute('INSERT INTO statements (network_id, kind, subject, statement) VALUES (?, ?, ?, ?)',
@@ -335,7 +335,7 @@ def use_agent(agent):
 
 def check_one_command(coord_binary, creator_binary, joiner_binary, label):
     """The default flows: create, then one member invite and one join per machine."""
-    with tempfile.TemporaryDirectory(prefix='capsule-onecmd-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-onecmd-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
         hosts = {name: PersonHost(creator_binary if name == 'alice' else joiner_binary, root / name)
@@ -369,7 +369,7 @@ def check_one_command(coord_binary, creator_binary, joiner_binary, label):
 
             # One member invite, one join: host, person, and binding.
             bob_invite = invite('bob')
-            assert bob_invite['token'].startswith('capsule-member-invite-v1.'), bob_invite
+            assert bob_invite['token'].startswith('peerspan-member-invite-v1.'), bob_invite
             use_agent(agents['bob'])
             joined = hosts['bob'].cli('network', 'join', '--token', bob_invite['token'])
             bob_id = person_id(keys['bob'][2])
@@ -412,7 +412,7 @@ def check_one_command(coord_binary, creator_binary, joiner_binary, label):
 
             # A host-only invite joins the host; an unadmitted person is reported.
             host_only = invite('gina', '--host-only')
-            assert host_only['token'].startswith('capsule-invite-v1.'), host_only
+            assert host_only['token'].startswith('peerspan-invite-v1.'), host_only
             use_agent(agents['gina'])
             joined = hosts['gina'].cli('network', 'join', '--token', host_only['token'])
             person = joined['person']
@@ -449,7 +449,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     args = parser.parse_args()
     set_probe(args.probe)
     binaries = {'Go': args.go.resolve(), 'Rust': args.rust.resolve()}

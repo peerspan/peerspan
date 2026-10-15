@@ -38,7 +38,7 @@ def check(a_binary, b_binary, node, label):
     script = (
         Path(__file__).resolve().parents[1] / "integrations/claude-channel/channel.mjs"
     )
-    with tempfile.TemporaryDirectory(prefix="capsule-recovery-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-recovery-") as directory:
         root = Path(directory)
         a = PeerHost(a_binary, root / "a")
         b = PeerHost(b_binary, root / "b")
@@ -514,7 +514,7 @@ def check(a_binary, b_binary, node, label):
 
 def replacement_check(original, replacement, node, label):
     """Creating a fresh owner-authorized session replaces a bound offline one."""
-    with tempfile.TemporaryDirectory(prefix="capsule-offline-replace-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-offline-replace-") as directory:
         root = Path(directory)
         a = PeerHost(original, root / "a")
         b = PeerHost(replacement, root / "b")
@@ -841,7 +841,7 @@ def replacement_check(original, replacement, node, label):
 
 
 def migration(original, replacement, label):
-    with tempfile.TemporaryDirectory(prefix="capsule-v5-recovery-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-v5-recovery-") as directory:
         root = Path(directory)
         a = PeerHost(original, root / "a")
         b = PeerHost(original, root / "b")

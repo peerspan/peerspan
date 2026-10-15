@@ -84,7 +84,7 @@ def send(sender, receiver_id, agent, grant, content):
 
 
 def check(coord_binary, creator_binary, joiner_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-revocation-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-revocation-') as directory:
         root = Path(directory)
         coord = Coordinator(coord_binary, root / 'coord')
         alice = GovHost(creator_binary, root / 'alice')
@@ -192,7 +192,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             rogue_seed = secrets.token_bytes(32)
             rogue_public = b64(public_key(rogue_seed, root))
             joined_at = timestamp(0)
-            statement = '\n'.join(['capsule-member-v1', net, token['invite_public_key'], rogue_public, joined_at])
+            statement = '\n'.join(['peerspan-member-v1', net, token['invite_public_key'], rogue_public, joined_at])
             forged = {'network_id': net, 'member': token['member'], 'invite_public_key': token['invite_public_key'],
                       'invite_expires_at': token['invite_expires_at'], 'invite_signature': token['invite_signature'],
                       'host_public_key': rogue_public, 'joined_at': joined_at,
@@ -207,7 +207,7 @@ def check(coord_binary, creator_binary, joiner_binary, label):
             # A forked rotation is refused, and the persisted chain is kept.
             other_root = b64(public_key(secrets.token_bytes(32), root))
             rotated_at = timestamp(0)
-            fork_statement = '\n'.join(['capsule-root-rotate-v1', net, '1', network['root_public_key'], other_root, rotated_at])
+            fork_statement = '\n'.join(['peerspan-root-rotate-v1', net, '1', network['root_public_key'], other_root, rotated_at])
             fork = {'network_id': net, 'epoch': 1, 'previous_root_public_key': network['root_public_key'],
                     'root_public_key': other_root, 'rotated_at': rotated_at,
                     'signature': b64(sign(genesis_seed, fork_statement, root))}
@@ -241,7 +241,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     args = parser.parse_args()
     set_probe(args.probe)
     binaries = {'Go': args.go.resolve(), 'Rust': args.rust.resolve()}

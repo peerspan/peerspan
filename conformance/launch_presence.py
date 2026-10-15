@@ -19,7 +19,7 @@ Fixtures (the suite cannot see inside the hosts, so it watches and shapes their 
   `--state`), opens the same connection to the Go coordinator with that host's key, offering exactly the
   protocols the host offered, and serves the host the protocol the coordinator selected. It records, with
   arrival times, the protocols each host offered and every relay frame in both directions, and can inject a
-  frame into a host's relay connection or close it. For erin's host it withholds `capsule-relay/3`, so that a
+  frame into a host's relay connection or close it. For erin's host it withholds `peerspan-relay/3`, so that a
   real daemon runs on a version 2 connection. The coordinator itself is unchanged and stays reachable.
 - **Raw relay clients** (TLS with a stopped member's key, as conformance/launch_push.py builds them) connect to
   the coordinator directly, to observe what it forwards and to send `presence` frames of their own: w3
@@ -27,13 +27,13 @@ Fixtures (the suite cannot see inside the hosts, so it watches and shapes their 
   second network, side, version 3). a1 is in both networks.
 - **A UDP delay front** before alice's peer listener: a1 advertises its address (`--advertise`), and the suite
   can delay a1's peer packets towards other hosts, so that one directory query takes a known time.
-- Sessions use the real Node adapter (`capsule_ready`, a clean exit, a killed adapter) or raw adapter clients
+- Sessions use the real Node adapter (`peerspan_ready`, a clean exit, a killed adapter) or raw adapter clients
   (bearer token and instance, as the recovery contract allows) where a lease must be held or dropped exactly.
 
 Sections, per pairing:
-- version 3 negotiation: the coordinator selects `capsule-relay/3` when offered and `/2` when only `/2` and
+- version 3 negotiation: the coordinator selects `peerspan-relay/3` when offered and `/2` when only `/2` and
   `/1` are offered; every host offers `/3`, then `/2`, then `/1`, and runs on version 3 (erin's on 2);
-- capsule_ready: a session verifying shows `connected: true`, `channel: verified` on every other member within 2
+- peerspan_ready: a session verifying shows `connected: true`, `channel: verified` on every other member within 2
   seconds, including the member without --peer-listen; the peer route agrees; a1 sent `presence` (0x06, the
   network ID) for each of its networks, the coordinator forwarded it (0x06, a1's 32-byte host ID, then the
   network ID) to every other version 3 member, and not back to a1;
@@ -61,7 +61,7 @@ Sections, per pairing:
   a1 announcing each of its networks on its new relay connection, the same for a relay connection the front
   closes, and the recovered adapter (still verified) shown again.
 
-Needs openssl, capsule-peer-probe, Node with the claude-channel adapter's dependencies installed, and Linux
+Needs openssl, peerspan-peer-probe, Node with the claude-channel adapter's dependencies installed, and Linux
 (/proc, to identify the process behind a connection). Exits non-zero listing every failed section.
 """
 import argparse
@@ -97,7 +97,7 @@ SLACK = 0.3  # polling period, the front's forwarding, and local API latency
 COALESCE = 0.25
 JITTER = 0.05
 DELAY = 1.3  # how long a1's delayed answers take to reach the other hosts
-V1, V2, V3 = 'capsule-relay/1', 'capsule-relay/2', 'capsule-relay/3'
+V1, V2, V3 = 'peerspan-relay/1', 'peerspan-relay/2', 'peerspan-relay/3'
 RELAY_PROTOCOLS = (V3, V2, V1)
 SEND, RECEIVE, UNREACHABLE, PING, CHANGED, PRESENCE = 1, 2, 3, 4, 5, 6
 OBSERVERS = ('b1', 'c1', 'd1')  # running version 3 members other than a1
@@ -235,7 +235,7 @@ class Link:
 
     def __init__(self, name, offered, protocol, down, up):
         self.name, self.offered, self.protocol, self.down, self.up = name, offered, protocol, down, up
-        self.relay = bool(protocol) and protocol.startswith('capsule-relay/')
+        self.relay = bool(protocol) and protocol.startswith('peerspan-relay/')
         self.opened = time.monotonic()
         self.closed_at = None
         self.sent = []  # (time, kind, payload): host → coordinator
@@ -325,7 +325,7 @@ class Front:
         self.port = self.listener.getsockname()[1]
         self.address = f'127.0.0.1:{self.port}'
         self.hosts = {}  # resolved state directory → (name, host)
-        self.downgrade = set()  # host names served without capsule-relay/3
+        self.downgrade = set()  # host names served without peerspan-relay/3
         self.links = []
         self.errors = []
         self.contexts = {}
@@ -555,7 +555,7 @@ class RawAdapter:
         try:
             payload = json.dumps(body).encode() if body is not None else None
             connection.request(method, path, payload, {'Authorization': 'Bearer ' + self.token,
-                                                       'X-Capsule-Instance': self.instance,
+                                                       'X-Peerspan-Instance': self.instance,
                                                        'Content-Type': 'application/json'})
             response = connection.getresponse()
             data = response.read()
@@ -574,7 +574,7 @@ class RawAdapter:
         return status, body
 
     def ready(self):
-        """As the adapter does once the model calls capsule_ready with the matching nonce."""
+        """As the adapter does once the model calls peerspan_ready with the matching nonce."""
         return self.request('POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)})
 
     def renew(self):
@@ -789,7 +789,7 @@ class Pairing:
         stranger = secrets.token_bytes(32)  # the protocol is selected in the handshake, before membership
         three = Relay(self.coord, stranger, self.certs, (V3, V2, V1))
         self.raws.append(three)
-        need(three.selected == V3, 'Hosts offer capsule-relay/3, then /2, then /1. A coordinator that knows version '
+        need(three.selected == V3, 'Hosts offer peerspan-relay/3, then /2, then /1. A coordinator that knows version '
              '3 selects it', three.selected)
         two = Relay(self.coord, secrets.token_bytes(32), self.certs, (V2, V1))
         self.raws.append(two)
@@ -803,10 +803,10 @@ class Pairing:
             links = self.front.relay_links(name)
             need(links, f'{name} keeps a relay connection to its coordinator (through the front)',
                  self.front.errors[-5:])
-            offers[name] = [p for p in links[-1].offered if p.startswith('capsule-relay/')]
+            offers[name] = [p for p in links[-1].offered if p.startswith('peerspan-relay/')]
             selected[name] = links[-1].protocol
         wrong = {n: o for n, o in offers.items() if o != [V3, V2, V1]}
-        need(not wrong, 'Hosts offer capsule-relay/3, then /2, then /1 (relay protocols offered, in order)', wrong)
+        need(not wrong, 'Hosts offer peerspan-relay/3, then /2, then /1 (relay protocols offered, in order)', wrong)
         expected = {n: V3 for n in ('a1', *OBSERVERS)} | {'vh': V2}
         need(selected == expected, 'every host runs on version 3, and erin\'s host on version 2 when its coordinator '
              'does not offer 3', selected)
@@ -819,18 +819,18 @@ class Pairing:
         channel = Channel(self.node, self.script, self.hosts['a1'], credential, self.root / 'mcp-ready')
         self.channels.append(channel)
         self.ready = (channel, credential)
-        origin = time.monotonic()  # capsule_ready has returned
-        self.reflected('capsule_ready', lambda n: self.state(n, agent['id']) == (True, 'verified'), origin)
+        origin = time.monotonic()  # peerspan_ready has returned
+        self.reflected('peerspan_ready', lambda n: self.state(n, agent['id']) == (True, 'verified'), origin)
         status, listing = wire(self.hosts['a1'], fixture_context(self.hosts['b1']), 'GET',
                                f'/peer/v1/networks/{self.net}/agents')
         need(status == 200, 'the peer route answers bob\'s host', status, listing)
         served = {e['agent_id']: (e['connected'], e.get('channel')) for e in listing}
         need(served.get(agent['id']) == (True, 'verified'), 'the peer route serves the verified session',
              served.get(agent['id']))
-        self.announced(mark, 'capsule_ready')
-        self.forwarded(mark, 'a1', self.net, OBSERVERS, 'capsule_ready')
+        self.announced(mark, 'peerspan_ready')
+        self.forwarded(mark, 'a1', self.net, OBSERVERS, 'peerspan_ready')
         need(any(p == raw_id(self.ids['a1']) + self.net.encode() for _, p in self.w3.received(since=mark)),
-             'capsule_ready: forwarded to a raw version 3 member too', self.w3.received(since=mark))
+             'peerspan_ready: forwarded to a raw version 3 member too', self.w3.received(since=mark))
         echoed = [p for _, p in self.front.delivered('a1', mark) if p[:32] == raw_id(self.ids['a1'])]
         need(not echoed, 'The coordinator forwards to every other member: not back to the sender', echoed)
 
@@ -1043,7 +1043,7 @@ class Pairing:
         return f"after detach/revoke (connected, channel): {notes['detach']['b1']}, {notes['revoke']['b1']}"
 
     def check_clean_exit(self):
-        need(getattr(self, 'ready', None), 'needs the capsule_ready section\'s session')
+        need(getattr(self, 'ready', None), 'needs the peerspan_ready section\'s session')
         channel, credential = self.ready
         agent = self.agents['ready']
         self.wait_state(agent, (True, 'verified'), what='still connected')
@@ -1307,7 +1307,7 @@ class Pairing:
         self.m2 = self.relay('m2', (V3, V2, V1))
 
         self.section('version 3 negotiation', self.check_negotiation)
-        self.section('capsule_ready', self.check_ready)
+        self.section('peerspan_ready', self.check_ready)
         self.section('only the changed host', self.check_only_changed)
         self.section('receiver ignoring', self.check_ignoring)
         self.section('one query in flight', self.check_in_flight)
@@ -1358,7 +1358,7 @@ class Pairing:
 
 
 def run_pairing(coord_binary, x, y, node, label, logs=None):
-    with tempfile.TemporaryDirectory(prefix='capsule-presence-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-presence-') as temporary:
         pairing = Pairing(label, x, y, coord_binary, node, Path(temporary))
         started = time.monotonic()
         try:
@@ -1384,7 +1384,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, required=True, help='Node for the real MCP adapter')
     parser.add_argument('--pairing', action='append',
                         help='X/Y, such as Go/Rust: alice\'s and carol\'s hosts run X, bob\'s, dave\'s, and erin\'s Y; '

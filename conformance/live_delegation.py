@@ -6,7 +6,7 @@ Three hosts on loopback join one network under the Go coordinator: Alice
 interactive Claude Code session attached through the claude-channel
 integration with built-in tools disabled. The owners set up agents, sessions,
 credentials, grants, and routes with the CLI. The models then drive the flow
-through Capsule MCP tools only: Alice delegates to Bob; Bob accepts and passes
+through Peerspan MCP tools only: Alice delegates to Bob; Bob accepts and passes
 a subtask on to Carol with parent_task_id; Carol accepts, reports progress, and
 completes with an output and a result artifact; Bob saves the artifact and
 completes the parent with Carol's result; Alice observes the final update.
@@ -200,7 +200,7 @@ def assistant_text(session):
 
 
 def live_prompts(ctx):
-    preamble = "This is a Capsule integration experiment. Use only Capsule tools, and only the calls described here. "
+    preamble = "This is a Peerspan integration experiment. Use only Peerspan tools, and only the calls described here. "
     carol = preamble + (
         "You are Carol. When a kind=task channel event arrives: (1) call task_accept with its task_id; "
         '(2) call task_progress with that task_id and the message "carol is preparing the result"; '
@@ -239,7 +239,7 @@ def live_flow(ctx, args, script, root):
         for session in sessions.values():
             session.ready()
         pids = {name: s.process.pid for name, s in sessions.items()}
-        print("Three interactive Claude sessions registered their Capsule channels.", flush=True)
+        print("Three interactive Claude sessions registered their Peerspan channels.", flush=True)
         alice, bob, carol = live_prompts(ctx)
         sessions["carol"].prompt(carol)
         sessions["bob"].prompt(bob)
@@ -256,7 +256,7 @@ def live_flow(ctx, args, script, root):
         assert {name: s.process.pid for name, s in sessions.items()} == pids
         observed = {"alice_final": assistant_text(sessions["alice"])}
         observed["tools"] = {
-            name: {tool_name: s.tool_exchanges("mcp__capsule__" + tool_name) for tool_name in TOOLS}
+            name: {tool_name: s.tool_exchanges("mcp__peerspan__" + tool_name) for tool_name in TOOLS}
             for name, s in sessions.items()
         }
         observed["carol_transcript"] = transcript(sessions["carol"])
@@ -271,7 +271,7 @@ def live_flow(ctx, args, script, root):
                 print(f"{name} screen tail:", s.screen()[-1500:], flush=True)
             if s.debug_path.exists():
                 print(name + " channel trace:", "\n".join(
-                    line for line in s.debug_path.read_text().splitlines() if 'MCP server "capsule"' in line
+                    line for line in s.debug_path.read_text().splitlines() if 'MCP server "peerspan"' in line
                 )[-3000:], flush=True)
         raise
     finally:
@@ -392,7 +392,7 @@ def check(args):
     binaries = {"G": args.go.resolve(), "R": args.rust.resolve()}
     mix = args.mix
     assert len(mix) == 3 and set(mix) <= set(binaries), mix
-    with tempfile.TemporaryDirectory(prefix="capsule-live-delegation-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-live-delegation-") as directory:
         root = Path(directory)
         ctx = None
         try:
@@ -444,7 +444,7 @@ def check(args):
             report["harness_verified"] = verified
             report["evidence"] = (
                 "harness_verified comes from host databases, owner CLI records read after the flow, and the "
-                "saved file; model_observed comes from each session's own transcript (its Capsule tool calls "
+                "saved file; model_observed comes from each session's own transcript (its Peerspan tool calls "
                 "and terminal text)." if not args.fixture else
                 "harness_verified comes from host databases, owner CLI records read after the flow, the saved "
                 "file, and the deterministic consumers' MCP events."

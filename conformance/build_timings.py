@@ -31,15 +31,15 @@ def measure(command, directory, environment):
 
 def benchmark(source, language, root, runs):
     destination = root / language
-    shutil.copytree(source, destination, ignore=shutil.ignore_patterns(".git", "target", ".capsules", "__pycache__"))
+    shutil.copytree(source, destination, ignore=shutil.ignore_patterns(".git", "target", ".peerspans", "__pycache__"))
     environment = dict(os.environ)
     if language == "go":
         environment["GOCACHE"] = str(root / "go-cache")
         environment["GOTOOLCHAIN"] = "local"
         environment["GOPROXY"] = "off"
-        build = ["go", "build", "-o", str(root / "capsule-host-go"), "./cmd/capsule-host"]
-        tests = ["go", "test", "./internal/host", "./cmd/capsule-host"]
-        release = ["go", "build", "-trimpath", "-ldflags=-s -w", "-o", str(root / "capsule-host-go-release"), "./cmd/capsule-host"]
+        build = ["go", "build", "-o", str(root / "peerspan-host-go"), "./cmd/peerspan-host"]
+        tests = ["go", "test", "./internal/host", "./cmd/peerspan-host"]
+        release = ["go", "build", "-trimpath", "-ldflags=-s -w", "-o", str(root / "peerspan-host-go-release"), "./cmd/peerspan-host"]
         leaf = destination / "internal/host/model.go"
         comment = "// build timing edit\n"
     else:
@@ -95,7 +95,7 @@ def main():
         "cache": "isolated build caches; dependencies predownloaded; each tool's default compiler parallelism",
         "profiles": "Go default optimized build; Rust unoptimized dev build; release builds separate",
     }
-    with tempfile.TemporaryDirectory(prefix="capsule-build-timings-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="peerspan-build-timings-") as temporary:
         root = Path(temporary)
         result["go"] = benchmark(args.go_repo.resolve(), "go", root, args.runs)
         result["rust"] = benchmark(args.rust_repo.resolve(), "rust", root, args.runs)

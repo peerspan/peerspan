@@ -59,7 +59,7 @@ Sections:
 The creator (alice) and the revoked host (erin) run the --creator implementation (default Go); bob, the
 stopped watcher, and the post-restore joiner (dave) run the other. Needs openssl and PyYAML; systemd-analyze
 is optional. Everything runs under a temporary directory with HOME and XDG_CONFIG_HOME redirected per host;
-the real ~/.config/capsule and systemd are never touched. Exits non-zero listing every failed section.
+the real ~/.config/peerspan and systemd are never touched. Exits non-zero listing every failed section.
 
 Questions settled in the contract are checked as written; the few still open (the exact /healthz body, Q9,
 and how limit flags reach ExecStart, Q7) are marked with a `Q<n>` comment.
@@ -94,7 +94,7 @@ from host_service import die_with_parent, stop_all  # noqa: E402
 from launch_directory import DirectoryHost  # noqa: E402
 from launch_push import RawRelay, V1, V2, SEND, seed_of  # noqa: E402
 
-V3 = 'capsule-relay/3'
+V3 = 'peerspan-relay/3'
 from launch_service import Key, RawNetwork, token_membership  # noqa: E402
 from peer_messaging import available_port, request_id, set_probe, timestamp  # noqa: E402
 
@@ -107,15 +107,15 @@ SYNC_ROUTE = '/coord/v1/networks/{network}/sync'
 CREATE_ROUTE = '/coord/v1/networks'
 JOIN_ROUTE = '/coord/v1/networks/{network}/members'
 METRICS = {
-    'capsule_coord_info': ('gauge', {'version'}),
-    'capsule_coord_networks': ('gauge', set()),
-    'capsule_coord_member_hosts': ('gauge', set()),
-    'capsule_coord_relay_connections': ('gauge', {'alpn'}),
-    'capsule_coord_requests_total': ('counter', {'route', 'code'}),
-    'capsule_coord_request_seconds': ('histogram', {'route'}),
-    'capsule_coord_relay_bytes_total': ('counter', set()),
-    'capsule_coord_limit_refusals_total': ('counter', {'limit'}),
-    'capsule_coord_changes_notified_total': ('counter', set()),
+    'peerspan_coord_info': ('gauge', {'version'}),
+    'peerspan_coord_networks': ('gauge', set()),
+    'peerspan_coord_member_hosts': ('gauge', set()),
+    'peerspan_coord_relay_connections': ('gauge', {'alpn'}),
+    'peerspan_coord_requests_total': ('counter', {'route', 'code'}),
+    'peerspan_coord_request_seconds': ('histogram', {'route'}),
+    'peerspan_coord_relay_bytes_total': ('counter', set()),
+    'peerspan_coord_limit_refusals_total': ('counter', {'limit'}),
+    'peerspan_coord_changes_notified_total': ('counter', set()),
 }
 LIMITS = {'members', 'networks_per_ip', 'relay_bytes'}
 TIME = re.compile(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+Z$')
@@ -164,7 +164,7 @@ def parse_time(value):
 # --- the coordinator ---------------------------------------------------------------------------------------
 
 class OpsCoordinator:
-    """`capsule-coord run`, with stdout and stderr kept in files for the log checks."""
+    """`peerspan-coord run`, with stdout and stderr kept in files for the log checks."""
 
     def __init__(self, binary, state, logdir, name, port=None, ops=None, flags=()):
         self.binary, self.state, self.logdir, self.name = str(binary), Path(state), Path(logdir), name
@@ -393,16 +393,16 @@ def check_label_values(metrics, forbidden_ids):
                  'no label value is a network, host, or person ID', name, key, value)
             need('127.0.0.1' not in value and not IPV4.search(value) and '::1' not in value,
                  'no label value is an IP address', name, key, value)
-    for labels, _ in metrics.series('capsule_coord_limit_refusals_total'):
+    for labels, _ in metrics.series('peerspan_coord_limit_refusals_total'):
         need(labels['limit'] in LIMITS, 'limit_refusals_total limit is members, networks_per_ip, or relay_bytes',
              labels)
-    for labels, _ in metrics.series('capsule_coord_requests_total'):
+    for labels, _ in metrics.series('peerspan_coord_requests_total'):
         need(labels['route'] == 'other' or labels['route'].startswith('/coord/'),
              'requests_total routes are coordination API route templates or other', labels)
         need(re.fullmatch(r'\d{3}', labels['code']), 'requests_total code is the HTTP status', labels)
-    info = metrics.series('capsule_coord_info')
+    info = metrics.series('peerspan_coord_info')
     need(len(info) == 1 and info[0][1] == 1 and info[0][0]['version'],
-         'capsule_coord_info is one gauge, always 1, with the version', info)
+         'peerspan_coord_info is one gauge, always 1, with the version', info)
 
 
 # --- hosts --------------------------------------------------------------------------------------------------
@@ -536,7 +536,7 @@ class Suite:
                 self.secret(value, 'an invite token field')
 
     def collect_person_key(self, name):
-        key = self.hosts[name].config / 'capsule' / 'person_ed25519'
+        key = self.hosts[name].config / 'peerspan' / 'person_ed25519'
         if key.exists():
             for line in key.read_text().splitlines():
                 if not line.startswith('-----') and len(line) >= 20:
@@ -605,17 +605,17 @@ class Suite:
         self.secret(identity['public_key'], 'coordinator public key')
         try:
             m = scrape(c0)
-            check_metric_shapes(m, [n for n in METRICS if n != 'capsule_coord_request_seconds'
-                                    and n != 'capsule_coord_requests_total'])
-            need({l['limit'] for l, _ in m.series('capsule_coord_limit_refusals_total')} == LIMITS
-                 and m.value('capsule_coord_limit_refusals_total') == 0,
+            check_metric_shapes(m, [n for n in METRICS if n != 'peerspan_coord_request_seconds'
+                                    and n != 'peerspan_coord_requests_total'])
+            need({l['limit'] for l, _ in m.series('peerspan_coord_limit_refusals_total')} == LIMITS
+                 and m.value('peerspan_coord_limit_refusals_total') == 0,
                  'limit_refusals_total is exposed for all three limits from the start, at 0',
-                 m.series('capsule_coord_limit_refusals_total'))
-            need({l['alpn'] for l, _ in m.series('capsule_coord_relay_connections')} == {V1, V2, V3}
-                 and m.value('capsule_coord_relay_connections') == 0,
-                 'relay_connections is exposed for every relay ALPN (capsule-relay/1, /2, and /3) from the start, '
+                 m.series('peerspan_coord_limit_refusals_total'))
+            need({l['alpn'] for l, _ in m.series('peerspan_coord_relay_connections')} == {V1, V2, V3}
+                 and m.value('peerspan_coord_relay_connections') == 0,
+                 'relay_connections is exposed for every relay ALPN (peerspan-relay/1, /2, and /3) from the start, '
                  'at 0',
-                 m.series('capsule_coord_relay_connections'))
+                 m.series('peerspan_coord_relay_connections'))
             status, _, body = ops_request(c0.ops_host, c0.ops_port, 'GET', '/healthz')
             need(status == 200, 'GET /healthz returns 200 when a database read completes', status, body)
             health = json.loads(body)
@@ -731,17 +731,17 @@ class Suite:
                 expect(False, rule, scrape(self.c1).value(name, **labels), value)
 
         m = scrape(self.c1)
-        expect(m.value('capsule_coord_networks') == 0 and m.value('capsule_coord_member_hosts') == 0,
+        expect(m.value('peerspan_coord_networks') == 0 and m.value('peerspan_coord_member_hosts') == 0,
                'networks and member_hosts are 0 before any registration',
-               m.value('capsule_coord_networks'), m.value('capsule_coord_member_hosts'))
-        expect(m.value('capsule_coord_limit_refusals_total') == 0 and m.value('capsule_coord_relay_bytes_total') == 0
-               and m.value('capsule_coord_changes_notified_total') == 0, 'counters start at 0')
-        expect({l['limit'] for l, _ in m.series('capsule_coord_limit_refusals_total')} == LIMITS,
+               m.value('peerspan_coord_networks'), m.value('peerspan_coord_member_hosts'))
+        expect(m.value('peerspan_coord_limit_refusals_total') == 0 and m.value('peerspan_coord_relay_bytes_total') == 0
+               and m.value('peerspan_coord_changes_notified_total') == 0, 'counters start at 0')
+        expect({l['limit'] for l, _ in m.series('peerspan_coord_limit_refusals_total')} == LIMITS,
                'limit_refusals_total is exposed for all three limits from the start',
-               m.series('capsule_coord_limit_refusals_total'))
-        expect({l['alpn'] for l, _ in m.series('capsule_coord_relay_connections')} == {V1, V2, V3},
-               'relay_connections is exposed for every relay ALPN (capsule-relay/1, /2, and /3) from the start',
-               m.series('capsule_coord_relay_connections'))
+               m.series('peerspan_coord_limit_refusals_total'))
+        expect({l['alpn'] for l, _ in m.series('peerspan_coord_relay_connections')} == {V1, V2, V3},
+               'relay_connections is exposed for every relay ALPN (peerspan-relay/1, /2, and /3) from the start',
+               m.series('peerspan_coord_relay_connections'))
         a, c1 = self.hosts['alice'], self.c1
 
         # Create.
@@ -758,21 +758,21 @@ class Suite:
             for (seed,) in db.execute('SELECT root_seed FROM networks WHERE root_seed IS NOT NULL'):
                 self.secret(base64.b64encode(bytes(seed)).decode(), 'root seed')
         need(self.network('alice')['last_sync_error'] is None, 'alice registers the network', self.network('alice'))
-        created_relay_bytes = scrape(c1).value('capsule_coord_relay_bytes_total')
-        gauge_becomes('capsule_coord_networks', 1, 'networks is 1 after create')
-        gauge_becomes('capsule_coord_member_hosts', 1, 'member_hosts is 1 after create')
+        created_relay_bytes = scrape(c1).value('peerspan_coord_relay_bytes_total')
+        gauge_becomes('peerspan_coord_networks', 1, 'networks is 1 after create')
+        gauge_becomes('peerspan_coord_member_hosts', 1, 'member_hosts is 1 after create')
 
         # Joins.
         for count, (name, label) in enumerate((('bob', 'bob'), ('erin', 'erin'), ('w', 'watcher')), start=2):
             self.invite_and_join(name, label)
-            gauge_becomes('capsule_coord_member_hosts', count, f'member_hosts is {count} after {name} joins')
+            gauge_becomes('peerspan_coord_member_hosts', count, f'member_hosts is {count} after {name} joins')
         self.all_see(['alice', 'bob', 'erin', 'w'], [self.ids[n] for n in ('alice', 'bob', 'erin', 'w')])
         # The watcher's daemon stops; its key stays a member, used below for a raw relay connection.
         self.hosts['w'].stop()
-        expect(scrape(c1).value('capsule_coord_networks') == 1, 'networks stays 1 after joins')
+        expect(scrape(c1).value('peerspan_coord_networks') == 1, 'networks stays 1 after joins')
 
         # A join refused at --max-members 4.
-        before = scrape(c1).value('capsule_coord_limit_refusals_total', limit='members')
+        before = scrape(c1).value('peerspan_coord_limit_refusals_total', limit='members')
         token = a.cli('network', 'invite', '--network', self.net, '--member', 'extra', '--expires-at', timestamp(600),
                       '--host-only')['token']
         self.collect_token(token)
@@ -786,21 +786,21 @@ class Suite:
         need(status == 429 and isinstance(body, dict) and body.get('limit') == 'members',
              'a join over --max-members returns 429 with limit members (launch contract)', status, body)
         m = scrape(c1)
-        expect(m.value('capsule_coord_limit_refusals_total', limit='members') == before + 1,
+        expect(m.value('peerspan_coord_limit_refusals_total', limit='members') == before + 1,
                'limit_refusals_total{limit="members"} counts the refused join', before,
-               m.series('capsule_coord_limit_refusals_total'))
-        expect(m.value('capsule_coord_member_hosts') == 4, 'member_hosts is unchanged by a refused join',
-               m.value('capsule_coord_member_hosts'))
+               m.series('peerspan_coord_limit_refusals_total'))
+        expect(m.value('peerspan_coord_member_hosts') == 4, 'member_hosts is unchanged by a refused join',
+               m.value('peerspan_coord_member_hosts'))
 
         # Relay connections: one version 3 connection per running member host (hosts offer /3 first, and a
         # version 3 coordinator selects it).
-        gauge_becomes('capsule_coord_relay_connections', 3,
-                      'relay_connections{alpn="capsule-relay/3"} counts the three running member hosts',
+        gauge_becomes('peerspan_coord_relay_connections', 3,
+                      'relay_connections{alpn="peerspan-relay/3"} counts the three running member hosts',
                       timeout=60, alpn=V3)
-        relayed_before = scrape(c1).value('capsule_coord_relay_bytes_total')
+        relayed_before = scrape(c1).value('peerspan_coord_relay_bytes_total')
         raw = self.raw(seed_of(self.hosts['w']), (V1,))
         need(raw.selected == V1, 'a version 1 relay connection', raw.selected)
-        gauge_becomes('capsule_coord_relay_connections', 1, 'relay_connections{alpn="capsule-relay/1"} counts '
+        gauge_becomes('peerspan_coord_relay_connections', 1, 'relay_connections{alpn="peerspan-relay/1"} counts '
                       'an open version 1 connection', alpn=V1)
         # A datagram forwarded to alice is charged; its payload is never logged.
         marker = ('ops-datagram-' + secrets.token_hex(12)).encode()
@@ -810,19 +810,19 @@ class Suite:
         raw.connection.sendall(struct.pack('>BH', SEND, 32 + len(datagram)) + bytes.fromhex(self.ids['alice'][5:])
                                + datagram)
         try:
-            wait_for(lambda: scrape(c1).value('capsule_coord_relay_bytes_total') >= relayed_before + len(datagram),
+            wait_for(lambda: scrape(c1).value('peerspan_coord_relay_bytes_total') >= relayed_before + len(datagram),
                      timeout=30, message='relay bytes')
         except AssertionError:
             expect(False, 'relay_bytes_total grows by a forwarded datagram\'s length', relayed_before,
-                   scrape(c1).value('capsule_coord_relay_bytes_total'), raw.kinds())
+                   scrape(c1).value('peerspan_coord_relay_bytes_total'), raw.kinds())
         raw.close()
         self.relay_seen = (self.ids['w'], V1, len(datagram))
         try:
-            wait_for(lambda: scrape(c1).value('capsule_coord_relay_connections', alpn=V1) == 0, timeout=30,
+            wait_for(lambda: scrape(c1).value('peerspan_coord_relay_connections', alpn=V1) == 0, timeout=30,
                      message='closed')
         except AssertionError:
-            expect(False, 'relay_connections{alpn="capsule-relay/1"} drops when the connection closes',
-                   scrape(c1).series('capsule_coord_relay_connections'))
+            expect(False, 'relay_connections{alpn="peerspan-relay/1"} drops when the connection closes',
+                   scrape(c1).series('peerspan_coord_relay_connections'))
 
         # Relayed messages. Hosts here advertise no address, so every peer connection starts on the relay, but
         # hosts move relayed connections onto a direct path once one is found (coordination contract, Direct
@@ -830,31 +830,31 @@ class Suite:
         # the joins, the directory refreshes they cause, and these messages, not per message.
         self.send('bob', 'alice', 'ops-content-' + secrets.token_hex(8))
         self.send('alice', 'bob', 'ops-content-' + secrets.token_hex(8))
-        after = scrape(c1).value('capsule_coord_relay_bytes_total')
+        after = scrape(c1).value('peerspan_coord_relay_bytes_total')
         expect(after - len(datagram) > created_relay_bytes, 'relay_bytes_total increases with relayed messages',
                created_relay_bytes, after)
 
         # Sync requests.
-        before = scrape(c1).value('capsule_coord_requests_total', route=SYNC_ROUTE, code='200')
+        before = scrape(c1).value('peerspan_coord_requests_total', route=SYNC_ROUTE, code='200')
         synced = self.hosts['bob'].cli('network', 'sync', self.net)
         need(synced['last_sync_error'] is None, 'bob syncs', synced)
-        after = scrape(c1).value('capsule_coord_requests_total', route=SYNC_ROUTE, code='200')
+        after = scrape(c1).value('peerspan_coord_requests_total', route=SYNC_ROUTE, code='200')
         expect(after > before, f'requests_total{{route="{SYNC_ROUTE}",code="200"}} counts syncs', before, after)
-        expect(scrape(c1).value('capsule_coord_request_seconds_count', route=SYNC_ROUTE) > 0,
+        expect(scrape(c1).value('peerspan_coord_request_seconds_count', route=SYNC_ROUTE) > 0,
                'request_seconds observes sync durations')
 
         # An unmatched path.
         status, _ = tls_request(c1.port, extra, 'GET', '/nope/' + secrets.token_hex(4))
         expect(status == 404, 'an unmatched coordination path is 404', status)
-        expect(scrape(c1).value('capsule_coord_requests_total', route='other', code='404') >= 1,
-               'unmatched paths use route other', scrape(c1).series('capsule_coord_requests_total'))
+        expect(scrape(c1).value('peerspan_coord_requests_total', route='other', code='404') >= 1,
+               'unmatched paths use route other', scrape(c1).series('peerspan_coord_requests_total'))
         # A wrong method on a known path also uses route other.
-        before = scrape(c1).value('capsule_coord_requests_total', route='other')
+        before = scrape(c1).value('peerspan_coord_requests_total', route='other')
         status, _ = tls_request(c1.port, extra, 'GET', '/coord/v1/networks')
         expect(status in (404, 405), 'GET on the create path is refused', status)
-        expect(scrape(c1).value('capsule_coord_requests_total', route='other') == before + 1
-               and scrape(c1).value('capsule_coord_requests_total', route=CREATE_ROUTE, code=str(status)) == 0,
-               'wrong methods use route other', scrape(c1).series('capsule_coord_requests_total'))
+        expect(scrape(c1).value('peerspan_coord_requests_total', route='other') == before + 1
+               and scrape(c1).value('peerspan_coord_requests_total', route=CREATE_ROUTE, code=str(status)) == 0,
+               'wrong methods use route other', scrape(c1).series('peerspan_coord_requests_total'))
         self.wrong_method_status = status
         # A non-member's relay connection is refused; it is still logged as a relay line.
         stranger = Key(self.keys)
@@ -867,11 +867,11 @@ class Suite:
 
         # A policy change notifies members.
         def stable():
-            first = scrape(c1).value('capsule_coord_changes_notified_total')
+            first = scrape(c1).value('peerspan_coord_changes_notified_total')
             time.sleep(1.5)
-            return first == scrape(c1).value('capsule_coord_changes_notified_total')
+            return first == scrape(c1).value('peerspan_coord_changes_notified_total')
         wait_for(stable, timeout=60, message='changes_notified_total settles')
-        before = scrape(c1).value('capsule_coord_changes_notified_total')
+        before = scrape(c1).value('peerspan_coord_changes_notified_total')
         out = self.hosts['bob'].cli('allow', 'everyone', '--agent', 'ops', '--network', self.net)
         policy = out.get('policy') or {}
         self.secret(policy.get('signature'), 'policy signature')
@@ -880,20 +880,20 @@ class Suite:
             self.secret(json.dumps(policy), 'policy JSON')
             self.secret(json.dumps(policy, separators=(',', ':')), 'policy JSON')
         try:
-            wait_for(lambda: scrape(c1).value('capsule_coord_changes_notified_total') > before, timeout=30,
+            wait_for(lambda: scrape(c1).value('peerspan_coord_changes_notified_total') > before, timeout=30,
                      message='changed')
         except AssertionError:
             expect(False, 'changes_notified_total increases after a policy change', before,
-                   scrape(c1).value('capsule_coord_changes_notified_total'))
+                   scrape(c1).value('peerspan_coord_changes_notified_total'))
 
         # A revocation.
         a.cli('network', 'revoke', '--network', self.net, '--host', self.ids['erin'])
-        gauge_becomes('capsule_coord_member_hosts', 3, 'member_hosts excludes a revoked host')
+        gauge_becomes('peerspan_coord_member_hosts', 3, 'member_hosts excludes a revoked host')
         self.hosts['erin'].stop()
         self.all_see(['alice', 'bob'], [self.ids['alice'], self.ids['bob']])
         eventually(lambda: self.ids['erin'] not in self.members('alice') and self.ids['erin'] not in self.members('bob'),
                    60, 'members drop the revoked host')
-        expect(scrape(c1).value('capsule_coord_networks') == 1, 'networks stays 1 after a revocation')
+        expect(scrape(c1).value('peerspan_coord_networks') == 1, 'networks stays 1 after a revocation')
         self.members('bob')
         self.scenario = True
 
@@ -904,8 +904,8 @@ class Suite:
         except Failure as error:
             soft.append(str(error))
         need(not soft, 'metrics', *soft)
-        return (f"relay_bytes_total {m.value('capsule_coord_relay_bytes_total'):.0f}, changes_notified_total "
-                f"{m.value('capsule_coord_changes_notified_total'):.0f}")
+        return (f"relay_bytes_total {m.value('peerspan_coord_relay_bytes_total'):.0f}, changes_notified_total "
+                f"{m.value('peerspan_coord_changes_notified_total'):.0f}")
 
     # 3. backup while serving
 
@@ -970,12 +970,12 @@ class Suite:
             pump.close()
         after = scrape(self.c1)
         need(len(exchanged) >= 3, 'relayed messages flowed during the backups', len(exchanged), errors[:3])
-        need(after.value('capsule_coord_relay_bytes_total') >= before.value('capsule_coord_relay_bytes_total')
+        need(after.value('peerspan_coord_relay_bytes_total') >= before.value('peerspan_coord_relay_bytes_total')
              + len(datagram) * len(pumped) // 2, 'the coordinator relayed continuously during the backups',
-             before.value('capsule_coord_relay_bytes_total'), after.value('capsule_coord_relay_bytes_total'),
+             before.value('peerspan_coord_relay_bytes_total'), after.value('peerspan_coord_relay_bytes_total'),
              len(pumped))
-        need(after.value('capsule_coord_requests_total', route=SYNC_ROUTE)
-             > before.value('capsule_coord_requests_total', route=SYNC_ROUTE) + 4, 'hosts synced during the backups')
+        need(after.value('peerspan_coord_requests_total', route=SYNC_ROUTE)
+             > before.value('peerspan_coord_requests_total', route=SYNC_ROUTE) + 4, 'hosts synced during the backups')
         leftovers = sorted(p.name for p in backups.iterdir())
         need(leftovers == sorted(f'coord-{i}.backup' for i in range(3)),
              'backup writes through a temporary file renamed into place, leaving nothing else', leftovers)
@@ -1193,8 +1193,8 @@ class Suite:
         restarted = utcnow()
         need(c2.start() == self.coord_info, 'the restored coordinator has the backup\'s identity')
         m = scrape(c2)
-        need(m.value('capsule_coord_limit_refusals_total') == 0, 'counters start at 0 when the process starts',
-             m.series('capsule_coord_limit_refusals_total'))
+        need(m.value('peerspan_coord_limit_refusals_total') == 0, 'counters start at 0 when the process starts',
+             m.series('peerspan_coord_limit_refusals_total'))
         status, _, body = ops_request(c2.ops_host, c2.ops_port, 'GET', '/healthz')
         need(status == 200 and json.loads(body) == {'status': 'ok', 'id': self.coord_info['id']},
              '/healthz on the restored coordinator', status, body)
@@ -1210,8 +1210,8 @@ class Suite:
         self.start_host('dave')
         self.invite_and_join('dave', 'dave')
         self.all_see(['alice', 'bob', 'dave'], [self.ids[n] for n in ('alice', 'bob', 'dave')])
-        need(scrape(c2).value('capsule_coord_member_hosts') == 4, 'member_hosts on the restored coordinator',
-             scrape(c2).value('capsule_coord_member_hosts'))
+        need(scrape(c2).value('peerspan_coord_member_hosts') == 4, 'member_hosts on the restored coordinator',
+             scrape(c2).value('peerspan_coord_member_hosts'))
         # Connected-only grants: each receiver must have synced recently with the restored coordinator.
         for sender, receiver in (('bob', 'alice'), ('alice', 'bob'), ('dave', 'alice'), ('alice', 'dave'),
                                  ('bob', 'dave'), ('dave', 'bob')):
@@ -1219,7 +1219,7 @@ class Suite:
         self.members('alice')
         m = scrape(c2)
         check_label_values(m, self.label_ids)
-        return (f"relay_bytes_total {m.value('capsule_coord_relay_bytes_total'):.0f} after restore; "
+        return (f"relay_bytes_total {m.value('peerspan_coord_relay_bytes_total'):.0f} after restore; "
                 f"{self.x_name} and {self.y_name} hosts synced, dave joined")
 
     # 7b. a leftover -wal from a killed coordinator
@@ -1402,25 +1402,25 @@ class Suite:
     # 9. deployment files
 
     def check_deploy(self):
-        names = ['capsule-coord.service', 'capsule-coord.env.example', 'litestream.yml', 'litestream.service',
+        names = ['peerspan-coord.service', 'peerspan-coord.env.example', 'litestream.yml', 'litestream.service',
                  'README.md']
         missing = [n for n in names if not (DEPLOY / n).is_file()]
         need(not missing, 'deploy/coordinator/ holds the five files', missing)
-        unit = parse_unit((DEPLOY / 'capsule-coord.service').read_text())
+        unit = parse_unit((DEPLOY / 'peerspan-coord.service').read_text())
         service = unit.get('Service', {})
         exec_start = ' '.join(service.get('ExecStart', []))
         normalized = re.sub(r'\s+', ' ', exec_start)
-        for part in ('capsule-coord', '--state /var/lib/capsule-coord', ' run ', '--listen ${CAPSULE_COORD_LISTEN}',
+        for part in ('peerspan-coord', '--state /var/lib/peerspan-coord', ' run ', '--listen ${PEERSPAN_COORD_LISTEN}',
                      '--ops-listen 127.0.0.1:9464'):
-            need(part in normalized, f'ExecStart runs capsule-coord with {part.strip()}', normalized)
+            need(part in normalized, f'ExecStart runs peerspan-coord with {part.strip()}', normalized)
         need(normalized.index('--state') < normalized.index(' run '), 'ExecStart puts --state before run', normalized)
         need(service.get('EnvironmentFile'), 'the unit reads an EnvironmentFile', service)
-        env_text = (DEPLOY / 'capsule-coord.env.example').read_text()
+        env_text = (DEPLOY / 'peerspan-coord.env.example').read_text()
         defined = {m.group(1): m.group(2) for m in re.finditer(r'^\s*#?\s*([A-Z][A-Z0-9_]*)=(.*)$', env_text, re.M)}
         need(any(line.strip().startswith('#') for line in env_text.splitlines()), 'the environment example has comments')
         referenced = set(re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', exec_start)) | \
             set(re.findall(r'\$([A-Za-z_][A-Za-z0-9_]*)', exec_start))
-        need('CAPSULE_COORD_LISTEN' in defined, 'the environment example sets CAPSULE_COORD_LISTEN', sorted(defined))
+        need('PEERSPAN_COORD_LISTEN' in defined, 'the environment example sets PEERSPAN_COORD_LISTEN', sorted(defined))
         undefined = sorted(referenced - set(defined))
         need(not undefined, 'every variable ExecStart uses is in the environment example', undefined)
         # Q7: each limit flag reaches ExecStart, literally or through a variable from the environment file.
@@ -1432,7 +1432,7 @@ class Suite:
         dynamic = (service.get('DynamicUser') or ['no'])[-1].lower() in ('yes', 'true', '1', 'on')
         need(user and user not in ('root', '0') and not dynamic,
              'the unit runs as a dedicated static user (User=, not DynamicUser=)', user, dynamic)
-        need((service.get('StateDirectory') or [''])[-1] == 'capsule-coord', 'StateDirectory=capsule-coord',
+        need((service.get('StateDirectory') or [''])[-1] == 'peerspan-coord', 'StateDirectory=peerspan-coord',
              service.get('StateDirectory'))
         need((service.get('StateDirectoryMode') or [''])[-1] in ('0700', '700'), 'StateDirectoryMode 0700',
              service.get('StateDirectoryMode'))
@@ -1443,7 +1443,7 @@ class Suite:
         need((service.get('ProtectHome') or [''])[-1].lower() in truthy + ('read-only', 'tmpfs'), 'ProtectHome',
              service)
         need((service.get('PrivateTmp') or [''])[-1].lower() in truthy, 'PrivateTmp', service)
-        listen = defined.get('CAPSULE_COORD_LISTEN', '').strip().strip('"\'')
+        listen = defined.get('PEERSPAN_COORD_LISTEN', '').strip().strip('"\'')
         port = int(listen.rsplit(':', 1)[1]) if re.search(r':\d+$', listen) else None
         if port is None or port >= 1024:
             added = [v for v in service.get('AmbientCapabilities', []) if v.strip()]
@@ -1455,8 +1455,8 @@ class Suite:
             need(False, 'PyYAML is needed to parse litestream.yml')
         config = yaml.safe_load((DEPLOY / 'litestream.yml').read_text())
         need(isinstance(config, dict) and isinstance(config.get('dbs'), list), 'litestream.yml has dbs', config)
-        entries = [d for d in config['dbs'] if isinstance(d, dict) and d.get('path') == '/var/lib/capsule-coord/coord.db']
-        need(entries, 'litestream.yml replicates /var/lib/capsule-coord/coord.db', config['dbs'])
+        entries = [d for d in config['dbs'] if isinstance(d, dict) and d.get('path') == '/var/lib/peerspan-coord/coord.db']
+        need(entries, 'litestream.yml replicates /var/lib/peerspan-coord/coord.db', config['dbs'])
         replicas = []
         for entry in entries:
             replicas += entry.get('replicas') or []
@@ -1480,10 +1480,10 @@ class Suite:
              litestream.get('ExecStart'))
         need(litestream.get('EnvironmentFile'), 'litestream.service takes credentials from an environment file',
              litestream)
-        need((litestream.get('User') or [''])[-1] == user, 'Litestream runs as the same user as capsule-coord',
+        need((litestream.get('User') or [''])[-1] == user, 'Litestream runs as the same user as peerspan-coord',
              litestream.get('User'), user)
         readme = (DEPLOY / 'README.md').read_text()
-        for phrase in ('capsule-coord info', 'CAPSULE_COORDINATOR_KEY', '/healthz', 'restore', 'backup'):
+        for phrase in ('peerspan-coord info', 'PEERSPAN_COORDINATOR_KEY', '/healthz', 'restore', 'backup'):
             need(phrase in readme, f'the runbook covers {phrase}')
         need(re.search(r'\bUDP\b', readme), 'the runbook covers opening TCP and UDP on the coordination port')
         notes = self.verify_units()
@@ -1498,7 +1498,7 @@ class Suite:
         shutil.copytree(system_units, root / 'usr/lib/systemd/system', symlinks=True)
         units = root / 'etc/systemd/system'
         units.mkdir(parents=True)
-        for name in ('capsule-coord.service', 'litestream.service'):
+        for name in ('peerspan-coord.service', 'litestream.service'):
             text = (DEPLOY / name).read_text()
             (units / name).write_text(text)
             for line in parse_unit(text).get('Service', {}).get('ExecStart', []):
@@ -1507,7 +1507,7 @@ class Suite:
                     stub = root / executable.lstrip('/')
                     stub.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2('/bin/true', stub)
-        for name in ('capsule-coord.service', 'litestream.service'):
+        for name in ('peerspan-coord.service', 'litestream.service'):
             result = subprocess.run([analyze, 'verify', '--man=no', f'--root={root}', name], capture_output=True,
                                     text=True, timeout=120)
             own = [line for line in (result.stdout + result.stderr).splitlines()
@@ -1574,10 +1574,10 @@ def parse_unit(text):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--coord', type=Path, required=True, help='capsule-coord')
-    parser.add_argument('--go', type=Path, required=True, help='Go capsule-host')
-    parser.add_argument('--rust', type=Path, required=True, help='Rust capsule-host')
-    parser.add_argument('--probe', type=Path, help='capsule-peer-probe (optional; set for shared helpers)')
+    parser.add_argument('--coord', type=Path, required=True, help='peerspan-coord')
+    parser.add_argument('--go', type=Path, required=True, help='Go peerspan-host')
+    parser.add_argument('--rust', type=Path, required=True, help='Rust peerspan-host')
+    parser.add_argument('--probe', type=Path, help='peerspan-peer-probe (optional; set for shared helpers)')
     parser.add_argument('--creator', choices=('Go', 'Rust'), default='Go',
                         help='implementation of the network creator and the revoked host; the others run the other')
     parser.add_argument('--logs', type=Path, help='save coordinator and host logs here when a section fails')
@@ -1585,7 +1585,7 @@ def main():
     args.coord, args.go, args.rust = (p.resolve(strict=True) for p in (args.coord, args.go, args.rust))
     if args.probe:
         set_probe(args.probe.resolve(strict=True))
-    with tempfile.TemporaryDirectory(prefix='capsule-coord-ops-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-coord-ops-') as temporary:
         suite = Suite(args, Path(temporary))
         try:
             suite.run()

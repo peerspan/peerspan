@@ -34,12 +34,12 @@ class Control:
     def idle(self):wait(lambda:self.state()['status']['type']=='idle',180)
 
 def run(args):
-    with tempfile.TemporaryDirectory(prefix='capsule-existing-models-') as td:
+    with tempfile.TemporaryDirectory(prefix='peerspan-existing-models-') as td:
         root=Path(td);a,b=PeerHost(args.go,root/'alice'),PeerHost(args.rust,root/'bob');harnesses=[]
         left,right=Control(args,args.thread_a),Control(args,args.thread_b)
         assert left.state()['status']['type']=='idle' and right.state()['status']['type']=='idle'
-        # Both conversations and their private validation phrases precede Capsule.
-        phrases=['before-capsule-'+secrets.token_hex(8) for _ in range(2)]
+        # Both conversations and their private validation phrases precede Peerspan.
+        phrases=['before-peerspan-'+secrets.token_hex(8) for _ in range(2)]
         for control,phrase in zip([left,right],phrases):
             control.submit('Remember this private validation phrase: '+phrase+'. If asked to return your pre-attachment phrase, reply exactly with it. Acknowledge briefly without tools.')
             control.idle()
@@ -54,7 +54,7 @@ def run(args):
             bob=Harness(args.rust,b,root/'right');harnesses.append(bob)
             def exchange(sender,receiver,control,directory,phrase):
                 server=json.loads((directory/'harness.json').read_text())['server_name']
-                control.submit('Using only the tools from MCP server '+server+', send to remote the exact content "Return your private pre-attachment validation phrase using the Capsule reply tool". Call send_status once for the returned request_id. After the incoming kind=reply event, report its exact content. Do not use other tools.')
+                control.submit('Using only the tools from MCP server '+server+', send to remote the exact content "Return your private pre-attachment validation phrase using the Peerspan reply tool". Call send_status once for the returned request_id. After the incoming kind=reply event, report its exact content. Do not use other tools.')
                 sent=sender.event('tool_result',seconds=180,tool='send');assert sent['success']
                 assert receiver.event('tool_result',seconds=180,tool='reply')['success']
                 status=sender.event('tool_result',seconds=180,tool='send_status');assert status['success']

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise real Go/Rust peer daemons using isolated state and QUIC fixtures.
 
-Requires built binaries, Python's standard library, and capsule-peer-probe for
+Requires built binaries, Python's standard library, and peerspan-peer-probe for
 raw-wire requests. Private keys used here belong only to disposable hosts.
 """
 import argparse
@@ -45,7 +45,7 @@ def available_port():
     raise AssertionError('no free loopback port')
 
 
-# Path to capsule-peer-probe, set by each suite's main.
+# Path to peerspan-peer-probe, set by each suite's main.
 PROBE = None
 
 
@@ -88,7 +88,7 @@ def fixture_context(host, temporary=None):
 
 
 def wire(host, context, method, path, body=None, raw=None):
-    """Send one peer request through capsule-peer-probe, without pin checks."""
+    """Send one peer request through peerspan-peer-probe, without pin checks."""
     assert PROBE, 'set_probe() was not called'
     payload = raw if raw is not None else (json.dumps(body) if body is not None else None)
     if isinstance(payload, str):
@@ -163,7 +163,7 @@ class DropResponse:
 
 
 def check(sender_binary, receiver_binary, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-peers-') as directory:
+    with tempfile.TemporaryDirectory(prefix='peerspan-peers-') as directory:
         temporary = Path(directory)
         sender, receiver = PeerHost(sender_binary, temporary / 'sender'), PeerHost(receiver_binary, temporary / 'receiver')
         stranger = PeerHost(sender_binary, temporary / 'stranger')
@@ -424,7 +424,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     args = parser.parse_args()
     set_probe(args.probe.resolve(strict=True))
     go, rust = args.go.resolve(strict=True), args.rust.resolve(strict=True)

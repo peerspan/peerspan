@@ -43,15 +43,15 @@
     "iroh_version": "1.3.0",
     "iroh_gso_disabled": false,
     "iroh_configuration": "default crate features; Minimal preset; only IPv4 loopback socket; explicit peer address; portmapper disabled; max_tls_tickets=0",
-    "capsule_configuration": "production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server",
+    "peerspan_configuration": "production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server",
     "binary_sha256": {
-      "capsule-go": "6d49f392616ddf8eca84dd561fa6fbb1273b74c7767f44e78afca8ebb12057ee",
-      "capsule-rust": "dafc038fe944d2ff8c32acc5c7c0f4dd2945bdf29051a691a222eab415dac470",
+      "peerspan-go": "6d49f392616ddf8eca84dd561fa6fbb1273b74c7767f44e78afca8ebb12057ee",
+      "peerspan-rust": "dafc038fe944d2ff8c32acc5c7c0f4dd2945bdf29051a691a222eab415dac470",
       "iroh-rust-1.3.0": "0f6e941fa6ecfae67d0ccd240585fc2ba7868138d1d226c20212bb7c17324248"
     },
     "lock_sha256": {
       "go": "ab0d7a95c50d7c97d1033a9930283f21276672562a41db1c50a36e47340993de",
-      "capsule-rust": "e3ff71dc14f9cae74a37a20cf1181de40269e5d19393cdf81d50000f6e7c75d4",
+      "peerspan-rust": "e3ff71dc14f9cae74a37a20cf1181de40269e5d19393cdf81d50000f6e7c75d4",
       "iroh": "2325716cea8100121e98172087b0b81fa13936816dd35da6c6b260d129464472"
     },
     "harness_sha256": {
@@ -64,7 +64,7 @@
       "conformance/connectivity/iroh/Cargo.toml": "66d4b314cb53248e7f86928d09bbcab0570b4d0d1af7513437c25932814eaad2"
     },
     "summary": {
-      "capsule-go": {
+      "peerspan-go": {
         "cold_first_echo": {
           "p50_ms": 2.3078,
           "p90_ms": 3.9025,
@@ -121,7 +121,7 @@
           }
         }
       },
-      "capsule-rust": {
+      "peerspan-rust": {
         "cold_first_echo": {
           "p50_ms": 1.7993,
           "p90_ms": 5.8925,
@@ -238,7 +238,7 @@
     },
     "run_summaries": [
       {
-        "backend": "capsule-go",
+        "backend": "peerspan-go",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -257,7 +257,7 @@
         ]
       },
       {
-        "backend": "capsule-rust",
+        "backend": "peerspan-rust",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -295,7 +295,7 @@
         ]
       },
       {
-        "backend": "capsule-rust",
+        "backend": "peerspan-rust",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -333,7 +333,7 @@
         ]
       },
       {
-        "backend": "capsule-go",
+        "backend": "peerspan-go",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -371,7 +371,7 @@
         ]
       },
       {
-        "backend": "capsule-go",
+        "backend": "peerspan-go",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -390,7 +390,7 @@
         ]
       },
       {
-        "backend": "capsule-rust",
+        "backend": "peerspan-rust",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -454,15 +454,15 @@
     "iroh_version": "1.3.0",
     "iroh_gso_disabled": true,
     "iroh_configuration": "default crate features; Minimal preset; only IPv4 loopback socket; explicit peer address; portmapper disabled; max_tls_tickets=0",
-    "capsule_configuration": "production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server",
+    "peerspan_configuration": "production socket, TLS pins, dial and HTTP stream client; benchmark-only echo server",
     "binary_sha256": {
-      "capsule-go": "6d49f392616ddf8eca84dd561fa6fbb1273b74c7767f44e78afca8ebb12057ee",
-      "capsule-rust": "dafc038fe944d2ff8c32acc5c7c0f4dd2945bdf29051a691a222eab415dac470",
+      "peerspan-go": "6d49f392616ddf8eca84dd561fa6fbb1273b74c7767f44e78afca8ebb12057ee",
+      "peerspan-rust": "dafc038fe944d2ff8c32acc5c7c0f4dd2945bdf29051a691a222eab415dac470",
       "iroh-rust-1.3.0": "0f6e941fa6ecfae67d0ccd240585fc2ba7868138d1d226c20212bb7c17324248"
     },
     "lock_sha256": {
       "go": "ab0d7a95c50d7c97d1033a9930283f21276672562a41db1c50a36e47340993de",
-      "capsule-rust": "e3ff71dc14f9cae74a37a20cf1181de40269e5d19393cdf81d50000f6e7c75d4",
+      "peerspan-rust": "e3ff71dc14f9cae74a37a20cf1181de40269e5d19393cdf81d50000f6e7c75d4",
       "iroh": "2325716cea8100121e98172087b0b81fa13936816dd35da6c6b260d129464472"
     },
     "harness_sha256": {
@@ -475,7 +475,7 @@
       "conformance/connectivity/iroh/Cargo.toml": "66d4b314cb53248e7f86928d09bbcab0570b4d0d1af7513437c25932814eaad2"
     },
     "summary": {
-      "capsule-go": {
+      "peerspan-go": {
         "cold_first_echo": {
           "p50_ms": 2.2867,
           "p90_ms": 3.0927,
@@ -532,7 +532,7 @@
           }
         }
       },
-      "capsule-rust": {
+      "peerspan-rust": {
         "cold_first_echo": {
           "p50_ms": 2.2148,
           "p90_ms": 2.9425,
@@ -649,7 +649,7 @@
     },
     "run_summaries": [
       {
-        "backend": "capsule-go",
+        "backend": "peerspan-go",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -668,7 +668,7 @@
         ]
       },
       {
-        "backend": "capsule-rust",
+        "backend": "peerspan-rust",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -706,7 +706,7 @@
         ]
       },
       {
-        "backend": "capsule-rust",
+        "backend": "peerspan-rust",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -744,7 +744,7 @@
         ]
       },
       {
-        "backend": "capsule-go",
+        "backend": "peerspan-go",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -782,7 +782,7 @@
         ]
       },
       {
-        "backend": "capsule-go",
+        "backend": "peerspan-go",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,
@@ -801,7 +801,7 @@
         ]
       },
       {
-        "backend": "capsule-rust",
+        "backend": "peerspan-rust",
         "cold": 30,
         "concurrency": 8,
         "count": 2000,

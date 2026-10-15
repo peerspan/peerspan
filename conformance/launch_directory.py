@@ -37,7 +37,7 @@ reports these sections separately:
   with exit 1 and no change after the wait, re-attaching right after it exited
   waiting out the lease and launching the same agent with a fresh session,
   re-attaching once `offline` making a new setup, a reused (`registered`) session launched, `--no-start` (the object
-  on stdout, `next` naming `capsule session start`, nothing connected), and an
+  on stdout, `next` naming `peerspan session start`, nothing connected), and an
   integration without launch printing its output as before;
 - directory sessions: MCP `list_agents`, `send` and `delegate_task` by `to`
   through the real adapter, `send_status` reporting `to`; `no_directory` for
@@ -47,9 +47,9 @@ reports these sections separately:
 - retry after a label change: an uncertain send by address whose target host is
   then unbound from its person, retried automatically to the stored target.
 
-Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen), capsule-peer-probe, and Node for
+Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen), peerspan-peer-probe, and Node for
 the MCP cases. Exits non-zero listing every failed section. Each host has its own
-HOME and XDG_CONFIG_HOME, so nothing touches the real ~/.config/capsule.
+HOME and XDG_CONFIG_HOME, so nothing touches the real ~/.config/peerspan.
 """
 import argparse
 import json
@@ -106,7 +106,7 @@ ATTACH_KEYS = {'agent', 'session_id', 'adapter_id', 'profile', 'workspace', 'reu
 ADDRESSABLE = re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', socket.gethostname().split('.')[0].lower())
 NOT_ADDRESSABLE = 'Not Addressable'
-PROFILE_FLAG = '--capsule-fixture-profile'
+PROFILE_FLAG = '--peerspan-fixture-profile'
 # The launch target written into the fixture bundles in place of fixtures/harness/harness.py. As that one, it
 # prints its literal arguments and cwd as one JSON line (plus its pid). Given PROFILE_FLAG DIR among its arguments,
 # it then connects the adapter configured in that attach profile (consumer.json's socket and credential.json, as
@@ -138,7 +138,7 @@ def call(path, token, instance, method, url, body=None):
     connection = Unix(path)
     try:
         payload = json.dumps(body).encode() if body is not None else None
-        connection.request(method, url, payload, {"Authorization": "Bearer " + token, "X-Capsule-Instance": instance,
+        connection.request(method, url, payload, {"Authorization": "Bearer " + token, "X-Peerspan-Instance": instance,
                                                   "Content-Type": "application/json"})
         response = connection.getresponse()
         data = response.read()
@@ -152,10 +152,10 @@ def call(path, token, instance, method, url, body=None):
 
 args = sys.argv[1:]
 print(json.dumps({"arguments": args, "cwd": os.getcwd(), "pid": os.getpid()}), flush=True)
-if "--capsule-fixture-profile" in args:
+if "--peerspan-fixture-profile" in args:
     report = {}
     try:
-        profile = args[args.index("--capsule-fixture-profile") + 1]
+        profile = args[args.index("--peerspan-fixture-profile") + 1]
         with open(os.path.join(profile, "credential.json")) as f:
             credential = json.load(f)
         with open(os.path.join(profile, "consumer.json")) as f:
@@ -168,7 +168,7 @@ if "--capsule-fixture-profile" in args:
             report["error"] = value
         else:
             report["session"], _ = call(path, token, instance, "GET", "/adapter/v1/session")
-            # Live delivery readiness: verify the channel, as capsule_ready would.
+            # Live delivery readiness: verify the channel, as peerspan_ready would.
             call(path, token, instance, "POST", "/adapter/v1/ready", {"nonce": secrets.token_hex(16)})
         report.update(adapter_id=adapter["id"], session_id=adapter["session_id"])
     except Exception as error:
@@ -893,7 +893,7 @@ class Pairing:
                               'host\'s person')
             need([i['subject'] for i in items] == [f'{self.net}/dup'], 'item 12: subject NETWORK/NAME', items)
             need('attach' in items[0]['command'] and '--name' in items[0]['command'],
-                 'item 12: command capsule attach HARNESS --name NEW', items)
+                 'item 12: command peerspan attach HARNESS --name NEW', items)
         status, value = c1.call('GET', '/v1/status')
         need(not [i for i in value.get('attention', []) if i['kind'] == 'agent_name_conflict'],
              'item 12 only on a host that has one of them', value.get('attention'))
@@ -955,9 +955,9 @@ class Pairing:
             need(out['agent']['address'] == f'ana/{name}', 'agent.address is PERSON/NAME', out['agent'])
             need(Path(out['workspace']) == workspace.resolve(), 'the profile records the project\'s real path',
                  out['workspace'], workspace)
-            want = host.config / 'capsule' / 'sessions' / ids[host.state.name] / name
+            want = host.config / 'peerspan' / 'sessions' / ids[host.state.name] / name
             need(Path(out['profile']).resolve() == want.resolve(),
-                 'Profiles live in $XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME/', out['profile'], want)
+                 'Profiles live in $XDG_CONFIG_HOME/peerspan/sessions/HOST_ID/AGENT_NAME/', out['profile'], want)
             return out
 
         # The expiring attach first, so that its minute passes during the rest.
@@ -970,7 +970,7 @@ class Pairing:
         out = attached(self.attach(a1, 'claude', '--directory', str(w1)), 'claude', a1, w1,
                        'Naming: the base name (claude for claude-code)')
         need(out['reused'] is False and out['unchecked_hosts'] == [], 'a fresh attach', out)
-        need(mentions(out['next'], 'session start'), 'next is capsule session start for launch-capable integrations',
+        need(mentions(out['next'], 'session start'), 'next is peerspan session start for launch-capable integrations',
              out)
         registered = a1.cli('agent', 'inspect', out['agent']['id'])
         need(registered['owner'] == 'ana', 'Registering: owner is this host\'s bound person\'s label', registered)
@@ -1018,7 +1018,7 @@ class Pairing:
         error = self.attach(a2, 'claude', '--name', 'claude', '--directory', str(taken), success=False)
         need(ids['a1'] in error, 'a taken --name is refused, and the error names the host that has it', error)
         need(a2.cli('agent', 'list') == agents, 'a taken --name is refused before any registration')
-        need(not (a2.config / 'capsule' / 'sessions' / ids['a2'] / 'claude').exists(), 'a refused attach leaves no '
+        need(not (a2.config / 'peerspan' / 'sessions' / ids['a2'] / 'claude').exists(), 'a refused attach leaves no '
              'profile')
         error = self.attach(a1, 'claude', '--name', 'claude-proj-two', '--directory', str(taken), success=False)
         need(error, 'a --name used on this host by an attach profile is refused')
@@ -1077,7 +1077,7 @@ class Pairing:
     def check_attach_launch(self):
         a1, ids = self.hosts['a1'], self.ids
         ws = self.root / 'ws-launch'
-        sessions = a1.config / 'capsule' / 'sessions' / ids['a1']
+        sessions = a1.config / 'peerspan' / 'sessions' / ids['a1']
         notes = []
 
         def project(name):
@@ -1127,7 +1127,7 @@ class Pairing:
             need(out['adapter_id'] == report['adapter_id'] and out['session_id'] == report['session_id'],
                  f'{rule}: the launched harness uses the session attach set up', out, report)
             need(Path(out['profile']).resolve() == (sessions / name).resolve(), 'Profiles live in '
-                 '$XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME/', out['profile'])
+                 '$XDG_CONFIG_HOME/peerspan/sessions/HOST_ID/AGENT_NAME/', out['profile'])
             return out
 
         def out_agent(name):
@@ -1181,7 +1181,7 @@ class Pairing:
         need(a1.cli('session', 'inspect', first['session_id']).get('state') == 'detached',
              'replacing a lapsed credential detaches its old session', first['session_id'])
 
-        # 2. --no-start: setup only, the object on stdout, next naming capsule session start; nothing connects.
+        # 2. --no-start: setup only, the object on stdout, next naming peerspan session start; nothing connects.
         w2 = project('no-start')
         result = a1.run('attach', 'claude', '--name', 'relaunched', '--directory', str(w2), '--integrations',
                         str(self.catalog), '--no-start', cwd=self.root)
@@ -1193,8 +1193,8 @@ class Pairing:
                  'only)', result.stdout[-800:])
         need(set(out) == ATTACH_KEYS and out['agent']['name'] == 'relaunched' and out['reused'] is False,
              '--no-start prints the output object as before', out)
-        need(isinstance(out['next'], str) and 'capsule session start' in out['next'],
-             '--no-start: next names capsule session start', out['next'])
+        need(isinstance(out['next'], str) and 'peerspan session start' in out['next'],
+             '--no-start: next names peerspan session start', out['next'])
         record = a1.cli('adapter', 'inspect', out['adapter_id'])
         need(record.get('directory') is True, '--no-start still sets up the directory session', record)
         need(connected(out['agent']['id']) == [False], '--no-start stops after setup: no harness connects',
@@ -1575,7 +1575,7 @@ class Pairing:
 
 
 def run_pairing(coord_binary, cli_binary, daemon_binary, node, label):
-    with tempfile.TemporaryDirectory(prefix='capsule-directory-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-directory-') as temporary:
         pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary))
         started = time.monotonic()
         try:
@@ -1599,7 +1599,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, required=True, help='Node for the MCP adapter cases')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
     args = parser.parse_args()

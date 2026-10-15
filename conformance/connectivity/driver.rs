@@ -1,4 +1,4 @@
-//! Shared workload for Capsule Rust and iroh. Only explicit benchmark runs use it.
+//! Shared workload for Peerspan Rust and iroh. Only explicit benchmark runs use it.
 use anyhow::{Result, ensure};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -77,7 +77,7 @@ pub async fn serve_http<
     Ok(())
 }
 
-#[allow(dead_code)] // Capsule uses its production client; iroh uses this one.
+#[allow(dead_code)] // Peerspan uses its production client; iroh uses this one.
 pub async fn http_exchange<S: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
     mut send: S,
     recv: R,
@@ -85,7 +85,7 @@ pub async fn http_exchange<S: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
 ) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let header = format!(
-        "POST /bench/echo HTTP/1.1\r\nHost: capsule-peer\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST /bench/echo HTTP/1.1\r\nHost: peerspan-peer\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         payload.len()
     );
     send.write_all(header.as_bytes()).await?;
@@ -124,10 +124,10 @@ fn parameter(name: &str, default: usize) -> Result<usize> {
 }
 
 pub async fn run<B: Backend>(backend: B, name: &str) -> Result<()> {
-    let count = parameter("CAPSULE_BENCH_COUNT", 200)?;
-    let cold = parameter("CAPSULE_BENCH_COLD", 20)?;
-    let warmup = parameter("CAPSULE_BENCH_WARMUP", 20)?;
-    let concurrency = parameter("CAPSULE_BENCH_CONCURRENCY", 8)?;
+    let count = parameter("PEERSPAN_BENCH_COUNT", 200)?;
+    let cold = parameter("PEERSPAN_BENCH_COLD", 20)?;
+    let warmup = parameter("PEERSPAN_BENCH_WARMUP", 20)?;
+    let concurrency = parameter("PEERSPAN_BENCH_CONCURRENCY", 8)?;
     ensure!(
         count > 0 && cold > 0 && (1..=16).contains(&concurrency),
         "invalid workload parameters"
@@ -183,7 +183,7 @@ pub async fn run<B: Backend>(backend: B, name: &str) -> Result<()> {
             "concurrent_seconds": concurrent_seconds, "concurrent_wall_seconds": start.elapsed().as_secs_f64()}));
     }
     backend.disconnect().await?;
-    let output = std::env::var("CAPSULE_BENCH_OUTPUT")?;
+    let output = std::env::var("PEERSPAN_BENCH_OUTPUT")?;
     std::fs::write(
         output,
         serde_json::to_vec_pretty(

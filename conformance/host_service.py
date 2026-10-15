@@ -77,7 +77,7 @@ class Host:
         self.logs = tempfile.TemporaryFile()
         # Each host's own user configuration, so a person key the CLI generates
         # (launch contract, slice 3) never lands in the real one or is shared.
-        self.config_home = tempfile.mkdtemp(prefix="capsule-config-")
+        self.config_home = tempfile.mkdtemp(prefix="peerspan-config-")
 
     def isolated(self, env):
         env["XDG_CONFIG_HOME"] = self.config_home
@@ -151,7 +151,7 @@ class Host:
 
 def check_cli_without_daemon(binary):
     """Help and rejected/client commands must not initialize host state."""
-    with tempfile.TemporaryDirectory(prefix="capsule-cli-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="peerspan-cli-") as temporary:
         state = Path(temporary) / "absent"
         environment = os.environ.copy()
         environment.pop("HOME", None)
@@ -197,7 +197,7 @@ def check_cli_without_daemon(binary):
 
 def check(binary, label):
     check_cli_without_daemon(binary)
-    with tempfile.TemporaryDirectory(prefix="capsule-contract-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="peerspan-contract-") as temporary:
         host = Host(binary, Path(temporary) / "host")
         try:
             identity = host.start()

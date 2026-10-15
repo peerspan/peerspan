@@ -21,7 +21,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };
-const ALPN: &[u8] = b"capsule-bench/1";
+const ALPN: &[u8] = b"peerspan-bench/1";
 
 #[derive(Clone, Debug)]
 struct Admission(Arc<RwLock<HashSet<EndpointId>>>);
@@ -129,7 +129,7 @@ impl Node {
         if result.is_err() {
             self.connections.lock().unwrap().remove(&id);
             if cached.is_some() && connection.close_reason().is_some() {
-                // A single retry on a stale closed cached connection, as in Capsule.
+                // A single retry on a stale closed cached connection, as in Peerspan.
                 let c = self.endpoint.connect(address, ALPN).await?;
                 let (send, recv) = c.open_bi().await?;
                 self.connections.lock().unwrap().insert(id, c.clone());
@@ -226,7 +226,7 @@ impl Node {
 }
 
 pub async fn node() -> Result<()> {
-    let directory = PathBuf::from(std::env::var("CAPSULE_NET_STATE")?);
+    let directory = PathBuf::from(std::env::var("PEERSPAN_NET_STATE")?);
     std::fs::create_dir_all(&directory)?;
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
     let key_path = directory.join("key.bin");
@@ -245,13 +245,13 @@ pub async fn node() -> Result<()> {
     let admission = Admission(Arc::new(RwLock::new(HashSet::new())));
     let mut builder = Endpoint::builder(presets::Minimal)
         .clear_ip_transports()
-        .bind_addr(std::env::var("CAPSULE_NET_BIND").unwrap_or_else(|_| "0.0.0.0:7401".into()))?
+        .bind_addr(std::env::var("PEERSPAN_NET_BIND").unwrap_or_else(|_| "0.0.0.0:7401".into()))?
         .secret_key(key)
         .alpns(vec![ALPN.to_vec()])
         .max_tls_tickets(0)
         .portmapper_config(PortmapperConfig::Disabled)
         .hooks(admission.clone());
-    if std::env::var("CAPSULE_IROH_MATCHED").is_ok() {
+    if std::env::var("PEERSPAN_IROH_MATCHED").is_ok() {
         builder = builder.transport_config(
             QuicTransportConfig::builder()
                 .enable_segmentation_offload(false)
@@ -261,13 +261,13 @@ pub async fn node() -> Result<()> {
                 .build(),
         );
     }
-    let relay = std::env::var("CAPSULE_NET_RELAY")
+    let relay = std::env::var("PEERSPAN_NET_RELAY")
         .ok()
         .map(|s| s.parse::<iroh::RelayUrl>())
         .transpose()?;
     if let Some(url) = &relay {
         let certificate = rustls::pki_types::CertificateDer::from(std::fs::read(std::env::var(
-            "CAPSULE_NET_CA",
+            "PEERSPAN_NET_CA",
         )?)?);
         builder = builder
             .ca_tls_config(iroh::tls::CaTlsConfig::custom_roots([certificate]))
@@ -351,7 +351,7 @@ pub async fn relay() -> Result<()> {
     use iroh_relay::server::{
         CertConfig, QuicConfig, RelayConfig as ServerRelay, Server, ServerConfig, TlsConfig,
     };
-    let directory = PathBuf::from(std::env::var("CAPSULE_NET_STATE")?);
+    let directory = PathBuf::from(std::env::var("PEERSPAN_NET_STATE")?);
     std::fs::create_dir_all(&directory)?;
     let cert_path = directory.join("relay-cert.der");
     let key_path = directory.join("relay-key.der");

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated agent exchanges on two SSH hosts, without forwarding peer traffic.
 
-Each host needs this checkout, built Capsule binaries, and the channel's npm
+Each host needs this checkout, built Peerspan binaries, and the channel's npm
 dependencies. Claude mode also needs an authenticated Claude Code installation.
 --fixture substitutes a deterministic MCP consumer; it never calls a model.
 """
@@ -109,7 +109,7 @@ class Experiment:
     """State and processes belong only to this worker's temporary directory."""
 
     def __init__(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="capsule-cross-host-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="peerspan-cross-host-")
         self.root = Path(self.temporary.name)
         self.host = self.coord = self.consumer = None
         self.paused = False
@@ -268,7 +268,7 @@ class Experiment:
             self.paused = paused
 
     def begin(self, reply, observed, track_status=False):
-        content = f"Use the Capsule reply tool to respond with exactly {reply}."
+        content = f"Use the Peerspan reply tool to respond with exactly {reply}."
         self.current_reply, self.current_observed = reply, observed
         self.track_status = track_status
         self.pending_marker = "PENDING_" + observed
@@ -294,7 +294,7 @@ class Experiment:
             assert not result.get("isError"), "fixture send failed"
         else:
             self.consumer.prompt(
-                "This is a Capsule integration experiment. Use list_destinations, then send "
+                "This is a Peerspan integration experiment. Use list_destinations, then send "
                 f"to destination remote this exact message: {json.dumps(content)} "
                 f"After its kind=reply event arrives, output exactly {observed}. "
                 "The send result alone is not the reply. Send only once. "
@@ -305,8 +305,8 @@ class Experiment:
                     if track_status else ""
                 )
                 + "Keep responding to "
-                "later authorized kind=message events using the Capsule reply tool, even "
-                "after this exchange finishes. Use only Capsule tools."
+                "later authorized kind=message events using the Peerspan reply tool, even "
+                "after this exchange finishes. Use only Peerspan tools."
             )
 
     def check_send_status(self, request_id):
@@ -324,7 +324,7 @@ class Experiment:
                 f"Once send_status returns accepted, output exactly {self.accepted_marker}. "
                 f"After the kind=reply event, output exactly {self.current_observed}. "
                 "Do not call send again. Keep responding to later kind=message events with reply. "
-                "Use only Capsule tools."
+                "Use only Peerspan tools."
             )
 
     def pump_fixture(self):
@@ -339,7 +339,7 @@ class Experiment:
             data = event["params"]
             if data["meta"]["kind"] == "message":
                 match = re.fullmatch(
-                    r"Use the Capsule reply tool to respond with exactly ([A-Z0-9_]+)\.",
+                    r"Use the Peerspan reply tool to respond with exactly ([A-Z0-9_]+)\.",
                     data["content"],
                 )
                 assert match and match[1] in self.expected, "unexpected fixture request"
@@ -401,10 +401,10 @@ class Experiment:
         else:
             status_results = [
                 call["result"]
-                for call in self.consumer.tool_exchanges("mcp__capsule__send_status")
+                for call in self.consumer.tool_exchanges("mcp__peerspan__send_status")
                 if isinstance(call["result"], dict)
             ]
-            send_calls = len(self.consumer.tool_exchanges("mcp__capsule__send"))
+            send_calls = len(self.consumer.tool_exchanges("mcp__peerspan__send"))
         current_status = [result for result in status_results if result.get("request_id") in current_requests]
         if observed:
             assert count == self.outbound_before + 1, "agent initiated duplicate sends"

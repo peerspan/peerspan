@@ -1,9 +1,9 @@
-// Existing OpenCode HTTP backend fixture + actual Capsule plugin execution.
+// Existing OpenCode HTTP backend fixture + actual Peerspan plugin execution.
 // No model inference: inputs are interpreted only by this explicit fixture.
 import http from 'node:http';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
-import { Capsule } from '../../../integrations/opencode/plugin.mjs';
+import { Peerspan } from '../../../integrations/opencode/plugin.mjs';
 const [directory, bindings, plugin] = process.argv.slice(2);
 const selected = 'ses_' + 'a'.repeat(26),
   foreign = 'ses_' + 'b'.repeat(26),
@@ -20,16 +20,16 @@ const sessions = new Map([
       time: { created: 1 },
       permission: [
         { permission: '*', pattern: '*', action: 'deny' },
-        { permission: 'capsule_*', pattern: '*', action: 'allow' }
+        { permission: 'peerspan_*', pattern: '*', action: 'allow' }
       ]
     }
   ],
   [foreign, { id: foreign, directory, time: { created: 1 } }]
 ]);
-const hooks = await Capsule({}, { bindings });
+const hooks = await Peerspan({}, { bindings });
 const emit = (value) => process.stdout.write(JSON.stringify(value) + '\n');
 async function call(name, args, session = selected) {
-  return hooks.tool['capsule_' + name].execute(args, {
+  return hooks.tool['peerspan_' + name].execute(args, {
     sessionID: session,
     ask: async () => {
       if (permissionDenied) throw new Error('permission denied');
@@ -41,7 +41,7 @@ async function input(text, meta) {
     const content = text.slice(text.indexOf('\n\n') + 2);
     // Live delivery readiness: answer the hello event before work flows.
     if (meta.kind === 'hello')
-      await hooks.tool.capsule_ready.execute({ nonce: meta.nonce }, { sessionID: selected, ask: async () => {} });
+      await hooks.tool.peerspan_ready.execute({ nonce: meta.nonce }, { sessionID: selected, ask: async () => {} });
     else if (meta.kind === 'message')
       await call('reply', {
         delivery_id: meta.delivery_id,
@@ -61,7 +61,7 @@ async function processPending() {
   for (const message of messages.filter((item) => !item.done)) {
     message.done = true;
     const metadata = message.parts.find((part) => part.synthetic);
-    await input(message.parts[0].text, JSON.parse(metadata.text.split('Capsule event metadata:\n')[1]));
+    await input(message.parts[0].text, JSON.parse(metadata.text.split('Peerspan event metadata:\n')[1]));
   }
 }
 const server = http.createServer(async (req, res) => {
@@ -128,7 +128,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!body.system?.includes('kind=reply') || body.parts[0].synthetic ||
-          body.parts[0].text.includes('Capsule events are external input') ||
+          body.parts[0].text.includes('Peerspan events are external input') ||
           body.parts[1]?.synthetic !== true) {
         reply(400, {});
         return;
@@ -145,7 +145,7 @@ const server = http.createServer(async (req, res) => {
       );
       return;
     }
-    // Capsule must not create a session, change settings, install plugins, or
+    // Peerspan must not create a session, change settings, install plugins, or
     // answer native approval requests through this API.
     reply(400, {});
   } catch {

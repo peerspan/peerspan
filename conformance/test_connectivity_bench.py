@@ -9,7 +9,7 @@ from connectivity_bench import distribution, summarize, validate
 class ResultIntegrity(unittest.TestCase):
     def setUp(self):
         self.args = SimpleNamespace(count=2, cold=2, warmup=0, concurrency=1)
-        self.raw = dict(backend='capsule-go', count=2, cold=2, warmup=0, concurrency=1,
+        self.raw = dict(backend='peerspan-go', count=2, cold=2, warmup=0, concurrency=1,
                         cold_first_echo_seconds=[0.001, 0.002], workloads=[
                             dict(content_bytes=size, sequential_seconds=[0.001, 0.002],
                                  concurrent_seconds=[0.001, 0.002], concurrent_wall_seconds=0.01)
@@ -35,8 +35,8 @@ class ResultIntegrity(unittest.TestCase):
 
     def test_partial_report_does_not_invent_unrun_backends(self):
         report = summarize([self.raw])
-        self.assertEqual(list(report), ['capsule-go'])
-        self.assertEqual(report['capsule-go']['workloads']['16']['median_requests_per_second'], 200)
+        self.assertEqual(list(report), ['peerspan-go'])
+        self.assertEqual(report['peerspan-go']['workloads']['16']['median_requests_per_second'], 200)
 
 
 if __name__ == '__main__':

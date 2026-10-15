@@ -5,7 +5,7 @@ Written from docs/hosted-coordinator-contract.md ("Slice 3: moves and repair", w
 subsection names this suite) alone, with context from slices 1 and 2 of that contract, the hosted
 coordinator proposal, and the coordination contract (administrators, SSHSIG statements, maps, groups,
 policies, persons, revocations), independently of the coordinator and host implementations. Hosts are
-driven through their CLIs and local APIs, the peer route through capsule-peer-probe, and coordinators
+driven through their CLIs and local APIs, the peer route through peerspan-peer-probe, and coordinators
 through their CLI and raw TLS clients holding member and non-member keys.
 
 Section, run once:
@@ -70,7 +70,7 @@ and match in two, and the joiner differs from the mover in all four, so every ex
 implementations both ways. `--all` runs all eight; `--combo` picks some.
 
 Needs openssl and OpenSSH (ssh-agent, ssh-add, ssh-keygen). HOME and XDG_CONFIG_HOME are redirected per host
-under a temporary directory; the real ~/.config/capsule and systemd are never touched. Open questions are
+under a temporary directory; the real ~/.config/peerspan and systemd are never touched. Open questions are
 marked `Q<n>` and listed in the suite-questions file given to the owner. Exits non-zero listing every failed
 section.
 """
@@ -104,7 +104,7 @@ from persons import Agent, person_id, ssh_key, ssh_sign, ssh_verify  # noqa: E40
 INTERVAL = 2
 SLACK = 30.0
 NOTIFY_INTERVAL = 600
-NAMESPACE = b'capsule-person-v1'
+NAMESPACE = b'peerspan-person-v1'
 MOVE_FIELDS = {'network_id', 'sequence', 'address', 'public_key', 'moved_at', 'signer', 'signature'}
 PENDING_FIELDS = {'address', 'public_key', 'sequence', 'source', 'move_sequence'}
 OUTPUT_FIELDS = {'network_id', 'sequence', 'coordinator', 'imported', 'previous_coordinator', 'pushed', 'members'}
@@ -151,7 +151,7 @@ def parse_time(value):
 # --- statements ---------------------------------------------------------------------------------------------
 
 def move_lines(m):
-    return ['capsule-coordinator-move-v1', m['network_id'], str(m['sequence']), m['address'], m['public_key'],
+    return ['peerspan-coordinator-move-v1', m['network_id'], str(m['sequence']), m['address'], m['public_key'],
             m['moved_at']]
 
 
@@ -171,7 +171,7 @@ def _string(value):
 
 
 def sshsig(key, lines):
-    """The SSHSIG blob (namespace capsule-person-v1, sha512) by key over the lines, built from the format."""
+    """The SSHSIG blob (namespace peerspan-person-v1, sha512) by key over the lines, built from the format."""
     message = '\n'.join(lines).encode()
     signed = b'SSHSIG' + _string(NAMESPACE) + _string(b'') + _string(b'sha512') + \
         _string(hashlib.sha512(message).digest())
@@ -230,11 +230,11 @@ def check_vector(keys):
     need(root.b64 == VECTOR['root_public'] and person.b64 == VECTOR['person_public'], 'vector seeds derive their keys')
     need('net_' + hashlib.sha256(root.public).hexdigest() == VECTOR['network_id'], 'the vector network ID')
     # Self-checks of this suite's encodings against the coordination contract's vectors.
-    revoke = ['capsule-revoke-host-v1', VECTOR['network_id'], VECTOR['host_public'], '2026-10-07T00:00:00Z']
+    revoke = ['peerspan-revoke-host-v1', VECTOR['network_id'], VECTOR['host_public'], '2026-10-07T00:00:00Z']
     need(base64.b64encode(sign_bytes(root, '\n'.join(revoke).encode())).decode() ==
          'jclqdyH6N8H3WoO07mGA1trPc7WpmmvKIH1zibL1m9+zFoIK6ppGXuC7k8oXFhF8IWYtmuGGy70xBTsvkYzSCw==',
          'self-check: the host revocation vector (raw root signature)')
-    bind = ['capsule-host-bind-v1', VECTOR['network_id'], VECTOR['person_public'], VECTOR['host_public'],
+    bind = ['peerspan-host-bind-v1', VECTOR['network_id'], VECTOR['person_public'], VECTOR['host_public'],
             '2026-10-08T00:00:00Z']
     need(sshsig(person, bind) ==
          'U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQP3tgz3wWKkPfmQ/ZITbSIDUAz0nlbAJlaF5kdSFFJsoKS4SYIKScjsbnX73tyCVmIiekX2vBkXdqwKLJrbrCA0=',
@@ -584,7 +584,7 @@ class Combo:
         self.check_move(m1, 1, c2, self.k2, 'root')
         root = self.root_key()
         need(raw_verify(root.b64, move_lines(m1), m1['signature'], self.keys),
-             'a root move carries a raw signature by the root over capsule-coordinator-move-v1, network_id, '
+             'a root move carries a raw signature by the root over peerspan-coordinator-move-v1, network_id, '
              'sequence, address, public_key, moved_at', m1)
         mine = root_move(root, self.net, 1, m1['address'], m1['public_key'], m1['moved_at'])
         need(mine['signature'] == m1['signature'], 'the suite\'s own encoding of the move lines reproduces the '
@@ -913,7 +913,7 @@ class Combo:
         forged['persons'].append(fp)
         gi = next(i for i, x in enumerate(forged['groups']) if x.get('name') == 'team')
         group = dict(forged['groups'][gi], version=forged['groups'][gi]['version'] + 10)
-        lines = ['capsule-group-v1', group['network_id'], group['name'], str(group['version']), group['defined_at'],
+        lines = ['peerspan-group-v1', group['network_id'], group['name'], str(group['version']), group['defined_at'],
                  *group['members']]
         group['signature'] = ssh_sign(lines, fake_person[0], self.keys)
         forged['groups'][gi] = group
@@ -1122,10 +1122,10 @@ class Suite:
 def main():
     global INTERVAL
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--coord', type=Path, required=True, help='capsule-coord')
-    parser.add_argument('--go', type=Path, required=True, help='Go capsule-host')
-    parser.add_argument('--rust', type=Path, required=True, help='Rust capsule-host')
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe (for the peer move route)')
+    parser.add_argument('--coord', type=Path, required=True, help='peerspan-coord')
+    parser.add_argument('--go', type=Path, required=True, help='Go peerspan-host')
+    parser.add_argument('--rust', type=Path, required=True, help='Rust peerspan-host')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe (for the peer move route)')
     choices = [f'{m}/{o}/{j}' for m in ('Go', 'Rust') for o in ('Go', 'Rust') for j in ('Go', 'Rust')]
     parser.add_argument('--combo', action='append', choices=choices,
                         help='MOVER/OTHER/JOINER to run (repeatable); default four combinations, see above')
@@ -1137,7 +1137,7 @@ def main():
     INTERVAL = args.interval
     args.coord, args.go, args.rust = (p.resolve(strict=True) for p in (args.coord, args.go, args.rust))
     set_probe(args.probe.resolve(strict=True))
-    with tempfile.TemporaryDirectory(prefix='capsule-coord-move-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-coord-move-') as temporary:
         suite = Suite(args, Path(temporary))
         try:
             suite.run()

@@ -1,4 +1,4 @@
-// Owner-controlled live-test driver; never used by the Capsule integration.
+// Owner-controlled live-test driver; never used by the Peerspan integration.
 import { Connection } from '../../../integrations/codex/connection.mjs';
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);

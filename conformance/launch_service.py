@@ -4,7 +4,7 @@
 Written from docs/launch-contract.md ("Slice 2: service and coordinator")
 alone. Each check's message names the contract rule it enforces.
 
-Coordinator checks run once against the Go capsule-coord, with raw clients
+Coordinator checks run once against the Go peerspan-coord, with raw clients
 that sign enrollment statements through OpenSSL and speak the coordination
 API and relay frames directly:
 
@@ -78,7 +78,7 @@ from policy import PolicyHost
 
 REPO = Path(__file__).resolve().parent.parent
 GO_PACKAGE = 'github.com/Cerebral-Systems/capsule/go/internal/host'
-RELAY_ALPN = 'capsule-relay/1'
+RELAY_ALPN = 'peerspan-relay/1'
 SEND, RECEIVE, UNREACHABLE = 1, 2, 3
 ATTENTION_ORDER = ['coordination_error', 'policy_expired', 'policy_expiring', 'policy_delivery_failing',
                    'credential_expiring', 'tasks_failed', 'artifact_quota', 'service_not_installed',
@@ -190,7 +190,7 @@ class RawNetwork:
     def membership(self, host, member):
         invite = Key(self.directory)
         expires = rfc3339(now() + timedelta(days=30))
-        signature = self.root.sign(['capsule-invite-v1', self.id, invite.b64, member, expires])
+        signature = self.root.sign(['peerspan-invite-v1', self.id, invite.b64, member, expires])
         return member_statement(self.id, member, invite, expires, signature, host)
 
     def register(self, coord, host, source=None):
@@ -210,13 +210,13 @@ def member_statement(network_id, member, invite, expires, invite_signature, host
     return {'network_id': network_id, 'member': member, 'invite_public_key': invite.b64,
             'invite_expires_at': expires, 'invite_signature': invite_signature, 'host_public_key': host.b64,
             'joined_at': joined,
-            'host_signature': invite.sign(['capsule-member-v1', network_id, invite.b64, host.b64, joined])}
+            'host_signature': invite.sign(['peerspan-member-v1', network_id, invite.b64, host.b64, joined])}
 
 
 def token_membership(token, host, directory):
     """A membership for a raw host under a real host-only invite token."""
     prefix, fields = decode_token(token)
-    assert prefix == 'capsule-invite-v1', prefix
+    assert prefix == 'peerspan-invite-v1', prefix
     invite = Key(directory, base64.b64decode(fields['invite_seed']))
     assert invite.b64 == fields['invite_public_key']
     return member_statement(fields['network_id'], fields['member'], invite, fields['invite_expires_at'],
@@ -298,7 +298,7 @@ class Relay:
 
 
 class LimitCoordinator(Coordinator):
-    """capsule-coord run with limit flags."""
+    """peerspan-coord run with limit flags."""
 
     def __init__(self, binary, state, flags=(), port=None):
         super().__init__(binary, state)
@@ -606,7 +606,7 @@ def check_coordinator(coord_binary):
     failed = []
     for check_part in (check_member_cap, check_registration_cap, check_relay_cap, check_defaults_and_disabled,
                        check_migration):
-        with tempfile.TemporaryDirectory(prefix='capsule-launch-coord-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='peerspan-launch-coord-') as temporary:
             try:
                 check_part(coord_binary, Path(temporary))
                 print(f'  ok coordinator: {check_part.__name__}', flush=True)
@@ -693,8 +693,8 @@ def stop():
 
 def unit_file():
     base = os.environ.get('XDG_CONFIG_HOME') or os.path.join(os.environ['HOME'], '.config')
-    candidates = [os.path.join(base, 'systemd', 'user', 'capsule.service'),
-                  os.path.join(os.environ['HOME'], '.config', 'systemd', 'user', 'capsule.service')]
+    candidates = [os.path.join(base, 'systemd', 'user', 'peerspan.service'),
+                  os.path.join(os.environ['HOME'], '.config', 'systemd', 'user', 'peerspan.service')]
     for candidate in candidates:
         if os.path.exists(candidate):
             with open(candidate) as f:
@@ -708,7 +708,7 @@ def systemd_start():
     if unit is None:
         unit = unit_file()
     if unit is None:
-        print('Failed to start capsule.service: Unit capsule.service not found.', file=sys.stderr)
+        print('Failed to start peerspan.service: Unit peerspan.service not found.', file=sys.stderr)
         return 5
     argv, environment = None, {{}}
     for line in unit.splitlines():
@@ -734,7 +734,7 @@ def systemctl():
         return 0
     if verb == 'enable':
         if unit_file() is None and read('loaded') is None:
-            print('Failed to enable unit: Unit file capsule.service does not exist.', file=sys.stderr)
+            print('Failed to enable unit: Unit file peerspan.service does not exist.', file=sys.stderr)
             return 1
         write('enabled', 'yes')
         return systemd_start() if '--now' in ARGS else 0
@@ -766,7 +766,7 @@ def systemctl():
         pid = running() or 0
         values = {{'MainPID': str(pid), 'ActiveState': 'active' if pid else 'inactive',
                   'SubState': 'running' if pid else 'dead', 'UnitFileState': 'enabled' if read('enabled') else 'disabled',
-                  'LoadState': 'loaded' if (unit_file() or read('loaded')) else 'not-found', 'Id': 'capsule.service'}}
+                  'LoadState': 'loaded' if (unit_file() or read('loaded')) else 'not-found', 'Id': 'peerspan.service'}}
         wanted = []
         for index, arg in enumerate(ARGS):
             if arg.startswith('--property='):
@@ -779,7 +779,7 @@ def systemctl():
             print(values.get(name, '') if '--value' in ARGS else f'{{name}}={{values.get(name, "")}}')
         return 0
     if verb == 'status':
-        print('capsule.service', 'active (running)' if running() else 'inactive (dead)')
+        print('peerspan.service', 'active (running)' if running() else 'inactive (dead)')
         return 0 if running() else 3
     return 0
 
@@ -803,7 +803,7 @@ def loginctl():
 
 def launchctl():
     verb = ARGS[0] if ARGS else ''
-    label = 'gui/{uid}/dev.capsule.host'
+    label = 'gui/{uid}/dev.peerspan.host'
     if verb == 'bootstrap':
         if read('loaded') is not None:
             print('Bootstrap failed: 5: Input/output error', file=sys.stderr)
@@ -832,7 +832,7 @@ def launchctl():
         return 0
     if verb == 'print':
         if read('loaded') is None:
-            print(f'Could not find service "dev.capsule.host" in domain for user gui: {uid}', file=sys.stderr)
+            print(f'Could not find service "dev.peerspan.host" in domain for user gui: {uid}', file=sys.stderr)
             return 113
         pid = running()
         print(f'{{label}} = {{{{')
@@ -983,7 +983,7 @@ class Cli:
 
     def __init__(self, binary, link_dir, home, path, config=None, agent_socket=None):
         self.binary = Path(binary)
-        self.program = link_dir / 'capsule'
+        self.program = link_dir / 'peerspan'
         if not self.program.exists():
             self.program.symlink_to(self.binary)
         self.home, self.path, self.config, self.agent_socket = home, path, config, agent_socket
@@ -1049,7 +1049,7 @@ def check_install_output(out, unit, state, peer_listen, linger, started, service
 
 
 def check_unit(unit, cli_binary, state, peer_listen, ssh_auth_sock):
-    assert unit.exists(), rule('install writes $XDG_CONFIG_HOME/systemd/user/capsule.service', str(unit))
+    assert unit.exists(), rule('install writes $XDG_CONFIG_HOME/systemd/user/peerspan.service', str(unit))
     sections = parse_unit(unit.read_text())
     [exec_start] = unit_values(sections, 'Service', 'ExecStart') or [None]
     assert exec_start, rule('the unit has ExecStart in [Service]', sections)
@@ -1099,7 +1099,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     cli = Cli(cli_binary, links, root / 'home-a', f'{stubs.bin}:{base_path}', config=config,
               agent_socket=str(root / 'agent-one.sock'))
     state = root / 'state-a'
-    unit = config / 'systemd' / 'user' / 'capsule.service'
+    unit = config / 'systemd' / 'user' / 'peerspan.service'
     holder = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         try:
@@ -1116,7 +1116,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     assert stubs.pid() is None, rule('--no-start never starts the service')
     first_unit = check_unit(unit, cli_binary, state, address, str(root / 'agent-one.sock'))
     changes = stubs.changes()
-    assert changes[:2] == [systemctl('daemon-reload'), systemctl('enable', 'capsule.service')] and len(changes) == 3, \
+    assert changes[:2] == [systemctl('daemon-reload'), systemctl('enable', 'peerspan.service')] and len(changes) == 3, \
         rule('install --no-start runs daemon-reload, enable (without --now), then loginctl enable-linger', changes)
     check_linger_call(changes[2])
     assert stubs.pid() is None and not admin_ready(state), rule('--no-start does not start the service')
@@ -1138,7 +1138,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     pid = stubs.pid()
     assert pid is not None
     changes = stubs.changes()
-    assert changes[:1] == [systemctl('enable', '--now', 'capsule.service')] and len(changes) == 2, \
+    assert changes[:1] == [systemctl('enable', '--now', 'peerspan.service')] and len(changes) == 2, \
         rule('with an identical unit, install runs enable --now, then loginctl enable-linger', changes)
     check_linger_call(changes[1])
     # Idempotence while running: nothing restarts.
@@ -1149,7 +1149,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     assert unit.read_text() == first_unit and stubs.pid() == pid and stubs.starts() == starts, \
         rule('install is idempotent: an identical unit does not restart the running service', stubs.changes())
     changes = stubs.changes()
-    assert changes[:1] == [systemctl('enable', '--now', 'capsule.service')] and len(changes) == 2, \
+    assert changes[:1] == [systemctl('enable', '--now', 'peerspan.service')] and len(changes) == 2, \
         rule('with an identical unit, install runs enable --now, then loginctl enable-linger', changes)
     check_linger_call(changes[1])
 
@@ -1165,8 +1165,8 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
         rule('the restarted service runs the rewritten unit (daemon-reload before restart)', stubs.changes())
     eventually(lambda: admin_ready(state), 10, 'the restarted service serves the admin socket')
     changes = stubs.changes()
-    assert changes[:3] == [systemctl('daemon-reload'), systemctl('enable', '--now', 'capsule.service'),
-                           systemctl('restart', 'capsule.service')] and len(changes) == 4, \
+    assert changes[:3] == [systemctl('daemon-reload'), systemctl('enable', '--now', 'peerspan.service'),
+                           systemctl('restart', 'peerspan.service')] and len(changes) == 4, \
         rule('with a changed unit, install runs daemon-reload, enable --now, restart, then loginctl enable-linger',
              changes)
     check_linger_call(changes[3])
@@ -1179,7 +1179,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     check_install_output(out, unit, state, address, True, False)
     check_unit(unit, cli_binary, state, address, str(root / 'agent-three.sock'))
     changes = stubs.changes()
-    assert changes[:2] == [systemctl('daemon-reload'), systemctl('enable', 'capsule.service')] \
+    assert changes[:2] == [systemctl('daemon-reload'), systemctl('enable', 'peerspan.service')] \
         and len(changes) == 3, rule('--no-start never starts or restarts the service', changes)
     check_linger_call(changes[2])
     assert stubs.pid() == new_pid, rule('--no-start never restarts the service')
@@ -1196,8 +1196,8 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     cleanup.append(stubs_b)
     home = root / 'home-b'
     cli_b = Cli(cli_binary, links, home, f'{stubs_b.bin}:{base_path}')
-    default_state = home / '.local' / 'state' / 'capsule' / 'host'
-    default_unit = home / '.config' / 'systemd' / 'user' / 'capsule.service'
+    default_state = home / '.local' / 'state' / 'peerspan' / 'host'
+    default_unit = home / '.config' / 'systemd' / 'user' / 'peerspan.service'
     expected = first_free_udp()
     out = cli_b.json('install', what='install with defaults succeeds')
     port = f'0.0.0.0:{expected}'
@@ -1206,9 +1206,9 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
         assert out['peer_listen'] == '0.0.0.0:7401', rule('the default peer address is 0.0.0.0:7401', out)
     check_unit(default_unit, cli_binary, default_state, port, None)
     changes = stubs_b.changes()
-    assert changes[:2] == [systemctl('daemon-reload'), systemctl('enable', '--now', 'capsule.service')] \
+    assert changes[:2] == [systemctl('daemon-reload'), systemctl('enable', '--now', 'peerspan.service')] \
         and len(changes) == 3, \
-        rule('install runs daemon-reload, enable --now capsule.service, then loginctl enable-linger', changes)
+        rule('install runs daemon-reload, enable --now peerspan.service, then loginctl enable-linger', changes)
     check_linger_call(changes[2])
     assert admin_ready(default_state), rule('install waits for the admin socket of the started daemon')
     stubs_b.clear()
@@ -1231,8 +1231,8 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     assert out['service'] == 'systemd', rule('uninstall output service is systemd', out)
     assert Path(out['unit']) == default_unit, rule('uninstall prints the unit path', out)
     changes = stubs_b.changes()
-    assert changes == [systemctl('disable', '--now', 'capsule.service')], \
-        rule('uninstall runs systemctl --user disable --now capsule.service and keeps lingering', changes)
+    assert changes == [systemctl('disable', '--now', 'peerspan.service')], \
+        rule('uninstall runs systemctl --user disable --now peerspan.service and keeps lingering', changes)
     assert not default_unit.exists(), rule('uninstall removes the unit')
     assert default_state.is_dir() and (default_state / 'host.db').exists(), rule('uninstall keeps the state directory')
     assert stubs_b.pid() is None
@@ -1252,7 +1252,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
     cli_c = Cli(cli_binary, links, root / 'home-c', f'{stubs_c.bin}:{base_path}', config=root / 'config-c')
     state_c = root / 'state-c'
     listen = f'127.0.0.1:{available_port()}'
-    unit_c = root / 'config-c' / 'systemd' / 'user' / 'capsule.service'
+    unit_c = root / 'config-c' / 'systemd' / 'user' / 'peerspan.service'
     out = cli_c.json('install', '--state', str(state_c), '--peer-listen', listen,
                      what='install succeeds even when loginctl fails')
     check_install_output(out, unit_c, state_c, listen, False, True)
@@ -1285,7 +1285,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
         foreground.start()
         result = cli_d.run('install', '--state', str(foreground.state))
         assert result.returncode != 0, rule('install fails while a daemon runs outside the service', result.stdout)
-        unit_d = root / 'config-d' / 'systemd' / 'user' / 'capsule.service'
+        unit_d = root / 'config-d' / 'systemd' / 'user' / 'peerspan.service'
         assert not unit_d.exists() and stubs_d.changes() == [], \
             rule('a refused install changes nothing', stubs_d.changes())
         assert any('is-active' in args for _, args in stubs_d.calls('systemctl')), \
@@ -1296,7 +1296,7 @@ def check_install_linux(cli_binary, daemon_binary, root, cleanup):
         check_attention_order(value)
         items = [i for i in value['attention'] if i['kind'] in CLI_KINDS]
         assert [(i['kind'], i['subject'], i['command']) for i in items] == \
-            [('service_not_installed', 'service', 'capsule install')], \
+            [('service_not_installed', 'service', 'peerspan install')], \
             rule('service_not_installed: no unit while the daemon runs outside a service', value['attention'])
         assert code == 1, rule('status exits 1 with attention', code)
         status, daemon_view = foreground.call('GET', '/v1/status')
@@ -1338,19 +1338,19 @@ def check_install_macos(cli_binary, root, cleanup):
     cli = Cli(cli_binary, links, home, str(stubs.bin), agent_socket=str(root / 'mac-agent.sock'))
     state = root / 'state-mac'
     listen = f'127.0.0.1:{available_port()}'
-    plist_path = home / 'Library' / 'LaunchAgents' / 'dev.capsule.host.plist'
+    plist_path = home / 'Library' / 'LaunchAgents' / 'dev.peerspan.host.plist'
     uid = os.getuid()
 
     def check_plist(address):
-        assert plist_path.exists(), rule('install writes ~/Library/LaunchAgents/dev.capsule.host.plist')
+        assert plist_path.exists(), rule('install writes ~/Library/LaunchAgents/dev.peerspan.host.plist')
         with plist_path.open('rb') as f:
             plist = plistlib.load(f)
         expected = [os.path.realpath(cli_binary), '--state', str(state.resolve()), 'run', '--peer-listen', address]
         assert plist.get('ProgramArguments') == expected, rule('the plist has the same program arguments', plist)
         assert plist.get('RunAtLoad') is True, rule('the plist sets RunAtLoad', plist)
         assert plist.get('KeepAlive') not in (None, False, {}), rule('the plist sets KeepAlive', plist)
-        # The bootout target gui/UID/dev.capsule.host names the job by this label.
-        assert plist.get('Label') == 'dev.capsule.host', rule('the plist label matches gui/UID/dev.capsule.host', plist)
+        # The bootout target gui/UID/dev.peerspan.host names the job by this label.
+        assert plist.get('Label') == 'dev.peerspan.host', rule('the plist label matches gui/UID/dev.peerspan.host', plist)
         assert 'SSH_AUTH_SOCK' not in json.dumps(plist, default=str), \
             rule('the plist carries no SSH_AUTH_SOCK, since launchd provides it', plist)
 
@@ -1387,8 +1387,8 @@ def check_install_macos(cli_binary, root, cleanup):
     assert set(out) == UNINSTALL_KEYS and out['removed'] is True and Path(out['unit']) == plist_path, \
         rule('uninstall prints {service, unit, removed}', out)
     assert out['service'] == 'launchd', rule('uninstall output service is launchd', out)
-    assert stubs.changes() == [('launchctl', ['bootout', f'gui/{uid}/dev.capsule.host'])], \
-        rule('uninstall runs launchctl bootout gui/UID/dev.capsule.host', stubs.changes())
+    assert stubs.changes() == [('launchctl', ['bootout', f'gui/{uid}/dev.peerspan.host'])], \
+        rule('uninstall runs launchctl bootout gui/UID/dev.peerspan.host', stubs.changes())
     assert not plist_path.exists() and state.is_dir(), rule('uninstall removes the plist and keeps state')
     # The stub's bootout now fails (nothing loaded); a failing bootout is ignored.
     out = cli.json('uninstall', what='uninstall with nothing installed succeeds (a failing bootout is ignored)')
@@ -1407,7 +1407,7 @@ def check_install_macos(cli_binary, root, cleanup):
 def check_real_systemd(cli_binary, root):
     """Opt-in: install into the invoking user's real systemd --user manager."""
     config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
-    unit = config / 'systemd' / 'user' / 'capsule.service'
+    unit = config / 'systemd' / 'user' / 'peerspan.service'
     assert not unit.exists(), f'refusing --real-systemd: {unit} already exists'
     state = root / 'real-state'
     listen = f'127.0.0.1:{available_port()}'
@@ -1418,7 +1418,7 @@ def check_real_systemd(cli_binary, root):
         assert result.returncode == 0, rule('install with a real systemd --user', (result.stdout, result.stderr))
         out = json.loads(result.stdout)
         assert out['started'] is True and admin_ready(state), rule('the real service started', out)
-        active = subprocess.run(['systemctl', '--user', 'is-active', 'capsule.service'], capture_output=True,
+        active = subprocess.run(['systemctl', '--user', 'is-active', 'peerspan.service'], capture_output=True,
                                 text=True, timeout=10).stdout.strip()
         assert active == 'active', rule('systemd reports the service active', active)
         result = subprocess.run([str(cli_binary), '--state', str(state), 'status', '--json'], capture_output=True,
@@ -1572,7 +1572,7 @@ def check_hosts(coord_binary, cli_binary, daemon_binary, root, cleanup):
             [('coordinator_limit', s) for s in expected_alice], \
             rule('alice\'s attention items, in order', kinds(value))
         [item] = [i for i in value['attention'] if i['kind'] == 'person_agent_unreachable']
-        assert item['command'] == 'capsule install', rule('person_agent_unreachable command is capsule install', item)
+        assert item['command'] == 'peerspan install', rule('person_agent_unreachable command is peerspan install', item)
         status, daemon_view = alice.call('GET', '/v1/status')
         daemon_kinds = [i['kind'] for i in daemon_view['attention']]
         assert 'person_agent_unreachable' in daemon_kinds and 'coordinator_limit' in daemon_kinds, \
@@ -1638,7 +1638,7 @@ def check_root_help(cli_binary, root):
 # Default coordinator.
 
 class Builds:
-    """Go and Rust capsule-host test builds with the default coordinator set, built in the background."""
+    """Go and Rust peerspan-host test builds with the default coordinator set, built in the background."""
 
     def __init__(self, directory, address, key, languages):
         self.directory = directory
@@ -1651,16 +1651,16 @@ class Builds:
     def _build(self, language):
         try:
             if language == 'Go':
-                output = self.directory / 'go' / 'capsule-host'
+                output = self.directory / 'go' / 'peerspan-host'
                 flags = f'-X {GO_PACKAGE}.DefaultCoordinator={self.address} -X {GO_PACKAGE}.DefaultCoordinatorKey={self.key}'
-                command = ['go', '-C', str(REPO / 'go'), 'build', '-ldflags', flags, '-o', str(output), './cmd/capsule-host']
+                command = ['go', '-C', str(REPO / 'go'), 'build', '-ldflags', flags, '-o', str(output), './cmd/peerspan-host']
                 env = dict(os.environ)
             else:
                 target = self.directory / 'rust-target'
-                output = target / 'debug' / 'capsule-host'
+                output = target / 'debug' / 'peerspan-host'
                 command = ['cargo', 'build', '--locked', '--manifest-path', str(REPO / 'rust' / 'Cargo.toml'),
                            '--target-dir', str(target)]
-                env = dict(os.environ, CAPSULE_COORDINATOR=self.address, CAPSULE_COORDINATOR_KEY=self.key)
+                env = dict(os.environ, PEERSPAN_COORDINATOR=self.address, PEERSPAN_COORDINATOR_KEY=self.key)
             result = subprocess.run(command, capture_output=True, text=True, timeout=1800, env=env)
             if result.returncode != 0:
                 raise RuntimeError(f'{language} default-coordinator build failed:\n{result.stderr[-4000:]}')
@@ -1751,7 +1751,7 @@ def check(coord_binary, cli_binary, daemon_binary, label, builds, default_coord,
         sections.append(('real systemd', lambda root, cleanup: check_real_systemd(cli_binary, root)))
     failed = []
     for section, run in sections:
-        with tempfile.TemporaryDirectory(prefix='capsule-launch-service-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='peerspan-launch-service-') as temporary:
             cleanup = []
             try:
                 run(Path(temporary), cleanup)
@@ -1775,7 +1775,7 @@ def main():
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
     parser.add_argument('--coord', type=Path, required=True)
-    parser.add_argument('--probe', type=Path, required=True, help='capsule-peer-probe test client')
+    parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append',
                         help='CLI/daemon implementations, such as Go/Rust; repeatable; default all four')
     parser.add_argument('--build-dir', type=Path,
@@ -1797,7 +1797,7 @@ def main():
         parsed.append((cli, daemon))
     coord_binary = args.coord.resolve()
     languages = sorted({daemon for _, daemon in parsed})
-    with tempfile.TemporaryDirectory(prefix='capsule-launch-builds-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='peerspan-launch-builds-') as temporary:
         build_dir = args.build_dir.resolve() if args.build_dir else Path(temporary)
         build_dir.mkdir(parents=True, exist_ok=True)
         default_coord = DefaultCoordinator(coord_binary, Path(temporary))

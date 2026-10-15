@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Capsule daemons + real Codex bridge; explicit app-server fixture, no model."""
+"""Real Peerspan daemons + real Codex bridge; explicit app-server fixture, no model."""
 import argparse
 import json
 import os
@@ -43,7 +43,7 @@ class Harness:
             self.events.append(event)
     def verified(self, seconds=15):
         # Live delivery readiness: the fixture model answered the hello event.
-        result = self.event('tool_result', seconds, tool='capsule_ready'); assert result['success'], result
+        result = self.event('tool_result', seconds, tool='peerspan_ready'); assert result['success'], result
     def input(self, text):
         self.process.stdin.write(text+'\n'); self.process.stdin.flush()
     def stop(self):
@@ -73,7 +73,7 @@ def setup(client,host,agent,directory,node,codex,routes,backend):
 
 def check(client, source_binary, receiver_binary, replacement, node, label):
     codex = ROOT/'conformance/fixtures/codex/codex.py'
-    with tempfile.TemporaryDirectory(prefix='capsule-codex-') as td:
+    with tempfile.TemporaryDirectory(prefix='peerspan-codex-') as td:
         root = Path(td); source = PeerHost(source_binary,root/'source'); receiver = PeerHost(receiver_binary,root/'receiver')
         harnesses=[]; paused=None
         try:

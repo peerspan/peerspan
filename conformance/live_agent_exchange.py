@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two real interactive Claude sessions initiate and receive replies via Capsule.
+"""Two real interactive Claude sessions initiate and receive replies via Peerspan.
 
 Uses real model calls. Built-in tools are disabled. Only temporary host/MCP
 configuration is created; Claude records the test workspaces in normal account
@@ -25,7 +25,7 @@ def check(args):
     script = (
         Path(__file__).resolve().parents[1] / "integrations/claude-channel/channel.mjs"
     )
-    with tempfile.TemporaryDirectory(prefix="capsule-live-agents-") as directory:
+    with tempfile.TemporaryDirectory(prefix="peerspan-live-agents-") as directory:
         root = Path(directory)
         a = PeerHost(args.go.resolve(), root / "a")
         b = PeerHost(args.rust.resolve(), root / "b")
@@ -76,11 +76,11 @@ def check(args):
             cb.ready()
             session_pids = [ca.process.pid, cb.process.pid]
             print(
-                "Both interactive Claude sessions registered their Capsule channels.",
+                "Both interactive Claude sessions registered their Peerspan channels.",
                 flush=True,
             )
             ca.prompt(
-                'This is a Capsule integration experiment. Use list_destinations, then the Capsule send tool to send to destination remote this exact message: "Use the Capsule reply tool to respond with exactly BOB_REPLY_MARKER." After its kind=reply channel event arrives, respond in your own terminal with exactly AUTO_REPLY_OBSERVED_A. The send result alone is not the reply. Do not initiate any additional sends. Keep responding to later authorized kind=message events using the Capsule reply tool, even after your own exchange finishes. Use only Capsule tools.'
+                'This is a Peerspan integration experiment. Use list_destinations, then the Peerspan send tool to send to destination remote this exact message: "Use the Peerspan reply tool to respond with exactly BOB_REPLY_MARKER." After its kind=reply channel event arrives, respond in your own terminal with exactly AUTO_REPLY_OBSERVED_A. The send result alone is not the reply. Do not initiate any additional sends. Keep responding to later authorized kind=message events using the Peerspan reply tool, even after your own exchange finishes. Use only Peerspan tools.'
             )
             if args.restart_pending:
                 wait_for(lambda: sql(b, "SELECT request_id FROM received_messages"), 60)
@@ -117,7 +117,7 @@ def check(args):
                 flush=True,
             )
             cb.prompt(
-                'Now independently use list_destinations and the Capsule send tool to send to destination remote this exact message: "Use the Capsule reply tool to respond with exactly ALICE_REPLY_MARKER." After its kind=reply channel event arrives, respond in your own terminal with exactly AUTO_REPLY_OBSERVED_B. The send result alone is not the reply. Do not initiate any additional sends. Keep responding to later authorized kind=message events using the Capsule reply tool, even after your own exchange finishes. Use only Capsule tools.'
+                'Now independently use list_destinations and the Peerspan send tool to send to destination remote this exact message: "Use the Peerspan reply tool to respond with exactly ALICE_REPLY_MARKER." After its kind=reply channel event arrives, respond in your own terminal with exactly AUTO_REPLY_OBSERVED_B. The send result alone is not the reply. Do not initiate any additional sends. Keep responding to later authorized kind=message events using the Peerspan reply tool, even after your own exchange finishes. Use only Peerspan tools.'
             )
             if args.restart_pending:
                 wait_for(lambda: sql(a, "SELECT request_id FROM received_messages"), 60)
@@ -215,7 +215,7 @@ def check(args):
                         "\n".join(
                             line
                             for line in c.debug_path.read_text().splitlines()
-                            if 'MCP server "capsule"' in line
+                            if 'MCP server "peerspan"' in line
                         )[-3000:],
                         flush=True,
                     )
