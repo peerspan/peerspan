@@ -217,40 +217,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "peerspan-host"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64",
- "bytes",
- "chrono",
- "clap",
- "ed25519-dalek",
- "fs2",
- "getrandom 0.4.3",
- "hex",
- "http-body-util",
- "httparse",
- "hyper",
- "hyper-util",
- "libc",
- "quinn",
- "rcgen",
- "ring",
- "rusqlite",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "time",
- "tokio",
- "tokio-rustls",
- "x509-parser",
-]
-
-[[package]]
 name = "cc"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -931,6 +897,40 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "peerspan-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "bytes",
+ "chrono",
+ "clap",
+ "ed25519-dalek",
+ "fs2",
+ "getrandom 0.4.3",
+ "hex",
+ "http-body-util",
+ "httparse",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "quinn",
+ "rcgen",
+ "ring",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "x509-parser",
+]
 
 [[package]]
 name = "percent-encoding"
