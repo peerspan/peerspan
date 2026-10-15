@@ -979,8 +979,9 @@ async fn query(store: Arc<Store>, network: String, host: String) -> Outcome {
     }
 }
 
-/// Drops the query locks of hosts `keep` rejects (by network and host),
-/// unless a query holds or awaits one; a later pass drops those.
+/// Drops the query locks of hosts `keep` rejects (by network and host).
+/// A lock that a query of its host (a peer agents request) still holds or
+/// waits for is kept; a later pass drops it.
 fn prune_queries(store: &Store, keep: impl Fn(&str, &str) -> bool) {
     if let Ok(mut locks) = store.host_queries.lock() {
         locks.retain(|(n, h), lock| keep(n, h) || Arc::strong_count(lock) > 1);
