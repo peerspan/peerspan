@@ -531,8 +531,8 @@ A session's credential may be created with **directory access**. Then its adapte
 
 - `POST /v1/adapters/setup` gains optional `directory` (boolean, default false) and `max_sends_per_hour` (1 to 10,000, default 100; it requires `directory`). The adapter's record shows both.
 - **Rate cap.** Each send and each delegation by address counts once when it is first persisted, never on retries. A request that would make more than `max_sends_per_hour` in the preceding 60 minutes for that credential returns 429 `{code: "rate_limited", error, retry_after}`, where `retry_after` is a whole number of seconds, at least 1, until the oldest counted request leaves the window. It persists nothing. Route sends keep their own budgets and are not counted.
-- **Agent tools.** `GET /adapter/v1/agents` returns `[{address, network_id, connected, actions, max_message_bytes, max_artifact_bytes}]` from the directory, for addressable agents only. `actions` and the bounds are the union over the agent's authorizations, ignoring `from_agent` entries for other agents; an agent left with no actions is omitted. It returns 403 `no_directory` without directory access.
-- **MCP.** The shared adapter adds `list_agents`. `send` and `delegate_task` accept `to` and optional `network` in place of `destination`, when the credential has directory access. `send_status` reports `to` for these sends. `list_destinations` stays, for routes.
+- **Agent tools.** `GET /adapter/v1/agents` returns `[{address, network_id, connected, actions, max_message_bytes, max_artifact_bytes, endpoint}]` from the directory, with `endpoint` as for `agents` below (added 2026-10-16), for addressable agents only. `actions` and the bounds are the union over the agent's authorizations, ignoring `from_agent` entries for other agents; an agent left with no actions is omitted. It returns 403 `no_directory` without directory access.
+- **MCP.** The shared adapter adds `list_agents`, which returns those entries, `endpoint` included. `send` and `delegate_task` accept `to` and optional `network` in place of `destination`, when the credential has directory access. `send_status` reports `to` for these sends. `list_destinations` stays, for routes.
 - **Schema.** Storing `directory` and `max_sends_per_hour` with the credential, and `to` with outbound requests and tasks, is a shared schema migration, applied atomically and preserving existing state.
 
 ### Commands
@@ -555,9 +555,9 @@ A session's credential may be created with **directory access**. Then its adapte
 - **Naming** (revised 2026-10-16). Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
   1. `BASE-HOSTNAME`, with this machine's short host name;
   2. `BASE-HOSTNAME-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE-HOSTNAME` is used on this host;
-  3. `BASE-HOSTNAME-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE-HOSTNAME` is used only on another host, which happens when two of the person's machines share a host name; then 6, 8, and so on up to all 64 digits while that is taken;
+  3. `BASE-HOSTNAME-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE-HOSTNAME` is used only on another host, which happens when two of the person's machines share a host name; then 6, 8, and so on while that is taken;
   4. then the last of these candidates that applied with `-2`, `-3`, and so on appended.
-  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name that leaves nothing after that is replaced by `host`. The host name part is cut first, then the project part, so that the whole name, including `-HHHH` and any `-N`, fits in 64 characters.
+  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name that leaves nothing after that is replaced by `host`. So that the whole name fits in 64 characters, parts are cut from the end in this order, each down to 1 character before the next is cut: the host name, then the project, then `BASE`. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
   The host name is the one at `attach` time. An agent keeps its name when the machine is renamed, and re-attaching reuses it.
   IP addresses are not part of names: they change after `attach`, repeat across private networks, and a host often has several. `agents` shows each host's current endpoint instead (below).
 - **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
@@ -572,11 +572,11 @@ A session's credential may be created with **directory access**. Then its adapte
 
 Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, reachable, mine, inbound, hosts}`. `reachable` uses `{address, host_id, agent_id, connected, host_state, actions, endpoint}`, `mine` uses `{address, host_id, agent_id, connected, endpoint}`, and `inbound` uses `{agent, principals, actions, max_artifact_bytes}`. Principals use their policy form, for example `person:person_…`. `hosts` is the directory's `hosts`.
 
-**Endpoints** (added 2026-10-16) help people tell machines apart; they grant nothing and may be stale. `endpoint` is `{address, path}` or null:
-- for another host: the endpoint of a `direct` [peer path](peer-messaging-contract.md) with `path: "direct"`; otherwise the member's advertised `address` from the network map, else its first `candidates` entry, with `path` from `peer path` (`relay` or `none`);
-- for this host: its own advertised `address` from the network map, else its first `candidates` entry, with `path: "local"`;
-- null when none of these is known.
-The readable layout prints the endpoint address, or `relay` when there is none, after each agent.
+**Endpoints** (added 2026-10-16) help people tell machines apart; they grant nothing and may be stale. `endpoint` is `{address, path}`, where `address` is an `IP:PORT` string or null:
+- for another host, `path` is as `peer path` reports it (`direct`, `relay`, or `none`). `address` is the direct path's endpoint when `path` is `direct`, and otherwise the member's advertised `address` from the network map, else its first `candidates` entry, else null;
+- for this host, `path` is `local`, and `address` is its own advertised `address` from the network map, else its first `candidates` entry, else null.
+
+The readable layout prints, after each agent, `address` when there is one, followed by `path` in parentheses when it is not `direct` or `local`, and `path` alone otherwise, for example `192.0.2.10:7403`, `203.0.113.5:7401 (relay)`, or `none`.
 
 **Root help** now lists, in order:
 1. `status` and `install`;
@@ -615,7 +615,8 @@ The readable layout prints the endpoint address, or `relay` when there is none, 
   - a retry still reaching the stored target after the address would resolve elsewhere (the target host unbound, and the name registered on another host of that person).
 - **Attach:**
   - default naming and each suffix rule, across two hosts of one person, including two hosts with the same host name (the `-HHHH` rule) and a host name with no addressable characters;
-  - `endpoint` in `agents --json` for this host, a direct peer, and a relayed peer;
+  - `endpoint` in `agents --json` and `GET /adapter/v1/agents` for this host, a direct peer, a relayed peer, and a host with path `none` and no map address;
+  - a 64-character integration ID as `BASE`, cut so the default name fits;
   - `--name` taken refused, with no registration;
   - re-attach reusing the agent with `reused: true`, and after expiry a new credential for the same agent;
   - `unchecked_hosts` with a sibling stopped;
