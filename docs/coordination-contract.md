@@ -1,6 +1,6 @@
 # Signed enrollment and coordination contract
 
-Status: specification for roadmap milestone 1 ([roadmap](production-roadmap.md)). The Go and Rust host daemons implement the host side, and a Go-only `capsule-coord` binary implements coordination. This builds on the [known-host messaging contract](peer-messaging-contract.md). Manual `peer add` remains supported, and nothing here changes the peer router.
+Status: specification for roadmap milestone 1 ([roadmap](production-roadmap.md)). The Go and Rust host daemons implement the host side, and a Go-only `peerspan-coord` binary implements coordination. This builds on the [known-host messaging contract](peer-messaging-contract.md). Manual `peer add` remains supported, and nothing here changes the peer router.
 
 ## Trust model
 
@@ -27,8 +27,8 @@ A signed statement is its lines, encoded as UTF-8 and joined with a single `\n`,
 
 | Statement | Signed by | Lines |
 | --- | --- | --- |
-| Invite | root key | `capsule-invite-v1`, `network_id`, `invite_public_key`, `member`, `invite_expires_at` |
-| Member | invite key | `capsule-member-v1`, `network_id`, `invite_public_key`, `host_public_key`, `joined_at` |
+| Invite | root key | `peerspan-invite-v1`, `network_id`, `invite_public_key`, `member`, `invite_expires_at` |
+| Member | invite key | `peerspan-member-v1`, `network_id`, `invite_public_key`, `host_public_key`, `joined_at` |
 
 A **membership** is a strict JSON object with exactly these fields: `network_id`, `member`, `invite_public_key`, `invite_expires_at`, `invite_signature`, `host_public_key`, `joined_at`, and `host_signature`. To verify it against a root public key:
 
@@ -56,11 +56,11 @@ Ed25519 is deterministic. Both implementations must reproduce these exactly:
 
 ### Invite token
 
-A token is `capsule-invite-v1.` followed by unpadded base64url of a strict JSON object. The object has exactly these fields: `network_id`, `network_name`, `root_public_key`, `coordinator_address`, `coordinator_public_key`, `member`, `invite_public_key`, `invite_seed`, `invite_expires_at`, and `invite_signature`. The token is a bearer secret, because it contains the invite private seed. Owners deliver it out of band. Before contacting the coordinator, a joining host checks five things: the network ID matches the root key, the invite signature verifies, the seed matches `invite_public_key`, the invite has not expired, and the coordinator key is canonical. A failed check returns local 400 and makes no network contact.
+A token is `peerspan-invite-v1.` followed by unpadded base64url of a strict JSON object. The object has exactly these fields: `network_id`, `network_name`, `root_public_key`, `coordinator_address`, `coordinator_public_key`, `member`, `invite_public_key`, `invite_seed`, `invite_expires_at`, and `invite_signature`. The token is a bearer secret, because it contains the invite private seed. Owners deliver it out of band. Before contacting the coordinator, a joining host checks five things: the network ID matches the root key, the invite signature verifies, the seed matches `invite_public_key`, the invite has not expired, and the coordinator key is canonical. A failed check returns local 400 and makes no network contact.
 
-## Coordinator service: `capsule-coord`
+## Coordinator service: `peerspan-coord`
 
-`capsule-coord [--state DIR] run --listen HOST:PORT` serves coordination in the foreground. `capsule-coord [--state DIR] info` prints `{id, public_key}` and works while the service is running. State defaults to `$XDG_STATE_HOME/capsule/coord`, or `$HOME/.local/state/capsule/coord`. The private-directory, file-mode, and single-process rules are the same as for hosts. The coordinator generates its Ed25519 identity once and keeps it across restarts. Its database schema is internal.
+`peerspan-coord [--state DIR] run --listen HOST:PORT` serves coordination in the foreground. `peerspan-coord [--state DIR] info` prints `{id, public_key}` and works while the service is running. State defaults to `$XDG_STATE_HOME/peerspan/coord`, or `$HOME/.local/state/peerspan/coord`. The private-directory, file-mode, and single-process rules are the same as for hosts. The coordinator generates its Ed25519 identity once and keeps it across restarts. Its database schema is internal.
 
 Transport is HTTP/1.1 over TLS 1.3. The coordinator presents a self-signed Ed25519 certificate for its own key, built the same way as host certificates and renewed the same way. It requires a client certificate that proves possession of an Ed25519 key, and the caller's host ID is derived from that key. Hosts pin the coordinator public key from network creation or the invite token. `coordinator_address` is `HOST:PORT`, where HOST may be an IP literal or a DNS name. DNS is safe here because the key is pinned. Peer addresses remain IP literals.
 
@@ -127,11 +127,11 @@ These use the encoding rules above: lines joined by `\n`, with no trailing newli
 
 | Statement | Signed by | Lines |
 | --- | --- | --- |
-| Host revocation | a root in the network's root chain | `capsule-revoke-host-v1`, `network_id`, `host_public_key`, `revoked_at` |
-| Invite revocation | a root in the root chain | `capsule-revoke-invite-v1`, `network_id`, `invite_public_key`, `revoked_at` |
-| Leave | the leaving host's key | `capsule-leave-v1`, `network_id`, `host_public_key`, `left_at` |
-| Root rotation | the root of epoch `epoch − 1` | `capsule-root-rotate-v1`, `network_id`, `epoch`, `previous_root_public_key`, `root_public_key`, `rotated_at` |
-| Attestation | the root of epoch `epoch` | `capsule-attest-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `attested_at` |
+| Host revocation | a root in the network's root chain | `peerspan-revoke-host-v1`, `network_id`, `host_public_key`, `revoked_at` |
+| Invite revocation | a root in the root chain | `peerspan-revoke-invite-v1`, `network_id`, `invite_public_key`, `revoked_at` |
+| Leave | the leaving host's key | `peerspan-leave-v1`, `network_id`, `host_public_key`, `left_at` |
+| Root rotation | the root of epoch `epoch − 1` | `peerspan-root-rotate-v1`, `network_id`, `epoch`, `previous_root_public_key`, `root_public_key`, `rotated_at` |
+| Attestation | the root of epoch `epoch` | `peerspan-attest-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `attested_at` |
 
 Each is carried as a strict JSON object of its named fields plus `signature`; `epoch` is a JSON number, signed as its decimal spelling. Test vectors use the network, root, invite, and host keys of the earlier vectors, a new root with seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), time `2026-10-07T00:00:00Z`, epoch `1`, and member `alice`:
 
@@ -202,23 +202,23 @@ A person key is an OpenSSH `ssh-ed25519` key. Only the CLI uses it. Daemons neve
 
 - **Agent signing (default):** the CLI signs through `ssh-agent` at `SSH_AUTH_SOCK`, using the only `ssh-ed25519` identity in the agent. It is an error if there are none or several.
 - **Choosing a key:** `--person-key PATH` names either a public key file, which selects that identity in the agent, or an unencrypted OpenSSH private key file, which signs locally without an agent.
-- **Format:** person statements are signed in OpenSSH `SSHSIG` format, with namespace `capsule-person-v1` and hash `sha512`. The JSON `signature` field is standard Base64 of the binary `SSHSIG` blob: the bytes inside an armored `-----BEGIN SSH SIGNATURE-----` block, without the armor.
-- **Verification:** a verifier checks the `SSHSIG` magic and version 1, that the embedded public key is `ssh-ed25519` with the expected person key, the namespace, an empty reserved field, hash `sha512`, and the Ed25519 signature over the `SSHSIG` signed data. `ssh-keygen -Y verify -n capsule-person-v1` accepts these signatures.
+- **Format:** person statements are signed in OpenSSH `SSHSIG` format, with namespace `peerspan-person-v1` and hash `sha512`. The JSON `signature` field is standard Base64 of the binary `SSHSIG` blob: the bytes inside an armored `-----BEGIN SSH SIGNATURE-----` block, without the armor.
+- **Verification:** a verifier checks the `SSHSIG` magic and version 1, that the embedded public key is `ssh-ed25519` with the expected person key, the namespace, an empty reserved field, hash `sha512`, and the Ed25519 signature over the `SSHSIG` signed data. `ssh-keygen -Y verify -n peerspan-person-v1` accepts these signatures.
 - **Keys and IDs:** person public keys in statements are canonical standard Base64 of the 32 raw key bytes. A person ID is `person_` followed by the lowercase hex SHA-256 of those bytes.
 
-`capsule-host person show [--person-key PATH]` needs no daemon. It prints `{person_id, public_key, ssh_public_key}`.
+`peerspan-host person show [--person-key PATH]` needs no daemon. It prints `{person_id, public_key, ssh_public_key}`.
 
 ### Statements
 
 | Statement | Signed by | Lines |
 | --- | --- | --- |
-| Person admission | root of `epoch` (raw Ed25519) | `capsule-person-admit-v1`, `network_id`, `epoch`, `person_public_key`, `member`, `admitted_at` |
-| Person invite | root of `epoch` (raw Ed25519) | `capsule-person-invite-v1`, `network_id`, `epoch`, `invite_public_key`, `member`, `invite_expires_at` |
-| Person membership | the person invite key (raw Ed25519) | `capsule-person-member-v1`, `network_id`, `invite_public_key`, `person_public_key`, `joined_at` |
-| Person removal | any root in the chain (raw Ed25519) | `capsule-person-remove-v1`, `network_id`, `person_public_key`, `removed_at` |
-| Host admission | root of `epoch` (raw Ed25519) | `capsule-host-admit-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `admitted_at` |
-| Host binding | the person (`SSHSIG`) **and** the host (raw Ed25519, `host_signature`) | `capsule-host-bind-v1`, `network_id`, `person_public_key`, `host_public_key`, `bound_at` |
-| Host unbinding | the person (`SSHSIG`) | `capsule-host-unbind-v1`, `network_id`, `person_public_key`, `host_public_key`, `unbound_at` |
+| Person admission | root of `epoch` (raw Ed25519) | `peerspan-person-admit-v1`, `network_id`, `epoch`, `person_public_key`, `member`, `admitted_at` |
+| Person invite | root of `epoch` (raw Ed25519) | `peerspan-person-invite-v1`, `network_id`, `epoch`, `invite_public_key`, `member`, `invite_expires_at` |
+| Person membership | the person invite key (raw Ed25519) | `peerspan-person-member-v1`, `network_id`, `invite_public_key`, `person_public_key`, `joined_at` |
+| Person removal | any root in the chain (raw Ed25519) | `peerspan-person-remove-v1`, `network_id`, `person_public_key`, `removed_at` |
+| Host admission | root of `epoch` (raw Ed25519) | `peerspan-host-admit-v1`, `network_id`, `epoch`, `host_public_key`, `member`, `admitted_at` |
+| Host binding | the person (`SSHSIG`) **and** the host (raw Ed25519, `host_signature`) | `peerspan-host-bind-v1`, `network_id`, `person_public_key`, `host_public_key`, `bound_at` |
+| Host unbinding | the person (`SSHSIG`) | `peerspan-host-unbind-v1`, `network_id`, `person_public_key`, `host_public_key`, `unbound_at` |
 
 Each statement is carried as a strict JSON object of its fields plus `signature`, with `epoch` as a JSON number. A person **membership** object nests its invite: `{network_id, member, invite_public_key, invite_expires_at, invite_epoch, invite_signature, person_public_key, joined_at, person_signature}`. The person invite statement's lines use `invite_epoch` as their `epoch`.
 
@@ -265,7 +265,7 @@ The rules below apply at the network's current epoch *e* and current root, as de
 
 ### Network descriptor
 
-`capsule-network-v1.` followed by unpadded base64url of strict JSON `{network_id, network_name, root_public_key, coordinator_address, coordinator_public_key}`. `root_public_key` is the **genesis** root, which derives `network_id`. A descriptor is not a secret. It lets a host or person whose key an administrator admitted find and pin the network, and it grants nothing by itself.
+`peerspan-network-v1.` followed by unpadded base64url of strict JSON `{network_id, network_name, root_public_key, coordinator_address, coordinator_public_key}`. `root_public_key` is the **genesis** root, which derives `network_id`. A descriptor is not a secret. It lets a host or person whose key an administrator admitted find and pin the network, and it grants nothing by itself.
 
 ### Coordinator
 
@@ -302,7 +302,7 @@ Further rules:
 | --- | --- | --- |
 | `network admit --network ID --person SSH_PUBLIC_KEY --member LABEL` | `POST /v1/networks/{id}/persons` with `{person_public_key, member}` | Administrator only. Signs and submits a person admission. Returns 201 with `{person_id, descriptor}`. `SSH_PUBLIC_KEY` is an `ssh-ed25519` public key line or a path to one. |
 | `network admit --network ID --host HOST_PUBLIC_KEY --member LABEL` | `POST /v1/networks/{id}/hosts` with `{host_public_key, member}` | Administrator only. Signs and submits a host admission. Returns 201 with `{host_id, descriptor}`. |
-| `network invite-person --network ID --member LABEL --expires-at TIME` | `POST /v1/networks/{id}/person-invites` | Administrator only. Returns 201 with a token in the host-invite format, `capsule-person-invite-v1.` followed by unpadded base64url JSON with the host-invite fields plus `invite_epoch`. |
+| `network invite-person --network ID --member LABEL --expires-at TIME` | `POST /v1/networks/{id}/person-invites` | Administrator only. Returns 201 with a token in the host-invite format, `peerspan-person-invite-v1.` followed by unpadded base64url JSON with the host-invite fields plus `invite_epoch`. |
 | `network redeem-person --token TOKEN [--person-key PATH]` | `POST /v1/networks/redeem-person` with `{token, person_public_key}` | Run on any member host of that network. The CLI supplies the person's public key, and the daemon signs the membership with the invite seed and submits it. Returns 201 with `{person_id}`. |
 | `network join --descriptor DESCRIPTOR` | `POST /v1/networks/join` with `{descriptor}` | Joins with an administrator's admission of this host's key, otherwise as an invite join. Returns 403 if no admission for this host exists. |
 | `network bind --network ID [--person-key PATH]` | `POST /v1/networks/{id}/bindings` with `{binding}` | The CLI fetches this host's key from the daemon and signs the binding as the person. The daemon then adds its own `host_signature` and submits it as itself. A daemon refuses a binding of any key other than its own. After the coordinator accepts, the daemon stores the binding and its `network.host_bound` event locally before responding, so success means this host has the binding, regardless of any later sync. Returns 201 with `{network_id, host_id, person_id}`. |
@@ -323,7 +323,7 @@ Agreed on 2026-10-07, to keep administration simple for launch. The commands abo
 
 **Person key discovery.** `network create` and `network join` look for a person key unless given `--no-person`. They use `--person-key PATH` if given; otherwise, the only `ssh-ed25519` identity in `ssh-agent`. If there is no agent, or no such key, or several, the person part is skipped and the reason is reported. That is never an error. An explicit `--person-key` that cannot be used, because it is unreadable, encrypted, not Ed25519, or not in the agent, is an error before anything else happens, so no host joins.
 
-**Member invite (default).** `network invite --network ID --member LABEL --expires-at TIME` now issues a member invite. `--host-only` issues the previous host-only invite. A member invite is `capsule-member-invite-v1.` followed by unpadded base64url of strict JSON: the host invite token's fields plus `invite_epoch` and `person_invite_signature`. One invite key is signed twice by the current root: as a host invite (`invite_signature`) and as a person invite with the same member label and expiry (`person_invite_signature`, over the person invite statement at `invite_epoch`). The host part and the person part are each single-use under the existing rules. Issuing a member invite does not check person-label uniqueness, so a person's further machine can be invited under that person's own label. Uniqueness is checked when the person part is redeemed, and a conflict is reported as `skipped`. The person part can also be redeemed later with `network redeem-person --token`, until the invite expires.
+**Member invite (default).** `network invite --network ID --member LABEL --expires-at TIME` now issues a member invite. `--host-only` issues the previous host-only invite. A member invite is `peerspan-member-invite-v1.` followed by unpadded base64url of strict JSON: the host invite token's fields plus `invite_epoch` and `person_invite_signature`. One invite key is signed twice by the current root: as a host invite (`invite_signature`) and as a person invite with the same member label and expiry (`person_invite_signature`, over the person invite statement at `invite_epoch`). The host part and the person part are each single-use under the existing rules. Issuing a member invite does not check person-label uniqueness, so a person's further machine can be invited under that person's own label. Uniqueness is checked when the person part is redeemed, and a conflict is reported as `skipped`. The person part can also be redeemed later with `network redeem-person --token`, until the invite expires.
 
 **`network join --token TOKEN [--person-key PATH] [--no-person]`** accepts host-only and member tokens. `network join --descriptor` follows the same steps, without an admission.
 
@@ -352,7 +352,7 @@ Roadmap milestone 2b, slice 2. Decided on 2026-10-07:
 
 ### Signatures
 
-A root signature is either raw Ed25519, the 64-byte signature used until now, or an `SSHSIG` blob whose embedded key is the root. Verifiers accept both forms for every root-signed statement. An **administrator signature** is an `SSHSIG` blob (namespace `capsule-person-v1`) whose embedded key is a current administrator.
+A root signature is either raw Ed25519, the 64-byte signature used until now, or an `SSHSIG` blob whose embedded key is the root. Verifiers accept both forms for every root-signed statement. An **administrator signature** is an `SSHSIG` blob (namespace `peerspan-person-v1`) whose embedded key is a current administrator.
 
 These statements may carry either a root signature or an administrator signature:
 - host invite and person invite (`invite_signature`, `person_invite_signature`);
@@ -368,9 +368,9 @@ Delegation, administrator removal, rotation, and attestation remain root-only.
 
 | Statement | Signed by | Lines |
 | --- | --- | --- |
-| Administrator delegation | root of `epoch` | `capsule-admin-delegate-v1`, `network_id`, `epoch`, `person_public_key`, `delegated_at` |
-| Administrator removal | any root in the chain | `capsule-admin-remove-v1`, `network_id`, `person_public_key`, `revoke_admitted` (`true` or `false`), `removed_at`, then, only when `revoke_admitted` is `false`, one line per kept statement digest in ascending order |
-| Group definition | root or administrator | `capsule-group-v1`, `network_id`, `name`, `version`, `defined_at`, then one line per member person ID, in ascending byte order with no duplicates |
+| Administrator delegation | root of `epoch` | `peerspan-admin-delegate-v1`, `network_id`, `epoch`, `person_public_key`, `delegated_at` |
+| Administrator removal | any root in the chain | `peerspan-admin-remove-v1`, `network_id`, `person_public_key`, `revoke_admitted` (`true` or `false`), `removed_at`, then, only when `revoke_admitted` is `false`, one line per kept statement digest in ascending order |
+| Group definition | root or administrator | `peerspan-group-v1`, `network_id`, `name`, `version`, `defined_at`, then one line per member person ID, in ascending byte order with no duplicates |
 
 Group names are 1–64 bytes of lowercase ASCII letters, digits, `.`, `_`, and `-`, starting with a letter or digit. `version` is a decimal integer of at least 1. A definition with no member lines deletes the group. Group members are always person IDs, never labels.
 
@@ -452,8 +452,8 @@ Policies name persons by ID, never by label, per the naming rules.
 
 ### Policy statement
 
-A policy is signed by its owner (`SSHSIG`, namespace `capsule-person-v1`). Its lines are:
-- the header: `capsule-policy-v1`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`;
+A policy is signed by its owner (`SSHSIG`, namespace `peerspan-person-v1`). Its lines are:
+- the header: `peerspan-policy-v1`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`;
 - then, for each rule in order, five lines:
   1. `rule`;
   2. the agent name;
@@ -597,11 +597,11 @@ A delivery's `record` is its status fields plus `policy`, the policy being deliv
 
 ## Relay
 
-Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `capsule-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
+Roadmap milestone 3b ([proposal](quic-relay-proposal.md)). Every `peerspan-coord` relays peer QUIC packets between members of the networks it serves. It relays on its existing TLS listener and address, under its existing pinned key, so the network map needs no relay fields. A relay forwards already-encrypted QUIC packets addressed by host ID. It cannot read them, and it cannot impersonate either host, because the end-to-end peer TLS pins still apply.
 
 ### Connection
 
-A host connects over TCP to the coordinator address and completes TLS 1.3 with its host certificate as the client certificate, pinning the coordinator key as for the coordination API. It offers ALPN `capsule-relay/1`; the coordination API negotiates `http/1.1`, and the coordinator dispatches on the negotiated protocol. The caller's host ID is derived from its client key. The coordinator allows 10 seconds for the TLS handshake before routing the connection by ALPN. A caller that is not a member of any network on this coordinator is refused: the connection closes after the handshake, before any frame is processed. One relay connection per host is current. A new connection from the same host replaces the older one, which the coordinator closes.
+A host connects over TCP to the coordinator address and completes TLS 1.3 with its host certificate as the client certificate, pinning the coordinator key as for the coordination API. It offers ALPN `peerspan-relay/1`; the coordination API negotiates `http/1.1`, and the coordinator dispatches on the negotiated protocol. The caller's host ID is derived from its client key. The coordinator allows 10 seconds for the TLS handshake before routing the connection by ALPN. A caller that is not a member of any network on this coordinator is refused: the connection closes after the handshake, before any frame is processed. One relay connection per host is current. A new connection from the same host replaces the older one, which the coordinator closes.
 
 ### Frames
 
@@ -614,7 +614,7 @@ After the handshake, both directions carry frames: one type byte, a 2-byte big-e
 | `0x03` unreachable | relay → host | destination host ID | The destination has no current relay connection, or the two hosts share no network. Sent at most once per second per destination. |
 | `0x04` ping | either | empty | Keepalive; ignored on receipt. |
 
-This table is version 1 (`capsule-relay/1`). Version 2 adds `0x05 changed` and version 3 adds `0x06 presence`; both are specified in the [launch contract](launch-contract.md), slices 5 and 6.
+This table is version 1 (`peerspan-relay/1`). Version 2 adds `0x05 changed` and version 3 adds `0x06 presence`; both are specified in the [launch contract](launch-contract.md), slices 5 and 6.
 
 A datagram is 1 to 1,500 bytes; a host drops a larger outgoing datagram locally instead of sending it. A send frame addressed to the sender itself is treated as unreachable. An unknown frame type, an oversized or truncated frame, or a frame of a type invalid for its direction closes the connection. Hosts send a ping after 15 seconds without sending any frame. The coordinator closes a relay connection after 45 seconds without receiving one.
 
@@ -644,7 +644,7 @@ Roadmap milestone 4. The relay keeps every pair reachable. Hosts also try to ope
 
 ### Reflexive addresses
 
-`capsule-coord` also listens for UDP on the same IP and port as its TLS listener. It answers STUN Binding requests (RFC 8489): the 20-byte header with magic cookie `0x2112A442` and a 12-byte transaction ID. The success response carries `XOR-MAPPED-ADDRESS` with the request's observed source address and port. It ignores every other datagram, sends no other attributes, and does not authenticate. A forged or wrong mapping can only cause a failed path attempt, because peer TLS pins still apply.
+`peerspan-coord` also listens for UDP on the same IP and port as its TLS listener. It answers STUN Binding requests (RFC 8489): the 20-byte header with magic cookie `0x2112A442` and a 12-byte transaction ID. The success response carries `XOR-MAPPED-ADDRESS` with the request's observed source address and port. It ignores every other datagram, sends no other attributes, and does not authenticate. A forged or wrong mapping can only cause a failed path attempt, because peer TLS pins still apply.
 
 A host with a peer socket sends a Binding request from that socket to each of its coordinators. It sends at startup, after creating or joining a network, and at least once per coordination interval. It accepts a response only with a matching transaction ID from the coordinator address it asked. The mapped address is its reflexive candidate for that network.
 

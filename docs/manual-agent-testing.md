@@ -1,9 +1,9 @@
 # Manual agent testing
 
-This is the advanced path: it wires sessions together by hand with grants, routes, and explicit setup, which `capsule help advanced` lists. For the normal path, with `install`, `join`, `allow`, and `attach`, see the [quick start](quick-start.md).
+This is the advanced path: it wires sessions together by hand with grants, routes, and explicit setup, which `peerspan help advanced` lists. For the normal path, with `install`, `join`, `allow`, and `attach`, see the [quick start](quick-start.md).
 
 Start with two conversations on one machine. This walkthrough uses Codex for A
-and OpenCode for B. Two Capsule daemons give the test separate host identities,
+and OpenCode for B. Two Peerspan daemons give the test separate host identities,
 so you can exercise peer messaging over loopback. A daemon can normally register
 multiple agents; one daemon per agent is not a deployment requirement.
 
@@ -16,11 +16,11 @@ conversation tabs can serve as Tabs 7 and 8.
 | Tab | Name | What runs here |
 | --- | --- | --- |
 | 1 | Coordinator | Foreground coordination service |
-| 2 | Host A | Foreground Capsule daemon A, UDP port 7401 |
-| 3 | Host B | Foreground Capsule daemon B, UDP port 7402 |
+| 2 | Host A | Foreground Peerspan daemon A, UDP port 7401 |
+| 3 | Host B | Foreground Peerspan daemon B, UDP port 7402 |
 | 4 | Setup | Build, configuration, and diagnostic commands |
-| 5 | Attachment A | Foreground Capsule sidecar for conversation A |
-| 6 | Attachment B | Foreground Capsule sidecar for conversation B |
+| 5 | Attachment A | Foreground Peerspan sidecar for conversation A |
+| 6 | Attachment B | Foreground Peerspan sidecar for conversation B |
 | 7 | Codex conversation A | Native Codex CLI; prompts and `/status` run here |
 | 8 | OpenCode conversation B | Native OpenCode TUI; prompts run here |
 
@@ -32,15 +32,15 @@ open and return to Tab 4 for the next step.
 ## Tab 4 prepare the checkout
 
 Use Go 1.26+, Node 22+, Python 3, Codex 0.160.0+ and OpenCode 1.18.31+.
-These commands place the checkout at `~/capsule-test`. If yours is elsewhere,
+These commands place the checkout at `~/peerspan-test`. If yours is elsewhere,
 replace that path in the guide. Skip cloning if this checkout already exists.
 
 ```sh
-git clone git@github.com:Cerebral-Systems/capsule-v0.git ~/capsule-test
-cd ~/capsule-test
+git clone git@github.com:Cerebral-Systems/capsule-v0.git ~/peerspan-test
+cd ~/peerspan-test
 mkdir -p bin
-go -C go build -o "$PWD/bin/capsule-host" ./cmd/capsule-host
-go -C go build -o "$PWD/bin/capsule-coord" ./cmd/capsule-coord
+go -C go build -o "$PWD/bin/peerspan-host" ./cmd/peerspan-host
+go -C go build -o "$PWD/bin/peerspan-coord" ./cmd/peerspan-coord
 npm ci --ignore-scripts --prefix integrations/codex
 npm ci --ignore-scripts --prefix integrations/opencode
 ```
@@ -49,9 +49,9 @@ Define these path variables **once, in Tab 4**. A and B have separate state,
 attachment profiles, and destination files:
 
 ```sh
-CAPSULE="$HOME/capsule-test"
-HOST="$CAPSULE/bin/capsule-host"
-LAB_ROOT="$HOME/.local/state/capsule-manual"
+PEERSPAN="$HOME/peerspan-test"
+HOST="$PEERSPAN/bin/peerspan-host"
+LAB_ROOT="$HOME/.local/state/peerspan-manual"
 A_STATE="$LAB_ROOT/a/host"
 B_STATE="$LAB_ROOT/b/host"
 A_PROFILE="$LAB_ROOT/a/profile"
@@ -71,21 +71,21 @@ is still needed. Start with Go on the Mac and either daemon on Linux.
 **Tab 1 — Coordinator:**
 
 ```sh
-~/capsule-test/bin/capsule-coord --state ~/.local/state/capsule-manual/coord \
+~/peerspan-test/bin/peerspan-coord --state ~/.local/state/peerspan-manual/coord \
   run --listen 127.0.0.1:7400
 ```
 
 **Tab 2 — Host A:**
 
 ```sh
-~/capsule-test/bin/capsule-host --state ~/.local/state/capsule-manual/a/host \
+~/peerspan-test/bin/peerspan-host --state ~/.local/state/peerspan-manual/a/host \
   run --peer-listen 127.0.0.1:7401
 ```
 
 **Tab 3 — Host B:**
 
 ```sh
-~/capsule-test/bin/capsule-host --state ~/.local/state/capsule-manual/b/host \
+~/peerspan-test/bin/peerspan-host --state ~/.local/state/peerspan-manual/b/host \
   run --peer-listen 127.0.0.1:7402
 ```
 
@@ -102,7 +102,7 @@ Read the coordinator's `public_key`, then create the network through A:
 
 ```sh
 EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
-"$CAPSULE/bin/capsule-coord" --state "$LAB_ROOT/coord" info
+"$PEERSPAN/bin/peerspan-coord" --state "$LAB_ROOT/coord" info
 "$HOST" --state "$A_STATE" network create --name manual-test --member alice \
   --coordinator 127.0.0.1:7400 --coordinator-key COORD_PUBLIC_KEY --no-person
 "$HOST" --state "$A_STATE" network invite --network NETWORK_ID --member bob \
@@ -168,7 +168,7 @@ per-peer grants. Policy-authorized destinations omit `grant_id`.
 ## Tab 4 prepare the attachments
 
 Before starting sidecars, give each native conversation a different phrase to
-remember. Keep both conversations running in Tabs 7 and 8; Capsule attaches to
+remember. Keep both conversations running in Tabs 7 and 8; Peerspan attaches to
 those existing conversations.
 
 Replace `A_AGENT_ID` and `B_AGENT_ID` with the IDs returned by `agent register`,
@@ -198,7 +198,7 @@ both values in the setup command:
 codex app-server daemon version
 EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$HOST" --state "$A_STATE" session setup --harness codex \
-  --integrations "$CAPSULE/integrations" --runner "$(command -v node)" \
+  --integrations "$PEERSPAN/integrations" --runner "$(command -v node)" \
   --option executable="$(command -v codex)" --option socket=EXISTING_SOCKET \
   --option thread=EXISTING_THREAD_UUID --directory "$A_PROFILE" \
   --agent A_AGENT_ID --expires-at "$EXPIRES" --routes "$LAB_ROOT/a/destinations.json"
@@ -221,7 +221,7 @@ OpenCode supports [ChatGPT subscription login](https://opencode.ai/docs/provider
 Claude subscriptions work through native Claude Code; Anthropic access through
 OpenCode needs separate API access. See [Anthropic credential guidance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).
 
-Install the Capsule plugin once by editing OpenCode's configuration file. In
+Install the Peerspan plugin once by editing OpenCode's configuration file. In
 **Tab 4**, open the global config (or edit the project/custom config you already
 use). OpenCode accepts both `opencode.json` and `opencode.jsonc` (JSON with
 comments). Edit your existing file; the command below opens `opencode.jsonc` if
@@ -238,18 +238,18 @@ fi
 
 Use your preferred text editor if Nano is unavailable. The block below is **file
 contents**, not a shell command. For a new file, paste the whole block. In an
-existing file, add the Capsule entry to its `plugin` array, preserving other
+existing file, add the Peerspan entry to its `plugin` array, preserving other
 plugins, settings, and comments; add the array if it is absent.
 
-`ABSOLUTE_CAPSULE` means the repository checkout path (`$CAPSULE` in Tab 4).
+`ABSOLUTE_PEERSPAN` means the repository checkout path (`$PEERSPAN` in Tab 4).
 `ABSOLUTE_LAB_ROOT` means the test state path (`$LAB_ROOT`). You can print both in
-Tab 4 with `printf '%s\n' "$CAPSULE" "$LAB_ROOT"`. Substitute their full paths in
+Tab 4 with `printf '%s\n' "$PEERSPAN" "$LAB_ROOT"`. Substitute their full paths in
 the JSON; shell variables and `~` are not expanded there.
 
 ```json
 {
   "plugin": [
-    ["file:///ABSOLUTE_CAPSULE/integrations/opencode/plugin.mjs", {
+    ["file:///ABSOLUTE_PEERSPAN/integrations/opencode/plugin.mjs", {
       "bindings": "ABSOLUTE_LAB_ROOT/opencode-bindings"
     }]
   ]
@@ -278,7 +278,7 @@ OPENCODE_PROJECT=/absolute/path/to/your/test-project
 ```
 
 Session listing is scoped to the current project. An empty result from the
-Capsule checkout does not mean the conversation is missing. For example, if
+Peerspan checkout does not mean the conversation is missing. For example, if
 OpenCode started in `/root`, use `OPENCODE_PROJECT=/root`. The subshell above
 preserves Tab 4's working directory. Match the conversation title and copy its
 `id` (starting with `ses_`) into `EXISTING_SESSION_ID` below:
@@ -286,7 +286,7 @@ preserves Tab 4's working directory. Match the conversation title and copy its
 ```sh
 EXPIRES=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(hours=2)).isoformat())')
 "$HOST" --state "$B_STATE" session setup --harness opencode \
-  --integrations "$CAPSULE/integrations" --runner "$(command -v node)" \
+  --integrations "$PEERSPAN/integrations" --runner "$(command -v node)" \
   --option server=http://127.0.0.1:4096 --option session=EXISTING_SESSION_ID \
   --option directory="$OPENCODE_PROJECT" --option bindings="$BINDINGS" \
   --directory "$B_PROFILE" --agent B_AGENT_ID \
@@ -307,26 +307,26 @@ same configured `$BINDINGS` directory; each receives its own session binding.
 **Tab 5 — Attachment A:**
 
 ```sh
-~/capsule-test/bin/capsule-host session start \
-  --directory ~/.local/state/capsule-manual/a/profile
+~/peerspan-test/bin/peerspan-host session start \
+  --directory ~/.local/state/peerspan-manual/a/profile
 ```
 
 **Tab 6 — Attachment B:**
 
 ```sh
-~/capsule-test/bin/capsule-host session start \
-  --directory ~/.local/state/capsule-manual/b/profile
+~/peerspan-test/bin/peerspan-host session start \
+  --directory ~/.local/state/peerspan-manual/b/profile
 ```
 
-Leave both tabs running. `session start` starts a Capsule sidecar. It uses the
+Leave both tabs running. `session start` starts a Peerspan sidecar. It uses the
 profile prepared in Tab 4 and does not require Tab 4's variables in its shell.
 
 ## Check the behavior
 
-1. In A's native conversation, ask it to list Capsule destinations, send to
+1. In A's native conversation, ask it to list Peerspan destinations, send to
    `remote` requesting B's remembered phrase, and check the returned request ID
-   with the Capsule send status tool.
-2. B must call the Capsule reply tool. Confirm A's model reports B's exact phrase,
+   with the Peerspan send status tool.
+2. B must call the Peerspan reply tool. Confirm A's model reports B's exact phrase,
    then repeat in the other direction.
 3. Try an unrelated conversation and exceed a destination budget. Both must be
    denied. Native tool approvals must still behave as configured.
@@ -363,4 +363,4 @@ use the same port. Public UDP 7401 allows direct traffic.
 For a Mac behind NAT, use `--peer-listen 0.0.0.0:7401` without inventing a public
 address. Signed enrollment supplies discovery and relay access. Relay-dependent
 peers need a working relay during coordinator outage. The native OpenCode server
-and Capsule's private admin socket remain local to their machine.
+and Peerspan's private admin socket remain local to their machine.

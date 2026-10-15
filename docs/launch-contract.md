@@ -6,7 +6,7 @@ Roadmap milestone 7. The design and its settled decisions are in the [launch pro
 
 ### Name
 
-The CLI is one binary that answers to `capsule` and `capsule-host`. Help and diagnostics name it after the base name it was invoked as, and behave identically otherwise. Builds keep producing `capsule-host`. The release bundle adds `bin/capsule` as a relative symbolic link to `capsule-host`, and both find the bundled integrations.
+The CLI is one binary that answers to `peerspan` and `peerspan-host`. Help and diagnostics name it after the base name it was invoked as, and behave identically otherwise. Builds keep producing `peerspan-host`. The release bundle adds `bin/peerspan` as a relative symbolic link to `peerspan-host`, and both find the bundled integrations.
 
 ### Root help
 
@@ -19,7 +19,7 @@ The root help lists only these commands, in this order:
 6. `session setup`, `start`, and `doctor`;
 7. `message send` and `task submit`.
 
-It ends with one line pointing to `help advanced`. `help advanced` (and `--help-advanced` before any command) prints the full command list as the root help does today. Every hidden command still runs, and its own `--help` still works. Help wording is not a shared contract; the set of commands listed is, and `conformance/launch_cli.py` checks it. It parses a `Commands:` header followed by one line per command: two spaces, the command path, at least two spaces, and a description. Bare invocation, `--help`, and `help` print identical root help, and root help invoked as `capsule` never mentions `capsule-host`.
+It ends with one line pointing to `help advanced`. `help advanced` (and `--help-advanced` before any command) prints the full command list as the root help does today. Every hidden command still runs, and its own `--help` still works. Help wording is not a shared contract; the set of commands listed is, and `conformance/launch_cli.py` checks it. It parses a `Commands:` header followed by one line per command: two spaces, the command path, at least two spaces, and a description. Bare invocation, `--help`, and `help` print identical root help, and root help invoked as `peerspan` never mentions `peerspan-host`.
 
 ### Network defaulting
 
@@ -97,17 +97,17 @@ No schema change is needed: these are fields of the JSON records.
 - **`version`:** the implementation's version string. Its wording is not shared.
 
 **Attention items**, in this order, each with its subject:
-1. `coordination_error`: a network with a non-null `last_sync_error`. Subject: the network ID; command: `capsule network sync ID`.
-2. `policy_expired`: this person's policy has passed `valid_until`. Command: `capsule access renew --network ID`.
-3. `policy_expiring`: this person's policy has less than a quarter of its validity window left. The daemon renews it at that point, so this means renewal is failing, for example because the daemon cannot reach the person's ssh-agent. Command: `capsule access renew --network ID`.
-4. `policy_delivery_failing`: a pending policy delivery that has failed at least once. Subject: `NETWORK/TARGET`; command: `capsule access sync --network ID`.
-5. `credential_expiring`: an unrevoked, non-renewable credential with an attached session, expiring within 24 hours and not yet expired. Subject: the adapter ID; command: `capsule session setup --agent ID --harness INTEGRATION`.
-6. `tasks_failed`: outbound tasks whose latest `task.updated` activity in the last 24 hours left them `failed`, `rejected`, or `expired`, including submissions the receiver refused. One item; subject: the count as a decimal string; command: `capsule task list`.
-7. `artifact_quota`: stored plus pending bytes above 90% of the quota. Subject: `artifacts`; command: `capsule artifact prune`.
+1. `coordination_error`: a network with a non-null `last_sync_error`. Subject: the network ID; command: `peerspan network sync ID`.
+2. `policy_expired`: this person's policy has passed `valid_until`. Command: `peerspan access renew --network ID`.
+3. `policy_expiring`: this person's policy has less than a quarter of its validity window left. The daemon renews it at that point, so this means renewal is failing, for example because the daemon cannot reach the person's ssh-agent. Command: `peerspan access renew --network ID`.
+4. `policy_delivery_failing`: a pending policy delivery that has failed at least once. Subject: `NETWORK/TARGET`; command: `peerspan access sync --network ID`.
+5. `credential_expiring`: an unrevoked, non-renewable credential with an attached session, expiring within 24 hours and not yet expired. Subject: the adapter ID; command: `peerspan session setup --agent ID --harness INTEGRATION`.
+6. `tasks_failed`: outbound tasks whose latest `task.updated` activity in the last 24 hours left them `failed`, `rejected`, or `expired`, including submissions the receiver refused. One item; subject: the count as a decimal string; command: `peerspan task list`.
+7. `artifact_quota`: stored plus pending bytes above 90% of the quota. Subject: `artifacts`; command: `peerspan artifact prune`.
 
 Within one kind, items are sorted by subject. `detail` is free text. `policy_expiring` excludes a policy that has already expired, which is `policy_expired`.
 
-**`capsule status`** prints a readable summary; its layout is not shared. `--json` prints the daemon's object. Exit codes:
+**`peerspan status`** prints a readable summary; its layout is not shared. `--json` prints the daemon's object. Exit codes:
 - 0 when `attention` is empty;
 - 1 when it is not;
 - 2 when the daemon cannot be reached. With `--json`, it then prints `{"daemon": "not running", "state": DIR}`.
@@ -115,7 +115,7 @@ Within one kind, items are sorted by subject. `detail` is free text. `policy_exp
 ### Verification
 
 `conformance/launch_cli.py` runs across all Go/Rust CLI and daemon pairings, using the Go coordinator for network cases. It covers:
-- **Name:** `capsule` and `capsule-host` behave alike, and the bundle link works through `installed_bundle.py`.
+- **Name:** `peerspan` and `peerspan-host` behave alike, and the bundle link works through `installed_bundle.py`.
 - **Help:** the root help's command set, and `help advanced` listing all of them.
 - **Network defaulting:** with zero, one, and two networks, and the explicit-only commands.
 - **Expiries:** `--expires-in` everywhere, each default, and mutual exclusion with `--expires-at`.
@@ -143,15 +143,15 @@ Decided with the owner on 2026-10-08:
 
 ### Install
 
-`capsule install [--state DIR] [--peer-listen IP:PORT] [--no-start]` installs the daemon as a user service and, unless `--no-start` is given, starts it and waits up to 10 seconds for the admin socket. It prints `{service, unit, state, peer_listen, linger, started}`.
+`peerspan install [--state DIR] [--peer-listen IP:PORT] [--no-start]` installs the daemon as a user service and, unless `--no-start` is given, starts it and waits up to 10 seconds for the admin socket. It prints `{service, unit, state, peer_listen, linger, started}`.
 
-- **Linux.** It writes `$XDG_CONFIG_HOME/systemd/user/capsule.service` (default `~/.config/systemd/user`), with:
+- **Linux.** It writes `$XDG_CONFIG_HOME/systemd/user/peerspan.service` (default `~/.config/systemd/user`), with:
   - `ExecStart=` exactly the binary's resolved real path, `--state DIR`, `run`, and `--peer-listen ADDR`;
   - `Restart=on-failure` and `WantedBy=default.target`;
   - `Environment=SSH_AUTH_SOCK=` the installing shell's value, when set.
 
-  It then runs `systemctl --user daemon-reload`, then `systemctl --user enable --now capsule.service`, or `enable` alone with `--no-start`. Last, it runs `loginctl enable-linger` for the current user. A failed `loginctl` is not an error: `linger` is reported as `false`.
-- **macOS.** It writes `~/Library/LaunchAgents/dev.capsule.host.plist` with `Label` `dev.capsule.host`, the same program arguments, `RunAtLoad`, and `KeepAlive`, then runs `launchctl bootstrap gui/UID PATH`. `linger` is always `null`.
+  It then runs `systemctl --user daemon-reload`, then `systemctl --user enable --now peerspan.service`, or `enable` alone with `--no-start`. Last, it runs `loginctl enable-linger` for the current user. A failed `loginctl` is not an error: `linger` is reported as `false`.
+- **macOS.** It writes `~/Library/LaunchAgents/dev.peerspan.host.plist` with `Label` `dev.peerspan.host`, the same program arguments, `RunAtLoad`, and `KeepAlive`, then runs `launchctl bootstrap gui/UID PATH`. `linger` is always `null`.
 - **Elsewhere,** or without `systemctl` or `launchctl` on `PATH`, it fails with `no supported service manager` and changes nothing.
 
 **Defaults:**
@@ -168,41 +168,41 @@ Decided with the owner on 2026-10-08:
   - With a new or changed unit, it runs `daemon-reload` and `enable --now`, then `restart` if the unit changed, then `loginctl enable-linger`.
   - `--no-start` never starts or restarts the service.
 - **Sequences on macOS:**
-  - With a changed plist, it runs `bootout gui/UID/dev.capsule.host`, then `bootstrap`.
+  - With a changed plist, it runs `bootout gui/UID/dev.peerspan.host`, then `bootstrap`.
   - `--no-start` writes the plist without calling `launchctl`.
   - The plist carries no `SSH_AUTH_SOCK`, since launchd provides it.
 
-`capsule uninstall` stops and disables the service:
-- **Linux:** `systemctl --user disable --now capsule.service`;
-- **macOS:** `launchctl bootout gui/UID/dev.capsule.host`.
+`peerspan uninstall` stops and disables the service:
+- **Linux:** `systemctl --user disable --now peerspan.service`;
+- **macOS:** `launchctl bootout gui/UID/dev.peerspan.host`.
 
 It then removes the unit and prints `{service, unit, removed}`. It keeps the state directory and lingering. Uninstalling with nothing installed succeeds with `removed: false`. A failing `launchctl bootout` is ignored, but a failing `systemctl disable` is an error. With no manager on `PATH`, uninstall fails with `no supported service manager`.
 
 ### Status additions
 
-- **`service`.** The CLI adds `service` to `capsule status --json`: `{manager, unit, installed, active, linger}`.
+- **`service`.** The CLI adds `service` to `peerspan status --json`: `{manager, unit, installed, active, linger}`.
   - `manager` is `systemd`, `launchd`, or null.
   - `active` comes from `systemctl --user is-active` or `launchctl print`.
   - `linger` comes from `loginctl show-user USER --property=Linger`, and is null on macOS.
   - It is present even when the daemon is not running, in which case there are no attention items.
 - **New attention items.** These follow the existing seven:
-  8. `service_not_installed`: no unit, while the daemon runs outside a service. Added by the CLI; subject `service`; command `capsule install`.
+  8. `service_not_installed`: no unit, while the daemon runs outside a service. Added by the CLI; subject `service`; command `peerspan install`.
   9. `linger_disabled`: Linux, unit installed, `linger` false. Added by the CLI; subject `service`; command `loginctl enable-linger`.
-  10. `person_agent_unreachable`: this host is bound to a person who has a stored policy, and the daemon's `--person-agent` socket is unset, cannot be connected, or does not hold that person's key. Added by the daemon; subject: the network ID; command `capsule install`, which refreshes `SSH_AUTH_SOCK`.
+  10. `person_agent_unreachable`: this host is bound to a person who has a stored policy, and the daemon's `--person-agent` socket is unset, cannot be connected, or does not hold that person's key. Added by the daemon; subject: the network ID; command `peerspan install`, which refreshes `SSH_AUTH_SOCK`.
   11. `coordinator_limit`: the network's coordinator reports a limit reached (below). Added by the daemon; subject `NETWORK/LIMIT`; command none (empty string).
 
 ### Hosted coordinator default
 
 `network create` without `--coordinator` and `--coordinator-key` uses the build's default coordinator. Builds set it at compile time:
 - **Go:** `-ldflags "-X …/internal/host.DefaultCoordinator=HOST:PORT -X …/internal/host.DefaultCoordinatorKey=KEY"`;
-- **Rust:** the `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` environment variables at build time;
+- **Rust:** the `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` environment variables at build time;
 - **Release script:** `scripts/package-release.sh` passes the same two variables to either build.
 
 A build without both values fails `network create` without the flags, with `this build has no default coordinator; pass --coordinator and --coordinator-key`. Giving only one of the two flags is a 400. `info` gains `default_coordinator`: `{address, public_key}`, or null.
 
 ### Coordinator limits
 
-`capsule-coord run` gains three flags; 0 disables a limit.
+`peerspan-coord run` gains three flags; 0 disables a limit.
 
 | Flag | Default | Limit |
 | --- | --- | --- |
@@ -282,7 +282,7 @@ Decided with the owner on 2026-10-09:
 | Command | Behavior |
 | --- | --- |
 | `network create NAME [--as LABEL]` | `NAME` may be given positionally; `--name` still works, and giving both is an error. `--as` is the person and member label; it defaults to the login name (the user name of the effective user ID, else `$USER`), and `--member` remains as an alias. A person key is always used (below). Otherwise this is today's create, including admitting and binding the creator. |
-| `invite LABEL [--expires-in D \| --expires-at T] [--network ID]` | Issues a member invite, like `network invite --member LABEL` with the slice 1 default of 7 days. Prints `{network_id, member, invite_expires_at, token, join}`, where `join` is the string `capsule join TOKEN`. |
+| `invite LABEL [--expires-in D \| --expires-at T] [--network ID]` | Issues a member invite, like `network invite --member LABEL` with the slice 1 default of 7 days. Prints `{network_id, member, invite_expires_at, token, join}`, where `join` is the string `peerspan join TOKEN`. |
 | `join TOKEN` | Same as `network join --token TOKEN`, always with a person key (below). A person already admitted with this key (for example, on a second machine) is bound without a new admission, as today. |
 | `allow PRINCIPAL [--agent NAME] [--no-tasks] [--files SIZE] [--delegate] [--network ID]` | Sets PRINCIPAL's access (below) and signs the next policy version. |
 | `deny PRINCIPAL [--agent NAME] [--network ID]` | Removes PRINCIPAL (below) and signs the next policy version. |
@@ -302,13 +302,13 @@ Decided with the owner on 2026-10-09:
 
 **Person keys.** `network create`, `network join`, and `join` choose a person key in this order:
 1. `--person-key PATH`, as today; an unusable one is an error before any request;
-2. the **generated key**, if `$XDG_CONFIG_HOME/capsule/person_ed25519` exists (default `~/.config/capsule`);
+2. the **generated key**, if `$XDG_CONFIG_HOME/peerspan/person_ed25519` exists (default `~/.config/peerspan`);
 3. the only `ssh-ed25519` identity in `ssh-agent`;
 4. otherwise, a newly generated key.
 
 Every other command that signs as a person, such as `allow`, `deny`, `invite`, `network bind`, and `access renew`, uses steps 1 to 3 in the same order and never generates a key. With several `ssh-ed25519` identities in `ssh-agent` and no generated key, the command fails before any request. The error lists the keys' comments and fingerprints and says to pass `--person-key`. An existing generated key wins over an agent key, so a person's identity never changes because a key was later added to the agent. `--no-person` keeps today's host-only behavior and generates nothing.
 
-**The generated key** is an unencrypted OpenSSH `ssh-ed25519` private key at `person_ed25519`, mode 0600, with its public key beside it at `person_ed25519.pub`, mode 0644, in a 0700 directory. Its comment is `capsule LABEL@HOSTNAME`. It is created only when step 4 is reached and the command is about to succeed, after argument validation, so a refused command leaves no key behind. It is never overwritten. Signatures use the same `SSHSIG` format as any person key, so nothing on the wire or in other hosts changes.
+**The generated key** is an unencrypted OpenSSH `ssh-ed25519` private key at `person_ed25519`, mode 0600, with its public key beside it at `person_ed25519.pub`, mode 0644, in a 0700 directory. Its comment is `peerspan LABEL@HOSTNAME`. It is created only when step 4 is reached and the command is about to succeed, after argument validation, so a refused command leaves no key behind. It is never overwritten. Signatures use the same `SSHSIG` format as any person key, so nothing on the wire or in other hosts changes.
 
 **Command output.** The response's `person` gains `key`: `{source, public_key, path}`, where `public_key` uses the same encoding as `person_public_key` in signed statements. With `--no-person`, `person` is as before slice 3.
 - `source` is `option`, `generated`, `agent`, or `new`.
@@ -449,7 +449,7 @@ Agent IDs remain the identity. Names are labels that let people and agents addre
 An address splits at its last `/`. Resolution searches the directory of every network this host belongs to, or only the one given with `--network` or the adapter's `network`. It fails with:
 - `unknown`, after one synchronous refresh of the directory, when nothing matches;
 - `ambiguous` when more than one agent matches, for example a duplicate name or a label used in two networks naming different agents. The error lists each match as `HOST_ID/AGENT` with its network. The same agent (host and agent ID) listed in several networks is one match; it resolves in the lowest network ID whose entry lists an authorization for the action, else the lowest network ID (clarified in slice 5);
-- `local` when the address names an agent on this host. Capsule has no local delivery.
+- `local` when the address names an agent on this host. Peerspan has no local delivery.
 
 ### Peer route
 
@@ -547,7 +547,7 @@ A session's credential may be created with **directory access**. Then its adapte
 
 **`attach`.**
 - `HARNESS` is an integration ID, or `claude`, which means `claude-code`. The base name is `claude` for `claude-code`, and otherwise the integration ID.
-- **Profiles** live in `$XDG_CONFIG_HOME/capsule/sessions/HOST_ID/AGENT_NAME/`, and record the project's real path as `workspace`.
+- **Profiles** live in `$XDG_CONFIG_HOME/peerspan/sessions/HOST_ID/AGENT_NAME/`, and record the project's real path as `workspace`.
 - **Re-attaching.** If a profile for this host already records this workspace, `attach` reuses its agent, according to the profile's credential (revised in slice 5):
   - unexpired, unrevoked, and never connected (`registered`): `attach` changes nothing and reports `reused: true`;
   - connected now (`ready`, a valid lease): an adapter that has just exited keeps its lease for up to 15 seconds, so `attach` says on stderr that it is waiting, and polls the connection until the lease it saw has expired, at most 16 seconds. If the lease was renewed meanwhile, the session is running, and `attach` refuses with exit 1 before changing anything. Otherwise it continues as for `offline`;
@@ -560,7 +560,7 @@ A session's credential may be created with **directory access**. Then its adapte
   Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. The suffix is cut so that the whole name, including any `-N`, fits in 64 characters.
 - **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
 - **Setup.** It then runs today's session setup with directory access, `max_sends_per_hour` (default 100), no routes, and a renewable credential (the slice 1 default) unless an expiry is given. Integration options pass through.
-- **Output.** It prints `{agent: {id, name, address}, session_id, adapter_id, profile, workspace, reused, unchecked_hosts, next}`, where `address` is `PERSON/NAME` (or `HOST_ID/NAME` if this host has no bound person), and `next` is `capsule session start` for launch-capable integrations.
+- **Output.** It prints `{agent: {id, name, address}, session_id, adapter_id, profile, workspace, reused, unchecked_hosts, next}`, where `address` is `PERSON/NAME` (or `HOST_ID/NAME` if this host has no bound person), and `next` is `peerspan session start` for launch-capable integrations.
 - **Refusals.** A taken `--name` is refused with 409 before any registration, and the error names the host that has it.
 
 **`agents`** prints, for the network:
@@ -584,7 +584,7 @@ Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, r
 
 ### Status addition
 
-12. `agent_name_conflict`: the directory shows a name used by more than one agent of this host's person, and this host has one of them. Added by the daemon; subject `NETWORK/NAME`; command `capsule attach HARNESS --name NEW` in that agent's project. It follows item 11.
+12. `agent_name_conflict`: the directory shows a name used by more than one agent of this host's person, and this host has one of them. Added by the daemon; subject `NETWORK/NAME`; command `peerspan attach HARNESS --name NEW` in that agent's project. It follows item 11.
 
 ### Verification
 
@@ -621,10 +621,10 @@ Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, r
 ## Slice 5: acceptance
 
 Decided with the owner on 2026-10-09:
-- each machine in the scripted run is a temporary Linux user on one host, with a real systemd user service from `capsule install`;
+- each machine in the scripted run is a temporary Linux user on one host, with a real systemd user service from `peerspan install`;
 - the scripted run executes exactly the commands the [quick start](quick-start.md) documents, and fails if any other step is needed;
 - the live run has three Claude Code sessions use the directory and a two-link delegation, with no routes;
-- the live run uses the operator's existing Claude Code login for all three sessions, with each person's Capsule state and configuration isolated;
+- the live run uses the operator's existing Claude Code login for all three sessions, with each person's Peerspan state and configuration isolated;
 - `attach` launches the session itself;
 - the coordinator pushes change notifications, so hosts learn of joins and policies at once rather than at the next 30-second sync (decided after the first acceptance runs, which failed on that latency);
 - an agent's delegation by address may allow onward hops, opt-in per task.
@@ -633,13 +633,13 @@ Decided with the owner on 2026-10-09:
 
 The first acceptance runs showed that commands run right after a join or an `allow` on another machine fail, because hosts learn of changes only at their next coordination sync: `attach` could not check a new sibling's names, `allow bob` could not resolve bob, and a send could not cite a new policy.
 
-**Protocol.** The relay protocol gains version 2, ALPN `capsule-relay/2`, identical to version 1 plus one frame:
+**Protocol.** The relay protocol gains version 2, ALPN `peerspan-relay/2`, identical to version 1 plus one frame:
 
 | Type | Direction | Payload | Meaning |
 | --- | --- | --- | --- |
 | `0x05` changed | relay → host | the network ID, as UTF-8 | The network's map or stored statements changed; sync it. |
 
-- Hosts offer `capsule-relay/2` before `capsule-relay/1`, and coordinators select version 2 when offered. A coordinator that only knows version 1 selects it, and the host then relies on interval syncs as before. Version 1 connections never receive `0x05`.
+- Hosts offer `peerspan-relay/2` before `peerspan-relay/1`, and coordinators select version 2 when offered. A coordinator that only knows version 1 selects it, and the host then relies on interval syncs as before. Version 1 connections never receive `0x05`.
 - **Coordinator.** After it accepts a change to a network, it sends `changed` for that network on the current version 2 relay connection of every member host of that network, the host that made the change included. Changes are joins, registrations, person and host admissions, bindings, revocations of every kind, leaves, rotations, policies, groups, and administrator delegations and removals. Plain syncs that only update an address or candidates are not changes. It sends at most one `changed` per network per connection per 250 milliseconds, coalescing later changes into the next one.
 - **Host.** On `changed`, it syncs that network as its interval sync does, then applies the result as usual: map changes, sibling policy syncs, and the directory refresh within 10 seconds of a change, which hosts now start at once instead. At most one sync per network is in flight; a `changed` that arrives during one causes one more sync after it. Interval syncs continue unchanged, as the fallback.
 - Every host that is a member of a network now keeps its relay connection to that coordinator, including hosts without `--peer-listen`, which still accept no inbound peer connections through it.
@@ -655,46 +655,46 @@ The first acceptance runs showed that commands run right after a join or an `all
 
 ### Attach launches
 
-For an integration that supports launch, `attach` ends by doing what `capsule session start` does in the project: it replaces itself with the harness in the workspace, recovering the session first if needed. This happens whether the attach set up a new session or reused one, so running `capsule attach claude` again in a project after Claude Code exited starts the same agent with a fresh session. `--no-start` stops after setup and prints the output object as before, with `next` naming `capsule session start`. Arguments after `--` are passed to the harness, as for `session start`. For an integration without launch, `attach` prints its output as before.
+For an integration that supports launch, `attach` ends by doing what `peerspan session start` does in the project: it replaces itself with the harness in the workspace, recovering the session first if needed. This happens whether the attach set up a new session or reused one, so running `peerspan attach claude` again in a project after Claude Code exited starts the same agent with a fresh session. `--no-start` stops after setup and prints the output object as before, with `next` naming `peerspan session start`. Arguments after `--` are passed to the harness, as for `session start`. For an integration without launch, `attach` prints its output as before.
 
-Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness. The object is the same as with `--no-start`, including `next`, which names `capsule session start` for later launches.
+Before launching, `attach` prints its output object on stderr, so the address is visible and stdout belongs to the harness. The object is the same as with `--no-start`, including `next`, which names `peerspan session start` for later launches.
 
 ### The documented path
 
 The quick start is the user path. `attach` runs last on each machine, because it keeps the terminal for Claude Code. Each counted step below is a command the user types; extracting the bundle, adding it to `PATH`, and `cd` into a project are preparation and not counted. `LABEL`, `TOKEN`, and `ADDRESS` are taken from the previous commands' output, as a user would read them.
 
 **Solo** (one person, machines M1 and M2):
-1. M1: `capsule install`, `capsule network create acme`, `capsule invite LABEL` with the person's own label, `capsule attach claude`;
-2. copying `~/.config/capsule/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Capsule step);
-3. M2: `capsule install`, `capsule join TOKEN`, `capsule attach claude`.
+1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite LABEL` with the person's own label, `peerspan attach claude`;
+2. copying `~/.config/peerspan/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Peerspan step);
+3. M2: `peerspan install`, `peerspan join TOKEN`, `peerspan attach claude`.
 
-That is 7 Capsule commands and one copy. M2's agent is named `claude-HOSTNAME`, because `claude` is taken on M1.
+That is 7 Peerspan commands and one copy. M2's agent is named `claude-HOSTNAME`, because `claude` is taken on M1.
 
 **Pair** (alice on M1, bob on M2):
-1. M1: `capsule install`, `capsule network create acme`, `capsule invite bob`;
-2. M2: `capsule install`, `capsule join TOKEN`, `capsule allow alice`, `capsule attach claude`;
-3. M1: `capsule allow bob`, which needs bob to have joined, then `capsule attach claude`.
+1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite bob`;
+2. M2: `peerspan install`, `peerspan join TOKEN`, `peerspan allow alice`, `peerspan attach claude`;
+3. M1: `peerspan allow bob`, which needs bob to have joined, then `peerspan attach claude`.
 
 That is 9 commands.
 
 **Team** (alice, bob, and carol on M1 to M3):
-1. M1: `capsule install`, `capsule network create acme`, `capsule invite bob`, `capsule invite carol`, `capsule allow everyone`, `capsule attach claude`;
-2. M2 and M3, each: `capsule install`, `capsule join TOKEN`, `capsule allow everyone`, `capsule attach claude`.
+1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite bob`, `peerspan invite carol`, `peerspan allow everyone`, `peerspan attach claude`;
+2. M2 and M3, each: `peerspan install`, `peerspan join TOKEN`, `peerspan allow everyone`, `peerspan attach claude`.
 
 That is 14 commands.
 
 **Checks after each path,** which are not counted:
 - every session's adapter is connected, through the fixture launched by `attach`;
-- every host's `capsule status --json` exits 0, with the service installed and active and linger enabled;
-- every `capsule agents --json` lists each other person's agent (and, in solo, the other machine's agent) with its address and `message.append` and `task.submit`;
-- each owner's `capsule send ADDRESS TEXT` to every other agent ends `accepted`, and `capsule task ADDRESS TEXT` reaches the receiver;
+- every host's `peerspan status --json` exits 0, with the service installed and active and linger enabled;
+- every `peerspan agents --json` lists each other person's agent (and, in solo, the other machine's agent) with its address and `message.append` and `task.submit`;
+- each owner's `peerspan send ADDRESS TEXT` to every other agent ends `accepted`, and `peerspan task ADDRESS TEXT` reaches the receiver;
 - sends cite a policy in pair and team, and `self` in solo.
 
 ### Scripted run
 
 `conformance/launch_acceptance.py` is an end-to-end check, separate from the conformance rule for new suites. It needs root, systemd 250 or newer, Python 3.12, and Node 22.
-- **Bundles.** It packages both implementations with `scripts/package-release.sh`, with `CAPSULE_COORDINATOR` and `CAPSULE_COORDINATOR_KEY` set to a `capsule-coord` it runs on loopback, standing in for the hosted coordinator. It verifies each archive's checksum.
-- **Machines.** Each machine is a new user (`capsule-acc-N`) with an empty home. Before the path, the harness enables linger for the user, so its systemd user manager runs as it would after a login. It then extracts the bundle into the user's home and runs every step as that user, with `XDG_RUNTIME_DIR` set, through `runuser`. No `ssh-agent` runs, so each person's key is generated. A fixture `claude` in the user's `~/.local/bin` stands in for Claude Code: it accepts the arguments the launch passes and runs the configured MCP adapter, as `conformance/claude_setup.py`'s fixture does. The harness runs each `attach` in the background, as a user's terminal would keep it, and stops it at the end. No model is called.
+- **Bundles.** It packages both implementations with `scripts/package-release.sh`, with `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` set to a `peerspan-coord` it runs on loopback, standing in for the hosted coordinator. It verifies each archive's checksum.
+- **Machines.** Each machine is a new user (`peerspan-acc-N`) with an empty home. Before the path, the harness enables linger for the user, so its systemd user manager runs as it would after a login. It then extracts the bundle into the user's home and runs every step as that user, with `XDG_RUNTIME_DIR` set, through `runuser`. No `ssh-agent` runs, so each person's key is generated. A fixture `claude` in the user's `~/.local/bin` stands in for Claude Code: it accepts the arguments the launch passes and runs the configured MCP adapter, as `conformance/claude_setup.py`'s fixture does. The harness runs each `attach` in the background, as a user's terminal would keep it, and stops it at the end. No model is called.
 - **Runs.** Solo and pair with each implementation; team with Go only, Rust only, and mixed (Go, Rust, Go).
 - **Cleanup.** Afterwards, it stops and removes every unit, disables linger, kills the users' processes, and deletes the users and their homes, also after a failure. `--keep` leaves them for inspection.
 - **Results.** It writes `docs/results/launch-acceptance.json`: for each run, the implementations, the exact commands with their machine, the counts by kind, each check's result, and the release metadata.
@@ -704,8 +704,8 @@ A run fails when a step exits nonzero, when a step's output lacks what a later s
 ### Live run
 
 `conformance/live_launch_agents.py` runs three persons, alice (Go), bob (Rust), and carol (Go), on one host as the invoking user.
-- **Isolation.** Each person has their own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and daemon, run in the foreground with `capsule run` from an installed bundle; the scripted run covers `install`. `HOME` is shared, so all three Claude Code sessions use the existing login.
-- **Setup.** It follows the team path, except that `allow everyone --delegate` replaces `allow everyone`. Each person runs `capsule attach claude` in a project directory of their own, in a terminal the harness drives, with Claude Code's built-in tools disabled.
+- **Isolation.** Each person has their own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and daemon, run in the foreground with `peerspan run` from an installed bundle; the scripted run covers `install`. `HOME` is shared, so all three Claude Code sessions use the existing login.
+- **Setup.** It follows the team path, except that `allow everyone --delegate` replaces `allow everyone`. Each person runs `peerspan attach claude` in a project directory of their own, in a terminal the harness drives, with Claude Code's built-in tools disabled.
 - **Flow.** The harness prompts only alice's session. Alice's Claude calls `list_agents`, then `delegate_task` to `bob/claude` by `to` with `delegation_depth` 1, asking for a short review with a part to be passed on to carol. Bob's Claude accepts and calls `delegate_task` to `carol/claude` with `parent_task_id`. Carol's Claude completes, bob's completes the parent with carol's result, and alice's receives the final update. Alice's Claude then sends one message to `carol/claude` by `to` and gets a reply.
 - **Verification, from host state:**
   - every task and message was submitted by an adapter with directory access and has a `to`, and no route exists;
@@ -741,7 +741,7 @@ Decided with the owner on 2026-10-14:
 ### Presence
 
 A host's **presence** in a network is what its peer route would serve for its local agents, ignoring `authorizations`: the set of agents and each agent's `connected` and `channel` (see the [live delivery contract](live-delivery-contract.md)). A **presence change** is any change to it, including:
-- a session's authorization becoming verified (`capsule_ready`);
+- a session's authorization becoming verified (`peerspan_ready`);
 - an adapter's lease being taken, or lapsing after its last renewal, whether the adapter exited cleanly or not;
 - a session's detachment, or its authorization's revocation, replacement, or expiry;
 - an agent registered or removed.
@@ -750,14 +750,14 @@ Policy and grant changes are not presence changes. Policies already reach other 
 
 ### Protocol
 
-The relay protocol gains version 3, ALPN `capsule-relay/3`. It is version 2 plus one frame type, used in both directions:
+The relay protocol gains version 3, ALPN `peerspan-relay/3`. It is version 2 plus one frame type, used in both directions:
 
 | Type | Direction | Payload | Meaning |
 | --- | --- | --- | --- |
 | `0x06` presence | host → relay | the network ID, as UTF-8 | My presence in this network changed. |
 | `0x06` presence | relay → host | the source host ID, then the network ID as UTF-8 | That host's presence in this network changed; refresh it. |
 
-- Hosts offer `capsule-relay/3`, then `/2`, then `/1`. A coordinator that knows version 3 selects it. Version 1 and 2 connections never carry `0x06`. A host on a version 1 or 2 connection sends no `presence`, and learns of others' presence through the refreshes it already does.
+- Hosts offer `peerspan-relay/3`, then `/2`, then `/1`. A coordinator that knows version 3 selects it. Version 1 and 2 connections never carry `0x06`. A host on a version 1 or 2 connection sends no `presence`, and learns of others' presence through the refreshes it already does.
 - **Sending host.** After a presence change in a network, the host sends `presence` for that network on its current relay connection to that network's coordinator, and to each coordinator if the change touches several networks. It sends at most one `presence` per network per 250 milliseconds. Later changes in that window are sent together once it ends, so the last change is always announced. After it starts, and after any relay connection is (re)established, it sends one `presence` for each of its networks on that coordinator, because its leases did not survive the restart and peers may hold an older view.
 - **Coordinator.** It forwards a `presence` only when the sending host is a current, unrevoked member of that network. It forwards to the current version 3 relay connection of every other current, unrevoked member of the network, whether or not that member runs with `--peer-listen`. It forwards at most one `presence` per (network, source host) per receiving connection per 250 milliseconds, coalescing later ones into the next. It drops other `presence` frames without a reply and stores nothing about them.
 - **Receiving host.** On `presence` from a host that is a current member of that network in its own map, it refreshes that one host's directory entry at once, as the directory's refresh does per host: the same query, timeout, and failure rule (a failed query keeps the host's previous agents, marked with the error). Other hosts' entries and `refreshed_at` are untouched. At most one such query per (network, host) is in flight; a `presence` arriving during one causes one more query after it. It ignores `presence` for a network it is not in, or from a host it does not know as a member. The 5-minute refresh, the refresh after a map change, and on-demand refreshes continue unchanged as the fallback.
@@ -768,7 +768,7 @@ The relay protocol gains version 3, ALPN `capsule-relay/3`. It is version 2 plus
 
 Presence notifications are checked by a new `conformance/launch_presence.py`, written from this contract by an author independent of both implementations, across all Go/Rust pairings with the Go coordinator, `--probe`, and `--node`. With a 30-second coordination interval and the coordinator reachable, it covers:
 - version 3 negotiation, and a version 2 host neither sending nor receiving `presence` but still seeing a change after `agents --refresh`;
-- a session verifying with `capsule_ready` showing as `connected: true`, `channel: verified` in `GET /v1/directory` on every other member within 2 seconds, including a member without `--peer-listen`;
+- a session verifying with `peerspan_ready` showing as `connected: true`, `channel: verified` in `GET /v1/directory` on every other member within 2 seconds, including a member without `--peer-listen`;
 - a lease without verification showing `channel: unverified`, `connected: false` within 2 seconds;
 - a clean adapter exit, and a killed adapter, each showing as `connected: false` within 2 seconds of the lease lapsing;
 - a detach, a revocation, and an agent registration, each reflected within 2 seconds;

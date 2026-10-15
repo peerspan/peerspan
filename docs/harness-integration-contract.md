@@ -5,12 +5,12 @@ Both native CLIs own session profiles, credential issuance, destination scopes, 
 ## Owner commands
 
 ```sh
-capsule-host --state STATE session setup --harness claude-code --directory DIR --agent AGENT_ID --expires-in 24h --integrations /absolute/capsule/integrations --runner /absolute/node --option executable=/absolute/claude --routes /absolute/destinations.json
-capsule-host session start --directory DIR --workspace /absolute/project -- --name collaboration
-capsule-host session doctor --directory DIR
+peerspan-host --state STATE session setup --harness claude-code --directory DIR --agent AGENT_ID --expires-in 24h --integrations /absolute/peerspan/integrations --runner /absolute/node --option executable=/absolute/claude --routes /absolute/destinations.json
+peerspan-host session start --directory DIR --workspace /absolute/project -- --name collaboration
+peerspan-host session doctor --directory DIR
 ```
 
-`setup` requires a harness ID, registered agent, future RFC3339 expiry, and a new private directory. `--option KEY=VALUE` is repeatable and interpreted by that integration; duplicate keys are rejected. `--runner` overrides its helper executable. The integration directory comes from `--integrations`, `CAPSULE_INTEGRATIONS_DIR`, or `../share/capsule/integrations` relative to the host binary. Source checkouts use an explicit directory. Discovery reads bundle manifests; only the selected helper executes. Each bundle is an immediate subdirectory containing `integration.json`. Duplicate matching IDs are rejected; unrelated broken bundles do not block selection.
+`setup` requires a harness ID, registered agent, future RFC3339 expiry, and a new private directory. `--option KEY=VALUE` is repeatable and interpreted by that integration; duplicate keys are rejected. `--runner` overrides its helper executable. The integration directory comes from `--integrations`, `PEERSPAN_INTEGRATIONS_DIR`, or `../share/peerspan/integrations` relative to the host binary. Source checkouts use an explicit directory. Discovery reads bundle manifests; only the selected helper executes. Each bundle is an immediate subdirectory containing `integration.json`. Duplicate matching IDs are rejected; unrelated broken bundles do not block selection.
 
 The profile records the resolved integration command, capabilities, options, and opaque state. `start` and `doctor` select it from the profile. Setup does not grant inbound access, admit network members, or launch a harness. Existing `session attach/list/inspect/detach` commands retain their metadata and administration roles.
 
@@ -54,7 +54,7 @@ Each invocation reads one UTF-8 JSON object from stdin and writes one JSON objec
 
 The core passes the credential file's path, never its token, and keeps permission enforcement in the daemon. Helpers must not issue credentials, edit scopes, connect an adapter during checks, or launch a background agent during these operations. A separate harness/adapter process consumes the saved configuration and connects to the scoped adapter interface.
 
-Every response has `version: 1` and a `checks` array. Checks have `name` (letters, digits, underscore or hyphen, at most 64 characters), `status` (`ok` or `error`), and `detail`. The CLI prefixes names with `harness/`. Details must not contain secrets; Capsule additionally redacts its token/instance formats. Unknown response fields and malformed responses are rejected.
+Every response has `version: 1` and a `checks` array. Checks have `name` (letters, digits, underscore or hyphen, at most 64 characters), `status` (`ok` or `error`), and `detail`. The CLI prefixes names with `harness/`. Details must not contain secrets; Peerspan additionally redacts its token/instance formats. Unknown response fields and malformed responses are rejected.
 
 | Operation | Additional response fields | Behavior |
 | --- | --- | --- |
@@ -80,6 +80,6 @@ The [Codex integration](../integrations/codex/README.md) attaches to an existing
 
 The [OpenCode integration](../integrations/opencode/README.md) uses a one-time native plugin and a sidecar for an existing HTTP server/session. Trusted OpenCode tool context selects a private per-session gateway binding. The sidecar changes no native permissions or configuration, preserves the recorded model/agent, and verifies the exact persisted input after asynchronous submission. `conformance/opencode_integration.py` covers all pairings; `conformance/opencode_runtime.py` uses actual OpenCode with an explicit fixture model. Real inference is separate.
 
-Socket-based sidecars use the profile's `tools.sock` while its UTF-8 pathname fits the portable Unix limit of 103 bytes. Longer paths map deterministically to `/tmp/capsule-tools-UID/HASH.sock`, with an owned 0700 directory and 0600 socket; providers configure the native client with that same path. They recover an owned, private leftover gateway socket only when connecting confirms there is no listener; a live listener, uncertain probe, unrelated file, or changed inode is refused. OpenCode may atomically replace a stale binding only when its profile and socket match and the new gateway owns that socket. Cleanup checks file identity so an old cleanup cannot remove a replacement binding. Capsule's credential, lease, and restart-recovery rules still determine whether the new adapter may connect; a crashed bound adapter needs a fresh `attach` after its protection lapses.
+Socket-based sidecars use the profile's `tools.sock` while its UTF-8 pathname fits the portable Unix limit of 103 bytes. Longer paths map deterministically to `/tmp/peerspan-tools-UID/HASH.sock`, with an owned 0700 directory and 0600 socket; providers configure the native client with that same path. They recover an owned, private leftover gateway socket only when connecting confirms there is no listener; a live listener, uncertain probe, unrelated file, or changed inode is refused. OpenCode may atomically replace a stale binding only when its profile and socket match and the new gateway owns that socket. Cleanup checks file identity so an old cleanup cannot remove a replacement binding. Peerspan's credential, lease, and restart-recovery rules still determine whether the new adapter may connect; a crashed bound adapter needs a fresh `attach` after its protection lapses.
 
 Recovery verification includes abrupt sidecar termination followed by daemon restart and fresh attachment of the same native conversation and profile across all CLI/daemon pairings; default and long configuration paths; refusal of live listeners, unrelated bindings, regular files, and symlinks; and an old binding cleanup refusing to delete its replacement.

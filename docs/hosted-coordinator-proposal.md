@@ -1,13 +1,13 @@
 # Hosted coordinator: operations and coordinator moves
 
-Status: implemented except deployment; decisions settled with the owner on 2026-10-09 and 2026-10-10 (see [Decisions](#decisions)). This is roadmap milestone 8, specified in the [hosted coordinator contract](hosted-coordinator-contract.md). Slices 1 to 3 and slice 4's packaging, install script, and runbook are implemented; the hosted instance is not yet deployed, so acceptance against it is pending. It follows milestone 7, whose release bundles default to a hosted `capsule-coord`.
+Status: implemented except deployment; decisions settled with the owner on 2026-10-09 and 2026-10-10 (see [Decisions](#decisions)). This is roadmap milestone 8, specified in the [hosted coordinator contract](hosted-coordinator-contract.md). Slices 1 to 3 and slice 4's packaging, install script, and runbook are implemented; the hosted instance is not yet deployed, so acceptance against it is pending. It follows milestone 7, whose release bundles default to a hosted `peerspan-coord`.
 
 ## Problem
 
 Release bundles name one hosted coordinator, and every network created with them depends on it:
 - **Pinned for life.** A host stores its network's `coordinator_address` and `coordinator_public_key` at create or join, and nothing changes them afterwards. A new domain, a lost key, or a leaked key strands every network on the coordinator. The only remedy is to create the network again.
 - **No way to move a network.** The coordinator verifies and stores every signed statement, but no command imports or exports a network.
-- **Not operable.** `capsule-coord` logs one line at startup and has no health check, metrics, backup command, or restore procedure. Its private key lives inside `coord.db`, so losing the database also loses the key.
+- **Not operable.** `peerspan-coord` logs one line at startup and has no health check, metrics, backup command, or restore procedure. Its private key lives inside `coord.db`, so losing the database also loses the key.
 
 The coordinator is trusted for availability only ([coordination contract](coordination-contract.md)). It cannot admit hosts or change access. That keeps the stakes of operating it low, but its availability is now everyone's availability.
 
@@ -26,10 +26,10 @@ The coordinator is trusted for availability only ([coordination contract](coordi
 
 ## Operations
 
-`capsule-coord` gains what one VM needs:
+`peerspan-coord` gains what one VM needs:
 - **Ops listener.** `run --ops-listen 127.0.0.1:PORT` serves `GET /healthz` and Prometheus `GET /metrics` over plain HTTP, separate from the coordination port. The metrics cover networks, member hosts, connected relay hosts, syncs and their errors, relay bytes, limit refusals, and request latency. They carry no network or host IDs as labels.
 - **Logs.** One JSON line per request and per relay connection on stderr: time, route, status, duration, and network and host IDs where known. No statement contents, keys, invite tokens, message or relay payloads. Source IP addresses are not logged; the registration cap keeps its own counts.
-- **Backup.** `capsule-coord backup FILE` writes a consistent copy of the database while the coordinator runs (SQLite `VACUUM INTO`), mode 0600. The copy includes the private key. Restoring is stopping the service, replacing `coord.db`, and starting it.
+- **Backup.** `peerspan-coord backup FILE` writes a consistent copy of the database while the coordinator runs (SQLite `VACUUM INTO`), mode 0600. The copy includes the private key. Restoring is stopping the service, replacing `coord.db`, and starting it.
 - **Deployment files** in `deploy/coordinator/`: a hardened systemd unit, a Litestream configuration that replicates `coord.db` continuously to object storage, and a runbook. The runbook covers provisioning, the firewall (TCP and UDP on one port, ops port loopback only), upgrades, a restore drill, monitoring alerts, and the response to a leaked key.
 
 **Key custody.** The key stays in `coord.db` on the VM's disk. Litestream replicas are encrypted and the bucket is private. The owner also keeps an offline encrypted copy of a `backup` file, refreshed after each key change.
@@ -54,7 +54,7 @@ Hosts also answer a peer route with the move they hold, so a host whose coordina
 
 ## Slices
 
-Each slice is implemented with shared conformance written from the contract by an independent author. Coordinator-only slices are Go, since `capsule-coord` is Go-only; host behavior is implemented in Go and Rust.
+Each slice is implemented with shared conformance written from the contract by an independent author. Coordinator-only slices are Go, since `peerspan-coord` is Go-only; host behavior is implemented in Go and Rust.
 1. **Operations:** the ops listener, logs, `backup`, the deployment files and runbook, and a restore drill in conformance: back up while serving, restore, and every host keeps working.
 2. **Successors:** coordinator identities and multiple listeners, the signed successor, and hosts following it, across Go and Rust hosts.
 3. **Administrator moves and repair:** import, the signed move, peer distribution, precedence over successors, a move from a stopped coordinator, and members re-submitting what a coordinator lacks.
@@ -63,7 +63,7 @@ Each slice is implemented with shared conformance written from the contract by a
 ## Decisions
 
 Settled with the owner on 2026-10-09:
-- **Hosting:** Cerebral Systems runs one `capsule-coord` on one cloud VM with a static address, as a systemd service.
+- **Hosting:** Cerebral Systems runs one `peerspan-coord` on one cloud VM with a static address, as a systemd service.
 - **Moves:** a coordinator move is part of this milestone.
 - **Custody:** key on disk in the database, continuous encrypted backups, and an offline encrypted copy held by the owner, with a tested restore.
 - **Visibility:** a loopback health and metrics endpoint, and structured logs without payloads or keys.

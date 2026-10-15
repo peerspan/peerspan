@@ -4,12 +4,12 @@ Status: implemented; decisions settled with the owner on 2026-10-10 (see [Decisi
 
 ## Problem
 
-Capsule delivers messages and tasks into a running Claude Code session through a channel: an MCP server that pushes `notifications/claude/channel` events ([agent integration investigation](agent-integration-investigation.md)). Claude Code acknowledges nothing. If it has not registered Capsule as a channel, it drops events silently ([channels reference](https://code.claude.com/docs/en/channels-reference#notification-format)). That happens:
+Peerspan delivers messages and tasks into a running Claude Code session through a channel: an MCP server that pushes `notifications/claude/channel` events ([agent integration investigation](agent-integration-investigation.md)). Claude Code acknowledges nothing. If it has not registered Peerspan as a channel, it drops events silently ([channels reference](https://code.claude.com/docs/en/channels-reference#notification-format)). That happens:
 - when an organization has not enabled `channelsEnabled` (the default for claude.ai Team and Enterprise);
 - on Bedrock, Vertex, or Foundry;
 - with an MCP SDK that negotiates revision 2026-07-28 on the v2 client runtime.
 
-Today Capsule then marks each message `forwarded`, shows the agent as `connected`, and `session doctor` reports `adapter_ready`. Senders keep sending into a session that never sees anything.
+Today Peerspan then marks each message `forwarded`, shows the agent as `connected`, and `session doctor` reports `adapter_ready`. Senders keep sending into a session that never sees anything.
 
 The same lack of acknowledgment causes four smaller losses:
 - **Lost on exit.** Events queued inside Claude Code are lost when it exits, and the messages stay `forwarded`.
@@ -30,13 +30,13 @@ Two smaller problems sit alongside these:
 - `status` and `session doctor` name the cause of a failed attach.
 
 **Non-goals:**
-- Headless (`-p`) or SDK sessions. Development channels are ignored there, and only an Anthropic-listed or organization-allowlisted plugin works ([channels](https://code.claude.com/docs/en/channels)). Getting Capsule's plugin listed is a separate, non-code step.
+- Headless (`-p`) or SDK sessions. Development channels are ignored there, and only an Anthropic-listed or organization-allowlisted plugin works ([channels](https://code.claude.com/docs/en/channels)). Getting Peerspan's plugin listed is a separate, non-code step.
 - Claude Code's cross-session messaging socket, until its wire format is documented.
-- Exactly-once model execution. "Seen" means the model called a Capsule tool naming the item, not that it acted on it.
+- Exactly-once model execution. "Seen" means the model called a Peerspan tool naming the item, not that it acted on it.
 
 ## Design
 
-1. **Readiness handshake.** After MCP connects, the adapter sends one `hello` channel event with a nonce. It claims no work until the model calls `capsule_ready` with that nonce. The daemon records the session's channel as verified. The directory reports an agent as `connected` only when a verified session holds its lease. `status` and `session doctor` report an unverified channel with its likely causes.
+1. **Readiness handshake.** After MCP connects, the adapter sends one `hello` channel event with a nonce. It claims no work until the model calls `peerspan_ready` with that nonce. The daemon records the session's channel as verified. The directory reports an agent as `connected` only when a verified session holds its lease. `status` and `session doctor` report an unverified channel with its likely causes.
 2. **Seen.** A delivery is seen when the model calls `reply` or `mark_seen` with its ID. A task is seen when the model calls `task_accept` or `task_reject` with its ID. When an authorization ends, its forwarded but unseen deliveries and tasks return to the agent's queue for its next session, before their deadlines, marked as redelivered.
 3. **Adoption.** When the same agent's new session is verified, it adopts the running and cancel-requested tasks of the agent's replaced sessions and is told about each one.
 4. **Pending work.** A `pending_work` tool lists unanswered deliveries and owed tasks. A `SessionStart` hook, passed in launch-time settings, injects it after `/clear`, compaction, and resume.
@@ -64,4 +64,4 @@ Settled with the owner on 2026-10-10:
 
 ## Open
 
-- An official-marketplace listing, or organization allowlisting through `allowedChannelPlugins`, for Capsule's channel plugin. Either one removes the development-channel dialog and enables headless agents.
+- An official-marketplace listing, or organization allowlisting through `allowedChannelPlugins`, for Peerspan's channel plugin. Either one removes the development-channel dialog and enables headless agents.

@@ -1,8 +1,8 @@
-# Capsule architecture and onboarding
+# Peerspan architecture and onboarding
 
-Capsule connects agents running on developer-owned machines. Each machine runs a host daemon that owns identity, local state, message authorization, and delivery into opted-in sessions. A separate coordinator distributes membership and reachability information. The first useful path through the code is a message from one live session to another, followed by its reply.
+Peerspan connects agents running on developer-owned machines. Each machine runs a host daemon that owns identity, local state, message authorization, and delivery into opted-in sessions. A separate coordinator distributes membership and reachability information. The first useful path through the code is a message from one live session to another, followed by its reply.
 
-This map covers the primary checkout at `/root/capsule/capsule`, branch `admins-groups`, starting at commit `a6ee704`, including the uncommitted code present during inspection on October 6, 2026. Sibling `capsule-*` directories are worktrees, not services. `mesh-new` holds broader design; `natbench` is a separate project. The diagrams describe logical responsibilities rather than independently deployed microservices.
+This map covers the primary checkout at `/root/peerspan/peerspan`, branch `admins-groups`, starting at commit `a6ee704`, including the uncommitted code present during inspection on October 6, 2026. Sibling `peerspan-*` directories are worktrees, not services. `mesh-new` holds broader design; `natbench` is a separate project. The diagrams describe logical responsibilities rather than independently deployed microservices.
 
 ## Start with these boundaries
 
@@ -29,7 +29,7 @@ flowchart TB
         HostA --> DBA
     end
     subgraph C[Coordination service]
-        Coord[Go capsule-coord]
+        Coord[Go peerspan-coord]
         DBC[(Private coordinator database)]
         Coord --> DBC
     end
@@ -59,13 +59,13 @@ flowchart TB
 
 The coordinator is outside the **plaintext collaboration path**, but can be in the **packet forwarding path**. The inner peer QUIC connection remains encrypted end to end when carried by relay frames. Losing coordination can still affect membership freshness, connected-only grants, and relay reachability.
 
-Sources: [Go startup](../go/cmd/capsule-host/main.go), [Rust startup](../rust/src/main.rs), [Go socket lifecycle](../go/internal/host/daemon.go), [Go coordinator dispatch](../go/internal/coord/relay.go), [coordination contract](coordination-contract.md).
+Sources: [Go startup](../go/cmd/peerspan-host/main.go), [Rust startup](../rust/src/main.rs), [Go socket lifecycle](../go/internal/host/daemon.go), [Go coordinator dispatch](../go/internal/coord/relay.go), [coordination contract](coordination-contract.md).
 
 ## Find the responsibility in either implementation
 
 | Responsibility | Go entry points | Rust entry points |
 | --- | --- | --- |
-| CLI and daemon orchestration | [`cmd/capsule-host/main.go`](../go/cmd/capsule-host/main.go) | [`main.rs`](../rust/src/main.rs), [`cli.rs`](../rust/src/cli.rs) |
+| CLI and daemon orchestration | [`cmd/peerspan-host/main.go`](../go/cmd/peerspan-host/main.go) | [`main.rs`](../rust/src/main.rs), [`cli.rs`](../rust/src/cli.rs) |
 | Local admin router | [`host/api.go`](../go/internal/host/api.go) | [`api.rs`](../rust/src/api.rs) |
 | Persistence, identity, migrations, registry | [`host/store.go`](../go/internal/host/store.go), [`session.go`](../go/internal/host/session.go) | [`store.rs`](../rust/src/store.rs), [`model.rs`](../rust/src/model.rs) |
 | Peer authorization, grants, receipts | [`host/peer_store.go`](../go/internal/host/peer_store.go), [`peer_transport.go`](../go/internal/host/peer_transport.go) | [`peer_store.rs`](../rust/src/peer_store.rs), [`peer.rs`](../rust/src/peer.rs) |
@@ -75,8 +75,8 @@ Sources: [Go startup](../go/cmd/capsule-host/main.go), [Rust startup](../rust/sr
 | Signed statements and person keys | [`membership`](../go/internal/membership/membership.go), [`person`](../go/internal/person/person.go) | [`membership.rs`](../rust/src/membership.rs), [`persons.rs`](../rust/src/persons.rs) |
 | Adapter scope, handoff, replies, recovery | [`host/adapter_api.go`](../go/internal/host/adapter_api.go), [`adapter_store.go`](../go/internal/host/adapter_store.go), [`adapter_connection.go`](../go/internal/host/adapter_connection.go), [`adapter_outbound.go`](../go/internal/host/adapter_outbound.go) | [`adapter.rs`](../rust/src/adapter.rs), [`adapter_connection.rs`](../rust/src/adapter_connection.rs), [`adapter_outbound.rs`](../rust/src/adapter_outbound.rs) |
 | Durable outbound retry | [`host/outbound_retry.go`](../go/internal/host/outbound_retry.go) | [`retry.rs`](../rust/src/retry.rs) |
-| Harness discovery, setup, launch, diagnostics | [`internal/integration`](../go/internal/integration/provider.go), [`session_setup.go`](../go/cmd/capsule-host/session_setup.go) | [`integration.rs`](../rust/src/integration.rs), [`adapter_setup.rs`](../rust/src/adapter_setup.rs) |
-| Coordination server | [`cmd/capsule-coord`](../go/cmd/capsule-coord/main.go), [`internal/coord`](../go/internal/coord/coord.go) | Uses the Go coordinator; no Rust coordinator binary |
+| Harness discovery, setup, launch, diagnostics | [`internal/integration`](../go/internal/integration/provider.go), [`session_setup.go`](../go/cmd/peerspan-host/session_setup.go) | [`integration.rs`](../rust/src/integration.rs), [`adapter_setup.rs`](../rust/src/adapter_setup.rs) |
+| Coordination server | [`cmd/peerspan-coord`](../go/cmd/peerspan-coord/main.go), [`internal/coord`](../go/internal/coord/coord.go) | Uses the Go coordinator; no Rust coordinator binary |
 | Live session bridge | [`channel.mjs`](../integrations/claude-channel/channel.mjs), [`provider.mjs`](../integrations/claude-channel/provider.mjs) | Same Node integration |
 
 `Store` is the central host state owner, and many domain operations are methods on it. In Go, most host files share the `host` package. In Rust, modules extend `Store`; blocking workers keep SQLite operations off the async executor. These files are responsibility boundaries within one daemon, not separate services.
@@ -86,7 +86,7 @@ Sources: [Go startup](../go/cmd/capsule-host/main.go), [Rust startup](../rust/sr
 ```mermaid
 sequenceDiagram
     participant Owner
-    participant CLI as capsule-host
+    participant CLI as peerspan-host
     participant Store
     participant DB as host.db
     participant Routers
@@ -107,7 +107,7 @@ sequenceDiagram
     Routers-->>CLI: Durable agent record
 ```
 
-The default state location is `$XDG_STATE_HOME/capsule/host` or `$HOME/.local/state/capsule/host`. Each running daemon needs its own directory. Host state uses SQLite schema versions 1 through 7 in the inspected code, including peer, network, adapter, outbound-route, connection, and signed-statement migrations. The database stores the private host key, so filesystem boundaries are part of the architecture. Go uses one database connection and full synchronous writes; Rust wraps its connection with a mutex.
+The default state location is `$XDG_STATE_HOME/peerspan/host` or `$HOME/.local/state/peerspan/host`. Each running daemon needs its own directory. Host state uses SQLite schema versions 1 through 7 in the inspected code, including peer, network, adapter, outbound-route, connection, and signed-statement migrations. The database stores the private host key, so filesystem boundaries are part of the architecture. Go uses one database connection and full synchronous writes; Rust wraps its connection with a mutex.
 
 ## Sequence 2 Owner sends a durable peer message
 
@@ -367,19 +367,19 @@ Some existing overview sections describe revocation and retries as future work, 
 Run from the repository root. Use a disposable private state directory for experimentation; do not reuse an existing host identity for a second daemon.
 
 ```bash
-go -C go build -o /tmp/capsule-onboarding-go ./cmd/capsule-host
-go -C go build -o /tmp/capsule-onboarding-coord ./cmd/capsule-coord
-go -C go build -o /tmp/capsule-onboarding-probe ./cmd/capsule-peer-probe
+go -C go build -o /tmp/peerspan-onboarding-go ./cmd/peerspan-host
+go -C go build -o /tmp/peerspan-onboarding-coord ./cmd/peerspan-coord
+go -C go build -o /tmp/peerspan-onboarding-probe ./cmd/peerspan-peer-probe
 cargo build --locked --manifest-path rust/Cargo.toml
 
 # Terminal 1: foreground daemon
-/tmp/capsule-onboarding-go --state /tmp/capsule-onboarding-state run
+/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state run
 
 # Terminal 2: owner-local inspection
-/tmp/capsule-onboarding-go --state /tmp/capsule-onboarding-state info
-/tmp/capsule-onboarding-go --state /tmp/capsule-onboarding-state agent register --name learner --owner learner
-/tmp/capsule-onboarding-go --state /tmp/capsule-onboarding-state agent list
-/tmp/capsule-onboarding-go --state /tmp/capsule-onboarding-state activity
+/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state info
+/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state agent register --name learner --owner learner
+/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state agent list
+/tmp/peerspan-onboarding-go --state /tmp/peerspan-onboarding-state activity
 ```
 
 These are suggested onboarding commands, not a claim that the current uncommitted administrator/group work builds or passes conformance. For a two-host experiment, follow the [root README](../README.md) and [Claude setup guide](../integrations/claude-channel/README.md), with distinct state directories, receiver grants, and explicit peer listeners.

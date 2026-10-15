@@ -1,6 +1,6 @@
 # Hosted coordinator contract
 
-Roadmap milestone 8. The design and its settled decisions are in the [hosted coordinator proposal](hosted-coordinator-proposal.md). This contract grows one section per slice. `capsule-coord` is Go-only; host behavior applies to Go and Rust.
+Roadmap milestone 8. The design and its settled decisions are in the [hosted coordinator proposal](hosted-coordinator-proposal.md). This contract grows one section per slice. `peerspan-coord` is Go-only; host behavior applies to Go and Rust.
 
 ## Slice 1: operations
 
@@ -8,7 +8,7 @@ Decisions recorded in the proposal: one VM; key in the database with encrypted b
 
 ### Ops listener
 
-`capsule-coord run --listen HOST:PORT --ops-listen HOST:PORT` also serves plain HTTP on the ops address. The flag is optional; without it nothing extra listens.
+`peerspan-coord run --listen HOST:PORT --ops-listen HOST:PORT` also serves plain HTTP on the ops address. The flag is optional; without it nothing extra listens.
 - HOST must be a loopback IP literal (`127.0.0.0/8` or exactly `::1`). Anything else, including `localhost`, makes `run` exit 2 with `error: --ops-listen must be a loopback address` on stderr before listening on either address.
 - `GET /healthz` returns 200 `{"status": "ok", "id": COORDINATOR_ID}` when a database read completes within 1 second, else 503 `{"status": "unavailable", "id": COORDINATOR_ID}`.
 - `GET /metrics` returns the Prometheus text exposition format (`text/plain; version=0.0.4`).
@@ -18,17 +18,17 @@ Decisions recorded in the proposal: one VM; key in the database with encrypted b
 
 | Name | Type | Labels | Meaning |
 | --- | --- | --- | --- |
-| `capsule_coord_info` | gauge, always 1 | `version` | The build's version string. |
-| `capsule_coord_networks` | gauge | — | Registered networks. |
-| `capsule_coord_member_hosts` | gauge | — | Current member hosts across networks, excluding revoked and departed hosts. |
-| `capsule_coord_relay_connections` | gauge | `alpn` | Open relay connections, by negotiated ALPN. |
-| `capsule_coord_requests_total` | counter | `route`, `code` | Coordination API requests by route template and HTTP status. The template is the request path with the network ID replaced by `{network}`, such as `/coord/v1/networks` or `/coord/v1/networks/{network}/sync`. Unmatched paths and wrong methods use route `other`. |
-| `capsule_coord_request_seconds` | histogram | `route` | Request duration in seconds, same routes, with Prometheus's default buckets. |
-| `capsule_coord_relay_bytes_total` | counter | — | Relayed datagram bytes, as counted for `--relay-bytes-per-month`. |
-| `capsule_coord_limit_refusals_total` | counter | `limit` | Refusals with 429, by limit: `members`, `networks_per_ip`, or `relay_bytes`. Relay drops count once per dropped frame. |
-| `capsule_coord_changes_notified_total` | counter | — | `changed` frames sent. |
+| `peerspan_coord_info` | gauge, always 1 | `version` | The build's version string. |
+| `peerspan_coord_networks` | gauge | — | Registered networks. |
+| `peerspan_coord_member_hosts` | gauge | — | Current member hosts across networks, excluding revoked and departed hosts. |
+| `peerspan_coord_relay_connections` | gauge | `alpn` | Open relay connections, by negotiated ALPN. |
+| `peerspan_coord_requests_total` | counter | `route`, `code` | Coordination API requests by route template and HTTP status. The template is the request path with the network ID replaced by `{network}`, such as `/coord/v1/networks` or `/coord/v1/networks/{network}/sync`. Unmatched paths and wrong methods use route `other`. |
+| `peerspan_coord_request_seconds` | histogram | `route` | Request duration in seconds, same routes, with Prometheus's default buckets. |
+| `peerspan_coord_relay_bytes_total` | counter | — | Relayed datagram bytes, as counted for `--relay-bytes-per-month`. |
+| `peerspan_coord_limit_refusals_total` | counter | `limit` | Refusals with 429, by limit: `members`, `networks_per_ip`, or `relay_bytes`. Relay drops count once per dropped frame. |
+| `peerspan_coord_changes_notified_total` | counter | — | `changed` frames sent. |
 
-Gauges reflect the database and live connections at scrape time. Counters start at 0 when the process starts; `limit_refusals_total` is exposed for all three limits and `relay_connections` for every relay ALPN (`capsule-relay/1`, `/2`, and `/3`) from the start, at 0.
+Gauges reflect the database and live connections at scrape time. Counters start at 0 when the process starts; `limit_refusals_total` is exposed for all three limits and `relay_connections` for every relay ALPN (`peerspan-relay/1`, `/2`, and `/3`) from the start, at 0.
 
 ### Logs
 
@@ -43,12 +43,12 @@ Logs never contain IP addresses or ports of clients, statement or request bodies
 
 ### Backup and restore
 
-`capsule-coord [--state DIR] backup FILE` writes a consistent copy of the database, including the private key, while a coordinator runs or not. It does not take the state lock.
+`peerspan-coord [--state DIR] backup FILE` writes a consistent copy of the database, including the private key, while a coordinator runs or not. It does not take the state lock.
 - It writes to a temporary file in FILE's directory with mode 0600 and renames it into place. If FILE already exists it exits 1 and changes nothing.
 - It prints `{"file": ABSOLUTE_PATH, "bytes": N, "id": COORDINATOR_ID, "user_version": V}` to stdout.
 - Without a database in the state directory it exits 1.
 
-`capsule-coord [--state DIR] restore [--replace] FILE` installs a backup as the state's database. Its checks run in this order, and each refusal exits 1 and changes nothing:
+`peerspan-coord [--state DIR] restore [--replace] FILE` installs a backup as the state's database. Its checks run in this order, and each refusal exits 1 and changes nothing:
 - It takes the state lock and exits 1 with `coordinator is running` if it is held.
 - If the state already has a database, it exits 1 unless `--replace` is given.
 - It checks FILE: SQLite `integrity_check` returns `ok`, the identity row exists, and its `user_version` is one this build opens.
@@ -60,10 +60,10 @@ A restored coordinator has the backup's identity, so hosts that pin its key keep
 ### Deployment files
 
 `deploy/coordinator/` holds:
-- `capsule-coord.service`: a systemd system unit running `capsule-coord --state /var/lib/capsule-coord run --listen ${CAPSULE_COORD_LISTEN} --ops-listen 127.0.0.1:9464` and the limit flags from an `EnvironmentFile`, as a dedicated static user (Litestream runs as the same user, and the state directory must not be a symbolic link, so not `DynamicUser=`), with `StateDirectory=capsule-coord` (mode 0700), `Restart=on-failure`, and sandboxing (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, and no added capabilities when the port is 1024 or above).
-- `capsule-coord.env.example`: the environment file's variables with comments.
-- `litestream.yml` and `litestream.service`: continuous replication of `/var/lib/capsule-coord/coord.db` to an S3-compatible bucket, with credentials from an environment file. Litestream 0.5 has no client-side encryption, so replicas use S3 server-side encryption with a customer-provided key (SSE-C) held on the VM: the provider stores only ciphertext but sees the key with each request. The offline `backup` copy is encrypted client-side by the owner.
-- `README.md`, the runbook: provisioning a VM with a static address and DNS name; opening TCP and UDP on the coordination port only; installing the binary and units; reading the key with `capsule-coord info` for `CAPSULE_COORDINATOR_KEY`; upgrades (replace the binary, restart, check `/healthz`); a restore drill from Litestream and from a `backup` file; alerts on `/healthz`, request errors, limit refusals, and disk; keeping an offline encrypted `backup` file after every key change; and, until slices 2 and 3, the warning that a leaked key cannot yet be replaced.
+- `peerspan-coord.service`: a systemd system unit running `peerspan-coord --state /var/lib/peerspan-coord run --listen ${PEERSPAN_COORD_LISTEN} --ops-listen 127.0.0.1:9464` and the limit flags from an `EnvironmentFile`, as a dedicated static user (Litestream runs as the same user, and the state directory must not be a symbolic link, so not `DynamicUser=`), with `StateDirectory=peerspan-coord` (mode 0700), `Restart=on-failure`, and sandboxing (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, and no added capabilities when the port is 1024 or above).
+- `peerspan-coord.env.example`: the environment file's variables with comments.
+- `litestream.yml` and `litestream.service`: continuous replication of `/var/lib/peerspan-coord/coord.db` to an S3-compatible bucket, with credentials from an environment file. Litestream 0.5 has no client-side encryption, so replicas use S3 server-side encryption with a customer-provided key (SSE-C) held on the VM: the provider stores only ciphertext but sees the key with each request. The offline `backup` copy is encrypted client-side by the owner.
+- `README.md`, the runbook: provisioning a VM with a static address and DNS name; opening TCP and UDP on the coordination port only; installing the binary and units; reading the key with `peerspan-coord info` for `PEERSPAN_COORDINATOR_KEY`; upgrades (replace the binary, restart, check `/healthz`); a restore drill from Litestream and from a `backup` file; alerts on `/healthz`, request errors, limit refusals, and disk; keeping an offline encrypted `backup` file after every key change; and, until slices 2 and 3, the warning that a leaked key cannot yet be replaced.
 
 ### Verification
 
@@ -83,23 +83,23 @@ Decision recorded in the proposal: the operator's coordinator key may sign a suc
 
 A coordinator has an ordered list of identities, numbered from 0. Identity 0 is the existing key. Each later identity has an address and a key, which may be the previous key, and a successor statement signed by the previous identity's key. The coordinator database moves to version 6.
 
-`capsule-coord [--state DIR] successor --address HOST:PORT [--new-key]` appends an identity:
+`peerspan-coord [--state DIR] successor --address HOST:PORT [--new-key]` appends an identity:
 - It takes the state lock, so the coordinator must be stopped: `coordinator is running` exits 1. A state without a database exits 1.
 - `--address` must be a valid coordinator address (`HOST:PORT`, where HOST is an IP literal or a DNS name). With `--new-key` it generates a key; otherwise the new identity keeps the latest key, and an address equal to the latest identity's address exits 1 with `nothing changes`.
 - It prints `{"sequence": N, "id": COORDINATOR_ID, "public_key": KEY, "address": ADDRESS, "successor": SUCCESSOR}`.
 
 `info` keeps `id` and `public_key`, which are the latest identity's, and gains `identities`: `[{sequence, id, public_key, address}]` in order. Identity 0's `address` is null.
 
-**Successor.** A successor is a strict JSON object with exactly `sequence`, `previous_public_key`, `address`, `public_key`, `signed_at`, and `signature`. `signature` is by `previous_public_key` over the statement with lines `capsule-coordinator-successor-v1`, `sequence` in decimal, `previous_public_key`, `address`, `public_key`, `signed_at`. Sequences start at 1; identity 0 has no successor. `signed_at` is informational and not interpreted. A chain of successors is valid from a key K when the first's `previous_public_key` is K, each signature verifies, every sequence is at least 1 and each is one more than the preceding, each later `previous_public_key` is the preceding `public_key`, and every address is a valid coordinator address.
+**Successor.** A successor is a strict JSON object with exactly `sequence`, `previous_public_key`, `address`, `public_key`, `signed_at`, and `signature`. `signature` is by `previous_public_key` over the statement with lines `peerspan-coordinator-successor-v1`, `sequence` in decimal, `previous_public_key`, `address`, `public_key`, `signed_at`. Sequences start at 1; identity 0 has no successor. `signed_at` is informational and not interpreted. A chain of successors is valid from a key K when the first's `previous_public_key` is K, each signature verifies, every sequence is at least 1 and each is one more than the preceding, each later `previous_public_key` is the preceding `public_key`, and every address is a valid coordinator address.
 
 **Test vector.** With previous seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public key `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), new public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=`, sequence 1, address `coord.example.com:7400`, and `signed_at` `2026-10-10T00:00:00Z`, the signature is `OyAcMcamcVZu8FBm5nnHoBUQ+qXiiCRP+KJSLFCMQxCnWRw+9mfJnd6is8Pikhz1+ob6Qr/0iZ/mN2kXxunICQ==`.
 
 ### Serving
 
-`capsule-coord run --listen HOST:PORT` presents the latest identity. `--previous-listen SEQUENCE=HOST:PORT`, repeatable, also serves an earlier identity on another address, with its key, its STUN responder, and its relay. All listeners share one database and one relay, so hosts connected through different identities relay to each other. A sequence that is not an earlier identity exits 2 before listening.
+`peerspan-coord run --listen HOST:PORT` presents the latest identity. `--previous-listen SEQUENCE=HOST:PORT`, repeatable, also serves an earlier identity on another address, with its key, its STUN responder, and its relay. All listeners share one database and one relay, so hosts connected through different identities relay to each other. A sequence that is not an earlier identity exits 2 before listening.
 - Responses to register, join, and sync gain `successors`: the chain from the identity the request reached to the latest, in order, or `[]` from the latest identity. The identity a request reached is, among the identities with the key its listener presents, the one whose address equals the request's `Host` header, or else the earliest of them. Hosts send `Host` equal to the pinned `coordinator_address`, so one listener can serve an old and a new name for the same key.
 - The `start` log line gains `previous_listen`: `[{sequence, listen}]`, empty without the flag. `/healthz` reports the latest identity's `id`.
-- Metric `capsule_coord_identity_hosts{sequence}` (gauge): distinct authenticated hosts that completed a request or opened a relay connection through that identity's listener in the last 24 hours, since the process started. Refused clients still count: a failed request does not establish that the host stopped using the old identity. Each identity retains at most 4,096 host IDs, with age-based cleanup on traffic as well as scrapes. Saturation adds one overflow marker, retained for 24 hours after the last untracked host, so a listener cannot report zero while an untracked host may still use it. It is how the operator tells when an old listener can stop; above the cap it is a bounded count rather than an exact cardinality.
+- Metric `peerspan_coord_identity_hosts{sequence}` (gauge): distinct authenticated hosts that completed a request or opened a relay connection through that identity's listener in the last 24 hours, since the process started. Refused clients still count: a failed request does not establish that the host stopped using the old identity. Each identity retains at most 4,096 host IDs, with age-based cleanup on traffic as well as scrapes. Saturation adds one overflow marker, retained for 24 hours after the last untracked host, so a listener cannot report zero while an untracked host may still use it. It is how the operator tells when an old listener can stop; above the cap it is a bounded count rather than an exact cardinality.
 
 ### Hosts
 
@@ -113,7 +113,7 @@ A pending entry survives restarts. A later valid chain from the pinned key repla
 
 The deployment runbook gains a successor procedure:
 - **Address change (same key):** run `successor --address NEW`, point the new name at the VM, and restart. One listener can serve both names, since the key is the same.
-- **Key change:** run `successor --address NEW --new-key` with a new port or address, restart with `--listen NEW --previous-listen N=OLD`, update `CAPSULE_COORDINATOR_KEY` for new builds, take a new offline backup, and stop the old listener once `capsule_coord_identity_hosts` for it has been 0 for 30 days.
+- **Key change:** run `successor --address NEW --new-key` with a new port or address, restart with `--listen NEW --previous-listen N=OLD`, update `PEERSPAN_COORDINATOR_KEY` for new builds, take a new offline backup, and stop the old listener once `peerspan_coord_identity_hosts` for it has been 0 for 30 days.
 - **Leaked key:** sign a successor with a new key at once. Hosts that reach the operator first follow it; a successor signed with the leaked key to another coordinator can divert hosts only to an availability-only coordinator, and administrators recover with a signed move (slice 3).
 
 ### Verification
@@ -124,7 +124,7 @@ The deployment runbook gains a successor procedure:
 - a key change served with `--previous-listen`: hosts switch, a host that was stopped during the change follows on restart, a join with an invite issued before the change ends pinned to the new identity, and invites issued after it carry the new pin;
 - two successors (0 to 2) applied while a host was stopped, followed in one step;
 - an unreachable new address: hosts keep their pin with `coordinator_pending` set and a sync error, survive a restart, and switch once the new listener starts;
-- `--previous-listen` refusals, the `start` line, and `capsule_coord_identity_hosts` per sequence;
+- `--previous-listen` refusals, the `start` line, and `peerspan_coord_identity_hosts` per sequence;
 - where the suite can serve a chain itself (for example a minimal coordinator stand-in), an invalid chain leaving the pin unchanged with `invalid coordinator successor`.
 
 ## Slice 3: moves and repair
@@ -135,7 +135,7 @@ Decisions recorded in the proposal: the network root or a delegated administrato
 
 | Statement | Signed by | Lines |
 | --- | --- | --- |
-| Coordinator move | root or administrator | `capsule-coordinator-move-v1`, `network_id`, `sequence`, `address`, `public_key`, `moved_at` |
+| Coordinator move | root or administrator | `peerspan-coordinator-move-v1`, `network_id`, `sequence`, `address`, `public_key`, `moved_at` |
 
 A move is a strict JSON object with `network_id`, `sequence`, `address`, `public_key`, `moved_at`, `signer` (`root` or the administrator's `person_public_key`), and `signature`, raw for the root and `SSHSIG` for an administrator, as for group definitions. `sequence` is a decimal integer of at least 1; for each network the valid move with the highest sequence applies. A move is valid when its signer is the current root or a current administrator at the time a coordinator or host verifies it, and `address` is a valid coordinator address. A host that has already switched because of a move stays switched if its signer later stops being an administrator.
 
@@ -152,7 +152,7 @@ A move is a strict JSON object with `network_id`, `sequence`, `address`, `public
 
 ### Moving a network
 
-`capsule network move --coordinator HOST:PORT --coordinator-key KEY [--network ID]` (in `help advanced`) is run on a host whose operator is the root holder or a current administrator; it picks the signer as the other administrator commands do. It:
+`peerspan network move --coordinator HOST:PORT --coordinator-key KEY [--network ID]` (in `help advanced`) is run on a host whose operator is the root holder or a current administrator; it picks the signer as the other administrator commands do. It:
 1. signs a move with sequence one more than the current one;
 2. imports the network, including the move, into the new coordinator, and fails with nothing changed if that import fails, including when the coordinator there presents another key;
 3. submits the move to the current coordinator, at most once, recording `accepted`, `refused`, or `unreachable`;
@@ -198,17 +198,17 @@ Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the ow
 
 ### Coordinator release archive
 
-`scripts/package-coordinator.sh VERSION` builds `capsule-coord` for the current Linux machine with `coord.Version` set to VERSION and writes `dist/capsule-coord-VERSION-linux-ARCH.tar.gz` and its `.sha256`, refusing to overwrite as `package-release.sh` does. The archive holds `capsule-coord-VERSION-linux-ARCH/bin/capsule-coord`, `share/capsule-coord/deploy/` (the files in `deploy/coordinator/`), and a `release.json` with `version`, `os`, `architecture`, and `source_revision`.
+`scripts/package-coordinator.sh VERSION` builds `peerspan-coord` for the current Linux machine with `coord.Version` set to VERSION and writes `dist/peerspan-coord-VERSION-linux-ARCH.tar.gz` and its `.sha256`, refusing to overwrite as `package-release.sh` does. The archive holds `peerspan-coord-VERSION-linux-ARCH/bin/peerspan-coord`, `share/peerspan-coord/deploy/` (the files in `deploy/coordinator/`), and a `release.json` with `version`, `os`, `architecture`, and `source_revision`.
 
 ### Install script
 
 `deploy/coordinator/install.sh` runs as root on Debian 12 or Ubuntu 24.04, from an extracted archive:
-- `install.sh --listen 0.0.0.0:443` installs: the `capsule-coord` system user, `/usr/local/bin/capsule-coord`, the units and `/etc/capsule-coord/capsule-coord.env` (an existing env file is kept), the state directory, and Litestream at the pinned version after checking its published SHA-256. It enables and starts `capsule-coord`, waits up to 10 seconds for `/healthz`, and prints `{id, public_key, listen, litestream, firewall}` as JSON on stdout, where `litestream` is `enabled` or `not configured`, and `firewall` is `nftables`, `ufw`, or `none` (below).
+- `install.sh --listen 0.0.0.0:443` installs: the `peerspan-coord` system user, `/usr/local/bin/peerspan-coord`, the units and `/etc/peerspan-coord/peerspan-coord.env` (an existing env file is kept), the state directory, and Litestream at the pinned version after checking its published SHA-256. It enables and starts `peerspan-coord`, waits up to 10 seconds for `/healthz`, and prints `{id, public_key, listen, litestream, firewall}` as JSON on stdout, where `litestream` is `enabled` or `not configured`, and `firewall` is `nftables`, `ufw`, or `none` (below).
 - With a port below 1024, the unit gains `AmbientCapabilities=CAP_NET_BIND_SERVICE` and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE`, and nothing else.
-- Litestream is enabled only when `/etc/capsule-coord/litestream.env` and the SSE-C key file both exist; otherwise its unit stays disabled and the script says so on stderr.
+- Litestream is enabled only when `/etc/peerspan-coord/litestream.env` and the SSE-C key file both exist; otherwise its unit stays disabled and the script says so on stderr.
 - **Firewall:** one of three, reported as `firewall`:
-  - `ufw`, when ufw is installed and `ufw status` reports `Status: active`: the script adds `allow` rules for the coordination port over TCP and UDP, commented `capsule-coord`, and changes nothing else in ufw. It writes no nftables table.
-  - `nftables`, otherwise: a dedicated nftables table, `inet capsule_coord`, included from `/etc/nftables.conf` and loaded at boot, allows inbound TCP 22, the coordination port over TCP and UDP, established traffic, loopback, and IPv6 neighbor discovery, and drops the rest. This mode is for a VM that runs only the coordinator. It needs `nft`.
+  - `ufw`, when ufw is installed and `ufw status` reports `Status: active`: the script adds `allow` rules for the coordination port over TCP and UDP, commented `peerspan-coord`, and changes nothing else in ufw. It writes no nftables table.
+  - `nftables`, otherwise: a dedicated nftables table, `inet peerspan_coord`, included from `/etc/nftables.conf` and loaded at boot, allows inbound TCP 22, the coordination port over TCP and UDP, established traffic, loopback, and IPv6 neighbor discovery, and drops the rest. This mode is for a VM that runs only the coordinator. It needs `nft`.
   - `none`, with `--no-firewall`: the script changes no firewall, and the owner opens the coordination port over TCP and UDP themselves. This mode is for a VM whose firewall is managed some other way.
 
   Neither `ufw` nor `none` removes a table written by an earlier run. The runbook also sets the `nftables` rules as a Hetzner Cloud Firewall.
@@ -221,11 +221,11 @@ Decisions settled with the owner on 2026-10-10: Hetzner Cloud; a DNS name the ow
 
 `deploy/coordinator/README.md` gains a Hetzner section:
 1. A CX22 (or larger) server on Debian 12 with primary IPv4 and IPv6, an SSH key, and the Cloud Firewall.
-2. An Object Storage bucket in the same location, with its access keys, and a 32-byte SSE-C key generated on the VM (`/etc/capsule-coord/litestream-sse.key`, mode 0600), kept also in the owner's password manager. Without that key, the replicas cannot be read.
+2. An Object Storage bucket in the same location, with its access keys, and a 32-byte SSE-C key generated on the VM (`/etc/peerspan-coord/litestream-sse.key`, mode 0600), kept also in the owner's password manager. Without that key, the replicas cannot be read.
 3. The owner's DNS name with A and AAAA records for the server.
 4. Copying the archive, `install.sh --listen 0.0.0.0:443`, and recording `public_key`.
-5. A first `capsule-coord backup`, encrypted offline.
-6. Release bundles built with `CAPSULE_COORDINATOR=NAME:443` and `CAPSULE_COORDINATOR_KEY=KEY`.
+5. A first `peerspan-coord backup`, encrypted offline.
+6. Release bundles built with `PEERSPAN_COORDINATOR=NAME:443` and `PEERSPAN_COORDINATOR_KEY=KEY`.
 7. A restore drill from the replica onto a second throwaway server before announcing.
 
 ### Acceptance against the hosted coordinator
@@ -235,11 +235,11 @@ Once the owner has deployed it and provided the name and key, `conformance/launc
 ### Verification
 
 `conformance/coord_deploy.py` is written from this contract by an author independent of the implementation. It needs root and Docker, and runs everything locally: throwaway `debian:12` and `ubuntu:24.04` containers running systemd as their init, and a MinIO container serving TLS, which enforces SSE-C. It removes its containers, images it pulled, and networks when done. It covers:
-- the archive's layout, `release.json`, checksum, refusal to overwrite, and `capsule_coord_info{version}`;
+- the archive's layout, `release.json`, checksum, refusal to overwrite, and `peerspan_coord_info{version}`;
 - `install.sh` in the container: the user, files and modes, the unit with exactly `CAP_NET_BIND_SERVICE` on port 443, both services' states with and without Litestream configured, the nftables rules, `/healthz`, and the printed JSON;
 - re-running it (same identity, nothing changed), `--upgrade` (identity kept, version changed), and an upgrade whose binary fails health (rolled back, exit 1);
 - Go and Rust hosts outside the container creating and joining a network through the container's port 443, and exchanging relayed messages;
 - Litestream replicating with SSE-C to the local server, objects unreadable without the key, and the runbook's restore procedure into a fresh container keeping the identity, after which the hosts sync again (and repair, slice 3, restores anything after the last replicated transaction);
-- on `ubuntu:24.04`: the same install, with ufw installed and active, adding exactly the two port rules, leaving other ufw rules in place, writing no `inet capsule_coord` table, and printing `firewall` `ufw`; re-running adds no duplicate rules;
+- on `ubuntu:24.04`: the same install, with ufw installed and active, adding exactly the two port rules, leaving other ufw rules in place, writing no `inet peerspan_coord` table, and printing `firewall` `ufw`; re-running adds no duplicate rules;
 - `--no-firewall` on either distribution: no nftables table, no ufw rule, and `firewall` `none`; `--no-firewall` with `--upgrade` exits 2;
 - the script refusing other distributions (including `debian:11` and `ubuntu:22.04`) and making no network requests besides the Litestream download.

@@ -33,44 +33,44 @@ Each step names the size it applies to.
 
 ```sh
 # Everyone: install the binary, then install and start the daemon as a user service.
-capsule install
+peerspan install
 
 # The first person (any size): creates the network on the hosted coordinator,
 # admits themselves as its first person with the SSH key in ssh-agent, and binds this host.
-capsule network create acme
+peerspan network create acme
 
 # The creator, once per teammate (pair, team) or per extra machine (solo):
-capsule invite bob            # prints: capsule join capsule-member-invite-v1....
+peerspan invite bob            # prints: peerspan join peerspan-member-invite-v1....
 
 # The teammate, or the creator's second machine:
-capsule join capsule-member-invite-v1....
+peerspan join peerspan-member-invite-v1....
 
 # Everyone: attach the current Claude Code project. This registers an agent named "claude" if needed.
-capsule attach claude
+peerspan attach claude
 
 # Pair and team: allow others to reach your agents (messages and tasks by default).
-capsule allow bob             # one person
-capsule allow group:eng       # a group the administrators maintain
-capsule allow everyone        # every member of the network
+peerspan allow bob             # one person
+peerspan allow group:eng       # a group the administrators maintain
+peerspan allow everyone        # every member of the network
 
-capsule status
+peerspan status
 ```
 
 - **Solo:** one person with two machines runs `install`, `network create` (or `join`), and `attach` on each. Their own hosts reach each other's agents with no policy (decision 3).
 - **Pair:** each person also runs `allow <other>`.
 - **Team:** an administrator invites each person once, and may delegate administration (`network delegate-admin`) and maintain groups (`network group set`). Owners `allow` a group or `everyone`.
 
-Agents then reach each other by name: a Claude session asks to message `bob/claude` or delegate a task to it, and the owner can do the same with `capsule send bob/claude ...` and `capsule task bob/claude ...`.
+Agents then reach each other by name: a Claude session asks to message `bob/claude` or delegate a task to it, and the owner can do the same with `peerspan send bob/claude ...` and `peerspan task bob/claude ...`.
 
 ## Commands
 
-The CLI ships as `capsule`. The binary also answers to `capsule-host`, so existing scripts and suites keep working. The release bundle gains `bin/capsule` beside `bin/capsule-host`, and both find the bundled integrations as today. The root help lists only the commands below; `capsule help advanced` lists everything else, unchanged.
+The CLI ships as `peerspan`. The binary also answers to `peerspan-host`, so existing scripts and suites keep working. The release bundle gains `bin/peerspan` beside `bin/peerspan-host`, and both find the bundled integrations as today. The root help lists only the commands below; `peerspan help advanced` lists everything else, unchanged.
 
 | Command | Behavior |
 | --- | --- |
 | `install [--state DIR] [--no-start]` / `uninstall` | Installs a user service and starts it (see [Daemon service](#daemon-service)). Idempotent. `uninstall` stops and removes the service, and keeps the state. |
 | `network create NAME [--as LABEL] [--coordinator HOST:PORT --coordinator-key KEY]` | Creates the network on the hosted coordinator by default. Admits the SSH key in ssh-agent as the first person, labeled `--as` (default: the login name), and binds this host. Without a usable ssh-agent key it fails with instructions, and `--no-person` stays advanced. |
-| `invite LABEL [--expires-in DURATION]` | Issues a member invite (default 7 days) and prints a single `capsule join ...` line. To add your own second machine, invite your own label. Administration is delegated after joining, with `network delegate-admin`. |
+| `invite LABEL [--expires-in DURATION]` | Issues a member invite (default 7 days) and prints a single `peerspan join ...` line. To add your own second machine, invite your own label. Administration is delegated after joining, with `network delegate-admin`. |
 | `join TOKEN [--as LABEL]` | Joins, redeems or reuses the person, and binds this host to it. If the person already exists with this SSH key (a second machine), it binds without redeeming. |
 | `attach HARNESS [--name NAME] [--directory DIR]` | Registers the agent if needed (default name: the harness, e.g. `claude`; owner: this host's person), then performs session setup for the current project. Reachable agents come from the directory, so no routes are written. Today's `session setup` options remain available. |
 | `allow PRINCIPAL [--agent NAME] [--tasks/--no-tasks] [--files SIZE] [--delegate]` | Adds or extends a policy rule. `PRINCIPAL` is a person label, `group:NAME`, or `everyone` (the existing `network` principal). Without `--agent`, the rule is for `*`, meaning all of the owner's agents (decision 2). It defaults to messages and tasks; files and onward delegation are opt-in (decision 1). |
@@ -93,17 +93,17 @@ This reverses the quick start's current rule that expiry is never silently renew
 
 ## Daemon service
 
-`capsule install` writes and starts:
-- **Linux:** a systemd user unit at `~/.config/systemd/user/capsule.service` running `capsule run`, restarting on failure, and enabled for the user's login. It does not enable lingering; `status` says how if the user wants the daemon running while logged out.
-- **macOS:** a launchd agent at `~/Library/LaunchAgents/dev.capsule.host.plist` with `RunAtLoad` and `KeepAlive`.
+`peerspan install` writes and starts:
+- **Linux:** a systemd user unit at `~/.config/systemd/user/peerspan.service` running `peerspan run`, restarting on failure, and enabled for the user's login. It does not enable lingering; `status` says how if the user wants the daemon running while logged out.
+- **macOS:** a launchd agent at `~/Library/LaunchAgents/dev.peerspan.host.plist` with `RunAtLoad` and `KeepAlive`.
 
-The service records the state directory, the peer listen address (default `0.0.0.0:7401`, chosen free if taken), and `--person-agent` from the installing shell's `SSH_AUTH_SOCK`. On Linux that socket changes between logins, so policy renewal can fail later. `status` reports this and `capsule install` refreshes it. `run` stays available for foreground use. This fills the gap the quick start notes, that Capsule has no per-user service installer.
+The service records the state directory, the peer listen address (default `0.0.0.0:7401`, chosen free if taken), and `--person-agent` from the installing shell's `SSH_AUTH_SOCK`. On Linux that socket changes between logins, so policy renewal can fail later. `status` reports this and `peerspan install` refreshes it. `run` stays available for foreground use. This fills the gap the quick start notes, that Peerspan has no per-user service installer.
 
 ## Hosted coordinator
 
-The CLI carries a default coordinator address and public key, used whenever `network create` has no `--coordinator`. Joining always uses the coordinator named in the invite, so self-hosted networks need nothing new. The hosted coordinator is the ordinary `capsule-coord`, and sees only membership, the map, and encrypted relay packets ([coordination contract](coordination-contract.md)).
+The CLI carries a default coordinator address and public key, used whenever `network create` has no `--coordinator`. Joining always uses the coordinator named in the invite, so self-hosted networks need nothing new. The hosted coordinator is the ordinary `peerspan-coord`, and sees only membership, the map, and encrypted relay packets ([coordination contract](coordination-contract.md)).
 
-Because it accepts networks from anyone, `capsule-coord` gains limits, each a `run` flag with a default (decision 4):
+Because it accepts networks from anyone, `peerspan-coord` gains limits, each a `run` flag with a default (decision 4):
 - 50 members per network;
 - 20 network creations per source IP per day;
 - 10 GB of relayed traffic per network per calendar month.
@@ -129,7 +129,7 @@ The map already carries every person's newest policy to every member. The direct
 - **Discovery.** A host queries each member host bound to a person whose policy covers it, or to its own person. It refreshes every 5 minutes and when the map or a policy changes, and caches the result with its time.
 - **Names.** An address is `person_label/agent_name`, or `person_label/agent_name@host_label` when that person has the name on more than one host. The short form then fails with a list of the qualified ones. Labels resolve through the current map.
 - **Agents.** The adapter gains MCP `list_agents`, and `send_message` and `delegate_task` accept a `to` address in place of a route name. The host resolves the address, picks the cited authorization the target listed, and sends as today. Explicit routes keep working and take precedence by name.
-- **Owner.** `capsule agents` lists reachable agents with their actions and whether their host was reachable on the last refresh, then which principals can reach this person's agents according to its own policy.
+- **Owner.** `peerspan agents` lists reachable agents with their actions and whether their host was reachable on the last refresh, then which principals can reach this person's agents according to its own policy.
 
 Authorization is unchanged: the receiver still checks every request, so a stale directory entry yields the usual 403 or 404.
 
@@ -137,7 +137,7 @@ Slice 4 of the [launch contract](launch-contract.md) settles the details: names 
 
 ## Status
 
-`capsule status` prints one screen, in order:
+`peerspan status` prints one screen, in order:
 1. **Daemon:** running or not, service installed, version, host ID.
 2. **Identity:** the bound person and label; whether ssh-agent holds that person's key, and whether the daemon can reach it for renewal.
 3. **Networks:** for each, the coordinator connection and last sync time or error, member count, and how many peers are direct, relayed, or unreachable.
@@ -154,10 +154,10 @@ Rules accept the agent name `*`, meaning every agent of the owner on any of thei
 ## Slices
 
 Each slice is implemented in Go and Rust with shared conformance, as in earlier milestones.
-1. **CLI shape:** the `capsule` name, network defaulting, expiry defaults and session renewal, `status` and `GET /v1/status`, and `help advanced`.
+1. **CLI shape:** the `peerspan` name, network defaulting, expiry defaults and session renewal, `status` and `GET /v1/status`, and `help advanced`.
 2. **Service and coordinator:** `install`/`uninstall`, the hosted default from build variables, and coordinator limits with 429.
 3. **Team onboarding:** `network create NAME`, `invite`, `join`, `allow`/`deny` with `everyone` and `*`, and self access.
-4. **Directory and addressing:** `GET /peer/v1/agents`, discovery, `capsule agents`, `send`/`task` by address, MCP `list_agents` and `to`, and `attach` without routes.
+4. **Directory and addressing:** `GET /peer/v1/agents`, discovery, `peerspan agents`, `send`/`task` by address, MCP `list_agents` and `to`, and `attach` without routes.
 5. **Acceptance:** a scripted run from empty machines for solo, pair, and three-person setups, counting commands, plus one live run with three Claude Code sessions, all from installed release bundles. The [quick start](quick-start.md) is rewritten around the new path, and the manual testing guide moves to the advanced path.
 
 ## Decisions
@@ -169,12 +169,12 @@ Settled with the owner on 2026-10-08:
 - **CLI surface:** low-level commands stay, hidden behind `help advanced`.
 - **Addressing:** a directory derived from authorization, with `person/agent` names; explicit routes stay as an advanced option.
 - **Expiries** (5): optional everywhere, with defaults; sessions renew while live, reversing the quick start's no-renewal rule.
-- **Name:** `capsule`, with `capsule-host` as an alias.
+- **Name:** `peerspan`, with `peerspan-host` as an alias.
 - **Agents:** `attach` registers the agent if needed.
 - **Allow default** (1): messages and tasks; files and delegation opt-in.
 - **Agent scope** (2): `allow` without `--agent` covers all of the owner's agents through `*`.
 - **Self access** (3): everything, up to 1 GiB of artifacts, with no policy.
-- **Hosted limits** (4): modest caps as configurable `capsule-coord` flags, returning 429.
+- **Hosted limits** (4): modest caps as configurable `peerspan-coord` flags, returning 429.
 
 Settled with the owner on 2026-10-09, for slice 4:
 - **Agent names:** unique per person across their hosts; `attach` picks a suffixed name when the default is taken.

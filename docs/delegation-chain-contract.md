@@ -31,7 +31,7 @@ A link is a strict JSON object with exactly these fields:
 | `depth` | How many further hops the audience may create: 1 or 2 on link 0, and one less on each later link, down to 0. |
 | `signature` | Ed25519 by the issuer's host key over the signed statement, in canonical standard Base64. |
 
-The **signed statement** uses the coordination contract's encoding: lines joined by `\n`, with no trailing newline. The lines are `capsule-delegation-v1`, then every field above except `signature`, in table order, with `index` and `depth` in decimal and `principals` space-separated.
+The **signed statement** uses the coordination contract's encoding: lines joined by `\n`, with no trailing newline. The lines are `peerspan-delegation-v1`, then every field above except `signature`, in table order, with `index` and `depth` in decimal and `principals` space-separated.
 
 A principal **covers** another principal as follows:
 - `network` covers every principal;
@@ -136,7 +136,7 @@ Older binaries reject version 11.
 
 ## Verification
 
-`conformance/delegation.py` runs three-host and four-host chains across Go/Rust mixes, covering every implementation in each position. `capsule-peer-probe` signs arbitrary links with a host's key, to forge adversarial chains. The suite covers:
+`conformance/delegation.py` runs three-host and four-host chains across Go/Rust mixes, covering every implementation in each position. `peerspan-peer-probe` signs arbitrary links with a host's key, to forge adversarial chains. The suite covers:
 - a two-hop and a three-hop chain, authorized by the originator's policy at the final receiver, and refused when only the sender is allowed;
 - refusal of forwarding:
   - without `task.delegate`;

@@ -2,7 +2,7 @@
 
 Status: proposal for review, covering roadmap milestones 3 and 4 ([roadmap](production-roadmap.md)). Agreed on 2026-10-06:
 - the peer transport moves to QUIC before relays are built;
-- the relay runs inside `capsule-coord`;
+- the relay runs inside `peerspan-coord`;
 - only network members may use it.
 
 Everything else here is proposed. The decisions to settle before implementation are listed under [Decisions to settle](#decisions-to-settle).
@@ -11,7 +11,7 @@ Everything else here is proposed. The decisions to settle before implementation 
 
 The project started from a WireGuard- or Tailscale-like connectivity model. QUIC came in later, so the path from one to the other is recorded here.
 
-1. **The original design was WireGuard.** The issue 7 design in `mesh-new` (commit `087cd42`, 2026-10-02) recorded as decided "the same split of roles as a WireGuard mesh with a coordination server". It was to be built from scratch, with no `tsnet` and no Headscale. It proposed WireGuard as the tunnel between dataplanes, and a relay that "forwards ciphertext addressed by public key and cannot read it". It left one question open: does a session need live IP reachability between capsules, or only messages and artifacts? If only messages and artifacts, a relay with pinned keys would be enough, and the direct-path and hole-punching steps could wait.
+1. **The original design was WireGuard.** The issue 7 design in `mesh-new` (commit `087cd42`, 2026-10-02) recorded as decided "the same split of roles as a WireGuard mesh with a coordination server". It was to be built from scratch, with no `tsnet` and no Headscale. It proposed WireGuard as the tunnel between dataplanes, and a relay that "forwards ciphertext addressed by public key and cannot read it". It left one question open: does a session need live IP reachability between peerspans, or only messages and artifacts? If only messages and artifacts, a relay with pinned keys would be enough, and the direct-path and hole-punching steps could wait.
 2. **The design reset removed it.** The later reset (`mesh-new` commit `6a068af`) replaced that document. The current `design.md` treats Tailscale only as a reference for separating coordination from locally enforced peer communication, and says the reference "does not commit this project to Tailscale code, WireGuard, or any specific provider". Peer transport, trust, and relay operation became open decisions again.
 3. **The first peer slice went application-level.** The known-host messaging work (#13) chose HTTP/1.1 over mutually authenticated TLS 1.3 over TCP, with hosts pinned by their Ed25519 key and grants enforced on every request. That answered the open question for the current product: what crosses hosts is authorized messages, receipts, and replies, not IP packets.
 4. **The roadmap followed from that.** It described relays as a TCP splice carrying the end-to-end peer TLS, and noted that NAT traversal would need a UDP transport such as QUIC. It left that transport decision for the NAT milestone.
@@ -23,9 +23,9 @@ At the architecture level the design remains Tailscale-like. QUIC takes the plac
 
 | Tailscale | This proposal |
 | --- | --- |
-| WireGuard node key, distributed by the control server | Ed25519 host key, distributed by `capsule-coord` and verified by every host through the signed membership chain |
+| WireGuard node key, distributed by the control server | Ed25519 host key, distributed by `peerspan-coord` and verified by every host through the signed membership chain |
 | WireGuard tunnel over UDP | QUIC with mutual TLS 1.3 over UDP |
-| DERP relays forwarding already-encrypted WireGuard packets by key, over TCP/HTTPS | A relay in `capsule-coord` forwarding already-encrypted QUIC packets by host ID, over TCP/TLS |
+| DERP relays forwarding already-encrypted WireGuard packets by key, over TCP/HTTPS | A relay in `peerspan-coord` forwarding already-encrypted QUIC packets by host ID, over TCP/TLS |
 | Disco messages and hole punching, then a path upgrade | STUN-observed addresses, signed path probes, and hole punching, then a path switch inside the combined socket (QUIC is not involved; see the milestone 4 correction) |
 | Packet filter, plus application capabilities read through `WhoIs` | Grants enforced per request by the receiving daemon |
 
@@ -38,7 +38,7 @@ QUIC fits the current message-level product for three reasons:
 - **Identity carries over.** QUIC uses TLS 1.3, so it reuses the existing Ed25519 host certificates, key pinning, and verifier code in both languages. WireGuard uses Curve25519 static keys. That needs either a second key per host, bound to the host key, or a conversion between the two key types. The TLS layer would also stay on top for per-request authorization.
 - **Stable connections across paths.** A QUIC connection keeps its state while the combined socket underneath switches a peer from the relay to a direct endpoint, because QUIC always sees the same synthetic peer address. QUIC's own connection migration cannot do this, since a server's address cannot change (see the milestone 4 correction). WireGuard roams between endpoints too, but anything carried inside the tunnel would still need its own connection management.
 
-WireGuard becomes relevant if capsules need **IP reachability**. Examples are a Firecracker guest that must reach a service on another host by address, or arbitrary TCP and UDP traffic between runtimes. That is the question the original design left open. The three collaboration capabilities do not require it: task delegation, peer conversations, and remote tools and resources can all run as authorized requests between daemons. When IP reachability is needed, it can come from kernel WireGuard on the hosts that run isolated runtimes, layered beside QUIC rather than replacing it. The next section describes that layering.
+WireGuard becomes relevant if peerspans need **IP reachability**. Examples are a Firecracker guest that must reach a service on another host by address, or arbitrary TCP and UDP traffic between runtimes. That is the question the original design left open. The three collaboration capabilities do not require it: task delegation, peer conversations, and remote tools and resources can all run as authorized requests between daemons. When IP reachability is needed, it can come from kernel WireGuard on the hosts that run isolated runtimes, layered beside QUIC rather than replacing it. The next section describes that layering.
 
 ## Layered option: kernel WireGuard for runtime networking
 
@@ -65,7 +65,7 @@ Choosing QUIC for daemon messaging does not rule out kernel WireGuard for Firecr
 
 - **Messages:** QUIC between daemons on every host, as proposed here. Grants, receipts, and replies stay at the application layer, on any OS.
 - **Runtime networking:** optional kernel WireGuard on Linux runtime hosts, only for guests that need IP reachability. The daemon configures the interface over netlink, and host nftables rules enforce the session's network policy.
-- **Relays:** the `capsule-coord` relay proposed below forwards already-encrypted packets addressed by host ID. It does not care whether they are QUIC or WireGuard packets. The same relay can carry both, with the local proxy hop on the WireGuard side.
+- **Relays:** the `peerspan-coord` relay proposed below forwards already-encrypted packets addressed by host ID. It does not care whether they are QUIC or WireGuard packets. The same relay can carry both, with the local proxy hop on the WireGuard side.
 
 Making WireGuard the only transport would require two things instead: userspace WireGuard on every non-Linux host, and our own relay, path discovery, and hole-punching logic built around a socket the kernel owns.
 
@@ -90,7 +90,7 @@ The combined socket can then switch an established connection from the relay to 
 
 Go `quic-go` takes a `crypto/tls` configuration, so the existing `VerifyConnection` pin check carries over. Rust `quinn` 0.11 builds on `rustls` 0.23, the version already in use, so the existing `Pins` verifier carries over. 0-RTT and session resumption stay disabled, so every connection proves identity.
 
-**The application protocol stays HTTP/1.1.** Each QUIC bidirectional stream carries exactly one HTTP/1.1 request and response, under ALPN `capsule-peer/1`. These stay as they are today:
+**The application protocol stays HTTP/1.1.** Each QUIC bidirectional stream carries exactly one HTTP/1.1 request and response, under ALPN `peerspan-peer/1`. These stay as they are today:
 - the peer router;
 - routes, statuses, and error bodies;
 - body limits and strict JSON;
@@ -116,7 +116,7 @@ HTTP/3 would be the standard choice. It is not recommended now because the Rust 
 - Its raw-wire fixtures use OpenSSL over TCP, and Python's standard library has no QUIC. A small Go probe built for the suite replaces them; it covers unknown keys, wrong pins, a handshake signed by another key, and malformed requests.
 - `coordination.py` and the adapter suites need no transport-specific changes.
 
-## Milestone 3b: relays inside capsule-coord
+## Milestone 3b: relays inside peerspan-coord
 
 The coordinator gains a relay listener. The network map names it with an address, a public key (the coordinator's own key), and the networks it serves. A member host keeps one persistent registration connection to its network's relay.
 
@@ -163,7 +163,7 @@ The milestone therefore uses Tailscale's approach: path selection lives in the s
 | Decision | Recommendation | Alternative |
 | --- | --- | --- |
 | Peer transport | QUIC for daemon messaging on every host (agreed 2026-10-06) | WireGuard as the only transport, which needs userspace WireGuard on non-Linux hosts. Kernel WireGuard can instead be layered on Linux runtime hosts for guest IP reachability; see [Layered option](#layered-option-kernel-wireguard-for-runtime-networking) |
-| Application protocol over QUIC | HTTP/1.1, one request per bidirectional stream, ALPN `capsule-peer/1` | HTTP/3 (`quic-go/http3`, Rust `h3` 0.0.x) |
+| Application protocol over QUIC | HTTP/1.1, one request per bidirectional stream, ALPN `peerspan-peer/1` | HTTP/3 (`quic-go/http3`, Rust `h3` 0.0.x) |
 | Relay carrier | Framed QUIC packets over TLS/TCP (DERP-style) | QUIC datagrams over a QUIC connection to the relay; this cannot reach UDP-blocked hosts and needs a smaller inner MTU |
 | Cutover | Hard switch, incompatible peer protocol version | Serve TCP and QUIC side by side for one release |
 | Coordinator API | Stays on HTTPS/TCP | Also move to QUIC |
@@ -173,7 +173,7 @@ The milestone therefore uses Tailscale's approach: path selection lives in the s
 
 The work ships as three PRs, each a working slice with both host implementations and shared conformance:
 1. QUIC direct transport (3a).
-2. Relays in `capsule-coord` (3b).
+2. Relays in `peerspan-coord` (3b).
 3. Reflexive addresses, hole punching, and path switching below QUIC (4).
 
 Each PR updates the peer-messaging and coordination contracts for the behavior it adds.
