@@ -2,10 +2,10 @@
 .env
 .env.*
 !.env.example
-.capsules/
-/capsule
-/capsule-host
-/go/capsule-host
+.peerspans/
+/peerspan
+/peerspan-host
+/go/peerspan-host
 /dist/
 
 __pycache__/

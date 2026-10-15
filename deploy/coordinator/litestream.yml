@@ -1,9 +1,9 @@
 # Litestream configuration replicating the coordinator database to an
 # S3-compatible bucket. Written for Litestream v0.5.17; install as
-# /etc/capsule-coord/litestream.yml (root:root, mode 0644).
+# /etc/peerspan-coord/litestream.yml (root:root, mode 0644).
 #
 # Litestream expands ${VAR} references from its environment, which
-# litestream.service reads from /etc/capsule-coord/litestream.env. The
+# litestream.service reads from /etc/peerspan-coord/litestream.env. The
 # credentials, LITESTREAM_ACCESS_KEY_ID and LITESTREAM_SECRET_ACCESS_KEY, are
 # read from that environment directly and never appear here.
 #
@@ -15,7 +15,7 @@
 # offline beside the offline backup file (README.md). The bucket must also be
 # private.
 dbs:
-  - path: /var/lib/capsule-coord/coord.db
+  - path: /var/lib/peerspan-coord/coord.db
     replica:
       type: s3
       bucket: ${LITESTREAM_BUCKET}
@@ -24,6 +24,6 @@ dbs:
       region: ${LITESTREAM_REGION}
       sync-interval: 1s
       # A file holding the base64-encoded 256-bit key, readable only by the
-      # capsule-coord user.
-      sse-customer-key-path: /etc/capsule-coord/litestream-sse.key
+      # peerspan-coord user.
+      sse-customer-key-path: /etc/peerspan-coord/litestream-sse.key
       sse-customer-algorithm: AES256

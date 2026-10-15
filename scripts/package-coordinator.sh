@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the hosted coordinator release archive: capsule-coord for this Linux
+# Builds the hosted coordinator release archive: peerspan-coord for this Linux
 # machine with the deployment files and install.sh. See the hosted coordinator
 # contract, slice 4.
 set -eu
@@ -71,12 +71,12 @@ esac
 
 mkdir -p "$output"
 output=$(CDPATH='' cd -- "$output" && pwd)
-work=$(mktemp -d "${TMPDIR:-/tmp}/capsule-coord-package.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/peerspan-coord-package.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-name="capsule-coord-${version}-${os}-${arch}"
+name="peerspan-coord-${version}-${os}-${arch}"
 bundle="$work/$name"
-deploy="$bundle/share/capsule-coord/deploy"
+deploy="$bundle/share/peerspan-coord/deploy"
 mkdir -p "$bundle/bin" "$deploy"
 
 archive="$output/$name.tar.gz"
@@ -88,20 +88,20 @@ if ! flock -n 9; then
   echo "another packaging process is building this release: $name" >&2
   exit 1
 fi
-if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$checksum" ]; } && [ "${CAPSULE_PACKAGE_OVERWRITE:-}" != 1 ]; then
-  echo "package output already exists; remove it or set CAPSULE_PACKAGE_OVERWRITE=1" >&2
+if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$checksum" ]; } && [ "${PEERSPAN_PACKAGE_OVERWRITE:-}" != 1 ]; then
+  echo "package output already exists; remove it or set PEERSPAN_PACKAGE_OVERWRITE=1" >&2
   exit 1
 fi
 
 GOOS=linux GOARCH="$arch" CGO_ENABLED=0 \
   go -C "$repo/go" build -trimpath \
   -ldflags "-X github.com/Cerebral-Systems/capsule/go/internal/coord.Version=$version" \
-  -o "$bundle/bin/capsule-coord" ./cmd/capsule-coord
+  -o "$bundle/bin/peerspan-coord" ./cmd/peerspan-coord
 
-case "$(file -b "$bundle/bin/capsule-coord")" in
+case "$(file -b "$bundle/bin/peerspan-coord")" in
   *ELF*"$file_arch"*) ;;
   *)
-    echo "built capsule-coord does not match linux/$arch" >&2
+    echo "built peerspan-coord does not match linux/$arch" >&2
     exit 1
     ;;
 esac
@@ -137,7 +137,7 @@ tar -C "$work" --owner=0 --group=0 --numeric-owner -czf "$archive_tmp" "$name"
 chmod 0644 "$archive_tmp" "$checksum_tmp"
 digest=$($checksum_command "$archive_tmp" | cut -d ' ' -f 1)
 printf '%s  %s\n' "$digest" "$(basename "$archive")" > "$checksum_tmp"
-if [ "${CAPSULE_PACKAGE_OVERWRITE:-}" = 1 ]; then
+if [ "${PEERSPAN_PACKAGE_OVERWRITE:-}" = 1 ]; then
   mv -T -- "$archive_tmp" "$archive"
   mv -T -- "$checksum_tmp" "$checksum"
 else

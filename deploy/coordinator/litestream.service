@@ -1,26 +1,26 @@
-# Continuous replication of the Capsule coordinator database with Litestream.
+# Continuous replication of the Peerspan coordinator database with Litestream.
 # See README.md in this directory.
 [Unit]
-Description=Litestream replication of the Capsule coordinator database
+Description=Litestream replication of the Peerspan coordinator database
 Documentation=https://github.com/Cerebral-Systems/capsule/blob/main/deploy/coordinator/README.md
 Wants=network-online.target
-After=network-online.target capsule-coord.service
+After=network-online.target peerspan-coord.service
 
 [Service]
 Type=exec
 # Litestream reads coord.db and writes its metadata beside it
 # (.coord.db-litestream), so it runs as the coordinator's user.
-User=capsule-coord
-Group=capsule-coord
-EnvironmentFile=/etc/capsule-coord/litestream.env
-ExecStart=/usr/local/bin/litestream replicate -config /etc/capsule-coord/litestream.yml
+User=peerspan-coord
+Group=peerspan-coord
+EnvironmentFile=/etc/peerspan-coord/litestream.env
+ExecStart=/usr/local/bin/litestream replicate -config /etc/peerspan-coord/litestream.yml
 Restart=on-failure
 RestartSec=5s
 UMask=0077
 
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/capsule-coord
+ReadWritePaths=/var/lib/peerspan-coord
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

@@ -1,14 +1,14 @@
 #!/bin/bash
-# Installs or upgrades the Capsule coordinator on Debian 12 or Ubuntu 24.04,
-# from an extracted capsule-coord release archive
+# Installs or upgrades the Peerspan coordinator on Debian 12 or Ubuntu 24.04,
+# from an extracted peerspan-coord release archive
 # (scripts/package-coordinator.sh). Run as root:
 #
-#   share/capsule-coord/deploy/install.sh --listen 0.0.0.0:443 [--no-firewall]
-#   share/capsule-coord/deploy/install.sh --upgrade
+#   share/peerspan-coord/deploy/install.sh --listen 0.0.0.0:443 [--no-firewall]
+#   share/peerspan-coord/deploy/install.sh --upgrade
 #
 # It prints {"id", "public_key", "listen", "litestream", "firewall"} as JSON on
 # stdout.
-# It never generates or reads the private key (capsule-coord creates it on its
+# It never generates or reads the private key (peerspan-coord creates it on its
 # first start), and contacts nothing except the pinned Litestream download.
 # See README.md in this directory.
 set -euo pipefail
@@ -24,14 +24,14 @@ litestream_sha256() {
   esac
 }
 
-USER_NAME=capsule-coord
-STATE_DIR=/var/lib/capsule-coord
-CONFIG_DIR=/etc/capsule-coord
-ENV_FILE=$CONFIG_DIR/capsule-coord.env
+USER_NAME=peerspan-coord
+STATE_DIR=/var/lib/peerspan-coord
+CONFIG_DIR=/etc/peerspan-coord
+ENV_FILE=$CONFIG_DIR/peerspan-coord.env
 LITESTREAM_ENV=$CONFIG_DIR/litestream.env
 SSE_KEY=$CONFIG_DIR/litestream-sse.key
 FIREWALL_FILE=$CONFIG_DIR/nftables.nft
-BINARY=/usr/local/bin/capsule-coord
+BINARY=/usr/local/bin/peerspan-coord
 LITESTREAM_BINARY=/usr/local/bin/litestream
 UNIT_DIR=/etc/systemd/system
 HEALTH_PORT=9464
@@ -106,18 +106,18 @@ fi
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 archive_root=$(CDPATH='' cd -- "$script_dir/../../.." && pwd)
-new_binary=$archive_root/bin/capsule-coord
+new_binary=$archive_root/bin/peerspan-coord
 if [ ! -f "$new_binary" ] || [ ! -x "$new_binary" ]; then
   fail "not run from an extracted release archive: $new_binary is missing"
 fi
-for file in capsule-coord.service capsule-coord.env.example litestream.service litestream.yml; do
+for file in peerspan-coord.service peerspan-coord.env.example litestream.service litestream.yml; do
   [ -f "$script_dir/$file" ] || fail "missing $script_dir/$file"
 done
 
-exec 9>/run/capsule-coord-install.lock
+exec 9>/run/peerspan-coord-install.lock
 flock -n 9 || fail "another install.sh is running"
 
-work=$(mktemp -d /tmp/capsule-coord-install.XXXXXX)
+work=$(mktemp -d /tmp/peerspan-coord-install.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 
 # put SOURCE DEST MODE OWNER: installs SOURCE as DEST only when the content,
@@ -164,9 +164,9 @@ wait_health() {
   done
 }
 
-# The env file's CAPSULE_COORD_LISTEN, as systemd reads it (last assignment).
+# The env file's PEERSPAN_COORD_LISTEN, as systemd reads it (last assignment).
 env_listen() {
-  sed -n 's/^[[:space:]]*CAPSULE_COORD_LISTEN=//p' "$ENV_FILE" | tail -n 1 | sed 's/^["'\'']\(.*\)["'\'']$/\1/; s/[[:space:]]*$//'
+  sed -n 's/^[[:space:]]*PEERSPAN_COORD_LISTEN=//p' "$ENV_FILE" | tail -n 1 | sed 's/^["'\'']\(.*\)["'\'']$/\1/; s/[[:space:]]*$//'
 }
 
 validate_listen() {
@@ -179,7 +179,7 @@ litestream_configured() {
   [ -f "$LITESTREAM_ENV" ] && [ -f "$SSE_KEY" ]
 }
 
-# Reads the latest identity with capsule-coord info, as the service user so
+# Reads the latest identity with peerspan-coord info, as the service user so
 # no file in the state directory ends up owned by root.
 read_identity() {
   local info
@@ -191,7 +191,7 @@ read_identity() {
 
 print_identity() {
   local status
-  read_identity || fail "could not read the coordinator identity with capsule-coord info"
+  read_identity || fail "could not read the coordinator identity with peerspan-coord info"
   status="not configured"
   if litestream_configured && systemctl -q is-enabled litestream.service 2>/dev/null; then
     status=enabled
@@ -201,24 +201,24 @@ print_identity() {
 
 # --upgrade: replace the binary, restart, and roll back if health fails.
 if [ "$upgrade" = true ]; then
-  if [ ! -f "$BINARY" ] || [ ! -f "$UNIT_DIR/capsule-coord.service" ] || [ ! -f "$ENV_FILE" ]; then
-    fail "capsule-coord is not installed; run install.sh --listen HOST:PORT first"
+  if [ ! -f "$BINARY" ] || [ ! -f "$UNIT_DIR/peerspan-coord.service" ] || [ ! -f "$ENV_FILE" ]; then
+    fail "peerspan-coord is not installed; run install.sh --listen HOST:PORT first"
   fi
   listen=$(env_listen)
-  read_identity || fail "could not read the coordinator identity with capsule-coord info"
+  read_identity || fail "could not read the coordinator identity with peerspan-coord info"
   previous_id=$identity_id
   if ! cmp -s -- "$new_binary" "$BINARY"; then
     backup=$BINARY.previous
     cp -p -- "$BINARY" "$backup"
     put "$new_binary" "$BINARY" 0755 root:root
-    systemctl restart capsule-coord.service || true
+    systemctl restart peerspan-coord.service || true
     if ! id=$(wait_health) || [ "$id" != "$previous_id" ]; then
       mv -f -- "$backup" "$BINARY"
-      systemctl restart capsule-coord.service || true
+      systemctl restart peerspan-coord.service || true
       if wait_health >/dev/null; then
-        echo "install.sh: the new capsule-coord failed /healthz; restored the previous binary" >&2
+        echo "install.sh: the new peerspan-coord failed /healthz; restored the previous binary" >&2
       else
-        echo "install.sh: the new capsule-coord failed /healthz; restored the previous binary, which is not healthy either" >&2
+        echo "install.sh: the new peerspan-coord failed /healthz; restored the previous binary, which is not healthy either" >&2
       fi
       exit 1
     fi
@@ -233,7 +233,7 @@ validate_listen "$listen"
 if [ -f "$ENV_FILE" ]; then
   existing=$(env_listen)
   [ "$existing" = "$listen" ] ||
-    fail "$ENV_FILE sets CAPSULE_COORD_LISTEN=$existing; edit it or run with --listen $existing"
+    fail "$ENV_FILE sets PEERSPAN_COORD_LISTEN=$existing; edit it or run with --listen $existing"
 fi
 if [ -f "$BINARY" ] && ! cmp -s -- "$new_binary" "$BINARY"; then
   fail "a different $BINARY is installed; use install.sh --upgrade to replace it"
@@ -287,22 +287,22 @@ put "$new_binary" "$BINARY" 0755 root:root
 service_changed=$((service_changed | changed))
 
 if [ ! -f "$ENV_FILE" ]; then
-  sed "s|^CAPSULE_COORD_LISTEN=.*|CAPSULE_COORD_LISTEN=$listen|" "$script_dir/capsule-coord.env.example" > "$work/capsule-coord.env"
+  sed "s|^PEERSPAN_COORD_LISTEN=.*|PEERSPAN_COORD_LISTEN=$listen|" "$script_dir/peerspan-coord.env.example" > "$work/peerspan-coord.env"
   changed=0
-  put "$work/capsule-coord.env" "$ENV_FILE" 0644 root:root
+  put "$work/peerspan-coord.env" "$ENV_FILE" 0644 root:root
   service_changed=$((service_changed | changed))
 fi
 
 # The unit, with CAP_NET_BIND_SERVICE as its only capability below port 1024.
-cp -- "$script_dir/capsule-coord.service" "$work/capsule-coord.service"
+cp -- "$script_dir/peerspan-coord.service" "$work/peerspan-coord.service"
 if [ "$port" -lt 1024 ]; then
-  sed -i 's/^CapabilityBoundingSet=$/CapabilityBoundingSet=CAP_NET_BIND_SERVICE/; s/^AmbientCapabilities=$/AmbientCapabilities=CAP_NET_BIND_SERVICE/' "$work/capsule-coord.service"
-  [ "$(grep -c -x -e 'CapabilityBoundingSet=CAP_NET_BIND_SERVICE' -e 'AmbientCapabilities=CAP_NET_BIND_SERVICE' "$work/capsule-coord.service")" = 2 ] ||
-    fail "capsule-coord.service does not have the expected capability lines"
+  sed -i 's/^CapabilityBoundingSet=$/CapabilityBoundingSet=CAP_NET_BIND_SERVICE/; s/^AmbientCapabilities=$/AmbientCapabilities=CAP_NET_BIND_SERVICE/' "$work/peerspan-coord.service"
+  [ "$(grep -c -x -e 'CapabilityBoundingSet=CAP_NET_BIND_SERVICE' -e 'AmbientCapabilities=CAP_NET_BIND_SERVICE' "$work/peerspan-coord.service")" = 2 ] ||
+    fail "peerspan-coord.service does not have the expected capability lines"
 fi
 units_changed=0
 changed=0
-put "$work/capsule-coord.service" "$UNIT_DIR/capsule-coord.service" 0644 root:root
+put "$work/peerspan-coord.service" "$UNIT_DIR/peerspan-coord.service" 0644 root:root
 units_changed=$((units_changed | changed))
 service_changed=$((service_changed | changed))
 
@@ -327,16 +327,16 @@ fi
 # discovery for IPv6 to work at all. --no-firewall changes neither.
 case "$firewall" in
   ufw)
-    ufw allow "$port/tcp" comment capsule-coord >/dev/null || fail "cannot add the ufw rule for $port/tcp"
-    ufw allow "$port/udp" comment capsule-coord >/dev/null || fail "cannot add the ufw rule for $port/udp"
+    ufw allow "$port/tcp" comment peerspan-coord >/dev/null || fail "cannot add the ufw rule for $port/tcp"
+    ufw allow "$port/udp" comment peerspan-coord >/dev/null || fail "cannot add the ufw rule for $port/udp"
     ;;
   nftables)
     cat > "$work/nftables.nft" <<EOF
 #!/usr/sbin/nft -f
-# Written by capsule-coord install.sh; included from /etc/nftables.conf.
-table inet capsule_coord
-delete table inet capsule_coord
-table inet capsule_coord {
+# Written by peerspan-coord install.sh; included from /etc/nftables.conf.
+table inet peerspan_coord
+delete table inet peerspan_coord
+table inet peerspan_coord {
 	chain input {
 		type filter hook input priority filter; policy drop;
 		ct state established,related accept
@@ -350,7 +350,7 @@ table inet capsule_coord {
 EOF
     changed=0
     put "$work/nftables.nft" "$FIREWALL_FILE" 0644 root:root
-    if [ "$changed" = 1 ] || ! nft list table inet capsule_coord >/dev/null 2>&1; then
+    if [ "$changed" = 1 ] || ! nft list table inet peerspan_coord >/dev/null 2>&1; then
       nft -f "$FIREWALL_FILE" || fail "cannot apply $FIREWALL_FILE"
     fi
     include="include \"$FIREWALL_FILE\""
@@ -369,18 +369,18 @@ esac
 if [ "$units_changed" = 1 ]; then
   systemctl daemon-reload
 fi
-if ! systemctl -q is-enabled capsule-coord.service 2>/dev/null; then
-  systemctl enable capsule-coord.service
+if ! systemctl -q is-enabled peerspan-coord.service 2>/dev/null; then
+  systemctl enable peerspan-coord.service
 fi
-if systemctl -q is-active capsule-coord.service && [ "$service_changed" = 1 ]; then
-  systemctl restart capsule-coord.service
-elif ! systemctl -q is-active capsule-coord.service; then
-  systemctl start capsule-coord.service
+if systemctl -q is-active peerspan-coord.service && [ "$service_changed" = 1 ]; then
+  systemctl restart peerspan-coord.service
+elif ! systemctl -q is-active peerspan-coord.service; then
+  systemctl start peerspan-coord.service
 fi
-wait_health >/dev/null || fail "capsule-coord did not report healthy within ${HEALTH_SECONDS}s; check journalctl -u capsule-coord"
+wait_health >/dev/null || fail "peerspan-coord did not report healthy within ${HEALTH_SECONDS}s; check journalctl -u peerspan-coord"
 
 if litestream_configured; then
-  # Litestream runs as capsule-coord and must read the key; systemd reads the
+  # Litestream runs as peerspan-coord and must read the key; systemd reads the
   # environment file as root.
   if [ "$(stat -c '%a %U:%G' -- "$SSE_KEY")" != "600 $USER_NAME:$USER_NAME" ]; then
     chown "$USER_NAME:$USER_NAME" "$SSE_KEY"

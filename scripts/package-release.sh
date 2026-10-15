@@ -26,10 +26,10 @@ esac
 
 # The hosted default coordinator, used by network create without
 # --coordinator; both or neither.
-coordinator=${CAPSULE_COORDINATOR:-}
-coordinator_key=${CAPSULE_COORDINATOR_KEY:-}
+coordinator=${PEERSPAN_COORDINATOR:-}
+coordinator_key=${PEERSPAN_COORDINATOR_KEY:-}
 if [ -n "$coordinator" ] && [ -z "$coordinator_key" ] || [ -z "$coordinator" ] && [ -n "$coordinator_key" ]; then
-  echo "set both CAPSULE_COORDINATOR and CAPSULE_COORDINATOR_KEY, or neither" >&2
+  echo "set both PEERSPAN_COORDINATOR and PEERSPAN_COORDINATOR_KEY, or neither" >&2
   exit 2
 fi
 
@@ -97,12 +97,12 @@ esac
 
 mkdir -p "$output"
 output=$(CDPATH= cd -- "$output" && pwd)
-work=$(mktemp -d "${TMPDIR:-/tmp}/capsule-package.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/peerspan-package.XXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-name="capsule-${version}-${os}-${arch}-${implementation}"
+name="peerspan-${version}-${os}-${arch}-${implementation}"
 bundle="$work/$name"
-mkdir -p "$bundle/bin" "$bundle/share/capsule"
+mkdir -p "$bundle/bin" "$bundle/share/peerspan"
 
 archive="$output/$name.tar.gz"
 checksum="$archive.sha256"
@@ -113,8 +113,8 @@ if ! flock -n 9; then
   echo "another packaging process is building this release: $name" >&2
   exit 1
 fi
-if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$checksum" ]; } && [ "${CAPSULE_PACKAGE_OVERWRITE:-}" != 1 ]; then
-  echo "package output already exists; remove it or set CAPSULE_PACKAGE_OVERWRITE=1" >&2
+if { [ -e "$archive" ] || [ -L "$archive" ] || [ -e "$checksum" ] || [ -L "$checksum" ]; } && [ "${PEERSPAN_PACKAGE_OVERWRITE:-}" != 1 ]; then
+  echo "package output already exists; remove it or set PEERSPAN_PACKAGE_OVERWRITE=1" >&2
   exit 1
 fi
 
@@ -128,34 +128,34 @@ case "$implementation" in
     GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
       go -C "$repo/go" build -trimpath \
       -ldflags "-X $go_host.Version=$version -X $go_host.DefaultCoordinator=$coordinator -X $go_host.DefaultCoordinatorKey=$coordinator_key" \
-      -o "$bundle/bin/capsule-host" ./cmd/capsule-host
+      -o "$bundle/bin/peerspan-host" ./cmd/peerspan-host
     ;;
   rust)
     command -v cargo >/dev/null 2>&1 || {
       echo "missing required command: cargo" >&2
       exit 1
     }
-    cargo_target="$repo/rust/target/capsule-package-$rust_target"
-    CAPSULE_COORDINATOR="$coordinator" CAPSULE_COORDINATOR_KEY="$coordinator_key" \
+    cargo_target="$repo/rust/target/peerspan-package-$rust_target"
+    PEERSPAN_COORDINATOR="$coordinator" PEERSPAN_COORDINATOR_KEY="$coordinator_key" \
       CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
       --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml"
-    cp "$cargo_target/$rust_target/release/capsule-host" "$bundle/bin/capsule-host"
+    cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
     ;;
 esac
 
-case "$(file -b "$bundle/bin/capsule-host")" in
+case "$(file -b "$bundle/bin/peerspan-host")" in
   *ELF*"$file_arch"*) ;;
   *)
-    echo "built capsule-host does not match linux/$arch" >&2
+    echo "built peerspan-host does not match linux/$arch" >&2
     exit 1
     ;;
 esac
 
-# capsule is the same binary under its short name; a relative link keeps the
+# peerspan is the same binary under its short name; a relative link keeps the
 # bundle relocatable.
-ln -s capsule-host "$bundle/bin/capsule"
+ln -s peerspan-host "$bundle/bin/peerspan"
 
-integrations="$bundle/share/capsule/integrations"
+integrations="$bundle/share/peerspan/integrations"
 copy_integration() {
   integration=$1
   shift
@@ -179,7 +179,7 @@ copy_integration opencode integration.json package.json package-lock.json README
 
 for integration in claude-channel codex opencode; do
   npm ci --omit=dev --ignore-scripts \
-    --prefix "$bundle/share/capsule/integrations/$integration"
+    --prefix "$bundle/share/peerspan/integrations/$integration"
 done
 
 cp "$repo/docs/quick-start.md" "$bundle/README.md"
@@ -198,16 +198,16 @@ cat > "$bundle/RELEASE.json" <<EOF
 EOF
 
 for required in \
-  "$bundle/bin/capsule-host" \
-  "$bundle/bin/capsule" \
+  "$bundle/bin/peerspan-host" \
+  "$bundle/bin/peerspan" \
   "$bundle/RELEASE.json" \
-  "$bundle/share/capsule/integrations/shared/adapter.mjs" \
-  "$bundle/share/capsule/integrations/claude-channel/integration.json" \
-  "$bundle/share/capsule/integrations/codex/integration.json" \
-  "$bundle/share/capsule/integrations/opencode/integration.json" \
-  "$bundle/share/capsule/integrations/claude-channel/node_modules/@modelcontextprotocol/sdk/package.json" \
-  "$bundle/share/capsule/integrations/codex/node_modules/ws/package.json" \
-  "$bundle/share/capsule/integrations/opencode/node_modules/@opencode-ai/plugin/package.json"
+  "$bundle/share/peerspan/integrations/shared/adapter.mjs" \
+  "$bundle/share/peerspan/integrations/claude-channel/integration.json" \
+  "$bundle/share/peerspan/integrations/codex/integration.json" \
+  "$bundle/share/peerspan/integrations/opencode/integration.json" \
+  "$bundle/share/peerspan/integrations/claude-channel/node_modules/@modelcontextprotocol/sdk/package.json" \
+  "$bundle/share/peerspan/integrations/codex/node_modules/ws/package.json" \
+  "$bundle/share/peerspan/integrations/opencode/node_modules/@opencode-ai/plugin/package.json"
 do
   if [ ! -e "$required" ]; then
     echo "incomplete bundle; missing $required" >&2
@@ -221,7 +221,7 @@ trap 'rm -rf "$work"; rm -f "$archive_tmp" "$checksum_tmp"' EXIT HUP INT TERM
 tar -C "$work" -czf "$archive_tmp" "$name"
 digest=$($checksum_command "$archive_tmp" | cut -d ' ' -f 1)
 printf '%s  %s\n' "$digest" "$(basename "$archive")" > "$checksum_tmp"
-if [ "${CAPSULE_PACKAGE_OVERWRITE:-}" = 1 ]; then
+if [ "${PEERSPAN_PACKAGE_OVERWRITE:-}" = 1 ]; then
   mv -T -- "$archive_tmp" "$archive"
   mv -T -- "$checksum_tmp" "$checksum"
 else

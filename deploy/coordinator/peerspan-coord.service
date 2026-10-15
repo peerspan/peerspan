@@ -1,27 +1,27 @@
-# Capsule coordinator, as a systemd system service. See README.md in this
+# Peerspan coordinator, as a systemd system service. See README.md in this
 # directory for installation; settings come from the environment file.
 [Unit]
-Description=Capsule coordinator
+Description=Peerspan coordinator
 Documentation=https://github.com/Cerebral-Systems/capsule/blob/main/deploy/coordinator/README.md
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=exec
-User=capsule-coord
-Group=capsule-coord
-EnvironmentFile=/etc/capsule-coord/capsule-coord.env
-# The ops listener (/healthz, /metrics) is loopback only; capsule-coord
+User=peerspan-coord
+Group=peerspan-coord
+EnvironmentFile=/etc/peerspan-coord/peerspan-coord.env
+# The ops listener (/healthz, /metrics) is loopback only; peerspan-coord
 # refuses any other address.
-ExecStart=/usr/local/bin/capsule-coord --state /var/lib/capsule-coord run --listen ${CAPSULE_COORD_LISTEN} --ops-listen 127.0.0.1:9464 --max-members ${CAPSULE_COORD_MAX_MEMBERS} --max-networks-per-ip ${CAPSULE_COORD_MAX_NETWORKS_PER_IP} --relay-bytes-per-month ${CAPSULE_COORD_RELAY_BYTES_PER_MONTH}
+ExecStart=/usr/local/bin/peerspan-coord --state /var/lib/peerspan-coord run --listen ${PEERSPAN_COORD_LISTEN} --ops-listen 127.0.0.1:9464 --max-members ${PEERSPAN_COORD_MAX_MEMBERS} --max-networks-per-ip ${PEERSPAN_COORD_MAX_NETWORKS_PER_IP} --relay-bytes-per-month ${PEERSPAN_COORD_RELAY_BYTES_PER_MONTH}
 Restart=on-failure
 RestartSec=2s
 TimeoutStopSec=20s
 # Up to 4096 relay connections plus API connections.
 LimitNOFILE=65536
 
-# /var/lib/capsule-coord holds coord.db, which includes the private key.
-StateDirectory=capsule-coord
+# /var/lib/peerspan-coord holds coord.db, which includes the private key.
+StateDirectory=peerspan-coord
 StateDirectoryMode=0700
 UMask=0077
 
