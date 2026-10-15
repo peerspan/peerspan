@@ -979,6 +979,14 @@ async fn query(store: Arc<Store>, network: String, host: String) -> Outcome {
     }
 }
 
+/// Drops the query locks of hosts `keep` rejects (by network and host),
+/// unless a query holds or awaits one; a later pass drops those.
+fn prune_queries(store: &Store, keep: impl Fn(&str, &str) -> bool) {
+    if let Ok(mut locks) = store.host_queries.lock() {
+        locks.retain(|(n, h), lock| keep(n, h) || Arc::strong_count(lock) > 1);
+    }
+}
+
 /// Refreshes one network's directory: every other member, or only `only`.
 /// A host that fails keeps its agents, marked with the error. A synchronous
 /// refresh (`retry_forbidden`) asks a host that answered 403 once more,
@@ -1030,6 +1038,9 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry
                 });
         }
     }
+    prune_queries(&store, |n, h| {
+        n != network || members.iter().any(|m| m.host_id == h)
+    });
     let permits = Arc::new(tokio::sync::Semaphore::new(PARALLEL));
     let mut queries = tokio::task::JoinSet::new();
     for host in hosts {
@@ -1423,6 +1434,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
                 .networks
                 .retain(|id, _| networks.iter().any(|(_, n)| n == id));
         }
+        prune_queries(&store, |n, _| networks.iter().any(|(_, id)| id == n));
         tokio::select! {
             _ = tokio::time::sleep(WATCH_EVERY) => {}
             // A sync after the coordinator's change notification.
