@@ -494,8 +494,8 @@ Each daemon keeps a directory per network, in memory:
   "refreshed_at": "RFC3339 or null",
   "hosts": [{"host_id": "host_…", "person_id": "person_… or null", "person_label": "bob or null",
              "state": "ok", "refreshed_at": "RFC3339 or null", "error": "text or null"}],
-  "agents": [{"address": "bob/claude", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
-              "name": "claude", "agent_id": "agent_…", "connected": true, "authorizations": []}]
+  "agents": [{"address": "bob/claude-laptop", "host_id": "host_…", "person_id": "person_…", "person_label": "bob",
+              "name": "claude-laptop", "agent_id": "agent_…", "connected": true, "authorizations": []}]
 }
 ```
 
@@ -552,23 +552,31 @@ A session's credential may be created with **directory access**. Then its adapte
   - unexpired, unrevoked, and never connected (`registered`): `attach` changes nothing and reports `reused: true`;
   - connected now (`ready`, a valid lease): an adapter that has just exited keeps its lease for up to 15 seconds, so `attach` says on stderr that it is waiting, and polls the connection until the lease it saw has expired, at most 16 seconds. If the lease was renewed meanwhile, the session is running, and `attach` refuses with exit 1 before changing anything. Otherwise it continues as for `offline`;
   - otherwise (expired, revoked, detached, or connected before and now `offline`): it performs a new setup for the same agent, replacing the old credential as the adapter contract allows for a lapsed lease, and replaces the old profile once the setup succeeds. A refusal because the old adapter is still within its reconnect window is reported as is.
-- **Naming.** Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
-  1. the base name;
-  2. `BASE-PROJECT`, where `PROJECT` is the workspace's base name, if the base name is used on this host;
-  3. `BASE-HOSTNAME`, with this machine's short host name, if it is used only on another host;
-  4. then the last of these candidates that applied with `-2`, `-3`, and so on appended. The bare base name never gets a number.
-  Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. The suffix is cut so that the whole name, including any `-N`, fits in 64 characters.
+- **Naming** (revised 2026-10-16). Otherwise, with `--name`, that name is used if free. A `--name` naming an agent on this host that no `attach` profile records is reused, so agents registered earlier can be attached. Without it, `attach` takes the first free name of:
+  1. `BASE-HOSTNAME`, with this machine's short host name;
+  2. `BASE-HOSTNAME-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE-HOSTNAME` is used on this host;
+  3. `BASE-HOSTNAME-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE-HOSTNAME` is used only on another host, which happens when two of the person's machines share a host name; then 6, 8, and so on up to all 64 digits while that is taken;
+  4. then the last of these candidates that applied with `-2`, `-3`, and so on appended.
+  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name that leaves nothing after that is replaced by `host`. The host name part is cut first, then the project part, so that the whole name, including `-HHHH` and any `-N`, fits in 64 characters.
+  The host name is the one at `attach` time. An agent keeps its name when the machine is renamed, and re-attaching reuses it.
+  IP addresses are not part of names: they change after `attach`, repeat across private networks, and a host often has several. `agents` shows each host's current endpoint instead (below).
 - **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
 - **Setup.** It then runs today's session setup with directory access, `max_sends_per_hour` (default 100), no routes, and a renewable credential (the slice 1 default) unless an expiry is given. Integration options pass through.
 - **Output.** It prints `{agent: {id, name, address}, session_id, adapter_id, profile, workspace, reused, unchecked_hosts, next}`, where `address` is `PERSON/NAME` (or `HOST_ID/NAME` if this host has no bound person), and `next` is `peerspan session start` for launch-capable integrations.
 - **Refusals.** A taken `--name` is refused with 409 before any registration, and the error names the host that has it.
 
 **`agents`** prints, for the network:
-- **reachable:** each addressable agent in the directory with its address, actions, whether it is connected, and whether its host answered the last refresh;
-- **mine:** this person's agents on this host and in the directory, with their addresses and connection;
+- **reachable:** each addressable agent in the directory with its address, actions, whether it is connected, whether its host answered the last refresh, and its host's endpoint;
+- **mine:** this person's agents on this host and in the directory, with their addresses, connection, and host's endpoint;
 - **inbound:** for each rule of this person's stored policy, its agent scope (`*` or a name), principals as labels where they resolve, actions, and `max_artifact_bytes`, plus a line saying that the person's own hosts reach everything.
 
-Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, reachable, mine, inbound, hosts}`. `reachable` uses `{address, host_id, agent_id, connected, host_state, actions}`, `mine` uses `{address, host_id, agent_id, connected}`, and `inbound` uses `{agent, principals, actions, max_artifact_bytes}`. Principals use their policy form, for example `person:person_…`. `hosts` is the directory's `hosts`.
+Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, reachable, mine, inbound, hosts}`. `reachable` uses `{address, host_id, agent_id, connected, host_state, actions, endpoint}`, `mine` uses `{address, host_id, agent_id, connected, endpoint}`, and `inbound` uses `{agent, principals, actions, max_artifact_bytes}`. Principals use their policy form, for example `person:person_…`. `hosts` is the directory's `hosts`.
+
+**Endpoints** (added 2026-10-16) help people tell machines apart; they grant nothing and may be stale. `endpoint` is `{address, path}` or null:
+- for another host: the endpoint of a `direct` [peer path](peer-messaging-contract.md) with `path: "direct"`; otherwise the member's advertised `address` from the network map, else its first `candidates` entry, with `path` from `peer path` (`relay` or `none`);
+- for this host: its own advertised `address` from the network map, else its first `candidates` entry, with `path: "local"`;
+- null when none of these is known.
+The readable layout prints the endpoint address, or `relay` when there is none, after each agent.
 
 **Root help** now lists, in order:
 1. `status` and `install`;
@@ -606,7 +614,8 @@ Its readable layout is not shared. `--json` prints `{network_id, refreshed_at, r
   - `not_authorized` persisting nothing;
   - a retry still reaching the stored target after the address would resolve elsewhere (the target host unbound, and the name registered on another host of that person).
 - **Attach:**
-  - default naming and each suffix rule, across two hosts of one person;
+  - default naming and each suffix rule, across two hosts of one person, including two hosts with the same host name (the `-HHHH` rule) and a host name with no addressable characters;
+  - `endpoint` in `agents --json` for this host, a direct peer, and a relayed peer;
   - `--name` taken refused, with no registration;
   - re-attach reusing the agent with `reused: true`, and after expiry a new credential for the same agent;
   - `unchecked_hosts` with a sibling stopped;
@@ -668,7 +677,7 @@ The quick start is the user path. `attach` runs last on each machine, because it
 2. copying `~/.config/peerspan/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Peerspan step);
 3. M2: `peerspan install`, `peerspan join TOKEN`, `peerspan attach claude`.
 
-That is 7 Peerspan commands and one copy. M2's agent is named `claude-HOSTNAME`, because `claude` is taken on M1.
+That is 7 Peerspan commands and one copy. The agents are named `claude-HOSTNAME` after each machine, and `claude-HOSTNAME-HHHH` on M2 if both machines have the same host name.
 
 **Pair** (alice on M1, bob on M2):
 1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite bob`;
@@ -706,7 +715,7 @@ A run fails when a step exits nonzero, when a step's output lacks what a later s
 `conformance/live_launch_agents.py` runs three persons, alice (Go), bob (Rust), and carol (Go), on one host as the invoking user.
 - **Isolation.** Each person has their own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and daemon, run in the foreground with `peerspan run` from an installed bundle; the scripted run covers `install`. `HOME` is shared, so all three Claude Code sessions use the existing login.
 - **Setup.** It follows the team path, except that `allow everyone --delegate` replaces `allow everyone`. Each person runs `peerspan attach claude` in a project directory of their own, in a terminal the harness drives, with Claude Code's built-in tools disabled.
-- **Flow.** The harness prompts only alice's session. Alice's Claude calls `list_agents`, then `delegate_task` to `bob/claude` by `to` with `delegation_depth` 1, asking for a short review with a part to be passed on to carol. Bob's Claude accepts and calls `delegate_task` to `carol/claude` with `parent_task_id`. Carol's Claude completes, bob's completes the parent with carol's result, and alice's receives the final update. Alice's Claude then sends one message to `carol/claude` by `to` and gets a reply.
+- **Flow.** Addresses below are written `bob/claude` for bob's agent, whatever name `attach` gave it. The harness prompts only alice's session. Alice's Claude calls `list_agents`, then `delegate_task` to `bob/claude` by `to` with `delegation_depth` 1, asking for a short review with a part to be passed on to carol. Bob's Claude accepts and calls `delegate_task` to `carol/claude` with `parent_task_id`. Carol's Claude completes, bob's completes the parent with carol's result, and alice's receives the final update. Alice's Claude then sends one message to `carol/claude` by `to` and gets a reply.
 - **Verification, from host state:**
   - every task and message was submitted by an adapter with directory access and has a `to`, and no route exists;
   - carol's task carries a two-link chain originating at alice;

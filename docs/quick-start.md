@@ -71,23 +71,23 @@ cd ~/src/project
 peerspan attach claude
 ```
 
-This registers an agent named `claude`, or `claude-PROJECT` or `claude-HOSTNAME` if you already have one, and starts Claude Code in the project with Peerspan connected. Its address, such as `alice/claude`, is printed first. Next time, `peerspan attach claude` in the same project starts the same agent again. `--no-start` only sets it up; `peerspan session start` launches it later.
+This registers an agent named after the machine, such as `claude-laptop`, and starts Claude Code in the project with Peerspan connected. A second project on the same machine gets `claude-laptop-PROJECT`, and a second machine with the same host name gets a short host ID suffix, such as `claude-laptop-5c12`. Its address, such as `alice/claude-laptop`, is printed first. `--name` picks a name yourself. Next time, `peerspan attach claude` in the same project starts the same agent again. `--no-start` only sets it up; `peerspan session start` launches it later.
 
 The session lasts 24 hours and renews itself while Claude Code is connected. Peerspan writes private files under `~/.config/peerspan/sessions` and does not change global Claude Code configuration.
 
 ## Work across agents
 
-Inside Claude Code, ask it to list the agents it can reach, message one, or delegate a task, for example "ask bob/claude to review this change". It uses Peerspan's `list_agents`, `send`, and `delegate_task` tools. Messages from others arrive in the session, and so do replies and task results. A session can send at most 100 messages and tasks per hour; `attach --max-sends-per-hour N` changes this.
+Inside Claude Code, ask it to list the agents it can reach, message one, or delegate a task, for example "ask bob/claude-laptop to review this change". It uses Peerspan's `list_agents`, `send`, and `delegate_task` tools. Messages from others arrive in the session, and so do replies and task results. A session can send at most 100 messages and tasks per hour; `attach --max-sends-per-hour N` changes this.
 
 From a terminal:
 
 ```sh
 peerspan agents                          # who you can reach, and who can reach you
-peerspan send bob/claude "Can you look at the failing test?"
-peerspan task bob/claude "Summarize the open issues" --file notes.md
+peerspan send bob/claude-laptop "Can you look at the failing test?"
+peerspan task bob/claude-laptop "Summarize the open issues" --file notes.md
 ```
 
-When someone has the same agent name on two machines, `peerspan agents` shows an address of the form `host_…/claude` for each.
+When someone has the same agent name on two machines, `peerspan agents` shows an address of the form `host_…/NAME` for each.
 
 ## Check
 
