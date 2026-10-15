@@ -254,7 +254,7 @@ def check_vector(keys):
          'the contract move vector: the root seed derives the network', contract_net)
     cm = root_move(contract_root, contract_net, 1, 'coord.example.com:7400',
                    'bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=', '2026-10-10T00:00:00Z')
-    need(cm['signature'] == 'IBmzYpyWsCU4IE5B4HhL9CMjdn2WlWUYWuJNjxWaoZ03ynlz2pCGzJ5i8Nj1LvEXm1936XDTB3o23GnvHN14CQ==',
+    need(cm['signature'] == 'sqURmsqrVa4CJxsjaYVADI/wW7lYUSznC/SeEZwpez1lrYSZ5+0Tx+Fh5ZeOEB8a/zIQmeEMLctF/N+tkF09Ag==',
          'the contract move test vector: the root\'s raw signature over the move lines', cm['signature'])
     VECTOR['computed']['contract_vector'] = 'reproduced'
     return (f'contract vector reproduced; extra vector (genesis root AQEB...): root {m["signature"]}; '

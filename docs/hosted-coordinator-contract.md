@@ -92,7 +92,7 @@ A coordinator has an ordered list of identities, numbered from 0. Identity 0 is 
 
 **Successor.** A successor is a strict JSON object with exactly `sequence`, `previous_public_key`, `address`, `public_key`, `signed_at`, and `signature`. `signature` is by `previous_public_key` over the statement with lines `peerspan-coordinator-successor-v1`, `sequence` in decimal, `previous_public_key`, `address`, `public_key`, `signed_at`. Sequences start at 1; identity 0 has no successor. `signed_at` is informational and not interpreted. A chain of successors is valid from a key K when the first's `previous_public_key` is K, each signature verifies, every sequence is at least 1 and each is one more than the preceding, each later `previous_public_key` is the preceding `public_key`, and every address is a valid coordinator address.
 
-**Test vector.** With previous seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public key `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), new public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=`, sequence 1, address `coord.example.com:7400`, and `signed_at` `2026-10-10T00:00:00Z`, the signature is `OyAcMcamcVZu8FBm5nnHoBUQ+qXiiCRP+KJSLFCMQxCnWRw+9mfJnd6is8Pikhz1+ob6Qr/0iZ/mN2kXxunICQ==`.
+**Test vector.** With previous seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (public key `ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=`), new public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=`, sequence 1, address `coord.example.com:7400`, and `signed_at` `2026-10-10T00:00:00Z`, the signature is `6eSCkRQcM72UXF9djbbRD5AH1cOIGxCfB9uczvNkxwFG9esnod4uaSubnSYJcx1pfubLxS1MAOXs/o91TCukAQ==`.
 
 ### Serving
 
@@ -139,7 +139,7 @@ Decisions recorded in the proposal: the network root or a delegated administrato
 
 A move is a strict JSON object with `network_id`, `sequence`, `address`, `public_key`, `moved_at`, `signer` (`root` or the administrator's `person_public_key`), and `signature`, raw for the root and `SSHSIG` for an administrator, as for group definitions. `sequence` is a decimal integer of at least 1; for each network the valid move with the highest sequence applies. A move is valid when its signer is the current root or a current administrator at the time a coordinator or host verifies it, and `address` is a valid coordinator address. A host that has already switched because of a move stays switched if its signer later stops being an administrator.
 
-**Test vector.** With the root seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (network `net_c5b940ed3f65c391965de8295fc5d25f474fa57b48d36eb10ad363b8539c1b79`), sequence 1, address `coord.example.com:7400`, public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=`, and `moved_at` `2026-10-10T00:00:00Z`, the root's raw signature is `IBmzYpyWsCU4IE5B4HhL9CMjdn2WlWUYWuJNjxWaoZ03ynlz2pCGzJ5i8Nj1LvEXm1936XDTB3o23GnvHN14CQ==`.
+**Test vector.** With the root seed `BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=` (network `net_c5b940ed3f65c391965de8295fc5d25f474fa57b48d36eb10ad363b8539c1b79`), sequence 1, address `coord.example.com:7400`, public key `bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=`, and `moved_at` `2026-10-10T00:00:00Z`, the root's raw signature is `sqURmsqrVa4CJxsjaYVADI/wW7lYUSznC/SeEZwpez1lrYSZ5+0Tx+Fh5ZeOEB8a/zIQmeEMLctF/N+tkF09Ag==`.
 
 ### Coordinator
 

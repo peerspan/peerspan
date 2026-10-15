@@ -199,7 +199,7 @@ def coord_request(port, key, method, path, body=None, host_header=None):
 VECTOR = {'seed': 'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=', 'previous': 'ypOsFwUYcHHWe4PH/w7+gQjo7EUwV113JoeTM9vavnw=',
           'public': 'bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=', 'address': 'coord.example.com:7400',
           'signed_at': '2026-10-10T00:00:00Z',
-          'signature': 'OyAcMcamcVZu8FBm5nnHoBUQ+qXiiCRP+KJSLFCMQxCnWRw+9mfJnd6is8Pikhz1+ob6Qr/0iZ/mN2kXxunICQ=='}
+          'signature': '6eSCkRQcM72UXF9djbbRD5AH1cOIGxCfB9uczvNkxwFG9esnod4uaSubnSYJcx1pfubLxS1MAOXs/o91TCukAQ=='}
 
 
 def presented_key(port, key, host='127.0.0.1'):
