@@ -59,8 +59,9 @@ Each pairing reports these sections separately (contract Verification items in b
 - status: tools counts and attention item 14 for each cause [Status];
 - tie-break: equal-version v2 policies signed on two siblings converge on the lower hash [Policy v2];
 - idle stop: an instance stopped after 10 minutes without calls, not before [Calls].
-Once per run: the v1 policy test vector reproduced with this suite's encoding and a provisional v2 vector
-printed [Policy v2: the generated test vector], and migration from version 15 to 16 in each direction
+Shapes and rules follow the contract's "Local API and clarifications" section. Once per run: the v1 policy
+test vector and the adopted v2 vector reproduced with this suite's encoding and signing [Policy v2: the test
+vector], and migration from version 15 to 16 in each direction
 [Migration].
 
 Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen), OpenSSL, and peerspan-peer-probe. A pairing takes about
@@ -85,10 +86,12 @@ import threading
 import time
 import traceback
 
+from datetime import datetime, timezone
+
 from coordination import Coordinator, wait_for
 from host_service import Host, stop_all
 from launch_directory import DirectoryHost
-from launch_onboarding import DEFAULT, Failure, need
+from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
 from persons import Agent, coord_db, person_id, ssh_key, ssh_sign, ssh_verify
 from policy import policy_lines as policy_lines_v1
@@ -100,9 +103,22 @@ PYTHON = str(Path(sys.executable).resolve())
 
 STATUS_KEYS = {'call_id', 'sender_host_id', 'receiver_host_id', 'target_agent_id', 'server', 'profile', 'kind', 'name',
                'uri', 'state', 'cancel_requested', 'error', 'result_bytes', 'created_at', 'started_at', 'finished_at'}
-OUTBOUND_KEYS = {'peer_host_id', 'request', 'submit_state', 'status', 'result', 'cancel_state', 'attempts',
-                 'next_attempt_at', 'error', 'status_queries'}
-ATTACH_SERVER_KEYS = {'name', 'transport', 'shareable', 'reason', 'tools', 'read_only_tools'}
+OUTBOUND_KEYS = {'peer_host_id', 'target', 'network_id', 'request', 'submit_state', 'status', 'result',
+                 'cancel_state', 'attempts', 'next_attempt_at', 'error', 'status_queries'}
+ATTACH_SERVER_KEYS = {'name', 'transport', 'shareable', 'reason', 'missing_env', 'tools', 'read_only_tools',
+                      'snapshot_error'}
+ATTACH_ERROR_KEYS = {'source', 'path', 'server', 'error'}
+# Local API and clarifications: GET /v1/tools.
+TOOLS_AGENT_KEYS = {'agent', 'workspace', 'servers'}
+SERVER_KEYS = {'name', 'transport', 'command', 'args', 'env', 'url', 'source', 'disabled', 'shareable', 'reason',
+               'missing_env', 'tools', 'resources', 'snapshot_at', 'snapshot_error', 'start_failed_at',
+               'auth_error_at', 'confirmed', 'profiles', 'shares'}
+PROFILE_KEYS = {'name', 'env_file', 'args', 'created_at', 'tools', 'resources', 'snapshot_at', 'snapshot_error',
+                'start_failed_at', 'auth_error_at', 'confirmed'}
+REMOTE_ENTRY_KEYS = {'host_id', 'address', 'agent', 'agent_id', 'server', 'profile', 'tools', 'resources'}
+POLICY_V2_ORDER = ['format', 'network_id', 'person_public_key', 'version', 'issued_at', 'valid_until', 'rules',
+                   'tool_rules', 'trusted_hosts', 'signature']
+SHARE_PROMPT = 'Share? [y/N]'
 LISTING_KEYS = {'agent', 'agent_id', 'server', 'profile', 'tools', 'resources'}
 LISTED_TOOL_KEYS = {'name', 'description', 'input_schema', 'read_only', 'via'}
 LISTED_RESOURCE_KEYS = {'uri', 'name', 'description', 'mime_type', 'via'}
@@ -193,14 +209,6 @@ def plain(rules):
     return [{k: v for k, v in r.items() if not (k == 'max_artifact_bytes' and not v)} for r in rules]
 
 
-def definition(server, key):
-    """A definition field of a GET /v1/tools server entry, at its top level or under `definition`."""
-    found = [server[key]] if key in server else []
-    if isinstance(server.get('definition'), dict) and key in server['definition']:
-        found.append(server['definition'][key])
-    return found
-
-
 def policy_of(value):
     return {k: v for k, v in value.items() if k != 'expires_soon'}
 
@@ -248,15 +256,17 @@ class ToolsHost(DirectoryHost):
         env[CANARY] = 'daemon-only'
         return env
 
-    def run(self, *args, sock=DEFAULT, env=None, argv=None, cwd=None, timeout=90):
-        """As DirectoryHost.run, with stdin from /dev/null: no CLI call is at a terminal unless at_terminal."""
+    def run(self, *args, sock=DEFAULT, env=None, argv=None, cwd=None, timeout=90, piped=None):
+        """As DirectoryHost.run, with stdin from /dev/null (or the text `piped`, through a pipe): no CLI call is at
+        a terminal unless at_terminal."""
         command = argv or [self.cli_binary, '--state', str(self.state), *args]
-        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+        stdin = {'input': piped} if piped is not None else {'stdin': subprocess.DEVNULL}
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, **stdin,
                               env=self.environment(sock, env), cwd=cwd, preexec_fn=self.preexec())
 
-    def outcome(self, *args, env=None, cwd=None, timeout=90):
+    def outcome(self, *args, env=None, cwd=None, timeout=90, piped=None):
         """(exit code, parsed stdout or None, stdout, stderr)."""
-        r = self.run(*args, env=env, cwd=cwd, timeout=timeout)
+        r = self.run(*args, env=env, cwd=cwd, timeout=timeout, piped=piped)
         try:
             value = json.loads(r.stdout) if r.stdout.strip() else None
         except ValueError:
@@ -492,18 +502,17 @@ class Pairing:
         return [r for r in self.tool_rules(net) if principal_id in r['principals']
                 and (server is None or r['server'] == server)]
 
-    def allow(self, *args, net=None, host='p1', terminal=None, env=None):
+    def allow(self, *args, net=None, host='p1', terminal=None, env=None, piped=None):
         """`allow` with tool forms. Returns (exit code, output, stderr); a success must sign version + 1."""
         h = self.hosts[host]
         before = self.version(host, net)
         argv = ['allow', *args, '--network', net or self.team]
         if terminal is not None:
-            code, out, tty, stdout, seen = h.at_terminal(*argv, answer=terminal, env=env,
-                                                         prompt='Anything those credentials can reach through')
-            self.last_terminal = (tty, seen)
+            code, out, tty, stdout, seen = h.at_terminal(*argv, answer=terminal, env=env, prompt=SHARE_PROMPT)
+            need(seen or code != 0, f'allow asks once: {SHARE_PROMPT}', tty[-400:])
             stderr = tty
         else:
-            code, out, stdout, stderr = h.outcome(*argv, env=env)
+            code, out, stdout, stderr = h.outcome(*argv, env=env, piped=piped)
         if code == 0:
             need(isinstance(out, dict) and set(out) == ALLOW_TOOLS_KEYS,
                  'allow --tools prints {policy, principal, rules}', args, out)
@@ -530,6 +539,12 @@ class Pairing:
         else:
             need(self.version(host, net) == before + 1, 'deny --tools signs the next version', args)
         return out
+
+    def clear(self, label='rhea'):
+        """Remove a principal from every tool rule in team, so that a failed section leaves nothing behind."""
+        principal = 'person:' + {'rhea': self.rhea, 'quinn': self.quinn}[label]
+        for server in sorted({r['server'].split('@')[0] for r in self.rules_for(principal)}):
+            self.hosts['p1'].run('deny', label, '--tools', server, '--network', self.team)
 
     def listing(self, receiver, caller, network=None):
         path = '/peer/v1/tools' + (f'?network={network}' if network else '')
@@ -620,32 +635,32 @@ class Pairing:
         return out
 
     def servers(self, agent, host='p1'):
-        """The server entries of one agent in `tools --json` (GET /v1/tools), by server name."""
+        """The SERVER entries of one agent in GET /v1/tools (`tools --json`), by server name."""
         view = self.tools_view(host)
-        agents = view.get('agents') if isinstance(view, dict) else view
-        need(isinstance(agents, list), 'GET /v1/tools: a list of agents', view)
-        for a in agents:
-            names = {a.get('agent'), a.get('name'), a.get('agent_name'), a.get('agent_id'), a.get('id')}
-            if isinstance(a.get('agent'), dict):
-                names |= {a['agent'].get('name'), a['agent'].get('id')}
-            if agent in names or self.aid.get(agent) in names:
-                servers = a.get('servers') or []
-                return {s.get('name') or s.get('server'): s for s in servers}
+        need(isinstance(view, dict) and set(view) == {'agents'} and isinstance(view['agents'], list),
+             'GET /v1/tools is {agents: [AGENT]}', str(view)[:400])
+        names = [a['agent']['name'] for a in view['agents']]
+        need(names == sorted(names), 'agents sorted by agent name', names)
+        for a in view['agents']:
+            need(set(a) == TOOLS_AGENT_KEYS and set(a['agent']) == {'id', 'name'},
+                 'AGENT is {agent: {id, name}, workspace, servers}', a.get('agent'), sorted(a))
+            if agent in (a['agent']['name'], a['agent']['id']):
+                for server in a['servers']:
+                    need(set(server) == SERVER_KEYS, 'SERVER has exactly the contract\'s fields', server.get('name'),
+                         sorted(set(server) ^ SERVER_KEYS))
+                    for profile in server['profiles']:
+                        need(set(profile) == PROFILE_KEYS, 'PROFILE has exactly the contract\'s fields',
+                             sorted(set(profile) ^ PROFILE_KEYS))
+                return {server['name']: server for server in a['servers']}
         raise Failure(f'GET /v1/tools: agent {agent} listed: {json.dumps(view)[:800]}')
 
     @staticmethod
     def snapshot_tools(server):
-        tools = server.get('tools')
-        if tools is None and isinstance(server.get('snapshot'), dict):
-            tools = server['snapshot'].get('tools')
-        return {t['name']: t for t in tools or []}
+        return {t['name']: t for t in server['tools']}
 
     @staticmethod
     def snapshot_resources(server):
-        resources = server.get('resources')
-        if resources is None and isinstance(server.get('snapshot'), dict):
-            resources = server['snapshot'].get('resources')
-        return {r['uri']: r for r in resources or []}
+        return {r['uri']: r for r in server['resources']}
 
     def refresh(self, agent='cc', timeout=150):
         code, out, stdout, stderr = self.hosts['p1'].outcome('tools', 'refresh', '--agent', agent,
@@ -720,16 +735,21 @@ class Pairing:
             'fx': f.claude('fx-user', 'user'),
             'Bad.Name': f.claude('bad-name'),
             'rem': {'type': 'http', 'url': 'https://example.invalid/mcp'},
+            # Peerspan's own entries are never discovered.
+            'peerspan': f.claude('own'),
+            'peerspan_' + '0123456789abcdef' * 2: f.claude('own-profile'),
         }
         project_servers = {
             'fx': f.claude('fx-project', 'project'),
             'proj': f.claude('proj', 'x', env={'TOKEN_A': '${FX_TOKEN}', 'TOKEN_B': '${FX_UNSET:-fallback-b}'},
-                             args=f.args('proj', '${FX_LABEL}', '${FX_UNSET_LABEL:-dflt}')),
+                             args=f.args('proj', '${FX_LABEL}', '${FX_UNSET_LABEL:-dflt}',
+                                         '${FX_EMPTY:-wasempty}')),
         }
         self.local_servers = {
             'fx': f.claude('fx-local', 'local', env={'FX_CAPTURED': '${FX_TOKEN}'}),
             'lit': f.claude('lit', env={'LIT_TOKEN': lit}),
             'needy': f.claude('needy', env={'NEED': '${FX_MISSING_VAR}'}),
+            'needyarg': f.claude('needyarg', args=f.args('needyarg', '${FX_MISSING_ARG}')),
             'gone': f.claude('gone'),
             'slow': f.claude('slow'),
             'paged': f.claude('paged', page_size=3, generate=10),
@@ -738,6 +758,7 @@ class Pairing:
             'startfail': f.claude('startfail'),
             'startslow': f.claude('startslow'),
             'sserem': {'type': 'sse', 'url': 'https://example.invalid/sse'},
+            'nocmd': {'args': ['no command']},  # reported in errors, not sent
         }
         self.claude_json = home / '.claude.json'
         self.write_claude_json()
@@ -752,6 +773,7 @@ class Pairing:
                                'env': {'CX_TOKEN': '${FX_TOKEN}'}, 'startup_timeout_ms': 20000}),
             toml_table('cxoff', {'command': PYTHON, 'args': f.args('cxoff'), 'enabled': False}),
             toml_table('cxrem', {'url': 'https://example.invalid/mcp'}),
+            toml_table('cxoffrem', {'url': 'https://example.invalid/mcp', 'enabled': False}),
         ]))
         self.codex_alt = self.root / 'codex-alt'
         self.codex_alt.mkdir()
@@ -768,6 +790,7 @@ class Pairing:
                 'ocover': {'type': 'local', 'command': [PYTHON, *f.args('ocover-global', 'global')]},
                 'ocoff': {'type': 'local', 'command': [PYTHON, *f.args('ocoff')], 'enabled': False},
                 'ocrem': {'type': 'remote', 'url': 'https://example.invalid/mcp'},
+                'ocenv': {'type': 'local', 'command': [PYTHON, *f.args('ocenv')], 'env': {'OC_FALLBACK': '${FX_TOKEN}'}},
             }}, indent=2))
         (w3 / 'opencode.json').write_text(json.dumps({
             'mcp': {'ocover': {'type': 'local', 'command': [PYTHON, *f.args('ocover-project', 'project')]}}},
@@ -797,6 +820,9 @@ class Pairing:
         status, body = self.hosts[host].call('PUT', f'/v1/agents/{self.aid[agent]}/tool-servers',
                                              {'workspace': str(workspace), 'servers': definitions, 'values': {}})
         need(status == 200, 'PUT /v1/agents/{agent_id}/tool-servers', host, agent, status, body)
+        need(isinstance(body, dict) and set(body) == TOOLS_AGENT_KEYS and body['agent']['id'] == self.aid[agent] and
+             sorted(x['name'] for x in body['servers']) == sorted(servers),
+             'the PUT response is the agent object, returned once snapshots finish', str(body)[:400])
         return body
 
     def invite(self, label, net=None):
@@ -830,7 +856,7 @@ class Pairing:
         self.pat, self.quinn, self.rhea = (person_id(self.keys[n][2]) for n in ('pat', 'quinn', 'rhea'))
         self.secrets = {'captured': 'captured-' + secrets.token_hex(12), 'literal': 'literal-' + secrets.token_hex(12),
                         'file': 'file-' + secrets.token_hex(12), 'profile': 'profile-' + secrets.token_hex(12)}
-        self.cli_env = {'FX_TOKEN': self.secrets['captured'], 'FX_LABEL': 'fromenv'}
+        self.cli_env = {'FX_TOKEN': self.secrets['captured'], 'FX_LABEL': 'fromenv', 'FX_EMPTY': ''}
         self.fixture = Fixture(root / 'fixture')
         self.setup_catalog()
         self.setup_notes, self.join_terminal, self.attached = [], {}, {}
@@ -1029,9 +1055,13 @@ class Pairing:
              'network create answered n: no trusted host', self.policy('p1', self.v1net))
         q = self.join_outputs['q1']
         need(q.get('trusted') is False, 'another person without a terminal: trusted false', q)
+        for name, out in [*self.join_outputs.items(), *self.create_outputs.items()]:
+            if name in ('u1', 'u2'):
+                continue
+            need(isinstance(out.get('trusted'), bool) and 'trusted_error' not in out,
+                 'join and network create always output trusted as a boolean, signing the change at once', name, out)
 
     def check_discovery(self):
-        notes = []
         failures = [f'{name}: {code} {stderr[-300:]}' for name, (code, out, stderr) in self.attached.items()
                     if code != 0]
         need(not failures, 'attach --no-start succeeds for each harness', *failures)
@@ -1040,103 +1070,139 @@ class Pairing:
             out = self.attached[name][1]
             need(isinstance(out.get('tools'), dict) and set(out['tools']) == {'servers', 'errors'},
                  'attach adds tools: {servers, errors}', name, out)
-            for s in out['tools']['servers']:
-                need(set(s) == ATTACH_SERVER_KEYS, 'attach servers are {name, transport, shareable, reason, tools, '
-                     'read_only_tools}', s)
-                need(isinstance(s['tools'], int) and isinstance(s['read_only_tools'], int),
-                     'tools and read_only_tools are counts', s)
-            return {s['name']: s for s in out['tools']['servers']}
+            for x in out['tools']['servers']:
+                need(set(x) == ATTACH_SERVER_KEYS, 'attach servers are {name, transport, shareable, reason, missing_env, '
+                     'tools, read_only_tools, snapshot_error}', x)
+                need(isinstance(x['tools'], int) and isinstance(x['read_only_tools'], int),
+                     'tools and read_only_tools are counts', x)
+            for e in out['tools']['errors']:
+                need(set(e) == ATTACH_ERROR_KEYS, 'attach errors are {source, path, server, error}', e)
+            return {x['name']: x for x in out['tools']['servers']}
 
         cc = attach_servers('cc')
-        expected = {'fx', 'Bad.Name', 'rem', 'proj', 'lit', 'needy', 'gone', 'slow', 'paged', 'budget', 'budget2',
-                    'startfail', 'startslow', 'sserem'}
-        need(set(cc) == expected, 'Claude Code: user, project, and local scopes discovered for the workspace',
-             sorted(cc), sorted(expected))
-        need(self.attached['cc'][1]['tools']['errors'] == [], 'no errors when every source parses',
-             self.attached['cc'][1]['tools'])
+        expected = {'fx', 'Bad.Name', 'rem', 'proj', 'lit', 'needy', 'needyarg', 'gone', 'slow', 'paged', 'budget',
+                    'budget2', 'startfail', 'startslow', 'sserem'}
+        need(set(cc) == expected, 'Claude Code: user, project, and local scopes; peerspan and peerspan_HEX skipped; '
+             'a stdio entry without a command not sent', sorted(cc), sorted(expected))
+        errors = self.attached['cc'][1]['tools']['errors']
+        need([e['server'] for e in errors] == ['nocmd'], 'a stdio entry without a command is reported in errors',
+             errors)
         for name, transport, shareable, reason in (('fx', 'stdio', True, None), ('Bad.Name', 'stdio', False, 'name'),
                                                    ('rem', 'remote', False, 'remote'),
                                                    ('sserem', 'remote', False, 'remote'),
                                                    ('needy', 'stdio', False, 'missing_env'),
                                                    ('proj', 'stdio', True, None), ('lit', 'stdio', True, None)):
-            s = cc[name]
-            need(s['transport'] == transport and s['shareable'] is shareable and s['reason'] == reason,
-                 f'{name}: transport {transport}, shareable {shareable}, reason {reason}', s)
+            x = cc[name]
+            need(x['transport'] == transport and x['shareable'] is shareable and x['reason'] == reason,
+                 f'{name}: transport {transport}, shareable {shareable}, reason {reason}', x)
+        need(cc['needy']['missing_env'] == ['FX_MISSING_VAR'] and cc['fx']['missing_env'] == [] and
+             cc['needyarg']['reason'] == 'missing_env' and cc['needyarg']['missing_env'] == ['FX_MISSING_ARG'],
+             'missing_env lists the referenced variables that could not be resolved, never env keys', cc['needy'])
         fx = cc['fx']
-        need(fx['tools'] == len(RO_TOOLS | WRITE_TOOLS) + 1 and fx['read_only_tools'] == len(RO_TOOLS) + 1,
-             'counts: read_only only for readOnlyHint true (purge has no annotations)', fx)
+        need(fx['tools'] == len(RO_TOOLS | WRITE_TOOLS) + 1 and fx['read_only_tools'] == len(RO_TOOLS) + 1 and
+             fx['snapshot_error'] is None, 'counts: read_only only for readOnlyHint true (purge has no annotations)', fx)
 
         servers = self.servers('cc')
         need(set(servers) == expected, 'GET /v1/tools lists the same servers', sorted(servers))
-        fx_tools = self.snapshot_tools(servers['fx'])
+        need(servers['needy']['missing_env'] == ['FX_MISSING_VAR'], 'GET /v1/tools missing_env', servers['needy'])
+        fxs = servers['fx']
+        need(fxs['source'] == 'claude-code:local' and fxs['command'] == PYTHON and fxs['url'] is None and
+             fxs['disabled'] is False and fxs['env'] == {'FX_CAPTURED': {'source': 'captured'}},
+             'the normalized definition (source INTEGRATION:SCOPE)', {k: fxs[k] for k in ('source', 'env', 'url')})
+        need(fxs['confirmed'] is False and fxs['shares'] == [] and fxs['snapshot_at'] and
+             fxs['snapshot_error'] is None, 'before sharing: confirmed false, no shares', fxs['confirmed'],
+             fxs['shares'])
+        fx_tools = self.snapshot_tools(fxs)
         need('from_local' in fx_tools and 'from_user' not in fx_tools and 'from_project' not in fx_tools,
              'Precedence: the local scope definition is taken whole', sorted(fx_tools))
         need(set(fx_tools) == RO_TOOLS | WRITE_TOOLS | {'from_local'}, 'the snapshot lists every tool', sorted(fx_tools))
         for name, t in fx_tools.items():
-            need(set(t) >= {'name', 'description', 'input_schema', 'read_only'},
+            need(set(t) == {'name', 'description', 'input_schema', 'read_only'},
                  'stored tool entries are {name, description, input_schema, read_only}', t)
             need(t['read_only'] is (name in RO_TOOLS or name == 'from_local'),
                  'read_only is true only when annotations.readOnlyHint is true', name, t)
-        resources = self.snapshot_resources(servers['fx'])
-        need(set(resources) == {'fixture://docs/readme', 'fixture://docs/guide', 'file:///srv/docs/a.txt',
-                                'file:///srv/private/b.txt'}, 'the snapshot lists resources', sorted(resources))
+        resources = self.snapshot_resources(fxs)
+        need(set(resources) == ALL_RESOURCES, 'the snapshot lists resources', sorted(resources))
         for r in resources.values():
-            need(set(r) >= {'uri', 'name', 'description', 'mime_type'},
+            need(set(r) == {'uri', 'name', 'description', 'mime_type'},
                  'stored resource entries are {uri, name, description, mime_type}', r)
-        for source in definition(servers['fx'], 'source'):
-            need(source == 'claude-code:local', 'source is INTEGRATION:SCOPE (claude-code:local)', source)
-        proj_tools = self.snapshot_tools(servers['proj'])
-        need({'from_fromenv', 'from_dflt'} <= set(proj_tools),
-             'References: ${NAME} and ${NAME:-DEFAULT} in args resolved from the CLI environment', sorted(proj_tools))
-        for env in definition(servers['proj'], 'env'):
-            if isinstance(env, dict) and 'TOKEN_A' in env:
-                need(env['TOKEN_A'] == {'source': 'captured'} and env['TOKEN_B'] == {'source': 'captured'},
-                     'env entries with references are captured', env)
-        for env in definition(servers['lit'], 'env'):
-            if isinstance(env, dict) and 'LIT_TOKEN' in env:
-                need(env['LIT_TOKEN'] == {'source': 'literal'}, 'literal env entries', env)
-        for env in definition(servers['needy'], 'env'):
-            if isinstance(env, dict) and 'NEED' in env:
-                need(env['NEED'] == {'source': 'missing'}, 'unresolved references are missing', env)
-        need('FX_MISSING_VAR' in json.dumps(servers['needy']) or 'NEED' in json.dumps(servers['needy']),
-             'missing_env names the variables', servers['needy'])
+        proj = servers['proj']
+        need({'from_fromenv', 'from_dflt', 'from_wasempty'} <= set(self.snapshot_tools(proj)),
+             'References: ${NAME}, and ${NAME:-D} using D when NAME is unset or empty', sorted(self.snapshot_tools(proj)))
+        need(proj['env'] == {'TOKEN_A': {'source': 'captured'}, 'TOKEN_B': {'source': 'captured'}} and
+             proj['source'] == 'claude-code:project', 'env entries with references are captured', proj['env'])
+        need(servers['lit']['env'] == {'LIT_TOKEN': {'source': 'literal'}}, 'literal env entries', servers['lit']['env'])
+        need(servers['needy']['env'] == {'NEED': {'source': 'missing', 'variables': ['FX_MISSING_VAR']}},
+             'unresolved references are {source: missing, variables: [NAME]}', servers['needy']['env'])
+        need(servers['needyarg']['missing_env'] == ['FX_MISSING_ARG'],
+             'missing_env names unresolved references in args too', servers['needyarg'])
+        need(servers['rem']['tools'] == [] and servers['rem']['resources'] == [] and servers['rem']['url'],
+             'tools and resources are [] without a snapshot', servers['rem'])
 
         cc2 = attach_servers('cc2')
         need(set(cc2) == {'fx', 'Bad.Name', 'rem'}, 'Claude Code: only the user scope for another workspace', sorted(cc2))
-        need('from_user' in self.snapshot_tools(self.servers('cc2')['fx']), 'the user scope definition',
-             self.servers('cc2')['fx'])
+        need('from_user' in self.snapshot_tools(self.servers('cc2')['fx']) and
+             self.servers('cc2')['fx']['source'] == 'claude-code:user', 'the user scope definition')
         out = self.attached['cc3'][1]
-        need(len(out['tools']['errors']) >= 1, 'Unreadable sources: a source that does not parse is reported in errors',
-             out['tools'])
+        need(any(e['path'] and e['path'].endswith('.mcp.json') for e in out['tools']['errors']),
+             'Unreadable sources: a source that does not parse is reported in errors with its path', out['tools'])
         need('fx' in attach_servers('cc3'), 'discovery continues with the rest after an unparsable source',
              out['tools'])
 
         cx = attach_servers('cx')
-        need(set(cx) == {'cxs', 'cxoff', 'cxrem'}, 'Codex: [mcp_servers.NAME] in ~/.codex/config.toml', sorted(cx))
+        need(set(cx) == {'cxs', 'cxoff', 'cxrem', 'cxoffrem'}, 'Codex: [mcp_servers.NAME] in ~/.codex/config.toml',
+             sorted(cx))
         need(cx['cxs']['shareable'] is True and cx['cxs']['reason'] is None, 'Codex stdio server shareable '
              '(startup_timeout_ms ignored)', cx['cxs'])
         need(cx['cxoff']['shareable'] is False and cx['cxoff']['reason'] == 'disabled', 'Codex enabled = false: '
              'disabled', cx['cxoff'])
         need(cx['cxrem']['transport'] == 'remote' and cx['cxrem']['reason'] == 'remote', 'Codex url: remote',
              cx['cxrem'])
-        need('from_codexhome' in self.snapshot_tools(self.servers('cx')['cxs']), 'Codex command and args',
-             self.servers('cx')['cxs'])
+        need(cx['cxoffrem']['reason'] == 'remote', 'reason precedence: remote before disabled', cx['cxoffrem'])
+        cx_servers = self.servers('cx')
+        need(cx_servers['cxoff']['disabled'] is True and cx_servers['cxs']['source'] == 'codex:user',
+             'disabled and source codex:user', cx_servers['cxoff'])
+        need('from_codexhome' in self.snapshot_tools(cx_servers['cxs']), 'Codex command and args', cx_servers['cxs'])
         cx2 = attach_servers('cx2')
         need(set(cx2) == {'cxalt'}, 'Codex: $CODEX_HOME/config.toml replaces the default', sorted(cx2))
 
         oc = attach_servers('oc')
-        need(set(oc) == {'ocs', 'ocover', 'ocoff', 'ocrem'}, 'OpenCode: mcp in the global and project opencode.json',
-             sorted(oc))
+        need(set(oc) == {'ocs', 'ocover', 'ocoff', 'ocrem', 'ocenv'},
+             'OpenCode: mcp in the global and project opencode.json', sorted(oc))
         need(oc['ocoff']['reason'] == 'disabled' and oc['ocrem']['reason'] == 'remote', 'OpenCode enabled false and '
              'type remote', oc)
         oc_servers = self.servers('oc')
         need('from_project' in self.snapshot_tools(oc_servers['ocover']) and
              'from_global' not in self.snapshot_tools(oc_servers['ocover']),
              'OpenCode: the project file takes precedence', oc_servers['ocover'])
+        need(oc_servers['ocover']['source'] == 'opencode:project' and oc_servers['ocs']['source'] == 'opencode:global',
+             'sources opencode:project and opencode:global', oc_servers['ocover']['source'])
         need('from_opencode' in self.snapshot_tools(oc_servers['ocs']),
              'OpenCode: the first element of command, and the rest as args', oc_servers['ocs'])
-        for source in definition(oc_servers['ocover'], 'source'):
-            need(source == 'opencode:project', 'source opencode:project', source)
+        need(oc_servers['ocs']['env'] == {'OC_TOKEN': {'source': 'captured'}} and
+             oc_servers['ocenv']['env'] == {'OC_FALLBACK': {'source': 'captured'}},
+             'OpenCode reads environment, falling back to env', oc_servers['ocs']['env'], oc_servers['ocenv']['env'])
+
+        # PUT validation (refusals change nothing).
+        good = {'name': 'idle', 'transport': 'stdio', 'command': PYTHON, 'args': self.fixture.args('idle'), 'env': {},
+                'url': None, 'source': 'claude-code:user'}
+        path = f"/v1/agents/{self.aid['idler']}/tool-servers"
+        missing = {'X': {'source': 'missing', 'variables': ['FX_X']}}
+        for bad in ({'servers': [{**good, 'extra': 1}]},
+                    {'servers': [{**good, 'env': missing}], 'values': {'idle': {'env.X': 'v'}}},
+                    # env entries are exactly {source} for literal or captured, or {source: missing, variables}
+                    # with non-empty variables.
+                    {'servers': [{**good, 'env': {'X': {'source': 'missing'}}}]},
+                    {'servers': [{**good, 'env': {'X': {'source': 'missing', 'variables': []}}}]},
+                    {'servers': [{**good, 'env': {'X': {'source': 'literal', 'variables': ['FX_X']}}}],
+                     'values': {'idle': {'env.X': 'v'}}},
+                    {'servers': [{**good, 'env': {'X': {'source': 'captured', 'value': 'v'}}}],
+                     'values': {'idle': {'env.X': 'v'}}},
+                    {'servers': [{**good, 'env': {'X': {'source': 'other'}}}]},
+                    {'servers': [{**good, 'env': {'X': 'literal'}}]}):
+            status, body = self.hosts['p4'].call('PUT', path, {'workspace': str(self.root), **bad})
+            need(status == 400, 'PUT refuses unknown definition fields, env values for missing entries, and env '
+                 'entries of any other shape', bad, status, body)
 
         events = [e for e in self.activity('p1') if e['kind'] == 'tools.discovered']
         need({self.aid[a] for a in ('cc', 'cx', 'oc')} <= {e['subject_id'] for e in events},
@@ -1145,8 +1211,7 @@ class Pairing:
         need(code == 0 and 'fx' in stdout, 'tools prints a readable listing', code, stdout[:300])
         need(self.secrets['captured'] not in stdout, 'tools never prints values')
         out = self.tools_view('p1', 'cc')
-        need('cxs' not in json.dumps(out), 'tools --agent NAME limits to one agent', out)
-        return '; '.join(notes)
+        need([a['agent']['name'] for a in out['agents']] == ['cc'], 'tools --agent NAME limits to one agent', out)
 
     def check_allow(self):
         rhea = 'person:' + self.rhea
@@ -1155,13 +1220,21 @@ class Pairing:
         # Reach confirmation: refused with neither a terminal nor --yes.
         code, out, stderr = self.allow('rhea', '--tools', 'fx', '--agent', 'cc')
         need(code == 1, 'Without a terminal and without --yes, allow refuses with exit 1', code, stderr[-300:])
-        # At a terminal: the prompt with its resources clause, then y.
-        code, out, tty = self.allow('rhea', '--tools', 'fx', '--agent', 'cc', terminal='y')
+        code, out, stderr = self.allow('rhea', '--tools', 'fx', '--agent', 'cc', piped='y\n')
+        need(code == 1, '"At a terminal" means stdin is a terminal: a piped y does not confirm', code, stderr[-300:])
+        need(self.servers('cc')['fx']['confirmed'] is False, 'nothing confirmed yet')
+        code, out, tty = self.allow('rhea', '--tools', 'fx', '--agent', 'cc', terminal='n')
+        need(code == 1, 'declining exits 1 with nothing signed', code, tty[-300:])
+        # At a terminal: the statements on stderr, then one question; y agrees.
+        code, out, tty = self.allow('rhea', '--tools', 'fx', '--agent', 'cc', terminal='yes')
         text = squash(tty)
-        need('can call these tools of fx on cc, and read its resources, with the credentials it runs with there:'
-             in text and 'Anything those credentials can reach through them,' in text,
-             'the reach prompt at a terminal, with the resources clause for SERVER', tty[-600:])
-        need(code == 0, 'confirmation is y at a terminal', code, tty[-300:])
+        need('can call these tools of fx on cc with the credentials it runs with there:' in text and
+             'Anything those credentials can reach through these tools,' in text and
+             'can also read every resource it offers.' in text and ', and read its resources,' not in text,
+             'the reach statement, followed by the resources sentence when the actions include resource.read',
+             tty[-600:])
+        need(code == 0, 'confirmation is y or yes at a terminal', code, tty[-300:])
+        need(self.servers('cc')['fx']['confirmed'] is True, 'the confirmation appears as confirmed in GET /v1/tools')
         need(out['rules'] == [{'agent': 'cc', 'server': 'fx', 'actions': BOTH, 'scope': ['readonly']}],
              'SPEC SERVER: scope readonly, actions tool.call resource.read; output rules [{agent, server, actions, '
              'scope}]', out)
@@ -1176,7 +1249,7 @@ class Pairing:
         code, out, tty = self.allow('rhea', '--tools', 'fx:echo', '--agent', 'cc2', terminal='y')
         text = squash(tty)
         need(code == 0 and 'can call these tools of fx on cc2 with the credentials it runs with there:' in text and
-             'and read its resources' not in text,
+             'can also read every resource' not in text,
              'The resources clause appears only when the actions include resource.read', code, tty[-600:])
         need(out['rules'] == [{'agent': 'cc2', 'server': 'fx', 'actions': ['tool.call'], 'scope': ['echo']}],
              'SPEC SERVER:TOOL: those tools, action tool.call only', out)
@@ -1209,6 +1282,8 @@ class Pairing:
         code, out, stderr = self.allow('rhea', '--tools', 'fx', '--agent', '*', '--yes')
         need(code == 0 and out['rules'] == [{'agent': '*', 'server': 'fx', 'actions': BOTH, 'scope': ['readonly']}],
              "--agent '*' makes one * rule", code, out)
+        code, out, tty = self.allow('rhea', '--tools', 'fx', '--agent', '*', terminal='y')
+        need(code != 0, "--agent '*' always needs --yes, even at a terminal", code, tty[-300:])
         need(stderr.strip(), "--agent '*' warns that the rule covers servers on every machine", stderr)
 
         # Write tools without a profile, and unshareable servers.
@@ -1250,10 +1325,15 @@ class Pairing:
         need(len(shared) == 2 and sorted(r['max_calls_per_hour'] for r in shared) == [5, 100],
              'different settings make a new rule (--calls-per-hour)', shared)
 
-        # Repeated --tools makes one rule each.
+        # Repeated --tools makes one rule each, within one invocation even for the same server.
+        out = self.allowed('rhea', '--tools', 'fx:echo', '--tools', 'fx:info', '--agent', 'cc', '--yes')
+        mine = sorted(r['scope'] for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc')
+        need(len(out['rules']) == 2 and mine == [['echo'], ['info']],
+             'repeated --tools for one server in one invocation keeps every requested scope', out, mine)
         out = self.allowed('rhea', '--tools', 'fx:echo', '--tools', 'lit', '--agent', 'cc', '--yes')
-        need(len(out['rules']) == 2 and {r['server'] for r in out['rules']} == {'fx', 'lit'},
-             '--tools may be repeated, each occurrence its own rule', out)
+        mine = [r['scope'] for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc']
+        need(len(out['rules']) == 2 and {r['server'] for r in out['rules']} == {'fx', 'lit'} and mine == [['echo']],
+             '--tools may be repeated; a later allow naming the server replaces its rules', out, mine)
 
         # deny --tools.
         out = self.deny('rhea', '--tools', 'fx@acme', '--agent', 'cc')
@@ -1261,7 +1341,9 @@ class Pairing:
              'deny --tools SERVER@PROFILE removes the principal from rules naming that profile', out)
         need(any(r['server'] == 'fx' and r['agent'] == 'cc' for r in self.rules_for(rhea)),
              'deny of a profile leaves the bare server', self.rules_for(rhea))
-        # Two rules for rhea on cc/fx with different actions and scope (signed here), both removed by one deny.
+        # A profile rule, and two more rules for rhea on cc/fx with different actions and scope (signed here):
+        # one deny of the bare server removes them all.
+        self.allowed('rhea', '--tools', 'fx@acme', '--agent', 'cc', '--yes')
         current = self.policy()
         extra = [{'agent': 'cc', 'server': 'fx', 'principals': [rhea], 'actions': actions, 'scope': scope,
                   'max_input_bytes': 1000, 'allow_disconnected': False, 'max_calls_per_hour': 7}
@@ -1270,11 +1352,12 @@ class Pairing:
                             tool_rules=current['tool_rules'] + extra)
         status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.team}/policy', {'policy': signed})
         need(status == 201, 'setup: rules for one server with different actions and scope', status, body)
-        holding = len([r for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc'])
+        holding = len([r for r in self.rules_for(rhea) if r['agent'] == 'cc' and r['server'] in ('fx', 'fx@acme')])
         out = self.deny('rhea', '--tools', 'fx', '--agent', 'cc')
-        need(out['removed'] == holding == 3 and not [r for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc'],
-             'deny --tools removes every tool rule for the server within the agent scope, whatever its actions or '
-             'scope', out, holding)
+        need(out['removed'] == holding == 4 and not [r for r in self.rules_for(rhea) if r['agent'] == 'cc' and
+                                                      r['server'] in ('fx', 'fx@acme')],
+             'deny --tools SERVER removes every rule for the server and for every SERVER@PROFILE within the agent '
+             'scope, whatever their actions or scope', out, holding)
         need([r for r in self.rules_for(rhea, server='fx') if r['agent'] != 'cc'], 'other agents untouched',
              self.rules_for(rhea))
         out = self.deny('rhea', '--tools', 'fx')
@@ -1300,7 +1383,9 @@ class Pairing:
         p = self.policy()
         need(p and p.get('format') == 2 and isinstance(p.get('tool_rules'), list) and
              isinstance(p.get('trusted_hosts'), list), 'The JSON gains format 2, tool_rules, and trusted_hosts', p)
-        need(len(p['tool_rules']) >= 5, 'setup: the shares', p['tool_rules'])
+        need(len(p['tool_rules']) >= 4, 'setup: the shares', p['tool_rules'])
+        need(list(p) == POLICY_V2_ORDER and p['trusted_hosts'] == sorted(p['trusted_hosts']),
+             'the JSON keys in the contract\'s order, trusted_hosts sorted', list(p))
         ssh_verify(policy_lines_v2(p), p['signature'], self.keys['pat'][1], self.root)
         budget = next(r for r in p['tool_rules'] if r['server'] == 'budget')
         need(budget['max_calls_per_hour'] == 3 and budget['principals'] == ['person:' + self.quinn],
@@ -1342,9 +1427,9 @@ class Pairing:
         status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v1})
         need(status == 201, 'a v1 policy is accepted', status, body)
         stored = self.policy('p1', self.v1net)
-        need(stored['version'] == v1['version'] and plain(stored['rules']) == rules and not stored.get('tool_rules') and
-             not stored.get('trusted_hosts') and stored['signature'] == v1['signature'],
-             'a v1 policy reads as v2 with no tool rules and no trusted hosts', stored)
+        need(stored['version'] == v1['version'] and plain(stored['rules']) == rules and
+             stored['signature'] == v1['signature'] and not {'format', 'tool_rules', 'trusted_hosts'} & set(stored),
+             'a v1 policy is stored in its v1 JSON shape, with no format, tool_rules, or trusted_hosts', stored)
         ssh_verify(statement_lines(stored), stored['signature'], self.keys['pat'][1], self.root)
 
         def at_coordinator():
@@ -1363,17 +1448,18 @@ class Pairing:
                     {'max_calls_per_hour': 10001}, {'scope': ['*']}, {'scope': ['readonly', 'echo']},
                     {'server': 'Bad.Name'}, {'actions': ['resource.read']},
                     {'actions': ['resource.read', 'tool.call']}, {'actions': BOTH, 'scope': ['echo']},
-                    {'actions': ['tool.call', 'tool.call']}, {'scope': ['fixture://docs/*']}):
+                    {'actions': ['tool.call', 'tool.call']}, {'scope': ['fixture://docs/*']},
+                    {'server': 'fx@Bad.Profile'}):
             rule = {'agent': 'cc', 'server': 'fx', 'principals': ['network'], 'actions': ['tool.call'],
                     'scope': ['readonly'], 'max_input_bytes': 65536, 'allow_disconnected': False,
                     'max_calls_per_hour': 100, **bad}
             v = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, tool_rules=[rule])
             status, _ = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v})
             need(status == 400, 'v2 bounds and validation refuse the policy', bad, status)
-        for bad_trusted in (['not-a-host'], ['host_xyz']):
+        for bad_trusted in (['not-a-host'], ['host_xyz'], [self.ids['p1'], self.ids['p1']]):
             v = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, trusted=bad_trusted)
             status, _ = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v})
-            need(status == 400, 'trusted hosts must be host IDs', bad_trusted, status)
+            need(status == 400, 'trusted hosts must be host IDs, without duplicates', bad_trusted, status)
         ok = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, tool_rules=[{
             'agent': '*', 'server': 'fx@acme', 'principals': ['network'], 'actions': BOTH, 'scope': ['*'],
             'max_input_bytes': 262144, 'allow_disconnected': True, 'max_calls_per_hour': 10000}])
@@ -1388,12 +1474,21 @@ class Pairing:
         need(current and 'trusted_hosts' in current, 'setup: a v2 policy for team', current)
         before = current['trusted_hosts']
         need(ids['p3'] not in before, 'p3 starts untrusted', before)
+        v = self.version('p3')
         out = p3.cli('trust')
         need(ids['p3'] in self.policy('p3')['trusted_hosts'], 'trust: HOST defaults to this host; --network optional '
              'with one network', out, self.policy('p3'))
+        need(isinstance(out, dict) and set(out) == {'policy', 'host', 'trusted', 'changed'} and
+             out['host'] == ids['p3'] and out['trusted'] is True and out['changed'] is True and
+             out['policy']['version'] == v + 1, 'trust prints {policy, host, trusted, changed}', out)
+        again = p3.cli('trust')
+        need(again['changed'] is False and again['trusted'] is True and self.version('p3') == v + 1,
+             'when nothing changes, changed is false and no version is signed', again)
         self.synced(self.version('p3'), 'p1')
         need(any(e['agent'] == 'cc' for e in self.listing('p1', 'p3')[1]), 'a trusted host lists tools by self')
-        p3.cli('untrust', ids['p3'])
+        out = p3.cli('untrust', ids['p3'])
+        need(out['trusted'] is False and out['changed'] is True and out['host'] == ids['p3'],
+             'untrust prints {policy, host, trusted, changed}', out)
         self.synced(self.version('p3'), 'p1')
         need(ids['p3'] not in self.policy()['trusted_hosts'], 'untrust HOST removes it')
         status, body = self.listing('p1', 'p3')
@@ -1428,6 +1523,7 @@ class Pairing:
         self.sync_all(self.other)
 
     def check_authorization(self):
+        self.clear('rhea')
         ids = self.ids
         f = self.fixture
         # By policy, and by self from a trusted host.
@@ -1459,14 +1555,16 @@ class Pairing:
             need(status == 403, "another person's host is never covered by self", claimed, status)
         # Named tools share no resources.
         self.allowed('rhea', '--tools', 'fx:echo', '--agent', 'cc', '--yes')
-        self.synced(self.version(), 'r')
-        status, _ = self.submit('r', self.body('cc', 'fx', 'echo', {'text': 'named'}, cite=self.policy_cite()))
-        need(status == 200, 'a named tool is authorized', status)
-        status, _ = self.submit('r', self.body('cc', 'fx', uri='fixture://docs/readme', cite=self.policy_cite()))
-        need(status == 403, 'named tools share no resources (action tool.call only)', status)
-        status, _ = self.submit('r', self.body('cc', 'fx', 'info', {}, cite=self.policy_cite()))
-        need(status == 403, 'a tool outside the named scope is refused', status)
-        self.deny('rhea', '--tools', 'fx', '--agent', 'cc')
+        try:
+            self.synced(self.version(), 'r')
+            status, _ = self.submit('r', self.body('cc', 'fx', 'echo', {'text': 'named'}, cite=self.policy_cite()))
+            need(status == 200, 'a named tool is authorized', status)
+            status, _ = self.submit('r', self.body('cc', 'fx', uri='fixture://docs/readme', cite=self.policy_cite()))
+            need(status == 403, 'named tools share no resources (action tool.call only)', status)
+            status, _ = self.submit('r', self.body('cc', 'fx', 'info', {}, cite=self.policy_cite()))
+            need(status == 403, 'a tool outside the named scope is refused', status)
+        finally:
+            self.deny('rhea', '--tools', 'fx', '--agent', 'cc')
         # A grant citation is refused with 400, even with a real grant held by this host.
         message_grant = self.hosts['p1'].cli('grant', 'create', '--peer', ids['q1'], '--agent', self.aid['cc'],
                                              '--expires-in', '1h')
@@ -1510,8 +1608,28 @@ class Pairing:
         need(results == [200, 200, 200], 'budget: 3 accepted calls', results)
         for h in ('q1', 'q2'):
             status, body = self.submit(h, self.body('cc', 'budget', 'echo', {'text': h}, cite=cite))
-            need(status == 429 and 'max_calls_per_hour' in json.dumps(body),
-                 'over the limit: 429 with the limit\'s name, counted per person across hosts', h, status, body)
+            need(status == 429 and isinstance(body, dict) and set(body) == {'code', 'error', 'limit'} and
+                 body['code'] == 'limit' and body['limit'] == 'max_calls_per_hour',
+                 'over the limit: 429 {code: "limit", error, limit: "max_calls_per_hour"}, counted per person across '
+                 'hosts', h, status, body)
+        code, out, stderr = self.call('q1', 'pat/cc/budget', 'echo', {'text': 'over'}, '--network', self.team)
+        need(code == 1 and out and out['submit_state'] == 'rejected' and out['next_attempt_at'] is None,
+             'a 429 is a final rejected submission, not retried', code, out)
+        # The budget key excludes the principals: adding rhea to the rule resets nobody's budget.
+        self.allowed('rhea', '--tools', 'budget', '--agent', 'cc', '--calls-per-hour', '3', '--yes')
+        rule = [r for r in self.tool_rules() if r['server'] == 'budget' and r['agent'] == 'cc']
+        need(len(rule) == 1 and set(rule[0]['principals']) == {'person:' + self.quinn, 'person:' + self.rhea},
+             'setup: rhea added to quinn\'s budget rule', rule)
+        self.synced(self.version(), 'q1', 'r')
+        cite = self.policy_cite()
+        status, body = self.submit('q1', self.body('cc', 'budget', 'echo', {'text': 'still'}, cite=cite))
+        need(status == 429, 'Budget key: the rule identity excludes principals, so changing them resets no budget',
+             status, body)
+        status, body = self.submit('r', self.body('cc', 'budget', 'echo', {'text': 'rhea'}, cite=cite))
+        need(status == 200, 'each caller has its own count under the rule', status, body)
+        self.deny('rhea', '--tools', 'budget')
+        self.synced(self.version(), 'q1', 'q2', 'u1', 'u2', 'r')
+        cite = self.policy_cite()
         # u1 made one budget2 call above, under the block check.
         got = [self.submit('u1', self.body('cc', 'budget2', 'echo', {'text': 'u1'}, cite=cite))[0] for _ in range(2)]
         need(got == [200, 429], 'an unbound sender is counted by its host ID', 'u1', got)
@@ -1521,13 +1639,22 @@ class Pairing:
         need(got == [200, 200, 429], 'the same rule counts each person separately from unbound hosts', got)
         # 413 for oversized input.
         status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x' * 70000}, cite=cite))
-        need(status == 413, 'input over max_input_bytes (the JSON encoding of arguments): 413', status)
+        need(status == 413 and isinstance(body, dict) and set(body) == {'code', 'error'} and body['code'] == 'too_large',
+             'input over max_input_bytes (the JSON encoding of arguments): 413 {code: "too_large", error}', status, body)
+        code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x' * 70000}, '--network', self.team)
+        need(code == 1 and out and out['submit_state'] == 'rejected' and out['next_attempt_at'] is None,
+             'a 413 is a final rejected submission, not retried', code, out)
         status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x' * 60000}, cite=cite))
         need(status == 200, 'input within max_input_bytes', status, body)
-        # Deadline at most 15 minutes ahead.
-        status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite=cite,
-                                                   deadline=timestamp(16 * 60)))
-        need(status in (400, 403), 'a deadline more than 15 minutes ahead is refused', status, body)
+        # The deadline at the receiver: in the future, and at most 15 minutes (plus 1 minute of skew) ahead.
+        for seconds in (17 * 60, -5):
+            status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite=cite,
+                                                       deadline=timestamp(seconds)))
+            need(status == 400 and isinstance(body, dict) and body.get('code') == 'invalid',
+                 'a deadline in the past or more than 15 minutes (plus skew) ahead: 400 invalid', seconds, status, body)
+        status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'skew'}, cite=cite,
+                                                   deadline=timestamp(15 * 60 + 20)))
+        need(status == 200, 'a deadline within the minute of clock skew is accepted', status, body)
         # Lapsed authorization before start: rejected. rhea's call waits behind 4 running calls; deny lapses it.
         self.allowed('rhea', '--tools', 'fx', '--agent', 'cc', '--yes')
         self.synced(self.version(), 'r')
@@ -1563,6 +1690,7 @@ class Pairing:
         p1.cli('grant', 'revoke', g['id'])
 
     def check_routes(self):
+        self.clear('rhea')
         ids = self.ids
         status, body = self.listing('p1', 'q1')
         need(status == 200 and isinstance(body, list), 'GET /peer/v1/tools', status, body)
@@ -1611,7 +1739,7 @@ class Pairing:
         fx = self.entry(body, 'cc', 'fx')
         need(fx and {t['name'] for t in fx['tools']} == RO_TOOLS | WRITE_TOOLS | {'from_local'},
              'self covers every tool, including write tools', fx)
-        need(not any(e['server'] in ('rem', 'needy', 'Bad.Name', 'sserem') for e in body),
+        need(not any(e['server'] in ('rem', 'needy', 'needyarg', 'Bad.Name', 'sserem') for e in body),
              'only shareable servers are listed', [e['server'] for e in body])
         need(self.entry(body, 'cx', 'cxs') and self.entry(body, 'cc', 'fx', 'acme'),
              'self covers every shareable server and profile of every agent', [e['server'] for e in body])
@@ -1848,7 +1976,7 @@ class Pairing:
         env_file = self.hosts['p1'].config / 'peerspan' / 'env'
         env_file.parent.mkdir(parents=True, exist_ok=True)
         env_file.write_text(f"# overrides\nTOKEN_A={self.secrets['file']}\n\nLIT_TOKEN=from-file\n"
-                            f"EXTRA_FROM_FILE={self.secrets['file']}\n")
+                            f"EXTRA_FROM_FILE={self.secrets['file']}\nNEED=from-file\nFX_MISSING_VAR=from-file\n")
         env_file.chmod(0o600)
         self.restart('p1')
         need(matches('proj', 'TOKEN_A', self.secrets['file']) == {'present': True, 'matches': True},
@@ -1862,6 +1990,10 @@ class Pairing:
         need('TOKEN_A' not in names and 'EXTRA_FROM_FILE' not in names,
              'a server receives only the environment-file variables its own definition names', sorted(names))
         need(not [i for i in self.items() if i['subject'] == 'env'], 'no item 14 for a 0600 file')
+        self.refresh('cc')
+        needy = self.servers('cc')['needy']
+        need(needy['reason'] == 'missing_env' and needy['missing_env'] == ['FX_MISSING_VAR'],
+             'a missing reference keeps the server missing_env even when the environment file has that name', needy)
         env_file.chmod(0o644)
         self.restart('p1')
         need(matches('proj', 'TOKEN_A', captured) == {'present': True, 'matches': True},
@@ -1914,12 +2046,55 @@ class Pairing:
              'captured and literal values are stored in tool_values', len(stored))
 
     def check_profiles(self):
+        self.clear('rhea')
         f = self.fixture
         servers = self.servers('cc')
-        need(find_key(servers['fx'], 'profiles'), 'GET /v1/tools lists the server\'s profiles', servers['fx'])
-        profiles = find_key(servers['fx'], 'profiles')[0]
-        need('acme' in json.dumps(profiles) and 'from_acme' in json.dumps(profiles),
-             'the profile is snapshotted with its own arguments', profiles)
+        profiles = {x['name']: x for x in servers['fx']['profiles']}
+        need(set(profiles) == {'acme'}, 'GET /v1/tools lists the server\'s profiles', servers['fx']['profiles'])
+        acme = profiles['acme']
+        need(acme['env_file'] == str(self.profile_env) and acme['args'][0] == str(FIXTURE) and
+             'from_acme' in {t['name'] for t in acme['tools']} and acme['snapshot_at'] and acme['confirmed'] is True,
+             'PROFILE: its env_file and args, snapshotted with its own arguments, confirmed by an earlier allow', acme)
+
+        # POST .../profiles directly: 201, an identical repeat 200, a different one 409, and refusals.
+        api = self.hosts['p1']
+        path = f"/v1/agents/{self.aid['cc']}/tool-servers/lit/profiles"
+        body = {'name': 'narrow', 'env_file': str(self.profile_env), 'args': self.fixture.args('lit-narrow', 'narrow')}
+        status, made = api.call('POST', path, body)
+        need(status == 201 and set(made) == PROFILE_KEYS | {'agent_id', 'server'} and made['server'] == 'lit' and
+             made['agent_id'] == self.aid['cc'] and made['name'] == 'narrow' and made['confirmed'] is False,
+             'adding a profile: 201 with PROFILE plus agent_id and server', status, made)
+        status, again = api.call('POST', path, body)
+        need(status == 200 and again['name'] == 'narrow' and again['created_at'] == made['created_at'],
+             'an identical repeat returns 200 with the existing profile', status, again)
+        status, _ = api.call('POST', path, {**body, 'args': ['other']})
+        need(status == 409, 'a different profile of the same name returns 409', status)
+        for bad, why in (({**body, 'name': 'nullargs', 'args': None}, 'args null is refused'),
+                         ({**body, 'name': 'nofile', 'env_file': str(self.root / 'missing.env')},
+                          'env_file must exist')):
+            status, _ = api.call('POST', path, bad)
+            need(status >= 400, why, status)
+        status, _ = api.call('POST', f"/v1/agents/{self.aid['cc']}/tool-servers/needy/profiles",
+                             {'name': 'x', 'env_file': str(self.profile_env)})
+        need(status >= 400, 'the server must be shareable', status)
+        status, made = api.call('POST', path, {'name': 'noargs', 'env_file': str(self.profile_env)})
+        need(status == 201, 'args is optional', status, made)
+        # Recording a confirmation, then allow without --yes or a terminal.
+        need(self.servers('cc')['paged']['confirmed'] is False, 'paged is not confirmed yet')
+        status, body = api.call('POST', f"/v1/agents/{self.aid['cc']}/tool-servers/paged/confirmations",
+                                {'profile': None})
+        need(status == 200 and set(body) == {'agent_id', 'server', 'profile', 'confirmed_at'} and
+             body['server'] == 'paged' and body['profile'] is None, 'recording a confirmation', status, body)
+        need(self.servers('cc')['paged']['confirmed'] is True, 'confirmations appear as confirmed in GET /v1/tools')
+        status, body = api.call('POST', f"/v1/agents/{self.aid['cc']}/tool-servers/lit/confirmations",
+                                {'profile': 'narrow'})
+        need(status == 200 and body['profile'] == 'narrow', 'a profile confirmation', status, body)
+        need({x['name']: x for x in self.servers('cc')['lit']['profiles']}['narrow']['confirmed'] is True,
+             'a profile confirmation appears on the PROFILE')
+        self.allowed('rhea', '--tools', 'paged', '--agent', 'cc')
+        self.deny('rhea', '--tools', 'paged')
+        for name in ('narrow', 'noargs'):
+            api.cli('tools', 'profile', 'remove', f'lit@{name}', '--agent', 'cc')
 
         def self_call(tool, arguments, target='pat/cc/fx@acme'):
             code, out, stderr = self.call('p2', target, tool, arguments)
@@ -1928,6 +2103,9 @@ class Pairing:
         need(self_call('env_matches', {'name': 'FX_CAPTURED', 'sha256': sha(self.secrets['profile'])}) ==
              {'present': True, 'matches': True},
              "a profile instance receives its own environment file, which comes last")
+        need(self_call('env_matches', {'name': 'PROFILE_ONLY', 'sha256': sha('unnamed')}) ==
+             {'present': True, 'matches': True},
+             'a profile\'s own --env-file is applied whole, unfiltered')
         need(self_call('info', {})['labels'] == ['acme'], "--arg replaces the server's args")
         need(self_call('env_matches', {'name': 'FX_CAPTURED', 'sha256': sha(self.secrets['captured'])},
                        'pat/cc/fx') == {'present': True, 'matches': True},
@@ -1959,7 +2137,7 @@ class Pairing:
         status, _ = self.submit('r', self.body('cc', 'fx', 'echo', {'text': 'gone'}, profile='acme',
                                                cite=self.policy_cite()))
         need(status in (403, 404), 'after tools profile remove, shares naming it stop matching', status)
-        need('acme' not in json.dumps(find_key(self.servers('cc')['fx'], 'profiles')), 'the profile is removed')
+        need(self.servers('cc')['fx']['profiles'] == [], 'the profile is removed')
         kinds = {e['kind'] for e in self.activity('p1')}
         need({'tools.profile_added', 'tools.profile_removed'} <= kinds, 'profile activity', sorted(kinds))
         self.deny('rhea', '--tools', 'fx@acme')
@@ -1977,33 +2155,40 @@ class Pairing:
         before = self.snapshot_tools(servers['slow'])
         for control, why in (({'list_error': True}, 'a failing tools/list'),
                              ({'huge_snapshot': True}, 'a snapshot larger than 1 MiB'),
+                             ({'generate': 1001, 'page_size': 100}, 'following nextCursor beyond 1,000 entries'),
                              ({'list_delay': 40}, 'the 30-second bound')):
             f.set('slow', **control)
             started = time.monotonic()
             self.refresh('cc')
             elapsed = time.monotonic() - started
             slow = self.servers('cc')['slow']
-            need(find_key(slow, 'snapshot_error'), f'{why} records snapshot_error', slow)
+            need(slow['snapshot_error'], f'{why} records snapshot_error', slow['snapshot_error'])
+            if 'generate' in control:
+                need('too_many_entries' in str(slow['snapshot_error']), 'the entry cap error is too_many_entries',
+                     slow['snapshot_error'])
             need(self.snapshot_tools(slow) == before, f'{why} keeps the previous snapshot', slow)
             if 'list_delay' in control:
                 need(28 <= elapsed <= 60, 'the whole snapshot must finish within 30 seconds', elapsed)
         f.set('slow')
         self.refresh('cc')
-        need(not find_key(self.servers('cc')['slow'], 'snapshot_error') or
-             not any(find_key(self.servers('cc')['slow'], 'snapshot_error')),
-             'a successful snapshot clears snapshot_error', self.servers('cc')['slow'])
+        need(self.servers('cc')['slow']['snapshot_error'] is None, 'a successful snapshot clears snapshot_error',
+             self.servers('cc')['slow']['snapshot_error'])
         events = [e for e in self.activity('p1') if e['kind'] == 'tools.snapshot_failed']
         need(any(e['subject_id'] == f"{self.aid['cc']}/slow" for e in events),
              'tools.snapshot_failed activity, subject AGENT_ID/SERVER', events[-3:])
 
     def check_configuration_changes(self):
+        self.clear('rhea')
         f, ids = self.fixture, self.ids
         # A server dropped from configuration: a running call finishes; new calls are refused as unknown.
         marker = 'dropped-' + secrets.token_hex(4)
         code, out, stderr = self.call('p2', 'pat/cc/gone', 'sleep', {'seconds': 10, 'text': marker}, wait='1s')
         need(code == 3, 'setup: a running call on gone', code, out, stderr[-300:])
         wait_for(lambda: f.calls('gone', marker), timeout=20, message='running')
-        del self.local_servers['gone']
+        status, body = self.hosts['p1'].call('POST', f"/v1/agents/{self.aid['cc']}/tool-servers/gone/confirmations",
+                                             {'profile': None})
+        need(status == 200, 'setup: a confirmation for gone', status, body)
+        gone = self.local_servers.pop('gone')
         self.write_claude_json()
         self.refresh('cc')
         need('gone' not in self.servers('cc'), 'a PUT that drops a server deletes its definition')
@@ -2013,6 +2198,11 @@ class Pairing:
         need(status == 404, 'new calls to a dropped server are refused as unknown (404)', status)
         code, out, stderr = self.call('p2', 'pat/cc/gone', 'echo', {'text': 'x'})
         need(code != 0, 'call to a dropped server fails', code)
+        self.local_servers['gone'] = gone
+        self.write_claude_json()
+        self.refresh('cc')
+        need(self.servers('cc')['gone']['confirmed'] is False,
+             'a dropped server loses its reach confirmations, so a returning server asks again')
         # A new tool: shared under `readonly` only when read-only, and never under named tools.
         f.set('fx-local', extra_tools=[{'name': 'new_ro', 'read_only': True}, {'name': 'new_rw', 'read_only': False}])
         self.allowed('rhea', '--tools', 'fx:echo', '--agent', 'cc', '--yes')
@@ -2038,43 +2228,88 @@ class Pairing:
             self.deny('rhea', '--tools', 'fx')
 
     def check_owner_cli(self):
-        ids = self.ids
-        # Exit codes.
+        ids, q1 = self.ids, self.hosts['q1']
+        # Exit codes, and --wait.
         code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'zero'}, '--network', self.team)
-        need(code == 0 and set(out) == OUTBOUND_KEYS, 'call: exit 0 for succeeded, printing the local record', code)
+        need(code == 0 and set(out) == OUTBOUND_KEYS, 'call: exit 0 for succeeded, printing the local record', code,
+             out and sorted(out))
+        need(out['target'] == 'pat/cc/fx' and out['network_id'] == self.team and 'grant_id' not in out['request'],
+             'the outbound record keeps the target and the network of its citation; no grant_id', out)
         code, out, stderr = self.call('q1', 'pat/cc/fx', 'tool_error', {}, '--network', self.team)
         need(code == 1 and out['status']['state'] == 'failed', 'call: exit 1 for other final states', code, out)
         code, out, stderr = self.call('q1', 'pat/cc/fx', 'sleep', {'seconds': 6, 'text': 'pending'}, '--network',
-                                      self.team, wait='1s')
-        need(code == 3, 'call: exit 3 if still pending', code, out)
+                                      self.team, wait='0')
+        need(code == 3, 'call: exit 3 if still pending (--wait 0)', code, out)
         pending = out
+        for wait in ('1', '1s', '1m'):
+            code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'w'}, '--network', self.team, wait=wait)
+            need(code == 0, '--wait takes N, Ns, or Nm', wait, code, stderr[-200:])
+        count = self.outbound_count('q1')
+        code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'w'}, '--network', self.team, wait='16m')
+        need(code != 0 and self.outbound_count('q1') == count, '--wait is at most 15 minutes', code)
+        code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'd'}, '--network', self.team,
+                                      '--deadline', '5m')
+        left = (parse_time(out['request']['deadline']) - datetime.now(timezone.utc)).total_seconds() if out else 0
+        need(code == 0 and 240 <= left <= 300, 'the CLI\'s --deadline also accepts a duration', code, out and
+             out['request'])
         code, out, stderr = self.read('q1', 'pat/cc/fx', 'fixture://docs/readme', '--network', self.team)
         need(code == 0 and out['status']['kind'] == 'resource', 'read: exit 0', code, out)
         code, out, stderr = self.read('q1', 'pat/cc/fx', 'fixture://docs/missing', '--network', self.team)
-        need(code != 0, 'read of a URI not in the snapshot fails', code, out)
+        need(code != 0, 'a resource call must name a URI present in the snapshot', code, out)
+        # POST /v1/calls directly.
+        count = self.outbound_count('q1')
+        for deadline in (timestamp(-5), timestamp(16 * 60)):
+            status, body = q1.call('POST', '/v1/calls', {'target': 'pat/cc/fx', 'kind': 'tool', 'name': 'echo',
+                                                         'arguments': {'text': 'x'}, 'deadline': deadline,
+                                                         'network': self.team})
+            need(status == 400, 'POST /v1/calls refuses a past deadline or one over 15 minutes, before persisting',
+                 deadline, status, body)
+        need(self.outbound_count('q1') == count, 'nothing persisted')
+        status, body = q1.call('POST', '/v1/calls', {'target': 'pat/cc/fx', 'kind': 'tool', 'name': 'echo',
+                                                     'arguments': {'text': 'api'}, 'deadline': timestamp(300),
+                                                     'network': self.team, 'uri': None, 'call_id': None})
+        need(status == 200 and set(body) == OUTBOUND_KEYS and body['network_id'] == self.team,
+             'POST /v1/calls returns 200 with the outbound record (null fields treated as absent)', status, body)
         # Listings.
-        listed = self.hosts['q1'].cli('calls', 'list', '--limit', '1000')
-        need(listed and all('sequence' in item for item in listed), 'calls list: paged as tasks are', listed[:1])
+        listed = q1.cli('calls', 'list', '--limit', '1000')
+        need(listed and all(set(item) == {'sequence', 'call'} and set(item['call']) == OUTBOUND_KEYS
+                            for item in listed), 'GET /v1/calls returns [{sequence, call}]', listed[:1])
         need([item['sequence'] for item in listed] == sorted(item['sequence'] for item in listed),
              'insertion order', [i['sequence'] for i in listed])
-        need(pending['request']['call_id'] in json.dumps(listed), 'calls list shows outbound calls')
-        need(len(self.hosts['q1'].cli('calls', 'list', '--limit', '1')) == 1, 'calls list --limit')
-        after = self.hosts['q1'].cli('calls', 'list', '--after', str(listed[-2]['sequence']))
+        need(pending['request']['call_id'] in {i['call']['request']['call_id'] for i in listed},
+             'calls list shows outbound calls')
+        need(len(q1.cli('calls', 'list', '--limit', '1')) == 1, 'calls list --limit')
+        after = q1.cli('calls', 'list', '--after', str(listed[-2]['sequence']))
         need(len(after) == 1 and after[0]['sequence'] == listed[-1]['sequence'], 'calls list --after', after)
         received = self.hosts['p1'].cli('calls', 'received', '--limit', '1000')
-        need(pending['request']['call_id'] in json.dumps(received), 'calls received lists calls received', received[-1:])
+        need(received and all(set(item) == {'sequence', 'request', 'status'} for item in received),
+             'GET /v1/calls/received returns [{sequence, request, status}]', received[-1:])
+        need(pending['request']['call_id'] in {i['status']['call_id'] for i in received},
+             'calls received lists calls received', received[-1:])
         need(self.inspect('q1', ids['p1'], pending['request']['call_id'])['request']['call_id'] ==
              pending['request']['call_id'], 'calls inspect')
-        # tools and tools remote.
-        code, out, stdout, stderr = self.hosts['q1'].outcome('tools', 'remote', '--json')
-        need(code == 0 and '"fx"' in stdout and 'cc' in stdout, 'tools remote lists what this host may call',
-             code, stdout[:400])
-        code, out, stdout, stderr = self.hosts['q1'].outcome('tools', 'remote', 'pat/cc', '--json')
-        need(code == 0 and 'fx' in stdout, 'tools remote PERSON/AGENT', code, stdout[:300])
-        code, out, stdout, stderr = self.hosts['q1'].outcome('tools', 'remote', 'pat', '--network', self.team, '--json')
-        need(code == 0 and '"lit"' not in stdout, 'tools remote --network: a tool authorized only in another network '
-             'is not listed', stdout[:400])
-        code, out, stdout, stderr = self.hosts['q1'].outcome('tools', 'remote')
+        # tools remote, and GET /v1/remote-tools.
+        status, body = q1.call('GET', '/v1/remote-tools?target=pat')
+        need(status == 200 and set(body) == {'entries', 'unanswered'} and body['entries'] and
+             all(set(e) == REMOTE_ENTRY_KEYS for e in body['entries']),
+             'GET /v1/remote-tools returns {entries: [{host_id, address, agent, agent_id, server, profile, tools, '
+             'resources}], unanswered}', status, str(body)[:500])
+        fx = [e for e in body['entries'] if e['agent'] == 'cc' and e['server'] == 'fx' and e['profile'] is None]
+        need(len(fx) == 1 and fx[0]['host_id'] == ids['p1'] and fx[0]['agent_id'] == self.aid['cc'],
+             'remote tools: cc/fx on p1', fx)
+        status, body = q1.call('GET', f'/v1/remote-tools?target=pat/cc/fx&network={self.team}')
+        need(status == 200 and {(e['agent'], e['server']) for e in body['entries']} == {('cc', 'fx')},
+             'target PERSON/AGENT/SERVER', status, body)
+        status, body = q1.call('GET', f'/v1/remote-tools?target=pat&network={self.team}')
+        need(status == 200 and not [e for e in body['entries'] if e['server'] == 'lit'],
+             'tools remote --network: a tool authorized only in another network is not listed', body)
+        status, body = q1.call('GET', '/v1/remote-tools')
+        need(status == 200 and {e['host_id'] for e in body['entries']} <= {ids[n] for n in self.team_members},
+             'without a target, the members of the selected networks', status, str(body)[:300])
+        code, out, stdout, stderr = q1.outcome('tools', 'remote', 'pat/cc', '--json')
+        need(code == 0 and isinstance(out, dict) and set(out) == {'entries', 'unanswered'},
+             'tools remote --json prints the remote tools object', code, stdout[:300])
+        code, out, stdout, stderr = q1.outcome('tools', 'remote')
         need(code == 0 and 'fx' in stdout, 'tools remote readable output', code)
         # Citation by --network and via order.
         count = self.outbound_count('q1')
@@ -2082,20 +2317,17 @@ class Pairing:
         need(code != 0 and self.outbound_count('q1') == count,
              '--network scoping: a tool authorized only in another network is neither listed nor cited', code)
         code, out, stderr = self.call('q1', 'pat/cc/lit', 'echo', {'text': 'x'})
-        need(code == 0 and out['request']['policy']['version'] == self.version('p1', self.other),
+        need(code == 0 and out['network_id'] == self.other and
+             out['request']['policy']['version'] == self.version('p1', self.other),
              'without --network, the first via entry (the other network\'s policy)', code, out)
-        versions = {self.team: self.version('p1', self.team), self.other: self.version('p1', self.other)}
         code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x'})
-        first = min(versions)
-        need(code == 0 and 'policy' in out['request'] and 'grant_id' not in out['request'],
-             'the first via entry is cited', out and out['request'])
-        if versions[self.team] != versions[self.other]:
-            need(out['request']['policy']['version'] == versions[first], 'via order: by network ID', out['request'],
-                 versions)
+        need(code == 0 and out['network_id'] == min(self.team, self.other) and 'policy' in out['request'],
+             'via order decides the citation: the policy of the lower network ID', out and out['network_id'])
         for net in (self.team, self.other):
             code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x'}, '--network', net)
-            need(code == 0 and out['request']['policy']['version'] == versions[net], '--network cites that network',
-                 net, out['request'])
+            need(code == 0 and out['network_id'] == net and
+                 out['request']['policy']['version'] == self.version('p1', net), '--network cites that network',
+                 net, out and out['request'])
         # Target resolution: by host ID, ambiguous, and not found.
         code, out, stderr = self.call('q1', f"{ids['p1']}/cc/fx", 'echo', {'text': 'by host'})
         need(code == 0 and out['peer_host_id'] == ids['p1'], 'HOST_ID/AGENT/SERVER names a host directly', code)
@@ -2106,16 +2338,32 @@ class Pairing:
             self.put_servers(host, 'dup', self.root, {'fx': self.fixture.args(f'dup-{host}')})
         self.allowed('quinn', '--tools', 'fx', '--agent', 'dup', '--yes')
         self.sync_all()
+        count = self.outbound_count('q1')
+        status, body = q1.call('POST', '/v1/calls', {'target': 'pat/dup/fx', 'kind': 'tool', 'name': 'echo',
+                                                     'arguments': {}, 'deadline': timestamp(300)})
+        need(status == 409 and body.get('code') == 'ambiguous' and
+             sorted(body.get('candidates') or []) == sorted([f"{ids['p1']}/dup/fx", f"{ids['p2']}/dup/fx"]),
+             '409 {code: "ambiguous", error, candidates: [HOST_ID/AGENT/SERVER]}', status, body)
         code, out, stderr = self.call('q1', 'pat/dup/fx', 'echo', {'text': 'x'})
-        need(code != 0 and f"{ids['p1']}/dup/fx" in stderr and f"{ids['p2']}/dup/fx" in stderr,
-             'more than one match: an error listing the HOST_ID/AGENT/SERVER form of each', code, stderr[-500:])
+        need(code != 0 and self.outbound_count('q1') == count, 'call: an ambiguous target persists nothing', code)
         code, out, stderr = self.call('q1', f"{ids['p2']}/dup/fx", 'echo', {'text': 'x'})
         need(code == 0, 'the HOST_ID form resolves the ambiguity', code, stderr[-300:])
         self.hosts['p3'].stop()
         try:
-            code, out, stderr = self.call('q1', 'pat/nosuch/fx', 'echo', {'text': 'x'})
-            need(code != 0 and ids['p3'] in stderr, 'none: an error listing the hosts that did not answer', code,
-                 stderr[-500:])
+            count = self.outbound_count('q1')
+            status, body = q1.call('POST', '/v1/calls', {'target': 'pat/nosuch/fx', 'kind': 'tool', 'name': 'echo',
+                                                         'arguments': {}, 'deadline': timestamp(300)})
+            need(status == 404 and body.get('code') == 'not_found' and
+                 ids['p3'] in [u['host_id'] for u in body.get('unanswered') or []] and
+                 all(set(u) == {'host_id', 'error'} for u in body['unanswered']),
+                 '404 {code: "not_found", error, unanswered: [{host_id, error}]}', status, body)
+            status, body = q1.call('POST', '/v1/calls', {'target': 'pat/cc/fx', 'kind': 'tool', 'name': 'echo',
+                                                         'arguments': {}, 'deadline': timestamp(300)})
+            need(status >= 400 and self.outbound_count('q1') == count,
+                 'an unanswered host refuses the call with nothing persisted, even with one match', status, body)
+            status, body = q1.call('GET', '/v1/remote-tools?target=pat')
+            need(status == 200 and ids['p3'] in [u['host_id'] for u in body['unanswered']],
+                 'remote tools lists unanswered hosts', status, body)
         finally:
             self.hosts['p3'].start()
         self.deny('quinn', '--tools', 'fx', '--agent', 'dup')
@@ -2155,6 +2403,12 @@ class Pairing:
         env_file.write_text('A=b\n')
         env_file.chmod(0o640)
         try:
+            servers = self.servers('cc')
+            need(servers['startfail']['start_failed_at'] and servers['startslow']['start_failed_at'] and
+                 servers['fx']['auth_error_at'] and servers['slow']['snapshot_error'],
+                 'GET /v1/tools records start_failed_at, auth_error_at, and snapshot_error',
+                 {k: (servers[k]['start_failed_at'], servers[k]['auth_error_at'], servers[k]['snapshot_error'])
+                  for k in ('startfail', 'startslow', 'fx', 'slow')})
             items = self.items()
             subjects = [i['subject'] for i in items]
             for subject in ('cc/slow', 'cc/startfail', 'cc/startslow', 'cc/fx'):
@@ -2241,9 +2495,49 @@ class Pairing:
 
 # --- once per run --------------------------------------------------------------------------------------------
 
+V2_VECTOR_LINES = """peerspan-policy-v2
+net_34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e
+bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=
+1
+2026-10-10T00:00:00Z
+2026-10-17T00:00:00Z
+rule
+reviewer
+person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2 group:backend
+message.append
+65536 false
+rule
+triage
+network
+message.append
+4096 true
+tool_rule
+reviewer
+github
+person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2
+tool.call resource.read
+readonly
+65536 false 100
+end
+tool_rule
+*
+github@acme-api
+group:backend
+tool.call
+create_issue list_issues
+4096 true 10
+end
+trusted host_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+host_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb""".replace(' \\\n', ' ').split('\n')
+V2_VECTOR_SIGNATURE = ('U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNw'
+                       'YW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQN3R+JpYFSWwJYDv5TPcPhxvjwoOUVpE'
+                       'rPzSlzkRC3DfkaZYNtdsjUSgm0C3KvvXJtNSlozD1UJ894T6bomQvgE=')
+V2_VECTOR_HASH = '84e7e3312f15fa07d06aee1a9bb8953f01d47602ba3439b25bc656a9d4d01729'
+
+
 def check_vector(directory):
-    """Reproduce the coordination contract's v1 policy vector with this suite's encoding, then compute a
-    provisional v2 vector (the contract has not published one yet)."""
+    """Reproduce the coordination contract's v1 policy vector and the tools contract's v2 vector with this suite's
+    encoding and signing."""
     from coord_move import sshsig
     from launch_service import Key
     person = Key(directory, base64.b64decode('BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU='))
@@ -2259,19 +2553,22 @@ def check_vector(directory):
     need(sshsig(person, policy_lines_v1(v1)) ==
          'U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQI7LAL0jJtpQWmoMSHjIs49S3ZgRu1H8/I7LHRJ/N58B81ZTDeV854NluBUedCUW8GgzjOOTHLEM5pfE/iGPog8=',
          'self-check: the v1 policy test vector')
-    v2 = {**v1, 'format': 2,
-          'tool_rules': [{'agent': 'claude-laptop', 'server': 'github@acme-api',
-                          'principals': [f'person:{second}', 'group:eng'], 'actions': ['tool.call'],
-                          'scope': ['create_issue', 'list_issues'], 'max_input_bytes': 65536,
+    # The v2 vector: trusted hosts given b then a, sorted in the statement.
+    v2 = {'format': 2, **v1,
+          'tool_rules': [{'agent': 'reviewer', 'server': 'github', 'principals': [f'person:{second}'],
+                          'actions': ['tool.call', 'resource.read'], 'scope': ['readonly'], 'max_input_bytes': 65536,
                           'allow_disconnected': False, 'max_calls_per_hour': 100},
-                         {'agent': '*', 'server': 'docs', 'principals': ['network'],
-                          'actions': ['tool.call', 'resource.read'], 'scope': ['readonly'], 'max_input_bytes': 4096, 'allow_disconnected': True,
-                          'max_calls_per_hour': 10}],
-          'trusted_hosts': ['host_b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709']}
-    signature = sshsig(person, policy_lines_v2(v2))
-    print('NOTE provisional v2 policy vector (this suite\'s reading of the contract; the contract has none yet):',
-          json.dumps({'lines': policy_lines_v2(v2), 'signature': signature}), flush=True)
-    return 'v1 vector reproduced; provisional v2 vector printed'
+                         {'agent': '*', 'server': 'github@acme-api', 'principals': ['group:backend'],
+                          'actions': ['tool.call'], 'scope': ['create_issue', 'list_issues'], 'max_input_bytes': 4096,
+                          'allow_disconnected': True, 'max_calls_per_hour': 10}],
+          'trusted_hosts': ['host_' + 'b' * 64, 'host_' + 'a' * 64]}
+    lines = policy_lines_v2(v2)
+    need(lines == V2_VECTOR_LINES, 'the v2 test vector statement lines', lines)
+    need(hashlib.sha256('\n'.join(lines).encode()).hexdigest() == V2_VECTOR_HASH, 'the v2 test vector statement hash')
+    need(sshsig(person, lines) == V2_VECTOR_SIGNATURE, 'the v2 test vector signature')
+    ssh_public = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG56HN0psLeP0Tr0xVmP7/TvKpcWbjym8uT7/M2AUFvx'
+    ssh_verify(lines, V2_VECTOR_SIGNATURE, ssh_public, directory)
+    return 'v1 and v2 vectors reproduced; the v2 signature verifies with ssh-keygen'
 
 
 def check_migration(original, replacement, label):

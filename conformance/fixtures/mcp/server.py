@@ -22,6 +22,8 @@ Control keys (all optional):
   list_error        answer `tools/list` with a JSON-RPC error
   huge_snapshot     give every tool a 128 KiB description, so that the snapshot exceeds 1 MiB
   extra_tools       [{"name": ..., "read_only": true|false}] added to the tool list
+  generate          as --generate, read at each request
+  page_size         as --page-size, read at each request
 
 Tools (`readOnlyHint` true unless noted):
   echo {text}                 returns text
@@ -161,14 +163,14 @@ def tools():
     ]
     entries += [tool(f'from_{label}', f'Present when started with --label {label}' + padding)
                 for label in OPTIONS['labels']]
-    entries += [tool(f'gen_{n:04d}', f'Generated tool {n}' + padding) for n in range(OPTIONS['generate'])]
+    entries += [tool(f'gen_{n:04d}', f'Generated tool {n}' + padding) for n in range(c.get('generate') or OPTIONS['generate'])]
     for extra in c.get('extra_tools') or []:
         entries.append(tool(extra['name'], 'Added by the control file' + padding, read_only=bool(extra.get('read_only'))))
     return entries
 
 
 def page(items, cursor, key):
-    size = OPTIONS['page_size']
+    size = control().get('page_size') or OPTIONS['page_size']
     start = int(cursor) if cursor else 0
     if not size:
         return {key: items[start:]}
