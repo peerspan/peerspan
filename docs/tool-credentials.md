@@ -71,7 +71,7 @@ Sharing a server without a narrower credential shares only the tools the server 
 Two caveats:
 
 - **The read-only flag is unverified.** It is a claim made by software the owner installed, and Peerspan cannot check it.
-- **Read-only still reaches everything the credential can read.** A peer can read every repository, channel, or table the token covers. This default may still be too permissive; see [Open questions](#open-questions).
+- **Read-only still reaches everything the credential can read.** A peer can read every repository, channel, or table the token covers. For that reason, sharing also asks the owner to confirm the reach (decision 4).
 
 ## What this means for later work
 
@@ -88,11 +88,10 @@ Settled with the owner on 2026-10-16:
 2. **Read-only by default.** Without a narrower credential, a share covers read-only tools only, and `allow` states the credential's reach. Write tools need a narrower credential for the share or approval of each call. Argument rules and server profiles are later work.
 3. **`${VAR}` secrets are captured at `attach`.** `attach` runs in the owner's shell and records the referenced values in host state, readable only by the owner. A per-user environment file that the daemon reads on each start is available as an alternative, and its values take precedence over captured ones. `status` reports authentication failures from shared servers and suggests running `attach` again, because a captured token can go stale.
 
+4. **The owner confirms the reach.** The owner was concerned that read-only alone may be too permissive. So the first time a server is shared, `allow` states the credential's reach and the owner confirms it once.
+5. **Trust is per machine.** An owner's own machines get shared tools only when marked trusted, because machines differ in access, scope, and role ([tools contract](tools-contract.md#authorization)).
+
 ## Open questions
 
-- **Is read-only too permissive as a default?** The owner flagged this. Alternatives:
-  - share nothing until tools are named, even read-only ones;
-  - require a narrower credential before any write tool, with no approval route;
-  - require the owner to confirm the stated reach once per server.
 - **Peerspan as an OAuth client.** Its client metadata, which providers support dynamic registration, and how per-share consent maps onto each provider's scopes.
 - **Argument rules.** How they are written in signed policy without revealing more to the coordinator than necessary.

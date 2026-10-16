@@ -1,6 +1,6 @@
 # Remote tools and resources
 
-Status: proposal under review. It was drafted on 2026-10-16 and reworked the same day after owner review. The decisions settled so far are listed under [Decisions](#decisions); the [open decisions](#open-decisions) are settled before a contract is written. Nothing is implemented. This would be roadmap milestone 10. It builds on owner access policy (milestone 2b), tasks (milestone 6), and the [access model](access-model.md). Credentials and how far they reach are covered separately, in [Credentials for shared tools](tool-credentials.md).
+Status: accepted. It was drafted on 2026-10-16 and reworked the same day after owner review, and its decisions are listed under [Decisions](#decisions). The slice 1 contract is in [tools-contract.md](tools-contract.md). Nothing is implemented. This would be roadmap milestone 10. It builds on owner access policy (milestone 2b), tasks (milestone 6), and the [access model](access-model.md). Credentials and how far they reach are covered separately, in [Credentials for shared tools](tool-credentials.md).
 
 ## Problem
 
@@ -230,12 +230,9 @@ Settled with the owner on 2026-10-16:
 1. **Discovery, not registration.** Servers come from the harness configuration. The only explicit step is sharing, through `allow`.
 2. **Read-only by default.** Without a narrower credential, a share covers read-only tools, with the reach stated. The owner flagged that this may still be too permissive, so the question stays open below.
 3. **`${VAR}` secrets are captured at `attach`.** A per-user environment file is the alternative ([tool credentials](tool-credentials.md#decisions)).
-
-## Open decisions
-
-1. **Whether read-only is too permissive.** The alternatives are listed in [tool credentials](tool-credentials.md#open-questions).
-2. **Compatibility.** Policy v2 as a clean break (proposed), or a separate tool policy statement.
-3. **Self access.** Excluded from tools unless allowed (proposed), or covered like everything else.
-4. **Call model.** Persisted asynchronous calls with a 60-second wait in the MCP tool (proposed), or also a synchronous route for short calls.
-5. **Rule visibility.** Server, profile, and tool names in policy are visible to the coordinator. Accept that, or hash them in signed rules.
-6. **Default budget.** For example, 100 calls per hour per caller and server, matching the session send cap.
+4. **The owner confirms the reach.** The first time a server is shared, `allow` shows the credential's reach and the owner confirms it once.
+5. **Compatibility.** Policy v2 is a clean break, with coordinators upgraded first.
+6. **Trust is per machine.** Self access covers tools only from hosts the person marks trusted, because an owner's machines differ in access, scope, and role. The trusted hosts are listed in the signed policy. `join` and `network create` ask, defaulting to no, and `trust` and `untrust` change it later. This replaces the opt-in with `allow self --tools` proposed above.
+7. **Calls.** Calls are persisted and asynchronous only.
+8. **Rule visibility.** Server, profile, and tool names in policy being visible to coordination is accepted for now.
+9. **Default budget.** 100 calls per hour per caller and rule, adjustable in review of the contract.
