@@ -161,7 +161,7 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 `--tools` and `--resources` may be repeated, and each occurrence makes its own rule.
 
 **What `allow --tools` checks, before signing:**
-1. **The server exists here.** Tool shares never default to `*`. Without `--agent`, `allow` makes one rule for each agent on this host whose snapshot has the server as `shareable`, named explicitly, and refuses if there is none. With `--agent NAME`, that agent must be on this host and have the server. The server's credentials are therefore always ones whose reach is confirmed on this host. To share another machine's server, run `allow` on that machine.
+1. **The server exists here.** Tool shares never default to `*`. Without `--agent`, `allow` makes one rule for each agent on this host whose snapshot has the server as `shareable`, named explicitly, and refuses if there is none. With `--agent NAME`, that agent must be on this host and have the server as `shareable`; a remote, disabled, misnamed, or `missing_env` server is refused with its reason. The server's credentials are therefore always ones whose reach is confirmed on this host. To share another machine's server, run `allow` on that machine.
 
    `--agent '*'` is accepted explicitly. It makes one `*` rule, and requires `--yes` even after earlier confirmations. It warns that the rule covers servers of that name on every machine of this person, including servers whose credentials were not confirmed on this host.
 2. **No write tools without a profile.** Named tools on a server without a profile must be `read_only` in the snapshot. Otherwise `allow` refuses. The error names the tools, and says to add a profile with `tools profile add` or to wait for approval of each call.
@@ -199,7 +199,12 @@ Several matching rules combine as for messages: the call is authorized if any ap
 
 **Rechecks.** Authorization is checked at submission, and again immediately before the call starts. A failure at the start makes the call `rejected`, with the reason `authorization lapsed before start`. Once a call has started, revocation does not stop it; cancellation can.
 
-**Citation form.** As for tasks: exactly one of `grant_id`, `policy` (`{person_id, version}`), or `self` (`{person_id}`). What senders cite follows tasks, except that `self` is cited only when this host is in the trusted list. Otherwise the sender cites the policy.
+**Citation form.** As for tasks: exactly one of `grant_id`, `policy` (`{person_id, version}`), or `self` (`{person_id}`). The CLI cites what the listing reported:
+- with `--grant ID`, that grant, which must appear in `via`;
+- otherwise, with `--network ID`, the first `via` entry from that network, after querying the listing with `?network=ID`;
+- otherwise, the first `via` entry.
+
+An entry without a usable `via` is refused locally before anything is persisted. The citation, and its network, are stored in the outbound record, and retries reuse them.
 
 ## Calls
 
@@ -207,7 +212,7 @@ Several matching rules combine as for messages: the call is authorized if any ap
 
 | Route | Body | Behavior |
 | --- | --- | --- |
-| `GET /peer/v1/tools?network=ID` | none | Lists what the authenticated sender may call or read on this host: `[{agent, agent_id, server, profile, tools: [{name, description, input_schema, read_only}], resources: [...]}]`, from snapshots, filtered by authorization without budgets. `network` is optional. Without it, all policies and grants are evaluated. Sorted by agent, server, and profile. |
+| `GET /peer/v1/tools?network=ID` | none | Lists what the authenticated sender may call or read on this host: `[{agent, agent_id, server, profile, tools: [{name, description, input_schema, read_only, via}], resources: [{uri, name, description, mime_type, via}]}]`, from snapshots, filtered by authorization without budgets. `via` lists what authorizes each entry, as `{kind: "self", network_id}`, `{kind: "policy", network_id, person_id, version}`, or `{kind: "grant", grant_id}`, in that order of kind, then by network ID or grant ID. With `network`, only self and policy authorizations from that network are evaluated, and grants are not. Without it, every network and grant is evaluated. Sorted by agent, server, and profile. |
 | `POST /peer/v1/calls` | exactly `call_id`, `target_agent_id`, `server`, `profile` (string or null), `kind` (`tool` or `resource`), `name` (for `tool`) or `uri` (for `resource`), `arguments` (an object, for `tool`), `deadline`, optional `origin`, and one citation | Authorizes as above, then persists the call as `queued` with a `call.received` activity, and returns 200 with the status record. Idempotent by `(sender, call_id)`: an identical repeat returns the existing record, and a changed one returns 409. |
 | `GET /peer/v1/calls/{call_id}` | none | The status record with its `result` once final. Submitter only; anyone else gets 404. It remains available after revocation. |
 | `POST /peer/v1/calls/{call_id}/cancel` | `{}` | Sets `cancel_requested`. A `queued` call becomes `cancelled` at once. A `running` call is sent MCP `notifications/cancelled` and becomes `uncertain` with the error `cancel_requested`, unless its result was already received. Submitter only. A repeat, or a cancel of a final call, returns the record unchanged. |
@@ -263,7 +268,7 @@ The receiver stores the request, the status record, and the result. The request'
 
 **Resolving a target.** The directory lists only agents with message or task access, so `call` and `read` do not use it:
 - **`HOST_ID/…`** names a known host directly: a member of any network or a manually configured peer. This is the form for peers that hold only a grant.
-- **`PERSON/…`** resolves PERSON (a label or person ID) through each network's map to the hosts bound to that person, limited to `--network` when given. It fetches `GET /peer/v1/tools` from each of those hosts, at most 8 at once with a 5-second timeout each, and keeps the hosts whose listing has AGENT with that server and profile.
+- **`PERSON/…`** resolves PERSON (a label or person ID) through each network's map to the hosts bound to that person, limited to `--network` when given. It fetches `GET /peer/v1/tools` from each of those hosts, with `?network=ID` when `--network` is given, at most 8 at once with a 5-second timeout each, and keeps the hosts whose listing has AGENT with that server and profile.
 - **Outcomes.** Exactly one match is the target. None is an error that lists the hosts that did not answer. More than one is an error listing the `HOST_ID/AGENT/SERVER` form of each. The resolved host ID and agent ID are stored in the outbound record, so retries and polling never resolve again.
 
 `tools remote` uses the same resolution, and lists every match instead of choosing one.
@@ -335,7 +340,7 @@ It covers:
 - **`allow --tools`:**
   - each `SPEC` form;
   - one rule per local agent with the server when `--agent` is omitted, refusal when no local agent has it, and `--agent '*'` requiring `--yes` with its warning;
-  - refusal of write tools without a profile;
+  - refusal of write tools without a profile, and of a named agent's server that is not `shareable`;
   - reach confirmation at a terminal, with `--yes`, refused without either, and not asked twice;
   - set semantics;
   - `deny --tools`.
@@ -364,7 +369,8 @@ It covers:
 - **Routes:** `GET /peer/v1/tools` filtered by authorization, and reachable by a grant-only peer outside any network; status and cancel from a non-submitter returning 404.
 - **Owner CLI:**
   - `tools`, `tools remote`, `call` and `read` exit codes, and `calls` listings;
-  - target resolution for an agent with only tool access, by person and by host ID, and the ambiguous and not-found errors.
+  - target resolution for an agent with only tool access, by person and by host ID, and the ambiguous and not-found errors;
+  - `--network` scoping: a tool authorized only in another network of the same person and host is neither listed nor cited, and `via` ordering decides the citation otherwise.
 - **Grants:** tool grants with their scope, input bound, and budget, including the defaults.
 - **Literal values:** a server configured with a literal token starts with it, and the token appears nowhere else.
 - **Profiles:** a profile instance receiving its own environment file and arguments, and a share of a profile not matching the bare server.
