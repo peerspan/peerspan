@@ -152,7 +152,7 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 | Command | Behavior |
 | --- | --- |
 | `allow PRINCIPAL --tools SPEC [--agent NAME] [--yes] [--calls-per-hour N] [--network ID]` | Sets PRINCIPAL's tool access, described below. |
-| `deny PRINCIPAL --tools SERVER[@PROFILE] [--agent NAME] [--network ID]` | Removes PRINCIPAL from every tool rule naming that server or profile, within the agent scope, whatever its actions or scope, and drops empty rules. It reports `removed` and `note`, as `deny` does. |
+| `deny PRINCIPAL --tools SERVER[@PROFILE] [--agent NAME] [--network ID]` | Removes PRINCIPAL from tool rules within the agent scope, whatever their actions or scope, and drops empty rules. A bare `SERVER` removes the rules for that server and for every `SERVER@PROFILE`; `SERVER@PROFILE` removes only that profile's rules. It reports `removed` and `note`, as `deny` does. |
 | `trust [HOST] [--network ID]` / `untrust HOST [--network ID]` | Adds the host to, or removes it from, `trusted_hosts` in this person's policy for the selected network, then signs and submits that policy's next version. Network selection follows the usual defaulting: `--network` is optional when this host belongs to exactly one network. `HOST` defaults to this host, and for `trust` it must be bound to this person in the selected network. |
 
 **`SPEC`.** It is one of:
@@ -171,7 +171,7 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 
 **Applying the rule.**
 - **Settings:** `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100 or `--calls-per-hour`.
-- **Set semantics** follow `allow`. Within the same agent scope and server, PRINCIPAL is removed from every tool rule for that server. It is then added to the first remaining rule with identical settings and scope, or a new rule is appended, and empty rules are dropped.
+- **Set semantics** follow `allow`, applied once per invocation. For each `(agent, server[@profile])` named by any `--tools` in the invocation, PRINCIPAL is first removed from every tool rule for it. Then each `--tools` occurrence adds PRINCIPAL to the first remaining rule with identical settings, actions, and scope, or appends a new rule. Finally, empty rules are dropped. So `--tools github:foo --tools github:bar` leaves both, while a later `allow` naming github replaces them.
 - **Output:** `allow` prints `{policy, principal, rules: [{agent, server, actions, scope}]}`, one entry for each rule it set.
 
 `deny --tools` without `--agent` removes the principal from tool rules for that server under every agent name, `*` included.
@@ -244,7 +244,11 @@ An entry without a usable `via` is refused locally before anything is persisted.
 
 - **Starting.** The daemon starts a server or profile instance on demand, as a child process with:
   - the definition's `command` and `args` (a profile's `--arg` values replacing `args`), after substituting stored values;
-  - an environment of the daemon's own `PATH` and `HOME`, the definition's `env` with its stored values, then the environment file, then, for a profile, its `--env-file`;
+  - an environment built in this order, later entries overriding earlier ones:
+    1. the daemon's own `PATH` and `HOME`;
+    2. the definition's `env`, with its stored values;
+    3. from the environment file, only the variables named in the definition's `env`, as described in [References](#references), never any other entry;
+    4. for a profile, every entry of its own `--env-file`, unfiltered, because the owner wrote that file for that instance.
   - the agent's workspace as the working directory.
 - **Lifetime.** One instance per `(agent, server, profile)` is shared by all calls. It runs at most 4 calls concurrently, and later calls wait as `queued`. An instance with no calls for 10 minutes is stopped.
 - **Start failures.** An instance that does not complete `initialize` within 30 seconds is stopped, and its waiting calls fail with `server_start_failed`.
@@ -344,7 +348,8 @@ It covers:
   - refusal of write tools without a profile, and of a named agent's server that is not `shareable`;
   - reach confirmation at a terminal, with `--yes`, refused without either, and not asked twice;
   - set semantics;
-  - `deny --tools` removing rules for the server whatever their actions or scope;
+  - `deny --tools` removing rules for the server whatever their actions or scope, a bare server also removing its profiles' rules, and a profile removing only its own;
+  - repeated `--tools` for one server in one invocation keeping every requested scope;
   - `SERVER` sharing read-only tools and all resources, named tools sharing no resources, and the reach prompt's resources clause.
 - **`trust`/`untrust`**, with network selection and per-network trust, and the `join` prompt and flags.
 - **Authorization:**
