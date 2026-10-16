@@ -236,3 +236,5 @@ Settled with the owner on 2026-10-16:
 7. **Calls.** Calls are persisted and asynchronous only.
 8. **Rule visibility.** Server, profile, and tool names in policy being visible to coordination is accepted for now.
 9. **Default budget.** 100 calls per hour per caller and rule, adjustable in review of the contract.
+10. **One thing to share: the server** (agreed after the contract's first review). `--tools SERVER` shares its read-only tools and all of its resources, there is no `--resources` flag, and `deny` removes everything for the server. Resource URI patterns and tool grants are left out of slice 1. The `peerspan allow group:eng --resources …` and `grant create --action tool.call …` forms above are superseded.
+11. **The environment file is scoped to each server.** A server receives only the variables its own definition names.

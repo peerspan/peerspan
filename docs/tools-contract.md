@@ -11,7 +11,10 @@ Decided with the owner on 2026-10-16:
 - the policy format makes a clean break to `peerspan-policy-v2`;
 - calls are persisted and asynchronous only;
 - server and tool names in policy are visible to coordination;
-- self access covers tools only from hosts the person has marked trusted.
+- self access covers tools only from hosts the person has marked trusted;
+- a server receives only the environment-file variables its own definition names;
+- people share a server, not tools and resources separately: one `--tools` flag covers both, and `deny` removes everything for that server;
+- resource URI patterns and tool grants are left out of slice 1, to keep it small.
 
 ## Model
 
@@ -79,7 +82,7 @@ Each discovered server is normalized to:
 - **Where they are resolved.** In `command`, `args`, and `env` values, `${NAME}` and `${NAME:-DEFAULT}` are resolved from the CLI's environment at discovery. This applies to Claude Code definitions, and to the same syntax in the other harnesses.
 - **What is stored.** A value that contains a reference is resolved and sent in `values`, and its `env` entry is `captured`. Literal `env` values are sent in `values` too, as `literal`. The daemon stores both in `tool_values`, which is the only place it reads them from.
 - **Unresolved references.** A reference with no value and no default makes the entry `missing`. The server is then listed with `shareable: false` and the reason `missing_env`, naming the variables.
-- **The environment file.** `$XDG_CONFIG_HOME/peerspan/env` (default `~/.config/peerspan/env`) holds `NAME=VALUE` lines, with `#` comments. When it exists, the daemon reads it each time it starts a server. Its values override captured values and literals of the same name in `env`. If it is not mode 0600 or stricter, servers start without it and status item 14 reports it.
+- **The environment file.** `$XDG_CONFIG_HOME/peerspan/env` (default `~/.config/peerspan/env`) holds `NAME=VALUE` lines, with `#` comments. When it exists, the daemon reads it each time it starts a server. Only variables whose names appear in the server definition's `env` are taken from it; others in the file are ignored for that server. Those values override captured values and literals of the same name. If it is not mode 0600 or stricter, servers start without it and status item 14 reports it.
 
 ### Daemon side
 
@@ -114,13 +117,13 @@ The policy statement's header line becomes `peerspan-policy-v2`. A v2 statement'
    2. the agent name, or `*`;
    3. the server, `NAME` or `NAME@PROFILE`;
    4. the principals, space-separated;
-   5. the action, `tool.call` or `resource.read`;
-   6. the scope, space-separated: `readonly`, `*`, tool names (for `tool.call`), or URI patterns (for `resource.read`);
+   5. the actions, space-separated: `tool.call`, optionally followed by `resource.read`;
+   6. the scope, space-separated: `readonly`, `*`, or tool names;
    7. `max_input_bytes`, `allow_disconnected`, and `max_calls_per_hour`, space-separated;
    8. `end`;
 4. a final line, `trusted` followed by host IDs, space-separated, sorted, possibly none.
 
-The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is `{agent, server, principals, action, scope, max_input_bytes, allow_disconnected, max_calls_per_hour}`.
+The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is `{agent, server, principals, actions, scope, max_input_bytes, allow_disconnected, max_calls_per_hour}`.
 
 **Bounds and validation.**
 - **`max_input_bytes`:** 1 to 262,144; it bounds the JSON encoding of `arguments`, or the URI.
@@ -129,8 +132,8 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 - **Principals:** as for rules.
 - **Scope:**
   - `readonly` and `*` stand alone;
-  - `*` is valid only with a profile, or for `resource.read`;
-  - URI patterns are literal URIs, or a prefix ending in `*`.
+  - `*` is valid only with a profile;
+  - `resource.read` is allowed only with the scope `readonly` or `*`, and then covers every resource in the snapshot.
 - **Trusted hosts:** each must be a host ID.
 
 **Compatibility.**
@@ -144,33 +147,32 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 
 ### Commands
 
-`allow` and `deny` gain tool forms. The forms without `--tools` or `--resources` are unchanged and never touch tool rules.
+`allow` and `deny` gain a tool form. The forms without `--tools` are unchanged and never touch tool rules. People share a server; the two actions stay in the policy, and the CLI chooses them.
 
 | Command | Behavior |
 | --- | --- |
 | `allow PRINCIPAL --tools SPEC [--agent NAME] [--yes] [--calls-per-hour N] [--network ID]` | Sets PRINCIPAL's tool access, described below. |
-| `allow PRINCIPAL --resources SERVER[@PROFILE]:PATTERN [...] [--agent NAME] [--network ID]` | The same for `resource.read`. |
-| `deny PRINCIPAL --tools SERVER[@PROFILE] [--agent NAME] [--network ID]` | Removes PRINCIPAL from every tool rule naming that server or profile, within the agent scope, and drops empty rules. It reports `removed` and `note`, as `deny` does. |
+| `deny PRINCIPAL --tools SERVER[@PROFILE] [--agent NAME] [--network ID]` | Removes PRINCIPAL from every tool rule naming that server or profile, within the agent scope, whatever its actions or scope, and drops empty rules. It reports `removed` and `note`, as `deny` does. |
 | `trust [HOST] [--network ID]` / `untrust HOST [--network ID]` | Adds the host to, or removes it from, `trusted_hosts` in this person's policy for the selected network, then signs and submits that policy's next version. Network selection follows the usual defaulting: `--network` is optional when this host belongs to exactly one network. `HOST` defaults to this host, and for `trust` it must be bound to this person in the selected network. |
 
 **`SPEC`.** It is one of:
-- `SERVER` or `SERVER@PROFILE`, meaning `readonly`;
-- `SERVER[@PROFILE]:TOOL[,TOOL...]`;
-- `SERVER@PROFILE:*`.
+- `SERVER` or `SERVER@PROFILE`: scope `readonly`, actions `tool.call resource.read`. This shares the server's read-only tools and all of its resources.
+- `SERVER[@PROFILE]:TOOL[,TOOL...]`: those tools, action `tool.call` only.
+- `SERVER@PROFILE:*`: scope `*`, actions `tool.call resource.read`. This shares every tool and resource of the profile.
 
-`--tools` and `--resources` may be repeated, and each occurrence makes its own rule.
+`--tools` may be repeated, and each occurrence makes its own rule.
 
 **What `allow --tools` checks, before signing:**
 1. **The server exists here.** Tool shares never default to `*`. Without `--agent`, `allow` makes one rule for each agent on this host whose snapshot has the server as `shareable`, named explicitly, and refuses if there is none. With `--agent NAME`, that agent must be on this host and have the server as `shareable`; a remote, disabled, misnamed, or `missing_env` server is refused with its reason. The server's credentials are therefore always ones whose reach is confirmed on this host. To share another machine's server, run `allow` on that machine.
 
    `--agent '*'` is accepted explicitly. It makes one `*` rule, and requires `--yes` even after earlier confirmations. It warns that the rule covers servers of that name on every machine of this person, including servers whose credentials were not confirmed on this host.
 2. **No write tools without a profile.** Named tools on a server without a profile must be `read_only` in the snapshot. Otherwise `allow` refuses. The error names the tools, and says to add a profile with `tools profile add` or to wait for approval of each call.
-3. **The reach is confirmed.** The first time a share names a given `(agent, server, profile)`, `allow` prints the reach and requires confirmation. The prompt reads: `PRINCIPAL can call these tools of SERVER on AGENT with the credentials it runs with there: TOOLS. Anything those credentials can reach through these tools, PRINCIPAL can too.` Confirmation is `y` at a terminal, or `--yes`. Without a terminal and without `--yes`, `allow` refuses with exit 1. Confirmations are stored per `(agent, server, profile)` on this host, and are not asked again.
+3. **The reach is confirmed.** The first time a share names a given `(agent, server, profile)`, `allow` prints the reach and requires confirmation. The prompt reads: `PRINCIPAL can call these tools of SERVER on AGENT, and read its resources, with the credentials it runs with there: TOOLS. Anything those credentials can reach through them, PRINCIPAL can too.` The resources clause appears only when the actions include `resource.read`. Confirmation is `y` at a terminal, or `--yes`. Without a terminal and without `--yes`, `allow` refuses with exit 1. Confirmations are stored per `(agent, server, profile)` on this host, and are not asked again.
 
 **Applying the rule.**
 - **Settings:** `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100 or `--calls-per-hour`.
-- **Set semantics** follow `allow`. Within the same agent scope and server, PRINCIPAL is removed from every tool rule with the same action. It is then added to the first remaining rule with identical settings and scope, or a new rule is appended, and empty rules are dropped.
-- **Output:** `allow` prints `{policy, principal, rules: [{agent, server, action, scope}]}`, one entry for each rule it set.
+- **Set semantics** follow `allow`. Within the same agent scope and server, PRINCIPAL is removed from every tool rule for that server. It is then added to the first remaining rule with identical settings and scope, or a new rule is appended, and empty rules are dropped.
+- **Output:** `allow` prints `{policy, principal, rules: [{agent, server, actions, scope}]}`, one entry for each rule it set.
 
 `deny --tools` without `--agent` removes the principal from tool rules for that server under every agent name, `*` included.
 
@@ -184,24 +186,24 @@ A receiving host bound to person P authorizes a call to its agent N's server S (
   - its server is `S` (or `S@R`);
   - its action is the call's;
   - a principal matches the sender, as for rules;
-  - the scope covers the tool or URI.
-- **Grant.** A grant with `action` `tool.call` or `resource.read`, held by this host and naming the sender. Grants gain `server`, `scope`, `max_input_bytes`, and `max_calls_per_hour`, set with `grant create --action ACTION --server SERVER[@PROFILE] --scope ENTRY [--scope ENTRY ...] [--max-input-bytes N] [--calls-per-hour N]`. `--scope` is required and takes the same entries as a tool rule's scope. The defaults are 65,536 and 100, with the same ranges as tool rules. The grant's existing `agent`, `allow_disconnected`, and expiry apply as for other grants, and its `max_message_bytes` does not apply to calls.
+  - the scope covers the tool, or the actions include `resource.read` for a resource.
 - **Self.** In some network N, the sender and receiver are both bound to P, and the sender's host ID is in `trusted_hosts` of P's newest verified policy for N. Trust is per network: trusting a host in one network does not cover calls that rely on another. Self covers every shareable server and profile of every agent, and every tool, including tools that are not read-only. Its bounds are `max_input_bytes` 262,144, `allow_disconnected` true, and no hourly budget.
 
 Then, in this order:
 1. **Blocks.** The block list applies, except to self.
-2. **The snapshot.** The agent's snapshot has the tool, or a resource whose URI matches. Otherwise 404.
-3. **The read-only rule.** Under policy or a grant, a tool that is not `read_only` on a server without a profile is refused with 403, whatever the scope says.
-4. **Bounds.** Input size within `max_input_bytes`, otherwise 413. The deadline within the policy's `valid_until` or the grant's expiry. The connected state unless `allow_disconnected`, with 503 when it can recover, as for messages.
-5. **Budget.** At most `max_calls_per_hour` accepted calls in the trailing hour, counted per `(rule or grant, caller)`. The caller is the sender's bound person in that network, or else the sender's host ID. A call over the limit is refused with 429 and the limit's name.
+2. **The snapshot.** The agent's snapshot has the tool, or a resource with that URI. Otherwise 404.
+3. **The read-only rule.** Under policy, a tool that is not `read_only` on a server without a profile is refused with 403, whatever the scope says.
+4. **Bounds.** Input size within `max_input_bytes`, otherwise 413. The deadline within the policy's `valid_until`. The connected state unless `allow_disconnected`, with 503 when it can recover, as for messages.
+5. **Budget.** At most `max_calls_per_hour` accepted calls in the trailing hour, counted per `(rule, caller)`. The caller is the sender's bound person in that network, or else the sender's host ID. A call over the limit is refused with 429 and the limit's name.
 
 Several matching rules combine as for messages: the call is authorized if any applicable rule allows it, under that rule's bounds and budget.
 
 **Rechecks.** Authorization is checked at submission, and again immediately before the call starts. A failure at the start makes the call `rejected`, with the reason `authorization lapsed before start`. Once a call has started, revocation does not stop it; cancellation can.
 
-**Citation form.** As for tasks: exactly one of `grant_id`, `policy` (`{person_id, version}`), or `self` (`{person_id}`). The CLI cites what the listing reported:
-- with `--grant ID`, that grant, which must appear in `via`;
-- otherwise, with `--network ID`, the first `via` entry from that network, after querying the listing with `?network=ID`;
+**Grants.** Grants do not authorize calls in slice 1, and `grant create` does not accept `tool.call` or `resource.read`. A manually configured peer outside any network gets an empty tool listing.
+
+**Citation form.** Exactly one of `policy` (`{person_id, version}`) or `self` (`{person_id}`); a `grant_id` is refused with 400. The CLI cites what the listing reported:
+- with `--network ID`, the first `via` entry from that network, after querying the listing with `?network=ID`;
 - otherwise, the first `via` entry.
 
 An entry without a usable `via` is refused locally before anything is persisted. The citation, and its network, are stored in the outbound record, and retries reuse them.
@@ -212,7 +214,7 @@ An entry without a usable `via` is refused locally before anything is persisted.
 
 | Route | Body | Behavior |
 | --- | --- | --- |
-| `GET /peer/v1/tools?network=ID` | none | Lists what the authenticated sender may call or read on this host: `[{agent, agent_id, server, profile, tools: [{name, description, input_schema, read_only, via}], resources: [{uri, name, description, mime_type, via}]}]`, from snapshots, filtered by authorization without budgets. `via` lists what authorizes each entry, as `{kind: "self", network_id}`, `{kind: "policy", network_id, person_id, version}`, or `{kind: "grant", grant_id}`, in that order of kind, then by network ID or grant ID. With `network`, only self and policy authorizations from that network are evaluated, and grants are not. Without it, every network and grant is evaluated. Sorted by agent, server, and profile. |
+| `GET /peer/v1/tools?network=ID` | none | Lists what the authenticated sender may call or read on this host: `[{agent, agent_id, server, profile, tools: [{name, description, input_schema, read_only, via}], resources: [{uri, name, description, mime_type, via}]}]`, from snapshots, filtered by authorization without budgets. `via` lists what authorizes each entry, as `{kind: "self", network_id}`, `{kind: "policy", network_id, person_id, version}`, self before policy, then by network ID. With `network`, only authorizations from that network are evaluated. Without it, every network is evaluated. Sorted by agent, server, and profile. |
 | `POST /peer/v1/calls` | exactly `call_id`, `target_agent_id`, `server`, `profile` (string or null), `kind` (`tool` or `resource`), `name` (for `tool`) or `uri` (for `resource`), `arguments` (an object, for `tool`), `deadline`, optional `origin`, and one citation | Authorizes as above, then persists the call as `queued` with a `call.received` activity, and returns 200 with the status record. Idempotent by `(sender, call_id)`: an identical repeat returns the existing record, and a changed one returns 409. |
 | `GET /peer/v1/calls/{call_id}` | none | The status record with its `result` once final. Submitter only; anyone else gets 404. It remains available after revocation. |
 | `POST /peer/v1/calls/{call_id}/cancel` | `{}` | Sets `cancel_requested`. A `queued` call becomes `cancelled` at once. A `running` call is sent MCP `notifications/cancelled` and becomes `uncertain` with the error `cancel_requested`, unless its result was already received. Submitter only. A repeat, or a cancel of a final call, returns the record unchanged. |
@@ -259,7 +261,7 @@ The receiver stores the request, the status record, and the result. The request'
 | CLI | Local API | Behavior |
 | --- | --- | --- |
 | `tools remote [PERSON[/AGENT]] [--network ID] [--json]` | `GET /v1/remote-tools?target=…` | Fetches `GET /peer/v1/tools` from each matching host in the directory, at most 8 at once with a 5-second timeout each, and prints what this host may call. |
-| `call TARGET TOOL [--arguments JSON] [--deadline T] [--wait D] [--grant ID] [--network ID]` | `POST /v1/calls` | `TARGET` is `PERSON/AGENT/SERVER[@PROFILE]` or `HOST_ID/AGENT/SERVER[@PROFILE]`, resolved as below. Persists the outbound call and submits it, with retries as for tasks. It then waits up to `--wait` (default 60 seconds, at most 15 minutes) for a final state, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
+| `call TARGET TOOL [--arguments JSON] [--deadline T] [--wait D] [--network ID]` | `POST /v1/calls` | `TARGET` is `PERSON/AGENT/SERVER[@PROFILE]` or `HOST_ID/AGENT/SERVER[@PROFILE]`, resolved as below. Persists the outbound call and submits it, with retries as for tasks. It then waits up to `--wait` (default 60 seconds, at most 15 minutes) for a final state, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
 | `read TARGET URI [same options]` | `POST /v1/calls` | The same, for `resource.read`. |
 | `calls list [--after N] [--limit N]` | `GET /v1/calls` | Outbound calls in insertion order, paged as tasks are. |
 | `calls received [--after N] [--limit N]` | `GET /v1/calls/received` | Calls received by this host. |
@@ -267,7 +269,7 @@ The receiver stores the request, the status record, and the result. The request'
 | `calls cancel --peer HOST ID` | `POST /v1/calls/{peer}/{id}/cancel` | Sends cancellation, resent while uncertain, as for tasks. |
 
 **Resolving a target.** The directory lists only agents with message or task access, so `call` and `read` do not use it:
-- **`HOST_ID/…`** names a known host directly: a member of any network or a manually configured peer. This is the form for peers that hold only a grant.
+- **`HOST_ID/…`** names a known host directly: a member of any network this host shares with it. It is the form for picking one host when a person's agent name is ambiguous.
 - **`PERSON/…`** resolves PERSON (a label or person ID) through each network's map to the hosts bound to that person, limited to `--network` when given. It fetches `GET /peer/v1/tools` from each of those hosts, with `?network=ID` when `--network` is given, at most 8 at once with a 5-second timeout each, and keeps the hosts whose listing has AGENT with that server and profile.
 - **Outcomes.** Exactly one match is the target. None is an error that lists the hosts that did not answer. More than one is an error listing the `HOST_ID/AGENT/SERVER` form of each. The resolved host ID and agent ID are stored in the outbound record, so retries and polling never resolve again.
 
@@ -302,7 +304,6 @@ PRAGMA user_version = 16;
 ```
 
 - **Records** are JSON. `tool_servers.record` holds the definition and snapshot. `tool_confirmations.profile` is empty for none.
-- **Grants** gain `server` and `scope`, and grant records without them read as before.
 - **Version checks.** Older binaries reject version 16, and version 16 binaries reject version 17.
 
 **New activity kinds:**
@@ -326,7 +327,7 @@ It covers:
   - each harness's sources and precedence, from fixture configuration files under a temporary `HOME`;
   - remote, disabled, and invalidly named servers marked not shareable;
   - `${VAR}` and `${VAR:-DEFAULT}` captured, and missing ones reported;
-  - the environment file overriding captured values, and ignored when too open (item 14);
+  - the environment file overriding captured values only for variables the definition names, other variables not reaching the server, and the file ignored when too open (item 14);
   - values never present in output, listings, activity, or the peer route;
   - a server dropped from configuration refusing new calls;
   - a new tool not shared until named, except under `readonly` when it is read-only.
@@ -343,13 +344,14 @@ It covers:
   - refusal of write tools without a profile, and of a named agent's server that is not `shareable`;
   - reach confirmation at a terminal, with `--yes`, refused without either, and not asked twice;
   - set semantics;
-  - `deny --tools`.
+  - `deny --tools` removing rules for the server whatever their actions or scope;
+  - `SERVER` sharing read-only tools and all resources, named tools sharing no resources, and the reach prompt's resources clause.
 - **`trust`/`untrust`**, with network selection and per-network trust, and the `join` prompt and flags.
 - **Authorization:**
-  - by policy, by grant, and by self from a trusted host;
+  - by policy, and by self from a trusted host; a grant citation refused with 400;
   - self refused from an untrusted host of the same person;
   - another person's host never covered by self;
-  - the read-only rule under policy and grants, but not under self;
+  - the read-only rule under policy, but not under self;
   - blocks, except under self;
   - the budget, counted per person and per host for unbound senders;
   - 413 for oversized input;
@@ -366,12 +368,11 @@ It covers:
   - a server exit producing `uncertain` for running calls;
   - concurrency capped at 4 per instance;
   - idle stop.
-- **Routes:** `GET /peer/v1/tools` filtered by authorization, and reachable by a grant-only peer outside any network; status and cancel from a non-submitter returning 404.
+- **Routes:** `GET /peer/v1/tools` filtered by authorization, and empty for a manually configured peer outside any network; status and cancel from a non-submitter returning 404.
 - **Owner CLI:**
   - `tools`, `tools remote`, `call` and `read` exit codes, and `calls` listings;
   - target resolution for an agent with only tool access, by person and by host ID, and the ambiguous and not-found errors;
   - `--network` scoping: a tool authorized only in another network of the same person and host is neither listed nor cited, and `via` ordering decides the citation otherwise.
-- **Grants:** tool grants with their scope, input bound, and budget, including the defaults.
 - **Literal values:** a server configured with a literal token starts with it, and the token appears nowhere else.
 - **Profiles:** a profile instance receiving its own environment file and arguments, and a share of a profile not matching the bare server.
 - **Status:** item 14 for each cause.
