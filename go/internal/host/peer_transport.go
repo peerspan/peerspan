@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 )
 
 func (s *Store) peerCertificate() (tls.Certificate, error) {

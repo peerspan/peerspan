@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/disco"
-	"github.com/Cerebral-Systems/capsule/go/internal/relay"
-	"github.com/Cerebral-Systems/capsule/go/internal/stun"
+	"github.com/peerspan/peerspan/go/internal/disco"
+	"github.com/peerspan/peerspan/go/internal/relay"
+	"github.com/peerspan/peerspan/go/internal/stun"
 )
 
 func stunRequestForTest() []byte { return stun.Request(stun.TxID{1}) }

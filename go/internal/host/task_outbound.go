@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // The submitting side of tasks: a durable local record per (peer, task_id),

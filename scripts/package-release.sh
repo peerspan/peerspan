@@ -124,7 +124,7 @@ case "$implementation" in
       echo "missing required command: go" >&2
       exit 1
     }
-    go_host=github.com/Cerebral-Systems/capsule/go/internal/host
+    go_host=github.com/peerspan/peerspan/go/internal/host
     GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
       go -C "$repo/go" build -trimpath \
       -ldflags "-X $go_host.Version=$version -X $go_host.DefaultCoordinator=$coordinator -X $go_host.DefaultCoordinatorKey=$coordinator_key" \

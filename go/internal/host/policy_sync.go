@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Direct policy propagation (roadmap 2c). A host bound to person P pushes P's

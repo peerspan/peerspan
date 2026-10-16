@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Coordinator moves (milestone 8, slice 3). The network root or a current

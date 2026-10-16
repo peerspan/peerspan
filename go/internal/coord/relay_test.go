@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/relay"
-	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
+	"github.com/peerspan/peerspan/go/internal/relay"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 )
 
 type relayHarness struct {

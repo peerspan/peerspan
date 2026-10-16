@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Coordinator moves and repair (milestone 8, slice 3). The network root or a

@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
-	"github.com/Cerebral-Systems/capsule/go/internal/relay"
-	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
+	"github.com/peerspan/peerspan/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/relay"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 )
 
 // Relay limits from the coordination contract.

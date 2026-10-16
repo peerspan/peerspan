@@ -17,7 +17,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Identity is what `person show` prints.

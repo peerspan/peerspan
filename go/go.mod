@@ -1,4 +1,4 @@
-module github.com/Cerebral-Systems/capsule/go
+module github.com/peerspan/peerspan/go
 
 go 1.26.0
 

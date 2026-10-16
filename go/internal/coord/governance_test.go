@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 type governed struct {

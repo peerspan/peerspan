@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 )
 
 func TestConnectivityNetworkHelper(t *testing.T) {

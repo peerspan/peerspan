@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 func bindTo(t *testing.T, s *Store, id string, owner membership.KeySigner) {

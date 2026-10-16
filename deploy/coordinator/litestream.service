@@ -2,7 +2,7 @@
 # See README.md in this directory.
 [Unit]
 Description=Litestream replication of the Peerspan coordinator database
-Documentation=https://github.com/Cerebral-Systems/capsule/blob/main/deploy/coordinator/README.md
+Documentation=https://github.com/peerspan/peerspan-internal/blob/main/deploy/coordinator/README.md
 Wants=network-online.target
 After=network-online.target peerspan-coord.service
 

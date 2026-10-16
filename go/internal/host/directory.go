@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 	"github.com/quic-go/quic-go"
 )
 

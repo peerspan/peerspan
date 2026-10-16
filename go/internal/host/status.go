@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Version names this build; release builds set it with -ldflags -X.

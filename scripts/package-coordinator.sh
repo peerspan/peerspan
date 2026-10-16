@@ -95,7 +95,7 @@ fi
 
 GOOS=linux GOARCH="$arch" CGO_ENABLED=0 \
   go -C "$repo/go" build -trimpath \
-  -ldflags "-X github.com/Cerebral-Systems/capsule/go/internal/coord.Version=$version" \
+  -ldflags "-X github.com/peerspan/peerspan/go/internal/coord.Version=$version" \
   -o "$bundle/bin/peerspan-coord" ./cmd/peerspan-coord
 
 case "$(file -b "$bundle/bin/peerspan-coord")" in

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // must returns a signing result; signing with valid inputs does not fail.

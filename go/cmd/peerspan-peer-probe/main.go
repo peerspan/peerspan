@@ -32,9 +32,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/host"
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
-	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
+	"github.com/peerspan/peerspan/go/internal/host"
+	"github.com/peerspan/peerspan/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 	"github.com/quic-go/quic-go"
 	"github.com/spf13/cobra"
 )

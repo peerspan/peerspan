@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // cliBinding signs a binding of host as the person, the way the CLI does,

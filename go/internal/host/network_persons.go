@@ -12,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Persons and host binding (milestone 2b, slice 1). The daemon never holds a

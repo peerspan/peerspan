@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
-	"github.com/Cerebral-Systems/capsule/go/internal/person"
+	"github.com/peerspan/peerspan/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/person"
 )
 
 // Owner access policy (milestone 2b, slice 3). A message is authorized by a

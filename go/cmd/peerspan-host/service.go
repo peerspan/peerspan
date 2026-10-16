@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/host"
+	"github.com/peerspan/peerspan/go/internal/host"
 	"github.com/spf13/pflag"
 )
 

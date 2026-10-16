@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/stun"
+	"github.com/peerspan/peerspan/go/internal/stun"
 )
 
 // listenSTUN binds UDP on the TLS listener's IP and port, where hosts learn

@@ -2,7 +2,7 @@
 
 The Go and Rust implementations develop the same host service in parallel. This document specifies the first working milestone: a durable local identity, agent registry, separate session attachment records, and local activity. It does not finalize the future peer protocol.
 
-Both implementations live in the `capsule` repository: `go/` contains the Go host service and `rust/` contains the Rust host service. The shared contract and conformance tests live alongside them in `docs/` and `conformance/`. The choice of implementation to release as OSS remains open. Development history can be retained while that decision is pending; a later squash is a separate decision.
+Both implementations live in this repository: `go/` contains the Go host service and `rust/` contains the Rust host service. The shared contract and conformance tests live alongside them in `docs/` and `conformance/`. The choice of implementation to release as OSS remains open. Development history can be retained while that decision is pending; a later squash is a separate decision.
 
 The product was called Capsule before 2026-10-15, and Peerspan does not carry anything over from it. Peerspan hosts and coordinators sign and verify only the `peerspan-*` domain strings and tokens. They do not read Capsule state, configuration, environment variables, or service locations. A Capsule network is therefore recreated and its hosts enrolled again. Records under `docs/results/` predate the rename and keep the old names.
 

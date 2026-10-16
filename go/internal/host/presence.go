@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/relay"
+	"github.com/peerspan/peerspan/go/internal/relay"
 )
 
 // Presence notifications (launch contract, slice 6). A host's presence in a

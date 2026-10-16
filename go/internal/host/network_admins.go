@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Administrators and groups (milestone 2b, slice 2). The root delegates

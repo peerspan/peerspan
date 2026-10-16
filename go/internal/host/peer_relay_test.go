@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/relay"
+	"github.com/peerspan/peerspan/go/internal/relay"
 )
 
 // startRelayHost runs a host that listens on listen (none when empty) and

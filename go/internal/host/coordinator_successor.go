@@ -3,7 +3,7 @@ package host
 import (
 	"encoding/json"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // CoordinatorPending is the coordinator a network moves to once a sync with

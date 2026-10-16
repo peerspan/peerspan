@@ -77,7 +77,7 @@ from persons import Agent, ssh_key
 from policy import PolicyHost
 
 REPO = Path(__file__).resolve().parent.parent
-GO_PACKAGE = 'github.com/Cerebral-Systems/capsule/go/internal/host'
+GO_PACKAGE = 'github.com/peerspan/peerspan/go/internal/host'
 RELAY_ALPN = 'peerspan-relay/1'
 SEND, RECEIVE, UNREACHABLE = 1, 2, 3
 ATTENTION_ORDER = ['coordination_error', 'policy_expired', 'policy_expiring', 'policy_delivery_failing',

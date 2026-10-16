@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
-	"github.com/Cerebral-Systems/capsule/go/internal/tlsid"
+	"github.com/peerspan/peerspan/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 )
 
 // The v3 schema is shared with Rust. Records are the local API views below;

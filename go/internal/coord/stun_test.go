@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/stun"
+	"github.com/peerspan/peerspan/go/internal/stun"
 )
 
 // The coordinator answers STUN Binding requests on its listener's IP and port

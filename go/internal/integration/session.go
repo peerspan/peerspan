@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/host"
+	"github.com/peerspan/peerspan/go/internal/host"
 )
 
 type Options struct {

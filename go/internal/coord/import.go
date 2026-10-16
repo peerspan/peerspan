@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Network import (milestone 8, slice 3). A member host sends the signed

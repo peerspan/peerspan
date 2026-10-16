@@ -10,7 +10,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Owner access policies (milestone 2b, slice 3). The coordinator keeps the

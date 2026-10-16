@@ -183,7 +183,7 @@ useradd --system --home-dir /var/lib/peerspan-coord --no-create-home --shell /us
 # The binary, built from the Go source (go/cmd/peerspan-coord) for the VM's
 # architecture. The version appears in peerspan_coord_info:
 #   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go -C go build -trimpath \
-#     -ldflags "-X github.com/Cerebral-Systems/capsule/go/internal/coord.Version=VERSION" \
+#     -ldflags "-X github.com/peerspan/peerspan/go/internal/coord.Version=VERSION" \
 #     -o peerspan-coord ./cmd/peerspan-coord
 install -m 0755 peerspan-coord /usr/local/bin/peerspan-coord
 

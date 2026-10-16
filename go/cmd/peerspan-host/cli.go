@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/host"
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/host"
+	"github.com/peerspan/peerspan/go/internal/membership"
 	"github.com/spf13/cobra"
 )
 

@@ -10,7 +10,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
 // Delegation chains (milestone 6, slice 4). A task may carry a chain of

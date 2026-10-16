@@ -12,7 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Cerebral-Systems/capsule/go/internal/coord"
+	"github.com/peerspan/peerspan/go/internal/coord"
 	"github.com/spf13/cobra"
 )
 
