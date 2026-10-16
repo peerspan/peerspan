@@ -452,7 +452,7 @@ Policies name persons by ID, never by label, per the naming rules.
 
 ### Policy statement
 
-Version 2 of the statement adds tool rules and trusted hosts; see the [capabilities contract](capabilities-contract.md#policy-statement-version-2). Version 1 is described here.
+Version 2 of the statement adds capability rules, each bound to the host that serves the capability, and trusted hosts; see the [capabilities contract](capabilities-contract.md#policy-statement-version-2). Version 1 is described here.
 
 A policy is signed by its owner (`SSHSIG`, namespace `peerspan-person-v1`). Its lines are:
 - the header: `peerspan-policy-v1`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`;

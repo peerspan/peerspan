@@ -29,7 +29,7 @@ Requests and responses use JSON. Creation endpoints return 201; reads and detach
 | API | CLI | Behavior |
 | --- | --- | --- |
 | `GET /v1/host` | `info` | Return public local identity. |
-| `POST /v1/agents` | `agent register --name NAME --owner OWNER [--capability NAME]` | Register an agent with name, owner, and optional capabilities. |
+| `POST /v1/agents` | `agent register --name NAME --owner OWNER [--label NAME]` | Register an agent with name, owner, and optional descriptive labels, stored in the `capabilities` field. `--capability` is accepted as an alias of `--label`. |
 | `GET /v1/agents` | `agent list` | List agents by creation time, then ID. |
 | `GET /v1/agents/{id}` | `agent inspect ID` | Return one agent. |
 | `POST /v1/sessions` | `session attach --agent ID --integration NAME` | Attach metadata with agent_id and integration. |
