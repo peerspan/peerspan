@@ -64,7 +64,20 @@ import traceback
 REPO = Path(__file__).resolve().parent.parent
 VERSION = '0.0.0-acceptance'
 USER_PREFIX = 'peerspan-acc-'
-SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', socket.gethostname().split('.')[0].lower())
+# The machines are users of one host, so they share its host name (launch contract, attach Naming).
+SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', socket.gethostname().split('.')[0].lower()) or 'host'
+
+
+def default_name(base, host_name, host_hex=None):
+    """attach's default name BASE-HOSTNAME, or BASE-HOSTNAME-HHHH, with the host name cut first, then BASE, each
+    down to 1 character, so the whole fits in 64 characters; -HHHH is never cut."""
+    fixed = f'-{host_hex}' if host_hex else ''
+    parts = [base, host_name]
+    for index in (1, 0):
+        excess = len('-'.join(parts)) + len(fixed) - 64
+        if excess > 0:
+            parts[index] = parts[index][:max(1, len(parts[index]) - excess)]
+    return '-'.join(parts) + fixed
 RUNS = {
     'solo-go': ('solo', ['go', 'go']),
     'solo-rust': ('solo', ['rust', 'rust']),
@@ -776,16 +789,29 @@ class Run:
         addresses = {label: out['agent']['address'] for label, out in self.attached.items()}
         names = {label: out['agent']['name'] for label, out in self.attached.items()}
 
+        def own_host(machine):
+            """This machine's host ID, from its own agent's entry in `agents --json` mine."""
+            agent_id = self.attached[machine.label]['agent']['id']
+            result, value = machine.peerspan_json('agents', '--json')
+            entry = [e for e in (value or {}).get('mine', []) if e.get('agent_id') == agent_id]
+            if result.returncode != 0 or not entry or not str(entry[0].get('host_id', '')).startswith('host_'):
+                raise Failure(f'{machine.label}: no own entry in agents --json mine: {tail(result.stdout)}')
+            return entry[0]['host_id']
+
         def naming():
-            want = {m.label: 'claude' for m in self.machines}
+            # Every agent is named after the machine. In solo, both machines are one person's and share this
+            # host's name, so M2's name takes the first 4 hex digits of its host ID.
+            want = {m.label: default_name('claude', SHORT_HOST) for m in self.machines}
             if self.path == 'solo':
-                want['M2'] = ('claude-' + SHORT_HOST)[:64]
+                m2 = next(m for m in self.machines if m.label == 'M2')
+                want['M2'] = default_name('claude', SHORT_HOST, own_host(m2)[len('host_'):][:4])
             for m in self.machines:
                 want_address = f'{self.person_labels[m.label]}/{want[m.label]}'
                 if names[m.label] != want[m.label] or addresses[m.label].lower() != want_address.lower():
                     raise Failure(f'agents {names} at {addresses}; expected names {want}')
             return addresses
-        self.check('attach names and addresses' + (' (M2 is claude-HOSTNAME)' if self.path == 'solo' else ''),
+        self.check('attach names and addresses' + (' (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)' if self.path == 'solo'
+                                                    else ' (claude-HOSTNAME)'),
                    None, naming)
 
         for m in self.machines:

@@ -22,7 +22,8 @@ the harness waits, without running any command of the path, until every host
 has synced with coordination after the last `allow` and lists the others'
 agents, so the run measures the models rather than coordination latency.
 
-Flow: the harness prompts only alice's session. Alice's Claude calls
+Flow (addresses written bob/claude for bob's agent, whatever name attach gave
+it; the prompts use the addresses attach printed): the harness prompts only alice's session. Alice's Claude calls
 list_agents, then delegate_task to bob/claude by `to` with delegation_depth 1, asking for a short
 review with a part to be passed on to carol; bob's Claude accepts and calls
 delegate_task to carol/claude with parent_task_id; carol's completes; bob's
@@ -439,10 +440,12 @@ def attached_output(person, session):
 
 # Flows.
 
-def review_input(nonce):
+def review_input(nonce, carol):
+    # Addresses are whatever attach named each agent (launch contract: written bob/claude, whatever name
+    # attach gave it), so the prompts use the addresses attach printed.
     return (f'Review request {nonce} from alice. Review this Python function in one or two sentences: '
             '`def mean(xs): return sum(xs) / len(xs) - 1`. Pass one part on: call delegate_task with to '
-            '"carol/claude", parent_task_id set to this task\'s task_id, and input "Suggest a corrected one-line '
+            f'"{carol}", parent_task_id set to this task\'s task_id, and input "Suggest a corrected one-line '
             'version of: def mean(xs): return sum(xs) / len(xs) - 1". When carol\'s kind=task_update event with '
             'state succeeded arrives, complete this task with task_complete, status succeeded, and output your '
             'review followed by "CAROL SAYS: " and carol\'s output verbatim.')
@@ -463,7 +466,7 @@ def fixture_flow(people, channels, nonce):
     addresses = {entry['address'] for entry in (listing if isinstance(listing, list) else listing.get('agents', []))}
     assert {bob.address, carol.address} <= addresses, listing
     parent_out = call(alice, a, 'delegate_task', {'to': bob.address, 'delegation_depth': 1,
-                                                  'input': review_input(nonce)})
+                                                  'input': review_input(nonce, carol.address)})
     assert parent_out['submit_state'] == 'accepted', parent_out
     parent = channel_event(b, 'task')
     parent_id = parent['meta']['task_id']
@@ -506,12 +509,13 @@ def fixture_flow(people, channels, nonce):
             'send': sent, 'carol_task_meta': child['meta'], 'midtask': midtask}
 
 
-def live_prompt(nonce):
+def live_prompt(nonce, bob, carol):
     return ('This is a Peerspan integration experiment. Use only Peerspan tools. (1) Call list_agents. '
-            '(2) Call delegate_task with to "bob/claude", delegation_depth 1, and this input, verbatim: "' + review_input(nonce).replace('"', "'")
+            f'(2) Call delegate_task with to "{bob}", delegation_depth 1, and this input, verbatim: "'
+            + review_input(nonce, carol).replace('"', "'")
             + '" (3) The delegate_task result is not the result: kind=task_update events for that task will arrive; '
             'ignore them until one has state succeeded, then respond in your terminal with exactly two lines: '
-            'ALICE_RESULT_OBSERVED, then that event\'s content verbatim. (4) Then call send with to "carol/claude" '
+            'ALICE_RESULT_OBSERVED, then that event\'s content verbatim. (4) Then call send with to "' + carol + '" '
             'and content "Thanks for the fix; please reply with one sentence." (5) When the kind=reply event arrives, '
             'respond in your terminal with ALICE_REPLY_OBSERVED followed by the reply content. Do nothing else.')
 
@@ -642,7 +646,7 @@ def live_flow(people, sessions, nonce, clear):
     alice = sessions['alice']
     print('Three interactive Claude sessions registered their Peerspan channels; prompting alice only.', flush=True)
     pids = {name: s.process.pid for name, s in sessions.items()}
-    alice.prompt(live_prompt(nonce))
+    alice.prompt(live_prompt(nonce, people[1].address, people[2].address))
     cleared = clear_mid_task(people, sessions[CLEARED]) if clear else None
     wait_live(lambda: alice.assistant_said('ALICE_RESULT_OBSERVED'), FLOW_SECONDS)
     print('Alice reported the final update.', flush=True)

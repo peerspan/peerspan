@@ -24,10 +24,15 @@ reports these sections separately:
 - sending: `send` and `task` by address under self, policy, and grant with the
   authorization each cites, `--grant` overriding the choice, `from_agent` rules,
   `not_authorized` persisting nothing, and the moved `message send`/`task submit`;
-- agents and status: `agents --json` fields, and status item 12 for the injected
-  duplicate;
-- attach: default naming and each suffix rule across two hosts of one person,
-  `--name` taken refused with no registration, an unprofiled agent reused by
+- agents and status: `agents --json` fields (with `endpoint`), and status item 12 for
+  the injected duplicate;
+- attach: default naming (revised 2026-10-16) and each suffix rule across two hosts of
+  one person that share this machine's host name (`BASE-HOSTNAME`, `-PROJECT`, `-HHHH`
+  growing to 32 digits, then `-N`), cutting to 64 characters with a long project and
+  with a 64-character integration ID as BASE, the bare base name only by `--name`, and,
+  when run as root, hosts of other host names in UTS namespaces of their own (one
+  lowercased and sanitized, one whose short name is empty and becomes `host`, and `***`,
+  only observed); `--name` taken refused with no registration, an unprofiled agent reused by
   `--name`, re-attach with `reused: true` and after revocation, `unchecked_hosts`
   with a sibling stopped, and `session start`/`doctor` without `--directory`
   (these attach with `--no-start`, which prints the output object on stdout);
@@ -45,13 +50,22 @@ reports these sections separately:
   route sends not counted; the adapter deadlines; setup validation;
 - attach after expiry: a new credential for the same agent;
 - retry after a label change: an uncertain send by address whose target host is
-  then unbound from its person, retried automatically to the stored target.
+  then unbound from its person, retried automatically to the stored target;
+- endpoints: `endpoint` in `agents --json` (and its readable layout) and
+  `GET /adapter/v1/agents` for this host (advertised address, and first candidate), a
+  peer dialed by its advertised address, a direct peer (two wildcard-bound hosts after
+  path discovery), a relayed peer (a dead advertised address, with UDP between the two
+  hosts dropped by iptables when run as root), and a stopped host whose map entry has no
+  address or candidates. `path` is checked against `peer path`, whose relay/none choice
+  belongs to the peer messaging contract.
 
 Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen), peerspan-peer-probe, and Node for
 the MCP cases. Exits non-zero listing every failed section. Each host has its own
 HOME and XDG_CONFIG_HOME, so nothing touches the real ~/.config/peerspan.
 """
 import argparse
+import ctypes
+import http.client
 import json
 import os
 from pathlib import Path
@@ -69,9 +83,9 @@ import traceback
 
 from agent_adapter import Channel, adapter_call, sql
 from coordination import Coordinator, wait_for
-from host_service import UnixHTTPConnection, stop_all
+from host_service import UnixHTTPConnection, die_with_parent, stop_all
 from launch_onboarding import DEFAULT, Failure, OnboardHost, near, need, parse_time
-from peer_messaging import fixture_context, request_id, set_probe, timestamp, wire
+from peer_messaging import available_port, fixture_context, request_id, set_probe, timestamp, wire
 from persons import Agent, person_id, ssh_key
 from tasks import task_id, tool
 
@@ -98,13 +112,22 @@ DIRECTORY_HOST_KEYS = {'host_id', 'person_id', 'person_label', 'state', 'refresh
 DIRECTORY_AGENT_KEYS = {'address', 'host_id', 'person_id', 'person_label', 'name', 'agent_id', 'connected',
                         'channel', 'authorizations'}
 AGENTS_KEYS = {'network_id', 'refreshed_at', 'reachable', 'mine', 'inbound', 'hosts'}
-REACHABLE_KEYS = {'address', 'host_id', 'agent_id', 'connected', 'host_state', 'actions'}
-MINE_KEYS = {'address', 'host_id', 'agent_id', 'connected'}
+# `endpoint` added to reachable, mine, and GET /adapter/v1/agents on 2026-10-16.
+REACHABLE_KEYS = {'address', 'host_id', 'agent_id', 'connected', 'host_state', 'actions', 'endpoint'}
+MINE_KEYS = {'address', 'host_id', 'agent_id', 'connected', 'endpoint'}
 INBOUND_KEYS = {'agent', 'principals', 'actions', 'max_artifact_bytes'}
-ADAPTER_AGENT_KEYS = {'address', 'network_id', 'connected', 'actions', 'max_message_bytes', 'max_artifact_bytes'}
+ADAPTER_AGENT_KEYS = {'address', 'network_id', 'connected', 'actions', 'max_message_bytes', 'max_artifact_bytes',
+                      'endpoint'}
+ENDPOINT_KEYS = {'address', 'path'}
+ENDPOINT_PATHS = {'direct', 'relay', 'none', 'local'}
 ATTACH_KEYS = {'agent', 'session_id', 'adapter_id', 'profile', 'workspace', 'reused', 'unchecked_hosts', 'next'}
 ADDRESSABLE = re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
-SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', socket.gethostname().split('.')[0].lower())
+# Hosts run on this machine and share its host name, unless a host runs in a UTS namespace of its own.
+REAL_HOST_NAME = socket.gethostname()
+SHORT_HOST = re.sub(r'[^a-z0-9._-]', '-', REAL_HOST_NAME.split('.')[0].lower()) or 'host'
+# A 64-character integration ID (IDs are 1 to 64 lowercase letters, digits, and hyphens), as BASE.
+LONG_ID = 'long-' + 'i' * 59
+CLONE_NEWUTS = 0x04000000
 NOT_ADDRESSABLE = 'Not Addressable'
 PROFILE_FLAG = '--peerspan-fixture-profile'
 # The launch target written into the fixture bundles in place of fixtures/harness/harness.py. As that one, it
@@ -192,6 +215,57 @@ def sanitized(text):
     return re.sub(r'[^a-z0-9._-]', '-', text.lower())
 
 
+def short_host(host_name):
+    """The suffix for a host name: its short name (up to the first dot), sanitized, or `host` if nothing is left."""
+    return sanitized(host_name.split('.')[0]) or 'host'
+
+
+def default_name(base, host, project=None, host_hex=None, n=None):
+    """A default attach name as the Naming rules build it: BASE-HOSTNAME[-PROJECT][-HHHH][-N]. So that the whole
+    fits in 64 characters, parts are cut from the end, each down to 1 character before the next is cut: the host
+    name, then the project, then BASE; -HHHH and -N are never cut. host is already the sanitized short name."""
+    parts = [base, host] + ([sanitized(project)] if project is not None else [])
+    fixed = (f'-{host_hex}' if host_hex else '') + (f'-{n}' if n else '')
+    for index in ([1, 2, 0] if project is not None else [1, 0]):
+        excess = len('-'.join(parts)) + len(fixed) - 64
+        if excess > 0:
+            parts[index] = parts[index][:max(1, len(parts[index]) - excess)]
+    return '-'.join(parts) + fixed
+
+
+def endpoint_shaped(endpoint):
+    """{address, path}: address an IP:PORT string or null, path direct, relay, none, or local."""
+    return (isinstance(endpoint, dict) and set(endpoint) == ENDPOINT_KEYS and endpoint['path'] in ENDPOINT_PATHS
+            and (endpoint['address'] is None
+                 or (isinstance(endpoint['address'], str)
+                     and re.fullmatch(r'\[?[0-9a-fA-F.:]+\]?:[0-9]+', endpoint['address']) is not None)))
+
+
+def host_hex(host_id, digits=4):
+    """The first hex digits of a host's ID after `host_`."""
+    return host_id[len('host_'):][:digits]
+
+
+def in_uts(host_name, then=None):
+    """A preexec function: a UTS namespace of the process's own, with host_name as its host name (needs root)."""
+    def preexec():
+        if then:
+            then()
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.unshare(CLONE_NEWUTS) != 0:
+            raise OSError(ctypes.get_errno(), 'unshare(CLONE_NEWUTS)')
+        socket.sethostname(host_name)
+    return preexec
+
+
+def uts_available():
+    try:
+        out = subprocess.run(['hostname'], preexec_fn=in_uts('uts-probe'), capture_output=True, text=True, timeout=10)
+        return out.returncode == 0 and out.stdout.strip() == 'uts-probe'
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def by_name(listing):
     return {entry['name']: entry for entry in listing}
 
@@ -217,7 +291,35 @@ def mentions(value, text):
 
 
 class DirectoryHost(OnboardHost):
-    """An onboarding host whose CLI may run in a chosen directory with a longer timeout."""
+    """An onboarding host whose CLI may run in a chosen directory with a longer timeout. With host_name set, its
+    daemon and every CLI call run in UTS namespaces with that host name, as if on a machine of that name."""
+
+    host_name = None
+
+    def preexec(self, then=None):
+        if self.host_name is None:
+            return then
+        return in_uts(self.host_name, then)
+
+    def start(self, command='run'):
+        if self.host_name is None:
+            return super().start(command)
+        self.process = subprocess.Popen([self.binary, '--state', str(self.state), command, *self.daemon_args],
+                                        stdout=self.logs, stderr=self.logs, env=self.daemon_env(),
+                                        preexec_fn=self.preexec(die_with_parent))
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                self.logs.seek(0)
+                raise AssertionError(f'host exited at startup: {self.logs.read().decode()}')
+            try:
+                status, identity = self.call('GET', '/v1/host')
+                if status == 200:
+                    return identity
+            except (OSError, http.client.HTTPException):
+                pass
+            time.sleep(0.02)
+        raise AssertionError('host did not become ready')
 
     def environment(self, sock=DEFAULT, env=None):
         e = dict(os.environ)
@@ -233,7 +335,7 @@ class DirectoryHost(OnboardHost):
     def run(self, *args, sock=DEFAULT, env=None, argv=None, cwd=None, timeout=90):
         command = argv or [self.cli_binary, '--state', str(self.state), *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                              env=self.environment(sock, env), cwd=cwd)
+                              env=self.environment(sock, env), cwd=cwd, preexec_fn=self.preexec())
 
     def cli(self, *args, success=True, sock=DEFAULT, cwd=None):
         result = self.run(*args, sock=sock, cwd=cwd)
@@ -284,7 +386,8 @@ class Launch:
     def __init__(self, host, args, cwd):
         command = [host.cli_binary, '--state', str(host.state), *args]
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE, env=host.environment(), cwd=cwd)
+                                        stderr=subprocess.PIPE, env=host.environment(), cwd=cwd,
+                                        preexec_fn=host.preexec())
         self.lines = queue.Queue()
         self.stdout = []
         self.stderr = b''
@@ -352,6 +455,7 @@ class Pairing:
         self.keys = {}
         self.channels = []
         self.launches = []
+        self.cleanups = []
         self.script = Path(__file__).resolve().parents[1] / 'integrations/claude-channel/channel.mjs'
 
     # --- infrastructure -----------------------------------------------------------------------------------
@@ -902,7 +1006,9 @@ class Pairing:
         need(set(out) == AGENTS_KEYS and out['network_id'] == self.net, 'agents --json prints {network_id, '
              'refreshed_at, reachable, mine, inbound, hosts}', out)
         need(all(set(r) == REACHABLE_KEYS for r in out['reachable']), 'reachable uses {address, host_id, agent_id, '
-             'connected, host_state, actions}', out['reachable'])
+             'connected, host_state, actions, endpoint}', out['reachable'])
+        need(all(endpoint_shaped(r['endpoint']) for r in out['reachable'] + out['mine']),
+             'endpoint is {address, path}, address an IP:PORT string or null', out['reachable'], out['mine'])
         need(all(r['address'] and ADDRESSABLE.fullmatch(r['address'].split('/')[-1]) for r in out['reachable']),
              'reachable lists addressable agents', out['reachable'])
         reach = {r['address']: r for r in out['reachable']}
@@ -915,8 +1021,8 @@ class Pairing:
                                                                      for h in directory['hosts']]
              and all(set(h) == DIRECTORY_HOST_KEYS for h in out['hosts']),
              'hosts is the directory\'s hosts', out['hosts'], directory['hosts'])
-        need(all(set(m) == MINE_KEYS for m in out['mine']), 'mine uses {address, host_id, agent_id, connected}',
-             out['mine'])
+        need(all(set(m) == MINE_KEYS for m in out['mine']), 'mine uses {address, host_id, agent_id, connected, '
+             'endpoint}', out['mine'])
         need({m['agent_id'] for m in out['mine']} >= {self.agent['corig']['id']}, 'mine: this host\'s agents',
              out['mine'])
         readable = c1.run('agents')
@@ -965,10 +1071,12 @@ class Pairing:
         out = self.attach(a1, 'file-fixture', '--name', 'expiring', '--directory', str(expiring), '--expires-in', '1m')
         self.expiring = (expiring, out)
 
-        # 1. The base name, for `claude` meaning claude-code.
+        # 1. BASE-HOSTNAME, for `claude` meaning claude-code; the bare base name is never a default.
+        h = SHORT_HOST
+        hex_a2 = ids['a2'][len('host_'):]
         w1 = project('app')
-        out = attached(self.attach(a1, 'claude', '--directory', str(w1)), 'claude', a1, w1,
-                       'Naming: the base name (claude for claude-code)')
+        out = attached(self.attach(a1, 'claude', '--directory', str(w1)), default_name('claude', h), a1, w1,
+                       'Naming: BASE-HOSTNAME first (claude for claude-code), with this machine\'s short host name')
         need(out['reused'] is False and out['unchecked_hosts'] == [], 'a fresh attach', out)
         need(mentions(out['next'], 'session start'), 'next is peerspan session start for launch-capable integrations',
              out)
@@ -983,45 +1091,101 @@ class Pairing:
              'HARNESS claude means claude-code', session)
         self.w1 = (w1, out)
 
-        # 2. BASE-PROJECT when the base name is used on this host, and -2 after it.
+        # 2. BASE-HOSTNAME-PROJECT when BASE-HOSTNAME is used on this host, and -2 after it.
         w2 = project('proj-two')
-        attached(self.attach(a1, 'claude', '--directory', str(w2)), 'claude-proj-two', a1, w2, 'Naming: BASE-PROJECT')
+        attached(self.attach(a1, 'claude', '--directory', str(w2)), default_name('claude', h, 'proj-two'), a1, w2,
+                 'Naming: BASE-HOSTNAME-PROJECT when BASE-HOSTNAME is used on this host')
         w2b = project('other', 'proj-two')
         # -N goes on the last candidate that applied (settled with the owner).
-        attached(self.attach(a1, 'claude', '--directory', str(w2b)), 'claude-proj-two-2', a1, w2b,
-                 'Naming: then -2 appended')
+        attached(self.attach(a1, 'claude', '--directory', str(w2b)), default_name('claude', h, 'proj-two', n=2), a1,
+                 w2b, 'Naming: then -2 appended to the last candidate that applied')
         odd = project('My Proj!')
-        attached(self.attach(a1, 'claude', '--directory', str(odd)), 'claude-' + sanitized('My Proj!'), a1, odd,
+        attached(self.attach(a1, 'claude', '--directory', str(odd)), default_name('claude', h, 'My Proj!'), a1, odd,
                  'Naming: suffixes lowercased, other characters become -')
         long = project('p' * 80)
         out = self.attach(a1, 'claude', '--directory', str(long))
-        need(out['agent']['name'] == ('claude-' + 'p' * 80)[:64], 'Naming: cut so that the name fits in 64 characters',
-             out['agent'])
+        want = default_name('claude', h, 'p' * 80)
+        need(len(want) == 64 and out['agent']['name'] == want, 'Naming: the host name part is cut first (down to 1 '
+             'character), then the project, so that the name fits in 64 characters', out['agent'], want)
         again = self.attach(a1, 'claude', '--directory', str(project('again', 'p' * 80)))
-        need(again['agent']['name'] == ('claude-' + 'p' * 80)[:62] + '-2',
-             'Naming: the suffix is cut so that the whole name, including -N, fits in 64 characters', again['agent'])
+        want = default_name('claude', h, 'p' * 80, n=2)
+        need(len(want) == 64 and again['agent']['name'] == want,
+             'Naming: the whole name, including -N, fits in 64 characters; -N is never cut', again['agent'], want)
 
-        # 3. BASE-HOSTNAME when the base is used only on another host of the person, then -2.
+        # 3. BASE-HOSTNAME-HHHH when BASE-HOSTNAME is used only on another host: a2 runs on this machine too, so the
+        # two hosts share a host name. Then 6, 8, and so on digits while that is taken, up to 32, then -2.
         w5 = project('second-machine')
-        attached(self.attach(a2, 'claude', '--directory', str(w5)), f'claude-{SHORT_HOST}', a2, w5,
-                 'Naming: BASE-HOSTNAME when the base is used only on another host')
+        attached(self.attach(a2, 'claude', '--directory', str(w5)), default_name('claude', h, host_hex=hex_a2[:4]),
+                 a2, w5, 'Naming: BASE-HOSTNAME-HHHH (the first 4 hex digits of this host\'s ID after host_) when '
+                 'BASE-HOSTNAME is used only on another host')
+        for digits in range(6, 33, 2):
+            w = project(f'second-{digits}')
+            attached(self.attach(a2, 'claude', '--directory', str(w)),
+                     default_name('claude', h, host_hex=hex_a2[:digits]), a2, w,
+                     f'Naming: HHHH grows to {digits} digits while the shorter one is taken')
         w6 = project('second-again')
-        attached(self.attach(a2, 'claude', '--directory', str(w6)), f'claude-{SHORT_HOST}-2', a2, w6,
-                 'Naming: BASE-HOSTNAME, then -2')
+        attached(self.attach(a2, 'claude', '--directory', str(w6)),
+                 default_name('claude', h, host_hex=hex_a2[:32], n=2), a2, w6,
+                 'Naming: HHHH grows to at most 32 digits, then -2 is appended')
         wf = project('fixture')
-        attached(self.attach(a2, 'file-fixture', '--directory', str(wf)), 'file-fixture', a2, wf,
+        attached(self.attach(a2, 'file-fixture', '--directory', str(wf)), default_name('file-fixture', h), a2, wf,
                  'Naming: the base name is otherwise the integration ID')
+
+        # A 64-character integration ID as BASE: the host name is cut to 1 character, then the project, then BASE.
+        wl1 = project('long-id')
+        want = default_name(LONG_ID, h)
+        need(want == LONG_ID[:62] + '-' + h[0], 'the expected cut (suite self-check)', want)
+        attached(self.attach(a1, LONG_ID, '--directory', str(wl1)), want, a1, wl1,
+                 'Naming: a 64-character integration ID as BASE is cut so the default name fits')
+        wl2 = project('second-long')
+        want = default_name(LONG_ID, h, 'second-long')
+        need(want == LONG_ID[:60] + '-' + h[0] + '-s', 'the expected cut (suite self-check)', want)
+        attached(self.attach(a1, LONG_ID, '--directory', str(wl2)), want, a1, wl2,
+                 'Naming: BASE-HOSTNAME-PROJECT with a 64-character BASE: the host name and project cut to 1 '
+                 'character, then BASE')
+        wl3 = project('long-id-a2')
+        want = default_name(LONG_ID, h, host_hex=hex_a2[:4])
+        need(want == LONG_ID[:57] + '-' + h[0] + '-' + hex_a2[:4], 'the expected cut (suite self-check)', want)
+        attached(self.attach(a2, LONG_ID, '--directory', str(wl3)), want, a2, wl3,
+                 'Naming: BASE-HOSTNAME-HHHH with a 64-character BASE: -HHHH is never cut')
+        notes = [f'host name {h!r}, a2 suffix {hex_a2[:4]}']
+
+        # Hosts of ana on machines with other host names (each in a UTS namespace of its own; needs root).
+        if not self.named_hosts:
+            notes.append('SKIPPED (needs root for UTS namespaces): hosts with other host names, including one that '
+                         'leaves nothing')
+        for name, host_name in self.named_hosts.items():
+            w = project(f'on-{name}')
+            out = self.attach(self.hosts[name], 'claude', '--directory', str(w))
+            if host_name == '***':
+                # Ambiguous in the contract: `***` becomes `---` (characters outside the addressable set become
+                # `-`), which is not nothing, so whether it is replaced by `host` is unsettled. Observed only.
+                notes.append(f'host name {host_name!r} gave {out["agent"]["name"]!r}')
+                need(ADDRESSABLE.fullmatch(out['agent']['name']) and out['agent']['name'] != 'claude',
+                     'attach only creates addressable names, and the bare base name is never a default', out['agent'])
+                continue
+            if host_name.split('.')[0] == '':
+                rule = 'Naming: a host name that leaves nothing is replaced by host'
+            else:
+                rule = 'Naming: BASE-HOSTNAME with this machine\'s short host name, lowercased'
+            attached(out, default_name('claude', short_host(host_name)), self.hosts[name], w,
+                     f'{rule} (host name {host_name!r})')
 
         # --name taken: refused with 409 before any registration, naming the host that has it.
         agents = a2.cli('agent', 'list')
         taken = project('taken')
-        error = self.attach(a2, 'claude', '--name', 'claude', '--directory', str(taken), success=False)
+        on_a1 = default_name('claude', h)
+        error = self.attach(a2, 'claude', '--name', on_a1, '--directory', str(taken), success=False)
         need(ids['a1'] in error, 'a taken --name is refused, and the error names the host that has it', error)
         need(a2.cli('agent', 'list') == agents, 'a taken --name is refused before any registration')
-        need(not (a2.config / 'peerspan' / 'sessions' / ids['a2'] / 'claude').exists(), 'a refused attach leaves no '
+        need(not (a2.config / 'peerspan' / 'sessions' / ids['a2'] / on_a1).exists(), 'a refused attach leaves no '
              'profile')
-        error = self.attach(a1, 'claude', '--name', 'claude-proj-two', '--directory', str(taken), success=False)
+        error = self.attach(a1, 'claude', '--name', default_name('claude', h, 'proj-two'), '--directory', str(taken),
+                            success=False)
         need(error, 'a --name used on this host by an attach profile is refused')
+        bare = project('bare')
+        attached(self.attach(a1, 'file-fixture', '--name', 'file-fixture', '--directory', str(bare)), 'file-fixture',
+                 a1, bare, 'Naming: the bare base name is used when given as --name')
 
         # A --name naming an agent on this host that no attach profile records is reused.
         legacy = a1.cli('agent', 'register', '--name', 'legacy', '--owner', 'ana')
@@ -1071,8 +1235,13 @@ class Pairing:
             out = self.attach(a1, 'file-fixture', '--directory', str(wu))
             need(out['unchecked_hosts'] == [ids['a2']], 'a host of the person that could not be reached is '
                  'reported in unchecked_hosts, and does not block the attach', out)
+            # a2's file-fixture-HOSTNAME stays in the directory (a host that fails keeps its previous agents).
+            want = default_name('file-fixture', h, host_hex=host_hex(ids['a1']))
+            need(out['agent']['name'] == want, 'Naming: BASE-HOSTNAME-HHHH when BASE-HOSTNAME is used only on another '
+                 'host, here one that keeps its agents in the directory while stopped', out['agent'], want)
         finally:
             a2.start()
+        return '; '.join(notes)
 
     def check_attach_launch(self):
         a1, ids = self.hosts['a1'], self.ids
@@ -1230,7 +1399,8 @@ class Pairing:
             plain = json.loads(result.stdout)
         except json.JSONDecodeError:
             need(False, 'For an integration without launch, attach prints its output as before', result.stdout)
-        need(set(plain) == ATTACH_KEYS and plain['agent']['name'] == 'no-launch' and plain['reused'] is False,
+        need(set(plain) == ATTACH_KEYS and plain['agent']['name'] == default_name('no-launch', SHORT_HOST)
+             and plain['reused'] is False,
              'For an integration without launch, attach prints its output as before', plain)
         notes.append(f"launched {first['agent']['name']} and reused {again['agent']['name']}")
         return '; '.join(notes)
@@ -1291,7 +1461,8 @@ class Pairing:
         status, listing = adapter_call(c1, token, 'GET', '/adapter/v1/agents')
         need(status == 200 and isinstance(listing, list) and all(set(e) == ADAPTER_AGENT_KEYS for e in listing),
              'GET /adapter/v1/agents returns [{address, network_id, connected, actions, max_message_bytes, '
-             'max_artifact_bytes}]', status, listing)
+             'max_artifact_bytes, endpoint}]', status, listing)
+        need(all(endpoint_shaped(e['endpoint']) for e in listing), 'endpoint is {address, path}', listing)
         need(all(e['address'] for e in listing), 'GET /adapter/v1/agents lists addressable agents only', listing)
         entry = {e['address']: e for e in listing}
         eps = entry.get('pat/eps')
@@ -1355,8 +1526,11 @@ class Pairing:
         failed, agents = tool(channel, 'list_agents', {})
         need(not failed and isinstance(agents, list), 'MCP list_agents', agents)
         addresses = {e.get('address') for e in agents}
-        need('pat/gamma' in addresses and f'ana/claude-{SHORT_HOST}' in addresses,
-             'MCP list_agents: addressable agents in the directory', sorted(a for a in addresses if a))
+        sibling = f"ana/{default_name('claude', SHORT_HOST, host_hex=host_hex(ids['a2']))}"
+        need('pat/gamma' in addresses and sibling in addresses,
+             'MCP list_agents: addressable agents in the directory', sorted(a for a in addresses if a), sibling)
+        need(all(set(e) == ADAPTER_AGENT_KEYS and endpoint_shaped(e.get('endpoint')) for e in agents),
+             'MCP list_agents returns the GET /adapter/v1/agents entries, endpoint included', agents)
         failed, sent = tool(channel, 'send', {'to': 'pat/gamma', 'network': self.net, 'content': 'from mcp'})
         need(not failed and sent.get('request_id'), 'MCP send by to', sent)
         rid = sent['request_id']
@@ -1415,14 +1589,194 @@ class Pairing:
         need(self.received(b1, rid) and not self.received(b2, rid), 'the retry reached the stored host', rid)
         need(record.get('to') == 'bob/bobby', 'the record still shows to as given', record)
 
+    def block_udp(self, port_a, port_b):
+        """Drop UDP between two local ports, in both directions, until the pairing closes; False without root."""
+        if os.geteuid() != 0 or not shutil.which('iptables'):
+            return False
+        rules = [['INPUT', '-p', 'udp', '--sport', str(a), '--dport', str(b), '-j', 'DROP']
+                 for a, b in ((port_a, port_b), (port_b, port_a))]
+        for rule in rules:
+            if subprocess.run(['iptables', '-I', *rule], capture_output=True).returncode != 0:
+                return False
+            self.cleanups.append(lambda rule=rule: subprocess.run(['iptables', '-D', *rule], capture_output=True))
+        return True
+
+    def check_endpoints(self):
+        """`endpoint` in `agents --json` and GET /adapter/v1/agents: this host (an advertised address, and the
+        first candidate when none is advertised), a peer dialed by its advertised address, a direct peer, a relayed
+        peer, and a stopped host with no map address."""
+        c1, p1, d1, d2, z1, ids = (self.hosts['c1'], self.p1, self.hosts['d1'], self.hosts['d2'], self.hosts['z1'],
+                                   self.ids)
+        notes = []
+
+        def member(host, of):
+            return {m['host_id']: m for m in host.cli('network', 'members', self.net)}[ids[of]]
+
+        def path(host, of):
+            view = host.cli('peer', 'path', ids[of])
+            need(view.get('path') in ('direct', 'relay', 'none'), 'peer path reports direct, relay, or none', view)
+            return view
+
+        def agents(host):
+            out = host.cli('agents', '--json', '--network', self.net)
+            return ({r['address']: r for r in out['reachable']}, {m['address']: m for m in out['mine']})
+
+        def readable_line(host, address):
+            result = host.run('agents', '--network', self.net)
+            need(result.returncode == 0, 'agents exits 0', result.stderr[-400:])
+            lines = [line for line in result.stdout.splitlines() if address in line.split()]
+            return lines[0] if lines else result.stdout
+
+        for name, where in (('dself', 'd1'), ('dpeer', 'd2'), ('zed', 'z1')):
+            self.agent[name] = self.hosts[where].cli('agent', 'register', '--name', name, '--owner', 'dana')
+        p1.cli('grant', 'create', '--peer', ids['d1'], '--agent', self.agent['gamma']['id'], '--expires-in', '2h',
+               '--allow-disconnected')
+        # A directory session on d1, for GET /adapter/v1/agents.
+        (self.root / 'ws-dana').mkdir(exist_ok=True)
+        session = self.attach(d1, 'file-fixture', '--directory', str(self.root / 'ws-dana'))
+        token = self.profile_secret(session)['token']
+
+        def adapter_agents():
+            status, listing = adapter_call(d1, token, 'GET', '/adapter/v1/agents')
+            need(status == 200 and isinstance(listing, list), 'GET /adapter/v1/agents', status, listing)
+            need(all(set(e) == ADAPTER_AGENT_KEYS and endpoint_shaped(e['endpoint']) for e in listing),
+                 'GET /adapter/v1/agents entries carry endpoint {address, path}', listing)
+            return {e['address']: e for e in listing}
+
+        # This host with an advertised address (c1 binds 127.0.0.1, so it advertises its bound address).
+        reach, mine = agents(c1)
+        own = [m for m in mine.values() if m['host_id'] == ids['c1']]
+        need(own, 'mine lists this host\'s agents', mine)
+        want = {'address': member(c1, 'c1')['address'], 'path': 'local'}
+        need(want['address'] == c1.address, 'the map has c1\'s advertised address (suite self-check)', want)
+        need(all(m['endpoint'] == want for m in own), 'Endpoints: for this host, path local and its own advertised '
+             'address from the network map', own, want)
+        # p1 is dialed by its advertised address, with no discovered direct path. Whether peer path calls that
+        # relay or none is the peer messaging contract's (a relay route to that host); endpoint follows it.
+        view = path(c1, 'p1')
+        need(reach['pat/alpha']['endpoint'] == {'address': member(c1, 'p1')['address'], 'path': view['path']},
+             'Endpoints: another host without a direct path: path as peer path reports it, and its advertised '
+             'address from the map', reach['pat/alpha'], view)
+        notes.append(f"peer dialed by its advertised address: path {view['path']}")
+
+        # A direct peer: d1 and d2 advertise no address, so they reach each other through the relay, and path
+        # discovery (over their interface candidates) moves them to a direct path.
+        need(member(d1, 'd2')['address'] == '' and member(d1, 'd2').get('candidates'),
+             'a wildcard bind advertises no address and publishes candidates (suite self-check)', member(d1, 'd2'))
+
+        # A relayed peer: z1 advertises a dead address, so d1 falls back to the relay. On one machine, path
+        # discovery would still find a direct path (from ping sources and reflexive candidates), so UDP between
+        # d1's and z1's peer ports is dropped (root and iptables), leaving only the relay, which runs over TCP.
+        relayed = self.block_udp(d1.port, z1.port)
+        if not relayed:
+            notes.append('SKIPPED (needs root and iptables): a relayed peer')
+
+        def direct():
+            self.refresh(d1)
+            return (path(d1, 'd2')['path'] == 'direct' and (not relayed or path(d1, 'z1')['path'] == 'relay')) or None
+        try:
+            wait_for(direct, timeout=75, message='a direct path from d1 to d2')
+        except AssertionError:
+            raise Failure('within 75 seconds, no direct path between two wildcard-bound hosts on this machine, or '
+                          f'no relay path with UDP dropped (peer path {path(d1, "d2")}, {path(d1, "z1")})')
+
+        def agree():
+            """agents --json on d1, with the peer path read just before and after, when both agree."""
+            before = {n: path(d1, n) for n in ('d2', 'p1', 'z1')}
+            reach, mine = agents(d1)
+            after = {n: path(d1, n) for n in ('d2', 'p1', 'z1')}
+            return (reach, mine, after) if before == after else None
+        reach, mine, paths = wait_for(agree, timeout=30, message='a stable peer path on d1')
+        need(paths['d2']['path'] == 'direct', 'the direct path holds', paths['d2'])
+        want = {'address': paths['d2']['endpoint'], 'path': 'direct'}
+        for listing, what in ((reach, 'reachable'), (mine, 'mine')):
+            need(listing.get('dana/dpeer', {}).get('endpoint') == want, f'Endpoints ({what}): another host on a direct '
+                 'path: path direct, and the direct path\'s endpoint', listing.get('dana/dpeer'), paths['d2'])
+        need(reach.get('pat/gamma', {}).get('endpoint') == {'address': member(d1, 'p1')['address'],
+                                                             'path': paths['p1']['path']},
+             'Endpoints: a peer by its advertised address, seen from d1', reach.get('pat/gamma'), paths['p1'])
+        # This host without an advertised address: its own first candidates entry.
+        d1_member = member(d1, 'd1')
+        need(d1_member['address'] == '', 'd1 advertises no address (suite self-check)', d1_member)
+        want_local = {'address': (d1_member.get('candidates') or [None])[0], 'path': 'local'}
+        need(mine.get('dana/dself', {}).get('endpoint') == want_local, 'Endpoints: for this host with no advertised '
+             'address, its first candidates entry, with path local', mine.get('dana/dself'), d1_member)
+        # A relayed peer: z1 advertises a dead address, so it is reached through the relay (and path discovery is
+        # not run for peers reached by an advertised address).
+        zed = reach.get('dana/zed')
+        if relayed:
+            need(paths['z1']['path'] == 'relay', 'peer path: a peer whose advertised address is dead, with UDP '
+                 'dropped, is reached through the relay', paths['z1'])
+        want = ({'address': paths['z1']['endpoint'], 'path': 'direct'} if paths['z1']['path'] == 'direct'
+                else {'address': self.z1_dead, 'path': paths['z1']['path']})
+        need(zed and zed['endpoint'] == want and member(d1, 'z1')['address'] == self.z1_dead,
+             'Endpoints: a relayed peer: path relay, and its advertised address from the map', zed, paths['z1'])
+        listed = adapter_agents()
+        for address, entry in (('dana/dpeer', reach['dana/dpeer']), ('pat/gamma', reach['pat/gamma']),
+                               ('dana/zed', zed)):
+            need(listed.get(address, {}).get('endpoint') == entry['endpoint'],
+                 'GET /adapter/v1/agents: endpoint as for agents', address, listed.get(address), entry)
+        own_listed = {a: e for a, e in listed.items() if a in mine and mine[a]['host_id'] == ids['d1']}
+        need(all(e['endpoint'] == want_local for e in own_listed.values()),
+             'GET /adapter/v1/agents: this host\'s entries (if listed) have path local', own_listed, want_local)
+        notes.append(f"adapter agents list {len(own_listed)} of this host's agents")
+        line = readable_line(d1, 'pat/gamma')
+        need(f"{member(d1, 'p1')['address']} ({paths['p1']['path']})" in line or paths['p1']['path'] == 'direct',
+             'agents: the address, then the path in parentheses when it is not direct or local', line)
+        line = readable_line(d1, 'dana/dpeer')
+        need(paths['d2']['endpoint'] in line and '(direct)' not in line,
+             'agents: a direct endpoint prints its address alone', line)
+        if relayed:
+            line = readable_line(d1, 'dana/zed')
+            need(f'{self.z1_dead} (relay)' in line, 'agents: the address, then (relay)', line)
+
+        # A host with no map address: z1 restarts with no listener, so its map entry has address "" and no
+        # candidates, and then stops; the directory keeps its agents.
+        z1.stop()
+        z1.daemon_args = ('--coordination-interval', '1')
+        z1.start()
+        wait_for(lambda: (lambda m: m['address'] == '' and not m.get('candidates'))(member(d1, 'z1')), timeout=40,
+                 message='z1 without an address or candidates in d1\'s map')
+        z1.stop()
+
+        # z1 stopped: once its direct path (if any) lapses, its endpoint has no address, and path is whatever peer
+        # path reports (relay or none: whether a relay route to a stopped host "exists" is the peer messaging
+        # contract's), with the same entry in GET /adapter/v1/agents.
+        seen = {}
+
+        def lapsed():
+            seen['z1'] = path(d1, 'z1')
+            if seen['z1']['path'] == 'direct':
+                return None
+            reach, _ = agents(d1)
+            again = path(d1, 'z1')
+            return reach if again == seen['z1'] else None
+        try:
+            reach = wait_for(lapsed, timeout=60, message='z1\'s direct path lapsing')
+        except AssertionError:
+            raise Failure('peer path: a direct path to a stopped host is dropped after 15 seconds without a pong', seen)
+        view = seen['z1']
+        need('dana/zed' in reach, 'a host that fails keeps its previous agents in the directory', sorted(reach))
+        want = {'address': None, 'path': view['path']}
+        need(reach['dana/zed']['endpoint'] == want, 'Endpoints: a host with no direct path and no map address '
+             '(advertised address "" and no candidates): address null, path as peer path reports it',
+             reach['dana/zed'], view)
+        need(adapter_agents().get('dana/zed', {}).get('endpoint') == want,
+             'GET /adapter/v1/agents: endpoint as for agents (no map address)', want)
+        line = readable_line(d1, 'dana/zed')
+        need(view['path'] in line, 'agents: with no address, the path alone', line)
+        notes.append(f"stopped host with no map address: path {view['path']}")
+        z1.start()
+        return '; '.join(notes)
+
     # --- the pairing ---------------------------------------------------------------------------------------
 
     def setup_catalog(self):
-        """The fixture integration as `file-fixture` and as `claude-code` (no Claude needed), and as `no-launch`
-        without the launch operation."""
+        """The fixture integration as `file-fixture`, as `claude-code` (no Claude needed), and with a 64-character
+        ID, and as `no-launch` without the launch operation."""
         self.catalog = self.root / 'integrations'
         source = Path(__file__).with_name('fixtures') / 'harness'
-        for identity in ('file-fixture', 'claude-code'):
+        for identity in ('file-fixture', 'claude-code', LONG_ID):
             bundle = self.catalog / identity
             bundle.mkdir(parents=True)
             shutil.copy2(source / 'provider.py', bundle / 'provider.py')
@@ -1450,20 +1804,35 @@ class Pairing:
     def run(self):
         root = self.root
         (root / 'keys').mkdir()
-        for name in ('pat', 'bob', 'carol', 'ana'):
+        for name in ('pat', 'bob', 'carol', 'ana', 'dana'):
             self.keys[name] = ssh_key(root / 'keys', name)
             (root / f'agent-{name}').mkdir()
             self.agents[name] = Agent(root / f'agent-{name}')
             self.agents[name].add(self.keys[name][0])
-        self.pat, self.bob, self.carol, self.ana = (person_id(self.keys[n][2]) for n in ('pat', 'bob', 'carol', 'ana'))
+        self.pat, self.bob, self.carol, self.ana, self.dana = (person_id(self.keys[n][2])
+                                                               for n in ('pat', 'bob', 'carol', 'ana', 'dana'))
         self.setup_catalog()
 
         self.section('root help', self.check_help)
         self.coord_key = self.coord.start()['public_key']
+        # d1 and d2 bind the IPv4 wildcard, so they advertise no address and publish interface candidates (a
+        # direct path between them can be discovered); z1 advertises a dead address, so it is reached through the
+        # relay, and later restarts without a listener (no map address).
         persons = {'p1': 'pat', 'p2': 'pat', 'b1': 'bob', 'b2': 'bob', 'c1': 'carol', 'a1': 'ana', 'a2': 'ana',
-                   'n1': None, 'x': None}
+                   'd1': 'dana', 'd2': 'dana', 'z1': 'dana', 'n1': None, 'x': None}
+        # More hosts of ana, on machines of other names: each daemon and CLI runs in a UTS namespace of its own.
+        self.named_hosts = {'a3': 'Other_Box.lan', 'a4': '', 'a5': '***'} if uts_available() else {}
+        persons.update({name: 'ana' for name in self.named_hosts})
         for name, person in persons.items():
             self.host(name).sock = self.agents[person].socket if person else None
+        for name, host_name in self.named_hosts.items():
+            self.hosts[name].host_name = host_name
+        for name in ('d1', 'd2'):
+            h = self.hosts[name]
+            h.address = f'0.0.0.0:{h.port}'
+            h.daemon_args = ('--peer-listen', h.address, *h.daemon_args[2:])
+        self.z1_dead = f'127.0.0.1:{available_port()}'
+        self.hosts['z1'].daemon_args = (*self.hosts['z1'].daemon_args, '--advertise', self.z1_dead)
         self.p1 = self.hosts['p1']
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         ids = self.ids
@@ -1471,12 +1840,13 @@ class Pairing:
         created = self.p1.cli('network', 'create', '--name', 'team', '--member', 'pat', *self.coordinator_flags())
         self.net = created['id']
         assert created['person']['bound'], created
-        for name in ('p2', 'b1', 'b2', 'c1', 'a1', 'a2'):
+        joining = ['p2', 'b1', 'b2', 'c1', 'a1', 'a2', *self.named_hosts, 'd1', 'd2', 'z1']
+        for name in joining:
             self.join(name, persons[name])
         self.join('n1', 'nobody', person=False)
-        self.members = ['p1', 'p2', 'b1', 'b2', 'c1', 'a1', 'a2', 'n1']
-        expected = {ids[n]: {'pat': self.pat, 'bob': self.bob, 'carol': self.carol, 'ana': self.ana}.get(persons[n])
-                    for n in self.members}
+        self.members = ['p1', *joining, 'n1']
+        expected = {ids[n]: {'pat': self.pat, 'bob': self.bob, 'carol': self.carol, 'ana': self.ana,
+                             'dana': self.dana}.get(persons[n]) for n in self.members}
 
         def bound():
             for n in self.members:
@@ -1555,8 +1925,12 @@ class Pairing:
         self.section('directory sessions', self.check_directory_sessions)
         self.section('attach after expiry', self.check_expired_attach)
         self.section('retry after a label change', self.check_label_retry)
+        # Last: it changes and stops z1.
+        self.section('endpoints', self.check_endpoints)
 
     def close(self):
+        for cleanup in self.cleanups:
+            cleanup()
         try:
             for run in self.launches:
                 run.close()
