@@ -1,6 +1,6 @@
 # Who controls what: membership, access, and administration
 
-Status: decisions agreed on 2026-10-06. Each item below is marked **implemented** or **planned**. The sequence is in the [roadmap](production-roadmap.md).
+Status: decisions agreed on 2026-10-06, and implemented in both host daemons (roadmap milestones 2a, 2b, 2c, and 5). Network-wide guardrails remain a future decision. The sequence is in the [roadmap](production-roadmap.md).
 
 Peerspan keeps three things separate:
 
@@ -16,8 +16,8 @@ Being a member grants no access. Administering a network grants no access to any
 
 | Role | Can | Cannot |
 | --- | --- | --- |
-| **Network administrator** (holds the network root key) | Invite hosts and revoke membership (**implemented** for invites; signed revocation **planned**, milestone 2a). Rotate the root key (**planned**, 2a). Share administration with other administrators (**planned**, 2b). | Grant anyone access to an agent it does not own. Read or change agents, grants, messages, or other state on member hosts. |
-| **Owner** (runs a host and its agents) | Decide who may use each of their agents, and within what bounds, for each direction separately (**implemented** as per-host grants). Withdraw access at any time, enforced locally even with coordination down (**implemented**). Leave a network (**planned**, 2a). | Grant itself access to someone else's agents. |
+| **Network administrator** (holds the network root key) | Invite hosts and persons, and revoke membership with a signed revocation (`invite`, `network revoke`, `network revoke-invite`). Rotate the root key (`network rotate-root`). Share administration with other administrators and maintain groups (`network delegate-admin`, `network group set`). | Grant anyone access to an agent it does not own. Read or change agents, grants, messages, or other state on member hosts. |
+| **Owner** (runs a host and its agents) | Decide who may use each of their agents, and within what bounds, for each direction separately, through owner-signed policy (`allow`) or per-host grants. Withdraw access at any time, enforced locally even with coordination down (`deny`, `block`). Leave a network (`network leave`). | Grant itself access to someone else's agents. |
 | **Coordination operator** (runs `peerspan-coord`) | Distribute signed membership, addresses, and candidates. Relay already-encrypted traffic. Refuse service. | Add a host to a network: hosts verify every membership chain themselves. Read relayed traffic, or impersonate a host: peer TLS is end to end. Forge an owner's or administrator's signed statement. |
 
 The receiving host enforces every access decision. Agent prompts are not an enforcement mechanism, and permission to message an agent does not imply permission to run commands or read files.
@@ -26,7 +26,7 @@ The receiving host enforces every access decision. Agent prompts are not an enfo
 
 In Tailscale, the administrator writes one access policy for the whole network. That works because a tailnet usually has one owner. A Peerspan network often joins several developers, and each developer's agents act with that developer's local permissions on their own machine. If the administrator could grant access, the administrator would in effect control every member's agents. Members would have to trust the administrator with their machines just to join a shared network. Keeping access with each owner means joining a network is safe on its own terms. The administrator decides who is in; owners decide what each member may use.
 
-## Central management without central authority (planned)
+## Central management without central authority
 
 Deciding access per owner must not mean configuring every host separately. Tailscale is easy to use because policy is managed in one place, and Peerspan keeps that property by separating where policy is **managed** from who **authorizes** it.
 
@@ -34,14 +34,14 @@ Deciding access per owner must not mean configuring every host separately. Tails
 - **Grants to people and groups:** grants name members or groups ("member `alice` may message `reviewer`", "anyone in network `team` may message `triage`"), not individual host IDs. New or re-enrolled machines are covered without new grants.
 - **Owner-signed policy, distributed centrally:** an owner edits their access policy once, from any of their machines or a future dashboard. The coordinator delivers it to all of that owner's hosts. Each host enforces it only if it carries that owner's signature. The administrator cannot author or alter it, and a coordinator can withhold it but not forge it.
 
-The result is configured once, applies everywhere, and is authorized only by the owner. The design is in the [person identity proposal](person-identity-proposal.md), under review. Network-wide guardrails, where an administrator publishes restrictions that can only narrow access, remain a separate future decision. Each host would enforce them on itself, so they are only as strong as membership revocation.
+The result is configured once, applies everywhere, and is authorized only by the owner. The design is in the [person identity proposal](person-identity-proposal.md). Owners' hosts also push and sync policy to each other directly (milestone 2c), so a coordinator that withholds a newer policy cannot keep it from the owner's other hosts. Network-wide guardrails, where an administrator publishes restrictions that can only narrow access, remain a separate future decision. Each host would enforce them on itself, so they are only as strong as membership revocation.
 
-## Membership revocation (planned, milestone 2a)
+## Membership revocation
 
 - **Signed:** the root key, or after 2b any administrator, signs a revocation of a host or an unused invite. A member can sign its own departure.
 - **Sticky:** hosts persist revocations and keep enforcing them, even if a coordinator later omits them or serves an older map. A compromised or stale coordinator therefore cannot restore a revoked host.
 - **Effect:** a revoked host is no longer a known peer through that network. It fails authentication and loses its relay access, unless an owner has configured it manually as a peer. Grants that name it stop working, because it can no longer authenticate.
 
-## Uncertain outcomes (planned, milestone 5)
+## Uncertain outcomes
 
 A send whose outcome is unknown, such as a lost response, is retried automatically with the same request ID until it is accepted, rejected, or past its deadline. This applies to owner sends and agent-initiated sends alike. Receivers deduplicate by request ID, so a retry never creates a second message or consumes another unit of a send budget. The sender still sees the request ID and its final state.
