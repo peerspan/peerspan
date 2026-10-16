@@ -97,6 +97,10 @@ pub struct Store {
     pub(crate) agent_directory: Mutex<crate::directory::Cache>,
     /// Coordinator move lookups and repair imports, by network ID.
     pub(crate) coordinator_moves: Mutex<BTreeMap<String, crate::coordinator_move::Tracker>>,
+    /// Running instances of shared MCP servers.
+    pub(crate) tool_pool: crate::mcp::Pool,
+    /// Received calls being dispatched and run.
+    pub(crate) call_runner: crate::calls::Runner,
 }
 
 impl Store {
@@ -121,7 +125,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=15).contains(&version) {
+        if !(0..=16).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -169,6 +173,9 @@ impl Store {
         }
         if version < 15 {
             crate::live_delivery::migrate(&tx)?;
+        }
+        if version < 16 {
+            tx.execute_batch(crate::tools::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -219,6 +226,8 @@ impl Store {
         for id in stale {
             append_event(&tx, "session.disconnected", &id, &at)?;
         }
+        // Calls are never sent twice: one still running ended unknown.
+        Self::settle_running_calls(&tx).map_err(|e| anyhow::anyhow!("{e}"))?;
         let recovering = {
             let mut statement = tx.prepare("SELECT adapter_id FROM adapter_connections WHERE instance_hash IS NOT NULL AND recoverable = 1")?;
             statement
@@ -261,6 +270,8 @@ impl Store {
             policy_inflight: Mutex::new(Default::default()),
             coordinator_limits: Mutex::new(BTreeMap::new()),
             agent_directory: Mutex::new(Default::default()),
+            tool_pool: Default::default(),
+            call_runner: Default::default(),
         };
         store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
         Ok(store)

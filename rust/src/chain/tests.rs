@@ -1081,7 +1081,7 @@ fn version_ten_migrates_to_latest_and_sixteen_is_refused() {
     Connection::open(path.join("host.db"))
         .unwrap()
         .execute_batch(
-            "DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10;",
+            "DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE tool_confirmations; DROP TABLE tool_profiles; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10;",
         )
         .unwrap();
     let store = Store::open(&path).unwrap();
@@ -1089,7 +1089,7 @@ fn version_ten_migrates_to_latest_and_sixteen_is_refused() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
     let sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE name = 'task_children'",
@@ -1105,7 +1105,7 @@ fn version_ten_migrates_to_latest_and_sixteen_is_refused() {
     drop(store);
     Connection::open(path.join("host.db"))
         .unwrap()
-        .execute_batch("PRAGMA user_version = 16;")
+        .execute_batch("PRAGMA user_version = 17;")
         .unwrap();
     assert!(Store::open(&path).is_err());
 }

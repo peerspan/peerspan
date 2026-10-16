@@ -1118,7 +1118,7 @@ async fn start(
 }
 
 /// `$XDG_CONFIG_HOME/peerspan/sessions`, where `attach` keeps its profiles.
-fn sessions_root() -> anyhow::Result<PathBuf> {
+pub(crate) fn sessions_root() -> anyhow::Result<PathBuf> {
     let key = peerspan_host::persons::generated_key_path().context(
         "cannot locate the configuration directory: neither XDG_CONFIG_HOME nor HOME is set",
     )?;
@@ -1162,6 +1162,14 @@ fn attach_profiles(root: &Path, host: Option<&str>) -> Vec<(PathBuf, Profile)> {
     }
     found.sort_by(|a, b| a.0.cmp(&b.0));
     found
+}
+/// Each `attach` profile of a host: its agent ID, integration, and
+/// workspace.
+pub(crate) fn attach_agents(host: &str) -> anyhow::Result<Vec<(String, String, PathBuf)>> {
+    Ok(attach_profiles(&sessions_root()?, Some(host))
+        .into_iter()
+        .map(|(_, p)| (p.agent_id, p.harness.id, PathBuf::from(p.workspace)))
+        .collect())
 }
 /// The `attach` profiles whose workspace is the current directory.
 fn attached_profiles(state: &Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
@@ -1300,7 +1308,7 @@ fn attached_profile(state: &Option<PathBuf>) -> anyhow::Result<PathBuf> {
         ),
     }
 }
-async fn admin(
+pub(crate) async fn admin(
     state: &Path,
     method: Method,
     path: String,
@@ -1556,7 +1564,23 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     // A launch-capable integration launches unless --no-start; then the
     // output goes to stderr, because stdout belongs to the harness.
     let launching = |p: &Profile| !no_start && p.harness.supports("launch");
-    let print = |agent_id: &str, agent_name: &str, p: &Profile, profile: &Path, reused: bool| {
+    let socket = state.join("admin.sock");
+    let discovered = |agent_id: String| {
+        let (socket, integration, workspace) =
+            (socket.clone(), integration.clone(), workspace.clone());
+        async move {
+            match crate::discovery::refresh(&socket, &agent_id, &integration, &workspace).await {
+                Ok(tools) => tools,
+                Err(e) => json!({"servers": [], "errors": [{"error": format!("{e:#}")}]}),
+            }
+        }
+    };
+    let print = |agent_id: &str,
+                 agent_name: &str,
+                 p: &Profile,
+                 profile: &Path,
+                 reused: bool,
+                 tools: Value| {
         let next = if p.harness.supports("launch") {
             "peerspan session start"
         } else {
@@ -1571,6 +1595,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             "reused": reused,
             "unchecked_hosts": unchecked,
             "next": next,
+            "tools": tools,
         });
         let text = serde_json::to_string_pretty(&value).unwrap_or_default();
         if launching(p) {
@@ -1578,6 +1603,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         } else {
             println!("{text}");
         }
+        eprintln!("{}", crate::discovery::summary_line(&value["tools"]));
     };
     let launch = |p: &Profile, profile: PathBuf| {
         let start_now = launching(p);
@@ -1630,7 +1656,8 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    print(&p.agent_id, &agent_name, p, directory, true);
+                    let tools = discovered(p.agent_id.clone()).await;
+                    print(&p.agent_id, &agent_name, p, directory, true, tools);
                     return launch(p, directory.clone()).await;
                 }
             }
@@ -1727,7 +1754,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     let result = prepare(SetupOptions {
         directory: directory.clone(),
         state: Some(state.clone()),
-        harness: integration,
+        harness: integration.clone(),
         agent: agent_id.clone(),
         expiry: expires_at,
         integrations,
@@ -1743,7 +1770,8 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             if moved {
                 let _ = fs::remove_dir_all(&aside);
             }
-            print(&agent_id, &agent_name, &p, &directory, false);
+            let tools = discovered(agent_id.clone()).await;
+            print(&agent_id, &agent_name, &p, &directory, false, tools);
             launch(&p, directory).await
         }
         Err(error) => {

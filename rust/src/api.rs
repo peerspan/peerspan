@@ -37,6 +37,9 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::status::local_routes())
         .merge(crate::directory::local_routes())
         .merge(crate::live_delivery::local_routes())
+        .merge(crate::tools::local_routes())
+        .merge(crate::calls::local_routes())
+        .merge(crate::call_outbound::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
 }

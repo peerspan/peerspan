@@ -1637,6 +1637,8 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
     let dispatcher = Dispatcher::new(crate::retry::CONCURRENCY);
     // In-memory poll backoff per task: when next due, and the current interval.
     let schedule: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
+    // The same for outbound calls (tools contract), which share the slots.
+    let call_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
     // In-memory fetch backoff per artifact row, from 1 second to 60 seconds;
     // a restart retries at once.
     let fetch_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
@@ -1661,8 +1663,29 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                 }
             }
         }
+        // Outbound calls: retries of uncertain submissions, and status polls.
+        let mut calls: HashMap<(String, String), bool> = HashMap::new();
+        if let Ok((due, pollable)) = blocking(store.clone(), |s| {
+            Ok(crate::call_outbound::jobs(s, Utc::now()))
+        })
+        .await
+            && let Ok(mut plan) = call_plan.lock()
+        {
+            for key in due {
+                calls.insert(key, false);
+            }
+            let now = Instant::now();
+            plan.retain(|k, _| pollable.contains(k));
+            for key in pollable {
+                let (due, _) = *plan.entry(key.clone()).or_insert((now, POLL_FIRST));
+                if due <= now {
+                    calls.insert(key, true);
+                }
+            }
+        }
         let polls: HashMap<(String, String), bool> = jobs.iter().cloned().collect();
         let mut keys: Vec<(String, String)> = jobs.into_iter().map(|(k, _)| k).collect();
+        keys.extend(calls.keys().cloned());
         // Artifact fetches share the same 4 slots.
         let mut fetches: HashMap<(String, String), crate::artifact::RowKey> = HashMap::new();
         if let Ok(pending) = blocking(store.clone(), |s| s.pending_fetches()).await
@@ -1683,12 +1706,30 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
             let store = store.clone();
             let key = claim.key().clone();
             let is_poll = polls.get(&key).copied().unwrap_or(false);
+            let call = calls.get(&key).copied();
             let fetch = fetches.remove(&key);
             let schedule = schedule.clone();
+            let call_plan = call_plan.clone();
             let fetch_plan = fetch_plan.clone();
             tokio::spawn(async move {
                 let (peer, id) = key.clone();
-                if let Some(row) = fetch {
+                if let Some(poll_call) = call {
+                    if poll_call {
+                        let progressed = crate::call_outbound::poll(store, peer, id)
+                            .await
+                            .unwrap_or(false);
+                        if let Ok(mut plan) = call_plan.lock() {
+                            let interval = match plan.get(&key) {
+                                _ if progressed => POLL_FIRST,
+                                Some((_, last)) => (*last * 2).min(POLL_MAX),
+                                None => POLL_FIRST,
+                            };
+                            plan.insert(key, (Instant::now() + interval, interval));
+                        }
+                    } else {
+                        crate::call_outbound::retry(store, peer, id).await;
+                    }
+                } else if let Some(row) = fetch {
                     let done = crate::artifact::fetch(store, row).await;
                     if let Ok(mut plan) = fetch_plan.lock() {
                         if done {

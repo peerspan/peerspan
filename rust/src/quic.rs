@@ -31,7 +31,9 @@ const HANDSHAKE: Duration = Duration::from_secs(5);
 const IDLE: Duration = Duration::from_secs(30);
 const MAX_CONNECTIONS: usize = 64;
 const MAX_STREAMS: u32 = 16;
-const MAX_BODY: usize = 1 << 20;
+/// Peer responses may carry a tool listing, or a call result of up to
+/// 1 MiB with its status record.
+const MAX_RESPONSE: usize = 4 << 20;
 const MAX_HEADERS: usize = 64 * 1024;
 const SERVER_NAME: &str = "peerspan-peer";
 const CID_LENGTH: usize = 4;
@@ -772,7 +774,7 @@ async fn exchange(
         match recv.read(&mut chunk).await {
             Ok(Some(n)) => {
                 response.extend_from_slice(&chunk[..n]);
-                if response.len() > MAX_BODY + MAX_HEADERS {
+                if response.len() > MAX_RESPONSE + MAX_HEADERS {
                     return Err(Failure {
                         error: anyhow::anyhow!("peer response too large"),
                         responded: true,
@@ -822,7 +824,7 @@ fn parse_response(data: &[u8]) -> anyhow::Result<(u16, Vec<u8>)> {
     } else {
         rest.to_vec()
     };
-    if body.len() > MAX_BODY {
+    if body.len() > MAX_RESPONSE {
         anyhow::bail!("peer response too large");
     }
     Ok((status, body))
@@ -842,7 +844,7 @@ fn dechunk(mut data: &[u8]) -> anyhow::Result<Vec<u8>> {
         let chunk = data
             .get(start..start + size)
             .ok_or_else(|| anyhow::anyhow!("truncated chunked peer response"))?;
-        if body.len() + size > MAX_BODY {
+        if body.len() + size > MAX_RESPONSE {
             anyhow::bail!("peer response too large");
         }
         body.extend_from_slice(chunk);

@@ -68,6 +68,12 @@ pub enum Command {
         /// Host-only membership: do not admit or bind a person
         #[arg(long)]
         no_person: bool,
+        /// Let this machine use tools shared from your other machines
+        #[arg(long, conflicts_with = "untrusted")]
+        trusted: bool,
+        /// Do not let this machine use tools shared from your other machines
+        #[arg(long)]
+        untrusted: bool,
     },
     /// Invite a person to a network
     Invite {
@@ -92,9 +98,10 @@ pub enum Command {
         /// agent:HOST/AGENT
         #[arg(value_name = "PRINCIPAL")]
         principal: String,
-        /// Agent name the access covers; * means every agent of yours
-        #[arg(long, value_name = "NAME", default_value = "*")]
-        agent: String,
+        /// Agent name the access covers; * means every agent of yours (the
+        /// default, except with --tools: every agent here with the server)
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
         /// Allow messages only, not task.submit
         #[arg(long)]
         no_tasks: bool,
@@ -104,6 +111,16 @@ pub enum Command {
         /// Also allow task.delegate, so your agent may pass tasks on
         #[arg(long)]
         delegate: bool,
+        /// Share an MCP server's tools: SERVER[@PROFILE] (read-only tools and
+        /// resources), SERVER[@PROFILE]:TOOL[,TOOL...], or SERVER@PROFILE:*
+        #[arg(long = "tools", value_name = "SPEC")]
+        tools: Vec<String>,
+        /// Confirm the credential's reach without asking
+        #[arg(long)]
+        yes: bool,
+        /// Calls per hour each caller may make under the share (default 100)
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(i64).range(1..=10000))]
+        calls_per_hour: Option<i64>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -116,6 +133,9 @@ pub enum Command {
         /// Only from this agent's rules (* names the * rules); default every rule
         #[arg(long, value_name = "NAME")]
         agent: Option<String>,
+        /// Remove the principal from tool shares of SERVER[@PROFILE] instead
+        #[arg(long = "tools", value_name = "SERVER[@PROFILE]")]
+        tools: Vec<String>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -205,6 +225,53 @@ pub enum Command {
         #[arg(long, value_name = "TIME")]
         deadline: Option<String>,
     },
+    /// Show the MCP servers your agents use, and what is shared
+    Tools(ToolsArgs),
+    /// Call a tool on another host: call TARGET TOOL
+    Call {
+        /// PERSON/AGENT/SERVER[@PROFILE] or HOST_ID/AGENT/SERVER[@PROFILE]
+        #[arg(value_name = "TARGET")]
+        target: String,
+        #[arg(value_name = "TOOL")]
+        tool: String,
+        /// The tool's arguments as a JSON object
+        #[arg(long, value_name = "JSON")]
+        arguments: Option<String>,
+        #[command(flatten)]
+        options: CallOptions,
+    },
+    /// Read a resource on another host: read TARGET URI
+    Read {
+        /// PERSON/AGENT/SERVER[@PROFILE] or HOST_ID/AGENT/SERVER[@PROFILE]
+        #[arg(value_name = "TARGET")]
+        target: String,
+        #[arg(value_name = "URI")]
+        uri: String,
+        #[command(flatten)]
+        options: CallOptions,
+    },
+    /// List and inspect tool calls
+    #[command(subcommand)]
+    Calls(CallsCommand),
+    /// Let one of your machines use tools shared from your other machines
+    Trust {
+        /// Host ID; default this host
+        #[arg(value_name = "HOST")]
+        host: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Stop letting a machine use tools shared from your other machines
+    Untrust {
+        #[arg(value_name = "HOST")]
+        host: String,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
     /// Install the daemon as a user service and start it
     Install {
         /// Private state directory; otherwise use XDG_STATE_HOME or HOME
@@ -271,6 +338,105 @@ pub enum Command {
     Help {
         #[arg(value_name = "COMMAND")]
         topic: Vec<String>,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct ToolsArgs {
+    #[command(subcommand)]
+    pub command: Option<ToolsCommand>,
+    /// Only this agent
+    #[arg(long, value_name = "NAME")]
+    pub agent: Option<String>,
+    /// Print JSON
+    #[arg(long)]
+    pub json: bool,
+}
+#[derive(Debug, Subcommand)]
+pub enum ToolsCommand {
+    /// Discover the MCP servers of each attached agent again
+    Refresh {
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
+    },
+    /// Show the tools other hosts let this host call
+    Remote {
+        /// PERSON, PERSON/AGENT, HOST_ID, or HOST_ID/AGENT; default every host
+        #[arg(value_name = "TARGET")]
+        target: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Manage share profiles: narrower credentials for a server
+    #[command(subcommand)]
+    Profile(ProfileCommand),
+}
+#[derive(Debug, Subcommand)]
+pub enum ProfileCommand {
+    /// Add a profile: SERVER PROFILE --env-file PATH [--arg A ...]
+    Add {
+        #[arg(value_name = "SERVER")]
+        server: String,
+        #[arg(value_name = "PROFILE")]
+        profile: String,
+        #[arg(long, value_name = "PATH")]
+        env_file: PathBuf,
+        /// Replaces the server's arguments; repeat for each
+        #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
+        args: Vec<String>,
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
+    },
+    /// Remove a profile: SERVER@PROFILE
+    Remove {
+        #[arg(value_name = "SERVER@PROFILE")]
+        spec: String,
+        #[arg(long, value_name = "NAME")]
+        agent: Option<String>,
+    },
+}
+#[derive(Debug, clap::Args)]
+pub struct CallOptions {
+    /// RFC3339 deadline, at most 15 minutes away; default 15 minutes
+    #[arg(long, value_name = "TIME")]
+    pub deadline: Option<String>,
+    /// How long to wait for a final state: seconds, or Ns or Nm; default 60s, at most 15m
+    #[arg(long, value_name = "D")]
+    pub wait: Option<String>,
+    /// Resolve and authorize only in this network
+    #[arg(long, value_name = "ID")]
+    pub network: Option<String>,
+}
+#[derive(Debug, Subcommand)]
+pub enum CallsCommand {
+    /// Calls this host made, in local order
+    List {
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
+        after: i64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
+        limit: i64,
+    },
+    /// Calls this host received
+    Received {
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(i64).range(0..))]
+        after: i64,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=1000))]
+        limit: i64,
+    },
+    /// Show a call's local record
+    Inspect {
+        #[arg(long)]
+        peer: String,
+        id: String,
+    },
+    /// Ask the receiver to cancel a call
+    Cancel {
+        #[arg(long)]
+        peer: String,
+        id: String,
     },
 }
 
@@ -413,6 +579,12 @@ pub enum NetworkCommand {
         /// Do not admit or bind a person
         #[arg(long)]
         no_person: bool,
+        /// Let this machine use tools shared from your other machines
+        #[arg(long, conflicts_with = "untrusted")]
+        trusted: bool,
+        /// Do not let this machine use tools shared from your other machines
+        #[arg(long)]
+        untrusted: bool,
     },
     /// Issue a one-time invite token (administrator only). By default a member
     /// invite, which also admits the joiner's person and binds the host.
@@ -452,6 +624,12 @@ pub enum NetworkCommand {
         /// Do not admit or bind a person
         #[arg(long)]
         no_person: bool,
+        /// Let this machine use tools shared from your other machines
+        #[arg(long, conflicts_with = "untrusted")]
+        trusted: bool,
+        /// Do not let this machine use tools shared from your other machines
+        #[arg(long)]
+        untrusted: bool,
     },
     /// Admit a person or a host by public key (administrator only)
     Admit {
@@ -1139,6 +1317,8 @@ impl Command {
             | Self::Agents { network, .. }
             | Self::Allow { network, .. }
             | Self::Deny { network, .. }
+            | Self::Trust { network, .. }
+            | Self::Untrust { network, .. }
             | Self::Access(
                 AccessCommand::Allow { network, .. }
                 | AccessCommand::Deny { network, .. }
@@ -1239,6 +1419,11 @@ impl Command {
             | Self::Invite { .. }
             | Self::Allow { .. }
             | Self::Deny { .. }
+            | Self::Tools(_)
+            | Self::Call { .. }
+            | Self::Read { .. }
+            | Self::Trust { .. }
+            | Self::Untrust { .. }
             | Self::Task(TaskCommand::Artifact { .. } | TaskCommand::To(_))
             | Self::Attach { .. }
             | Self::Agents { .. }
@@ -1253,6 +1438,26 @@ impl Command {
                 | NetworkCommand::Unbind { .. },
             ) => return None,
             Self::Info => (Method::GET, "/v1/host".into(), None),
+            Self::Calls(CallsCommand::List { after, limit }) => (
+                Method::GET,
+                format!("/v1/calls?after={after}&limit={limit}"),
+                None,
+            ),
+            Self::Calls(CallsCommand::Received { after, limit }) => (
+                Method::GET,
+                format!("/v1/calls/received?after={after}&limit={limit}"),
+                None,
+            ),
+            Self::Calls(CallsCommand::Inspect { peer, id }) => (
+                Method::GET,
+                format!("/v1/calls/{}/{}", encoded(&peer), encoded(&id)),
+                None,
+            ),
+            Self::Calls(CallsCommand::Cancel { peer, id }) => (
+                Method::POST,
+                format!("/v1/calls/{}/{}/cancel", encoded(&peer), encoded(&id)),
+                None,
+            ),
             Self::Agent(AgentCommand::List) => (Method::GET, "/v1/agents".into(), None),
             Self::Agent(AgentCommand::Inspect { id }) => {
                 (Method::GET, format!("/v1/agents/{}", encoded(&id)), None)

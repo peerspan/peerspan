@@ -11,12 +11,12 @@ use anyhow::{Context, bail};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use peerspan_host::{
     persons::{self, PersonSigner},
-    policy::{ACTION, ALL_AGENTS, DELEGATE_ACTION, Policy, Rule, TASK_ACTION},
+    policy::{ACTION, ALL_AGENTS, Content, DELEGATE_ACTION, Policy, Rule, TASK_ACTION},
 };
 use serde_json::{Value, json};
 use std::path::Path;
 
-fn failed(e: impl std::fmt::Display) -> anyhow::Error {
+pub(crate) fn failed(e: impl std::fmt::Display) -> anyhow::Error {
     anyhow::anyhow!("{e}")
 }
 
@@ -144,31 +144,38 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
         _ => unreachable!("not a signing access command"),
     }
     let version = current.as_ref().map_or(0, |p| p.version) + 1;
-    let policy = Policy::sign(
+    let policy = Policy::sign_v2(
         &signer,
         network,
         version,
         &at(now),
         &at(now + duration),
-        rules,
+        kept(&current, rules),
     )
     .map_err(failed)?;
     Ok(Some(local.post(path, json!({ "policy": policy })).await?))
 }
 
-fn at(time: DateTime<Utc>) -> String {
+/// New rules with the current policy's tool rules and trusted hosts.
+pub(crate) fn kept(current: &Option<Policy>, rules: Vec<Rule>) -> Content {
+    let mut content = current.as_ref().map(Policy::content).unwrap_or_default();
+    content.rules = rules;
+    content
+}
+
+pub(crate) fn at(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 /// `access show` adds `expires_soon` beside the policy fields.
-fn strip_view(mut value: Value) -> Value {
+pub(crate) fn strip_view(mut value: Value) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.remove("expires_soon");
     }
     value
 }
 
-fn duration_of(p: &Policy) -> anyhow::Result<TimeDelta> {
+pub(crate) fn duration_of(p: &Policy) -> anyhow::Result<TimeDelta> {
     let issued = DateTime::parse_from_rfc3339(&p.issued_at)?;
     let until = DateTime::parse_from_rfc3339(&p.valid_until)?;
     Ok(until - issued)
@@ -254,7 +261,11 @@ pub fn parse_size(value: &str) -> anyhow::Result<i64> {
 /// The PRINCIPAL of `allow` and `deny`: `everyone` or `network`,
 /// `group:NAME`, `agent:HOST/AGENT`, or `person:PERSON` or a bare PERSON,
 /// resolved among the network's current persons.
-async fn top_principal(local: &Local<'_>, network: &str, given: &str) -> anyhow::Result<String> {
+pub(crate) async fn top_principal(
+    local: &Local<'_>,
+    network: &str,
+    given: &str,
+) -> anyhow::Result<String> {
     if given == "everyone" || given == "network" {
         return Ok("network".into());
     }
@@ -293,12 +304,13 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
             network,
             person_key,
             ..
-        } => (principal, Some(agent), network, person_key, true),
+        } => (principal, agent.as_ref(), network, person_key, true),
         Command::Deny {
             principal,
             agent,
             network,
             person_key,
+            ..
         } => (principal, agent.as_ref(), network, person_key, false),
         _ => return Ok(None),
     };
@@ -407,13 +419,13 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
     }
     let now = Utc::now();
     let version = current.as_ref().map_or(0, |p| p.version) + 1;
-    let policy = Policy::sign(
+    let policy = Policy::sign_v2(
         &signer,
         network,
         version,
         &at(now),
         &at(now + duration),
-        rules,
+        kept(&current, rules),
     )
     .map_err(failed)?;
     let stored = local.post(path, json!({ "policy": policy })).await?;

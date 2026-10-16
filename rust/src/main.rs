@@ -2,8 +2,10 @@ mod access;
 mod addressing;
 mod admin;
 mod cli;
+mod discovery;
 mod integration;
 mod service;
+mod tools_cli;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
@@ -92,11 +94,15 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             token,
             person_key,
             no_person,
+            trusted,
+            untrusted,
         } => cli::Command::Network(cli::NetworkCommand::Join {
             token: Some(token),
             descriptor: None,
             person_key,
             no_person,
+            trusted,
+            untrusted,
         }),
         other => other,
     };
@@ -217,6 +223,9 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     if let cli::Command::Access(access) = &command
         && let Some(value) = access::command(access, &socket).await?
     {
+        return Ok(value);
+    }
+    if let Some(value) = tools_cli::command(&command, directory).await? {
         return Ok(value);
     }
     if let Some(value) = access::top_command(&command, &socket).await? {
@@ -346,7 +355,7 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
     }
     Ok(())
 }
-const ATTENTION_ORDER: [&str; 11] = [
+const ATTENTION_ORDER: [&str; 14] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -358,6 +367,9 @@ const ATTENTION_ORDER: [&str; 11] = [
     "linger_disabled",
     "person_agent_unreachable",
     "coordinator_limit",
+    "agent_name_conflict",
+    "channel_unverified",
+    "tool_server_failing",
 ];
 
 fn exit(code: i32) -> ! {
@@ -509,6 +521,8 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             coordinator_key,
             person_key,
             no_person,
+            trusted,
+            untrusted,
         }) => {
             let name = match (name_arg, name) {
                 (Some(_), Some(_)) => bail!("give the network name once: as NAME or with --name"),
@@ -564,6 +578,16 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                         Ok(_) => {
                             value["person"]["bound"] = json!(true);
                             value["person"]["next"] = Value::Null;
+                            value["trusted"] = json!(
+                                tools_cli::trust_after_join(
+                                    &socket,
+                                    &network,
+                                    &choice.signer,
+                                    *trusted,
+                                    *untrusted
+                                )
+                                .await?
+                            );
                         }
                         Err(e) => {
                             value["person"]["skipped"] = json!(format!("binding failed: {e:#}"));
@@ -592,6 +616,8 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             descriptor,
             person_key,
             no_person,
+            trusted,
+            untrusted,
         }) => {
             let choice = match no_person {
                 true => None,
@@ -637,6 +663,19 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                         value["person"] = skipped("no person key reached the daemon".into(), None);
                     }
                     choice.describe(&mut value, member_token);
+                    let bound = value["person"]["bound"] == json!(true);
+                    let id = value["id"].as_str().unwrap_or_default().to_owned();
+                    value["trusted"] = json!(
+                        bound
+                            && tools_cli::trust_after_join(
+                                &socket,
+                                &id,
+                                &choice.signer,
+                                *trusted,
+                                *untrusted
+                            )
+                            .await?
+                    );
                 }
                 None => {
                     let id = value["id"].as_str().unwrap_or_default().to_owned();
@@ -1048,6 +1087,7 @@ async fn run_daemon(
     let policy_sync = peerspan_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
+    let calls = peerspan_host::calls::worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             peerspan_host::quic::serve(store, peer_shutdown).await?;
@@ -1094,11 +1134,29 @@ async fn run_daemon(
             Ok(())
         },
         async {
+            calls.await;
+            Ok(())
+        },
+        async {
             coordination.await;
             Ok(())
         }
     )?;
     Ok(())
+}
+
+/// Local responses may carry a call's result of up to 1 MiB with its
+/// record.
+const RESPONSE_LIMIT: usize = 4 << 20;
+
+/// A `DELETE` on the local socket.
+pub(crate) async fn delete(socket: &Path, path: String) -> anyhow::Result<Value> {
+    tokio::time::timeout(
+        LOCAL_TIMEOUT,
+        call(socket.to_path_buf(), Method::DELETE, path, None),
+    )
+    .await
+    .context("local host daemon request timed out")?
 }
 
 async fn call(
@@ -1127,7 +1185,7 @@ async fn call(
         .body(Full::new(Bytes::from(encoded)))?;
     let response = sender.send_request(request).await?;
     let status = response.status();
-    let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
+    let bytes = http_body_util::Limited::new(response.into_body(), RESPONSE_LIMIT)
         .collect()
         .await
         .map_err(|e| anyhow::anyhow!("read host response: {e}"))?

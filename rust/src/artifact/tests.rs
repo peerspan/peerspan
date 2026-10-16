@@ -794,7 +794,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     rusqlite::Connection::open(path.join("host.db"))
         .unwrap()
         .execute_batch(
-            "DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; PRAGMA user_version = 9;",
+            "DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE tool_confirmations; DROP TABLE tool_profiles; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; PRAGMA user_version = 9;",
         )
         .unwrap();
     let store = Store::open(&path).unwrap();
@@ -802,7 +802,7 @@ fn migration_from_version_nine_adds_the_artifact_tables() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
     let tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('artifact_files', 'task_artifacts')",
