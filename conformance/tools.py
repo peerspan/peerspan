@@ -1817,7 +1817,12 @@ class Pairing:
                 need(done.get('result') is None, 'a result over 1 MiB is not stored', str(done)[:300])
         b = self.body('cc', 'fx', 'big', {'bytes': 1048000}, cite=cite)
         self.submit('p2', b)
-        need(self.final('p2', b['call_id'])['state'] == 'succeeded', 'a result just under 1 MiB is kept')
+        try:
+            near = self.final('p2', b['call_id'])
+        except OSError as error:
+            raise Failure('peerspan-peer-probe accepts responses up to 4 MiB on GET /peer/v1/calls/{id}: '
+                          f'{error}') from None
+        need(near['state'] == 'succeeded', 'a result just under 1 MiB is kept', near['state'])
 
         # A lost submit response, recovered by retry: one execution.
         marker = 'lost-' + secrets.token_hex(4)
@@ -2069,14 +2074,20 @@ class Pairing:
              'an identical repeat returns 200 with the existing profile', status, again)
         status, _ = api.call('POST', path, {**body, 'args': ['other']})
         need(status == 409, 'a different profile of the same name returns 409', status)
-        for bad, why in (({**body, 'name': 'nullargs', 'args': None}, 'args null is refused'),
+        for bad, why in (({**body, 'name': 'nullargs', 'args': None}, 'args null is 400'),
                          ({**body, 'name': 'nofile', 'env_file': str(self.root / 'missing.env')},
-                          'env_file must exist')):
+                          'a missing env_file is 400'),
+                         ({**body, 'name': 'Bad.Name'}, 'an invalid name is 400'),
+                         ({**body, 'name': 'extra', 'extra': 1}, 'an invalid body is 400')):
             status, _ = api.call('POST', path, bad)
-            need(status >= 400, why, status)
+            need(status == 400, why, status)
         status, _ = api.call('POST', f"/v1/agents/{self.aid['cc']}/tool-servers/needy/profiles",
                              {'name': 'x', 'env_file': str(self.profile_env)})
-        need(status >= 400, 'the server must be shareable', status)
+        need(status == 400, 'a server that is not shareable is 400', status)
+        for where in (f"/v1/agents/{self.aid['cc']}/tool-servers/nosuch/profiles",
+                      f"/v1/agents/agent_{'0' * 32}/tool-servers/lit/profiles"):
+            status, _ = api.call('POST', where, {'name': 'x', 'env_file': str(self.profile_env)})
+            need(status == 404, 'an unknown agent or server is 404', where, status)
         status, made = api.call('POST', path, {'name': 'noargs', 'env_file': str(self.profile_env)})
         need(status == 201, 'args is optional', status, made)
         # Recording a confirmation, then allow without --yes or a terminal.
@@ -2307,8 +2318,9 @@ class Pairing:
         need(status == 200 and {e['host_id'] for e in body['entries']} <= {ids[n] for n in self.team_members},
              'without a target, the members of the selected networks', status, str(body)[:300])
         code, out, stdout, stderr = q1.outcome('tools', 'remote', 'pat/cc', '--json')
-        need(code == 0 and isinstance(out, dict) and set(out) == {'entries', 'unanswered'},
-             'tools remote --json prints the remote tools object', code, stdout[:300])
+        status, body = q1.call('GET', '/v1/remote-tools?target=pat/cc')
+        need(code == 0 and out == body, 'tools remote --json prints the GET /v1/remote-tools object as is', code,
+             stdout[:300], str(body)[:300])
         code, out, stdout, stderr = q1.outcome('tools', 'remote')
         need(code == 0 and 'fx' in stdout, 'tools remote readable output', code)
         # Citation by --network and via order.
@@ -2372,9 +2384,30 @@ class Pairing:
         f, ids = self.fixture, self.ids
         status = self.attention()
         tools = status.get('tools')
-        need(isinstance(tools, dict) and set(tools) == {'servers', 'shared_servers', 'calls_running'} and
-             tools['servers'] >= 10 and tools['shared_servers'] >= 3,
+        need(isinstance(tools, dict) and set(tools) == {'servers', 'shared_servers', 'calls_running'},
              'GET /v1/status: tools {servers, shared_servers, calls_running}', tools)
+        # servers: discovered for agents on this host, profiles excluded. shared_servers: servers and profiles on
+        # this host that a tool rule in this person's stored policies names. calls_running: received calls running.
+        view = self.tools_view('p1')
+        servers = sum(len(a['servers']) for a in view['agents'])
+        rules = [r for net in (self.team, self.other, self.v1net) for r in self.tool_rules(net)]
+        shared = 0
+        for a in view['agents']:
+            for server in a['servers']:
+                for name in [server['name']] + [f"{server['name']}@{x['name']}" for x in server['profiles']]:
+                    if any(r['server'] == name and r['agent'] in (a['agent']['name'], '*') for r in rules):
+                        shared += 1
+        running = sum(1 for item in self.hosts['p1'].cli('calls', 'received', '--limit', '1000')
+                      if item['status']['state'] == 'running')
+        need((tools['servers'], tools['shared_servers'], tools['calls_running']) == (servers, shared, running),
+             'status tools counts: servers (profiles excluded), shared_servers, calls_running', tools,
+             (servers, shared, running))
+        b = self.body('cc', 'fx', 'sleep', {'seconds': 6, 'text': 'counted'}, cite=self.self_cite())
+        self.submit('p2', b)
+        self.state_is('p2', b['call_id'], 'running', timeout=20)
+        need(self.attention()['tools']['calls_running'] >= 1, 'calls_running counts a running received call',
+             self.attention()['tools'])
+        self.final('p2', b['call_id'])
         command = 'peerspan tools refresh --agent cc'
         # A failed snapshot.
         f.set('slow', list_error=True)
