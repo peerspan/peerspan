@@ -231,7 +231,25 @@ async fn trust(
 /// After `join` or `network create` bound this host: asks whether it may
 /// use tools shared from the person's other machines, unless a flag
 /// answered, and adds it to the trusted hosts on yes. Returns the answer.
-pub async fn trust_after_join(
+/// `trusted`, and `trusted_error` when signing the trust change failed, for
+/// the output of `join` and `network create`.
+pub async fn trust_outcome(
+    value: &mut Value,
+    socket: &Path,
+    network: &str,
+    signer: &PersonSigner,
+    trusted: bool,
+    untrusted: bool,
+) {
+    match trust_after_join(socket, network, signer, trusted, untrusted).await {
+        Ok(answer) => value["trusted"] = json!(answer),
+        Err(e) => {
+            value["trusted"] = json!(false);
+            value["trusted_error"] = json!(format!("{e:#}"));
+        }
+    }
+}
+async fn trust_after_join(
     socket: &Path,
     network: &str,
     signer: &PersonSigner,
@@ -374,7 +392,7 @@ async fn allow_tools(
         .map(|s| parse_spec(s))
         .collect::<anyhow::Result<_>>()?;
     let view = local.get("/v1/tools".into()).await?;
-    let agents: Vec<&Value> = view.as_array().into_iter().flatten().collect();
+    let agents: Vec<&Value> = view["agents"].as_array().into_iter().flatten().collect();
     let signer = PersonSigner::open(person_key).map_err(failed)?;
     let principal = top_principal(local, network, share.principal).await?;
     let all = share.agent == Some(ALL_AGENTS);
@@ -491,7 +509,7 @@ async fn allow_tools(
     }
     // The reach is confirmed once per agent, server, and profile.
     let shown = share.principal;
-    for (_, name, spec, covered) in &confirm {
+    for (_, name, spec, covered) in confirm.iter().filter(|_| !all) {
         let mut text = format!(
             "{shown} can call these tools of {} on {name} with the credentials it runs with there: {}. Anything those credentials can reach through these tools, {shown} can too.",
             spec.label(),
@@ -660,7 +678,7 @@ async fn call(
         Some(text) => parse_wait(text)?,
     };
     if let Some(d) = &options.deadline {
-        body["deadline"] = json!(d);
+        body["deadline"] = json!(deadline_of(d)?);
     }
     if let Some(n) = &options.network {
         body["network"] = json!(n);
@@ -697,6 +715,15 @@ async fn call(
     };
     crate::exit(code)
 }
+/// `--deadline`: RFC3339, or a duration from now (`N`, `Ns`, or `Nm`).
+fn deadline_of(text: &str) -> anyhow::Result<String> {
+    if chrono::DateTime::parse_from_rfc3339(text).is_ok() {
+        return Ok(text.to_owned());
+    }
+    let after = parse_wait(text)
+        .map_err(|_| anyhow::anyhow!("--deadline is RFC3339, or N, Ns, or Nm from now"))?;
+    Ok(at(Utc::now() + TimeDelta::from_std(after)?))
+}
 fn parse_wait(text: &str) -> anyhow::Result<Duration> {
     let invalid = || anyhow::anyhow!("--wait is seconds, or Ns or Nm, at most 15m");
     let (digits, unit) = if let Some(d) = text.strip_suffix('m') {
@@ -717,7 +744,7 @@ fn parse_wait(text: &str) -> anyhow::Result<Duration> {
 /// The agent a profile command names: `--agent`, or the only agent with the
 /// server.
 fn profile_agent(view: &Value, server: &str, agent: Option<&str>) -> anyhow::Result<String> {
-    let matches: Vec<&Value> = view
+    let matches: Vec<&Value> = view["agents"]
         .as_array()
         .into_iter()
         .flatten()
@@ -805,7 +832,7 @@ async fn tools(
             if *json {
                 return Ok(Some(value));
             }
-            for e in value["tools"].as_array().into_iter().flatten() {
+            for e in value["entries"].as_array().into_iter().flatten() {
                 let server = match e["profile"].as_str() {
                     Some(p) => format!("{}@{p}", e["server"].as_str().unwrap_or_default()),
                     None => e["server"].as_str().unwrap_or_default().to_owned(),
@@ -891,7 +918,7 @@ async fn tools(
 /// The readable `tools` layout; not a shared format.
 fn readable(view: &Value) -> String {
     let mut out = String::new();
-    for a in view.as_array().into_iter().flatten() {
+    for a in view["agents"].as_array().into_iter().flatten() {
         out += &format!("{}\n", a["agent"]["name"].as_str().unwrap_or_default());
         let servers = a["servers"].as_array().cloned().unwrap_or_default();
         if servers.is_empty() {

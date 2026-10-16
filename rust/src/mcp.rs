@@ -389,7 +389,8 @@ pub async fn start(launch: &Launch) -> anyhow::Result<(Arc<Client>, Value)> {
 }
 
 /// Lists `method` (`tools/list` or `resources/list`), following
-/// `nextCursor`, up to `limit` entries of `field`.
+/// `nextCursor`. More than `limit` entries of `field` is the error
+/// `too_many_entries`.
 pub async fn list(
     client: &Client,
     method: &str,
@@ -410,12 +411,12 @@ pub async fn list(
         };
         for entry in result[field].as_array().into_iter().flatten() {
             if out.len() >= limit {
-                return Ok(out);
+                anyhow::bail!("too_many_entries");
             }
             out.push(entry.clone());
         }
         match result["nextCursor"].as_str() {
-            Some(next) if !next.is_empty() && out.len() < limit => cursor = Some(next.to_owned()),
+            Some(next) if !next.is_empty() => cursor = Some(next.to_owned()),
             _ => return Ok(out),
         }
     }

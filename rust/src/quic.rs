@@ -31,9 +31,20 @@ const HANDSHAKE: Duration = Duration::from_secs(5);
 const IDLE: Duration = Duration::from_secs(30);
 const MAX_CONNECTIONS: usize = 64;
 const MAX_STREAMS: u32 = 16;
-/// Peer responses may carry a tool listing, or a call result of up to
-/// 1 MiB with its status record.
-const MAX_RESPONSE: usize = 4 << 20;
+const MAX_BODY: usize = 1 << 20;
+/// A tool listing, or a call's status with a result of up to 1 MiB, may be
+/// larger than other peer responses.
+const MAX_LARGE_RESPONSE: usize = 4 << 20;
+/// The response bound of a peer request.
+fn response_limit(method: &str, path: &str) -> usize {
+    let large = method == "GET"
+        && (path == "/peer/v1/tools"
+            || path.starts_with("/peer/v1/tools?")
+            || path
+                .strip_prefix("/peer/v1/calls/")
+                .is_some_and(|id| !id.is_empty() && !id.contains('/')));
+    if large { MAX_LARGE_RESPONSE } else { MAX_BODY }
+}
 const MAX_HEADERS: usize = 64 * 1024;
 const SERVER_NAME: &str = "peerspan-peer";
 const CID_LENGTH: usize = 4;
@@ -774,7 +785,7 @@ async fn exchange(
         match recv.read(&mut chunk).await {
             Ok(Some(n)) => {
                 response.extend_from_slice(&chunk[..n]);
-                if response.len() > MAX_RESPONSE + MAX_HEADERS {
+                if response.len() > response_limit(method, path) + MAX_HEADERS {
                     return Err(Failure {
                         error: anyhow::anyhow!("peer response too large"),
                         responded: true,
@@ -790,14 +801,18 @@ async fn exchange(
             }
         }
     }
-    parse_response(&response).map_err(|error| Failure {
+    parse_limited(&response, response_limit(method, path)).map_err(|error| Failure {
         error,
         responded: true,
     })
 }
 /// Parses a complete HTTP/1.1 response, honoring Content-Length or chunked
 /// transfer encoding, and bounds the body.
+#[cfg(test)]
 fn parse_response(data: &[u8]) -> anyhow::Result<(u16, Vec<u8>)> {
+    parse_limited(data, MAX_BODY)
+}
+fn parse_limited(data: &[u8], limit: usize) -> anyhow::Result<(u16, Vec<u8>)> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut response = httparse::Response::new(&mut headers);
     let httparse::Status::Complete(start) = response.parse(data)? else {
@@ -815,7 +830,7 @@ fn parse_response(data: &[u8]) -> anyhow::Result<(u16, Vec<u8>)> {
     };
     let rest = &data[start..];
     let body = if header("transfer-encoding").is_some_and(|v| v.ends_with("chunked")) {
-        dechunk(rest)?
+        dechunk(rest, limit)?
     } else if let Some(length) = header("content-length") {
         let length: usize = length.parse()?;
         rest.get(..length)
@@ -824,12 +839,12 @@ fn parse_response(data: &[u8]) -> anyhow::Result<(u16, Vec<u8>)> {
     } else {
         rest.to_vec()
     };
-    if body.len() > MAX_RESPONSE {
+    if body.len() > limit {
         anyhow::bail!("peer response too large");
     }
     Ok((status, body))
 }
-fn dechunk(mut data: &[u8]) -> anyhow::Result<Vec<u8>> {
+fn dechunk(mut data: &[u8], limit: usize) -> anyhow::Result<Vec<u8>> {
     let mut body = Vec::new();
     loop {
         let httparse::Status::Complete((start, size)) = httparse::parse_chunk_size(data)
@@ -844,7 +859,7 @@ fn dechunk(mut data: &[u8]) -> anyhow::Result<Vec<u8>> {
         let chunk = data
             .get(start..start + size)
             .ok_or_else(|| anyhow::anyhow!("truncated chunked peer response"))?;
-        if body.len() + size > MAX_RESPONSE {
+        if body.len() + size > limit {
             anyhow::bail!("peer response too large");
         }
         body.extend_from_slice(chunk);

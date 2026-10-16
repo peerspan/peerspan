@@ -61,7 +61,6 @@ pub struct SubmitCall {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutboundCall {
     pub peer_host_id: String,
-    #[serde(with = "crate::peer_store::recorded")]
     pub request: CallRequest,
     /// `unknown`, `accepted`, or `rejected`.
     pub submit_state: String,
@@ -141,8 +140,8 @@ struct Target {
     profile: Option<String>,
 }
 fn parse_target(target: &str) -> Result<Target, Error> {
-    let mut parts = target.rsplitn(3, '/');
-    let (Some(server), Some(agent), Some(owner)) = (parts.next(), parts.next(), parts.next())
+    let mut parts = target.splitn(3, '/');
+    let (Some(owner), Some(agent), Some(server)) = (parts.next(), parts.next(), parts.next())
     else {
         return Err(Error::Invalid(
             "a target is PERSON/AGENT/SERVER[@PROFILE] or HOST_ID/AGENT/SERVER[@PROFILE]".into(),
@@ -278,7 +277,6 @@ impl Store {
             let old: OutboundCall = serde_json::from_str(&old)?;
             // A repeat keeps its stored citation and deadline.
             let same = |r: &CallRequest| CallRequest {
-                grant_id: None,
                 policy: None,
                 self_access: None,
                 deadline: String::new(),
@@ -506,15 +504,23 @@ async fn remote_tools(
     target: Option<String>,
     network: Option<String>,
 ) -> Result<Value, Error> {
-    let (owner, agent) = match target.as_deref().filter(|t| !t.is_empty()) {
-        None => (None, None),
-        Some(t) => match t.rsplit_once('/') {
-            Some((owner, agent)) if !owner.is_empty() && !agent.is_empty() => {
-                (Some(owner.to_owned()), Some(agent.to_owned()))
-            }
-            _ => (Some(t.to_owned()), None),
-        },
-    };
+    // PERSON|HOST_ID[/AGENT[/SERVER[@PROFILE]]]
+    let (mut owner, mut agent, mut server, mut profile) = (None, None, None, None);
+    if let Some(t) = target.as_deref().filter(|t| !t.is_empty()) {
+        let mut parts = t.splitn(3, '/');
+        owner = parts.next().map(str::to_owned);
+        agent = parts.next().map(str::to_owned);
+        if let Some(s) = parts.next() {
+            let Some((name, p)) = crate::policy::split_server(s) else {
+                return Err(Error::Invalid(format!("invalid server {s:?}")));
+            };
+            server = Some(name.to_owned());
+            profile = Some(p.map(str::to_owned));
+        }
+        if owner.as_deref() == Some("") || agent.as_deref() == Some("") {
+            return Err(Error::Invalid("invalid target".into()));
+        }
+    }
     let n = network.clone();
     let hosts = blocking(store.clone(), move |s| match &owner {
         Some(owner) => s.owner_hosts(owner, n.as_deref()),
@@ -526,17 +532,29 @@ async fn remote_tools(
     for (host, outcome) in listings(&store, hosts, network.as_deref()).await {
         match outcome {
             Ok(entries) => {
-                for mut e in entries {
-                    if entry_matches(&e, agent.as_deref(), None, None) {
-                        e["host_id"] = json!(host);
-                        tools.push(e);
+                for e in entries {
+                    if entry_matches(&e, agent.as_deref(), server.as_deref(), profile.as_ref()) {
+                        let label = match e["profile"].as_str() {
+                            Some(p) => format!("{}@{p}", e["server"].as_str().unwrap_or_default()),
+                            None => e["server"].as_str().unwrap_or_default().to_owned(),
+                        };
+                        tools.push(json!({
+                            "host_id": host,
+                            "address": format!("{host}/{}/{label}", e["agent"].as_str().unwrap_or_default()),
+                            "agent": e["agent"],
+                            "agent_id": e["agent_id"],
+                            "server": e["server"],
+                            "profile": e["profile"],
+                            "tools": e["tools"],
+                            "resources": e["resources"],
+                        }));
                     }
                 }
             }
             Err(error) => unanswered.push(json!({"host_id": host, "error": error})),
         }
     }
-    Ok(json!({"tools": tools, "unanswered": unanswered}))
+    Ok(json!({"entries": tools, "unanswered": unanswered}))
 }
 
 /// Resolves a target to exactly one host and its listing entry.
@@ -559,7 +577,7 @@ async fn resolve(
                     matches.push((host, e));
                 }
             }
-            Err(error) => unanswered.push(format!("{host} ({error})")),
+            Err(error) => unanswered.push((host, error)),
         }
     }
     let label = match &t.profile {
@@ -577,12 +595,24 @@ async fn resolve(
                 format!(
                     "no host lists {}/{label} for this host; these hosts did not answer: {}",
                     t.agent,
-                    unanswered.join(", ")
+                    unanswered
+                        .iter()
+                        .map(|(h, e)| format!("{h} ({e})"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             },
-            extra: [("unanswered".to_owned(), json!(unanswered))]
-                .into_iter()
-                .collect(),
+            extra: [(
+                "unanswered".to_owned(),
+                json!(
+                    unanswered
+                        .iter()
+                        .map(|(h, e)| json!({"host_id": h, "error": e}))
+                        .collect::<Vec<_>>()
+                ),
+            )]
+            .into_iter()
+            .collect(),
         }),
         _ => {
             let forms: Vec<String> = matches
@@ -636,6 +666,16 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         && !call_id_shape(id)
     {
         return Err(Error::Invalid("invalid call ID".into()));
+    }
+    // A given deadline is checked before anything is resolved or persisted.
+    if let Some(d) = r.deadline.as_deref().filter(|d| !d.is_empty()) {
+        let deadline = crate::membership::time(d)?;
+        let now = Utc::now();
+        if deadline <= now || deadline > now + MAX_DEADLINE {
+            return Err(Error::Invalid(
+                "a deadline is in the future and at most 15 minutes away".into(),
+            ));
+        }
     }
     let target = parse_target(&r.target)?;
     let (peer, entry) = resolve(&store, &target, r.network.as_deref()).await?;
@@ -723,7 +763,6 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         arguments,
         deadline,
         origin: None,
-        grant_id: None,
         policy,
         self_access,
     };

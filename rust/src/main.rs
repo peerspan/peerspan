@@ -578,16 +578,15 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                         Ok(_) => {
                             value["person"]["bound"] = json!(true);
                             value["person"]["next"] = Value::Null;
-                            value["trusted"] = json!(
-                                tools_cli::trust_after_join(
-                                    &socket,
-                                    &network,
-                                    &choice.signer,
-                                    *trusted,
-                                    *untrusted
-                                )
-                                .await?
-                            );
+                            tools_cli::trust_outcome(
+                                &mut value,
+                                &socket,
+                                &network,
+                                &choice.signer,
+                                *trusted,
+                                *untrusted,
+                            )
+                            .await;
                         }
                         Err(e) => {
                             value["person"]["skipped"] = json!(format!("binding failed: {e:#}"));
@@ -605,6 +604,9 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                     value["person"] =
                         skipped("person step disabled with --no-person".into(), Some(next));
                 }
+            }
+            if value.get("trusted").is_none() {
+                value["trusted"] = json!(false);
             }
             if let Some(choice) = &choice {
                 choice.describe(&mut value, false);
@@ -665,17 +667,18 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                     choice.describe(&mut value, member_token);
                     let bound = value["person"]["bound"] == json!(true);
                     let id = value["id"].as_str().unwrap_or_default().to_owned();
-                    value["trusted"] = json!(
-                        bound
-                            && tools_cli::trust_after_join(
-                                &socket,
-                                &id,
-                                &choice.signer,
-                                *trusted,
-                                *untrusted
-                            )
-                            .await?
-                    );
+                    value["trusted"] = json!(false);
+                    if bound {
+                        tools_cli::trust_outcome(
+                            &mut value,
+                            &socket,
+                            &id,
+                            &choice.signer,
+                            *trusted,
+                            *untrusted,
+                        )
+                        .await;
+                    }
                 }
                 None => {
                     let id = value["id"].as_str().unwrap_or_default().to_owned();
@@ -694,6 +697,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                     };
                     value["person"] =
                         skipped("person step disabled with --no-person".into(), Some(next));
+                    value["trusted"] = json!(false);
                 }
             }
             value
@@ -1147,7 +1151,7 @@ async fn run_daemon(
 
 /// Local responses may carry a call's result of up to 1 MiB with its
 /// record.
-const RESPONSE_LIMIT: usize = 4 << 20;
+const RESPONSE_LIMIT: usize = 16 << 20;
 
 /// A `DELETE` on the local socket.
 pub(crate) async fn delete(socket: &Path, path: String) -> anyhow::Result<Value> {

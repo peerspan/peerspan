@@ -125,7 +125,11 @@ fn opencode_entry(v: &Value) -> Raw {
         disabled: v["enabled"] == json!(false),
         command: command.first().cloned(),
         args: command.into_iter().skip(1).collect(),
-        env: string_map(&v["environment"]),
+        env: if v["environment"].is_object() {
+            string_map(&v["environment"])
+        } else {
+            string_map(&v["env"])
+        },
         url: v["url"].as_str().map(str::to_owned),
     }
 }
@@ -252,6 +256,7 @@ pub fn discover(integration: &str, workspace: &Path) -> Discovered {
             Err(error) => errors.push(json!({
                 "source": source.label,
                 "path": source.path.display().to_string(),
+                "server": Value::Null,
                 "error": error,
             })),
             Ok(map) => {
@@ -280,7 +285,7 @@ pub fn discover(integration: &str, workspace: &Path) -> Discovered {
         let mut env = Map::new();
         let command = raw.command.as_ref().map(|c| {
             let (text, referenced, gone) = resolve(c);
-            if referenced {
+            if referenced && gone.is_empty() {
                 values.insert("command".into(), json!(text));
             }
             missing.extend(gone);
@@ -288,7 +293,7 @@ pub fn discover(integration: &str, workspace: &Path) -> Discovered {
         });
         for (i, a) in raw.args.iter().enumerate() {
             let (text, referenced, gone) = resolve(a);
-            if referenced {
+            if referenced && gone.is_empty() {
                 values.insert(format!("args.{i}"), json!(text));
             }
             missing.extend(gone);
@@ -312,20 +317,12 @@ pub fn discover(integration: &str, workspace: &Path) -> Discovered {
         if stdio_without_command {
             out.errors.push(json!({
                 "source": source,
+                "path": Value::Null,
                 "server": name,
                 "error": "a local server without a command",
             }));
             continue;
         }
-        let reason = if raw.remote {
-            None
-        } else if raw.disabled {
-            Some("disabled")
-        } else if !missing.is_empty() {
-            Some("missing_env")
-        } else {
-            None
-        };
         let mut server = json!({
             "name": name,
             "transport": if raw.remote { "remote" } else { "stdio" },
@@ -335,15 +332,13 @@ pub fn discover(integration: &str, workspace: &Path) -> Discovered {
             "url": raw.url,
             "source": source,
         });
-        if let Some(reason) = reason {
-            server["shareable"] = json!(false);
-            server["reason"] = json!(reason);
+        if raw.disabled {
+            server["disabled"] = json!(true);
         }
-        if !missing.is_empty() {
-            missing.sort();
-            missing.dedup();
-            server["missing"] = json!(missing);
-        }
+        // Kept for the attach output; never sent.
+        missing.sort();
+        missing.dedup();
+        server["missing"] = json!(missing);
         out.servers.push(server);
         if !values.is_empty() {
             out.values.insert(name, Value::Object(values));
@@ -392,7 +387,7 @@ pub async fn refresh(
     )
     .await
     .context("local host daemon request timed out")??;
-    let servers: Vec<Value> = stored
+    let servers: Vec<Value> = stored["servers"]
         .as_array()
         .into_iter()
         .flatten()
@@ -404,20 +399,20 @@ pub async fn refresh(
                 .flatten()
                 .filter(|t| t["read_only"] == json!(true))
                 .count();
-            let mut entry = json!({
+            let entry = json!({
                 "name": s["name"],
                 "transport": s["transport"],
                 "shareable": s["shareable"],
                 "reason": s["reason"],
+                "missing_env": s["name"]
+                    .as_str()
+                    .and_then(|n| missing.get(n))
+                    .cloned()
+                    .unwrap_or_else(|| s["missing_env"].clone()),
                 "tools": tools,
                 "read_only_tools": read_only,
+                "snapshot_error": s["snapshot_error"],
             });
-            if let Some(names) = s["name"].as_str().and_then(|n| missing.get(n)) {
-                entry["missing_env"] = names.clone();
-            }
-            if !s["snapshot_error"].is_null() {
-                entry["snapshot_error"] = s["snapshot_error"].clone();
-            }
             entry
         })
         .collect();

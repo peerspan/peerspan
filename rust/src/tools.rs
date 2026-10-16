@@ -56,9 +56,8 @@ pub struct EnvSource {
     pub source: String,
 }
 
-/// A discovered server, as the CLI normalizes it. `shareable` and `reason`
-/// carry what only the harness configuration shows (`disabled`, or a
-/// `missing_env` reference outside `env`); the daemon adds its own reasons.
+/// A discovered server, as the CLI normalizes it, with `disabled` when its
+/// harness disables it. The daemon computes `shareable` and `reason`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
@@ -73,10 +72,9 @@ pub struct Definition {
     #[serde(default)]
     pub url: Option<String>,
     pub source: String,
-    #[serde(default, skip_serializing)]
-    pub shareable: Option<bool>,
-    #[serde(default, skip_serializing)]
-    pub reason: Option<String>,
+    /// Disabled in its harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -167,7 +165,8 @@ pub struct PutServers {
 pub struct AddProfile {
     pub name: String,
     pub env_file: String,
-    #[serde(default)]
+    /// Optional; when given, an array, never null.
+    #[serde(default, deserialize_with = "crate::policy::present")]
     pub args: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
@@ -256,24 +255,60 @@ pub fn auth_like(message: &str) -> bool {
         .any(|w| lower.contains(w))
 }
 
-fn reason_for(d: &Definition) -> (bool, Option<String>, Vec<String>) {
-    let missing: Vec<String> = d
-        .env
-        .iter()
-        .filter(|(_, s)| s.source == "missing")
-        .map(|(n, _)| n.clone())
-        .collect();
+/// The variables `${NAME}` or `${NAME:-D}` references in a text.
+fn references(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        let Some(len) = rest[start..].find('}') else {
+            break;
+        };
+        let inner = &rest[start + 2..start + len];
+        let name = inner.split_once(":-").map_or(inner, |(n, _)| n);
+        if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            out.push(name.to_owned());
+        }
+        rest = &rest[start + len + 1..];
+    }
+    out
+}
+/// Whether a server is shareable, why not (`name`, `remote`, `disabled`,
+/// or `missing_env`, in that order), and its unresolved variables: those a
+/// `command` or `args` element references without a stored value, and the
+/// `env` entries that are `missing`. The definition names only the latter's
+/// keys, so those stand for their variables.
+fn reason_for(
+    d: &Definition,
+    values: Option<&BTreeMap<String, String>>,
+) -> (bool, Option<String>, Vec<String>) {
+    let has = |field: &str| values.is_some_and(|v| v.contains_key(field));
+    let mut missing: Vec<String> = Vec::new();
+    if let Some(c) = &d.command
+        && !has("command")
+    {
+        missing.extend(references(c));
+    }
+    for (i, a) in d.args.iter().enumerate() {
+        if !has(&format!("args.{i}")) {
+            missing.extend(references(a));
+        }
+    }
+    missing.extend(
+        d.env
+            .iter()
+            .filter(|(_, s)| s.source == "missing")
+            .map(|(n, _)| n.clone()),
+    );
+    missing.sort();
+    missing.dedup();
     let reason = if !tool_name_shape(&d.name) {
         Some("name")
     } else if d.transport == "remote" {
         Some("remote")
-    } else if d.reason.as_deref() == Some("disabled") {
+    } else if d.disabled == Some(true) {
         Some("disabled")
-    } else if !missing.is_empty() || d.reason.as_deref() == Some("missing_env") {
+    } else if !missing.is_empty() {
         Some("missing_env")
-    } else if d.shareable == Some(false) {
-        // The CLI found another reason; keep it.
-        d.reason.as_deref().or(Some("unsupported"))
     } else {
         None
     };
@@ -402,6 +437,23 @@ pub(crate) fn agent_names(conn: &Connection) -> Result<BTreeMap<String, String>,
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<BTreeMap<String, String>, _>>()?;
     Ok(rows)
+}
+
+/// `PROFILE` in `GET /v1/tools`.
+fn profile_json(conn: &Connection, p: &ProfileRecord) -> Result<Value, Error> {
+    Ok(json!({
+        "name": p.name,
+        "env_file": p.env_file,
+        "args": p.args,
+        "created_at": p.created_at,
+        "tools": p.snapshot.as_ref().map(|s| s.tools.clone()).unwrap_or_default(),
+        "resources": p.snapshot.as_ref().map(|s| s.resources.clone()).unwrap_or_default(),
+        "snapshot_at": p.snapshot.as_ref().map(|s| s.taken_at.clone()),
+        "snapshot_error": p.snapshot_error,
+        "start_failed_at": p.health.start_failed_at,
+        "auth_error_at": p.health.auth_error_at,
+        "confirmed": confirmed(conn, &p.agent_id, &p.server, &p.name)?,
+    }))
 }
 
 /// What a call or listing needs of one instance: whether it is shareable,
@@ -616,7 +668,7 @@ impl Store {
         let at = now();
         let mut snapshot = Vec::new();
         for d in r.servers {
-            let (shareable, reason, missing_env) = reason_for(&d);
+            let (shareable, reason, missing_env) = reason_for(&d, r.values.get(&d.name));
             let previous = old.get(&d.name);
             if previous.is_some_and(|p| p.definition != d || p.workspace != r.workspace) {
                 stop.push(d.name.clone());
@@ -631,11 +683,7 @@ impl Store {
                 snapshot_error: previous.and_then(|p| p.snapshot_error.clone()),
                 health: previous.map(|p| p.health.clone()).unwrap_or_default(),
                 updated_at: at.clone(),
-                definition: Definition {
-                    shareable: None,
-                    reason: None,
-                    ..d.clone()
-                },
+                definition: d.clone(),
             };
             tx.execute(
                 "INSERT OR REPLACE INTO tool_servers VALUES (?1, ?2, ?3)",
@@ -827,16 +875,7 @@ impl Store {
                 let name = s.definition.name.clone();
                 let mut profiles = Vec::new();
                 for p in profile_records(&conn, &a.id, &name)? {
-                    profiles.push(json!({
-                        "name": p.name,
-                        "env_file": p.env_file,
-                        "args": p.args,
-                        "tools": p.snapshot.as_ref().map(|s| s.tools.clone()).unwrap_or_default(),
-                        "resources": p.snapshot.as_ref().map(|s| s.resources.clone()).unwrap_or_default(),
-                        "snapshot_at": p.snapshot.as_ref().map(|s| s.taken_at.clone()),
-                        "snapshot_error": p.snapshot_error,
-                        "confirmed": confirmed(&conn, &a.id, &name, &p.name)?,
-                    }));
+                    profiles.push(profile_json(&conn, &p)?);
                 }
                 let d = &s.definition;
                 servers.push(json!({
@@ -847,6 +886,7 @@ impl Store {
                     "env": d.env,
                     "url": d.url,
                     "source": d.source,
+                    "disabled": d.disabled.unwrap_or(false),
                     "shareable": s.shareable,
                     "reason": s.reason,
                     "missing_env": s.missing_env,
@@ -854,6 +894,8 @@ impl Store {
                     "resources": s.snapshot.as_ref().map(|s| s.resources.clone()).unwrap_or_default(),
                     "snapshot_at": s.snapshot.as_ref().map(|s| s.taken_at.clone()),
                     "snapshot_error": s.snapshot_error,
+                    "start_failed_at": s.health.start_failed_at,
+                    "auth_error_at": s.health.auth_error_at,
                     "confirmed": confirmed(&conn, &a.id, &name, "")?,
                     "profiles": profiles,
                     "shares": self.shares_of(&conn, &a.name, &name)?,
@@ -868,22 +910,31 @@ impl Store {
         if agent.is_some() && !matched {
             return Err(Error::NotFound);
         }
-        Ok(Value::Array(out))
+        Ok(json!({"agents": out}))
     }
-    /// One agent's stored servers with their snapshots.
+    /// One agent with its stored servers and their snapshots.
     fn agent_servers(&self, agent: &str) -> Result<Value, Error> {
         let view = self.tools_view(Some(agent))?;
-        Ok(view[0]["servers"].clone())
+        Ok(view["agents"][0].clone())
     }
-    fn add_profile(&self, agent: &str, server: &str, r: AddProfile) -> Result<Instance, Error> {
+    /// Records a profile. Returns it, and whether it is new; an identical
+    /// repeat is not.
+    fn add_profile(
+        &self,
+        agent: &str,
+        server: &str,
+        r: AddProfile,
+    ) -> Result<(Instance, bool), Error> {
         if !tool_name_shape(&r.name) {
             return Err(Error::Invalid(
                 "profile names match [a-z0-9][a-z0-9_-]{0,62}".into(),
             ));
         }
-        if !std::path::Path::new(&r.env_file).is_absolute() {
+        if !std::path::Path::new(&r.env_file).is_absolute()
+            || !std::path::Path::new(&r.env_file).is_file()
+        {
             return Err(Error::Invalid(
-                "the environment file path must be absolute".into(),
+                "the environment file must be an existing absolute path".into(),
             ));
         }
         let mut conn = self.connection()?;
@@ -895,9 +946,17 @@ impl Store {
                 s.reason.unwrap_or_default()
             )));
         }
-        if profile_record(&tx, agent, server, &r.name)?.is_some() {
+        let instance = Instance {
+            agent_id: agent.to_owned(),
+            server: server.to_owned(),
+            profile: Some(r.name.clone()),
+        };
+        if let Some(old) = profile_record(&tx, agent, server, &r.name)? {
+            if old.env_file == r.env_file && old.args == r.args {
+                return Ok((instance, false));
+            }
             return Err(Error::Conflict(format!(
-                "profile {server}@{} exists",
+                "profile {server}@{} exists with other settings",
                 r.name
             )));
         }
@@ -923,26 +982,15 @@ impl Store {
             &record.created_at,
         )?;
         tx.commit()?;
-        Ok(Instance {
-            agent_id: agent.to_owned(),
-            server: server.to_owned(),
-            profile: Some(r.name),
-        })
+        Ok((instance, true))
     }
     fn profile_view(&self, agent: &str, server: &str, name: &str) -> Result<Value, Error> {
         let conn = self.connection()?;
         let p = profile_record(&conn, agent, server, name)?.ok_or(Error::NotFound)?;
-        Ok(json!({
-            "agent_id": p.agent_id,
-            "server": p.server,
-            "name": p.name,
-            "env_file": p.env_file,
-            "args": p.args,
-            "tools": p.snapshot.as_ref().map(|s| s.tools.clone()).unwrap_or_default(),
-            "resources": p.snapshot.as_ref().map(|s| s.resources.clone()).unwrap_or_default(),
-            "snapshot_at": p.snapshot.as_ref().map(|s| s.taken_at.clone()),
-            "snapshot_error": p.snapshot_error,
-        }))
+        let mut view = profile_json(&conn, &p)?;
+        view["agent_id"] = json!(p.agent_id);
+        view["server"] = json!(p.server);
+        Ok(view)
     }
     fn remove_profile(&self, agent: &str, server: &str, name: &str) -> Result<Value, Error> {
         let view = self.profile_view(agent, server, name)?;
@@ -1122,10 +1170,16 @@ impl Store {
 async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
     let work = async {
         let (client, capabilities) = mcp::start(&launch).await.map_err(|e| format!("{e:#}"))?;
-        let tools = mcp::list(&client, "tools/list", "tools", LIST_LIMIT)
-            .await
-            .map_err(|e| format!("{e:#}"))?;
-        let resources = if capabilities.get("resources").is_some_and(|r| !r.is_null()) {
+        // Each list is asked for when the server declares its capability
+        // key, whatever the value.
+        let tools = if capabilities.get("tools").is_some() {
+            mcp::list(&client, "tools/list", "tools", LIST_LIMIT)
+                .await
+                .map_err(|e| format!("{e:#}"))?
+        } else {
+            Vec::new()
+        };
+        let resources = if capabilities.get("resources").is_some() {
             mcp::list(&client, "resources/list", "resources", LIST_LIMIT)
                 .await
                 .map_err(|e| format!("{e:#}"))?
@@ -1250,11 +1304,18 @@ async fn add_profile_route(
 ) -> Result<(StatusCode, Json<Value>), Error> {
     let request: AddProfile = decode(body)?;
     let (a, s) = (agent.clone(), server.clone());
-    let instance = blocking(store.clone(), move |st| st.add_profile(&a, &s, request)).await?;
+    let (instance, new) =
+        blocking(store.clone(), move |st| st.add_profile(&a, &s, request)).await?;
     let name = instance.profile.clone().unwrap_or_default();
-    snapshot_all(store.clone(), vec![instance]).await;
+    if new {
+        snapshot_all(store.clone(), vec![instance]).await;
+    }
     Ok((
-        StatusCode::CREATED,
+        if new {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
         Json(blocking(store, move |s| s.profile_view(&agent, &server, &name)).await?),
     ))
 }

@@ -339,14 +339,10 @@ impl ToolRule {
         for p in &self.principals {
             principal(p)?;
         }
-        let valid = |a: &String| a == TOOL_ACTION || a == RESOURCE_ACTION;
-        if self.actions.is_empty()
-            || !self.actions.iter().all(valid)
-            || (self.actions.len() == 2 && self.actions[0] == self.actions[1])
-            || self.actions.len() > 2
-        {
+        let actions: Vec<&str> = self.actions.iter().map(String::as_str).collect();
+        if actions != [TOOL_ACTION] && actions != [TOOL_ACTION, RESOURCE_ACTION] {
             return Err(invalid(
-                "a tool rule's actions are tool.call, resource.read, or both",
+                "a tool rule's actions are tool.call, or tool.call resource.read",
             ));
         }
         if self.scope.is_empty() || self.scope.len() > MAX_SCOPE {
@@ -362,6 +358,11 @@ impl ToolRule {
                 }
                 "*" if profile.is_none() => {
                     return Err(invalid("* covers write tools, so it needs a profile"));
+                }
+                "readonly" | "*" => {}
+                // Every resource is shared only with a whole-server scope.
+                _ if self.reads_resources() => {
+                    return Err(invalid("resource.read goes with the scope readonly or *"));
                 }
                 _ => {}
             }

@@ -110,12 +110,6 @@ pub struct CallRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::policy::present"
     )]
-    pub grant_id: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::policy::present"
-    )]
     pub policy: Option<PolicyRef>,
     #[serde(
         rename = "self",
@@ -170,11 +164,7 @@ fn validate(r: &CallRequest) -> Result<(), Error> {
             .as_deref()
             .is_none_or(crate::policy::tool_name_shape)
         && r.origin.as_ref().is_none_or(Origin::valid)
-        && crate::peer_store::one_authorization(
-            r.grant_id.as_deref(),
-            r.policy.as_ref(),
-            r.self_access.as_ref(),
-        );
+        && crate::peer_store::one_authorization(None, r.policy.as_ref(), r.self_access.as_ref());
     let body = match r.kind.as_str() {
         "tool" => {
             r.name.as_deref().is_some_and(|n| !n.is_empty())
@@ -416,8 +406,14 @@ fn rule_applies(policy: &Policy, rule: &crate::policy::ToolRule, name: &str, ser
             .iter()
             .any(|r| r.agent == name && r.server == server)
 }
+/// A rule's budget identity: its network, owner, agent, server, actions,
+/// scope, and bounds, but not its principals.
 fn rule_key(network: &str, person: &str, rule: &crate::policy::ToolRule) -> String {
-    let encoded = serde_json::to_vec(rule).unwrap_or_default();
+    let identity = crate::policy::ToolRule {
+        principals: Vec::new(),
+        ..rule.clone()
+    };
+    let encoded = serde_json::to_vec(&identity).unwrap_or_default();
     format!(
         "policy:{network}:{person}:{}",
         hex::encode(sha2::Sha256::digest(encoded))
@@ -629,9 +625,13 @@ pub struct Runner {
     inflight: Mutex<HashSet<(String, String)>>,
     /// Running calls' cancellation signals.
     cancels: Mutex<HashMap<(String, String), Arc<Notify>>>,
+    /// Calls whose recheck could recover, held back until then.
+    deferred: Mutex<HashMap<(String, String), std::time::Instant>>,
     /// Wakes the dispatcher.
     wake: Notify,
 }
+/// A queued call refused recoverably is rechecked after this long.
+const RECHECK: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize)]
 pub(crate) struct ToolsQuery {
@@ -662,7 +662,8 @@ impl Store {
         }
         let at = Utc::now();
         let deadline = crate::membership::time(&r.deadline)?;
-        if deadline <= at || deadline > at + MAX_DEADLINE {
+        // One minute of clock skew beyond the 15 minutes.
+        if deadline <= at || deadline > at + MAX_DEADLINE + TimeDelta::minutes(1) {
             return Err(Error::Invalid(
                 "a deadline is in the future and at most 15 minutes away".into(),
             ));
@@ -781,7 +782,6 @@ impl Store {
                 "sequence": sequence,
                 "request": request,
                 "status": s.status,
-                "arguments_sha256": s.arguments_sha256,
             });
             let size = item.to_string().len() + 1;
             if bytes + size > 900_000 {
@@ -954,10 +954,18 @@ impl Store {
             tx.commit()?;
             return Ok(None);
         }
-        if authorize(self, &tx, sender, &request, false).is_err() {
-            finish(&tx, sender, &mut s, "rejected", Some(LAPSED), None)?;
-            tx.commit()?;
-            return Ok(None);
+        match authorize(self, &tx, sender, &request, false) {
+            Ok(_) => {}
+            // Recoverable: the call stays queued and is rechecked.
+            Err(Error::Unavailable(_)) => {
+                self.defer(sender, id);
+                return Ok(None);
+            }
+            Err(_) => {
+                finish(&tx, sender, &mut s, "rejected", Some(LAPSED), None)?;
+                tx.commit()?;
+                return Ok(None);
+            }
         }
         let at = now();
         s.status.state = "running".into();
@@ -967,12 +975,43 @@ impl Store {
         tx.commit()?;
         Ok(Some(request))
     }
-    /// Whether a call is still queued, before its instance starts.
-    fn still_queued(&self, sender: &str, id: &str) -> Result<bool, Error> {
-        Ok(
-            load(&*self.connection()?, sender, id)?
-                .is_some_and(|(_, s)| s.status.state == "queued"),
-        )
+    /// Rechecks a queued call before its instance starts: whether it may
+    /// start now. A final lapse records `rejected`; a recoverable one leaves
+    /// it queued, rechecked shortly.
+    fn precheck(&self, sender: &str, id: &str) -> Result<bool, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let Some((request, mut s)) = load(&tx, sender, id)? else {
+            return Ok(false);
+        };
+        if s.status.state != "queued" {
+            return Ok(false);
+        }
+        if expire(&tx, sender, &request, &mut s)? {
+            tx.commit()?;
+            return Ok(false);
+        }
+        match authorize(self, &tx, sender, &request, false) {
+            Ok(_) => Ok(true),
+            Err(Error::Unavailable(_)) => {
+                self.defer(sender, id);
+                Ok(false)
+            }
+            Err(_) => {
+                finish(&tx, sender, &mut s, "rejected", Some(LAPSED), None)?;
+                tx.commit()?;
+                Ok(false)
+            }
+        }
+    }
+    /// Holds a recoverably refused call back from dispatch briefly.
+    fn defer(&self, sender: &str, id: &str) {
+        if let Ok(mut deferred) = self.call_runner.deferred.lock() {
+            deferred.insert(
+                (sender.to_owned(), id.to_owned()),
+                std::time::Instant::now() + RECHECK,
+            );
+        }
     }
     /// Ends a call that was not sent: every queued call of an instance that
     /// failed to start fails with `server_start_failed`.
@@ -1111,7 +1150,7 @@ async fn run(store: Arc<Store>, sender: String, id: String, instance: Instance) 
 async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instance) {
     let key = instance.key();
     let (s, i) = (sender.to_owned(), id.to_owned());
-    if !blocking(store.clone(), move |st| st.still_queued(&s, &i))
+    if !blocking(store.clone(), move |st| st.precheck(&s, &i))
         .await
         .unwrap_or(false)
     {
@@ -1262,6 +1301,13 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
                 let Ok(mut claimed) = store.call_runner.claimed.lock() else {
                     continue;
                 };
+                if let Ok(mut deferred) = store.call_runner.deferred.lock() {
+                    let now = std::time::Instant::now();
+                    deferred.retain(|_, until| *until > now);
+                    if deferred.contains_key(&call) {
+                        continue;
+                    }
+                }
                 let n = claimed.entry(key.clone()).or_default();
                 if inflight.contains(&call) || *n >= PER_INSTANCE {
                     continue;
