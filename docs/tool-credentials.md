@@ -1,6 +1,6 @@
 # Credentials for shared tools
 
-Status: decisions settled with the owner on 2026-10-16 and listed under [Decisions](#decisions); everything else is analysis that shapes later work. It accompanies the [remote tools proposal](remote-tools-proposal.md), and it applies equally to any later feature where Peerspan runs something with an owner's credentials: host-launched sessions and isolated runtimes.
+Status: decisions settled with the owner on 2026-10-16 and listed under [Decisions](#decisions); everything else is analysis that shapes later work. The later shareable-capability decision supersedes the whole-server public sharing default below: each capability serves one coherent use case with defined operations or resources and stated credential reach. A resource restriction such as a repository is optional. The credential analysis still informs the revised design. It accompanies the [remote tools proposal](remote-tools-proposal.md), and it applies equally to any later feature where Peerspan runs something with an owner's credentials: host-launched sessions and isolated runtimes.
 
 ## The problem
 
@@ -64,7 +64,7 @@ The options below differ in who enforces the limit and in what they cost the own
 
 **Free-form tools.** Only options 1 and 5 bound free-form tools.
 
-## Default
+## Earlier MCP-specific default
 
 Sharing a server without a narrower credential shares only the tools the server marks read-only (MCP `readOnlyHint`). `allow` states the reach, for example: "bob can read every repository your GitHub token can." Write tools need either a narrower credential for the share (option 1) or approval of each call (option 4). Argument rules and profiles come later, to make the common cases a single command.
 
@@ -82,7 +82,7 @@ Two caveats:
 
 ## Decisions
 
-Settled with the owner on 2026-10-16:
+Settled with the owner on 2026-10-16 for the earlier MCP-specific proposal; whole-server public sharing is under revision:
 
 1. **Discovery, not registration.** Shared servers are discovered from the agent's harness configuration at `attach`. There is no separate registration step. Discovered servers start unshared, and sharing happens through `allow`.
 2. **Read-only by default.** Without a narrower credential, a share covers read-only tools only, and `allow` states the credential's reach. Write tools need a narrower credential for the share or approval of each call. Argument rules and server profiles are later work.

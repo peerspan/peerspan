@@ -1,6 +1,6 @@
 # Remote tools and resources
 
-Status: accepted. It was drafted on 2026-10-16 and reworked the same day after owner review, and its decisions are listed under [Decisions](#decisions). The slice 1 contract is in [tools-contract.md](tools-contract.md). Nothing is implemented. This would be roadmap milestone 10. It builds on owner access policy (milestone 2b), tasks (milestone 6), and the [access model](access-model.md). Credentials and how far they reach are covered separately, in [Credentials for shared tools](tool-credentials.md).
+Status: accepted as an MCP-specific technical proposal on 2026-10-16, then reopened for a product experience review the same day. The owner chose **shareable capability** as the public unit for tools and resources, scoped to one coherent use case with defined operations or resources and stated credential reach, whether backed by an MCP server or a bounded CLI operation. A resource restriction such as a repository is optional. The earlier whole-server sharing default and the CLI, agent-tool, discovery, and addressing shapes below are pending revision under that model. Nothing is implemented. The earlier decisions are listed under [Decisions](#decisions); the slice 1 technical contract is in [tools-contract.md](tools-contract.md). This would be roadmap milestone 10. It builds on owner access policy (milestone 2b), tasks (milestone 6), and the [access model](access-model.md). Credentials and how far they reach are covered separately, in [Credentials for shared tools](tool-credentials.md).
 
 ## Problem
 
@@ -225,7 +225,7 @@ Mirroring each remote tool as a native MCP tool can come after the generic tools
 
 ## Decisions
 
-Settled with the owner on 2026-10-16:
+Settled with the owner on 2026-10-16 for the MCP-specific proposal. The later shareable-capability decision supersedes item 10 as the public share model. A capability is scoped to one coherent use case; its exact naming, backing, and enforcement still need design.
 
 1. **Discovery, not registration.** Servers come from the harness configuration. The only explicit step is sharing, through `allow`.
 2. **Read-only by default.** Without a narrower credential, a share covers read-only tools, with the reach stated. The owner flagged that this may still be too permissive, so the question stays open below.

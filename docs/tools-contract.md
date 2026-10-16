@@ -2,9 +2,11 @@
 
 Roadmap milestone 10, slice 1: discovery and owner calls. The design and its decisions are in the [remote tools proposal](remote-tools-proposal.md) and [credentials for shared tools](tool-credentials.md). This contract builds on the [task contract](task-contract.md) for call records, retry, and polling; on owner access policy in the [coordination contract](coordination-contract.md); and on `attach`, `allow`, and self access in the [launch contract](launch-contract.md).
 
+Status: unimplemented. The owner subsequently chose shareable capabilities scoped to one coherent use case, with defined operations or resources and stated credential reach, as the public abstraction for remote tools and resources. A resource restriction such as a repository is optional. MCP and bounded CLI operations are possible backends. This contract still describes the earlier MCP-server-specific slice. Its whole-server sharing default, public commands, agent tools, discovery, addresses, and share shape need revision before implementation; the call lifecycle and authorization details must be reconciled with that revision.
+
 Slice 1 covers only stdio servers and owner calls from the CLI. The agent-facing MCP tools (slice 2), remote OAuth servers (slice 3), and approval of each call (slice 4) extend it later.
 
-Decided with the owner on 2026-10-16:
+Decided with the owner on 2026-10-16 for the earlier MCP-specific contract:
 - shared servers are discovered from harness configuration, never registered;
 - a share without a profile covers read-only tools, and `allow` asks the owner to confirm the credential's reach once per server;
 - `${VAR}` values are captured at `attach`, and a per-user environment file overrides them;
@@ -13,7 +15,7 @@ Decided with the owner on 2026-10-16:
 - server and tool names in policy are visible to coordination;
 - self access covers tools only from hosts the person has marked trusted;
 - a server receives only the environment-file variables its own definition names;
-- people share a server, not tools and resources separately: one `--tools` flag covers both, and `deny` removes everything for that server;
+- in this earlier MCP-specific slice, people share a server, not tools and resources separately: one `--tools` flag covers both, and `deny` removes everything for that server; the public share model is under revision as noted above;
 - resource URI patterns and tool grants are left out of slice 1, to keep it small.
 
 ## Model
@@ -143,7 +145,59 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 - **Ordering.** Versions, the tie-break hash, renewal, propagation, and storage are unchanged. The tie-break hashes the v2 lines.
 - **Directory.** The peer agents route and `GET /v1/directory` are unchanged and never show tool rules.
 
-**Test vectors** for a v2 policy, with the earlier person as owner, are added when this contract is accepted. Each implementation generates the vector, and the vector is adopted only if both produce the same statement.
+**Test vector.** Both implementations produced this independently. The owner is the earlier person, in the network of the v1 vector. The policy is version 1, issued `2026-10-10T00:00:00Z`, valid until `2026-10-17T00:00:00Z`. Its contents are:
+- the two v1 vector rules;
+- tool rule `reviewer`, `github`, `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2`, actions `tool.call resource.read`, scope `readonly`, `65536 false 100`;
+- tool rule `*`, `github@acme-api`, `group:backend`, action `tool.call`, scope `create_issue list_issues`, `4096 true 10`;
+- trusted hosts `host_` followed by 64 `b`s and `host_` followed by 64 `a`s, given in that order.
+
+The statement lines are:
+
+```text
+peerspan-policy-v2
+net_34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e
+bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=
+1
+2026-10-10T00:00:00Z
+2026-10-17T00:00:00Z
+rule
+reviewer
+person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2 group:backend
+message.append
+65536 false
+rule
+triage
+network
+message.append
+4096 true
+tool_rule
+reviewer
+github
+person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2
+tool.call resource.read
+readonly
+65536 false 100
+end
+tool_rule
+*
+github@acme-api
+group:backend
+tool.call
+create_issue list_issues
+4096 true 10
+end
+trusted host_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa host_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+```
+
+Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQN3R+JpYFSWwJYDv5TPcPhxvjwoOUVpErPzSlzkRC3DfkaZYNtdsjUSgm0C3KvvXJtNSlozD1UJ894T6bomQvgE=`, and the statement hashes to `84e7e3312f15fa07d06aee1a9bb8953f01d47602ba3439b25bc656a9d4d01729`.
+
+**Encoding details:**
+- `allow_disconnected` is `true` or `false`.
+- An empty trusted list is the bare line `trusted`, with no trailing space.
+- Trusted hosts are sorted in the statement, and duplicates are refused.
+- The JSON keys are, in order, `format`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`, `rules`, `tool_rules`, `trusted_hosts`, `signature`. A stored v2 policy keeps `trusted_hosts` sorted.
+- A v1 policy is stored in its v1 JSON shape, with no `format`, `tool_rules`, or `trusted_hosts`.
+- The actions of a tool rule are `tool.call` or `tool.call resource.read`, each at most once, in that order. A server or profile name not matching the name pattern, or a malformed line, is refused with 400.
 
 ### Commands
 
@@ -318,6 +372,89 @@ PRAGMA user_version = 16;
 - `call.submitted` and `call.updated` (subject: the peer host ID and the call ID).
 
 Activity never includes arguments, results, or secret values.
+
+## Local API and clarifications
+
+Settled on 2026-10-16, after both implementations and the suite's author compared readings. Where this section and an earlier one differ, this section applies. The local API is shared between CLI and daemon, so mixed Go/Rust pairings depend on these shapes exactly.
+
+### Discovery
+
+- **`PUT /v1/agents/{agent_id}/tool-servers` request.**
+  - The body is `{workspace, servers, values}`. `values` may be absent.
+  - Each element of `servers` has exactly the definition fields `name`, `transport`, `command`, `args`, `env`, `url`, and `source`, plus an optional boolean `disabled`. Unknown fields are refused with 400.
+  - The daemon computes `shareable` and `reason`. Reasons, in precedence order, are `name`, `remote`, `disabled`, and `missing_env`.
+  - A stdio entry without a command is reported by the CLI in `errors`, and is not sent.
+  - In `values`, `env.NAME` is accepted only for entries whose source is `literal` or `captured`.
+- **`PUT` response.** It is the agent object below, returned once snapshots finish, so `tools refresh` returns only after them.
+- **`GET /v1/tools` response.** It is `{agents: [AGENT]}`, sorted by agent name, where `AGENT` is `{agent: {id, name}, workspace, servers: [SERVER]}`.
+- **`SERVER`** is `{name, transport, command, args, env, url, source, disabled, shareable, reason, missing_env, tools, resources, snapshot_at, snapshot_error, start_failed_at, auth_error_at, confirmed, profiles, shares}`, where:
+  - `missing_env` is the list of referenced variable names that could not be resolved, such as `FX_MISSING_VAR`, never the `env` keys;
+  - `tools` and `resources` are `[]` before the first snapshot;
+  - `confirmed` is a boolean for the base server;
+  - `shares` lists the tool rules naming the server, each as the tool rule plus `network_id`.
+- **`PROFILE`** is `{name, env_file, args, created_at, tools, resources, snapshot_at, snapshot_error, start_failed_at, auth_error_at, confirmed}`.
+- **Missing references.** A `missing` reference keeps the server `missing_env` even when the environment file has that name, because discovery resolves from the CLI's environment.
+- **Peerspan's own entries.** Discovery skips server names `peerspan` and `peerspan_` followed by 32 hex digits.
+- **OpenCode.** It reads `environment`, falling back to `env`. Its files are parsed as strict JSON.
+- **Defaults.** `${VAR:-D}` uses `D` when `VAR` is unset or empty.
+- **Entry cap.** Following `nextCursor` beyond 1,000 entries is a `snapshot_error` (`too_many_entries`).
+- **Listing calls.** `tools/list` and `resources/list` are each called when the server's `initialize` result has that capability key, whatever its value.
+- **Dropped servers.** A dropped server loses its reach confirmations, so a returning server asks again.
+- **`attach` output.** It is `tools: {servers: [{name, transport, shareable, reason, missing_env, tools, read_only_tools, snapshot_error}], errors: [{source, path, server, error}]}`, where `tools` and `read_only_tools` are counts, and `path` and `server` may be null. The readable line goes to stderr, and its wording is not shared.
+
+### Profiles and confirmations
+
+- **Adding a profile.** `POST /v1/agents/{agent_id}/tool-servers/{server}/profiles` takes `{name, env_file, args}`, where `args` is optional and, when given, an array. `null` is refused.
+  - The server must be `shareable`, and `env_file` must exist.
+  - It returns 201 with `PROFILE` plus `agent_id` and `server`. An identical repeat returns 200 with the existing profile, and a different one returns 409.
+- **Recording a confirmation.** `POST /v1/agents/{agent_id}/tool-servers/{server}/confirmations` takes `{profile}`, which is null for the base server. It returns 200 with `{agent_id, server, profile, confirmed_at}`.
+- **Reading confirmations.** They appear as `confirmed` in `GET /v1/tools`. There is no other confirmation route.
+
+### Sharing output and prompts
+
+- **Prompt text.** Each statement is the contract's sentence. When the actions include `resource.read`, it is followed by ` PRINCIPAL can also read every resource it offers.` An empty tool list reads `(none yet)`.
+- **Asking.** `allow` prints every statement to stderr, then asks once: `Share? [y/N] `. It reads one line from stdin, and `y` or `yes` agrees. "At a terminal" means stdin is a terminal. Declining, or no terminal without `--yes`, exits 1 with nothing signed.
+- **`--agent '*'`.** It prints its warning instead of a statement, and always needs `--yes`.
+- **`trust` and `untrust` output.** It is `{policy, host, trusted, changed}`. When nothing changes, `changed` is false and no version is signed.
+- **`join` and `network create`.** They always output `trusted` as a boolean, and sign the trust change at once. If that signing fails, the command still succeeds, with `trusted: false` and `trusted_error`.
+- **Notes.** The wording of `deny`'s `note`, and of all refusals, is not shared.
+
+### Calls
+
+- **`POST /v1/calls` request.** It takes `{target, kind, name, uri, arguments, deadline, network, call_id}`. A null field is treated as absent.
+  - `deadline` is RFC3339. The CLI's `--deadline` also accepts a duration, which it converts.
+  - The daemon refuses a deadline that is in the past or more than 15 minutes ahead with 400 before persisting.
+  - It returns 200 with the outbound record.
+- **Targets.** `target` is `PERSON|HOST_ID/AGENT/SERVER[@PROFILE]`.
+  - Resolution failures are 404 `{code: "not_found", error, unanswered: [{host_id, error}]}` or 409 `{code: "ambiguous", error, candidates: [ADDRESS]}`.
+  - `unanswered` and the other failures refuse the call with nothing persisted.
+- **`GET /v1/calls`** returns `[{sequence, call}]`.
+- **`GET /v1/calls/received`** returns `[{sequence, request, status}]`.
+- **The outbound record.** Its keys are `peer_host_id, target, network_id, request, submit_state, status, result, cancel_state, attempts, next_attempt_at, error, status_queries`. The request never carries `grant_id`.
+- **`GET /v1/remote-tools?target=…&network=…`** returns `{entries: [{host_id, address, agent, agent_id, server, profile, tools, resources}], unanswered: [{host_id, error}]}`.
+  - `target` accepts `PERSON|HOST_ID[/AGENT[/SERVER[@PROFILE]]]`.
+  - Without a target, it covers the members of the selected networks only.
+- **`--wait`** takes `N`, `Ns`, or `Nm`, from 0 to 15 minutes, default 60 seconds.
+- **Submission outcomes.** 400, 403, 404, 409, 413, and 429 are final `rejected`. Anything else stays `unknown` and is retried.
+- **Deadline at the receiver.** It must be in the future, and at most 15 minutes plus 1 minute of clock skew after receipt. Otherwise the call is refused with 400 `invalid`.
+- **Recheck before start.** A recoverable failure (503-type) leaves the call `queued`, rechecked at least every 5 seconds until its deadline, when it becomes `expired`. Any other failure rejects it with `authorization lapsed before start`.
+- **Budget key.** The budget is counted per rule identity and caller. The rule identity covers the network, owner, agent, server, actions, scope, and bounds, but not the principals, so adding or removing principals does not reset anyone's budget.
+- **`*` rules.** A rule naming the agent hides `*` rules only for the same server string; `S` and `S@R` are distinct.
+- **Self.** It needs the person's policy for that network to be within its validity window.
+- **Resource calls.** A resource call must name a URI present in the snapshot.
+- **Wire body.**
+  - A resource call has no `name` or `arguments` keys, and a tool call has no `uri` key.
+  - `profile` is always present.
+  - `grant_id` is never sent.
+  - The POST response's state is `queued`.
+- **Error bodies.**
+  - 413 is `{code: "too_large", error}`.
+  - 429 is `{code: "limit", error, limit: "max_calls_per_hour"}`.
+- **Repeated start failures.** After 3 start failures in 10 minutes, queued calls fail with `server_start_failed`.
+- **Activity subjects** for `call.*` are `HOST_ID/CALL_ID`, using the sender for received calls and the peer for outbound calls.
+- **Size limits.**
+  - Peer response bodies of `GET /peer/v1/tools` and `GET /peer/v1/calls/{id}` may be up to 4 MiB. Other peer routes keep their limits.
+  - Local API responses may be up to 16 MiB.
 
 ## Verification
 
