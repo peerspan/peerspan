@@ -70,14 +70,14 @@ Each discovered server is normalized to:
   - `captured`: the value is a reference resolved at discovery;
   - `missing`: the value is a reference that could not be resolved.
 
-  Values never appear in definitions, listings, output, logs, or activity.
+  Values are sent to the daemon only in the `values` payload (below), and never appear in definitions, listings, output, logs, or activity.
 - **`source`** is `INTEGRATION:SCOPE`. The scope is `user`, `project`, or `local` for Claude Code, `user` for Codex, and `global` or `project` for OpenCode.
 - **Unsupported fields.** A definition using a field this contract does not list, such as Codex `startup_timeout_ms` or OpenCode `enabled: false`, is still discovered. Fields that change only timing or visibility are ignored. A definition disabled in its harness (OpenCode `enabled: false`, Codex `enabled = false`) is discovered with `shareable: false` and the reason `disabled`.
 
 ### References
 
 - **Where they are resolved.** In `command`, `args`, and `env` values, `${NAME}` and `${NAME:-DEFAULT}` are resolved from the CLI's environment at discovery. This applies to Claude Code definitions, and to the same syntax in the other harnesses.
-- **What is stored.** A value that contains a reference is stored, fully resolved, as a **captured value** for `(agent, server, field)`, and its `env` entry is `captured`.
+- **What is stored.** A value that contains a reference is resolved and sent in `values`, and its `env` entry is `captured`. Literal `env` values are sent in `values` too, as `literal`. The daemon stores both in `tool_values`, which is the only place it reads them from.
 - **Unresolved references.** A reference with no value and no default makes the entry `missing`. The server is then listed with `shareable: false` and the reason `missing_env`, naming the variables.
 - **The environment file.** `$XDG_CONFIG_HOME/peerspan/env` (default `~/.config/peerspan/env`) holds `NAME=VALUE` lines, with `#` comments. When it exists, the daemon reads it each time it starts a server. Its values override captured values and literals of the same name in `env`. If it is not mode 0600 or stricter, servers start without it and status item 14 reports it.
 
@@ -85,7 +85,7 @@ Each discovered server is normalized to:
 
 | CLI | Local API | Behavior |
 | --- | --- | --- |
-| (from `attach` and `tools refresh`) | `PUT /v1/agents/{agent_id}/tool-servers` with `{workspace, servers, captured}` | Replaces the agent's server definitions and captured values in one transaction, then snapshots each shareable server. `captured` maps `SERVER` to `{FIELD: VALUE}`, where `FIELD` is `env.NAME`, `command`, or `args.N`. It returns the stored servers with their snapshots. |
+| (from `attach` and `tools refresh`) | `PUT /v1/agents/{agent_id}/tool-servers` with `{workspace, servers, values}` | Replaces the agent's server definitions and stored values in one transaction, then snapshots each shareable server. `values` maps `SERVER` to `{FIELD: VALUE}`, where `FIELD` is `env.NAME`, `command`, or `args.N`. It holds every `env` value, whether `literal` or `captured`, and every `command` or `args` element that contained a reference, fully resolved. It returns the stored servers with their snapshots. |
 | `tools [--agent NAME] [--json]` | `GET /v1/tools` | For each agent: its servers, each with `shareable` and `reason`, its snapshot's tools (marked `read_only`) and resources, its profiles, and the shares in this person's stored policy that name it. |
 | `tools refresh [--agent NAME]` | the same `PUT`, for each profile | As `attach` discovery. |
 | `tools profile add SERVER PROFILE --env-file PATH [--arg A ...] [--agent NAME]` | `POST /v1/agents/{agent_id}/tool-servers/{server}/profiles` | Records the profile and snapshots it. `PATH` is absolute and read each time the profile's instance starts. `--arg`, repeatable, replaces the server's `args`. `--agent` is needed when more than one agent has the server. |
@@ -98,7 +98,7 @@ Each discovered server is normalized to:
 - **Stored resource entries.** Each resource is `{uri, name, description, mime_type}`.
 - **Size.** A snapshot larger than 1 MiB of JSON is a `snapshot_error`.
 
-**Following configuration.** A `PUT` that drops a server deletes its definition, profiles, captured values, and snapshot. Calls already `running` on it finish; new calls to it are refused as unknown. A server or tool that appears in a new definition or snapshot is not shared until a share names it, or names `readonly` and the tool is read-only.
+**Following configuration.** A `PUT` that drops a server deletes its definition, profiles, stored values, and snapshot. Calls already `running` on it finish; new calls to it are refused as unknown. A server or tool that appears in a new definition or snapshot is not shared until a share names it, or names `readonly` and the tool is read-only.
 
 **Output.** `attach` adds `tools: {servers, errors}` to its output. `servers` is `[{name, transport, shareable, reason, tools, read_only_tools}]`, with counts for the last two. Its readable output adds one line, for example `MCP servers found: github, linear (remote, not shareable yet). None are shared.`
 
@@ -151,7 +151,7 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 | `allow PRINCIPAL --tools SPEC [--agent NAME] [--yes] [--calls-per-hour N] [--network ID]` | Sets PRINCIPAL's tool access, described below. |
 | `allow PRINCIPAL --resources SERVER[@PROFILE]:PATTERN [...] [--agent NAME] [--network ID]` | The same for `resource.read`. |
 | `deny PRINCIPAL --tools SERVER[@PROFILE] [--agent NAME] [--network ID]` | Removes PRINCIPAL from every tool rule naming that server or profile, within the agent scope, and drops empty rules. It reports `removed` and `note`, as `deny` does. |
-| `trust [HOST]` / `untrust HOST` | Adds the host to, or removes it from, `trusted_hosts`, then signs and submits the next version. `HOST` defaults to this host and must be bound to this person in a shared network. |
+| `trust [HOST] [--network ID]` / `untrust HOST [--network ID]` | Adds the host to, or removes it from, `trusted_hosts` in this person's policy for the selected network, then signs and submits that policy's next version. Network selection follows the usual defaulting: `--network` is optional when this host belongs to exactly one network. `HOST` defaults to this host, and for `trust` it must be bound to this person in the selected network. |
 
 **`SPEC`.** It is one of:
 - `SERVER` or `SERVER@PROFILE`, meaning `readonly`;
@@ -174,7 +174,7 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 
 `deny --tools` without `--agent` removes the principal from tool rules for that server under every agent name, `*` included.
 
-**`join` and `network create`** gain `--trusted` and `--untrusted`. When bound to a person and given neither, they ask at a terminal: `Let this machine use tools shared from your other machines? [y/N]`. Without a terminal, the answer is no. A yes adds this host to `trusted_hosts` in the next signed version. Their output gains `trusted`.
+**`join` and `network create`** gain `--trusted` and `--untrusted`. When bound to a person and given neither, they ask at a terminal: `Let this machine use tools shared from your other machines? [y/N]`. Without a terminal, the answer is no. A yes adds this host to `trusted_hosts` in the policy of the network being created or joined, in its next signed version. Their output gains `trusted`.
 
 ### Authorization
 
@@ -185,8 +185,8 @@ A receiving host bound to person P authorizes a call to its agent N's server S (
   - its action is the call's;
   - a principal matches the sender, as for rules;
   - the scope covers the tool or URI.
-- **Grant.** A grant with `action` `tool.call` or `resource.read`. Grants gain `server` and `scope`, set with `grant create --server SERVER[@PROFILE] --scope ENTRY ...`.
-- **Self.** The sender and receiver are both bound to P in a shared network, and the sender's host ID is in `trusted_hosts` of P's newest verified policy. Self covers every shareable server and profile of every agent, and every tool, including tools that are not read-only. Its bounds are `max_input_bytes` 262,144, `allow_disconnected` true, and no hourly budget.
+- **Grant.** A grant with `action` `tool.call` or `resource.read`, held by this host and naming the sender. Grants gain `server`, `scope`, `max_input_bytes`, and `max_calls_per_hour`, set with `grant create --action ACTION --server SERVER[@PROFILE] --scope ENTRY [--scope ENTRY ...] [--max-input-bytes N] [--calls-per-hour N]`. `--scope` is required and takes the same entries as a tool rule's scope. The defaults are 65,536 and 100, with the same ranges as tool rules. The grant's existing `agent`, `allow_disconnected`, and expiry apply as for other grants, and its `max_message_bytes` does not apply to calls.
+- **Self.** In some network N, the sender and receiver are both bound to P, and the sender's host ID is in `trusted_hosts` of P's newest verified policy for N. Trust is per network: trusting a host in one network does not cover calls that rely on another. Self covers every shareable server and profile of every agent, and every tool, including tools that are not read-only. Its bounds are `max_input_bytes` 262,144, `allow_disconnected` true, and no hourly budget.
 
 Then, in this order:
 1. **Blocks.** The block list applies, except to self.
@@ -210,7 +210,7 @@ Several matching rules combine as for messages: the call is authorized if any ap
 | `GET /peer/v1/tools?network=ID` | none | Lists what the authenticated sender may call or read on this host: `[{agent, agent_id, server, profile, tools: [{name, description, input_schema, read_only}], resources: [...]}]`, from snapshots, filtered by authorization without budgets. `network` is optional. Without it, all policies and grants are evaluated. Sorted by agent, server, and profile. |
 | `POST /peer/v1/calls` | exactly `call_id`, `target_agent_id`, `server`, `profile` (string or null), `kind` (`tool` or `resource`), `name` (for `tool`) or `uri` (for `resource`), `arguments` (an object, for `tool`), `deadline`, optional `origin`, and one citation | Authorizes as above, then persists the call as `queued` with a `call.received` activity, and returns 200 with the status record. Idempotent by `(sender, call_id)`: an identical repeat returns the existing record, and a changed one returns 409. |
 | `GET /peer/v1/calls/{call_id}` | none | The status record with its `result` once final. Submitter only; anyone else gets 404. It remains available after revocation. |
-| `POST /peer/v1/calls/{call_id}/cancel` | `{}` | Sets `cancel_requested`. A `queued` call becomes `cancelled` at once. For a `running` call, the server receives MCP `notifications/cancelled`, and the call ends as the server answers. Submitter only. A repeat, or a cancel of a final call, returns the record unchanged. |
+| `POST /peer/v1/calls/{call_id}/cancel` | `{}` | Sets `cancel_requested`. A `queued` call becomes `cancelled` at once. A `running` call is sent MCP `notifications/cancelled` and becomes `uncertain` with the error `cancel_requested`, unless its result was already received. Submitter only. A repeat, or a cancel of a final call, returns the record unchanged. |
 
 **The status record** is `{call_id, sender_host_id, receiver_host_id, target_agent_id, server, profile, kind, name, uri, state, cancel_requested, error, result_bytes, created_at, started_at, finished_at}`, plus `result` on `GET` once the call is final.
 
@@ -224,23 +224,24 @@ Several matching rules combine as for messages: the call is authorized if any ap
 | `failed` | The server returned `isError: true` or a JSON-RPC error, or the call could not run. `error` is `server_start_failed`, `server_exited`, `result_too_large`, `jsonrpc_error`, or `tool_error`. |
 | `rejected` | Authorization lapsed before start. |
 | `expired` | The deadline passed before the call started. |
-| `cancelled` | Cancelled before start, or the server reported cancellation. |
-| `uncertain` | The call was `running` when the daemon or the server stopped, so whether it took effect is unknown. Final. |
+| `cancelled` | Cancelled while `queued`, before it was sent to the server. |
+| `uncertain` | The call was `running` and ended without a result: the daemon or the server stopped, or the call was cancelled or reached its deadline after it was sent. Whether it took effect is unknown. `error` is `daemon_restarted`, `server_exited`, `cancel_requested`, or `deadline`. Final. |
 
 **Further rules:**
 - **Results.** `result` is the server's JSON-RPC `result` object, or `{code, message}` for a JSON-RPC error, at most 1,048,576 bytes encoded. A larger result makes the call `failed` with `result_too_large`, and the result is not stored.
-- **Deadlines.** A deadline is at most 15 minutes after submission. A call that is `running` at its deadline is sent `notifications/cancelled`, and becomes `cancelled` if the server stops, or keeps its eventual outcome otherwise.
-- **No re-execution.** A call is never sent to a server twice. At daemon start, every call still `running` becomes `uncertain`.
+- **Deadlines.** A deadline is at most 15 minutes after submission. A call still `queued` at its deadline becomes `expired`. A call `running` at its deadline is sent `notifications/cancelled` and becomes `uncertain` with the error `deadline`.
+- **One rule for running calls without a result.** A running call ends exactly once: with the result, if the server's response is received first, or otherwise `uncertain`, whichever of cancellation, deadline, daemon restart, or server exit happens first. A response that arrives after the call is final is discarded, and noted in the server's log.
+- **No re-execution.** A call is never sent to a server twice. At daemon start, every call still `running` becomes `uncertain` with the error `daemon_restarted`.
 
 ### Running servers
 
 - **Starting.** The daemon starts a server or profile instance on demand, as a child process with:
-  - the definition's `command` and `args` (a profile's `--arg` values replacing `args`), after substituting captured values;
-  - an environment of the daemon's own `PATH` and `HOME`, the definition's `env` with captured values, then the environment file, then, for a profile, its `--env-file`;
+  - the definition's `command` and `args` (a profile's `--arg` values replacing `args`), after substituting stored values;
+  - an environment of the daemon's own `PATH` and `HOME`, the definition's `env` with its stored values, then the environment file, then, for a profile, its `--env-file`;
   - the agent's workspace as the working directory.
 - **Lifetime.** One instance per `(agent, server, profile)` is shared by all calls. It runs at most 4 calls concurrently, and later calls wait as `queued`. An instance with no calls for 10 minutes is stopped.
 - **Start failures.** An instance that does not complete `initialize` within 30 seconds is stopped, and its waiting calls fail with `server_start_failed`.
-- **Exits.** If an instance exits, its running calls become `uncertain`, its queued calls start a new instance, and a server that fails to start 3 times in 10 minutes fails its queued calls.
+- **Exits.** If an instance exits, its running calls become `uncertain` with the error `server_exited`, its queued calls start a new instance, and a server that fails to start 3 times in 10 minutes fails its queued calls.
 - **Protocol.** The MCP client speaks protocol version `2025-06-18`, and accepts the server's negotiated version if it is one this implementation supports. It sends `tools/call` with `{name, arguments}`, or `resources/read` with `{uri}`.
 - **stderr.** A server's standard error is appended to `STATE/tool-logs/AGENT_ID/SERVER[@PROFILE].log`, mode 0600, truncated to its last 1 MiB at each start.
 
@@ -253,12 +254,19 @@ The receiver stores the request, the status record, and the result. The request'
 | CLI | Local API | Behavior |
 | --- | --- | --- |
 | `tools remote [PERSON[/AGENT]] [--network ID] [--json]` | `GET /v1/remote-tools?target=…` | Fetches `GET /peer/v1/tools` from each matching host in the directory, at most 8 at once with a 5-second timeout each, and prints what this host may call. |
-| `call TARGET TOOL [--arguments JSON] [--deadline T] [--wait D] [--grant ID] [--network ID]` | `POST /v1/calls` | `TARGET` is `PERSON/AGENT/SERVER[@PROFILE]`. Persists the outbound call and submits it, with retries as for tasks. It then waits up to `--wait` (default 60 seconds, at most 15 minutes) for a final state, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
+| `call TARGET TOOL [--arguments JSON] [--deadline T] [--wait D] [--grant ID] [--network ID]` | `POST /v1/calls` | `TARGET` is `PERSON/AGENT/SERVER[@PROFILE]` or `HOST_ID/AGENT/SERVER[@PROFILE]`, resolved as below. Persists the outbound call and submits it, with retries as for tasks. It then waits up to `--wait` (default 60 seconds, at most 15 minutes) for a final state, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
 | `read TARGET URI [same options]` | `POST /v1/calls` | The same, for `resource.read`. |
 | `calls list [--after N] [--limit N]` | `GET /v1/calls` | Outbound calls in insertion order, paged as tasks are. |
 | `calls received [--after N] [--limit N]` | `GET /v1/calls/received` | Calls received by this host. |
 | `calls inspect --peer HOST ID` | `GET /v1/calls/{peer}/{id}` | The local outbound record. |
 | `calls cancel --peer HOST ID` | `POST /v1/calls/{peer}/{id}/cancel` | Sends cancellation, resent while uncertain, as for tasks. |
+
+**Resolving a target.** The directory lists only agents with message or task access, so `call` and `read` do not use it:
+- **`HOST_ID/…`** names a known host directly: a member of any network or a manually configured peer. This is the form for peers that hold only a grant.
+- **`PERSON/…`** resolves PERSON (a label or person ID) through each network's map to the hosts bound to that person, limited to `--network` when given. It fetches `GET /peer/v1/tools` from each of those hosts, at most 8 at once with a 5-second timeout each, and keeps the hosts whose listing has AGENT with that server and profile.
+- **Outcomes.** Exactly one match is the target. None is an error that lists the hosts that did not answer. More than one is an error listing the `HOST_ID/AGENT/SERVER` form of each. The resolved host ID and agent ID are stored in the outbound record, so retries and polling never resolve again.
+
+`tools remote` uses the same resolution, and lists every match instead of choosing one.
 
 **The outbound record** is `{peer_host_id, request, submit_state, status, result, cancel_state, attempts, next_attempt_at, error, status_queries}`, with the meanings of the task record. The daemon polls `GET /peer/v1/calls/{id}` for each accepted call that is not final, with backoff from 1 to 60 seconds, sharing the task polling slots, and stores the final status and result.
 
@@ -280,7 +288,7 @@ Database version 16 adds:
 
 ```sql
 CREATE TABLE tool_servers (agent_id TEXT NOT NULL REFERENCES agents(id), name TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, name));
-CREATE TABLE tool_captured (agent_id TEXT NOT NULL, server TEXT NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(agent_id, server, field));
+CREATE TABLE tool_values (agent_id TEXT NOT NULL, server TEXT NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(agent_id, server, field));
 CREATE TABLE tool_profiles (agent_id TEXT NOT NULL, server TEXT NOT NULL, name TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, server, name));
 CREATE TABLE tool_confirmations (agent_id TEXT NOT NULL, server TEXT NOT NULL, profile TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, server, profile));
 CREATE TABLE received_calls (sender TEXT NOT NULL, call_id TEXT NOT NULL, request TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(sender, call_id));
@@ -331,7 +339,7 @@ It covers:
   - reach confirmation at a terminal, with `--yes`, refused without either, and not asked twice;
   - set semantics;
   - `deny --tools`.
-- **`trust`/`untrust`**, and the `join` prompt and flags.
+- **`trust`/`untrust`**, with network selection and per-network trust, and the `join` prompt and flags.
 - **Authorization:**
   - by policy, by grant, and by self from a trusted host;
   - self refused from an untrusted host of the same person;
@@ -348,13 +356,17 @@ It covers:
   - duplicate and conflicting submission;
   - a lost submit response recovered by retry with exactly one execution recorded by the fixture;
   - expiry before start;
-  - cancellation queued and running;
+  - cancellation queued (`cancelled`) and running (`uncertain`), and a running call at its deadline (`uncertain`);
   - a daemon restart during a running call producing `uncertain` and no re-execution;
   - a server exit producing `uncertain` for running calls;
   - concurrency capped at 4 per instance;
   - idle stop.
 - **Routes:** `GET /peer/v1/tools` filtered by authorization, and reachable by a grant-only peer outside any network; status and cancel from a non-submitter returning 404.
-- **Owner CLI:** `tools`, `tools remote`, `call` and `read` exit codes, and `calls` listings.
+- **Owner CLI:**
+  - `tools`, `tools remote`, `call` and `read` exit codes, and `calls` listings;
+  - target resolution for an agent with only tool access, by person and by host ID, and the ambiguous and not-found errors.
+- **Grants:** tool grants with their scope, input bound, and budget, including the defaults.
+- **Literal values:** a server configured with a literal token starts with it, and the token appears nowhere else.
 - **Profiles:** a profile instance receiving its own environment file and arguments, and a share of a profile not matching the bare server.
 - **Status:** item 14 for each cause.
 - **Migration:** from version 15 to version 16.
