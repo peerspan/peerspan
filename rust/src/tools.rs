@@ -930,6 +930,10 @@ impl Store {
         server: &str,
         r: AddProfile,
     ) -> Result<(Instance, bool), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        // An unknown agent or server is 404 before the body is checked.
+        let s = server_record(&tx, agent, server)?.ok_or(Error::NotFound)?;
         if !tool_name_shape(&r.name) {
             return Err(Error::Invalid(
                 "profile names match [a-z0-9][a-z0-9_-]{0,62}".into(),
@@ -942,9 +946,6 @@ impl Store {
                 "the environment file must be an existing absolute path".into(),
             ));
         }
-        let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
-        let s = server_record(&tx, agent, server)?.ok_or(Error::NotFound)?;
         if !s.shareable {
             return Err(Error::Invalid(format!(
                 "server {server} is not shareable ({})",
@@ -1069,21 +1070,24 @@ impl Store {
                 rules.extend(policy.tool_rules().iter().cloned());
             }
         }
-        let shared = servers
-            .iter()
-            .filter(|s| {
-                let agent = names
-                    .get(&s.agent_id)
-                    .map(String::as_str)
-                    .unwrap_or_default();
-                let named = |server: &str| {
-                    split_server(server).is_some_and(|(n, _)| n == s.definition.name)
-                };
+        // Servers and profiles here that a tool rule names.
+        let mut shared = 0;
+        for s in &servers {
+            let agent = names
+                .get(&s.agent_id)
+                .map(String::as_str)
+                .unwrap_or_default();
+            let named = |label: &str| {
                 rules
                     .iter()
-                    .any(|r| (r.agent == agent || r.agent == ALL_AGENTS) && named(&r.server))
-            })
-            .count();
+                    .any(|r| (r.agent == agent || r.agent == ALL_AGENTS) && r.server == label)
+            };
+            let name = &s.definition.name;
+            shared += usize::from(named(name));
+            for p in profile_records(&conn, &s.agent_id, name)? {
+                shared += usize::from(named(&format!("{name}@{}", p.name)));
+            }
+        }
         let running: i64 = conn.query_row(
             "SELECT COUNT(*) FROM received_calls WHERE json_extract(record, '$.state') = 'running'",
             [],
