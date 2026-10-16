@@ -54,6 +54,9 @@ const SNAPSHOT_PARALLEL: usize = 8;
 #[serde(deny_unknown_fields)]
 pub struct EnvSource {
     pub source: String,
+    /// For `missing`: the referenced variables that could not be resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<Vec<String>>,
 }
 
 /// A discovered server, as the CLI normalizes it, with `disabled` when its
@@ -275,8 +278,7 @@ fn references(text: &str) -> Vec<String> {
 /// Whether a server is shareable, why not (`name`, `remote`, `disabled`,
 /// or `missing_env`, in that order), and its unresolved variables: those a
 /// `command` or `args` element references without a stored value, and the
-/// `env` entries that are `missing`. The definition names only the latter's
-/// keys, so those stand for their variables.
+/// `variables` of each `missing` env entry.
 fn reason_for(
     d: &Definition,
     values: Option<&BTreeMap<String, String>>,
@@ -297,7 +299,7 @@ fn reason_for(
         d.env
             .iter()
             .filter(|(_, s)| s.source == "missing")
-            .map(|(n, _)| n.clone()),
+            .flat_map(|(_, s)| s.variables.clone().unwrap_or_default()),
     );
     missing.sort();
     missing.dedup();
@@ -329,10 +331,13 @@ fn valid_definition(d: &Definition) -> Result<(), Error> {
         "remote" => {}
         _ => return bad("transport is stdio or remote"),
     }
-    if d.env
-        .values()
-        .any(|s| !matches!(s.source.as_str(), "literal" | "captured" | "missing"))
-    {
+    // A missing entry names its unresolved variables; no other does.
+    let variables_ok = |s: &EnvSource| match (s.source.as_str(), &s.variables) {
+        ("missing", Some(v)) => !v.is_empty() && v.iter().all(|n| !n.is_empty()),
+        ("literal" | "captured", None) => true,
+        _ => false,
+    };
+    if d.env.values().any(|s| !variables_ok(s)) {
         return bad("env sources are literal, captured, or missing");
     }
     if d.env

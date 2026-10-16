@@ -307,11 +307,14 @@ pub fn discover(integration: &str, workspace: &Path) -> Discovered {
             } else {
                 "literal"
             };
-            if gone.is_empty() {
+            let entry = if gone.is_empty() {
                 values.insert(format!("env.{key}"), json!(text));
-            }
+                json!({"source": source})
+            } else {
+                json!({"source": source, "variables": gone})
+            };
             missing.extend(gone);
-            env.insert(key.clone(), json!({"source": source}));
+            env.insert(key.clone(), entry);
         }
         let stdio_without_command = !raw.remote && command.as_deref().is_none_or(str::is_empty);
         if stdio_without_command {
