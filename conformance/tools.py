@@ -12,7 +12,7 @@ OpenCode opencode.json) is generated under each host's temporary HOME and XDG_CO
 
 Hosts: pat's p1 (shares tools; agents cc, cc2, cc3 for Claude Code, cx and cx2 for Codex, oc for OpenCode), p2
 (joined --trusted), p3 (no terminal: untrusted), p4 (trusted at the join prompt); quinn's q1 and q2; rhea's r;
-u1 and u2 (members bound to no person); n (a manually configured peer in no network, holding only grants).
+u1 and u2 (members bound to no person); n (a manually configured peer of p1 in no network).
 Networks: team (everyone but n), other (p1, p2 untrusted, q1), and v1net (p1, for a v1 policy).
 
 Each pairing reports these sections separately (contract Verification items in brackets):
@@ -23,26 +23,32 @@ Each pairing reports these sections separately (contract Verification items in b
   [Discovery];
 - allow --tools: each SPEC form, one rule per local agent, refusal with no such server, --agent '*' with
   --yes and its warning, write tools without a profile, unshareable servers, reach confirmation (terminal,
-  --yes, neither, not asked twice), set semantics, --resources, and deny --tools [allow --tools];
+  --yes, neither, not asked twice) with the resources clause only for tool.call resource.read, SERVER sharing
+  read-only tools and all resources, named tools sharing no resources, no --resources flag, set semantics, and
+  deny --tools removing rules whatever their actions or scope [allow --tools];
 - policy v2: the v2 statement verified with ssh-keygen over this suite's encoding, the JSON shape, coordinator
   acceptance, the other implementation's view through the coordinator, sibling propagation by direct push with
   the coordinator stopped, and a v1 policy accepted and read with no tool rules [Policy v2];
 - trust/untrust: network selection and HOST defaulting, refusal for another person's host, and per-network
   trust [trust/untrust];
-- authorization: policy, grant, self from a trusted host, self refused from an untrusted host and another
-  person's host, the read-only rule under policy and grants but not self, blocks except under self, budgets
-  per person and per host for unbound senders, 413, and lapsed authorization before start [Authorization];
-- grants: tool and resource grants with scope, input bound, budget, defaults, and ranges [Grants];
-- routes: GET /peer/v1/tools filtered by authorization (also ?network=), its shape and via order, reachable by
-  a grant-only peer outside any network; call status and cancel 404 for a non-submitter [Routes];
-- calls: the lifecycle for tools and resources, isError and JSON-RPC errors, result_too_large, duplicate and
+- authorization: policy (tools and every resource), self from a trusted host, self refused from an untrusted
+  host and another person's host, named tools sharing no resources, a grant_id citation refused with 400, the
+  read-only rule under policy but not self, blocks except under self, budgets per (rule, caller): per person
+  and per host for unbound senders, 413, and lapsed authorization before start [Authorization];
+- no grants: grant create refusing tool.call and resource.read, a manually configured peer outside any network
+  listing nothing, citing a grant refused with 400, and its `call` refused locally [Authorization, Routes];
+- routes: GET /peer/v1/tools filtered by authorization (also ?network=), its shape, via with only self and
+  policy in order, and empty for a peer outside any network; call status and cancel 404 for a non-submitter
+  [Routes];
+- calls (from p2 under self): the lifecycle for tools and resources, isError and JSON-RPC errors, result_too_large, duplicate and
   conflicting submission, a lost submit response recovered by retry with one execution, expiry before start,
   cancellation queued and running, the deadline while running, a daemon restart and a server exit while
   running, concurrency capped at 4, and activity [Calls];
-- values: captured values and the environment file reaching the server, the file ignored when too open, a
+- values: captured values and the environment file reaching the server only for variables the definition
+  names (others never reach it), the file ignored when too open, a
   literal token, the server's environment by name, and secrets nowhere else [Discovery, Literal values];
-- profiles: a profile instance with its own environment file and arguments, a share of a profile not matching
-  the bare server, and removal [Profiles];
+- profiles: a profile instance with its own environment file and arguments, a share of a profile (tools and
+  resources) not matching the bare server, and removal [Profiles];
 - snapshots: pagination, snapshot_error keeping the previous snapshot (error, the 30-second bound, over
   1 MiB) [Snapshots];
 - configuration changes: a dropped server refusing new calls while a running call finishes, and a new tool
@@ -100,9 +106,11 @@ ATTACH_SERVER_KEYS = {'name', 'transport', 'shareable', 'reason', 'tools', 'read
 LISTING_KEYS = {'agent', 'agent_id', 'server', 'profile', 'tools', 'resources'}
 LISTED_TOOL_KEYS = {'name', 'description', 'input_schema', 'read_only', 'via'}
 LISTED_RESOURCE_KEYS = {'uri', 'name', 'description', 'mime_type', 'via'}
-TOOL_RULE_KEYS = {'agent', 'server', 'principals', 'action', 'scope', 'max_input_bytes', 'allow_disconnected',
+TOOL_RULE_KEYS = {'agent', 'server', 'principals', 'actions', 'scope', 'max_input_bytes', 'allow_disconnected',
                   'max_calls_per_hour'}
 ALLOW_TOOLS_KEYS = {'policy', 'principal', 'rules'}
+BOTH = ['tool.call', 'resource.read']
+ALL_RESOURCES = {'fixture://docs/readme', 'fixture://docs/guide', 'file:///srv/docs/a.txt', 'file:///srv/private/b.txt'}
 FINAL = {'succeeded', 'failed', 'rejected', 'expired', 'cancelled', 'uncertain'}
 LAPSED = 'authorization lapsed before start'
 JOIN_PROMPT = 'Let this machine use tools shared from your other machines? [y/N]'
@@ -157,7 +165,7 @@ def find_key(value, key):
 
 def tool_rule_lines(t):
     bounds = f"{t['max_input_bytes']} {'true' if t['allow_disconnected'] else 'false'} {t['max_calls_per_hour']}"
-    return ['tool_rule', t['agent'], t['server'], ' '.join(t['principals']), t['action'], ' '.join(t['scope']),
+    return ['tool_rule', t['agent'], t['server'], ' '.join(t['principals']), ' '.join(t['actions']), ' '.join(t['scope']),
             bounds, 'end']
 
 
@@ -905,8 +913,8 @@ class Pairing:
 
         # The profile fx@acme on cc, with its own environment file and arguments.
         self.profile_env = self.root / 'acme.env'
-        self.profile_env.write_text(f"# the acme profile\nPROFILE_ONLY={self.secrets['profile']}\n"
-                                    "FX_CAPTURED=profile-value\n")
+        self.profile_env.write_text(f"# the acme profile\nFX_CAPTURED={self.secrets['profile']}\n"
+                                    "PROFILE_ONLY=unnamed\n")
         self.profile_env.chmod(0o600)
         profile_args = [str(FIXTURE), f"log={self.fixture.log('fx-acme')}", f"control={self.fixture.control('fx-acme')}",
                         'label=acme']
@@ -942,7 +950,7 @@ class Pairing:
         self.section('policy v2', self.check_policy_v2)
         self.section('trust/untrust', self.check_trust)
         self.section('authorization', self.check_authorization)
-        self.section('grants', self.check_grants)
+        self.section('no grants', self.check_no_grants)
         self.section('routes', self.check_routes)
         self.section('calls', self.check_calls)
         self.section('values', self.check_values)
@@ -963,7 +971,6 @@ class Pairing:
         steps = [
             (('quinn', '--tools', 'fx', '--agent', 'cc', '--yes'), team),
             (('quinn', '--tools', 'fx@acme:write_note', '--agent', 'cc', '--yes'), team),
-            (('quinn', '--resources', 'fx:fixture://docs/*', '--agent', 'cc', '--yes'), team),
             (('quinn', '--tools', 'budget', '--agent', 'cc', '--calls-per-hour', '3', '--yes'), team),
             (('network', '--tools', 'budget2', '--agent', 'cc', '--calls-per-hour', '2', '--yes'), team),
             (('quinn', '--tools', 'fx', '--agent', 'cc', '--yes'), other),
@@ -1148,30 +1155,39 @@ class Pairing:
         # Reach confirmation: refused with neither a terminal nor --yes.
         code, out, stderr = self.allow('rhea', '--tools', 'fx', '--agent', 'cc')
         need(code == 1, 'Without a terminal and without --yes, allow refuses with exit 1', code, stderr[-300:])
-        # At a terminal: the prompt, then y.
+        # At a terminal: the prompt with its resources clause, then y.
         code, out, tty = self.allow('rhea', '--tools', 'fx', '--agent', 'cc', terminal='y')
         text = squash(tty)
-        need('can call these tools of fx on cc with the credentials it runs with there:' in text and
-             'Anything those credentials can reach through these tools,' in text,
-             'the reach prompt at a terminal', tty[-600:])
+        need('can call these tools of fx on cc, and read its resources, with the credentials it runs with there:'
+             in text and 'Anything those credentials can reach through them,' in text,
+             'the reach prompt at a terminal, with the resources clause for SERVER', tty[-600:])
         need(code == 0, 'confirmation is y at a terminal', code, tty[-300:])
-        need(out['rules'] == [{'agent': 'cc', 'server': 'fx', 'action': 'tool.call', 'scope': ['readonly']}],
-             'SPEC SERVER means readonly; output rules [{agent, server, action, scope}]', out)
+        need(out['rules'] == [{'agent': 'cc', 'server': 'fx', 'actions': BOTH, 'scope': ['readonly']}],
+             'SPEC SERVER: scope readonly, actions tool.call resource.read; output rules [{agent, server, actions, '
+             'scope}]', out)
         need(out['principal'] in ('rhea', rhea, self.rhea), 'output principal', out)
         rule = [r for r in self.rules_for(rhea) if r['agent'] == 'cc']
-        need(len(rule) == 1 and set(rule[0]) == TOOL_RULE_KEYS, 'a tool rule {agent, server, principals, action, '
+        need(len(rule) == 1 and set(rule[0]) == TOOL_RULE_KEYS, 'a tool rule {agent, server, principals, actions, '
              'scope, max_input_bytes, allow_disconnected, max_calls_per_hour}', rule)
         need((rule[0]['max_input_bytes'], rule[0]['allow_disconnected'], rule[0]['max_calls_per_hour']) ==
              (65536, False, 100), 'Settings: max_input_bytes 65,536, allow_disconnected false, max_calls_per_hour 100',
              rule)
+        # Named tools at a terminal, first time for (cc2, fx): no resources clause.
+        code, out, tty = self.allow('rhea', '--tools', 'fx:echo', '--agent', 'cc2', terminal='y')
+        text = squash(tty)
+        need(code == 0 and 'can call these tools of fx on cc2 with the credentials it runs with there:' in text and
+             'and read its resources' not in text,
+             'The resources clause appears only when the actions include resource.read', code, tty[-600:])
+        need(out['rules'] == [{'agent': 'cc2', 'server': 'fx', 'actions': ['tool.call'], 'scope': ['echo']}],
+             'SPEC SERVER:TOOL: those tools, action tool.call only', out)
 
         # Not asked twice for (cc, fx, no profile); set semantics move rhea to the named-tool rule.
         code, out, stderr = self.allow('rhea', '--tools', 'fx:echo,info', '--agent', 'cc')
         need(code == 0, 'Confirmations are stored per (agent, server, profile) and not asked again', code,
              stderr[-300:])
         mine = [r for r in self.rules_for(rhea) if r['agent'] == 'cc' and r['server'] == 'fx']
-        need(len(mine) == 1 and sorted(mine[0]['scope']) == ['echo', 'info'],
-             'Set semantics: removed from every tool rule with the same action, then a new rule; empty rules dropped',
+        need(len(mine) == 1 and sorted(mine[0]['scope']) == ['echo', 'info'] and mine[0]['actions'] == ['tool.call'],
+             'Set semantics: removed from every tool rule for that server, whatever its actions; empty rules dropped',
              mine)
 
         # Without --agent: one rule per local agent with the server, named explicitly.
@@ -1179,7 +1195,7 @@ class Pairing:
         code, out, stderr = self.allow('rhea', '--tools', 'fx', '--yes')
         need(code == 0, 'allow --tools SERVER without --agent', code, stderr[-300:])
         need({r['agent'] for r in out['rules']} == agents_with_fx and
-             all(r['server'] == 'fx' and r['scope'] == ['readonly'] for r in out['rules']),
+             all(r['server'] == 'fx' and r['scope'] == ['readonly'] and r['actions'] == BOTH for r in out['rules']),
              'one rule for each agent on this host whose snapshot has the server as shareable', out['rules'],
              agents_with_fx)
         need(not any(r['agent'] == '*' for r in self.tool_rules()), 'tool shares never default to *',
@@ -1191,8 +1207,8 @@ class Pairing:
         code, out, stderr = self.allow('rhea', '--tools', 'fx', '--agent', '*')
         need(code != 0, "--agent '*' requires --yes even after earlier confirmations", code)
         code, out, stderr = self.allow('rhea', '--tools', 'fx', '--agent', '*', '--yes')
-        need(code == 0 and out['rules'] == [{'agent': '*', 'server': 'fx', 'action': 'tool.call',
-                                              'scope': ['readonly']}], "--agent '*' makes one * rule", code, out)
+        need(code == 0 and out['rules'] == [{'agent': '*', 'server': 'fx', 'actions': BOTH, 'scope': ['readonly']}],
+             "--agent '*' makes one * rule", code, out)
         need(stderr.strip(), "--agent '*' warns that the rule covers servers on every machine", stderr)
 
         # Write tools without a profile, and unshareable servers.
@@ -1209,19 +1225,22 @@ class Pairing:
             need(code != 0 and (reason is None or reason in stderr),
                  'a remote, disabled, misnamed, or missing_env server is refused with its reason', spec, code,
                  stderr[-300:])
+        code, out, stderr = self.allow('rhea', '--resources', 'fx', '--agent', 'cc', '--yes')
+        need(code != 0, 'there is no --resources flag', code)
 
         # Profile forms.
         need(self.profile_added[0] == 0, 'setup: tools profile add', self.profile_added)
         out = self.allowed('rhea', '--tools', 'fx@acme', '--agent', 'cc', '--yes')
-        need(out['rules'] == [{'agent': 'cc', 'server': 'fx@acme', 'action': 'tool.call', 'scope': ['readonly']}],
-             'SPEC SERVER@PROFILE means readonly', out)
+        need(out['rules'] == [{'agent': 'cc', 'server': 'fx@acme', 'actions': BOTH, 'scope': ['readonly']}],
+             'SPEC SERVER@PROFILE: readonly tools and every resource', out)
         out = self.allowed('rhea', '--tools', 'fx@acme:*', '--agent', 'cc', '--yes')
-        need(out['rules'] == [{'agent': 'cc', 'server': 'fx@acme', 'action': 'tool.call', 'scope': ['*']}],
-             'SPEC SERVER@PROFILE:*', out)
-        need(len([r for r in self.rules_for(rhea, server='fx@acme')]) == 1, 'set semantics within the profile',
+        need(out['rules'] == [{'agent': 'cc', 'server': 'fx@acme', 'actions': BOTH, 'scope': ['*']}],
+             'SPEC SERVER@PROFILE:*: every tool and resource of the profile', out)
+        need(len(self.rules_for(rhea, server='fx@acme')) == 1, 'set semantics within the profile',
              self.rules_for(rhea, server='fx@acme'))
         out = self.allowed('rhea', '--tools', 'fx@acme:write_note', '--agent', 'cc', '--yes')
-        need(out['rules'][0]['scope'] == ['write_note'], 'SPEC SERVER@PROFILE:TOOL names a write tool', out)
+        need(out['rules'] == [{'agent': 'cc', 'server': 'fx@acme', 'actions': ['tool.call'], 'scope': ['write_note']}],
+             'SPEC SERVER@PROFILE:TOOL names a write tool, action tool.call only', out)
         out = self.allowed('quinn', '--tools', 'fx@acme:write_note', '--agent', 'cc', '--yes')
         shared = [r for r in self.tool_rules() if r['server'] == 'fx@acme' and r['agent'] == 'cc']
         need(len(shared) == 1 and set(shared[0]['principals']) == {rhea, 'person:' + self.quinn},
@@ -1231,13 +1250,10 @@ class Pairing:
         need(len(shared) == 2 and sorted(r['max_calls_per_hour'] for r in shared) == [5, 100],
              'different settings make a new rule (--calls-per-hour)', shared)
 
-        # Repeated --tools makes one rule each; --resources.
+        # Repeated --tools makes one rule each.
         out = self.allowed('rhea', '--tools', 'fx:echo', '--tools', 'lit', '--agent', 'cc', '--yes')
         need(len(out['rules']) == 2 and {r['server'] for r in out['rules']} == {'fx', 'lit'},
              '--tools may be repeated, each occurrence its own rule', out)
-        out = self.allowed('rhea', '--resources', 'fx:fixture://docs/*', '--agent', 'cc', '--yes')
-        need(out['rules'] == [{'agent': 'cc', 'server': 'fx', 'action': 'resource.read',
-                               'scope': ['fixture://docs/*']}], 'allow --resources SERVER:PATTERN', out)
 
         # deny --tools.
         out = self.deny('rhea', '--tools', 'fx@acme', '--agent', 'cc')
@@ -1245,9 +1261,20 @@ class Pairing:
              'deny --tools SERVER@PROFILE removes the principal from rules naming that profile', out)
         need(any(r['server'] == 'fx' and r['agent'] == 'cc' for r in self.rules_for(rhea)),
              'deny of a profile leaves the bare server', self.rules_for(rhea))
+        # Two rules for rhea on cc/fx with different actions and scope (signed here), both removed by one deny.
+        current = self.policy()
+        extra = [{'agent': 'cc', 'server': 'fx', 'principals': [rhea], 'actions': actions, 'scope': scope,
+                  'max_input_bytes': 1000, 'allow_disconnected': False, 'max_calls_per_hour': 7}
+                 for actions, scope in ((BOTH, ['readonly']), (['tool.call'], ['info']))]
+        signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root,
+                            tool_rules=current['tool_rules'] + extra)
+        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.team}/policy', {'policy': signed})
+        need(status == 201, 'setup: rules for one server with different actions and scope', status, body)
+        holding = len([r for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc'])
         out = self.deny('rhea', '--tools', 'fx', '--agent', 'cc')
-        need(out['removed'] >= 1 and not [r for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc'],
-             'deny --tools within the agent scope', out)
+        need(out['removed'] == holding == 3 and not [r for r in self.rules_for(rhea, server='fx') if r['agent'] == 'cc'],
+             'deny --tools removes every tool rule for the server within the agent scope, whatever its actions or '
+             'scope', out, holding)
         need([r for r in self.rules_for(rhea, server='fx') if r['agent'] != 'cc'], 'other agents untouched',
              self.rules_for(rhea))
         out = self.deny('rhea', '--tools', 'fx')
@@ -1263,7 +1290,7 @@ class Pairing:
         self.allowed('rhea', '--tools', 'lit', '--agent', 'cc', '--yes')
         rules = self.tool_rules()
         self.hosts['p1'].cli('allow', 'rhea', '--agent', 'cc', '--network', self.team)
-        need(self.tool_rules() == rules, 'allow without --tools or --resources never touches tool rules', rules)
+        need(self.tool_rules() == rules, 'allow without --tools never touches tool rules', rules)
         self.hosts['p1'].cli('deny', 'rhea', '--network', self.team)
         need(self.tool_rules() == rules, 'deny without --tools never touches tool rules', self.tool_rules())
         self.deny('rhea', '--tools', 'lit')
@@ -1334,8 +1361,10 @@ class Pairing:
         # Bounds and validation.
         for bad in ({'max_input_bytes': 0}, {'max_input_bytes': 262145}, {'max_calls_per_hour': 0},
                     {'max_calls_per_hour': 10001}, {'scope': ['*']}, {'scope': ['readonly', 'echo']},
-                    {'server': 'Bad.Name'}):
-            rule = {'agent': 'cc', 'server': 'fx', 'principals': ['network'], 'action': 'tool.call',
+                    {'server': 'Bad.Name'}, {'actions': ['resource.read']},
+                    {'actions': ['resource.read', 'tool.call']}, {'actions': BOTH, 'scope': ['echo']},
+                    {'actions': ['tool.call', 'tool.call']}, {'scope': ['fixture://docs/*']}):
+            rule = {'agent': 'cc', 'server': 'fx', 'principals': ['network'], 'actions': ['tool.call'],
                     'scope': ['readonly'], 'max_input_bytes': 65536, 'allow_disconnected': False,
                     'max_calls_per_hour': 100, **bad}
             v = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, tool_rules=[rule])
@@ -1346,7 +1375,7 @@ class Pairing:
             status, _ = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v})
             need(status == 400, 'trusted hosts must be host IDs', bad_trusted, status)
         ok = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, tool_rules=[{
-            'agent': '*', 'server': 'fx@acme', 'principals': ['network'], 'action': 'tool.call', 'scope': ['*'],
+            'agent': '*', 'server': 'fx@acme', 'principals': ['network'], 'actions': BOTH, 'scope': ['*'],
             'max_input_bytes': 262144, 'allow_disconnected': True, 'max_calls_per_hour': 10000}])
         status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': ok})
         need(status == 201 and policy_of(body) == ok, 'a v2 policy signed here (this suite\'s encoding) is accepted '
@@ -1401,7 +1430,7 @@ class Pairing:
     def check_authorization(self):
         ids = self.ids
         f = self.fixture
-        # By policy, by grant, and by self from a trusted host.
+        # By policy, and by self from a trusted host.
         marker = 'by-policy-' + secrets.token_hex(4)
         code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': marker}, '--network', self.team)
         need(code == 0 and out['status']['state'] == 'succeeded', 'policy authorizes a read-only tool', code,
@@ -1410,12 +1439,10 @@ class Pairing:
              'the CLI cites the policy from the listing', out['request'])
         need(first_text(out['result']) == marker and len(f.calls('fx-local', marker)) == 1,
              'the tool\'s own result', out['result'])
-        self.grant = self.hosts['p1'].cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'],
-                                          '--expires-in', '2h', '--action', 'tool.call', '--server', 'fx', '--scope',
-                                          'readonly', '--calls-per-hour', '10000', '--allow-disconnected')
-        code, out, stderr = self.call('n', f"{ids['p1']}/cc/fx", 'echo', {'text': 'by grant'})
-        need(code == 0 and out['request'].get('grant_id') == self.grant['id'], 'a grant authorizes a call from a '
-             'peer in no network', code, out, stderr[-300:])
+        code, out, stderr = self.read('q1', 'pat/cc/fx', 'file:///srv/private/b.txt', '--network', self.team)
+        need(code == 0 and out['status']['state'] == 'succeeded',
+             '--tools SERVER (actions tool.call resource.read) covers every resource in the snapshot', code, out,
+             stderr[-300:])
         code, out, stderr = self.call('p2', 'pat/cc/fx', 'write_note', {'text': 'by self'})
         need(code == 0 and out['request'].get('self') == {'person_id': self.pat},
              'self from a trusted host covers write tools without a profile', code, out, stderr[-300:])
@@ -1430,9 +1457,26 @@ class Pairing:
             status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x'},
                                                        cite={'self': {'person_id': claimed}}))
             need(status == 403, "another person's host is never covered by self", claimed, status)
-        # The read-only rule under policy (a policy signed here names a write tool on the bare server) and grants.
+        # Named tools share no resources.
+        self.allowed('rhea', '--tools', 'fx:echo', '--agent', 'cc', '--yes')
+        self.synced(self.version(), 'r')
+        status, _ = self.submit('r', self.body('cc', 'fx', 'echo', {'text': 'named'}, cite=self.policy_cite()))
+        need(status == 200, 'a named tool is authorized', status)
+        status, _ = self.submit('r', self.body('cc', 'fx', uri='fixture://docs/readme', cite=self.policy_cite()))
+        need(status == 403, 'named tools share no resources (action tool.call only)', status)
+        status, _ = self.submit('r', self.body('cc', 'fx', 'info', {}, cite=self.policy_cite()))
+        need(status == 403, 'a tool outside the named scope is refused', status)
+        self.deny('rhea', '--tools', 'fx', '--agent', 'cc')
+        # A grant citation is refused with 400, even with a real grant held by this host.
+        message_grant = self.hosts['p1'].cli('grant', 'create', '--peer', ids['q1'], '--agent', self.aid['cc'],
+                                             '--expires-in', '1h')
+        status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x'},
+                                                   cite={'grant_id': message_grant['id']}))
+        need(status == 400, 'a grant_id citation is refused with 400', status, body)
+        self.hosts['p1'].cli('grant', 'revoke', message_grant['id'])
+        # The read-only rule under policy (a policy signed here names write tools on the bare server), not self.
         current = self.policy()
-        extra = {'agent': 'cc', 'server': 'fx', 'principals': ['person:' + self.quinn], 'action': 'tool.call',
+        extra = {'agent': 'cc', 'server': 'fx', 'principals': ['person:' + self.quinn], 'actions': ['tool.call'],
                  'scope': ['write_note', 'purge'], 'max_input_bytes': 65536, 'allow_disconnected': False,
                  'max_calls_per_hour': 100}
         signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root,
@@ -1444,13 +1488,6 @@ class Pairing:
             status, body = self.submit('q1', self.body('cc', 'fx', tool, {'text': 'x'}, cite=self.policy_cite()))
             need(status == 403, 'the read-only rule under policy: 403 whatever the scope says', tool, status)
         need('write_note' not in self.listed_tools('p1', 'q1', 'cc', 'fx'), 'the listing applies the read-only rule')
-        write_grant = self.hosts['p1'].cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'],
-                                           '--expires-in', '1h', '--action', 'tool.call', '--server', 'fx', '--scope',
-                                           'write_note')
-        status, body = self.submit('n', self.body('cc', 'fx', 'write_note', {'text': 'x'},
-                                                  cite={'grant_id': write_grant['id']}))
-        need(status == 403, 'the read-only rule under a grant', status, body)
-        self.hosts['p1'].cli('grant', 'revoke', write_grant['id'])
         restored = crafted_v2(signed, signed['version'] + 1, self.keys['pat'][0], self.root,
                               tool_rules=current['tool_rules'])
         self.hosts['p1'].call('POST', f'/v1/networks/{self.team}/policy', {'policy': restored})
@@ -1459,14 +1496,11 @@ class Pairing:
         made = [self.hosts['p1'].cli('block', 'quinn'), self.hosts['p1'].cli('block', ids['p2'])]
         status, _ = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'blocked'}, cite=self.policy_cite()))
         need(status == 403, 'blocks apply under policy', status)
-        status, _ = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite={'grant_id': self.grant['id']}))
+        status, _ = self.submit('u1', self.body('cc', 'budget2', 'echo', {'text': 'x'}, cite=self.policy_cite()))
         need(status == 200, 'blocks name only their subjects', status)
-        self.hosts['p1'].cli('block', ids['n'])
-        status, _ = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite={'grant_id': self.grant['id']}))
-        need(status == 403, 'blocks apply under grants', status)
         status, _ = self.submit('p2', self.body('cc', 'fx', 'echo', {'text': 'self'}, cite=self.self_cite()))
         need(status == 200, 'blocks do not apply under self', status)
-        for target in ('quinn', ids['p2'], ids['n']):
+        for target in ('quinn', ids['p2']):
             self.hosts['p1'].cli('unblock', target)
         need(self.hosts['p1'].cli('access', 'blocks') == [], 'unblocked', made)
         # Budgets: per (rule, caller), the caller being the bound person, else the host.
@@ -1478,9 +1512,11 @@ class Pairing:
             status, body = self.submit(h, self.body('cc', 'budget', 'echo', {'text': h}, cite=cite))
             need(status == 429 and 'max_calls_per_hour' in json.dumps(body),
                  'over the limit: 429 with the limit\'s name, counted per person across hosts', h, status, body)
-        for h in ('u1', 'u2'):
-            got = [self.submit(h, self.body('cc', 'budget2', 'echo', {'text': h}, cite=cite))[0] for _ in range(3)]
-            need(got == [200, 200, 429], 'an unbound sender is counted by its host ID', h, got)
+        # u1 made one budget2 call above, under the block check.
+        got = [self.submit('u1', self.body('cc', 'budget2', 'echo', {'text': 'u1'}, cite=cite))[0] for _ in range(2)]
+        need(got == [200, 429], 'an unbound sender is counted by its host ID', 'u1', got)
+        got = [self.submit('u2', self.body('cc', 'budget2', 'echo', {'text': 'u2'}, cite=cite))[0] for _ in range(3)]
+        need(got == [200, 200, 429], 'an unbound sender is counted by its host ID', 'u2', got)
         got = [self.submit(h, self.body('cc', 'budget2', 'echo', {'text': h}, cite=cite))[0] for h in ('q1', 'q2', 'q1')]
         need(got == [200, 200, 429], 'the same rule counts each person separately from unbound hosts', got)
         # 413 for oversized input.
@@ -1488,72 +1524,43 @@ class Pairing:
         need(status == 413, 'input over max_input_bytes (the JSON encoding of arguments): 413', status)
         status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x' * 60000}, cite=cite))
         need(status == 200, 'input within max_input_bytes', status, body)
-        # Deadline within the policy's valid_until.
+        # Deadline at most 15 minutes ahead.
         status, body = self.submit('q1', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite=cite,
                                                    deadline=timestamp(16 * 60)))
         need(status in (400, 403), 'a deadline more than 15 minutes ahead is refused', status, body)
-        # Lapsed authorization before start: rejected.
-        lapsing = self.hosts['p1'].cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'],
-                                       '--expires-in', '1h', '--action', 'tool.call', '--server', 'fx', '--scope',
-                                       'readonly')
+        # Lapsed authorization before start: rejected. rhea's call waits behind 4 running calls; deny lapses it.
+        self.allowed('rhea', '--tools', 'fx', '--agent', 'cc', '--yes')
+        self.synced(self.version(), 'r')
+        lapsing = self.policy_cite()
         self.fill_slots(6)
         marker = 'lapsed-' + secrets.token_hex(4)
-        b = self.body('cc', 'fx', 'echo', {'text': marker}, cite={'grant_id': lapsing['id']})
-        status, record = self.submit('n', b)
+        b = self.body('cc', 'fx', 'echo', {'text': marker}, cite=lapsing)
+        status, record = self.submit('r', b)
         need(status == 200 and record['state'] == 'queued', 'a fifth call waits as queued', status, record)
-        self.hosts['p1'].cli('grant', 'revoke', lapsing['id'])
-        done = self.final('n', b['call_id'], timeout=40)
+        self.deny('rhea', '--tools', 'fx', '--agent', 'cc')
+        done = self.final('r', b['call_id'], timeout=40)
         need(done['state'] == 'rejected' and LAPSED in json.dumps(done),
              f'Rechecks: a failure at the start makes the call rejected, "{LAPSED}"', done)
         need(not f.calls('fx-local', marker), 'a rejected call never runs', f.calls('fx-local', marker))
 
-    def check_grants(self):
+    def check_no_grants(self):
+        """Grants do not authorize calls in slice 1."""
         ids, p1 = self.ids, self.hosts['p1']
-
-        def grant(*extra, success=True):
-            return p1.cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'], '--expires-in', '1h',
-                          *extra, success=success)
-        g = grant('--action', 'tool.call', '--server', 'fx', '--scope', 'echo')
-        need(g['action'] == 'tool.call' and g['server'] == 'fx' and g['scope'] == ['echo'] and
-             g['max_input_bytes'] == 65536 and g['max_calls_per_hour'] == 100,
-             'grants gain server, scope, max_input_bytes, and max_calls_per_hour, with defaults 65,536 and 100', g)
-        grant('--action', 'tool.call', '--server', 'fx', success=False)
-        for bad in (('--max-input-bytes', '0'), ('--max-input-bytes', '262145'), ('--calls-per-hour', '0'),
-                    ('--calls-per-hour', '10001')):
-            grant('--action', 'tool.call', '--server', 'fx', '--scope', 'echo', *bad, success=False)
-        grant('--action', 'tool.call', '--server', 'fx', '--scope', 'readonly', '--scope', 'echo', success=False)
-        cite = {'grant_id': g['id']}
-        status, _ = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'g'}, cite=cite))
-        need(status == 200, 'the grant scope covers the named tool', status)
-        status, _ = self.submit('n', self.body('cc', 'fx', 'info', {}, cite=cite))
-        need(status == 403, 'a tool outside the grant scope is refused', status)
-        status, _ = self.submit('n', self.body('cc', 'lit', 'echo', {'text': 'g'}, cite=cite))
-        need(status == 403, 'a grant names one server', status)
-        small = grant('--action', 'tool.call', '--server', 'fx', '--scope', 'readonly', '--max-input-bytes', '100',
-                      '--calls-per-hour', '2')
-        status, _ = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'x' * 200}, cite={'grant_id': small['id']}))
-        need(status == 413, 'the grant input bound: 413', status)
-        got = [self.submit('n', self.body('cc', 'fx', 'echo', {'text': 's'}, cite={'grant_id': small['id']}))[0]
-               for _ in range(3)]
-        need(got == [200, 200, 429], 'the grant budget, counted for the grant and host', got)
-        res = grant('--action', 'resource.read', '--server', 'fx', '--scope', 'fixture://docs/*')
-        need(res['action'] == 'resource.read' and res['scope'] == ['fixture://docs/*'], 'a resource grant', res)
-        b = self.body('cc', 'fx', uri='fixture://docs/readme', cite={'grant_id': res['id']})
-        status, record = self.submit('n', b)
-        need(status == 200 and record['kind'] == 'resource', 'a resource read by grant', status, record)
-        done = self.final('n', b['call_id'])
-        need(done['state'] == 'succeeded' and done['result']['contents'][0]['text'] ==
-             'contents of fixture://docs/readme', 'the ReadResourceResult', done)
-        status, _ = self.submit('n', self.body('cc', 'fx', uri='file:///srv/docs/a.txt', cite={'grant_id': res['id']}))
-        need(status == 403, 'a URI outside the pattern is refused', status)
-        status, _ = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite={'grant_id': res['id']}))
-        need(status == 403, 'a resource.read grant does not cover tool.call', status)
-        status, _ = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'x'},
-                                               cite={'grant_id': p1.cli('grant', 'create', '--peer', ids['n'], '--agent',
-                                                                        self.aid['cc'], '--expires-in', '1h')['id']}))
-        need(status == 403, 'a message grant never covers tools', status)
-        for item in (g, small, res):
-            p1.cli('grant', 'revoke', item['id'])
+        for action in ('tool.call', 'resource.read'):
+            code, out, stdout, stderr = p1.outcome('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'],
+                                                   '--expires-in', '1h', '--action', action)
+            need(code != 0, f'grant create does not accept {action}', code, stdout[-300:])
+        status, body = self.listing('p1', 'n')
+        need((status, body) == (200, []), 'a manually configured peer outside any network gets an empty listing',
+             status, body)
+        g = p1.cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'], '--expires-in', '1h')
+        status, body = self.submit('n', self.body('cc', 'fx', 'echo', {'text': 'x'}, cite={'grant_id': g['id']}))
+        need(status == 400, 'a grant_id citation is refused with 400', status, body)
+        count = self.outbound_count('n')
+        code, out, stderr = self.call('n', f"{ids['p1']}/cc/fx", 'echo', {'text': 'x'})
+        need(code != 0 and self.outbound_count('n') == count,
+             'a peer outside any network cannot call: nothing is listed, so nothing is cited or persisted', code)
+        p1.cli('grant', 'revoke', g['id'])
 
     def check_routes(self):
         ids = self.ids
@@ -1572,11 +1579,11 @@ class Pairing:
         need(fx and fx['agent_id'] == self.aid['cc'], 'q1 lists cc/fx', body)
         need({t['name'] for t in fx['tools']} == RO_TOOLS | {'from_local'} and all(t['read_only'] for t in fx['tools']),
              'filtered by authorization: readonly covers read-only tools only', sorted(t['name'] for t in fx['tools']))
-        need({r['uri'] for r in fx['resources']} == {'fixture://docs/readme', 'fixture://docs/guide'},
-             'resources matching the rule\'s URI pattern only', fx['resources'])
+        need({r['uri'] for r in fx['resources']} == ALL_RESOURCES,
+             '--tools SERVER lists every resource in the snapshot', fx['resources'])
         acme = self.entry(body, 'cc', 'fx', 'acme')
-        need(acme and {t['name'] for t in acme['tools']} == {'write_note'}, 'a profile share lists its own entry',
-             acme)
+        need(acme and {t['name'] for t in acme['tools']} == {'write_note'} and acme['resources'] == [],
+             'a profile share of named tools lists its tools and no resources', acme)
         echo = next(t for t in fx['tools'] if t['name'] == 'echo')
         nets = sorted([self.team, self.other])
         need([v['kind'] for v in echo['via']] == ['policy', 'policy'] and
@@ -1585,33 +1592,21 @@ class Pairing:
         for v in echo['via']:
             need(set(v) == {'kind', 'network_id', 'person_id', 'version'} and v['person_id'] == self.pat,
                  'policy via {kind, network_id, person_id, version}', v)
-        # Grants are listed after policies; ?network= evaluates only that network's self and policy entries.
-        g = self.hosts['p1'].cli('grant', 'create', '--peer', ids['q1'], '--agent', self.aid['cc'], '--expires-in',
-                                 '1h', '--action', 'tool.call', '--server', 'fx', '--scope', 'readonly')
-        self.q1_grant = g
-        tools = self.listed_tools('p1', 'q1', 'cc', 'fx')
-        need([v['kind'] for v in tools['echo']['via']] == ['policy', 'policy', 'grant'] and
-             tools['echo']['via'][-1] == {'kind': 'grant', 'grant_id': g['id']}, 'via order: self, policy, grant',
-             tools['echo']['via'])
+        # ?network= evaluates only that network's authorizations.
         status, scoped = self.listing('p1', 'q1', network=self.other)
         need(status == 200 and all(v['kind'] == 'policy' and v['network_id'] == self.other
                                    for e in scoped for t in e['tools'] for v in t['via']),
-             '?network=ID: only that network\'s authorizations, and no grants', scoped)
+             '?network=ID: only that network\'s authorizations', scoped)
         need(self.entry(scoped, 'cc', 'lit'), 'lit is shared with quinn in other', scoped)
         status, team_only = self.listing('p1', 'q1', network=self.team)
         need(not self.entry(team_only, 'cc', 'lit'), 'a share in another network is not listed with ?network',
              team_only)
-        # A host with nothing, the grant-only peer, a trusted sibling, an untrusted one.
+        # A host with nothing, a peer outside any network, and a trusted sibling.
         status, body = self.listing('p1', 'r')
         need((status, body) == (200, []), 'a host with no authorization lists []', status, body)
-        g2 = self.hosts['p1'].cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'], '--expires-in',
-                                  '1h', '--action', 'tool.call', '--server', 'lit', '--scope', 'echo')
         status, body = self.listing('p1', 'n')
-        lit = self.entry(body, 'cc', 'lit')
-        need(status == 200 and lit and [t['name'] for t in lit['tools']] == ['echo'] and
-             lit['tools'][0]['via'] == [{'kind': 'grant', 'grant_id': g2['id']}],
-             'reachable by a grant-only peer outside any network', status, body)
-        self.hosts['p1'].cli('grant', 'revoke', g2['id'])
+        need((status, body) == (200, []), 'a manually configured peer outside any network gets an empty listing',
+             status, body)
         status, body = self.listing('p1', 'p2')
         fx = self.entry(body, 'cc', 'fx')
         need(fx and {t['name'] for t in fx['tools']} == RO_TOOLS | WRITE_TOOLS | {'from_local'},
@@ -1620,6 +1615,9 @@ class Pairing:
              'only shareable servers are listed', [e['server'] for e in body])
         need(self.entry(body, 'cx', 'cxs') and self.entry(body, 'cc', 'fx', 'acme'),
              'self covers every shareable server and profile of every agent', [e['server'] for e in body])
+        need(all(v['kind'] in ('self', 'policy') for e in body for t in e['tools'] for v in t['via']),
+             'via has only self and policy entries', body[:1])
+        need(all(t['via'][0]['kind'] == 'self' for e in body for t in e['tools']), 'self before policy', body[:1])
         # Status and cancel: submitter only.
         b = self.body('cc', 'fx', 'echo', {'text': 'mine'}, cite=self.policy_cite())
         status, record = self.submit('q1', b)
@@ -1634,22 +1632,20 @@ class Pairing:
 
     def check_calls(self):
         f, ids = self.fixture, self.ids
-        g = self.hosts['p1'].cli('grant', 'create', '--peer', ids['n'], '--agent', self.aid['cc'], '--expires-in', '2h',
-                                 '--action', 'tool.call', '--server', 'fx', '--scope', 'readonly', '--calls-per-hour',
-                                 '10000', '--allow-disconnected')
-        cite = {'grant_id': g['id']}
+        # The caller is p2, a trusted host of pat, under self: every tool, no hourly budget.
+        cite = self.self_cite()
         # The lifecycle, on the wire.
         marker = 'life-' + secrets.token_hex(4)
         b = self.body('cc', 'fx', 'echo', {'text': marker}, cite=cite)
-        status, record = self.submit('n', b)
+        status, record = self.submit('p2', b)
         need(status == 200 and set(record) == STATUS_KEYS, 'POST /peer/v1/calls returns the status record', status,
              record)
         need(record['state'] == 'queued' and record['call_id'] == b['call_id'] and record['kind'] == 'tool' and
              record['name'] == 'echo' and record['uri'] is None and record['server'] == 'fx' and
-             record['profile'] is None and record['sender_host_id'] == ids['n'] and
+             record['profile'] is None and record['sender_host_id'] == ids['p2'] and
              record['receiver_host_id'] == ids['p1'] and record['cancel_requested'] is False,
              'persisted as queued', record)
-        done = self.final('n', b['call_id'])
+        done = self.final('p2', b['call_id'])
         need(set(done) == STATUS_KEYS | {'result'} and done['state'] == 'succeeded' and done['error'] is None,
              'GET: the status record with result once final', done)
         need(done['result'] == {'content': [{'type': 'text', 'text': marker}]}, 'result is the JSON-RPC result',
@@ -1657,16 +1653,18 @@ class Pairing:
         need(done['started_at'] and done['finished_at'] and done['result_bytes'] > 0, 'timestamps and result_bytes',
              done)
         # Duplicate and conflicting submission.
-        status, again = self.submit('n', b)
+        status, again = self.submit('p2', b)
         need(status == 200 and again['call_id'] == b['call_id'] and again['created_at'] == record['created_at'],
              'an identical repeat returns the existing record', status, again)
         need(len(f.calls('fx-local', marker)) == 1, 'retrying a submission never starts a second run')
-        need(self.submit('n', {**b, 'arguments': {'text': 'changed'}})[0] == 409, 'a changed repeat returns 409')
+        need(self.submit('p2', {**b, 'arguments': {'text': 'changed'}})[0] == 409, 'a changed repeat returns 409')
         for bad in ({**b, 'call_id': 'call_x'}, {k: v for k, v in b.items() if k != 'profile'},
                     {**b, 'extra': 1}, {**b, 'kind': 'prompt'}, {**b, 'call_id': call_id(), 'uri': 'fixture://x'},
                     {**b, 'call_id': call_id(), 'arguments': []},
-                    {**b, 'call_id': call_id(), 'policy': {'person_id': self.pat, 'version': 1}}):
-            need(self.submit('n', bad)[0] == 400, 'POST /peer/v1/calls takes exactly its fields and one citation', bad)
+                    {**b, 'call_id': call_id(), 'policy': {'person_id': self.pat, 'version': 1}},
+                    {**{k: v for k, v in b.items() if k != 'self'}, 'call_id': call_id(),
+                     'grant_id': 'grant_' + '0' * 32}):
+            need(self.submit('p2', bad)[0] == 400, 'POST /peer/v1/calls takes exactly its fields and one citation', bad)
         # A resource.
         status, record = self.submit('q1', self.body('cc', 'fx', uri='fixture://docs/guide', cite=self.policy_cite()))
         need(status == 200 and record['kind'] == 'resource' and record['uri'] == 'fixture://docs/guide' and
@@ -1679,8 +1677,8 @@ class Pairing:
                                        ('fail', {'message': 'broken', 'code': -32001}, 'jsonrpc_error'),
                                        ('big', {'bytes': 1100000}, 'result_too_large')):
             b = self.body('cc', 'fx', name, arguments, cite=cite)
-            self.submit('n', b)
-            done = self.final('n', b['call_id'])
+            self.submit('p2', b)
+            done = self.final('p2', b['call_id'])
             need(done['state'] == 'failed' and done['error'] == error, f'{name}: failed with {error}', done)
             if error == 'jsonrpc_error':
                 need(done['result'] == {'code': -32001, 'message': 'broken'}, 'a JSON-RPC error result is {code, '
@@ -1690,27 +1688,28 @@ class Pairing:
             if error == 'result_too_large':
                 need(done.get('result') is None, 'a result over 1 MiB is not stored', str(done)[:300])
         b = self.body('cc', 'fx', 'big', {'bytes': 1048000}, cite=cite)
-        self.submit('n', b)
-        need(self.final('n', b['call_id'])['state'] == 'succeeded', 'a result just under 1 MiB is kept')
+        self.submit('p2', b)
+        need(self.final('p2', b['call_id'])['state'] == 'succeeded', 'a result just under 1 MiB is kept')
 
         # A lost submit response, recovered by retry: one execution.
         marker = 'lost-' + secrets.token_hex(4)
         relay = DropCallResponse(self.hosts['p1'])
         identity = self.hosts['p1'].call('GET', '/v1/host')[1]
-        self.hosts['n'].configure(self.hosts['p1'], identity, relay.address)
+        # A manual peer's address takes precedence for dialing (coordination contract), so p2 reaches p1 through
+        # the relay until it is configured back to p1's own address.
+        self.hosts['p2'].configure(self.hosts['p1'], identity, relay.address)
         try:
-            code, out, stderr = self.call('n', f"{ids['p1']}/cc/fx", 'echo', {'text': marker}, '--grant', g['id'],
-                                          wait='1s')
+            code, out, stderr = self.call('p2', f"{ids['p1']}/cc/fx", 'echo', {'text': marker}, wait='1s')
             relay.close()
         finally:
-            self.hosts['n'].configure(self.hosts['p1'], identity)
+            self.hosts['p2'].configure(self.hosts['p1'], identity)
         need(out and set(out) == OUTBOUND_KEYS and out['submit_state'] == 'unknown' and out['next_attempt_at'],
              'the outbound record after a lost response', code, out, stderr[-300:])
         need(code == 3, 'call exits 3 while pending', code)
-        recovered = wait_for(lambda: (r := self.inspect('n', ids['p1'], out['request']['call_id']))['submit_state'] ==
+        recovered = wait_for(lambda: (r := self.inspect('p2', ids['p1'], out['request']['call_id']))['submit_state'] ==
                              'accepted' and r, timeout=40, message='automatic call retry')
         need(recovered['attempts'] >= 2, 'retried', recovered)
-        final = self.settle('n', recovered)
+        final = self.settle('p2', recovered)
         need(final['status']['state'] == 'succeeded' and first_text(final['result']) == marker,
              'the daemon polls and stores the final status and result', final)
         need(len(f.calls('fx-local', marker)) == 1, 'exactly one execution recorded by the fixture',
@@ -1721,17 +1720,17 @@ class Pairing:
         marker = 'expire-' + secrets.token_hex(4)
         expiring = self.body('cc', 'fx', 'echo', {'text': marker}, cite=cite, deadline=timestamp(3))
         queued = self.body('cc', 'fx', 'echo', {'text': marker + '-cancel'}, cite=cite)
-        need(self.submit('n', expiring)[1]['state'] == 'queued', 'queued behind 4 running calls')
-        need(self.submit('n', queued)[1]['state'] == 'queued', 'queued behind 4 running calls')
-        status, record = wire(self.hosts['p1'], fixture_context(self.hosts['n']), 'POST',
+        need(self.submit('p2', expiring)[1]['state'] == 'queued', 'queued behind 4 running calls')
+        need(self.submit('p2', queued)[1]['state'] == 'queued', 'queued behind 4 running calls')
+        status, record = wire(self.hosts['p1'], fixture_context(self.hosts['p2']), 'POST',
                               f"/peer/v1/calls/{queued['call_id']}/cancel", {})
         need(status == 200 and record['state'] == 'cancelled' and record['cancel_requested'] is True,
              'cancelling a queued call: cancelled at once', status, record)
-        need(self.final('n', expiring['call_id'], timeout=40)['state'] == 'expired',
+        need(self.final('p2', expiring['call_id'], timeout=40)['state'] == 'expired',
              'a call still queued at its deadline becomes expired')
         need(not f.calls('fx-local', marker) and not f.calls('fx-local', marker + '-cancel'),
              'expired and cancelled calls never ran')
-        status, again = wire(self.hosts['p1'], fixture_context(self.hosts['n']), 'POST',
+        status, again = wire(self.hosts['p1'], fixture_context(self.hosts['p2']), 'POST',
                              f"/peer/v1/calls/{queued['call_id']}/cancel", {})
         need(status == 200 and again['state'] == 'cancelled', 'a cancel of a final call returns it unchanged', again)
 
@@ -1741,13 +1740,13 @@ class Pairing:
             marker = f'{how}-' + secrets.token_hex(4)
             b = self.body('cc', 'fx', 'sleep', {'seconds': 30, 'text': marker}, cite=cite,
                           deadline=timestamp(6) if how == 'deadline' else None)
-            self.submit('n', b)
+            self.submit('p2', b)
             wait_for(lambda: f.calls('fx-local', marker), timeout=20, message='running')
             if how == 'cancel':
-                status, record = wire(self.hosts['p1'], fixture_context(self.hosts['n']), 'POST',
+                status, record = wire(self.hosts['p1'], fixture_context(self.hosts['p2']), 'POST',
                                       f"/peer/v1/calls/{b['call_id']}/cancel", {})
                 need(status == 200 and record['cancel_requested'] is True, 'cancel sets cancel_requested', record)
-            done = self.final('n', b['call_id'], timeout=40)
+            done = self.final('p2', b['call_id'], timeout=40)
             error = 'cancel_requested' if how == 'cancel' else 'deadline'
             need(done['state'] == 'uncertain' and done['error'] == error, f'a running call: uncertain with {error}',
                  done)
@@ -1770,10 +1769,10 @@ class Pairing:
         # A daemon restart during a running call: uncertain, and never run again.
         marker = 'restart-' + secrets.token_hex(4)
         b = self.body('cc', 'fx', 'sleep', {'seconds': 15, 'text': marker}, cite=cite)
-        self.submit('n', b)
+        self.submit('p2', b)
         wait_for(lambda: f.calls('fx-local', marker), timeout=20, message='running')
         self.restart('p1')
-        done = self.final('n', b['call_id'], timeout=30)
+        done = self.final('p2', b['call_id'], timeout=30)
         need(done['state'] == 'uncertain' and done['error'] == 'daemon_restarted',
              'At daemon start, every call still running becomes uncertain (daemon_restarted)', done)
         time.sleep(18)
@@ -1782,28 +1781,28 @@ class Pairing:
         # A server exit: running calls uncertain (server_exited); the next call starts a new instance.
         marker = 'exit-' + secrets.token_hex(4)
         b1 = self.body('cc', 'fx', 'sleep', {'seconds': 30, 'text': marker}, cite=cite)
-        self.submit('n', b1)
+        self.submit('p2', b1)
         wait_for(lambda: f.calls('fx-local', marker), timeout=20, message='running')
         pid = f.calls('fx-local', marker)[0]['pid']
         b2 = self.body('cc', 'fx', 'crash', {'delay': 1}, cite=cite)
-        self.submit('n', b2)
+        self.submit('p2', b2)
         for b in (b1, b2):
-            done = self.final('n', b['call_id'], timeout=30)
+            done = self.final('p2', b['call_id'], timeout=30)
             need(done['state'] == 'uncertain' and done['error'] == 'server_exited',
                  'an instance exit makes its running calls uncertain (server_exited)', done)
         marker = 'after-exit-' + secrets.token_hex(4)
         b = self.body('cc', 'fx', 'echo', {'text': marker}, cite=cite)
-        self.submit('n', b)
-        need(self.final('n', b['call_id'])['state'] == 'succeeded' and f.calls('fx-local', marker)[0]['pid'] != pid,
+        self.submit('p2', b)
+        need(self.final('p2', b['call_id'])['state'] == 'succeeded' and f.calls('fx-local', marker)[0]['pid'] != pid,
              'later calls start a new instance')
 
         # Concurrency capped at 4 per instance.
         marker = 'conc-' + secrets.token_hex(4)
         batch = [self.body('cc', 'fx', 'sleep', {'seconds': 3, 'text': marker}, cite=cite) for _ in range(6)]
         for b in batch:
-            self.submit('n', b)
+            self.submit('p2', b)
         for b in batch:
-            need(self.final('n', b['call_id'], timeout=40)['state'] == 'succeeded', 'every call finishes')
+            need(self.final('p2', b['call_id'], timeout=40)['state'] == 'succeeded', 'every call finishes')
         peak = max(e['concurrent'] for e in f.calls('fx-local', marker))
         need(peak == 4, 'An instance runs at most 4 calls concurrently', peak)
         need(len({e['pid'] for e in f.calls('fx-local', marker)}) == 1, 'one instance per (agent, server, profile)')
@@ -1817,9 +1816,8 @@ class Pairing:
              any(e['subject_id'] == f"{ids['p1']}/{out['request']['call_id']}" for e in sent),
              'caller activity: call.submitted and call.updated, subject PEER/CALL_ID', sent[:4])
         received = [e for e in self.activity('p1') if e['kind'] == 'call.received']
-        need(any(e['subject_id'] == f"{ids['n']}/{batch[0]['call_id']}" for e in received),
+        need(any(e['subject_id'] == f"{ids['p2']}/{batch[0]['call_id']}" for e in received),
              'receiver activity subject SENDER/CALL_ID', received[-3:])
-        self.hosts['p1'].cli('grant', 'revoke', g['id'])
 
     def check_values(self):
         f = self.fixture
@@ -1849,13 +1847,20 @@ class Pairing:
         # The environment file overrides captured values, and is ignored when too open (item 14).
         env_file = self.hosts['p1'].config / 'peerspan' / 'env'
         env_file.parent.mkdir(parents=True, exist_ok=True)
-        env_file.write_text(f"# overrides\nTOKEN_A={self.secrets['file']}\n\nLIT_TOKEN=from-file\n")
+        env_file.write_text(f"# overrides\nTOKEN_A={self.secrets['file']}\n\nLIT_TOKEN=from-file\n"
+                            f"EXTRA_FROM_FILE={self.secrets['file']}\n")
         env_file.chmod(0o600)
         self.restart('p1')
         need(matches('proj', 'TOKEN_A', self.secrets['file']) == {'present': True, 'matches': True},
-             'the environment file overrides captured values')
+             'the environment file overrides captured values for variables the definition names')
         need(matches('lit', 'LIT_TOKEN', 'from-file') == {'present': True, 'matches': True},
              'the environment file overrides literals of the same name')
+        names = set(self_call('proj', 'env_names', {}))
+        need({'PATH', 'HOME', 'TOKEN_A', 'TOKEN_B'} <= names and names <= {'PATH', 'HOME', 'TOKEN_A', 'TOKEN_B'} |
+             INTERPRETER_NAMES, 'other variables in the environment file do not reach the server', sorted(names))
+        names = set(self_call('lit', 'env_names', {}))
+        need('TOKEN_A' not in names and 'EXTRA_FROM_FILE' not in names,
+             'a server receives only the environment-file variables its own definition names', sorted(names))
         need(not [i for i in self.items() if i['subject'] == 'env'], 'no item 14 for a 0600 file')
         env_file.chmod(0o644)
         self.restart('p1')
@@ -1920,12 +1925,12 @@ class Pairing:
             code, out, stderr = self.call('p2', target, tool, arguments)
             need(code == 0, f'self call {target} {tool}', code, out, stderr[-300:])
             return first_text(out['result'])
-        need(self_call('env_matches', {'name': 'PROFILE_ONLY', 'sha256': sha(self.secrets['profile'])}) ==
-             {'present': True, 'matches': True}, 'a profile instance receives its own environment file')
-        need(self_call('env_matches', {'name': 'FX_CAPTURED', 'sha256': sha('profile-value')}) ==
-             {'present': True, 'matches': True}, "the profile's --env-file comes last")
+        need(self_call('env_matches', {'name': 'FX_CAPTURED', 'sha256': sha(self.secrets['profile'])}) ==
+             {'present': True, 'matches': True},
+             "a profile instance receives its own environment file, which comes last")
         need(self_call('info', {})['labels'] == ['acme'], "--arg replaces the server's args")
-        need(self_call('env_matches', {'name': 'PROFILE_ONLY', 'sha256': 'x'}, 'pat/cc/fx')['present'] is False,
+        need(self_call('env_matches', {'name': 'FX_CAPTURED', 'sha256': sha(self.secrets['captured'])},
+                       'pat/cc/fx') == {'present': True, 'matches': True},
              'the bare server does not get the profile environment')
         need(self_call('info', {}, 'pat/cc/fx')['labels'] == ['local'], 'the bare server keeps its args')
         need({e['pid'] for e in f.calls('fx-acme')}.isdisjoint({e['pid'] for e in f.calls('fx-local')}),
@@ -1939,6 +1944,11 @@ class Pairing:
         status, record = self.submit('r', self.body('cc', 'fx', 'echo', {'text': 'profile'}, profile='acme',
                                                     cite=self.policy_cite()))
         need(status == 200, 'the profile share', status, record)
+        status, record = self.submit('r', self.body('cc', 'fx', uri='file:///srv/docs/a.txt', profile='acme',
+                                                    cite=self.policy_cite()))
+        need(status == 200, 'SERVER@PROFILE shares the profile\'s resources', status, record)
+        status, _ = self.submit('r', self.body('cc', 'fx', uri='file:///srv/docs/a.txt', cite=self.policy_cite()))
+        need(status == 403, 'but not the bare server\'s', status)
         code, out, stderr = self.call('q1', 'pat/cc/fx@acme', 'write_note', {'text': 'by profile'}, '--network',
                                       self.team)
         need(code == 0 and out['status']['state'] == 'succeeded', 'a write tool through a profile share', code, out)
@@ -2040,8 +2050,8 @@ class Pairing:
         pending = out
         code, out, stderr = self.read('q1', 'pat/cc/fx', 'fixture://docs/readme', '--network', self.team)
         need(code == 0 and out['status']['kind'] == 'resource', 'read: exit 0', code, out)
-        code, out, stderr = self.read('q1', 'pat/cc/fx', 'file:///srv/private/b.txt', '--network', self.team)
-        need(code != 0, 'read of a URI not covered fails', code, out)
+        code, out, stderr = self.read('q1', 'pat/cc/fx', 'fixture://docs/missing', '--network', self.team)
+        need(code != 0, 'read of a URI not in the snapshot fails', code, out)
         # Listings.
         listed = self.hosts['q1'].cli('calls', 'list', '--limit', '1000')
         need(listed and all('sequence' in item for item in listed), 'calls list: paged as tasks are', listed[:1])
@@ -2077,7 +2087,8 @@ class Pairing:
         versions = {self.team: self.version('p1', self.team), self.other: self.version('p1', self.other)}
         code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x'})
         first = min(versions)
-        need(code == 0 and 'policy' in out['request'], 'via order: policy before grant', out['request'])
+        need(code == 0 and 'policy' in out['request'] and 'grant_id' not in out['request'],
+             'the first via entry is cited', out and out['request'])
         if versions[self.team] != versions[self.other]:
             need(out['request']['policy']['version'] == versions[first], 'via order: by network ID', out['request'],
                  versions)
@@ -2085,14 +2096,6 @@ class Pairing:
             code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x'}, '--network', net)
             need(code == 0 and out['request']['policy']['version'] == versions[net], '--network cites that network',
                  net, out['request'])
-        code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x'}, '--grant', self.q1_grant['id'])
-        need(code == 0 and out['request'].get('grant_id') == self.q1_grant['id'], '--grant cites that grant',
-             out and out['request'])
-        bogus = self.hosts['p1'].cli('grant', 'create', '--peer', ids['q1'], '--agent', self.aid['cc'], '--expires-in',
-                                     '1h')
-        count = self.outbound_count('q1')
-        code, out, stderr = self.call('q1', 'pat/cc/fx', 'echo', {'text': 'x'}, '--grant', bogus['id'])
-        need(code != 0 and self.outbound_count('q1') == count, '--grant must appear in via', code)
         # Target resolution: by host ID, ambiguous, and not found.
         code, out, stderr = self.call('q1', f"{ids['p1']}/cc/fx", 'echo', {'text': 'by host'})
         need(code == 0 and out['peer_host_id'] == ids['p1'], 'HOST_ID/AGENT/SERVER names a host directly', code)
@@ -2258,11 +2261,11 @@ def check_vector(directory):
          'self-check: the v1 policy test vector')
     v2 = {**v1, 'format': 2,
           'tool_rules': [{'agent': 'claude-laptop', 'server': 'github@acme-api',
-                          'principals': [f'person:{second}', 'group:eng'], 'action': 'tool.call',
+                          'principals': [f'person:{second}', 'group:eng'], 'actions': ['tool.call'],
                           'scope': ['create_issue', 'list_issues'], 'max_input_bytes': 65536,
                           'allow_disconnected': False, 'max_calls_per_hour': 100},
-                         {'agent': '*', 'server': 'docs', 'principals': ['network'], 'action': 'resource.read',
-                          'scope': ['file:///srv/docs/*'], 'max_input_bytes': 4096, 'allow_disconnected': True,
+                         {'agent': '*', 'server': 'docs', 'principals': ['network'],
+                          'actions': ['tool.call', 'resource.read'], 'scope': ['readonly'], 'max_input_bytes': 4096, 'allow_disconnected': True,
                           'max_calls_per_hour': 10}],
           'trusted_hosts': ['host_b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709']}
     signature = sshsig(person, policy_lines_v2(v2))
