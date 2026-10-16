@@ -1327,6 +1327,15 @@ fn suffix(text: &str) -> String {
         })
         .collect()
 }
+/// `suffix`, or `fallback` when that leaves no letter or digit.
+fn suffix_or(text: &str, fallback: &str) -> String {
+    let part = suffix(text);
+    if part.chars().any(|c| c.is_ascii_alphanumeric()) {
+        part
+    } else {
+        fallback.to_owned()
+    }
+}
 /// `parts` joined with `-` and `tail` appended, cutting the parts from the
 /// end so the name fits in 64 characters: the host name (`parts[1]`)
 /// first, then the project (`parts[2]`), then the base (`parts[0]`), each
@@ -1356,18 +1365,17 @@ fn default_name(
     remote: &BTreeMap<String, String>,
 ) -> String {
     let free = |name: &str| !local.contains(name) && !remote.contains_key(name);
-    let mut short = suffix(hostname.split('.').next().unwrap_or_default());
-    if short.is_empty() {
-        short = "host".into();
-    }
-    let mut parts = vec![base.to_owned(), short];
+    let mut parts = vec![
+        base.to_owned(),
+        suffix_or(hostname.split('.').next().unwrap_or_default(), "host"),
+    ];
     let first = fitted(&parts, "");
     if free(&first) {
         return first;
     }
     let mut tail = String::new();
     if local.contains(&first) {
-        parts.push(suffix(project));
+        parts.push(suffix_or(project, "project"));
     } else {
         let hex = host_id.strip_prefix("host_").unwrap_or(host_id);
         for digits in (4..=hex.len().min(32)).step_by(2) {

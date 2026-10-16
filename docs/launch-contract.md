@@ -557,7 +557,7 @@ A session's credential may be created with **directory access**. Then its adapte
   2. `BASE-HOSTNAME-PROJECT`, where `PROJECT` is the workspace's base name, if `BASE-HOSTNAME` is used on this host;
   3. `BASE-HOSTNAME-HHHH`, where `HHHH` is the first 4 hex digits of this host's ID after `host_`, if `BASE-HOSTNAME` is used only on another host, which happens when two of the person's machines share a host name; then 6, 8, and so on while that is taken;
   4. then the last of these candidates that applied with `-2`, `-3`, and so on appended.
-  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name that leaves nothing after that is replaced by `host`. So that the whole name fits in 64 characters, parts are cut from the end in this order, each down to 1 character before the next is cut: the host name, then the project, then `BASE`. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
+  The bare base name is never a default; it is used only when given as `--name`. Names are free when neither this host nor any host of this person in the directory has them, after a synchronous directory refresh. Suffixes are lowercased, and characters outside the addressable set become `-`. A host name part left with no letters or digits after that is replaced by `host`, and a project part left with none, including the root directory's empty base name, by `project`. So that the whole name fits in 64 characters, parts are cut from the end in this order, each down to 1 character before the next is cut: the host name, then the project, then `BASE`. `-HHHH` and `-N` are never cut, and `HHHH` grows to at most 32 digits, which always leaves room.
   The host name is the one at `attach` time. An agent keeps its name when the machine is renamed, and re-attaching reuses it.
   IP addresses are not part of names: they change after `attach`, repeat across private networks, and a host often has several. `agents` shows each host's current endpoint instead (below).
 - **Registering.** A new agent is registered with that name and with this host's bound person's label as its owner (the login name if unbound).
@@ -614,8 +614,8 @@ The readable layout prints, after each agent, `address` when there is one, follo
   - `not_authorized` persisting nothing;
   - a retry still reaching the stored target after the address would resolve elsewhere (the target host unbound, and the name registered on another host of that person).
 - **Attach:**
-  - default naming and each suffix rule, across two hosts of one person, including two hosts with the same host name (the `-HHHH` rule) and a host name with no addressable characters;
-  - `endpoint` in `agents --json` and `GET /adapter/v1/agents` for this host, a direct peer, a relayed peer, and a host with path `none` and no map address;
+  - default naming and each suffix rule, across two hosts of one person, including two hosts with the same host name (the `-HHHH` rule), a host name with no letters or digits, and `--directory /` as a second project;
+  - `endpoint` in `agents --json` for this host, and in `agents --json` and `GET /adapter/v1/agents` for a direct peer, a relayed peer, and a peer with path `none`;
   - a 64-character integration ID as `BASE`, cut so the default name fits;
   - `--name` taken refused, with no registration;
   - re-attach reusing the agent with `reused: true`, and after expiry a new credential for the same agent;

@@ -103,6 +103,15 @@ func fittedName(parts []string, tail string) string {
 	return strings.Join(cut, "-") + tail
 }
 
+// namePartOr is namePart, or fallback when that leaves no letter or digit.
+func namePartOr(text, fallback string) string {
+	part := namePart(text)
+	if strings.IndexFunc(part, func(c rune) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }) < 0 {
+		return fallback
+	}
+	return part
+}
+
 // defaultAgentName is the first free default name for attach:
 // BASE-HOSTNAME, else BASE-HOSTNAME-PROJECT when that is used on this
 // host, or BASE-HOSTNAME-HHHH with a growing prefix of the host ID when it
@@ -110,18 +119,14 @@ func fittedName(parts []string, tail string) string {
 // on.
 func defaultAgentName(base, hostname, project, hostID string, usedHere, free func(string) bool) string {
 	hostname, _, _ = strings.Cut(hostname, ".")
-	hostname = namePart(hostname)
-	if hostname == "" {
-		hostname = "host"
-	}
-	parts := []string{base, hostname}
+	parts := []string{base, namePartOr(hostname, "host")}
 	first := fittedName(parts, "")
 	if free(first) {
 		return first
 	}
 	tail := ""
 	if usedHere(first) {
-		parts = append(parts, namePart(project))
+		parts = append(parts, namePartOr(project, "project"))
 	} else {
 		hex := strings.TrimPrefix(hostID, "host_")
 		for digits := 4; digits <= min(32, len(hex)); digits += 2 {
