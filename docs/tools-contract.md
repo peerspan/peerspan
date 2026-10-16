@@ -161,14 +161,18 @@ The JSON gains `format: 2`, `tool_rules`, and `trusted_hosts`. Each tool rule is
 `--tools` and `--resources` may be repeated, and each occurrence makes its own rule.
 
 **What `allow --tools` checks, before signing:**
-1. **The server exists.** With `--agent`, that agent has the server and it is `shareable`. Without `--agent`, the scope is `*`, and at least one agent on this host has it.
+1. **The server exists here.** Tool shares never default to `*`. Without `--agent`, `allow` makes one rule for each agent on this host whose snapshot has the server as `shareable`, named explicitly, and refuses if there is none. With `--agent NAME`, that agent must be on this host and have the server. The server's credentials are therefore always ones whose reach is confirmed on this host. To share another machine's server, run `allow` on that machine.
+
+   `--agent '*'` is accepted explicitly. It makes one `*` rule, and requires `--yes` even after earlier confirmations. It warns that the rule covers servers of that name on every machine of this person, including servers whose credentials were not confirmed on this host.
 2. **No write tools without a profile.** Named tools on a server without a profile must be `read_only` in the snapshot. Otherwise `allow` refuses. The error names the tools, and says to add a profile with `tools profile add` or to wait for approval of each call.
 3. **The reach is confirmed.** The first time a share names a given `(agent, server, profile)`, `allow` prints the reach and requires confirmation. The prompt reads: `PRINCIPAL can call these tools of SERVER on AGENT with the credentials it runs with there: TOOLS. Anything those credentials can reach through these tools, PRINCIPAL can too.` Confirmation is `y` at a terminal, or `--yes`. Without a terminal and without `--yes`, `allow` refuses with exit 1. Confirmations are stored per `(agent, server, profile)` on this host, and are not asked again.
 
 **Applying the rule.**
 - **Settings:** `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100 or `--calls-per-hour`.
 - **Set semantics** follow `allow`. Within the same agent scope and server, PRINCIPAL is removed from every tool rule with the same action. It is then added to the first remaining rule with identical settings and scope, or a new rule is appended, and empty rules are dropped.
-- **Output:** `allow` prints `{policy, principal, agent, server, action, scope}`.
+- **Output:** `allow` prints `{policy, principal, rules: [{agent, server, action, scope}]}`, one entry for each rule it set.
+
+`deny --tools` without `--agent` removes the principal from tool rules for that server under every agent name, `*` included.
 
 **`join` and `network create`** gain `--trusted` and `--untrusted`. When bound to a person and given neither, they ask at a terminal: `Let this machine use tools shared from your other machines? [y/N]`. Without a terminal, the answer is no. A yes adds this host to `trusted_hosts` in the next signed version. Their output gains `trusted`.
 
@@ -322,6 +326,7 @@ It covers:
   - an equal-version tie-break over v2 lines.
 - **`allow --tools`:**
   - each `SPEC` form;
+  - one rule per local agent with the server when `--agent` is omitted, refusal when no local agent has it, and `--agent '*'` requiring `--yes` with its warning;
   - refusal of write tools without a profile;
   - reach confirmation at a terminal, with `--yes`, refused without either, and not asked twice;
   - set semantics;
@@ -354,8 +359,8 @@ It covers:
 - **Status:** item 14 for each cause.
 - **Migration:** from version 15 to version 16.
 
-## Points for owner review
+## Owner review points
 
-- **Self covers write tools.** Self from a trusted host covers write tools without a profile, on the reasoning that trusting a machine means trusting it with your credentials.
-- **The person key can mark any host trusted.** Any host holding the person key can sign a policy that marks itself trusted. Untrusted marking protects only against hosts that do not hold the key, for example hosts bound through ssh-agent forwarding. `join` on an untrusted machine prints this.
-- **The reach confirmation is recorded only locally,** on the host where `allow` runs, so a second machine of the same person asks again.
+- **Self covers write tools.** Self from a trusted host covers write tools without a profile, on the reasoning that trusting a machine means trusting it with your credentials. Agreed on 2026-10-16.
+- **The person key can mark any host trusted.** Any host holding the person key can sign a policy that marks itself trusted. Untrusted marking protects only against hosts that do not hold the key, for example hosts bound through ssh-agent forwarding. `join` on an untrusted machine prints this. Agreed on 2026-10-16.
+- **Reach confirmations are recorded only locally.** Because tool shares name agents on the host where `allow` runs, the confirmation is always made on the machine whose credentials are shared. Agreed on 2026-10-16.
