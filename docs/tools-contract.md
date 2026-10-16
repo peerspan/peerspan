@@ -410,6 +410,16 @@ Settled on 2026-10-16, after both implementations and the suite's author compare
   - It returns 201 with `PROFILE` plus `agent_id` and `server`. An identical repeat returns 200 with the existing profile, and a different one returns 409.
 - **Recording a confirmation.** `POST /v1/agents/{agent_id}/tool-servers/{server}/confirmations` takes `{profile}`, which is null for the base server. It returns 200 with `{agent_id, server, profile, confirmed_at}`.
 - **Reading confirmations.** They appear as `confirmed` in `GET /v1/tools`. There is no other confirmation route.
+- **Refused profile requests.** An unknown agent or server is 404. An invalid body, an invalid name, `args: null`, a server that is not `shareable`, or a missing `env_file` is 400. A different profile under an existing name is 409.
+
+### Status and output
+
+- **`tools` in status.**
+  - `servers` counts the servers discovered for agents on this host, profiles excluded.
+  - `shared_servers` counts the servers and profiles on this host that at least one tool rule in this person's stored policies names.
+  - `calls_running` counts received calls in the `running` state.
+- **`tools remote --json`** prints the `GET /v1/remote-tools` object as is.
+- **`peerspan-peer-probe`** accepts responses up to the limits the peer routes allow, 4 MiB for `GET /peer/v1/tools` and `GET /peer/v1/calls/{id}`.
 
 ### Sharing output and prompts
 
