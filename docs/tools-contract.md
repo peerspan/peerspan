@@ -73,7 +73,7 @@ Each discovered server is normalized to:
 - **`env`** maps each variable name to how its value is obtained:
   - `literal`: the value is written in the configuration;
   - `captured`: the value is a reference resolved at discovery;
-  - `missing`: the value is a reference that could not be resolved.
+  - `missing`: the value is a reference that could not be resolved. Such an entry is `{"source": "missing", "variables": [NAME, ...]}`, naming the referenced variables that could not be resolved.
 
   Values are sent to the daemon only in the `values` payload (below), and never appear in definitions, listings, output, logs, or activity.
 - **`source`** is `INTEGRATION:SCOPE`. The scope is `user`, `project`, or `local` for Claude Code, `user` for Codex, and `global` or `project` for OpenCode.
@@ -221,7 +221,7 @@ Its `signature` is `U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTF
 
    `--agent '*'` is accepted explicitly. It makes one `*` rule, and requires `--yes` even after earlier confirmations. It warns that the rule covers servers of that name on every machine of this person, including servers whose credentials were not confirmed on this host.
 2. **No write tools without a profile.** Named tools on a server without a profile must be `read_only` in the snapshot. Otherwise `allow` refuses. The error names the tools, and says to add a profile with `tools profile add` or to wait for approval of each call.
-3. **The reach is confirmed.** The first time a share names a given `(agent, server, profile)`, `allow` prints the reach and requires confirmation. The prompt reads: `PRINCIPAL can call these tools of SERVER on AGENT, and read its resources, with the credentials it runs with there: TOOLS. Anything those credentials can reach through them, PRINCIPAL can too.` The resources clause appears only when the actions include `resource.read`. Confirmation is `y` at a terminal, or `--yes`. Without a terminal and without `--yes`, `allow` refuses with exit 1. Confirmations are stored per `(agent, server, profile)` on this host, and are not asked again.
+3. **The reach is confirmed.** The first time a share names a given `(agent, server, profile)`, `allow` prints the reach and requires confirmation. The prompt reads: `PRINCIPAL can call these tools of SERVER on AGENT with the credentials it runs with there: TOOLS. Anything those credentials can reach through these tools, PRINCIPAL can too.` When the actions include `resource.read`, a second sentence follows; see [Sharing output and prompts](#sharing-output-and-prompts). Confirmation is `y` at a terminal, or `--yes`. Without a terminal and without `--yes`, `allow` refuses with exit 1. Confirmations are stored per `(agent, server, profile)` on this host, and are not asked again.
 
 **Applying the rule.**
 - **Settings:** `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100 or `--calls-per-hour`.
@@ -388,7 +388,7 @@ Settled on 2026-10-16, after both implementations and the suite's author compare
 - **`PUT` response.** It is the agent object below, returned once snapshots finish, so `tools refresh` returns only after them.
 - **`GET /v1/tools` response.** It is `{agents: [AGENT]}`, sorted by agent name, where `AGENT` is `{agent: {id, name}, workspace, servers: [SERVER]}`.
 - **`SERVER`** is `{name, transport, command, args, env, url, source, disabled, shareable, reason, missing_env, tools, resources, snapshot_at, snapshot_error, start_failed_at, auth_error_at, confirmed, profiles, shares}`, where:
-  - `missing_env` is the list of referenced variable names that could not be resolved, such as `FX_MISSING_VAR`, never the `env` keys;
+  - `missing_env` is the list of referenced variable names that could not be resolved, such as `FX_MISSING_VAR`, never the `env` keys. For `env` entries, the daemon takes them from each `missing` entry's `variables`. For `command` and `args`, it parses the references in the definition;
   - `tools` and `resources` are `[]` before the first snapshot;
   - `confirmed` is a boolean for the base server;
   - `shares` lists the tool rules naming the server, each as the tool rule plus `network_id`.
