@@ -1006,8 +1006,7 @@ impl Store {
             .query_map([], |r| r.get::<_, String>(0))?
             .map(|r| json(r?))
             .collect::<Result<_, Error>>()?;
-        let names: BTreeMap<String, String> =
-            agent_names(&conn)?;
+        let names: BTreeMap<String, String> = agent_names(&conn)?;
         let mut rules: Vec<ToolRule> = Vec::new();
         for (network, own) in self.own_members(&conn)? {
             if let Some(person) = &own.person_id
@@ -1048,8 +1047,7 @@ impl Store {
     /// an environment file that is too open.
     pub(crate) fn failing_tool_servers(&self) -> Result<Vec<(String, String, String)>, Error> {
         let conn = self.connection()?;
-        let names: BTreeMap<String, String> =
-            agent_names(&conn)?;
+        let names: BTreeMap<String, String> = agent_names(&conn)?;
         let day = chrono::Utc::now() - chrono::TimeDelta::hours(24);
         let recent = |at: &Option<String>| {
             at.as_deref()

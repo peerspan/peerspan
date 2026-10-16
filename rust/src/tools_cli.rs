@@ -490,9 +490,10 @@ async fn allow_tools(
         }
     }
     // The reach is confirmed once per agent, server, and profile.
+    let shown = share.principal;
     for (_, name, spec, covered) in &confirm {
         let mut text = format!(
-            "{principal} can call these tools of {} on {name} with the credentials it runs with there: {}. Anything those credentials can reach through these tools, {principal} can too.",
+            "{shown} can call these tools of {} on {name} with the credentials it runs with there: {}. Anything those credentials can reach through these tools, {shown} can too.",
             spec.label(),
             if covered.is_empty() {
                 "(none yet)".to_owned()
@@ -501,9 +502,7 @@ async fn allow_tools(
             }
         );
         if spec.actions.iter().any(|a| a == RESOURCE_ACTION) {
-            text.push_str(&format!(
-                " {principal} can also read every resource it offers."
-            ));
+            text.push_str(&format!(" {shown} can also read every resource it offers."));
         }
         eprintln!("{text}");
     }
