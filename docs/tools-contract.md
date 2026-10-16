@@ -384,6 +384,7 @@ Settled on 2026-10-16, after both implementations and the suite's author compare
   - Each element of `servers` has exactly the definition fields `name`, `transport`, `command`, `args`, `env`, `url`, and `source`, plus an optional boolean `disabled`. Unknown fields are refused with 400.
   - The daemon computes `shareable` and `reason`. Reasons, in precedence order, are `name`, `remote`, `disabled`, and `missing_env`.
   - A stdio entry without a command is reported by the CLI in `errors`, and is not sent.
+  - Each `env` entry is exactly `{source}` for `literal` and `captured`, or `{source: "missing", variables}` with a non-empty `variables`. Any other shape is refused with 400.
   - In `values`, `env.NAME` is accepted only for entries whose source is `literal` or `captured`.
 - **`PUT` response.** It is the agent object below, returned once snapshots finish, so `tools refresh` returns only after them.
 - **`GET /v1/tools` response.** It is `{agents: [AGENT]}`, sorted by agent name, where `AGENT` is `{agent: {id, name}, workspace, servers: [SERVER]}`.
