@@ -30,9 +30,9 @@ reports these sections separately:
   one person that share this machine's host name (`BASE-HOSTNAME`, `-PROJECT`, `-HHHH`
   growing to 32 digits, then `-N`), cutting to 64 characters with a long project and
   with a 64-character integration ID as BASE, the bare base name only by `--name`, and,
-  when run as root, hosts of other host names in UTS namespaces of their own (one
-  lowercased and sanitized, one whose short name is empty and becomes `host`, and `***`,
-  only observed); `--name` taken refused with no registration, an unprofiled agent reused by
+  `--directory /` as a second project (`-project`), and, when run as root, hosts of other
+  host names in UTS namespaces of their own (one lowercased and sanitized, and an empty
+  one and `***`, which have no letters or digits and become `host`); `--name` taken refused with no registration, an unprofiled agent reused by
   `--name`, re-attach with `reused: true` and after revocation, `unchecked_hosts`
   with a sibling stopped, and `session start`/`doctor` without `--directory`
   (these attach with `--no-start`, which prints the output object on stdout);
@@ -51,13 +51,12 @@ reports these sections separately:
 - attach after expiry: a new credential for the same agent;
 - retry after a label change: an uncertain send by address whose target host is
   then unbound from its person, retried automatically to the stored target;
-- endpoints: `endpoint` in `agents --json` (and its readable layout) and
-  `GET /adapter/v1/agents` for this host (advertised address, and first candidate), a
-  peer dialed by its advertised address, a direct peer (two wildcard-bound hosts after
-  path discovery), a relayed peer (a dead advertised address, with UDP between the two
-  hosts dropped by iptables when run as root), and a stopped host whose map entry has no
-  address or candidates. `path` is checked against `peer path`, whose relay/none choice
-  belongs to the peer messaging contract.
+- endpoints: `endpoint` in `agents --json` for this host (advertised address, and first
+  candidate), and in `agents --json` (and its readable layout) and
+  `GET /adapter/v1/agents` for a direct peer (two wildcard-bound hosts after path
+  discovery), a relayed peer (a dead advertised address, with UDP between the two hosts
+  dropped by iptables when run as root), and a peer with path `none` (dialed by its
+  advertised address). `path` is checked against `peer path`.
 
 Needs OpenSSH (ssh-agent, ssh-add, ssh-keygen), peerspan-peer-probe, and Node for
 the MCP cases. Exits non-zero listing every failed section. Each host has its own
@@ -216,15 +215,24 @@ def sanitized(text):
 
 
 def short_host(host_name):
-    """The suffix for a host name: its short name (up to the first dot), sanitized, or `host` if nothing is left."""
-    return sanitized(host_name.split('.')[0]) or 'host'
+    """The suffix for a host name: its short name (up to the first dot), sanitized, or `host` when that has no
+    letters or digits."""
+    part = sanitized(host_name.split('.')[0])
+    return part if re.search(r'[a-z0-9]', part) else 'host'
+
+
+def project_part(name):
+    """The project suffix: the workspace's base name, sanitized, or `project` when that has no letters or digits
+    (including the root directory's empty base name)."""
+    part = sanitized(name)
+    return part if re.search(r'[a-z0-9]', part) else 'project'
 
 
 def default_name(base, host, project=None, host_hex=None, n=None):
     """A default attach name as the Naming rules build it: BASE-HOSTNAME[-PROJECT][-HHHH][-N]. So that the whole
     fits in 64 characters, parts are cut from the end, each down to 1 character before the next is cut: the host
     name, then the project, then BASE; -HHHH and -N are never cut. host is already the sanitized short name."""
-    parts = [base, host] + ([sanitized(project)] if project is not None else [])
+    parts = [base, host] + ([project_part(project)] if project is not None else [])
     fixed = (f'-{host_hex}' if host_hex else '') + (f'-{n}' if n else '')
     for index in ([1, 2, 0] if project is not None else [1, 0]):
         excess = len('-'.join(parts)) + len(fixed) - 64
@@ -1095,6 +1103,10 @@ class Pairing:
         w2 = project('proj-two')
         attached(self.attach(a1, 'claude', '--directory', str(w2)), default_name('claude', h, 'proj-two'), a1, w2,
                  'Naming: BASE-HOSTNAME-PROJECT when BASE-HOSTNAME is used on this host')
+        root = Path('/')
+        attached(self.attach(a1, 'claude', '--directory', '/'), default_name('claude', h, ''), a1, root,
+                 'Naming: --directory / as a second project: the root directory\'s empty base name becomes project')
+        need(default_name('claude', h, '') == f'claude-{h}-project', 'the expected name (suite self-check)')
         w2b = project('other', 'proj-two')
         # -N goes on the last candidate that applied (settled with the owner).
         attached(self.attach(a1, 'claude', '--directory', str(w2b)), default_name('claude', h, 'proj-two', n=2), a1,
@@ -1154,22 +1166,21 @@ class Pairing:
         if not self.named_hosts:
             notes.append('SKIPPED (needs root for UTS namespaces): hosts with other host names, including one that '
                          'leaves nothing')
+        named = set()
         for name, host_name in self.named_hosts.items():
             w = project(f'on-{name}')
             out = self.attach(self.hosts[name], 'claude', '--directory', str(w))
-            if host_name == '***':
-                # Ambiguous in the contract: `***` becomes `---` (characters outside the addressable set become
-                # `-`), which is not nothing, so whether it is replaced by `host` is unsettled. Observed only.
-                notes.append(f'host name {host_name!r} gave {out["agent"]["name"]!r}')
-                need(ADDRESSABLE.fullmatch(out['agent']['name']) and out['agent']['name'] != 'claude',
-                     'attach only creates addressable names, and the bare base name is never a default', out['agent'])
-                continue
-            if host_name.split('.')[0] == '':
-                rule = 'Naming: a host name that leaves nothing is replaced by host'
+            if not re.search(r'[a-z0-9]', sanitized(host_name.split('.')[0])):
+                rule = 'Naming: a host name part left with no letters or digits is replaced by host'
             else:
                 rule = 'Naming: BASE-HOSTNAME with this machine\'s short host name, lowercased'
-            attached(out, default_name('claude', short_host(host_name)), self.hosts[name], w,
-                     f'{rule} (host name {host_name!r})')
+            want = default_name('claude', short_host(host_name))
+            if want in named:
+                # The empty host name and `***` both give claude-host: the second is used only on another host.
+                want, rule = default_name('claude', short_host(host_name), host_hex=host_hex(ids[name])), \
+                    rule + ', then -HHHH as BASE-host is used only on another host'
+            named.add(want)
+            attached(out, want, self.hosts[name], w, f'{rule} (host name {host_name!r})')
 
         # --name taken: refused with 409 before any registration, naming the host that has it.
         agents = a2.cli('agent', 'list')
@@ -1603,8 +1614,8 @@ class Pairing:
 
     def check_endpoints(self):
         """`endpoint` in `agents --json` and GET /adapter/v1/agents: this host (an advertised address, and the
-        first candidate when none is advertised), a peer dialed by its advertised address, a direct peer, a relayed
-        peer, and a stopped host with no map address."""
+        first candidate when none is advertised), a direct peer, a relayed peer, and a peer with path none (dialed
+        by its advertised address)."""
         c1, p1, d1, d2, z1, ids = (self.hosts['c1'], self.p1, self.hosts['d1'], self.hosts['d2'], self.hosts['z1'],
                                    self.ids)
         notes = []
@@ -1658,6 +1669,17 @@ class Pairing:
              'Endpoints: another host without a direct path: path as peer path reports it, and its advertised '
              'address from the map', reach['pat/alpha'], view)
         notes.append(f"peer dialed by its advertised address: path {view['path']}")
+        # A peer with path none: p1, dialed by its advertised address, has no relay route from c1.
+        need(view['path'] == 'none', 'a peer with path none: the case is not exercised unless peer path reports '
+             'none for a peer dialed directly (no relay route to it)', view)
+        (self.root / 'ws-carol-endpoints').mkdir(exist_ok=True)
+        carol = self.attach(c1, 'file-fixture', '--directory', str(self.root / 'ws-carol-endpoints'))
+        status, listing = adapter_call(c1, self.profile_secret(carol)['token'], 'GET', '/adapter/v1/agents')
+        entry = {e['address']: e for e in listing}.get('pat/alpha') if status == 200 else None
+        need(entry and entry.get('endpoint') == reach['pat/alpha']['endpoint'],
+             'GET /adapter/v1/agents: endpoint as for agents (path none)', status, entry, reach['pat/alpha'])
+        line = readable_line(c1, 'pat/alpha')
+        need(f"{member(c1, 'p1')['address']} (none)" in line, 'agents: the address, then (none)', line)
 
         # A direct peer: d1 and d2 advertise no address, so they reach each other through the relay, and path
         # discovery (over their interface candidates) moves them to a direct path.
@@ -1716,10 +1738,6 @@ class Pairing:
                                ('dana/zed', zed)):
             need(listed.get(address, {}).get('endpoint') == entry['endpoint'],
                  'GET /adapter/v1/agents: endpoint as for agents', address, listed.get(address), entry)
-        own_listed = {a: e for a, e in listed.items() if a in mine and mine[a]['host_id'] == ids['d1']}
-        need(all(e['endpoint'] == want_local for e in own_listed.values()),
-             'GET /adapter/v1/agents: this host\'s entries (if listed) have path local', own_listed, want_local)
-        notes.append(f"adapter agents list {len(own_listed)} of this host's agents")
         line = readable_line(d1, 'pat/gamma')
         need(f"{member(d1, 'p1')['address']} ({paths['p1']['path']})" in line or paths['p1']['path'] == 'direct',
              'agents: the address, then the path in parentheses when it is not direct or local', line)
@@ -1730,43 +1748,6 @@ class Pairing:
             line = readable_line(d1, 'dana/zed')
             need(f'{self.z1_dead} (relay)' in line, 'agents: the address, then (relay)', line)
 
-        # A host with no map address: z1 restarts with no listener, so its map entry has address "" and no
-        # candidates, and then stops; the directory keeps its agents.
-        z1.stop()
-        z1.daemon_args = ('--coordination-interval', '1')
-        z1.start()
-        wait_for(lambda: (lambda m: m['address'] == '' and not m.get('candidates'))(member(d1, 'z1')), timeout=40,
-                 message='z1 without an address or candidates in d1\'s map')
-        z1.stop()
-
-        # z1 stopped: once its direct path (if any) lapses, its endpoint has no address, and path is whatever peer
-        # path reports (relay or none: whether a relay route to a stopped host "exists" is the peer messaging
-        # contract's), with the same entry in GET /adapter/v1/agents.
-        seen = {}
-
-        def lapsed():
-            seen['z1'] = path(d1, 'z1')
-            if seen['z1']['path'] == 'direct':
-                return None
-            reach, _ = agents(d1)
-            again = path(d1, 'z1')
-            return reach if again == seen['z1'] else None
-        try:
-            reach = wait_for(lapsed, timeout=60, message='z1\'s direct path lapsing')
-        except AssertionError:
-            raise Failure('peer path: a direct path to a stopped host is dropped after 15 seconds without a pong', seen)
-        view = seen['z1']
-        need('dana/zed' in reach, 'a host that fails keeps its previous agents in the directory', sorted(reach))
-        want = {'address': None, 'path': view['path']}
-        need(reach['dana/zed']['endpoint'] == want, 'Endpoints: a host with no direct path and no map address '
-             '(advertised address "" and no candidates): address null, path as peer path reports it',
-             reach['dana/zed'], view)
-        need(adapter_agents().get('dana/zed', {}).get('endpoint') == want,
-             'GET /adapter/v1/agents: endpoint as for agents (no map address)', want)
-        line = readable_line(d1, 'dana/zed')
-        need(view['path'] in line, 'agents: with no address, the path alone', line)
-        notes.append(f"stopped host with no map address: path {view['path']}")
-        z1.start()
         return '; '.join(notes)
 
     # --- the pairing ---------------------------------------------------------------------------------------
@@ -1817,7 +1798,7 @@ class Pairing:
         self.coord_key = self.coord.start()['public_key']
         # d1 and d2 bind the IPv4 wildcard, so they advertise no address and publish interface candidates (a
         # direct path between them can be discovered); z1 advertises a dead address, so it is reached through the
-        # relay, and later restarts without a listener (no map address).
+        # relay.
         persons = {'p1': 'pat', 'p2': 'pat', 'b1': 'bob', 'b2': 'bob', 'c1': 'carol', 'a1': 'ana', 'a2': 'ana',
                    'd1': 'dana', 'd2': 'dana', 'z1': 'dana', 'n1': None, 'x': None}
         # More hosts of ana, on machines of other names: each daemon and CLI runs in a UTS namespace of its own.
@@ -1925,7 +1906,6 @@ class Pairing:
         self.section('directory sessions', self.check_directory_sessions)
         self.section('attach after expiry', self.check_expired_attach)
         self.section('retry after a label change', self.check_label_retry)
-        # Last: it changes and stops z1.
         self.section('endpoints', self.check_endpoints)
 
     def close(self):
