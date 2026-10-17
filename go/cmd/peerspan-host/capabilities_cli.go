@@ -635,7 +635,19 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 	if index >= 0 {
 		r := &body.CapabilityRules[index]
 		if calls != 0 && calls != r.MaxCallsPerHour {
-			limitChange = fmt.Sprintf("Calls per hour: %d, now %d, for every recipient: %s\n", r.MaxCallsPerHour, calls, strings.Join(append(append([]string{}, r.Principals...), principalUnless(r.Principals, principal)...), ", "))
+			// Recipients are shown by label where the principal resolves.
+			labels := map[string]string{}
+			for _, p := range o.persons {
+				labels["person:"+p.PersonID] = p.Member
+			}
+			var affected []string
+			for _, p := range append(append([]string{}, r.Principals...), principalUnless(r.Principals, principal)...) {
+				if label, ok := labels[p]; ok {
+					p = label
+				}
+				affected = append(affected, p)
+			}
+			limitChange = fmt.Sprintf("Calls per hour: %d, now %d, for every recipient: %s\n", r.MaxCallsPerHour, calls, strings.Join(affected, ", "))
 			r.MaxCallsPerHour, changed = calls, true
 		}
 		if !contains(r.Principals, principal) {

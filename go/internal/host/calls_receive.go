@@ -420,11 +420,12 @@ func (s *Store) resolveCallTarget(ctx context.Context, q dbQuerier, r CallReques
 	if !(isRead && c.Resources.Set) && !contains(c.Operations, r.Operation) {
 		return instanceTarget{}, fmt.Errorf("%w: %s has no operation %s", ErrNotFound, r.Capability, r.Operation)
 	}
-	state, _, snap, err := capabilityState(ctx, q, c)
+	_, unavailable, snap, err := capabilityState(ctx, q, c)
 	if err != nil {
 		return instanceTarget{}, err
 	}
-	if state != CapabilityAvailable {
+	// Only an unavailable operation, or a gone source, refuses the call.
+	if contains(unavailable, unavailableSource) || contains(unavailable, r.Operation) {
 		return instanceTarget{}, errUnavailableCapability
 	}
 	if isRead {
