@@ -96,8 +96,8 @@ Each discovered server is normalized to:
 
 - **Where they are resolved.** In `command`, `args`, and `env` values, `${NAME}` and `${NAME:-DEFAULT}` are resolved from the CLI's environment at discovery. This applies to Claude Code definitions, and to the same syntax in the other harnesses.
 - **What is stored.** A value that contains a reference is resolved and sent in `values`, and its `env` entry is `captured`. Literal `env` values are sent in `values` too, as `literal`. The daemon stores both in `tool_values`, which is the only place it reads them from.
-- **Unresolved references.** A reference with no value and no default makes the entry `missing`.
-- **Entries without a stored value.** A `literal` or `captured` entry that has no value in `tool_values` is left unset when the server starts. It does not make the server `missing_env`. The server is then listed with `shareable: false` and the reason `missing_env`, naming the variables.
+- **Unresolved references.** A reference with no value and no default makes the entry `missing`. The server is then listed with `shareable: false` and the reason `missing_env`, naming the variables.
+- **Entries without a stored value.** A `literal` or `captured` entry that has no value in `tool_values` is left unset when the server starts. It does not make the server `missing_env`.
 - **The environment file.** `$XDG_CONFIG_HOME/peerspan/env` (default `~/.config/peerspan/env`) holds `NAME=VALUE` lines, with `#` comments. When it exists, the daemon reads it each time it starts a server. Only variables whose names appear in the server definition's `env` are taken from it; others in the file are ignored for that server. Those values override captured values and literals of the same name. If it is not mode 0600 or stricter, servers start without it and status item 14 reports it.
 
 ### Local commands
