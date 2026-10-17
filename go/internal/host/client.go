@@ -51,12 +51,12 @@ func (c Client) Call(ctx context.Context, method, path string, body any) (json.R
 		return nil, fmt.Errorf("connect to local host service: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > 1<<20 {
-		return nil, fmt.Errorf("host response exceeds 1 MiB")
+	if len(data) > 16<<20 {
+		return nil, fmt.Errorf("host response exceeds 16 MiB")
 	}
 	if resp.StatusCode >= 400 {
 		var failure struct {

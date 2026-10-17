@@ -20,13 +20,25 @@ var Version = "dev"
 
 // Status is GET /v1/status: one view of the host and what needs attention.
 type Status struct {
-	HostID    string          `json:"host_id"`
-	Version   string          `json:"version"`
-	Networks  []NetworkStatus `json:"networks"`
-	Blocks    int64           `json:"blocks"`
-	Agents    []AgentStatus   `json:"agents"`
-	Artifacts ArtifactUsage   `json:"artifacts"`
-	Attention []AttentionItem `json:"attention"`
+	HostID       string             `json:"host_id"`
+	Version      string             `json:"version"`
+	Networks     []NetworkStatus    `json:"networks"`
+	Blocks       int64              `json:"blocks"`
+	Agents       []AgentStatus      `json:"agents"`
+	Artifacts    ArtifactUsage      `json:"artifacts"`
+	Capabilities CapabilitiesStatus `json:"capabilities"`
+	Attention    []AttentionItem    `json:"attention"`
+}
+
+// CapabilitiesStatus counts this host's sources, its capabilities, those a
+// rule for this host shares, received calls running, and the entries of its
+// open list.
+type CapabilitiesStatus struct {
+	Sources      int64 `json:"sources"`
+	Capabilities int64 `json:"capabilities"`
+	Shared       int64 `json:"shared"`
+	CallsRunning int64 `json:"calls_running"`
+	OpenTo       int64 `json:"open_to"`
 }
 
 type NetworkStatus struct {
@@ -84,7 +96,7 @@ type AttentionItem struct {
 // Attention kinds, in the order status reports them. The CLI adds
 // service_not_installed and linger_disabled.
 var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
-	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict", "channel_unverified"}
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict"}
 
 // SortAttention orders items by kind, then subject.
 func SortAttention(items []AttentionItem) {
@@ -149,6 +161,9 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	}
 	s.limitAttention(st.Networks, attend)
 	if err = channelAttention(ctx, tx, now, attend); err != nil {
+		return st, err
+	}
+	if st.Capabilities, err = s.capabilitiesStatus(ctx, tx, now, attend); err != nil {
 		return st, err
 	}
 	SortAttention(st.Attention)

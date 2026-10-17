@@ -35,18 +35,42 @@ type codedError struct {
 	message    string
 	matches    []AddressMatch
 	retryAfter int64
+	// limit names the bound that refused a tool call (429).
+	limit string
+	// unanswered and candidates explain a call target that resolved to no
+	// server (404) or to several (409).
+	unanswered []Unanswered
+	candidates []string
 }
 
 func (e *codedError) Error() string { return e.message }
 
 func (e *codedError) body() any {
 	switch {
+	case e.unanswered != nil:
+		return struct {
+			Code       string       `json:"code"`
+			Error      string       `json:"error"`
+			Unanswered []Unanswered `json:"unanswered"`
+		}{e.code, e.message, e.unanswered}
+	case e.candidates != nil:
+		return struct {
+			Code       string   `json:"code"`
+			Error      string   `json:"error"`
+			Candidates []string `json:"candidates"`
+		}{e.code, e.message, e.candidates}
 	case e.matches != nil:
 		return struct {
 			Code    string         `json:"code"`
 			Error   string         `json:"error"`
 			Matches []AddressMatch `json:"matches"`
 		}{e.code, e.message, e.matches}
+	case e.limit != "":
+		return struct {
+			Code  string `json:"code"`
+			Error string `json:"error"`
+			Limit string `json:"limit"`
+		}{e.code, e.message, e.limit}
 	case e.code == "rate_limited":
 		return struct {
 			Code       string `json:"code"`

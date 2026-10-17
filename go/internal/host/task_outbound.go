@@ -836,6 +836,20 @@ func (s *Store) RunTaskWorkers(ctx context.Context) {
 				s.schedulePoll(key, progressed)
 			}(out)
 		}
+		// Outbound calls share the slots: retries, polls, and cancel resends.
+		for _, out := range s.callJobs(ctx, time.Now()) {
+			select {
+			case slots <- struct{}{}:
+			default:
+				continue
+			}
+			running.Add(1)
+			go func(out OutboundCall) {
+				defer running.Done()
+				defer func() { <-slots }()
+				s.runCallJob(ctx, out)
+			}(out)
+		}
 		for _, row := range s.fetchJobs(ctx) {
 			select {
 			case slots <- struct{}{}:

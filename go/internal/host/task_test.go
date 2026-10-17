@@ -639,7 +639,7 @@ func TestTaskMigrationToVersion10(t *testing.T) {
 	s = must(Open(ctx, dir))
 	defer s.Close()
 	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 15 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 16 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if kept := must(s.Agent(ctx, agent.ID)); kept.Name != "kept" {

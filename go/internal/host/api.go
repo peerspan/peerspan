@@ -84,6 +84,9 @@ func Handler(store *Store) http.Handler {
 	localTaskRoutes(mux, store)
 	localStatusRoutes(mux, store)
 	localDirectoryRoutes(mux, store)
+	localSourceRoutes(mux, store)
+	localCapabilityRoutes(mux, store)
+	localCallRoutes(mux, store)
 	return store.presenceTouching(mux)
 }
 

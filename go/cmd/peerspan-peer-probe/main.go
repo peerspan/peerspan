@@ -220,7 +220,7 @@ func exchange(key ed25519.PrivateKey, address, alpn, method, path string, payloa
 		return err
 	}
 	defer conn.CloseWithError(0, "done")
-	status, data, err := host.PeerStreamRequest(ctx, conn, address, method, path, payload)
+	status, data, err := host.PeerStreamRequestLimit(ctx, conn, address, method, path, payload, host.PeerResponseLimit(method, path))
 	if err != nil {
 		return err
 	}

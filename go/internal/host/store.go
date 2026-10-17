@@ -98,6 +98,8 @@ type Store struct {
 	moves     moveState      // move lookups and repair imports per network
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
+	toolState     toolState   // discovery and snapshot serialization per agent
+	calls         callRuntime // running tool server instances and their calls
 }
 
 func Open(ctx context.Context, dir string) (_ *Store, err error) {
@@ -152,7 +154,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 15 {
+	if version < 0 || version > 16 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -235,6 +237,16 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 		if err = migrateLiveDelivery(ctx, tx); err != nil {
 			return nil, err
 		}
+	}
+	if version < 16 {
+		if err = migrateTools(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
+	// A call still running ended with the previous daemon: it is never
+	// sent again, and its outcome is unknown.
+	if err = uncertainAfterRestart(ctx, tx, time.Now()); err != nil {
+		return nil, err
 	}
 	var created string
 	err = tx.QueryRowContext(ctx, `SELECT private_key, created_at FROM identity WHERE singleton = 1`).Scan(&key, &created)

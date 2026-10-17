@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -507,6 +508,11 @@ func (s *Store) evictPeerConn(id string, conn *quic.Conn) {
 // restarted, is retried once on a fresh connection; receivers deduplicate
 // retried messages by request ID. Any other failure leaves the outcome unknown.
 func (s *Store) peerRequest(ctx context.Context, peer Peer, method, path string, body []byte) (int, []byte, error) {
+	return s.peerRequestLimit(ctx, peer, method, path, body, peerMaxBody)
+}
+
+// peerRequestLimit is peerRequest reading a response of at most limit bytes.
+func (s *Store) peerRequestLimit(ctx context.Context, peer Peer, method, path string, body []byte, limit int) (int, []byte, error) {
 	timeout := s.peer.timeout
 	if timeout == 0 {
 		timeout = peerRequestTimeout
@@ -522,7 +528,7 @@ func (s *Store) peerRequest(ctx context.Context, peer Peer, method, path string,
 		if host == "" {
 			host = "relay.invalid"
 		}
-		status, data, err := PeerStreamRequest(ctx, conn, host, method, path, body)
+		status, data, err := peerStreamRequest(ctx, conn, host, method, path, body, limit)
 		if err == nil {
 			s.releaseConn(conn)
 			return status, data, nil
@@ -538,6 +544,26 @@ func (s *Store) peerRequest(ctx context.Context, peer Peer, method, path string,
 // PeerStreamRequest writes one HTTP/1.1 request on a new bidirectional stream,
 // finishes the send side, and reads one bounded response.
 func PeerStreamRequest(ctx context.Context, conn *quic.Conn, address, method, path string, body []byte) (int, []byte, error) {
+	return peerStreamRequest(ctx, conn, address, method, path, body, peerMaxBody)
+}
+
+// PeerStreamRequestLimit is PeerStreamRequest reading at most limit bytes.
+func PeerStreamRequestLimit(ctx context.Context, conn *quic.Conn, address, method, path string, body []byte, limit int) (int, []byte, error) {
+	return peerStreamRequest(ctx, conn, address, method, path, body, limit)
+}
+
+// PeerResponseLimit is the response bound of a peer route: 4 MiB for the
+// capability listing and call status, which may hold a 1 MiB result, and 1 MiB
+// otherwise.
+func PeerResponseLimit(method, path string) int {
+	route, _, _ := strings.Cut(path, "?")
+	if method == http.MethodGet && (route == "/peer/v1/capabilities" || (strings.HasPrefix(route, "/peer/v1/calls/") && !strings.Contains(strings.TrimPrefix(route, "/peer/v1/calls/"), "/"))) {
+		return peerToolsMaxBody
+	}
+	return peerMaxBody
+}
+
+func peerStreamRequest(ctx context.Context, conn *quic.Conn, address, method, path string, body []byte, limit int) (int, []byte, error) {
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		return 0, nil, err
@@ -573,11 +599,11 @@ func PeerStreamRequest(ctx context.Context, conn *quic.Conn, address, method, pa
 		return 0, nil, err
 	}
 	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, peerMaxBody+1))
+	data, err := io.ReadAll(io.LimitReader(response.Body, int64(limit)+1))
 	if err != nil {
 		return 0, nil, err
 	}
-	if len(data) > peerMaxBody {
+	if len(data) > limit {
 		return 0, nil, errors.New("peer response too large")
 	}
 	return response.StatusCode, data, nil
