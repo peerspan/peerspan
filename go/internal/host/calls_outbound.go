@@ -100,19 +100,13 @@ func (o *OutboundCall) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(request, &o.Request)
 }
 
-// needsPoll reports whether the receiver may still have something to fetch:
-// a status that is not final, or a final call that has a result not yet
-// stored. A final status learned from a submit or cancel response carries
-// no result, so the poll's GET fetches it. A call with a result has
-// result_bytes, except a result too large to store.
+// needsPoll reports whether the call is accepted and not yet final here; a
+// final status with a result is stored only together with that result.
 func (o OutboundCall) needsPoll() bool {
 	if o.SubmitState != submitAccepted {
 		return false
 	}
-	if o.Status == nil || !callFinal(o.Status.State) {
-		return true
-	}
-	return o.Result == nil && o.Status.ResultBytes != nil && deref(o.Status.Error) != callResultTooLarge
+	return o.Status == nil || !callFinal(o.Status.State)
 }
 
 // OutboundCallItem is one entry of calls list.
@@ -679,8 +673,21 @@ func (s *Store) validCallStatus(st CallStatus, peer string, r CallRequest) bool 
 	return created == nil && st.CallID == r.CallID && st.SenderHostID == s.identity.ID && st.ReceiverHostID == peer && st.Capability == r.Capability && st.Operation == r.Operation && validCallState(st.State)
 }
 
-// storeCallStatus keeps a status record and, once final, its result.
-func storeCallStatus(out *OutboundCall, st CallStatus) int {
+// hasResult reports whether a final status has a result at the receiver:
+// result_bytes is set, and the result was not too large to store.
+func hasResult(st CallStatus) bool {
+	return callFinal(st.State) && st.ResultBytes != nil && deref(st.Error) != callResultTooLarge
+}
+
+// storeCallStatus keeps a status record and, once final, its result. A
+// final status with a result is stored only together with it, from a GET
+// (fromGet); one learned from a submit or cancel response is not stored,
+// so the record never shows a final call without its result, and the poll
+// fetches both. It returns how many call.updated activities to add.
+func storeCallStatus(out *OutboundCall, st CallStatus, fromGet bool) int {
+	if hasResult(st) && !fromGet && out.Result == nil {
+		return 0
+	}
 	changed := out.Status == nil || out.Status.State != st.State || out.Status.CancelRequested != st.CancelRequested
 	result := st.Result
 	st.Result = nil
@@ -698,6 +705,18 @@ func storeCallStatus(out *OutboundCall, st CallStatus) int {
 // ExchangeCall makes one submission attempt for an unknown record, or a
 // status query once the deadline has passed (statusOnly).
 func (s *Store) ExchangeCall(ctx context.Context, peerID, id string, statusOnly bool) (OutboundCall, error) {
+	out, err := s.exchangeCall(ctx, peerID, id, statusOnly)
+	if err == nil && out.SubmitState == submitAccepted && out.Status == nil {
+		// A final status with a result is stored only with its result:
+		// fetch it now. If this fails, the call stays pollable.
+		if _, pollErr := s.pollCall(ctx, peerID, id); pollErr == nil {
+			out, err = s.OutboundCall(ctx, peerID, id)
+		}
+	}
+	return out, err
+}
+
+func (s *Store) exchangeCall(ctx context.Context, peerID, id string, statusOnly bool) (OutboundCall, error) {
 	unlock, err := s.lockOutbound(ctx, callKey(peerID, id))
 	if err != nil {
 		return OutboundCall{}, err
@@ -754,7 +773,7 @@ func (s *Store) ExchangeCall(ctx context.Context, peerID, id string, statusOnly 
 		out.SubmitState, out.Error = state, failure
 		updates := 0
 		if status != nil {
-			updates = storeCallStatus(out, *status)
+			updates = storeCallStatus(out, *status, statusOnly)
 		}
 		out.NextAttemptAt = s.nextAttempt(out.SubmitState, out.Request.Deadline, out.Attempts, &out.StatusQueries, statusOnly)
 		if state != submitUnknown && updates == 0 {
@@ -820,7 +839,7 @@ func (s *Store) pollCall(ctx context.Context, peerID, id string) (bool, error) {
 	defer cancel()
 	changed := 0
 	_, err = s.updateOutboundCall(storeCtx, peerID, id, func(out *OutboundCall) int {
-		changed = storeCallStatus(out, st)
+		changed = storeCallStatus(out, st, true)
 		return changed
 	})
 	return progressed || changed > 0, err
@@ -846,7 +865,7 @@ func (s *Store) sendCallCancel(ctx context.Context, peer Peer, out OutboundCall)
 	_, err = s.updateOutboundCall(storeCtx, peer.ID, id, func(out *OutboundCall) int {
 		sent := cancelSent
 		out.CancelState = &sent
-		return storeCallStatus(out, st)
+		return storeCallStatus(out, st, false)
 	})
 	return err
 }
@@ -875,6 +894,11 @@ func (s *Store) CancelOutboundCall(ctx context.Context, peerID, id string) (Outb
 	}
 	unlock()
 	s.schedulePoll(callKey(peerID, id), true)
+	// A cancel answered with a final status that has a result stores it
+	// only with the result: fetch it now.
+	if current, err := s.OutboundCall(ctx, peerID, id); err == nil && current.needsPoll() && current.CancelState != nil && *current.CancelState == cancelSent {
+		_, _ = s.pollCall(ctx, peerID, id)
+	}
 	return s.OutboundCall(ctx, peerID, id)
 }
 
