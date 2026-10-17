@@ -91,7 +91,7 @@ Settled with the owner on 2026-10-16 for the earlier MCP-specific proposal; whol
 3. **`${VAR}` secrets are captured at `attach`.** `attach` runs in the owner's shell and records the referenced values in host state, readable only by the owner. A per-user environment file that the daemon reads on each start is available as an alternative, and its values take precedence over captured ones. `status` reports authentication failures from shared servers and suggests running `attach` again, because a captured token can go stale.
 
 4. **The owner confirms the reach.** The owner was concerned that read-only alone may be too permissive. So the first time a server is shared, `allow` states the credential's reach and the owner confirms it once.
-5. **Trust is per machine.** An owner's own machines get shared tools only when marked trusted, because machines differ in access, scope, and role ([capabilities contract](capabilities-contract.md#authorization)).
+5. **Trust is per machine.** An owner's own machines get shared tools only when marked trusted, because machines differ in access, scope, and role ([capabilities contract](capabilities-contract.md#authorization)). On 2026-10-17 the owner extended this to raw sources: a trusted machine may call another machine's sources, on that machine's credentials, only when the serving machine has opened its sources to it locally ([capabilities contract](capabilities-contract.md#sources-for-the-persons-own-machines)).
 
 ## Open questions
 

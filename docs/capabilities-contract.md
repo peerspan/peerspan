@@ -20,6 +20,8 @@ Slice 1 covers MCP sources and owner calls from the CLI. These come later:
 - **Calls** are persisted and asynchronous only.
 - **Self access** covers capabilities only from hosts the person has marked trusted, per network.
 
+**Decided with the owner on 2026-10-17:** the [owner decisions](#owner-decisions) below, including raw sources for the person's own machines behind a two-sided gate.
+
 ## Model
 
 | Term | Meaning |
@@ -39,7 +41,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. These come later:
 
 **IDs.** Call IDs are `call_` followed by 16 random bytes in lowercase hex.
 
-**Addresses.** A capability's address is `PERSON/CAPABILITY`, for example `bob/github-issues`. `HOST_ID/CAPABILITY` names a capability on one host.
+**Addresses.** A capability's address is `PERSON/CAPABILITY`, for example `bob/github-issues`. `HOST_ID/CAPABILITY` names a capability on one host. A source's address, usable only by the person's own machines, is `PERSON/AGENT/SERVER` or `HOST_ID/AGENT/SERVER` (see [Sources for the person's own machines](#sources-for-the-persons-own-machines)). Capability names never contain `/`, so the forms cannot collide.
 
 ## Sources
 
@@ -151,13 +153,13 @@ A capability record is:
 | --- | --- | --- |
 | `capability create NAME --from SOURCE [--operations OP[,OP...]] [--resources all\|URI[,URI...]] [--env-file PATH] [--arg A ...]` | `POST /v1/capabilities` with `{name, source, operations, resources, env_file, args}` | Creates the record, without sharing it. `SOURCE` is `AGENT/SERVER` as `sources` shows it, or `SERVER` when exactly one agent on this host has it. The source must be `shareable`, and each operation and URI must be in its snapshot. A capability with its own credential is snapshotted with that credential, and its operations are checked against that snapshot. Returns 201 with the record; an identical repeat returns 200; a different record under the same name returns 409. |
 | `capability list [--json]` / `capability show NAME` | `GET /v1/capabilities`, `GET /v1/capabilities/{name}` | The records, each with its recipients from this person's stored policies. |
-| `capability remove NAME [--yes]` | `DELETE /v1/capabilities/{name}` | Removes the record. If it is shared, it first shows the recipients and asks for confirmation (`y` at a terminal, or `--yes`). It then removes the capability's rule from every network's policy, signing new versions. |
+| `capability remove NAME [--yes]` | `DELETE /v1/capabilities/{name}` | Removes the record. If it is shared, it first shows the recipients and asks for confirmation (`y` at a terminal, or `--yes`). It then removes this host's rule for the capability from every network's policy, signing and storing new versions, and deletes the record only after every one of them is stored. If any signing fails, the command fails and the record is kept. Policies already signed stay signed, and repeating the command finishes the removal. |
 
 **Uniqueness.**
 - **On this host.** A capability name is unique on its host.
 - **Across the person's hosts.** `capability create` and `share` refuse a name that a capability rule in any of this person's stored policies binds to another host, with 409. This check is local, so it also covers hosts that are offline.
 - **Unshared duplicates.** A name used on two hosts but shared from at most one cannot be detected from policy. It confers nothing, because every rule names its host (see [Authorization](#authorization)). Trusted hosts reach both copies through self access and must use `HOST_ID/CAPABILITY` when `PERSON/CAPABILITY` is ambiguous.
-- **Status item 15** reports a name on this host that a stored rule binds to another host, which arises only when a policy from another host arrives after a local `capability create`.
+- **Status item 15** reports a name on this host that a stored rule binds to another host, which arises only when a policy from another host arrives after a local `capability create`. Its details are to be revisited with the owner.
 
 ### Policy statement, version 2
 
@@ -224,7 +226,7 @@ It then states the reach: `PRINCIPAL can use these operations with the credentia
 **Several networks.** A share is written to the selected network's policy. `--network` is optional when the host belongs to exactly one network.
 
 **`join` and `network create`** gain `--trusted` and `--untrusted`.
-- **Prompt.** When bound to a person and given neither, they ask at a terminal: `Let this machine use capabilities shared from your other machines? [y/N]`. Without a terminal, the answer is no.
+- **Prompt.** When bound to a person and given neither, they ask at a terminal: `Let this machine use your capabilities on your other machines, and the tools of those that allow it? [y/N]`. Without a terminal, the answer is no.
 - **Signing.** A yes adds this host to `trusted_hosts`, and the policy is signed at once.
 - **Output.** They always output `trusted`. If the trust signing fails, the command still succeeds, with `trusted: false` and `trusted_error`.
 - **The person key.** On an untrusted machine they print that any host holding the person key can mark itself trusted.
@@ -245,7 +247,7 @@ A receiving host bound to person P authorizes a call to its capability C, operat
 - the sender's host ID is in `trusted_hosts` of P's newest verified policy for N;
 - that policy is within its validity window.
 
-Self covers every capability of P on the receiving host. Its bounds are `max_input_bytes` 262,144 and `allow_disconnected` true, and it has no hourly budget.
+Self covers every capability of P on the receiving host, and the sources the receiving host has opened to the sender (see [Sources for the person's own machines](#sources-for-the-persons-own-machines)). Its bounds are `max_input_bytes` 262,144 and `allow_disconnected` true, and it has no hourly budget.
 
 Then, in this order:
 1. **Blocks.** The block list applies, except to self.
@@ -271,14 +273,40 @@ Then, in this order:
 
 A `grant_id` is refused with 400. The CLI cites the first `via` entry of the listing, or the first one from `--network` when given. The citation is stored in the outbound record, and retries reuse it.
 
+### Sources for the person's own machines
+
+A person's trusted machines can call a source's tools directly, without a capability, when the machine serving the source allows it. Both sides must agree:
+1. **The caller is trusted.** The sender passes self access: both hosts are bound to P in some network N, and the sender is in `trusted_hosts` of P's newest verified policy for N, within its validity window.
+2. **The server is open to the caller.** The receiving host's local open list contains the sender's host ID, or `*`.
+
+The open list is stored only on the serving host, never in policy. A machine holding the person key can therefore mark itself trusted, and so reach P's capabilities, but it cannot open another machine's sources.
+
+**The implicit capability.** A source `AGENT/SERVER` that is `shareable` and has a snapshot is called as if it were a capability named `AGENT/SERVER`, where:
+- its operations are every tool in the current snapshot except one named `read`, plus `read` over every resource in the snapshot when there are any;
+- a tool that appears later is included as soon as a snapshot has it;
+- calls run on the source's own instance, with the source's own environment;
+- it is never shareable: `capability create`, `share`, and capability rules refuse names containing `/`;
+- it has self bounds, and no hourly budget;
+- otherwise, calls behave as for capabilities: records, states, rechecks, cancellation, and `unavailable` when the source is gone.
+
+**The open list.**
+
+| CLI | Local API | Behavior |
+| --- | --- | --- |
+| `sources open-to HOST\|--all` | `POST /v1/sources/open-to` with `{host_id}`, where `*` means all | Adds the host, or `*`. A host must be bound to this host's person in at least one network map, and cannot be this host. `*` means every host that passes self access, including hosts trusted later. A repeat is unchanged and returns 200; an addition returns 201. |
+| `sources close-to HOST\|--all` | `DELETE /v1/sources/open-to/{host_id}` | Removes the host, or `*`. Removing `*` does not remove hosts listed individually. Removing an absent entry returns 200 with `removed: 0`. |
+| (in `sources`) | `GET /v1/sources` | The response adds `open_to: [host_id or "*"]`, sorted, with `*` first. |
+
+The list starts empty. Calls already running when a host is closed finish, and queued ones are rejected at the recheck before start.
+
 ## Calls
 
 ### Peer routes
 
 | Route | Body | Behavior |
 | --- | --- | --- |
-| `GET /peer/v1/capabilities?network=ID` | none | The capabilities on this host that the authenticated sender may use. Each entry is `{capability, operations: [{name, description, input_schema, read_only}], resources, state, unavailable, via}`, sorted by capability name. Unauthorized capabilities never appear. For a tool operation, `description` and `input_schema` come from the snapshot. For `read`, the input schema is `{"type": "object", "properties": {"uri": {"type": "string", "enum": [URIS]}}, "required": ["uri"]}`, and `resources` lists `{uri, name, description, mime_type}`; for a capability without resources it is `[]`. `via` lists what authorizes the capability, as `{kind: "self", network_id}` or `{kind: "policy", network_id, person_id, version}`, self before policy, then by network ID. With `network`, only that network is evaluated. |
-| `POST /peer/v1/calls` | exactly `call_id`, `capability`, `operation`, `input` (an object), `deadline`, optional `origin`, and one citation | Authorizes as above, then persists the call as `queued` with a `call.received` activity, and returns 200 with the status record. It is idempotent by `(sender, call_id)`: an identical repeat returns the existing record, and a changed one returns 409. |
+| `GET /peer/v1/capabilities?network=ID` | none | The capabilities on this host that the authenticated sender may use. Each entry is `{kind, capability, operations: [{name, description, input_schema, read_only}], resources, state, unavailable, via}`, sorted by `capability`. `kind` is `capability`, or `source` for a source opened to the sender, whose `capability` is `AGENT/SERVER` and whose `via` lists only self entries. Unauthorized capabilities and unopened sources never appear. For a tool operation, `description` and `input_schema` come from the snapshot. For `read`, the input schema is `{"type": "object", "properties": {"uri": {"type": "string", "enum": [URIS]}}, "required": ["uri"]}`, and `resources` lists `{uri, name, description, mime_type}`; for a capability without resources it is `[]`. `via` lists what authorizes the capability, as `{kind: "self", network_id}` or `{kind: "policy", network_id, person_id, version}`, self before policy, then by network ID. With `network`, only that network is evaluated. |
+| `POST /peer/v1/calls` | exactly `call_id`, `capability` (a capability name, or `AGENT/SERVER` for a source), `operation`, `input` (an object), `deadline`, optional `origin`, and one citation | Authorizes as above, then persists the call as `queued` with a `call.received` activity, and returns 200 with the status record. It is idempotent by `(sender, call_id)`: an identical repeat returns the existing record, and a changed one returns 409. |
 | `GET /peer/v1/calls/{call_id}` | none | The status record, with its `result` once final. Submitter only; anyone else gets 404. It remains available after revocation. |
 | `POST /peer/v1/calls/{call_id}/cancel` | `{}` | Sets `cancel_requested`. A `queued` call becomes `cancelled` at once. A `running` call is sent MCP `notifications/cancelled`, and becomes `uncertain` with the error `cancel_requested` unless its result was already received. Submitter only. A repeat, or a cancel of a final call, returns the record unchanged. |
 
@@ -336,7 +364,7 @@ The receiver stores the request, the status record, and the result. Seven days a
 
 | CLI | Local API | Behavior |
 | --- | --- | --- |
-| `discover [PERSON] [--network ID] [--json]` | `GET /v1/discover?person=…&network=…` | Reachable agents and usable capabilities together. Agents come from the directory, as `agents` shows them. Capabilities come from `GET /peer/v1/capabilities` on each host bound to a person in the selected networks' maps, at most 8 at once with a 5-second timeout each. The JSON is `{agents: [...], capabilities: [{address, host_id, capability, operations, resources, state, unavailable, via}], unanswered: [{host_id, error}]}`. `agents` uses the `reachable` entries of `agents --json`. `address` is `PERSON/CAPABILITY`, or `HOST_ID/CAPABILITY` when the person has the name on more than one host. |
+| `discover [PERSON] [--network ID] [--json]` | `GET /v1/discover?person=…&network=…` | Reachable agents and usable capabilities together. Agents come from the directory, as `agents` shows them. Capabilities come from `GET /peer/v1/capabilities` on each host bound to a person in the selected networks' maps, at most 8 at once with a 5-second timeout each. The JSON is `{agents: [...], capabilities: [{address, host_id, kind, capability, operations, resources, state, unavailable, via}], unanswered: [{host_id, error}]}`, including sources opened to this host. `agents` uses the `reachable` entries of `agents --json`. `address` is `PERSON/CAPABILITY`, or `HOST_ID/CAPABILITY` when the person has the name on more than one host; for a source it is `PERSON/AGENT/SERVER`, or `HOST_ID/AGENT/SERVER` likewise. |
 | `call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]` | `POST /v1/calls` with `{target, operation, input, deadline, network, call_id}` | Resolves ADDRESS as `discover` does, persists the outbound call, and submits it, with retries as for tasks. It waits up to `--wait` (`N`, `Ns`, or `Nm`, 0 to 15 minutes, default 60 seconds) for a final state, and prints the local record. The exit code is 0 for `succeeded`, 1 for other final states, and 3 if still pending. |
 | `calls list [--after N] [--limit N]` | `GET /v1/calls` | Outbound calls in insertion order, as `[{sequence, call}]`. |
 | `calls received [--after N] [--limit N]` | `GET /v1/calls/received` | `[{sequence, request, status}]`. |
@@ -347,11 +375,12 @@ The receiver stores the request, the status record, and the result. Seven days a
 - **The input object.** `--input` is a JSON object.
 - **`--KEY VALUE` options.** Each fills the top-level property KEY of the operation's input schema, which must have type `string`, `integer`, `number`, or `boolean`. VALUE is parsed by that type, and `true` or `false` are accepted for booleans.
 - **Errors.** A KEY the schema does not declare as such a property is an error, as is a KEY also present in `--input`.
+- **`call`'s own flags win.** `--input`, `--deadline`, `--wait`, and `--network` are always `call`'s own. A property with one of those names must be given in `--input`.
 - **Schema lookup.** The CLI reads the schema from the capability listing during resolution.
 - **Example.** `peerspan call bob/github-issues list_issues --repo acme/api`.
 
 **Resolving an address.**
-- **`HOST_ID/CAPABILITY`** names a member host directly.
+- **`HOST_ID/CAPABILITY`** names a member host directly. `HOST_ID/AGENT/SERVER` likewise names a source, and `PERSON/AGENT/SERVER` resolves as below.
 - **`PERSON/CAPABILITY`** queries the person's hosts, as `discover` does. Exactly one match is the target. None is 404 `{code: "not_found", error, unanswered}`. More than one is 409 `{code: "ambiguous", error, candidates: ["HOST_ID/CAPABILITY", ...]}`.
 - **Before persisting.** All of these refusals happen before anything is persisted. The resolved host and the citation are stored in the outbound record.
 
@@ -369,6 +398,8 @@ The receiver stores the request, the status record, and the result. Seven days a
   - capabilities on this host;
   - capabilities on this host named by at least one rule for this host in this person's stored policies;
   - received calls in `running`.
+
+  It also adds `open_to`, the number of entries in this host's open list.
 - **Attention item 14, `capability_failing`**, after item 13. It covers:
   - a source whose latest snapshot failed;
   - an instance that failed to start in the last 24 hours;
@@ -387,6 +418,7 @@ Database version 16 adds:
 CREATE TABLE tool_servers (agent_id TEXT NOT NULL REFERENCES agents(id), name TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, name));
 CREATE TABLE tool_values (agent_id TEXT NOT NULL, server TEXT NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(agent_id, server, field));
 CREATE TABLE capabilities (name TEXT PRIMARY KEY, record TEXT NOT NULL);
+CREATE TABLE source_access (host_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
 CREATE TABLE received_calls (sender TEXT NOT NULL, call_id TEXT NOT NULL, request TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(sender, call_id));
 CREATE TABLE outbound_calls (peer TEXT NOT NULL, call_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(peer, call_id));
 PRAGMA user_version = 16;
@@ -400,6 +432,7 @@ PRAGMA user_version = 16;
 - `sources.discovered` (subject: the agent ID);
 - `sources.snapshot_failed` (subject: `AGENT_ID/SERVER`);
 - `capability.created` and `capability.removed` (subject: the name);
+- `sources.opened` and `sources.closed` (subject: the host ID, or `*`);
 - `call.received`, `call.started`, `call.finished`, and `call.cancel_requested` (subject: `SENDER_HOST_ID/CALL_ID`);
 - `call.submitted` and `call.updated` (subject: `PEER_HOST_ID/CALL_ID`).
 
@@ -464,7 +497,7 @@ It covers:
 - **Capabilities:**
   - `capability create` with operations, resources, and both;
   - its own credential context: a separate instance, the whole `env_file`, and `args`;
-  - refusals: a non-shareable source, an unknown operation or URI, a tool named `read`, a missing `env_file`, a name in use on this host, and a name a stored rule binds to another host;
+  - refusals: a non-shareable source, an unknown operation or URI, a tool named `read`, a name containing `/`, a missing `env_file`, a name in use on this host, and a name a stored rule binds to another host;
   - repeat and conflict;
   - `list`, `show`, and `remove`, with and without shares;
   - `unavailable` when a source or tool disappears, and recovery when it returns;
@@ -479,9 +512,12 @@ It covers:
   - `shares`;
   - `unshare`, with its output and the zero-removal note;
   - several networks;
-  - `trust` and `untrust`, and the `join` and `create` prompt and flags.
+  - `trust` and `untrust`, and the `join` and `create` prompt and flags;
+  - `sources open-to` and `close-to`, with `--all`, and their refusals.
 - **Authorization:**
   - by policy, and by self from a trusted host;
+  - sources: called from a trusted host the server is open to, refused from a trusted host it is not open to, refused from an untrusted host it is open to, and `*` covering a host trusted later;
+  - a source never listed or callable by another person, even through `everyone`;
   - a rule for the same name bound to another host authorizing nothing here;
   - self refused from an untrusted host and from another person's host;
   - blocks, except under self;
@@ -491,7 +527,8 @@ It covers:
   - the recheck before start, both rejecting and leaving queued;
   - grant citations refused.
 - **Calls:**
-  - the full lifecycle for tool operations and `read`;
+  - the full lifecycle for tool operations and `read`, on capabilities and on sources;
+  - a tool added to a source becoming callable through it, but not through capabilities built on it;
   - `isError`, JSON-RPC errors, and `result_too_large`;
   - duplicate and conflicting submission;
   - a lost submit response recovered with exactly one execution;
@@ -503,21 +540,22 @@ It covers:
 - **Routes:** `GET /peer/v1/capabilities` filtered, sorted, with `via` and `?network`, and never listing unauthorized capabilities; status and cancel from a non-submitter returning 404.
 - **CLI:**
   - `discover`, by person, with `--network`, with ambiguous names, and with unanswered hosts;
-  - `call` with `--input`, the `--KEY VALUE` options and their errors, `--deadline`, `--wait`, and exit codes;
+  - `call` with `--input`, the `--KEY VALUE` options and their errors, a property named like one of `call`'s flags, `--deadline`, `--wait`, and exit codes;
   - address resolution errors;
   - `calls` listings.
 - **Status:** the `capabilities` counts, and items 14 and 15.
 - **Migration:** from version 15 to version 16.
+- **Removal:** `capability remove` keeping the record when a signing fails, and finishing on repeat.
 
-## Owner review points
+## Owner decisions
 
-These are proposed answers to questions the CLI experience leaves open.
-1. **Operations.** An MCP tool operation keeps the tool's name, and resources are read through one `read` operation. A tool named `read` cannot be selected in slice 1.
-2. **Write tools.** They may be selected when creating a capability. The review marks them `(can change things)`. A narrower credential is optional, not required.
-3. **Name uniqueness.** Each capability rule names the host that serves it, so a duplicate name on another host is never authorized by accident. Names are checked at creation and at sharing against the person's stored rules; an unshared duplicate is reported only through ambiguous `PERSON/CAPABILITY` addresses, resolved with `HOST_ID/CAPABILITY`.
-4. **Confirmation.** Every `share` shows the review and asks for confirmation, not only the first.
-5. **Removal.** `capability remove` also withdraws the capability's shares, after confirmation.
-6. **Self access** covers capabilities only, never raw sources.
-7. **`--KEY VALUE`** options fill top-level scalar input properties, as in the CLI experience's `--repo acme/api` example.
+Settled with the owner on 2026-10-17.
+1. **Operations.** An MCP tool operation keeps the tool's name, as the server gives it. Owners cannot rename operations, and Peerspan-defined operations come with adapters. Resources are read through one `read` operation, and a tool named `read` cannot be selected in slice 1.
+2. **Write tools.** They may be selected when creating a capability. The review marks them `(can change things)` and states the credential's reach. A narrower credential is optional, not required; argument rules are later work.
+3. **Name uniqueness.** Each capability rule names the host that serves it, so a duplicate name on another host is never authorized by accident. Names are checked at creation and at sharing against the person's stored rules. An unshared duplicate shows only as an ambiguous `PERSON/CAPABILITY`, resolved with `HOST_ID/CAPABILITY`. Status item 15 is to be revisited.
+4. **Confirmation.** Every `share` shows the review and asks for confirmation, not only the first. `--yes` skips it.
+5. **Removal.** `capability remove` also withdraws the capability's shares, after confirmation. Every affected policy is signed before the record is deleted.
+6. **Sources for the person's own machines.** Trusted machines may call raw sources, each as an implicit capability with every tool and resource, on the serving machine's credentials. The serving machine must also list the caller in its local open list, which starts empty and is never in policy, so the person key alone never opens a machine's sources. Sources are never shared with others.
+7. **`--KEY VALUE`** options fill top-level scalar input properties, as in the CLI experience's `--repo acme/api` example. `call`'s own flags win on a clash.
 8. **After `unshare`,** running calls finish, queued ones are refused at start, and the output says so.
-9. **Agent registration.** `agent register --capability` is renamed `--label`, to avoid two meanings of "capability".
+9. **Agent registration.** `agent register --capability` is renamed `--label`, with `--capability` kept as an alias, to avoid two meanings of "capability". The API field is unchanged.
