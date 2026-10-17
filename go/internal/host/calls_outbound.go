@@ -100,8 +100,19 @@ func (o *OutboundCall) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(request, &o.Request)
 }
 
+// needsPoll reports whether the receiver may still have something to fetch:
+// a status that is not final, or a final call that has a result not yet
+// stored. A final status learned from a submit or cancel response carries
+// no result, so the poll's GET fetches it. A call with a result has
+// result_bytes, except a result too large to store.
 func (o OutboundCall) needsPoll() bool {
-	return o.SubmitState == submitAccepted && (o.Status == nil || !callFinal(o.Status.State))
+	if o.SubmitState != submitAccepted {
+		return false
+	}
+	if o.Status == nil || !callFinal(o.Status.State) {
+		return true
+	}
+	return o.Result == nil && o.Status.ResultBytes != nil && deref(o.Status.Error) != callResultTooLarge
 }
 
 // OutboundCallItem is one entry of calls list.
@@ -674,7 +685,8 @@ func storeCallStatus(out *OutboundCall, st CallStatus) int {
 	result := st.Result
 	st.Result = nil
 	out.Status = &st
-	if callFinal(st.State) && result != nil {
+	if callFinal(st.State) && result != nil && string(result) != "null" {
+		changed = changed || out.Result == nil
 		out.Result = result
 	}
 	if changed {

@@ -418,7 +418,13 @@ func runCall(ctx context.Context, client host.Client, c callArgs, out io.Writer)
 		return err
 	}
 	until := time.Now().Add(wait)
-	for callOutcome(record) == 3 && time.Now().Before(until) {
+	// A final status from the submit response carries no result; the
+	// daemon's poll fetches it, so wait for that too.
+	resultPending := func() bool {
+		st := record.Status
+		return record.SubmitState == "accepted" && st != nil && record.Result == nil && st.ResultBytes != nil && deref(st.Error) != "result_too_large"
+	}
+	for (callOutcome(record) == 3 || resultPending()) && time.Now().Before(until) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
