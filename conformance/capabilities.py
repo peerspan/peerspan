@@ -163,8 +163,23 @@ def squash(text):
     return ' '.join(text.split())
 
 
+def dig(value, *keys):
+    """value[k1][k2]..., or None where any step is missing or null (so checks fail with a message)."""
+    for key in keys:
+        if isinstance(value, dict):
+            value = value.get(key)
+        elif isinstance(value, list) and isinstance(key, int) and -len(value) <= key < len(value):
+            value = value[key]
+        else:
+            return None
+    return value
+
+
 def first_text(result):
     """The first text content of a CallToolResult, parsed as JSON when it is JSON."""
+    need(isinstance(result, dict) and isinstance(result.get('content'), list) and result['content'] and
+         isinstance(result['content'][0], dict) and 'text' in result['content'][0],
+         'a result: a CallToolResult with text content', str(result)[:300])
     text = result['content'][0]['text']
     try:
         return json.loads(text)
@@ -1402,7 +1417,7 @@ class Pairing:
         need(policy_lines_v2(nxt)[-1] == 'trusted', 'with no trusted hosts the line is the bare word trusted')
 
         # Validation, with policies signed here over this suite's encoding.
-        ok_rule = cap_rule('host_' + 'c' * 64, 'docs', ['network'])
+        ok_rule = cap_rule('host_' + 'c' * 64, 'remote-only', ['network'])
         for bad, why in (
                 ([{**ok_rule, 'max_input_bytes': 0}], 'max_input_bytes 1 to 262,144'),
                 ([{**ok_rule, 'max_input_bytes': 262145}], 'max_input_bytes 1 to 262,144'),
@@ -1424,16 +1439,29 @@ class Pairing:
             status, _ = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v})
             need(status == 400, 'trusted hosts: host IDs, at most 64, no duplicates (400)', len(bad_trusted), status)
         ok = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, capability_rules=[
-            cap_rule('host_' + 'c' * 64, 'docs', ['network', 'group:backend'], 262144, True, 10000),
+            cap_rule('host_' + 'c' * 64, 'remote-only', ['network', 'group:backend'], 262144, True, 10000),
             cap_rule('host_' + 'd' * 64, 'other-name', ['person:' + self.quinn], 1, False, 1)],
             trusted=['host_' + 'e' * 64, self.ids['p1']])
         status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': ok})
         need(status == 201 and policy_of(body) == ok, 'a v2 policy signed with this suite\'s encoding is accepted at '
              'the bounds, with hosts outside the network map', status, body)
+        # Leave no stored rule binding names to other hosts (it would raise item 15 later).
+        clean = crafted_v2(ok, ok['version'] + 1, self.keys['pat'][0], self.root, capability_rules=[], trusted=[])
+        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': clean})
+        need(status == 201, 'setup: a clean v1net policy again', status, body)
         return f"team v{p['version']}, {len(p['capability_rules'])} capability rules"
 
     def check_sharing(self):
         self.clear('rhea')
+        try:
+            self.sharing_cases()
+        finally:
+            rule = self.rule_for('work')
+            if rule and rule['max_calls_per_hour'] != 100:
+                self.hosts['p1'].run('share', 'work', '--with', 'quinn', '--calls-per-hour', '100', '--yes',
+                                     '--network', self.team)
+
+    def sharing_cases(self):
         p1 = self.hosts['p1']
         # Refusal without a terminal or --yes, a piped y, and declining.
         code, out, stderr = self.share('docs', '--with', 'rhea', expect=False)
@@ -1475,7 +1503,8 @@ class Pairing:
         # --calls-per-hour on an existing rule replaces its limit for every recipient.
         code, out, tty = self.share('work', '--with', 'rhea', '--calls-per-hour', '7', terminal='y')
         text = squash(tty)
-        need(code == 0 and '100' in text and '7' in text and 'quinn' in text,
+        # Whether recipients are shown by label or principal is not said (ambiguous): either.
+        need(code == 0 and '100' in text and '7' in text and ('quinn' in text or self.quinn in text),
              'the review lists the old and new limits and the recipients affected', tty[-1200:])
         rule = self.rule_for('work')
         need(rule['max_calls_per_hour'] == 7 and set(rule['principals']) == {'person:' + self.quinn,
@@ -1834,10 +1863,12 @@ class Pairing:
              sorted(source_ops))
         need(not any(e['capability'] in ('cc/needy', 'cc/rem', 'cc/Bad.Name') for e in body),
              'only shareable sources with a snapshot', [e['capability'] for e in body])
-        # A host with nothing, and a peer outside any network.
-        for caller in ('r', 'n'):
-            status, body = self.listing('p1', caller)
-            need((status, body) == (200, []), 'never listing unauthorized capabilities', caller, status, body)
+        # A member covered only by `everyone`, and a peer outside any network that no rule covers.
+        status, body = self.listing('p1', 'r')
+        need(status == 200 and [e['capability'] for e in body] == ['budget2'],
+             'a member sees only what its rules cover (budget2, shared with everyone)', status, body)
+        status, body = self.listing('p1', 'n')
+        need((status, body) == (200, []), 'never listing unauthorized capabilities', status, body)
         # Status and cancel: submitter only.
         b = self.body('work', 'echo', {'text': 'mine'}, cite=self.policy_cite())
         status, record = self.submit('q1', b)
@@ -1876,7 +1907,7 @@ class Pairing:
             b = self.body(capability, 'read', {'uri': 'fixture://docs/guide'}, cite=cite)
             self.submit('p2', b)
             done = self.final('p2', b['call_id'])
-            need(done['state'] == 'succeeded' and done['result']['contents'][0]['uri'] == 'fixture://docs/guide',
+            need(done['state'] == 'succeeded' and dig(done, 'result', 'contents', 0, 'uri') == 'fixture://docs/guide',
                  f'read sends resources/read {{uri}} ({capability})', done)
         # A tool operation on a source.
         b = self.body('cc/fx', 'purge', {}, cite=cite)
@@ -1935,7 +1966,7 @@ class Pairing:
         recovered = wait_for(lambda: (r := self.inspect('p2', ids['p1'], out['request']['call_id']))['submit_state'] ==
                              'accepted' and r, timeout=40, message='automatic call retry')
         final = self.settle('p2', recovered)
-        need(final['status']['state'] == 'succeeded' and first_text(final['result']) == marker and
+        need(dig(final, 'status', 'state') == 'succeeded' and first_text(final.get('result')) == marker and
              len(f.calls('fx-local', marker)) == 1, 'recovered by retry with exactly one execution', final)
 
         # Expiry, and cancellation while queued.
@@ -2251,6 +2282,9 @@ class Pairing:
 
     def check_cli(self):
         ids, q1 = self.ids, self.hosts['q1']
+        # A fresh budget for this section's calls (the rule identity includes its bounds).
+        self.share('work', '--with', 'quinn', '--calls-per-hour', '10000', '--yes')
+        self.synced(self.version(), 'q1', 'q2')
         # discover.
         code, out, stdout, stderr = q1.outcome('discover', 'pat', '--json')
         need(code == 0 and isinstance(out, dict) and set(out) == DISCOVER_KEYS, 'discover --json is {agents, '
@@ -2283,7 +2317,7 @@ class Pairing:
              sorted(body.get('candidates') or []) == sorted([f"{ids['p1']}/clash", f"{ids['p2']}/clash"]),
              '409 {code: "ambiguous", error, candidates}', status, body)
         code, out, stderr = self.call('p4', f"{ids['p2']}/clash", 'echo', {'text': 'by host'})
-        need(code == 0 and out['peer_host_id'] == ids['p2'], 'HOST_ID/CAPABILITY names one host', code, out)
+        need(code == 0 and dig(out, 'peer_host_id') == ids['p2'], 'HOST_ID/CAPABILITY names one host', code, out)
         # Unanswered hosts, and not found.
         self.hosts['p3'].stop()
         try:
@@ -2302,12 +2336,12 @@ class Pairing:
         # call: --input, --KEY VALUE, call's own flags, errors.
         code, out, stderr = self.call('q1', 'pat/work', 'typed', None, '--count', '3', '--ratio', '1.5', '--flag',
                                       'true', '--text', 'hi', '--network', self.team)
-        need(code == 0 and first_text(out['result']) == {'count': 3, 'ratio': 1.5, 'flag': True, 'text': 'hi'} and
+        need(code == 0 and first_text(dig(out, 'result')) == {'count': 3, 'ratio': 1.5, 'flag': True, 'text': 'hi'} and
              out['request']['input'] == {'count': 3, 'ratio': 1.5, 'flag': True, 'text': 'hi'},
              '--KEY VALUE fills scalar properties, parsed by type', code, out, stderr[-300:])
         code, out, stderr = self.call('q1', 'pat/work', 'flags', {'network': 'n1', 'wait': 'w', 'deadline': 'd',
                                                                   'input': 'i'}, '--network', self.team)
-        need(code == 0 and first_text(out['result']) == {'network': 'n1', 'wait': 'w', 'deadline': 'd', 'input': 'i'},
+        need(code == 0 and first_text(dig(out, 'result')) == {'network': 'n1', 'wait': 'w', 'deadline': 'd', 'input': 'i'},
              "a property named like call's own flags is given in --input", code, out)
         count = self.outbound_count('q1')
         for extra, why in ((('--obj', 'x'), 'a non-scalar property'), (('--nope', 'x'), 'an undeclared property'),
@@ -2319,30 +2353,34 @@ class Pairing:
         # --deadline, --wait, exit codes.
         code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'd'}, '--network', self.team, '--deadline',
                                       '5m')
-        left = (parse_time(out['request']['deadline']) - datetime.now(timezone.utc)).total_seconds() if out else 0
+        left = (parse_time(dig(out, 'request', 'deadline')) - datetime.now(timezone.utc)).total_seconds() if dig(out, 'request', 'deadline') else 0
         need(code == 0 and 240 <= left <= 300, '--deadline accepts a duration', code, out and out['request'])
         code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'd'}, '--network', self.team, '--deadline',
                                       timestamp(240))
         need(code == 0, '--deadline accepts RFC3339', code, stderr[-200:])
         code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'default'}, '--network', self.team)
-        left = (parse_time(out['request']['deadline']) - datetime.now(timezone.utc)).total_seconds() if out else 0
+        left = (parse_time(dig(out, 'request', 'deadline')) - datetime.now(timezone.utc)).total_seconds() if dig(out, 'request', 'deadline') else 0
         need(code == 0 and 800 <= left <= 900, 'the default deadline is 15 minutes', left)
+        # The contract does not promise a call finishes within the wait, so exit 3 (pending) is acceptable; the
+        # record must be printed either way, and a final state must match the exit code.
         for wait in ('1', '1s', '1m'):
             code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'w'}, '--network', self.team, wait=wait)
-            need(code == 0, '--wait takes N, Ns, or Nm', wait, code, stderr[-200:])
+            need(code in (0, 3) and isinstance(out, dict) and set(out) == OUTBOUND_KEYS and
+                 (code == 3) == (not out.get('status') or out['status'].get('state') not in FINAL),
+                 '--wait takes N, Ns, or Nm; exit 0 when succeeded, 3 while pending', wait, code, out, stderr[-200:])
         count = self.outbound_count('q1')
         code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'w'}, '--network', self.team, wait='16m')
         need(code != 0 and self.outbound_count('q1') == count, '--wait is at most 15 minutes', code)
         code, out, stderr = self.call('q1', 'pat/work', 'tool_error', {}, '--network', self.team)
-        need(code == 1 and out['status']['state'] == 'failed', 'exit 1 for other final states', code, out)
+        need(code == 1 and dig(out, 'status', 'state') == 'failed', 'exit 1 for other final states', code, out)
         code, out, stderr = self.call('q1', 'pat/work', 'sleep', {'seconds': 6, 'text': 'pending'}, '--network',
                                       self.team, wait='0')
         need(code == 3, 'exit 3 if still pending', code, out)
         pending = out
         code, out, stderr = self.call('q1', 'pat/docs', 'read', {'uri': 'fixture://docs/readme'}, '--network', self.team)
-        need(code == 0 and out['status']['operation'] == 'read', 'call ... read', code, out)
+        need(code == 0 and dig(out, 'status', 'operation') == 'read', 'call ... read', code, out)
         code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'x' * 70000}, '--network', self.team)
-        need(code == 1 and out['submit_state'] == 'rejected' and out['next_attempt_at'] is None,
+        need(code == 1 and dig(out, 'submit_state') == 'rejected' and dig(out, 'next_attempt_at') is None,
              '413 is a final rejected submission', code, out)
         # POST /v1/calls deadline refusals before persisting.
         count = self.outbound_count('q1')
