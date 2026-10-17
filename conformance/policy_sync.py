@@ -30,7 +30,7 @@ import sqlite3
 import tempfile
 
 from coordination import Coordinator, wait_for
-from host_service import stop_all
+from host_service import CAPABILITY_TABLES, stop_all
 from peer_messaging import fixture_context, set_probe, timestamp, wire
 from persons import Agent, coord_db, person_id, ssh_key, ssh_verify, use_agent
 from policy import PolicyHost, crafted, policy_lines, policy_of, send, show
@@ -252,30 +252,32 @@ def check(coord_binary, first_binary, second_binary, sender_binary, label):
                                   ('network.policy_updated', pat_id)):
                 assert (kind, subject) in kinds, (kind, subject)
 
-            # Migration from version 11, and refusal of version 16.
+            # Migration from version 11, and refusal of version 17.
             for host in (alice, bob):
-                assert user_version(host) == 15
+                assert user_version(host) == 16
                 host.stop()
                 with sqlite3.connect(host.state / 'host.db') as db:
                     db.execute('DROP TABLE policy_deliveries')
                     db.execute('DROP TABLE directory_sends')
+                    for table in CAPABILITY_TABLES:
+                        db.execute('DROP TABLE ' + table)
                     db.execute('PRAGMA user_version = 11')
                 host.start()
-                assert user_version(host) == 15
+                assert user_version(host) == 16
                 assert stored(host, net, pat_id) == winner
                 assert status(host, net)['deliveries'] == []
                 host.stop()
                 with sqlite3.connect(host.state / 'host.db') as db:
-                    db.execute('PRAGMA user_version = 16')
+                    db.execute('PRAGMA user_version = 17')
                 try:
                     host.start()
                     opened = True
                 except AssertionError as error:
                     assert 'exited at startup' in str(error), error
                     opened = False
-                assert not opened, 'version 16 opened'
+                assert not opened, 'version 17 opened'
                 with sqlite3.connect(host.state / 'host.db') as db:
-                    db.execute('PRAGMA user_version = 15')
+                    db.execute('PRAGMA user_version = 16')
                 host.start()
             assert len(status(alice, net, sync=True)['deliveries']) == 0
         finally:

@@ -82,7 +82,9 @@ RELAY_ALPN = 'peerspan-relay/1'
 SEND, RECEIVE, UNREACHABLE = 1, 2, 3
 ATTENTION_ORDER = ['coordination_error', 'policy_expired', 'policy_expiring', 'policy_delivery_failing',
                    'credential_expiring', 'tasks_failed', 'artifact_quota', 'service_not_installed',
-                   'linger_disabled', 'person_agent_unreachable', 'coordinator_limit']
+                   'linger_disabled', 'person_agent_unreachable', 'coordinator_limit',
+                   # Items 12 to 15 (launch, live delivery, and capabilities contracts).
+                   'agent_name_conflict', 'channel_unverified', 'capability_failing', 'capability_name_conflict']
 CLI_KINDS = {'service_not_installed', 'linger_disabled'}
 INSTALL_KEYS = {'service', 'unit', 'state', 'peer_listen', 'linger', 'started'}
 UNINSTALL_KEYS = {'service', 'unit', 'removed'}

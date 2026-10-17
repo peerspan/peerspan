@@ -27,7 +27,7 @@ import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
 from coordination import Coordinator, wait_for
-from host_service import ARTIFACT_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, Host, UnixHTTPConnection, stop_all
+from host_service import ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, Host, UnixHTTPConnection, stop_all
 from peer_messaging import PeerHost, fixture_context, set_probe, timestamp, wire
 from tasks import (EVENT_KEYS, LOCAL_KEYS, STATUS_KEYS, act, adapter_for, channel_event, claim, events, inspect,
                    task_id, tool, until_state)
@@ -503,7 +503,8 @@ def policy_check(coord_binary, owner_binary, sender_binary, label):
                            '--allow-disconnected')
             assert v2['rules'][0]['max_artifact_bytes'] == 100 and v2['version'] == 2, v2
             lines = policy_lines(v2)
-            assert lines[-1] == '65536 true 100', lines
+            # The rule's fifth line (a v2 statement, signed since database version 16, ends with `trusted`).
+            assert lines[lines.index('rule', 6) + 4] == '65536 true 100', lines
             bob.cli('network', 'sync', net)
             shown = bob.cli('access', 'show', '--network', net, '--person', 'pat')
             assert shown['version'] == 2 and shown['rules'] == v2['rules'], shown
@@ -557,25 +558,25 @@ def migration_check(original, replacement, label):
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
             host.stop()
-            for table in [*POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES]:
+            for table in [*CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES]:
                 sql(host, 'DROP TABLE ' + table)
             sql(host, 'PRAGMA user_version = 9')
             host.binary = str(replacement)
             assert host.start()['id'] == identity['id']
-            assert sql(host, 'PRAGMA user_version')[0][0] == 15
+            assert sql(host, 'PRAGMA user_version')[0][0] == 16
             assert {row[0] for row in sql(host, "SELECT name FROM sqlite_master WHERE type = 'table'")} >= set(ARTIFACT_TABLES)
             assert host.cli('agent', 'inspect', agent['id']) == agent
             assert host.cli('artifact', 'list')['files'] == []
             assert (host.state / 'artifacts').is_dir() and (host.state / 'artifacts').stat().st_mode & 0o077 == 0
             host.stop()
             # A newer version is refused, without changes.
-            sql(host, 'PRAGMA user_version = 16')
+            sql(host, 'PRAGMA user_version = 17')
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True, timeout=5)
-                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 16
+                assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == 17
         finally:
             stop_all((host,))
-    print(f'PASS {label}: v9→v13 migration; version 14 refused', flush=True)
+    print(f'PASS {label}: v9→v16 migration; version 17 refused', flush=True)
 
 
 def main():

@@ -61,7 +61,12 @@ def rfc3339(moment):
     return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def policy_lines(p):
+def is_v2(p):
+    """A version 2 statement (capabilities contract): `format` 2, or its v2 keys present."""
+    return p.get('format') == 2 or 'capability_rules' in p or 'trusted_hosts' in p
+
+
+def policy_lines_v1(p):
     lines = ['peerspan-policy-v1', p['network_id'], p['person_public_key'], str(p['version']), p['issued_at'],
              p['valid_until']]
     for r in p['rules']:
@@ -72,15 +77,38 @@ def policy_lines(p):
     return lines
 
 
+def policy_lines_v2(p):
+    """The v2 statement (capabilities contract, "Policy statement, version 2"): the v1 header fields under the
+    header `peerspan-policy-v2`, the v1 rules unchanged, six lines per capability rule in JSON order, and the
+    `trusted` line with the host IDs sorted (the bare word `trusted` with none)."""
+    lines = policy_lines_v1(p)
+    lines[0] = 'peerspan-policy-v2'
+    for c in p.get('capability_rules') or []:
+        lines += ['capability_rule', c['host'], c['capability'], ' '.join(c['principals']),
+                  f"{c['max_input_bytes']} {'true' if c['allow_disconnected'] else 'false'} {c['max_calls_per_hour']}",
+                  'end']
+    lines.append(' '.join(['trusted', *sorted(p.get('trusted_hosts') or [])]))
+    return lines
+
+
+def policy_lines(p):
+    """The signed lines of a policy: v2 for a v2 policy (which the CLI and daemon renewal always sign since
+    database version 16), v1 otherwise."""
+    return policy_lines_v2(p) if is_v2(p) else policy_lines_v1(p)
+
+
 def statement_hash(p):
     """The lowercase hex SHA-256 of a policy's signed statement."""
     return hashlib.sha256('\n'.join(policy_lines(p)).encode()).hexdigest()
 
 
 def crafted(current, version, issued, until, key, directory):
-    """A policy signed here with OpenSSH, with chosen times."""
+    """A policy signed here with OpenSSH, with chosen times, in the same statement version as `current`."""
     p = {'network_id': current['network_id'], 'person_public_key': current['person_public_key'], 'version': version,
          'issued_at': rfc3339(issued), 'valid_until': rfc3339(until), 'rules': current['rules']}
+    if is_v2(current):
+        p = {'format': 2, **p, 'capability_rules': current.get('capability_rules') or [],
+             'trusted_hosts': sorted(current.get('trusted_hosts') or [])}
     p['signature'] = ssh_sign(policy_lines(p), key, directory)
     return p
 
@@ -401,7 +429,7 @@ def check(coord_binary, owner_binary, sender_binary, label):
             kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
             assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
             with sqlite3.connect(alice.state / 'host.db') as db:
-                assert db.execute('PRAGMA user_version').fetchone()[0] == 15
+                assert db.execute('PRAGMA user_version').fetchone()[0] == 16
         finally:
             if saved_sock is None:
                 os.environ.pop('SSH_AUTH_SOCK', None)

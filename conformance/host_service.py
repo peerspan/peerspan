@@ -23,6 +23,11 @@ import tempfile
 import time
 
 
+# The current database version (capabilities contract, Persistence).
+SCHEMA_VERSION = 16
+# Tables added by database version 16 (capabilities), dropped to model older state.
+CAPABILITY_TABLES = ["tool_servers", "tool_values", "capabilities", "source_access", "received_calls",
+                     "outbound_calls"]
 # Tables added by database version 12 (policy propagation), dropped to model older state.
 POLICY_DELIVERY_TABLES = ["policy_deliveries", "directory_sends"]
 # Tables added by database version 11 (delegation chains), dropped to model older state.
@@ -301,7 +306,7 @@ def check(binary, label):
             # Model an existing v1 installation, retaining its identity/registry.
             connection = sqlite3.connect(host.state / "host.db")
             try:
-                for table in [*POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
+                for table in [*CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
                               "network_members", "networks",
                               "outbound_messages", "received_messages", "grants", "peers"]:
                     connection.execute("DROP TABLE " + table)
@@ -316,13 +321,13 @@ def check(binary, label):
             assert host.cli("grant", "list") == []
             assert host.cli("message", "list") == []
             assert host.cli("network", "list") == []
-            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == 15
+            assert sqlite3.connect(host.state / "host.db").execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
             host.stop()
             assert not (host.state / "admin.sock").exists()
         finally:
             host.stop()
             host.logs.close()
-    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1→v12 migration", flush=True)
+    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1→v16 migration", flush=True)
 
 
 def main():

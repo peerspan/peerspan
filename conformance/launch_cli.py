@@ -76,14 +76,18 @@ HIDDEN_COMMANDS = [
     'session setup', 'message send', 'task submit',
     'network join', 'network invite', 'access allow', 'access deny',
 ]
-STATUS_KEYS = {'host_id', 'version', 'networks', 'blocks', 'agents', 'artifacts', 'attention'}
+# `capabilities` added by the capabilities contract (Status).
+STATUS_KEYS = {'host_id', 'version', 'networks', 'blocks', 'agents', 'artifacts', 'capabilities', 'attention'}
+CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running'}
 NETWORK_KEYS = {'id', 'name', 'coordinator', 'last_sync_at', 'last_sync_error', 'members', 'person', 'policy',
                 'policy_deliveries_pending'}
 SESSION_KEYS = {'id', 'integration', 'adapter_id', 'connection', 'expires_at', 'renewable'}
 ATTENTION_ORDER = ['coordination_error', 'policy_expired', 'policy_expiring', 'policy_delivery_failing',
                    'credential_expiring', 'tasks_failed', 'artifact_quota',
                    # Slice 2's service and coordinator items; launch_service.py checks them.
-                   'service_not_installed', 'linger_disabled', 'person_agent_unreachable', 'coordinator_limit']
+                   'service_not_installed', 'linger_disabled', 'person_agent_unreachable', 'coordinator_limit',
+                   # Items 12 and 13 (launch and live delivery contracts), 14 and 15 (capabilities contract).
+                   'agent_name_conflict', 'channel_unverified', 'capability_failing', 'capability_name_conflict']
 QUOTA = 1000
 DAY = 24 * 3600
 
@@ -213,11 +217,12 @@ def check_not_running(host, program):
 
 
 def check_shape(value):
-    assert set(value) - {'service'} == STATUS_KEYS, value  # the CLI adds service in slice 2
+    assert set(value) - {'service', 'open_to'} == STATUS_KEYS, value  # the CLI adds service in slice 2
     assert isinstance(value['host_id'], str) and value['host_id'].startswith('host_'), value
     assert isinstance(value['version'], str) and value['version'], value
     assert isinstance(value['blocks'], int)
     assert set(value['artifacts']) == {'quota', 'stored_bytes', 'pending_bytes'}, value['artifacts']
+    check_capability_counts(value)
     assert [n['id'] for n in value['networks']] == sorted(n['id'] for n in value['networks'])
     for n in value['networks']:
         assert set(n) == NETWORK_KEYS, n
@@ -234,6 +239,28 @@ def check_shape(value):
         assert item['kind'] in ATTENTION_ORDER, item
     keys = [(ATTENTION_ORDER.index(i['kind']), i['subject']) for i in value['attention']]
     assert keys == sorted(keys), keys
+
+
+def check_capability_counts(value):
+    """`capabilities: {sources, capabilities, shared, calls_running}` plus the open-list count `open_to`. The
+    contract says status "also adds `open_to`" without saying whether inside `capabilities` or beside it, so either
+    place is accepted (narrowest reading), but exactly one."""
+    counts = value['capabilities']
+    inside = 'open_to' in counts
+    beside = 'open_to' in value
+    assert inside != beside, ('open_to exactly once', counts, sorted(value))
+    assert set(counts) - {'open_to'} == CAPABILITY_COUNTS, counts
+    for key in CAPABILITY_COUNTS:
+        assert isinstance(counts[key], int) and counts[key] >= 0, counts
+    open_to = counts['open_to'] if inside else value['open_to']
+    assert isinstance(open_to, int) and open_to >= 0, open_to
+
+
+def capability_counts(value):
+    """The capability counts with open_to, wherever status put it."""
+    counts = dict(value['capabilities'])
+    counts.setdefault('open_to', value.get('open_to'))
+    return counts
 
 
 def attention(value, kind=None):
@@ -289,6 +316,8 @@ def check(coord_binary, cli_binary, daemon_binary, label):
             check_shape(fresh)
             assert fresh['host_id'] == a and fresh['networks'] == [] and fresh['attention'] == [], fresh
             assert fresh['artifacts'] == {'quota': QUOTA, 'stored_bytes': 0, 'pending_bytes': 0}, fresh
+            assert capability_counts(fresh) == {'sources': 0, 'capabilities': 0, 'shared': 0, 'calls_running': 0,
+                                                'open_to': 0}, fresh
             assert alice.run('status').returncode == 0
             same = alice.status(long)
             assert {k: v for k, v in same.items()} == fresh, (same, fresh)

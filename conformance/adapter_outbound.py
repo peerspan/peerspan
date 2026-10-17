@@ -10,7 +10,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, sql
-from host_service import ARTIFACT_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, TASK_TABLES
+from host_service import ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, TASK_TABLES
 from peer_messaging import PeerHost, request_id, timestamp, DropResponse
 from coordination import Coordinator, CoordHost
 
@@ -438,7 +438,7 @@ def check(go, rust, node, label):
             b.stop(crash=True)
             a.binary, b.binary = str(rust), str(go)
             assert a.start() == ai and b.start() == bi
-            assert sql(a, "PRAGMA user_version")[0][0] == 15
+            assert sql(a, "PRAGMA user_version")[0][0] == 16
             assert send(a, ac)[0] == 503
             a.cli("session", "detach", ass["id"])
             assert (
@@ -539,7 +539,7 @@ def migration_check(original_binary, replacement_binary, label):
             a.stop(crash=True)
             b.stop(crash=True)
             for host in (a, b):
-                for table in [*POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
+                for table in [*CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
                     sql(host, "DROP TABLE " + table)
                 sql(host, "DROP TABLE access_blocks")
                 sql(host, "DROP TABLE network_statements")
@@ -565,7 +565,7 @@ def migration_check(original_binary, replacement_binary, label):
             assert (
                 sql(a, "PRAGMA user_version")[0][0]
                 == sql(b, "PRAGMA user_version")[0][0]
-                == 15
+                == 16
             )
             assert a.cli("adapter", "list") == [ac["adapter"]] and b.cli(
                 "adapter", "list"

@@ -24,6 +24,8 @@ Control keys (all optional):
   extra_tools       [{"name": ..., "read_only": true|false}] added to the tool list
   generate          as --generate, read at each request
   page_size         as --page-size, read at each request
+  hide_tools        tool names left out of tools/list (a tool that disappears)
+  hide_resources    resource URIs left out of resources/list (a resource that disappears)
 
 Tools (`readOnlyHint` true unless noted):
   echo {text}                 returns text
@@ -37,6 +39,11 @@ Tools (`readOnlyHint` true unless noted):
   crash {delay?}              exits the process mid-call, after `delay` seconds
   write_note {text}           readOnlyHint false: a write tool
   purge {}                    no annotations at all: not read-only
+  read {text?}                a tool literally named `read` (reserved as an operation name by the contract)
+  typed {text, count, ratio, flag, obj, list}   returns its arguments as JSON (scalar and non-scalar properties)
+  flags {input, deadline, wait, network, text}  returns its arguments as JSON (properties named like call's flags)
+
+A tool can be added after the first snapshot with the control key `extra_tools`.
 """
 import hashlib
 import json
@@ -160,13 +167,27 @@ def tools():
         tool('crash', 'Exits mid-call' + padding, {'delay': {'type': 'number'}}),
         tool('write_note', 'Writes a note' + padding, {'text': {'type': 'string'}}, read_only=False),
         tool('purge', 'Deletes every note; no annotations' + padding, annotate=False),
+        # A tool literally named `read`, which the capabilities contract reserves as an operation name.
+        tool('read', 'A tool named read' + padding, {'text': {'type': 'string'}}),
+        tool('typed', 'Returns its arguments; scalar and object properties' + padding,
+             {'text': {'type': 'string'}, 'count': {'type': 'integer'}, 'ratio': {'type': 'number'},
+              'flag': {'type': 'boolean'}, 'obj': {'type': 'object'}, 'list': {'type': 'array'}}),
+        tool('flags', 'Returns its arguments; properties named like call\'s own flags' + padding,
+             {'input': {'type': 'string'}, 'deadline': {'type': 'string'}, 'wait': {'type': 'string'},
+              'network': {'type': 'string'}, 'text': {'type': 'string'}}),
     ]
     entries += [tool(f'from_{label}', f'Present when started with --label {label}' + padding)
                 for label in OPTIONS['labels']]
     entries += [tool(f'gen_{n:04d}', f'Generated tool {n}' + padding) for n in range(c.get('generate') or OPTIONS['generate'])]
     for extra in c.get('extra_tools') or []:
         entries.append(tool(extra['name'], 'Added by the control file' + padding, read_only=bool(extra.get('read_only'))))
-    return entries
+    hidden = set(c.get('hide_tools') or [])
+    return [e for e in entries if e['name'] not in hidden]
+
+
+def resources():
+    hidden = set(control().get('hide_resources') or [])
+    return [r for r in RESOURCES if r['uri'] not in hidden]
 
 
 def page(items, cursor, key):
@@ -227,6 +248,10 @@ def execute(request_id, name, arguments, cancelled):
             os._exit(7)
         elif name == 'write_note':
             reply = text_result('noted ' + str(arguments.get('text', '')))
+        elif name in ('typed', 'flags'):
+            reply = text_result(json.dumps(arguments, sort_keys=True))
+        elif name == 'read':
+            reply = text_result('the tool named read')
         elif name == 'purge':
             reply = text_result('purged')
         elif name.startswith('from_') or name.startswith('gen_') or name in {t['name'] for t in tools()}:
@@ -293,7 +318,7 @@ def handle(message):
         result(request_id, page(tools(), params.get('cursor'), 'tools'))
     elif method == 'resources/list':
         log('list', kind='resources', cursor=params.get('cursor'))
-        result(request_id, page(RESOURCES, params.get('cursor'), 'resources'))
+        result(request_id, page(resources(), params.get('cursor'), 'resources'))
     elif method == 'tools/call':
         event = threading.Event()
         with LOCK:
