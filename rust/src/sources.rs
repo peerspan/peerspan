@@ -589,6 +589,19 @@ impl Store {
                 });
             }
         }
+        // Capabilities with their own credential, built on this agent's
+        // shareable sources, are snapshotted again with that credential; a
+        // failure keeps their previous snapshot.
+        for c in capability_records(&tx)? {
+            if c.agent_id == agent
+                && c.credential.own()
+                && snapshot
+                    .iter()
+                    .any(|i| i.capability.is_none() && i.server == c.source.server)
+            {
+                snapshot.push(c.instance());
+            }
+        }
         append_event(&tx, "sources.discovered", agent, &at)?;
         tx.commit()?;
         Ok((snapshot, stop))

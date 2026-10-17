@@ -821,9 +821,32 @@ async fn share(
     }
     eprintln!("Recipient: {with} ({principal})");
     if let (Some((old, new)), Some(r)) = (limit_change, &existing) {
+        // Recipients by label where the principal resolves to one, as in
+        // `shares`, falling back to the principal.
+        let persons = local
+            .get(format!("/v1/networks/{}/persons", encoded(network)))
+            .await
+            .unwrap_or(Value::Null);
+        let label = |p: &String| {
+            p.strip_prefix("person:")
+                .and_then(|id| {
+                    persons
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|x| x["person_id"].as_str() == Some(id))
+                        .and_then(|x| x["member"].as_str())
+                })
+                .map(str::to_owned)
+                .unwrap_or_else(|| p.clone())
+        };
         eprintln!(
             "Calls per hour: {old} becomes {new} for every recipient: {}",
-            r.principals.join(", ")
+            r.principals
+                .iter()
+                .map(label)
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     eprintln!(
