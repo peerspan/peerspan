@@ -906,6 +906,11 @@ pub(crate) async fn submit(
         .await
         {
             Ok((200, body)) => match serde_json::from_slice::<CallStatus>(&body) {
+                // An idempotent repeat may already be final; its result
+                // comes only from `GET /peer/v1/calls/{id}`.
+                Ok(status) if valid_status(&store, &out, &status) && is_final(&status.state) => {
+                    Ok(fetch_status(&store, &out).await.unwrap_or((status, None)))
+                }
                 Ok(status) if valid_status(&store, &out, &status) => Ok((status, None)),
                 _ => Err(anyhow::anyhow!("invalid peer call status")),
             },
@@ -928,10 +933,15 @@ pub(crate) async fn submit(
     match result {
         Ok((status, result)) => {
             out.submit_state = "accepted".into();
-            if is_final(&status.state) {
-                out.result = result;
+            if !is_final(&status.state) {
+                out.status = Some(status);
+            } else if let Some(result) = result {
+                // From a GET: the final status with its result.
+                out.result = Some(result).filter(|r| !r.is_null());
+                out.status = Some(status);
             }
-            out.status = Some(status);
+            // A final status without the GET's result stays unset, so
+            // polling fetches both.
         }
         Err(e) => out.error = Some(format!("{e:#}")),
     }

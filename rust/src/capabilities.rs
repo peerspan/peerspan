@@ -121,6 +121,22 @@ pub(crate) fn save(tx: &Transaction<'_>, r: &CapabilityRecord) -> Result<(), Err
     Ok(())
 }
 
+/// The capability record as the contract shows it, without recipients.
+fn record_view(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> {
+    let now = current(conn, r)?;
+    Ok(json!({
+        "name": r.name,
+        "source": r.source,
+        "operations": r.operations,
+        "resources": r.resources,
+        "credential": r.credential,
+        "bounds": {},
+        "state": now.state(),
+        "unavailable": now.unavailable,
+        "created_at": r.created_at,
+    }))
+}
+
 /// What a capability can do now: the snapshot it serves from, and the
 /// operations that cannot run (or `source` when the source is gone).
 pub(crate) struct Current {
@@ -245,19 +261,9 @@ impl Store {
         }))
     }
     fn capability_view(&self, conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> {
-        let now = current(conn, r)?;
-        Ok(json!({
-            "name": r.name,
-            "source": r.source,
-            "operations": r.operations,
-            "resources": r.resources,
-            "credential": r.credential,
-            "bounds": {},
-            "state": now.state(),
-            "unavailable": now.unavailable,
-            "created_at": r.created_at,
-            "recipients": self.recipients(conn, &r.name)?,
-        }))
+        let mut view = record_view(conn, r)?;
+        view["recipients"] = json!(self.recipients(conn, &r.name)?);
+        Ok(view)
     }
     pub fn capabilities_view(&self) -> Result<Value, Error> {
         let conn = self.connection()?;
@@ -360,7 +366,7 @@ impl Store {
         };
         if let Some(old) = capability_record(&conn, &c.name)? {
             if old.same(&record) {
-                return Ok(Err(self.capability_view(&conn, &old)?));
+                return Ok(Err(record_view(&conn, &old)?));
             }
             return Err(Error::Conflict(format!(
                 "capability {} exists with other settings",
@@ -429,8 +435,7 @@ impl Store {
         save(&tx, &record)?;
         append_event(&tx, "capability.created", &record.name, &record.created_at)?;
         tx.commit()?;
-        drop(conn);
-        self.capability_show(&record.name)
+        record_view(&conn, &record)
     }
     fn remove_capability(&self, name: &str) -> Result<Value, Error> {
         let view = self.capability_show(name)?;

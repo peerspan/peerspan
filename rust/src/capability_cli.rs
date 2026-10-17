@@ -760,15 +760,10 @@ async fn share(
         (Some(r), Some(n)) if r.max_calls_per_hour != n => Some((r.max_calls_per_hour, n)),
         _ => None,
     };
-    if let Some(r) = &existing
-        && r.principals.contains(&principal)
-        && limit_change.is_none()
-        && draft.is_none()
-    {
-        return Ok(
-            json!({"policy": current, "capability": cap, "principal": principal, "created": false}),
-        );
-    }
+    // Every share shows the review and asks, even one that changes nothing.
+    let unchanged = existing.as_ref().is_some_and(|r| {
+        r.principals.contains(&principal) && limit_change.is_none() && draft.is_none()
+    });
     // The review, on stderr.
     let (label, _) = me_in(local, network).await?;
     let source_view = source_of(
@@ -841,6 +836,12 @@ async fn share(
         if !ask("Share? [y/N] ")? {
             bail!("not shared");
         }
+    }
+    if unchanged {
+        // Already shared this way: nothing is signed.
+        return Ok(
+            json!({"policy": current, "capability": cap, "principal": principal, "created": false}),
+        );
     }
     let mut created = false;
     if let Some(body) = draft {
