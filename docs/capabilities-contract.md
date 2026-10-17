@@ -96,7 +96,8 @@ Each discovered server is normalized to:
 
 - **Where they are resolved.** In `command`, `args`, and `env` values, `${NAME}` and `${NAME:-DEFAULT}` are resolved from the CLI's environment at discovery. This applies to Claude Code definitions, and to the same syntax in the other harnesses.
 - **What is stored.** A value that contains a reference is resolved and sent in `values`, and its `env` entry is `captured`. Literal `env` values are sent in `values` too, as `literal`. The daemon stores both in `tool_values`, which is the only place it reads them from.
-- **Unresolved references.** A reference with no value and no default makes the entry `missing`. The server is then listed with `shareable: false` and the reason `missing_env`, naming the variables.
+- **Unresolved references.** A reference with no value and no default makes the entry `missing`.
+- **Entries without a stored value.** A `literal` or `captured` entry that has no value in `tool_values` is left unset when the server starts. It does not make the server `missing_env`. The server is then listed with `shareable: false` and the reason `missing_env`, naming the variables.
 - **The environment file.** `$XDG_CONFIG_HOME/peerspan/env` (default `~/.config/peerspan/env`) holds `NAME=VALUE` lines, with `#` comments. When it exists, the daemon reads it each time it starts a server. Only variables whose names appear in the server definition's `env` are taken from it; others in the file are ignored for that server. Those values override captured values and literals of the same name. If it is not mode 0600 or stricter, servers start without it and status item 14 reports it.
 
 ### Local commands
@@ -118,6 +119,7 @@ Each discovered server is normalized to:
 - **Dropped servers.** A `PUT` that drops a server deletes its definition, stored values, and snapshot. Capabilities built on it remain, but become `unavailable`.
 - **Calls in flight.** Calls already `running` finish. New calls to an `unavailable` capability are refused.
 - **New tools.** A tool that appears later is never added to an existing capability.
+- **Own credentials.** A `PUT` for an agent snapshots again, with their own credential, the capabilities built on that agent's sources that have their own credential context. A failure keeps the previous snapshot.
 - **Missing operations.** A selected tool missing from the latest snapshot makes that operation `unavailable`. A selected resource missing from it is excluded from `read` until it returns.
 
 ## Capabilities and sharing
@@ -166,14 +168,16 @@ A capability record is:
 The policy statement's header line is `peerspan-policy-v2`. Its lines are:
 1. the v1 header fields (`network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`);
 2. the v1 rules, unchanged, including the optional third value of the fifth line for `max_artifact_bytes`;
-3. for each capability rule, six lines:
+3. for each capability rule, in the order of `capability_rules`, six lines:
    1. `capability_rule`;
    2. the host ID of the host that serves the capability;
    3. the capability name;
    4. the principals, space-separated;
    5. `max_input_bytes`, `allow_disconnected`, and `max_calls_per_hour`, space-separated;
    6. `end`;
-4. a final line, `trusted` followed by host IDs, space-separated and sorted. With none, it is the bare word `trusted`.
+4. a final line, `trusted` followed by host IDs, space-separated and sorted in byte order. With none, it is the bare word `trusted`.
+
+Lines are joined with `\n`, with no trailing newline, as in v1.
 
 **JSON.** It adds `format: 2`, `capability_rules`, and `trusted_hosts`. Each capability rule is `{host, capability, principals, max_input_bytes, allow_disconnected, max_calls_per_hour}`. The keys are, in order, `format`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`, `rules`, `capability_rules`, `trusted_hosts`, `signature`. A v1 policy is stored in its v1 JSON shape.
 
@@ -219,7 +223,7 @@ The policy statement's header line is `peerspan-policy-v2`. Its lines are:
 - the resources, if any;
 - the credential context, either the source's own environment or the capability's environment file;
 - the recipient;
-- with `--calls-per-hour` on an existing rule, the old and new limits and every recipient whose limit changes.
+- with `--calls-per-hour` on an existing rule, the old and new limits and every recipient whose limit changes, each by label where the principal resolves to one and otherwise as the principal.
 
 It then states the reach: `PRINCIPAL can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, PRINCIPAL can too.` It asks `Share? [y/N] `, reading one line from stdin, and `y` or `yes` agrees. "At a terminal" means stdin is a terminal. Declining, or no terminal without `--yes`, exits 1 with nothing signed.
 
@@ -242,7 +246,7 @@ A receiving host bound to person P authorizes a call to its capability C, operat
 
 **Policy.** P's newest verified policy for the cited network has a capability rule for C whose host is this host and whose principals match the sender, as for rules. A rule naming another host never authorizes a call here.
 
-**Self.** In some network N:
+**Self.** In the network N that the call cites:
 - the sender and the receiver are both bound to P;
 - the sender's host ID is in `trusted_hosts` of P's newest verified policy for N;
 - that policy is within its validity window.
@@ -251,7 +255,7 @@ Self covers every capability of P on the receiving host, and the sources the rec
 
 Then, in this order:
 1. **Blocks.** The block list applies, except to self.
-2. **The capability.** C exists on this host, and O is one of its operations; otherwise 404. If O or C is `unavailable`, the call is refused with 409 `{code: "unavailable", error}`. For `read`, the input's `uri` must be one of the capability's resources currently in the snapshot; otherwise 404.
+2. **The capability.** C exists on this host, and O is one of its operations; otherwise 404. If O is in the capability's `unavailable` list, or the list contains `source`, the call is refused with 409 `{code: "unavailable", error}`. Other operations of a capability whose `state` is `unavailable` still run. For `read`, the input's `uri` must be one of the capability's resources currently in the snapshot; otherwise 404.
 3. **Bounds.**
    - Input size within `max_input_bytes`, otherwise 413 `{code: "too_large", error}`.
    - A deadline in the future and at most 15 minutes plus 1 minute of clock skew after receipt, otherwise 400 `invalid`.
@@ -279,7 +283,7 @@ A person's trusted machines can call a source's tools directly, without a capabi
 1. **The caller is trusted.** The sender passes self access: both hosts are bound to P in some network N, and the sender is in `trusted_hosts` of P's newest verified policy for N, within its validity window.
 2. **The server is open to the caller.** The receiving host's local open list contains the sender's host ID, or `*`.
 
-The open list is stored only on the serving host, never in policy. A machine holding the person key can therefore mark itself trusted, and so reach P's capabilities, but it cannot open another machine's sources.
+A source call that fails either check is refused with 403. The open list is stored only on the serving host, never in policy. A machine holding the person key can therefore mark itself trusted, and so reach P's capabilities, but it cannot open another machine's sources.
 
 **The implicit capability.** A source `AGENT/SERVER` that is `shareable` and has a snapshot is called as if it were a capability named `AGENT/SERVER`, where:
 - its operations are every tool in the current snapshot except one named `read`, plus `read` over every resource in the snapshot when there are any;
@@ -293,7 +297,7 @@ The open list is stored only on the serving host, never in policy. A machine hol
 
 | CLI | Local API | Behavior |
 | --- | --- | --- |
-| `sources open-to HOST\|--all` | `POST /v1/sources/open-to` with `{host_id}`, where `*` means all | Adds the host, or `*`. A host must be bound to this host's person in at least one network map, and cannot be this host. `*` means every host that passes self access, including hosts trusted later. A repeat is unchanged and returns 200; an addition returns 201. |
+| `sources open-to HOST\|--all` | `POST /v1/sources/open-to` with `{host_id}`, where `*` means all | Adds the host, or `*`. A host must be bound to this host's person in at least one network map, and cannot be this host. `*` means every host that passes self access, including hosts trusted later. A repeat is unchanged and returns 200; an addition returns 201. An invalid host ID, a host not bound to this person, or this host is refused with 400. |
 | `sources close-to HOST\|--all` | `DELETE /v1/sources/open-to/{host_id}` | Removes the host, or `*`. Removing `*` does not remove hosts listed individually. Removing an absent entry returns 200 with `removed: 0`. |
 | (in `sources`) | `GET /v1/sources` | The response adds `open_to: [host_id or "*"]`, sorted, with `*` first. |
 
@@ -384,11 +388,12 @@ The receiver stores the request, the status record, and the result. Seven days a
 - **`PERSON/CAPABILITY`** queries the person's hosts, as `discover` does. Exactly one match is the target. None is 404 `{code: "not_found", error, unanswered}`. More than one is 409 `{code: "ambiguous", error, candidates: ["HOST_ID/CAPABILITY", ...]}`.
 - **Before persisting.** All of these refusals happen before anything is persisted. The resolved host and the citation are stored in the outbound record.
 
-**Deadlines.** `--deadline` is RFC3339, or a duration in the `--wait` form. It defaults to 15 minutes, capped by the cited policy's `valid_until`. The daemon refuses a past deadline, or one more than 15 minutes ahead, with 400 before persisting.
+**Deadlines.** `--deadline` is RFC3339, or a duration in the `--wait` form, where a bare `N` is seconds. It defaults to 15 minutes, capped by the cited policy's `valid_until`. The daemon refuses a past deadline, or one more than 15 minutes ahead, with 400 before persisting.
 
 **The outbound record** is `{peer_host_id, target, network_id, request, submit_state, status, result, cancel_state, attempts, next_attempt_at, error, status_queries}`.
 - **Submission outcomes.** 400, 403, 404, 409, 413, and 429 are final `rejected`. Anything else stays `unknown` and is retried.
 - **Polling.** The daemon polls `GET /peer/v1/calls/{id}` for each accepted call that is not final. It backs off from 1 to 60 seconds, shares the task polling slots, and stores the final status and result.
+- **Final only with the result.** The outbound record's status becomes final only from a `GET /peer/v1/calls/{id}` response, stored together with its `result`. When a submit or cancel response is already final, the daemon fetches the call with GET at once. Until a GET succeeds, the record stays non-final and is polled as usual.
 
 ### Status
 
@@ -399,7 +404,7 @@ The receiver stores the request, the status record, and the result. Seven days a
   - capabilities on this host named by at least one rule for this host in this person's stored policies;
   - received calls in `running`.
 
-  It also adds `open_to`, the number of entries in this host's open list.
+  The object also contains `open_to`, the number of entries in this host's open list.
 - **Attention item 14, `capability_failing`**, after item 13. It covers:
   - a source whose latest snapshot failed;
   - an instance that failed to start in the last 24 hours;
