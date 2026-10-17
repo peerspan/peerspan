@@ -119,7 +119,19 @@ ADAPTER_AGENT_KEYS = {'address', 'network_id', 'connected', 'actions', 'max_mess
                       'endpoint'}
 ENDPOINT_KEYS = {'address', 'path'}
 ENDPOINT_PATHS = {'direct', 'relay', 'none', 'local'}
-ATTACH_KEYS = {'agent', 'session_id', 'adapter_id', 'profile', 'workspace', 'reused', 'unchecked_hosts', 'next'}
+# `sources: {servers, errors}` added by the capabilities contract (Local API details: "`attach` output").
+ATTACH_KEYS = {'agent', 'session_id', 'adapter_id', 'profile', 'workspace', 'reused', 'unchecked_hosts', 'next',
+               'sources'}
+
+
+def sources_shaped(out):
+    """The capabilities contract's `attach` output: sources {servers: [{name, transport, shareable, reason,
+    missing_env, tools, read_only_tools, snapshot_error}], errors: [{source, path, server, error}]}."""
+    value = out.get('sources')
+    return (isinstance(value, dict) and set(value) == {'servers', 'errors'} and
+            all(set(x) == {'name', 'transport', 'shareable', 'reason', 'missing_env', 'tools', 'read_only_tools',
+                           'snapshot_error'} for x in value['servers']) and
+            all(set(e) == {'source', 'path', 'server', 'error'} for e in value['errors']))
 ADDRESSABLE = re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 # Hosts run on this machine and share its host name, unless a host runs in a UTS namespace of its own.
 REAL_HOST_NAME = socket.gethostname()
@@ -1064,7 +1076,8 @@ class Pairing:
 
         def attached(out, name, host, workspace, rule):
             need(set(out) == ATTACH_KEYS, 'attach prints {agent, session_id, adapter_id, profile, workspace, reused, '
-                 'unchecked_hosts, next}', out)
+                 'unchecked_hosts, next, sources}', out)
+            need(sources_shaped(out), 'attach output sources: {servers, errors} (capabilities contract)', out)
             need(out['agent']['name'] == name, f'{rule}: agent name {name}', out['agent'])
             need(out['agent']['address'] == f'ana/{name}', 'agent.address is PERSON/NAME', out['agent'])
             need(Path(out['workspace']) == workspace.resolve(), 'the profile records the project\'s real path',
