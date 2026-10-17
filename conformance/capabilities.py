@@ -1047,8 +1047,8 @@ class Pairing:
         self.section('CLI', self.check_cli)
         self.section('status', self.check_status)
         self.section('removal', self.check_removal)
-        self.section('tie-break', self.check_tie_break)
         self.section('idle stop', self.check_idle_stop)
+        self.section('tie-break', self.check_tie_break)
         if self.setup_notes:
             print(f'NOTE {self.label} setup: ' + ' | '.join(self.setup_notes), flush=True)
 
@@ -2539,8 +2539,15 @@ class Pairing:
 
     def check_tie_break(self):
         p1, p2 = self.hosts['p1'], self.hosts['p2']
+        # Every other sibling of pat (p3, p4) is stopped too, with the coordinator: under direct propagation p1
+        # pushes its version to each sibling, and "on start ... a host asks each sibling for its stored policy of
+        # their person" (coordination contract, Direct propagation: Sync). A running p3 or p4 could relay p1's
+        # version to p2 when it starts, and p2 would then rightly sign the next version instead of an equal one.
+        relays = [self.hosts['p3'], self.hosts['p4']]
         self.coord.stop()
         try:
+            for h in relays:
+                h.stop()
             p2.stop()
             x = self.share('litcap', '--with', 'rhea', '--yes')[1]['policy']
             p1.stop()
@@ -2562,6 +2569,9 @@ class Pairing:
                 p1.start()
             if p2.process is None or p2.process.poll() is not None:
                 p2.start()
+            for h in relays:
+                if h.process is None or h.process.poll() is not None:
+                    h.start()
             self.coord.start()
 
     def watch_idle(self):
