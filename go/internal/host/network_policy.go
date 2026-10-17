@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -96,11 +97,13 @@ type PolicyView struct {
 }
 
 func (v PolicyView) MarshalJSON() ([]byte, error) {
-	type plain membership.Policy
-	return json.Marshal(struct {
-		plain
-		ExpiresSoon bool `json:"expires_soon"`
-	}{plain(v.Policy), v.ExpiresSoon})
+	data, err := json.Marshal(v.Policy)
+	if err != nil {
+		return nil, err
+	}
+	// The policy's own fields, then expires_soon.
+	data = append(append(data[:len(data)-1], `,"expires_soon":`...), strconv.FormatBool(v.ExpiresSoon)...)
+	return append(data, '}'), nil
 }
 
 // AccessBlock is one host-local block: kind "person" or "host".

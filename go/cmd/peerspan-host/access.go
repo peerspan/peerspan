@@ -231,7 +231,12 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 		}
 		rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected})
 	}
-	p, err := membership.SignPolicy(signer, network, version, now, validFor, rules)
+	body := membership.PolicyBody{}
+	if current != nil {
+		body = current.Body()
+	}
+	body.Rules = rules
+	p, err := membership.SignPolicyV2(signer, network, version, now, validFor, body)
 	return "POST", policyPath(network), host.SubmitPolicy{Policy: &p}, err
 }
 
@@ -442,7 +447,12 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 		until, _ := membership.ParseTime(current.ValidUntil)
 		validFor = until.Sub(issued)
 	}
-	p, err := membership.SignPolicy(signer, network, version, now, validFor, kept)
+	body := membership.PolicyBody{}
+	if current != nil {
+		body = current.Body()
+	}
+	body.Rules = kept
+	p, err := membership.SignPolicyV2(signer, network, version, now, validFor, body)
 	if err != nil {
 		return err
 	}
