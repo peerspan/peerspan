@@ -632,10 +632,22 @@ class Pairing:
         argv += ['--wait', wait, *extra]
         code, out, stdout, stderr = self.hosts[caller].outcome(*argv, timeout=timeout)
         self.exposed += [(f'{caller} call stdout', stdout), (f'{caller} call stderr', stderr)]
+        if isinstance(out, dict):
+            self.check_final(out)
         return code, out, stderr
 
     def inspect(self, caller, peer, cid):
         return self.hosts[caller].cli('calls', 'inspect', '--peer', peer, cid)
+
+    @staticmethod
+    def check_final(record):
+        """An outbound record's status is final only together with its result, from a GET: a final state that has
+        a result (succeeded; failed with tool_error or jsonrpc_error) must carry it."""
+        status = (record or {}).get('status') or {}
+        if status.get('state') == 'succeeded' or (status.get('state') == 'failed' and
+                                                  status.get('error') in ('tool_error', 'jsonrpc_error')):
+            need(record.get('result') is not None, 'the outbound status is final only together with its result',
+                 status, record.get('result'))
 
     def settle(self, caller, record, timeout=90):
         peer, cid = record['peer_host_id'], record['request']['call_id']
@@ -643,7 +655,9 @@ class Pairing:
         def done():
             r = self.inspect(caller, peer, cid)
             return r if r.get('status') and r['status'].get('state') in FINAL else None
-        return wait_for(done, timeout=timeout, message=f'outbound call {cid} final')
+        final = wait_for(done, timeout=timeout, message=f'outbound call {cid} final')
+        self.check_final(final)
+        return final
 
     def outbound_count(self, caller):
         return db_rows(self.hosts[caller], 'SELECT COUNT(*) FROM outbound_calls')[0][0]
@@ -705,10 +719,8 @@ class Pairing:
 
     def counts(self, host='p1'):
         value = self.status(host)
-        counts = dict(value.get('capabilities') or {})
-        if 'open_to' not in counts and 'open_to' in value:
-            counts['open_to'] = value['open_to']
-        return counts
+        need('open_to' not in value, 'open_to sits inside status capabilities', sorted(value))
+        return dict(value.get('capabilities') or {})
 
     def items(self, host='p1', kind='capability_failing'):
         return [i for i in self.status(host).get('attention', []) if i.get('kind') == kind]
@@ -1212,6 +1224,27 @@ class Pairing:
             need(status == 400, 'PUT refuses unknown fields, env values for missing entries, and other env shapes',
                  bad, status, body)
 
+        # A literal or captured entry with no stored value is left unset, and is not missing_env.
+        self.register('p4', 'envtest')
+        definition = {'name': 'noval', 'transport': 'stdio', 'command': PYTHON, 'args': self.fixture.args('noval'),
+                      'env': {'NOVAL_LIT': {'source': 'literal'}, 'NOVAL_CAP': {'source': 'captured'},
+                              'WITH_VALUE': {'source': 'literal'}},
+                      'url': None, 'source': 'claude-code:user'}
+        status, body = self.hosts['p4'].call('PUT', f"/v1/agents/{self.aid['envtest']}/tool-servers",
+                                             {'workspace': str(self.root), 'servers': [definition],
+                                              'values': {'noval': {'env.WITH_VALUE': 'v'}}})
+        need(status == 200, 'setup: PUT a definition with entries lacking stored values', status, body)
+        noval = next(s for s in body['servers'] if s['name'] == 'noval')
+        need(noval['shareable'] is True and noval['reason'] is None and noval['missing_env'] == [],
+             'entries without a stored value do not make the server missing_env', noval)
+        b = self.body('envtest/noval', 'env_names', {}, cite=self.self_cite())
+        status, record = self.submit('p2', b, receiver='p4')
+        need(status == 200, 'setup: p2 calls the source on p4', status, record)
+        done = self.final('p2', b['call_id'], receiver='p4')
+        names = set(first_text(done.get('result')))
+        need('WITH_VALUE' in names and not {'NOVAL_LIT', 'NOVAL_CAP'} & names,
+             'an entry without a stored value is left unset when the server starts', sorted(names))
+
         events = [e for e in self.activity('p1') if e['kind'] == 'sources.discovered']
         need({self.aid[a] for a in ('cc', 'cx', 'oc')} <= {e['subject_id'] for e in events},
              'sources.discovered activity with the agent ID', events[:5])
@@ -1503,8 +1536,8 @@ class Pairing:
         # --calls-per-hour on an existing rule replaces its limit for every recipient.
         code, out, tty = self.share('work', '--with', 'rhea', '--calls-per-hour', '7', terminal='y')
         text = squash(tty)
-        # Whether recipients are shown by label or principal is not said (ambiguous): either.
-        need(code == 0 and '100' in text and '7' in text and ('quinn' in text or self.quinn in text),
+        # Recipients by label where the principal resolves to one.
+        need(code == 0 and '100' in text and '7' in text and 'quinn' in text,
              'the review lists the old and new limits and the recipients affected', tty[-1200:])
         rule = self.rule_for('work')
         need(rule['max_calls_per_hour'] == 7 and set(rule['principals']) == {'person:' + self.quinn,
@@ -1612,9 +1645,10 @@ class Pairing:
         status, body = p1.call('POST', '/v1/sources/open-to', {'host_id': ids['p4']})
         need(status == 201, 'an addition returns 201', status, body)
         for target, why in ((ids['q1'], 'a host bound to another person'), (ids['u1'], 'a host bound to no person'),
-                            (ids['n'], 'a host in no network map'), (ids['p1'], 'this host')):
+                            (ids['n'], 'a host in no network map'), (ids['p1'], 'this host'),
+                            ('not-a-host', 'an invalid host ID')):
             status, body = p1.call('POST', '/v1/sources/open-to', {'host_id': target})
-            need(400 <= status < 500, f'open-to refuses {why}', status, body)
+            need(status == 400, f'open-to refuses {why} with 400', status, body)
         status, body = p1.call('POST', '/v1/sources/open-to', {'host_id': '*'})
         need(status == 201, '* is added', status, body)
         need(self.open_list() == ['*', *sorted([ids['p2'], ids['p4']])], 'open_to sorted with * first',
@@ -1664,6 +1698,11 @@ class Pairing:
                               capability_rules=current['capability_rules'])
         self.hosts['p1'].call('POST', f'/v1/networks/{self.team}/policy', {'policy': restored})
         self.sync_all()
+        # Self is evaluated in the cited network only: p2 is trusted in team but not in other.
+        status, _ = self.submit('p2', self.body('work', 'echo', {'text': 'x'}, cite=self.self_cite(self.other)))
+        need(status == 403, 'a self citation is evaluated in the cited network only', status)
+        status, _ = self.submit('p2', self.body('cc/fx', 'echo', {'text': 'x'}, cite=self.self_cite(self.other)))
+        need(status == 403, 'and so is a source call\'s self citation', status)
         # Self refused from an untrusted host and from another person's host.
         status, _ = self.submit('p3', self.body('work', 'echo', {'text': 'x'}, cite=self.self_cite()))
         need(status == 403, 'self is refused from an untrusted host of the same person', status)
@@ -1675,10 +1714,10 @@ class Pairing:
         status, _ = self.submit('p2', self.body('cc/fx', 'echo', {'text': 'source'}, cite=self.self_cite()))
         need(status == 200, 'a source called from a trusted host the server is open to', status)
         status, _ = self.submit('p4', self.body('cc/fx', 'echo', {'text': 'x'}, cite=self.self_cite()))
-        need(status in (403, 404), 'refused from a trusted host it is not open to', status)
+        need(status == 403, 'refused (403) from a trusted host it is not open to', status)
         self.open_to('p1', ids['p3'])
         status, _ = self.submit('p3', self.body('cc/fx', 'echo', {'text': 'x'}, cite=self.self_cite()))
-        need(status in (403, 404), 'refused from an untrusted host it is open to', status)
+        need(status == 403, 'refused (403) from an untrusted host it is open to', status)
         self.close_to('p1', ids['p3'])
         self.open_to('p1', '*')
         try:
@@ -1694,7 +1733,7 @@ class Pairing:
                  'a source is never listed to another person', body)
             for cite in (self.policy_cite(), {'self': {'person_id': self.quinn, 'network_id': self.team}}):
                 status, _ = self.submit('q1', self.body('cc/fx', 'echo', {'text': 'x'}, cite=cite))
-                need(status in (403, 404), 'a source is never callable by another person', status)
+                need(status == 403, 'a source is never callable by another person (403)', status)
             status, body = self.listing('p1', 'u1')
             need(status == 200 and not any(e['kind'] == 'source' for e in body) and self.entry(body, 'budget2'),
                  'not even through everyone', body)
@@ -2191,6 +2230,22 @@ class Pairing:
         need(any(p.name.endswith('fx@narrow.log') for p in (self.hosts['p1'].state / 'tool-logs').rglob('*.log')),
              'its stderr goes to …/SERVER@CAPABILITY.log',
              [str(p) for p in (self.hosts['p1'].state / 'tool-logs').rglob('*.log')])
+        # A sources PUT snapshots own-credential capabilities again: a tool hidden from the own-credential snapshot
+        # makes that operation unavailable after a refresh; the others still run; recovery when it returns.
+        f.set('fx-narrow', hide_tools=['info'])
+        try:
+            self.refresh('cc')
+            narrow = self.capability('narrow')
+            need(narrow['state'] == 'unavailable' and narrow['unavailable'] == ['info'],
+                 'a sources PUT re-snapshots own-credential capabilities with their own credential', narrow)
+            status, body = self.submit('p2', self.body('narrow', 'info', {}, cite=self.self_cite()))
+            need(status == 409 and dig(body, 'code') == 'unavailable', 'the unavailable operation is refused (409)',
+                 status, body)
+            need(run('env_names', {}) is not None, 'other operations of an unavailable capability still run')
+        finally:
+            f.set('fx-narrow')
+            self.refresh('cc')
+        need(self.capability('narrow')['state'] == 'available', 'available again after the next refresh')
         # Operations are checked against the capability's own snapshot.
         status, body = self.create('narrow2', 'cc/fx', 'operations', ['from_local'], 'env_file', str(self.own_env),
                                    'args', self.fixture.args('fx-narrow2', 'other', isolated=False), expect=None)
@@ -2355,6 +2410,11 @@ class Pairing:
                                       '5m')
         left = (parse_time(dig(out, 'request', 'deadline')) - datetime.now(timezone.utc)).total_seconds() if dig(out, 'request', 'deadline') else 0
         need(code == 0 and 240 <= left <= 300, '--deadline accepts a duration', code, out and out['request'])
+        code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'd'}, '--network', self.team, '--deadline',
+                                      '300')
+        left = (parse_time(dig(out, 'request', 'deadline')) - datetime.now(timezone.utc)).total_seconds() \
+            if dig(out, 'request', 'deadline') else 0
+        need(code == 0 and 240 <= left <= 300, 'a bare N duration is seconds', code, left)
         code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'd'}, '--network', self.team, '--deadline',
                                       timestamp(240))
         need(code == 0, '--deadline accepts RFC3339', code, stderr[-200:])

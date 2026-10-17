@@ -217,7 +217,7 @@ def check_not_running(host, program):
 
 
 def check_shape(value):
-    assert set(value) - {'service', 'open_to'} == STATUS_KEYS, value  # the CLI adds service in slice 2
+    assert set(value) - {'service'} == STATUS_KEYS, value  # the CLI adds service in slice 2
     assert isinstance(value['host_id'], str) and value['host_id'].startswith('host_'), value
     assert isinstance(value['version'], str) and value['version'], value
     assert isinstance(value['blocks'], int)
@@ -242,25 +242,16 @@ def check_shape(value):
 
 
 def check_capability_counts(value):
-    """`capabilities: {sources, capabilities, shared, calls_running}` plus the open-list count `open_to`. The
-    contract says status "also adds `open_to`" without saying whether inside `capabilities` or beside it, so either
-    place is accepted (narrowest reading), but exactly one."""
+    """`capabilities: {sources, capabilities, shared, calls_running, open_to}`: the object also contains the
+    open-list count (capabilities contract, Status)."""
     counts = value['capabilities']
-    inside = 'open_to' in counts
-    beside = 'open_to' in value
-    assert inside != beside, ('open_to exactly once', counts, sorted(value))
-    assert set(counts) - {'open_to'} == CAPABILITY_COUNTS, counts
-    for key in CAPABILITY_COUNTS:
+    assert set(counts) == CAPABILITY_COUNTS | {'open_to'}, counts
+    for key in counts:
         assert isinstance(counts[key], int) and counts[key] >= 0, counts
-    open_to = counts['open_to'] if inside else value['open_to']
-    assert isinstance(open_to, int) and open_to >= 0, open_to
 
 
 def capability_counts(value):
-    """The capability counts with open_to, wherever status put it."""
-    counts = dict(value['capabilities'])
-    counts.setdefault('open_to', value.get('open_to'))
-    return counts
+    return dict(value['capabilities'])
 
 
 def attention(value, kind=None):
