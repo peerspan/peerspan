@@ -1,14 +1,15 @@
-//! Shared MCP servers (tools contract, milestone 10 slice 1): the servers
+//! Sources (capabilities contract, milestone 10 slice 1): the MCP servers
 //! the CLI discovered in an agent's harness configuration, the values their
-//! references resolved to, profiles, reach confirmations, and snapshots of
-//! what each server offers. Peers see only snapshots; values never leave
-//! this host.
+//! references resolved to, snapshots of what each offers, and the local open
+//! list that lets this person's trusted machines call sources directly.
+//! Values never leave this host.
 use crate::{
     api::{blocking, decode},
+    capabilities::{CapabilityRecord, capability_record, capability_records},
     mcp::{self, Launch},
     model::Error,
     peer_store::json,
-    policy::{ALL_AGENTS, ToolRule, split_server, tool_name_shape},
+    policy::name_shape,
     store::{Store, append_event, now},
 };
 use axum::{
@@ -16,7 +17,7 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, State, rejection::BytesRejection},
     http::StatusCode,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -28,13 +29,13 @@ use std::{
     time::Duration,
 };
 
-/// Database version 16: shared servers, their values, profiles, reach
-/// confirmations, and calls in both directions.
+/// Database version 16: sources, their values, capabilities, the open list,
+/// and calls in both directions.
 pub(crate) const SCHEMA: &str = "
 CREATE TABLE tool_servers (agent_id TEXT NOT NULL REFERENCES agents(id), name TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, name));
 CREATE TABLE tool_values (agent_id TEXT NOT NULL, server TEXT NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(agent_id, server, field));
-CREATE TABLE tool_profiles (agent_id TEXT NOT NULL, server TEXT NOT NULL, name TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, server, name));
-CREATE TABLE tool_confirmations (agent_id TEXT NOT NULL, server TEXT NOT NULL, profile TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(agent_id, server, profile));
+CREATE TABLE capabilities (name TEXT PRIMARY KEY, record TEXT NOT NULL);
+CREATE TABLE source_access (host_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
 CREATE TABLE received_calls (sender TEXT NOT NULL, call_id TEXT NOT NULL, request TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(sender, call_id));
 CREATE TABLE outbound_calls (peer TEXT NOT NULL, call_id TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(peer, call_id));
 PRAGMA user_version = 16;
@@ -109,7 +110,7 @@ impl Snapshot {
     }
 }
 
-/// Failures `status` reports for a server or profile.
+/// Failures `status` reports for a source or a capability's own instance.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Health {
     /// The last time an instance failed to start.
@@ -139,22 +140,6 @@ pub struct ServerRecord {
     pub updated_at: String,
 }
 
-/// `tool_profiles.record`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ProfileRecord {
-    pub agent_id: String,
-    pub server: String,
-    pub name: String,
-    pub env_file: String,
-    /// Replaces the server's `args` when set.
-    pub args: Option<Vec<String>>,
-    pub created_at: String,
-    pub snapshot: Option<Snapshot>,
-    pub snapshot_error: Option<String>,
-    #[serde(default)]
-    pub health: Health,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PutServers {
@@ -165,39 +150,30 @@ pub struct PutServers {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AddProfile {
-    pub name: String,
-    pub env_file: String,
-    /// Optional; when given, an array, never null.
-    #[serde(default, deserialize_with = "crate::policy::present")]
-    pub args: Option<Vec<String>>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Confirm {
-    #[serde(default)]
-    pub profile: Option<String>,
+pub struct OpenTo {
+    pub host_id: String,
 }
 
-/// One instance: an agent's server, or one of its profiles.
+/// One instance: a source, or a capability with its own credential.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instance {
     pub agent_id: String,
     pub server: String,
-    pub profile: Option<String>,
+    /// The capability whose own credential the instance runs with.
+    pub capability: Option<String>,
 }
 impl Instance {
     pub fn key(&self) -> mcp::Key {
         (
             self.agent_id.clone(),
             self.server.clone(),
-            self.profile.clone().unwrap_or_default(),
+            self.capability.clone().unwrap_or_default(),
         )
     }
-    /// `SERVER` or `SERVER@PROFILE`.
+    /// `SERVER`, or `SERVER@CAPABILITY` for a capability's own instance.
     pub fn label(&self) -> String {
-        match &self.profile {
-            Some(p) => format!("{}@{p}", self.server),
+        match &self.capability {
+            Some(c) => format!("{}@{c}", self.server),
             None => self.server.clone(),
         }
     }
@@ -303,7 +279,7 @@ fn reason_for(
     );
     missing.sort();
     missing.dedup();
-    let reason = if !tool_name_shape(&d.name) {
+    let reason = if !name_shape(&d.name) {
         Some("name")
     } else if d.transport == "remote" {
         Some("remote")
@@ -368,7 +344,7 @@ fn valid_field(d: &Definition, field: &str) -> bool {
         .is_some_and(|n| n < d.args.len() && field == format!("args.{n}"))
 }
 
-fn server_record(
+pub(crate) fn server_record(
     conn: &Connection,
     agent: &str,
     name: &str,
@@ -382,39 +358,11 @@ fn server_record(
     .map(json)
     .transpose()
 }
-fn server_records(conn: &Connection, agent: &str) -> Result<Vec<ServerRecord>, Error> {
+pub(crate) fn server_records(conn: &Connection, agent: &str) -> Result<Vec<ServerRecord>, Error> {
     let mut statement =
         conn.prepare("SELECT record FROM tool_servers WHERE agent_id = ?1 ORDER BY name")?;
     statement
         .query_map([agent], |r| r.get::<_, String>(0))?
-        .map(|r| json(r?))
-        .collect()
-}
-fn profile_record(
-    conn: &Connection,
-    agent: &str,
-    server: &str,
-    name: &str,
-) -> Result<Option<ProfileRecord>, Error> {
-    conn.query_row(
-        "SELECT record FROM tool_profiles WHERE agent_id = ?1 AND server = ?2 AND name = ?3",
-        params![agent, server, name],
-        |r| r.get::<_, String>(0),
-    )
-    .optional()?
-    .map(json)
-    .transpose()
-}
-fn profile_records(
-    conn: &Connection,
-    agent: &str,
-    server: &str,
-) -> Result<Vec<ProfileRecord>, Error> {
-    let mut statement = conn.prepare(
-        "SELECT record FROM tool_profiles WHERE agent_id = ?1 AND server = ?2 ORDER BY name",
-    )?;
-    statement
-        .query_map(params![agent, server], |r| r.get::<_, String>(0))?
         .map(|r| json(r?))
         .collect()
 }
@@ -426,14 +374,6 @@ fn values(conn: &Connection, agent: &str, server: &str) -> Result<BTreeMap<Strin
         .collect::<Result<BTreeMap<String, String>, _>>()?;
     Ok(rows)
 }
-fn confirmed(conn: &Connection, agent: &str, server: &str, profile: &str) -> Result<bool, Error> {
-    Ok(conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM tool_confirmations WHERE agent_id = ?1 AND server = ?2 AND profile = ?3)",
-        params![agent, server, profile],
-        |r| r.get(0),
-    )?)
-}
-
 /// Agent names by ID, read on a connection already held (the store's
 /// connection lock is not reentrant).
 pub(crate) fn agent_names(conn: &Connection) -> Result<BTreeMap<String, String>, Error> {
@@ -444,30 +384,6 @@ pub(crate) fn agent_names(conn: &Connection) -> Result<BTreeMap<String, String>,
     Ok(rows)
 }
 
-/// `PROFILE` in `GET /v1/tools`.
-fn profile_json(conn: &Connection, p: &ProfileRecord) -> Result<Value, Error> {
-    Ok(json!({
-        "name": p.name,
-        "env_file": p.env_file,
-        "args": p.args,
-        "created_at": p.created_at,
-        "tools": p.snapshot.as_ref().map(|s| s.tools.clone()).unwrap_or_default(),
-        "resources": p.snapshot.as_ref().map(|s| s.resources.clone()).unwrap_or_default(),
-        "snapshot_at": p.snapshot.as_ref().map(|s| s.taken_at.clone()),
-        "snapshot_error": p.snapshot_error,
-        "start_failed_at": p.health.start_failed_at,
-        "auth_error_at": p.health.auth_error_at,
-        "confirmed": confirmed(conn, &p.agent_id, &p.server, &p.name)?,
-    }))
-}
-
-/// What a call or listing needs of one instance: whether it is shareable,
-/// and its snapshot.
-pub struct Offered {
-    pub instance: Instance,
-    pub snapshot: Snapshot,
-}
-
 impl Store {
     fn agent_exists(&self, conn: &Connection, id: &str) -> Result<bool, Error> {
         Ok(conn.query_row(
@@ -476,66 +392,42 @@ impl Store {
             |r| r.get(0),
         )?)
     }
-    /// The snapshot of a shareable server, or of one of its profiles; none
-    /// when either is unknown or not shareable.
-    pub(crate) fn offered(
+    /// Every shareable source with a snapshot.
+    pub(crate) fn snapshotted_sources(
         &self,
         conn: &Connection,
-        instance: &Instance,
-    ) -> Result<Option<Snapshot>, Error> {
-        let Some(server) = server_record(conn, &instance.agent_id, &instance.server)? else {
-            return Ok(None);
-        };
-        if !server.shareable {
-            return Ok(None);
-        }
-        Ok(match &instance.profile {
-            None => server.snapshot,
-            Some(p) => profile_record(conn, &instance.agent_id, &instance.server, p)?
-                .and_then(|p| p.snapshot),
-        })
-    }
-    /// Every shareable instance with a snapshot, by agent ID.
-    pub(crate) fn offered_all(&self, conn: &Connection) -> Result<Vec<Offered>, Error> {
+    ) -> Result<Vec<ServerRecord>, Error> {
         let mut statement =
             conn.prepare("SELECT record FROM tool_servers ORDER BY agent_id, name")?;
         let servers: Vec<ServerRecord> = statement
             .query_map([], |r| r.get::<_, String>(0))?
             .map(|r| json(r?))
             .collect::<Result<_, Error>>()?;
-        let mut out = Vec::new();
-        for s in servers.into_iter().filter(|s| s.shareable) {
-            let base = Instance {
-                agent_id: s.agent_id.clone(),
-                server: s.definition.name.clone(),
-                profile: None,
-            };
-            if let Some(snapshot) = s.snapshot.clone() {
-                out.push(Offered {
-                    instance: base.clone(),
-                    snapshot,
-                });
-            }
-            for p in profile_records(conn, &s.agent_id, &s.definition.name)? {
-                if let Some(snapshot) = p.snapshot {
-                    out.push(Offered {
-                        instance: Instance {
-                            profile: Some(p.name),
-                            ..base.clone()
-                        },
-                        snapshot,
-                    });
-                }
-            }
-        }
-        Ok(out)
+        Ok(servers
+            .into_iter()
+            .filter(|s| s.shareable && s.snapshot.is_some())
+            .collect())
     }
-    /// How to start an instance: the definition's command and arguments
-    /// (a profile's replacing them) with stored values substituted; an
-    /// environment of the daemon's `PATH` and `HOME`, the definition's `env`
-    /// with its values, the environment file (for those names), then a
-    /// profile's own environment file; and the workspace as directory.
+    /// How to start an instance: the definition's command and arguments (a
+    /// capability's `args` replacing them) with stored values substituted;
+    /// an environment of the daemon's `PATH` and `HOME`, the definition's
+    /// `env` with its values, the environment file (for those names), then
+    /// a capability's whole `env_file`; and the workspace as directory.
     pub(crate) fn launch(&self, conn: &Connection, instance: &Instance) -> Result<Launch, Error> {
+        let capability = match &instance.capability {
+            Some(c) => Some(capability_record(conn, c)?.ok_or(Error::NotFound)?),
+            None => None,
+        };
+        self.launch_with(conn, instance, capability.as_ref())
+    }
+    /// `launch`, with the capability whose own credential applies given,
+    /// possibly before it is stored.
+    pub(crate) fn launch_with(
+        &self,
+        conn: &Connection,
+        instance: &Instance,
+        capability: Option<&CapabilityRecord>,
+    ) -> Result<Launch, Error> {
         let server =
             server_record(conn, &instance.agent_id, &instance.server)?.ok_or(Error::NotFound)?;
         let d = &server.definition;
@@ -580,17 +472,8 @@ impl Store {
                 }
             }
         }
-        if let Some(p) = &instance.profile {
-            let profile = profile_record(conn, &instance.agent_id, &instance.server, p)?
-                .ok_or(Error::NotFound)?;
-            if let Some(a) = &profile.args {
-                args = a.clone();
-            }
-            if let Ok(text) = std::fs::read_to_string(&profile.env_file) {
-                for (name, value) in parse_env(&text) {
-                    set(&mut env, &name, value);
-                }
-            }
+        if let Some(capability) = capability {
+            apply_credential(capability, &mut args, &mut env, set);
         }
         Ok(Launch {
             command,
@@ -600,7 +483,7 @@ impl Store {
             log: self.tool_log(instance),
         })
     }
-    /// `STATE/tool-logs/AGENT_ID/SERVER[@PROFILE].log`.
+    /// `STATE/tool-logs/AGENT_ID/SERVER[@CAPABILITY].log`.
     pub(crate) fn tool_log(&self, instance: &Instance) -> PathBuf {
         self.state_directory()
             .join("tool-logs")
@@ -651,12 +534,8 @@ impl Store {
             .collect();
         let mut stop = Vec::new();
         for name in old.keys().filter(|n| !names.contains(*n)) {
-            for table in [
-                "tool_servers",
-                "tool_values",
-                "tool_profiles",
-                "tool_confirmations",
-            ] {
+            // Capabilities built on it remain, and become unavailable.
+            for table in ["tool_servers", "tool_values"] {
                 let column = if table == "tool_servers" {
                     "name"
                 } else {
@@ -703,27 +582,20 @@ impl Store {
                 }
             }
             if shareable {
-                let base = Instance {
+                snapshot.push(Instance {
                     agent_id: agent.to_owned(),
                     server: d.name.clone(),
-                    profile: None,
-                };
-                snapshot.push(base.clone());
-                for p in profile_records(&tx, agent, &d.name)? {
-                    snapshot.push(Instance {
-                        profile: Some(p.name),
-                        ..base.clone()
-                    });
-                }
+                    capability: None,
+                });
             }
         }
-        append_event(&tx, "tools.discovered", agent, &at)?;
+        append_event(&tx, "sources.discovered", agent, &at)?;
         tx.commit()?;
         Ok((snapshot, stop))
     }
     /// Stores a snapshot's outcome: a new snapshot, or an error that keeps
     /// the previous one.
-    fn store_snapshot(
+    pub(crate) fn store_snapshot(
         &self,
         instance: &Instance,
         outcome: Result<Snapshot, String>,
@@ -732,7 +604,7 @@ impl Store {
         let tx = conn.transaction()?;
         let at = now();
         let failed = outcome.is_err();
-        match &instance.profile {
+        match &instance.capability {
             None => {
                 let Some(mut r) = server_record(&tx, &instance.agent_id, &instance.server)? else {
                     return Ok(());
@@ -753,9 +625,8 @@ impl Store {
                     ],
                 )?;
             }
-            Some(p) => {
-                let Some(mut r) = profile_record(&tx, &instance.agent_id, &instance.server, p)?
-                else {
+            Some(c) => {
+                let Some(mut r) = capability_record(&tx, c)? else {
                     return Ok(());
                 };
                 match outcome {
@@ -765,16 +636,13 @@ impl Store {
                     }
                     Err(e) => r.snapshot_error = Some(e),
                 }
-                tx.execute(
-                    "UPDATE tool_profiles SET record = ?1 WHERE agent_id = ?2 AND server = ?3 AND name = ?4",
-                    params![serde_json::to_string(&r)?, instance.agent_id, instance.server, p],
-                )?;
+                crate::capabilities::save(&tx, &r)?;
             }
         }
         if failed {
             append_event(
                 &tx,
-                "tools.snapshot_failed",
+                "sources.snapshot_failed",
                 &format!("{}/{}", instance.agent_id, instance.label()),
                 &at,
             )?;
@@ -802,7 +670,7 @@ impl Store {
                 h.auth_error = Some(message.chars().take(200).collect());
             }
         };
-        match &instance.profile {
+        match &instance.capability {
             None => {
                 if let Some(mut r) = server_record(&tx, &instance.agent_id, &instance.server)? {
                     update(&mut r.health);
@@ -816,13 +684,10 @@ impl Store {
                     )?;
                 }
             }
-            Some(p) => {
-                if let Some(mut r) = profile_record(&tx, &instance.agent_id, &instance.server, p)? {
+            Some(c) => {
+                if let Some(mut r) = capability_record(&tx, c)? {
                     update(&mut r.health);
-                    tx.execute(
-                        "UPDATE tool_profiles SET record = ?1 WHERE agent_id = ?2 AND server = ?3 AND name = ?4",
-                        params![serde_json::to_string(&r)?, instance.agent_id, instance.server, p],
-                    )?;
+                    crate::capabilities::save(&tx, &r)?;
                 }
             }
         }
@@ -830,40 +695,10 @@ impl Store {
         Ok(())
     }
 
-    /// The rules of this host's person's stored policies (with their
-    /// networks) that name an agent's server or one of its profiles.
-    fn shares_of(
-        &self,
-        conn: &Connection,
-        agent_name: &str,
-        server: &str,
-    ) -> Result<Vec<Value>, Error> {
-        let mut out = Vec::new();
-        for (network, own) in self.own_members(conn)? {
-            let Some(person) = &own.person_id else {
-                continue;
-            };
-            let Some(key) = self.person_key(conn, &network, person)? else {
-                continue;
-            };
-            let Some(policy) = self.stored_policy(conn, &network, &key)? else {
-                continue;
-            };
-            for rule in policy.tool_rules() {
-                let named = split_server(&rule.server).is_some_and(|(s, _)| s == server);
-                if named && (rule.agent == agent_name || rule.agent == ALL_AGENTS) {
-                    let mut value = serde_json::to_value(rule)?;
-                    value["network_id"] = json!(network);
-                    out.push(value);
-                }
-            }
-        }
-        Ok(out)
-    }
-    /// `GET /v1/tools`: every agent (or one, by name or ID) with its
-    /// servers, snapshots, profiles, and the shares naming them. Values
-    /// never appear.
-    pub fn tools_view(&self, agent: Option<&str>) -> Result<Value, Error> {
+    /// `GET /v1/sources`: every agent (or one, by name or ID) with its
+    /// sources, their snapshots, and the capabilities built on them, plus
+    /// the open list. Values never appear.
+    pub fn sources_view(&self, agent: Option<&str>) -> Result<Value, Error> {
         let agents = self.agents()?;
         let conn = self.connection()?;
         let mut out = Vec::new();
@@ -876,12 +711,14 @@ impl Store {
             }
             matched = true;
             let mut servers = Vec::new();
+            let built = capability_records(&conn)?;
             for s in server_records(&conn, &a.id)? {
                 let name = s.definition.name.clone();
-                let mut profiles = Vec::new();
-                for p in profile_records(&conn, &a.id, &name)? {
-                    profiles.push(profile_json(&conn, &p)?);
-                }
+                let capabilities: Vec<&str> = built
+                    .iter()
+                    .filter(|c| c.agent_id == a.id && c.source.server == name)
+                    .map(|c| c.name.as_str())
+                    .collect();
                 let d = &s.definition;
                 servers.push(json!({
                     "name": name,
@@ -901,9 +738,7 @@ impl Store {
                     "snapshot_error": s.snapshot_error,
                     "start_failed_at": s.health.start_failed_at,
                     "auth_error_at": s.health.auth_error_at,
-                    "confirmed": confirmed(&conn, &a.id, &name, "")?,
-                    "profiles": profiles,
-                    "shares": self.shares_of(&conn, &a.name, &name)?,
+                    "capabilities": capabilities,
                 }));
             }
             out.push(json!({
@@ -915,194 +750,69 @@ impl Store {
         if agent.is_some() && !matched {
             return Err(Error::NotFound);
         }
-        Ok(json!({"agents": out}))
+        Ok(json!({"agents": out, "open_to": open_list(&conn)?}))
     }
     /// One agent with its stored servers and their snapshots.
     fn agent_servers(&self, agent: &str) -> Result<Value, Error> {
-        let view = self.tools_view(Some(agent))?;
+        let view = self.sources_view(Some(agent))?;
         Ok(view["agents"][0].clone())
     }
-    /// Records a profile. Returns it, and whether it is new; an identical
-    /// repeat is not.
-    fn add_profile(
-        &self,
-        agent: &str,
-        server: &str,
-        r: AddProfile,
-    ) -> Result<(Instance, bool), Error> {
+    /// `sources open-to`: adds a host bound to this host's person in some
+    /// network map, or `*`. Returns the entry and whether it is new.
+    fn open_to(&self, host: &str) -> Result<(Value, bool), Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        // An unknown agent or server is 404 before the body is checked.
-        let s = server_record(&tx, agent, server)?.ok_or(Error::NotFound)?;
-        if !tool_name_shape(&r.name) {
-            return Err(Error::Invalid(
-                "profile names match [a-z0-9][a-z0-9_-]{0,62}".into(),
-            ));
-        }
-        if !std::path::Path::new(&r.env_file).is_absolute()
-            || !std::path::Path::new(&r.env_file).is_file()
-        {
-            return Err(Error::Invalid(
-                "the environment file must be an existing absolute path".into(),
-            ));
-        }
-        if !s.shareable {
-            return Err(Error::Invalid(format!(
-                "server {server} is not shareable ({})",
-                s.reason.unwrap_or_default()
-            )));
-        }
-        let instance = Instance {
-            agent_id: agent.to_owned(),
-            server: server.to_owned(),
-            profile: Some(r.name.clone()),
-        };
-        if let Some(old) = profile_record(&tx, agent, server, &r.name)? {
-            if old.env_file == r.env_file && old.args == r.args {
-                return Ok((instance, false));
+        if host != "*" {
+            if !crate::peer_store::valid_id(host, "host", 32) || host == self.identity().id {
+                return Err(Error::Invalid("give another host's ID, or --all".into()));
             }
-            return Err(Error::Conflict(format!(
-                "profile {server}@{} exists with other settings",
-                r.name
-            )));
-        }
-        let record = ProfileRecord {
-            agent_id: agent.to_owned(),
-            server: server.to_owned(),
-            name: r.name.clone(),
-            env_file: r.env_file,
-            args: r.args,
-            created_at: now(),
-            snapshot: None,
-            snapshot_error: None,
-            health: Health::default(),
-        };
-        tx.execute(
-            "INSERT INTO tool_profiles VALUES (?1, ?2, ?3, ?4)",
-            params![agent, server, r.name, serde_json::to_string(&record)?],
-        )?;
-        append_event(
-            &tx,
-            "tools.profile_added",
-            &format!("{agent}/{server}@{}", r.name),
-            &record.created_at,
-        )?;
-        tx.commit()?;
-        Ok((instance, true))
-    }
-    fn profile_view(&self, agent: &str, server: &str, name: &str) -> Result<Value, Error> {
-        let conn = self.connection()?;
-        let p = profile_record(&conn, agent, server, name)?.ok_or(Error::NotFound)?;
-        let mut view = profile_json(&conn, &p)?;
-        view["agent_id"] = json!(p.agent_id);
-        view["server"] = json!(p.server);
-        Ok(view)
-    }
-    fn remove_profile(&self, agent: &str, server: &str, name: &str) -> Result<Value, Error> {
-        let view = self.profile_view(agent, server, name)?;
-        let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM tool_profiles WHERE agent_id = ?1 AND server = ?2 AND name = ?3",
-            params![agent, server, name],
-        )?;
-        tx.execute(
-            "DELETE FROM tool_confirmations WHERE agent_id = ?1 AND server = ?2 AND profile = ?3",
-            params![agent, server, name],
-        )?;
-        append_event(
-            &tx,
-            "tools.profile_removed",
-            &format!("{agent}/{server}@{name}"),
-            &now(),
-        )?;
-        tx.commit()?;
-        Ok(view)
-    }
-    fn confirm(&self, agent: &str, server: &str, r: Confirm) -> Result<Value, Error> {
-        let profile = r.profile.unwrap_or_default();
-        let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
-        server_record(&tx, agent, server)?.ok_or(Error::NotFound)?;
-        if !profile.is_empty() && profile_record(&tx, agent, server, &profile)?.is_none() {
-            return Err(Error::NotFound);
+            let mut bound = false;
+            for (network, own) in self.own_members(&tx)? {
+                if let Some(person) = &own.person_id {
+                    bound |= crate::chain::member(&tx, &network, host)?
+                        .is_some_and(|m| m.person_id.as_deref() == Some(person.as_str()));
+                }
+            }
+            if !bound {
+                return Err(Error::Invalid(format!(
+                    "host {host} is not bound to this host's person in any network"
+                )));
+            }
         }
         let old: Option<String> = tx
             .query_row(
-                "SELECT record FROM tool_confirmations WHERE agent_id = ?1 AND server = ?2 AND profile = ?3",
-                params![agent, server, profile],
+                "SELECT created_at FROM source_access WHERE host_id = ?1",
+                [host],
                 |r| r.get(0),
             )
             .optional()?;
-        if let Some(old) = old {
-            return json(old);
+        if let Some(at) = old {
+            return Ok((json!({"host_id": host, "created_at": at}), false));
         }
-        let record = json!({
-            "agent_id": agent,
-            "server": server,
-            "profile": if profile.is_empty() { Value::Null } else { json!(profile) },
-            "confirmed_at": now(),
-        });
+        let at = now();
         tx.execute(
-            "INSERT INTO tool_confirmations VALUES (?1, ?2, ?3, ?4)",
-            params![agent, server, profile, record.to_string()],
+            "INSERT INTO source_access VALUES (?1, ?2)",
+            params![host, at],
         )?;
+        append_event(&tx, "sources.opened", host, &at)?;
         tx.commit()?;
-        Ok(record)
+        Ok((json!({"host_id": host, "created_at": at}), true))
     }
-
-    /// `status`'s `tools` summary: discovered servers, those a share names,
-    /// and calls running now.
-    pub(crate) fn tools_summary(&self) -> Result<Value, Error> {
-        let conn = self.connection()?;
-        let mut statement = conn.prepare("SELECT record FROM tool_servers")?;
-        let servers: Vec<ServerRecord> = statement
-            .query_map([], |r| r.get::<_, String>(0))?
-            .map(|r| json(r?))
-            .collect::<Result<_, Error>>()?;
-        let names: BTreeMap<String, String> = agent_names(&conn)?;
-        let mut rules: Vec<ToolRule> = Vec::new();
-        for (network, own) in self.own_members(&conn)? {
-            if let Some(person) = &own.person_id
-                && let Some(key) = self.person_key(&conn, &network, person)?
-                && let Some(policy) = self.stored_policy(&conn, &network, &key)?
-            {
-                rules.extend(policy.tool_rules().iter().cloned());
-            }
+    /// `sources close-to`: removes the host, or `*`.
+    fn close_to(&self, host: &str) -> Result<Value, Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let removed = tx.execute("DELETE FROM source_access WHERE host_id = ?1", [host])?;
+        if removed > 0 {
+            append_event(&tx, "sources.closed", host, &now())?;
         }
-        // Servers and profiles here that a tool rule names.
-        let mut shared = 0;
-        for s in &servers {
-            let agent = names
-                .get(&s.agent_id)
-                .map(String::as_str)
-                .unwrap_or_default();
-            let named = |label: &str| {
-                rules
-                    .iter()
-                    .any(|r| (r.agent == agent || r.agent == ALL_AGENTS) && r.server == label)
-            };
-            let name = &s.definition.name;
-            shared += usize::from(named(name));
-            for p in profile_records(&conn, &s.agent_id, name)? {
-                shared += usize::from(named(&format!("{name}@{}", p.name)));
-            }
-        }
-        let running: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM received_calls WHERE json_extract(record, '$.state') = 'running'",
-            [],
-            |r| r.get(0),
-        )?;
-        Ok(json!({
-            "servers": servers.len(),
-            "shared_servers": shared,
-            "calls_running": running,
-        }))
+        tx.commit()?;
+        Ok(json!({"host_id": host, "removed": removed}))
     }
-    /// Status item 14: `(subject, detail, command)` for each failing
-    /// snapshot, recent start failure, recent authentication-like error, and
-    /// an environment file that is too open.
-    pub(crate) fn failing_tool_servers(&self) -> Result<Vec<(String, String, String)>, Error> {
+    /// Status item 14 for sources: `(subject, detail, command)` for each
+    /// failing snapshot, recent start failure, recent authentication-like
+    /// error, and an environment file that is too open.
+    pub(crate) fn failing_sources(&self) -> Result<Vec<(String, String, String)>, Error> {
         let conn = self.connection()?;
         let names: BTreeMap<String, String> = agent_names(&conn)?;
         let day = chrono::Utc::now() - chrono::TimeDelta::hours(24);
@@ -1140,7 +850,7 @@ impl Store {
                 out.push((
                     format!("{name}/{label}"),
                     causes.join("; "),
-                    format!("peerspan tools refresh --agent {name}"),
+                    format!("peerspan sources refresh --agent {name}"),
                 ));
             }
         };
@@ -1151,14 +861,6 @@ impl Store {
                 &s.snapshot_error,
                 &s.health,
             );
-            for p in profile_records(&conn, &s.agent_id, &s.definition.name)? {
-                check(
-                    &s.agent_id,
-                    format!("{}@{}", s.definition.name, p.name),
-                    &p.snapshot_error,
-                    &p.health,
-                );
-            }
         }
         if let EnvFile::TooOpen(path) = read_env_file() {
             out.push((
@@ -1176,7 +878,7 @@ impl Store {
 
 /// Lists a server's tools and resources once, within 30 seconds, from a
 /// short-lived instance.
-async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
+pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
     let work = async {
         let (client, capabilities) = mcp::start(&launch).await.map_err(|e| format!("{e:#}"))?;
         // Each list is asked for when the server declares its capability
@@ -1259,34 +961,24 @@ async fn snapshot_all(store: Arc<Store>, instances: Vec<Instance>) {
 }
 
 #[derive(Deserialize)]
-struct ToolsQuery {
+struct SourcesQuery {
     #[serde(default)]
     agent: Option<String>,
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
-        .route("/v1/tools", get(list_route))
+        .route("/v1/sources", get(list_route))
         .route("/v1/agents/{agent}/tool-servers", put(put_route))
-        .route(
-            "/v1/agents/{agent}/tool-servers/{server}/profiles",
-            post(add_profile_route),
-        )
-        .route(
-            "/v1/agents/{agent}/tool-servers/{server}/profiles/{profile}",
-            axum::routing::delete(remove_profile_route),
-        )
-        .route(
-            "/v1/agents/{agent}/tool-servers/{server}/confirmations",
-            post(confirm_route),
-        )
+        .route("/v1/sources/open-to", post(open_route))
+        .route("/v1/sources/open-to/{host}", delete(close_route))
 }
 async fn list_route(
     State(store): State<Arc<Store>>,
-    query: Result<Query<ToolsQuery>, axum::extract::rejection::QueryRejection>,
+    query: Result<Query<SourcesQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<Value>, Error> {
     let Query(q) = query.map_err(|_| Error::Invalid("invalid query".into()))?;
     Ok(Json(
-        blocking(store, move |s| s.tools_view(q.agent.as_deref())).await?,
+        blocking(store, move |s| s.sources_view(q.agent.as_deref())).await?,
     ))
 }
 async fn put_route(
@@ -1306,43 +998,61 @@ async fn put_route(
         blocking(store, move |s| s.agent_servers(&agent)).await?,
     ))
 }
-async fn add_profile_route(
+async fn open_route(
     State(store): State<Arc<Store>>,
-    Path((agent, server)): Path<(String, String)>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<Value>), Error> {
-    let request: AddProfile = decode(body)?;
-    let (a, s) = (agent.clone(), server.clone());
-    let (instance, new) =
-        blocking(store.clone(), move |st| st.add_profile(&a, &s, request)).await?;
-    let name = instance.profile.clone().unwrap_or_default();
-    if new {
-        snapshot_all(store.clone(), vec![instance]).await;
-    }
+    let request: OpenTo = decode(body)?;
+    let (entry, new) = blocking(store, move |s| s.open_to(&request.host_id)).await?;
     Ok((
         if new {
             StatusCode::CREATED
         } else {
             StatusCode::OK
         },
-        Json(blocking(store, move |s| s.profile_view(&agent, &server, &name)).await?),
+        Json(entry),
     ))
 }
-async fn remove_profile_route(
+async fn close_route(
     State(store): State<Arc<Store>>,
-    Path((agent, server, profile)): Path<(String, String, String)>,
+    Path(host): Path<String>,
 ) -> Result<Json<Value>, Error> {
-    Ok(Json(
-        blocking(store, move |s| s.remove_profile(&agent, &server, &profile)).await?,
-    ))
+    Ok(Json(blocking(store, move |s| s.close_to(&host)).await?))
 }
-async fn confirm_route(
-    State(store): State<Arc<Store>>,
-    Path((agent, server)): Path<(String, String)>,
-    body: Result<Bytes, BytesRejection>,
-) -> Result<Json<Value>, Error> {
-    let request: Confirm = decode(body)?;
-    Ok(Json(
-        blocking(store, move |s| s.confirm(&agent, &server, request)).await?,
-    ))
+
+/// The open list, sorted, with `*` first.
+pub(crate) fn open_list(conn: &Connection) -> Result<Vec<String>, Error> {
+    let mut statement = conn.prepare("SELECT host_id FROM source_access ORDER BY host_id")?;
+    let mut hosts: Vec<String> = statement
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    hosts.sort_by_key(|h| (h != "*", h.clone()));
+    Ok(hosts)
+}
+/// Whether the open list lets `host` call this host's sources.
+pub(crate) fn open_to_host(conn: &Connection, host: &str) -> Result<bool, Error> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_access WHERE host_id = ?1 OR host_id = '*')",
+        [host],
+        |r| r.get(0),
+    )?)
+}
+/// Applies a capability's own credential: its `args` replace the source's,
+/// and its whole `env_file` is applied last.
+pub(crate) fn apply_credential(
+    capability: &CapabilityRecord,
+    args: &mut Vec<String>,
+    env: &mut Vec<(String, String)>,
+    set: impl Fn(&mut Vec<(String, String)>, &str, String),
+) {
+    if let Some(a) = &capability.credential.args {
+        *args = a.clone();
+    }
+    if let Some(path) = &capability.credential.env_file
+        && let Ok(text) = std::fs::read_to_string(path)
+    {
+        for (name, value) in parse_env(&text) {
+            set(env, &name, value);
+        }
+    }
 }

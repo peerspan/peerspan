@@ -304,7 +304,7 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
             network,
             person_key,
             ..
-        } => (principal, agent.as_ref(), network, person_key, true),
+        } => (principal, Some(agent), network, person_key, true),
         Command::Deny {
             principal,
             agent,

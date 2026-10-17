@@ -443,7 +443,7 @@ pub fn summary_line(tools: &Value) -> String {
         })
         .collect();
     if servers.is_empty() {
-        "MCP servers found: none.".into()
+        "Sources found: none.".into()
     } else {
         format!(
             "MCP servers found: {}. None are shared.",

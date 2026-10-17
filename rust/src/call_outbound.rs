@@ -1,15 +1,18 @@
-//! Calls to shared tools (tools contract): the submitting host. The owner
-//! CLI names a target, `PERSON/AGENT/SERVER[@PROFILE]` or
-//! `HOST_ID/AGENT/SERVER[@PROFILE]`; the daemon resolves it through the
-//! network map and the peers' tool listings, cites what the listing
-//! reported, persists the call, submits it with retries, and polls its
-//! status until final.
+//! Calls (capabilities contract): the submitting host. The owner CLI
+//! names an address, `PERSON/CAPABILITY`, `HOST_ID/CAPABILITY`, or for a
+//! source `PERSON/AGENT/SERVER` or `HOST_ID/AGENT/SERVER`; the daemon
+//! resolves it through the network map and the peers' capability listings,
+//! cites what the listing reported, persists the call, submits it with
+//! retries, and polls its status until final. `GET /v1/discover` lists the
+//! reachable agents and usable capabilities together.
 use crate::{
     api::{blocking, decode},
-    calls::{CallRequest, CallStatus, MAX_DEADLINE, call_id_shape, is_final},
+    calls::{
+        CallRequest, CallStatus, MAX_DEADLINE, PolicyCitation, SelfCitation, call_id_shape,
+        is_final,
+    },
     model::Error,
     peer_store::{read, valid_id},
-    policy::{PolicyRef, SelfRef},
     retry::{Attempted, due_at},
     store::{Store, append_event, new_id, now, rfc3339},
 };
@@ -26,7 +29,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 /// Listings are fetched at most 8 at once, 5 seconds each.
 const PARALLEL: usize = 8;
@@ -34,20 +37,14 @@ const LISTING_BOUND: Duration = Duration::from_secs(5);
 /// Peer requests are bounded like task requests.
 const REQUEST_BOUND: Duration = Duration::from_secs(8);
 
-/// `POST /v1/calls`.
+/// `POST /v1/calls`. A null field is treated as absent.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SubmitCall {
-    /// `PERSON/AGENT/SERVER[@PROFILE]` or `HOST_ID/AGENT/SERVER[@PROFILE]`.
     pub target: String,
-    /// `tool` or `resource`.
-    pub kind: String,
+    pub operation: String,
     #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub uri: Option<String>,
-    #[serde(default)]
-    pub arguments: Option<Value>,
+    pub input: Option<Value>,
     /// RFC3339; default 15 minutes from now, or the cited policy's end.
     #[serde(default)]
     pub deadline: Option<String>,
@@ -128,37 +125,58 @@ fn valid_status(store: &Store, out: &OutboundCall, s: &CallStatus) -> bool {
     s.sender_host_id == store.identity().id
         && s.receiver_host_id == out.peer_host_id
         && s.call_id == out.request.call_id
-        && s.target_agent_id == out.request.target_agent_id
+        && s.capability == out.request.capability
         && crate::calls::STATES.contains(&s.state.as_str())
 }
 
-/// A parsed target.
-struct Target {
+/// A parsed address: who holds it, and the capability name or the source's
+/// `AGENT/SERVER`.
+struct Address {
     owner: String,
-    agent: String,
-    server: String,
-    profile: Option<String>,
+    capability: String,
 }
-fn parse_target(target: &str) -> Result<Target, Error> {
-    let mut parts = target.splitn(3, '/');
-    let (Some(owner), Some(agent), Some(server)) = (parts.next(), parts.next(), parts.next())
-    else {
-        return Err(Error::Invalid(
-            "a target is PERSON/AGENT/SERVER[@PROFILE] or HOST_ID/AGENT/SERVER[@PROFILE]".into(),
-        ));
+fn parse_address(target: &str) -> Result<Address, Error> {
+    let parts: Vec<&str> = target.split('/').collect();
+    let invalid = || {
+        Error::Invalid(
+            "an address is PERSON/CAPABILITY, HOST_ID/CAPABILITY, PERSON/AGENT/SERVER, or HOST_ID/AGENT/SERVER".into(),
+        )
     };
-    let Some((server, profile)) = crate::policy::split_server(server) else {
-        return Err(Error::Invalid(format!("invalid server {server:?}")));
-    };
-    if owner.is_empty() || agent.is_empty() {
-        return Err(Error::Invalid("invalid target".into()));
+    match parts.as_slice() {
+        [owner, capability] if !owner.is_empty() && crate::policy::name_shape(capability) => {
+            Ok(Address {
+                owner: (*owner).to_owned(),
+                capability: (*capability).to_owned(),
+            })
+        }
+        [owner, agent, server]
+            if !owner.is_empty() && !agent.is_empty() && crate::policy::name_shape(server) =>
+        {
+            Ok(Address {
+                owner: (*owner).to_owned(),
+                capability: format!("{agent}/{server}"),
+            })
+        }
+        _ => Err(invalid()),
     }
-    Ok(Target {
-        owner: owner.to_owned(),
-        agent: agent.to_owned(),
-        server: server.to_owned(),
-        profile: profile.map(str::to_owned),
-    })
+}
+fn not_found(message: String, unanswered: &[(String, String)]) -> Error {
+    Error::Coded {
+        status: 404,
+        code: "not_found",
+        message,
+        extra: [(
+            "unanswered".to_owned(),
+            json!(
+                unanswered
+                    .iter()
+                    .map(|(h, e)| json!({"host_id": h, "error": e}))
+                    .collect::<Vec<_>>()
+            ),
+        )]
+        .into_iter()
+        .collect(),
+    }
 }
 
 impl Store {
@@ -170,11 +188,19 @@ impl Store {
         network: Option<&str>,
     ) -> Result<Vec<String>, Error> {
         let own = self.identity().id;
+        let conn = self.connection()?;
         if valid_id(owner, "host", 32) {
-            self.dial_target(owner)?;
+            // A member host of a network shared with this one.
+            let member: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM network_members WHERE host_id = ?1 AND host_id != ?2)",
+                params![owner, own],
+                |r| r.get(0),
+            )?;
+            if !member {
+                return Err(not_found(format!("no member host {owner}"), &[]));
+            }
             return Ok(vec![owner.to_owned()]);
         }
-        let conn = self.connection()?;
         let networks: Vec<String> = match network {
             Some(n) => {
                 self.network_record(&conn, n)?;
@@ -207,14 +233,15 @@ impl Store {
             }
         }
         if !found {
-            return Err(Error::Invalid(format!(
-                "no person {owner:?} in the networks searched"
-            )));
+            return Err(not_found(
+                format!("no person {owner:?} in the networks searched"),
+                &[],
+            ));
         }
         hosts.sort();
         Ok(hosts)
     }
-    /// Every other member host of the networks searched.
+    /// Every other member host bound to a person in the networks searched.
     fn all_hosts(&self, network: Option<&str>) -> Result<Vec<String>, Error> {
         let own = self.identity().id;
         let mut hosts: Vec<String> = Vec::new();
@@ -223,13 +250,28 @@ impl Store {
                 continue;
             }
             for m in self.members(&n.id)? {
-                if m.host_id != own && !hosts.contains(&m.host_id) {
+                if m.host_id != own && m.person_id.is_some() && !hosts.contains(&m.host_id) {
                     hosts.push(m.host_id);
                 }
             }
         }
         hosts.sort();
         Ok(hosts)
+    }
+    /// Each host's bound person label, from the networks searched.
+    fn host_labels(&self, network: Option<&str>) -> Result<BTreeMap<String, String>, Error> {
+        let mut out = BTreeMap::new();
+        for n in self.networks()? {
+            if network.is_some_and(|x| x != n.id) {
+                continue;
+            }
+            for m in self.members(&n.id)? {
+                if let Some(label) = m.person_member {
+                    out.entry(m.host_id).or_insert(label);
+                }
+            }
+        }
+        Ok(out)
     }
     pub fn outbound_call(&self, peer: &str, id: &str) -> Result<OutboundCall, Error> {
         stored(&*self.connection()?, peer, id)
@@ -451,8 +493,8 @@ async fn peer_request(
     .map_err(|_| anyhow::anyhow!("timed out"))?
 }
 
-/// Fetches `GET /peer/v1/tools` from each host, 8 at a time, 5 seconds
-/// each. Returns each host's entries, or why it did not answer.
+/// Fetches `GET /peer/v1/capabilities` from each host, 8 at a time, 5
+/// seconds each. Returns each host's entries, or why it did not answer.
 async fn listings(
     store: &Arc<Store>,
     hosts: Vec<String>,
@@ -460,8 +502,8 @@ async fn listings(
 ) -> Vec<(String, Result<Vec<Value>, String>)> {
     // Network IDs are `net_` and hex, safe in a query.
     let path = match network {
-        Some(n) => format!("/peer/v1/tools?network={n}"),
-        None => "/peer/v1/tools".to_owned(),
+        Some(n) => format!("/peer/v1/capabilities?network={n}"),
+        None => "/peer/v1/capabilities".to_owned(),
     };
     let semaphore = Arc::new(tokio::sync::Semaphore::new(PARALLEL));
     let mut set = tokio::task::JoinSet::new();
@@ -472,7 +514,7 @@ async fn listings(
             let outcome =
                 match peer_request(&store, &host, "GET", path, Vec::new(), LISTING_BOUND).await {
                     Ok((200, body)) => serde_json::from_slice::<Vec<Value>>(&body)
-                        .map_err(|_| "invalid tool listing".to_owned()),
+                        .map_err(|_| "invalid capability listing".to_owned()),
                     Ok((code, _)) => Err(format!("peer returned HTTP {code}")),
                     Err(e) => Err(format!("{e:#}")),
                 };
@@ -487,83 +529,162 @@ async fn listings(
     out.into_iter().map(|(_, h, o)| (h, o)).collect()
 }
 
-fn entry_matches(
-    entry: &Value,
-    agent: Option<&str>,
-    server: Option<&str>,
-    profile: Option<&Option<String>>,
-) -> bool {
-    agent.is_none_or(|a| entry["agent"].as_str() == Some(a))
-        && server.is_none_or(|s| entry["server"].as_str() == Some(s))
-        && profile.is_none_or(|p| entry["profile"].as_str() == p.as_deref())
-}
-
-/// `GET /v1/remote-tools`: what this host may call on each matching host.
-async fn remote_tools(
-    store: Arc<Store>,
-    target: Option<String>,
-    network: Option<String>,
-) -> Result<Value, Error> {
-    // PERSON|HOST_ID[/AGENT[/SERVER[@PROFILE]]]
-    let (mut owner, mut agent, mut server, mut profile) = (None, None, None, None);
-    if let Some(t) = target.as_deref().filter(|t| !t.is_empty()) {
-        let mut parts = t.splitn(3, '/');
-        owner = parts.next().map(str::to_owned);
-        agent = parts.next().map(str::to_owned);
-        if let Some(s) = parts.next() {
-            let Some((name, p)) = crate::policy::split_server(s) else {
-                return Err(Error::Invalid(format!("invalid server {s:?}")));
-            };
-            server = Some(name.to_owned());
-            profile = Some(p.map(str::to_owned));
-        }
-        if owner.as_deref() == Some("") || agent.as_deref() == Some("") {
-            return Err(Error::Invalid("invalid target".into()));
+/// Each host's capability entries with their addresses: `PERSON/NAME`, or
+/// `HOST_ID/NAME` when the person has the name on more than one host.
+fn addressed(found: Vec<(String, Vec<Value>)>, labels: &BTreeMap<String, String>) -> Vec<Value> {
+    let mut hosts_of: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for (host, entries) in &found {
+        let person = labels.get(host).cloned().unwrap_or_else(|| host.clone());
+        for e in entries {
+            let name = e["capability"].as_str().unwrap_or_default().to_owned();
+            *hosts_of.entry((person.clone(), name)).or_default() += 1;
         }
     }
-    let n = network.clone();
-    let hosts = blocking(store.clone(), move |s| match &owner {
+    let mut out = Vec::new();
+    for (host, entries) in found {
+        let person = labels.get(&host).cloned();
+        for e in entries {
+            let name = e["capability"].as_str().unwrap_or_default().to_owned();
+            let address = match &person {
+                Some(p) if hosts_of.get(&(p.clone(), name.clone())) == Some(&1) => {
+                    format!("{p}/{name}")
+                }
+                _ => format!("{host}/{name}"),
+            };
+            out.push(json!({
+                "address": address,
+                "host_id": host,
+                "kind": e["kind"],
+                "capability": e["capability"],
+                "operations": e["operations"],
+                "resources": e["resources"],
+                "state": e["state"],
+                "unavailable": e["unavailable"],
+                "via": e["via"],
+            }));
+        }
+    }
+    out
+}
+
+/// The `reachable` agents of the directory, as `agents --json` shows them.
+async fn reachable_agents(
+    store: &Arc<Store>,
+    person: Option<&str>,
+    network: Option<&str>,
+) -> Result<Vec<Value>, Error> {
+    let networks: Vec<String> = blocking(store.clone(), |s| s.networks())
+        .await?
+        .into_iter()
+        .map(|n| n.id)
+        .filter(|n| network.is_none_or(|x| x == n))
+        .collect();
+    let mut out: Vec<Value> = Vec::new();
+    for n in networks {
+        let id = n.clone();
+        let view = blocking(store.clone(), move |s| s.directory_view(Some(id))).await?;
+        let members = blocking(store.clone(), move |s| s.members(&n)).await?;
+        let states: BTreeMap<String, String> = view["hosts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|h| {
+                Some((
+                    h["host_id"].as_str()?.to_owned(),
+                    h["state"].as_str()?.to_owned(),
+                ))
+            })
+            .collect();
+        for a in view["agents"].as_array().into_iter().flatten() {
+            if a["address"].is_null() {
+                continue;
+            }
+            if let Some(p) = person
+                && a["person_id"].as_str() != Some(p)
+                && !a["person_label"]
+                    .as_str()
+                    .is_some_and(|l| crate::network::labels_conflict(l, p))
+                && a["host_id"].as_str() != Some(p)
+            {
+                continue;
+            }
+            let host = a["host_id"].as_str().unwrap_or_default().to_owned();
+            if out
+                .iter()
+                .any(|x| x["host_id"] == a["host_id"] && x["agent_id"] == a["agent_id"])
+            {
+                continue;
+            }
+            let mut actions = std::collections::BTreeSet::new();
+            for auth in a["authorizations"].as_array().into_iter().flatten() {
+                for action in auth["actions"].as_array().into_iter().flatten() {
+                    if let Some(action) = action.as_str() {
+                        actions.insert(action.to_owned());
+                    }
+                }
+            }
+            let actions: Vec<&str> = crate::policy::ACTIONS
+                .iter()
+                .copied()
+                .filter(|x| actions.contains(*x))
+                .collect();
+            let map = crate::directory::map_address(&members, &host);
+            out.push(json!({
+                "address": a["address"],
+                "host_id": host,
+                "agent_id": a["agent_id"],
+                "connected": a["connected"],
+                "host_state": states.get(&host).cloned().unwrap_or_else(|| "pending".into()),
+                "actions": actions,
+                "endpoint": crate::directory::endpoint(store, &host, map),
+            }));
+        }
+    }
+    out.sort_by(|a, b| {
+        (a["address"].as_str(), a["host_id"].as_str())
+            .cmp(&(b["address"].as_str(), b["host_id"].as_str()))
+    });
+    Ok(out)
+}
+
+/// `GET /v1/discover`: reachable agents and usable capabilities together.
+async fn discover(
+    store: Arc<Store>,
+    person: Option<String>,
+    network: Option<String>,
+) -> Result<Value, Error> {
+    let person = person.filter(|p| !p.is_empty());
+    let (p, n) = (person.clone(), network.clone());
+    let hosts = blocking(store.clone(), move |s| match &p {
         Some(owner) => s.owner_hosts(owner, n.as_deref()),
         None => s.all_hosts(n.as_deref()),
     })
     .await?;
-    let mut tools = Vec::new();
+    let n = network.clone();
+    let labels = blocking(store.clone(), move |s| s.host_labels(n.as_deref())).await?;
+    let mut found = Vec::new();
     let mut unanswered = Vec::new();
     for (host, outcome) in listings(&store, hosts, network.as_deref()).await {
         match outcome {
-            Ok(entries) => {
-                for e in entries {
-                    if entry_matches(&e, agent.as_deref(), server.as_deref(), profile.as_ref()) {
-                        let label = match e["profile"].as_str() {
-                            Some(p) => format!("{}@{p}", e["server"].as_str().unwrap_or_default()),
-                            None => e["server"].as_str().unwrap_or_default().to_owned(),
-                        };
-                        tools.push(json!({
-                            "host_id": host,
-                            "address": format!("{host}/{}/{label}", e["agent"].as_str().unwrap_or_default()),
-                            "agent": e["agent"],
-                            "agent_id": e["agent_id"],
-                            "server": e["server"],
-                            "profile": e["profile"],
-                            "tools": e["tools"],
-                            "resources": e["resources"],
-                        }));
-                    }
-                }
-            }
+            Ok(entries) => found.push((host, entries)),
             Err(error) => unanswered.push(json!({"host_id": host, "error": error})),
         }
     }
-    Ok(json!({"entries": tools, "unanswered": unanswered}))
+    let agents = reachable_agents(&store, person.as_deref(), network.as_deref()).await?;
+    Ok(json!({
+        "agents": agents,
+        "capabilities": addressed(found, &labels),
+        "unanswered": unanswered,
+    }))
 }
 
-/// Resolves a target to exactly one host and its listing entry.
+/// Resolves an address to exactly one host and its listing entry.
 async fn resolve(
     store: &Arc<Store>,
-    t: &Target,
+    a: &Address,
     network: Option<&str>,
 ) -> Result<(String, Value), Error> {
-    let (owner, n) = (t.owner.clone(), network.map(str::to_owned));
+    let (owner, n) = (a.owner.clone(), network.map(str::to_owned));
     let hosts = blocking(store.clone(), move |s| s.owner_hosts(&owner, n.as_deref())).await?;
     let mut matches = Vec::new();
     let mut unanswered = Vec::new();
@@ -572,7 +693,7 @@ async fn resolve(
             Ok(entries) => {
                 if let Some(e) = entries
                     .into_iter()
-                    .find(|e| entry_matches(e, Some(&t.agent), Some(&t.server), Some(&t.profile)))
+                    .find(|e| e["capability"].as_str() == Some(a.capability.as_str()))
                 {
                     matches.push((host, e));
                 }
@@ -580,50 +701,25 @@ async fn resolve(
             Err(error) => unanswered.push((host, error)),
         }
     }
-    let label = match &t.profile {
-        Some(p) => format!("{}@{p}", t.server),
-        None => t.server.clone(),
-    };
     match matches.len() {
         1 => Ok(matches.remove(0)),
-        0 => Err(Error::Coded {
-            status: 404,
-            code: "not_found",
-            message: if unanswered.is_empty() {
-                format!("no host lists {}/{label} for this host", t.agent)
-            } else {
-                format!(
-                    "no host lists {}/{label} for this host; these hosts did not answer: {}",
-                    t.agent,
-                    unanswered
-                        .iter()
-                        .map(|(h, e)| format!("{h} ({e})"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            },
-            extra: [(
-                "unanswered".to_owned(),
-                json!(
-                    unanswered
-                        .iter()
-                        .map(|(h, e)| json!({"host_id": h, "error": e}))
-                        .collect::<Vec<_>>()
-                ),
-            )]
-            .into_iter()
-            .collect(),
-        }),
+        0 => Err(not_found(
+            format!(
+                "no host of {} offers {} to this host",
+                a.owner, a.capability
+            ),
+            &unanswered,
+        )),
         _ => {
             let forms: Vec<String> = matches
                 .iter()
-                .map(|(h, _)| format!("{h}/{}/{label}", t.agent))
+                .map(|(h, _)| format!("{h}/{}", a.capability))
                 .collect();
             Err(Error::Coded {
                 status: 409,
                 code: "ambiguous",
                 message: format!(
-                    "the target matches several hosts; use one of: {}",
+                    "the address matches several hosts; use one of: {}",
                     forms.join(", ")
                 ),
                 extra: [("candidates".to_owned(), json!(forms))]
@@ -634,34 +730,19 @@ async fn resolve(
     }
 }
 
-/// `POST /v1/calls`: resolves the target, cites what its listing reported,
-/// persists the call, and submits it.
+/// `POST /v1/calls`: resolves the address, cites what its listing
+/// reported, persists the call, and submits it.
 async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, Error> {
-    let tool = match r.kind.as_str() {
-        "tool" => true,
-        "resource" => false,
-        _ => return Err(Error::Invalid("kind is tool or resource".into())),
-    };
-    let (name, uri, arguments) = if tool {
-        let name = r
-            .name
-            .filter(|n| !n.is_empty())
-            .ok_or_else(|| Error::Invalid("a tool call names the tool".into()))?;
-        let arguments = r.arguments.unwrap_or_else(|| json!({}));
-        if !arguments.is_object() || r.uri.is_some() {
-            return Err(Error::Invalid("tool arguments are a JSON object".into()));
-        }
-        (Some(name), None, Some(arguments))
-    } else {
-        let uri = r
-            .uri
-            .filter(|u| !u.is_empty())
-            .ok_or_else(|| Error::Invalid("a read names the URI".into()))?;
-        if r.name.is_some() || r.arguments.is_some() {
-            return Err(Error::Invalid("a read takes only a URI".into()));
-        }
-        (None, Some(uri), None)
-    };
+    if r.operation.is_empty() {
+        return Err(Error::Invalid("give an operation".into()));
+    }
+    let input = r
+        .input
+        .filter(|i| !i.is_null())
+        .unwrap_or_else(|| json!({}));
+    if !input.is_object() {
+        return Err(Error::Invalid("the input is a JSON object".into()));
+    }
     if let Some(id) = &r.call_id
         && !call_id_shape(id)
     {
@@ -677,29 +758,9 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
             ));
         }
     }
-    let target = parse_target(&r.target)?;
-    let (peer, entry) = resolve(&store, &target, r.network.as_deref()).await?;
-    let wanted = name.as_deref().or(uri.as_deref()).unwrap_or_default();
-    let listed = if tool {
-        entry["tools"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|t| t["name"].as_str() == Some(wanted))
-    } else {
-        entry["resources"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|x| x["uri"].as_str() == Some(wanted))
-    };
-    let Some(listed) = listed else {
-        return Err(Error::Invalid(format!(
-            "{} does not list {wanted} for this host",
-            r.target
-        )));
-    };
-    let via: Vec<&Value> = listed["via"].as_array().into_iter().flatten().collect();
+    let address = parse_address(&r.target)?;
+    let (peer, entry) = resolve(&store, &address, r.network.as_deref()).await?;
+    let via: Vec<&Value> = entry["via"].as_array().into_iter().flatten().collect();
     let chosen = match &r.network {
         Some(network) => via
             .iter()
@@ -711,21 +772,32 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
             .first()
             .ok_or_else(|| Error::Invalid("the listing gives no authorization".into()))?,
     };
-    let network_id = chosen["network_id"].as_str().map(str::to_owned);
+    let network_id = chosen["network_id"]
+        .as_str()
+        .filter(|n| valid_id(n, "net", 32))
+        .ok_or_else(|| Error::Invalid("the listing gives no usable authorization".into()))?
+        .to_owned();
     let (policy, self_access) = match chosen["kind"].as_str() {
         Some("policy") => (
-            Some(PolicyRef {
+            Some(PolicyCitation {
                 person_id: chosen["person_id"].as_str().unwrap_or_default().to_owned(),
+                network_id: network_id.clone(),
                 version: chosen["version"].as_u64().unwrap_or(0),
             }),
             None,
         ),
         Some("self") => {
-            let n = network_id.clone().unwrap_or_default();
+            let n = network_id.clone();
             let person = blocking(store.clone(), move |s| s.person_in(&n))
                 .await?
                 .ok_or_else(|| Error::Invalid("this host has no person for self access".into()))?;
-            (None, Some(SelfRef { person_id: person }))
+            (
+                None,
+                Some(SelfCitation {
+                    person_id: person,
+                    network_id: network_id.clone(),
+                }),
+            )
         }
         _ => {
             return Err(Error::Invalid(
@@ -738,8 +810,8 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         Some(d) => d,
         None => {
             let mut end = at + MAX_DEADLINE;
-            if let (Some(p), Some(n)) = (&policy, &network_id) {
-                let (n, person) = (n.clone(), p.person_id.clone());
+            if let Some(p) = &policy {
+                let (n, person) = (p.network_id.clone(), p.person_id.clone());
                 if let Some(until) =
                     blocking(store.clone(), move |s| s.policy_end(&n, &person)).await?
                 {
@@ -754,21 +826,14 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
             Some(id) => id,
             None => new_id("call")?,
         },
-        target_agent_id: entry["agent_id"].as_str().unwrap_or_default().to_owned(),
-        server: target.server.clone(),
-        profile: target.profile.clone(),
-        kind: r.kind.clone(),
-        name,
-        uri,
-        arguments,
+        capability: address.capability.clone(),
+        operation: r.operation,
+        input,
         deadline,
         origin: None,
         policy,
         self_access,
     };
-    if !valid_id(&request.target_agent_id, "agent", 16) {
-        return Err(Error::Invalid("the listing names no valid agent ID".into()));
-    }
     let out = OutboundCall {
         peer_host_id: peer,
         request,
@@ -780,7 +845,7 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
         error: None,
         status_queries: 0,
-        network_id,
+        network_id: Some(network_id),
         target: r.target,
     };
     let out = blocking(store.clone(), move |s| s.prepare_call(out)).await?;
@@ -946,9 +1011,9 @@ struct Page {
     limit: Option<i64>,
 }
 #[derive(Deserialize)]
-struct RemoteQuery {
+struct DiscoverQuery {
     #[serde(default)]
-    target: Option<String>,
+    person: Option<String>,
     #[serde(default)]
     network: Option<String>,
 }
@@ -957,7 +1022,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/calls", get(list_route).post(create_route))
         .route("/v1/calls/{peer}/{id}", get(inspect_route))
         .route("/v1/calls/{peer}/{id}/cancel", post(cancel_route))
-        .route("/v1/remote-tools", get(remote_route))
+        .route("/v1/discover", get(discover_route))
 }
 async fn list_route(
     State(store): State<Arc<Store>>,
@@ -996,12 +1061,12 @@ async fn cancel_route(
     }
     Ok(Json(out))
 }
-async fn remote_route(
+async fn discover_route(
     State(store): State<Arc<Store>>,
-    query: Result<Query<RemoteQuery>, QueryRejection>,
+    query: Result<Query<DiscoverQuery>, QueryRejection>,
 ) -> Result<Json<Value>, Error> {
     let Query(q) = query.map_err(|_| Error::Invalid("invalid query".into()))?;
-    Ok(Json(remote_tools(store, q.target, q.network).await?))
+    Ok(Json(discover(store, q.person, q.network).await?))
 }
 
 /// A peer host ID and call ID.

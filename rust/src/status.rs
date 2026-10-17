@@ -23,7 +23,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-const KINDS: [&str; 14] = [
+const KINDS: [&str; 15] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -37,7 +37,8 @@ const KINDS: [&str; 14] = [
     "coordinator_limit",
     "agent_name_conflict",
     "channel_unverified",
-    "tool_server_failing",
+    "capability_failing",
+    "capability_name_conflict",
 ];
 
 /// How long an adapter may hold a lease without verifying its channel
@@ -305,10 +306,13 @@ impl Store {
                 "peerspan session doctor".into(),
             ));
         }
-        for (subject, detail, command) in self.failing_tool_servers()? {
-            attention.push(item("tool_server_failing", subject, detail, command));
+        for (subject, detail, command) in self.failing_capabilities()? {
+            attention.push(item("capability_failing", subject, detail, command));
         }
-        let tools = self.tools_summary()?;
+        for (subject, detail, command) in self.capability_name_conflicts()? {
+            attention.push(item("capability_name_conflict", subject, detail, command));
+        }
+        let capabilities = self.capabilities_summary()?;
         attention.sort_by(|a, b| {
             let rank = |k: &str| KINDS.iter().position(|x| *x == k);
             rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.1.cmp(&b.1))
@@ -324,7 +328,7 @@ impl Store {
                 "stored_bytes": artifacts.stored_bytes,
                 "pending_bytes": artifacts.pending_bytes,
             },
-            "tools": tools,
+            "capabilities": capabilities,
             "attention": attention.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
         }))
     }

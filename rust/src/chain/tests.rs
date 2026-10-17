@@ -1081,7 +1081,7 @@ fn version_ten_migrates_to_latest_and_sixteen_is_refused() {
     Connection::open(path.join("host.db"))
         .unwrap()
         .execute_batch(
-            "DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE tool_confirmations; DROP TABLE tool_profiles; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10;",
+            "DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; PRAGMA user_version = 10;",
         )
         .unwrap();
     let store = Store::open(&path).unwrap();

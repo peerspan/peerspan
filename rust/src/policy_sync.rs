@@ -1070,7 +1070,7 @@ mod tests {
         drop(Store::open(&path).unwrap());
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE tool_confirmations; DROP TABLE tool_profiles; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
+            .execute_batch("DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
             .unwrap();
         let store = Store::open(&path).unwrap();
         let connection = store.connection().unwrap();

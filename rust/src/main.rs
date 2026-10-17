@@ -1,11 +1,11 @@
 mod access;
 mod addressing;
 mod admin;
+mod capability_cli;
 mod cli;
 mod discovery;
 mod integration;
 mod service;
-mod tools_cli;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
@@ -225,7 +225,7 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     {
         return Ok(value);
     }
-    if let Some(value) = tools_cli::command(&command, directory).await? {
+    if let Some(value) = capability_cli::command(&command, directory).await? {
         return Ok(value);
     }
     if let Some(value) = access::top_command(&command, &socket).await? {
@@ -355,7 +355,7 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
     }
     Ok(())
 }
-const ATTENTION_ORDER: [&str; 14] = [
+const ATTENTION_ORDER: [&str; 15] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -369,7 +369,8 @@ const ATTENTION_ORDER: [&str; 14] = [
     "coordinator_limit",
     "agent_name_conflict",
     "channel_unverified",
-    "tool_server_failing",
+    "capability_failing",
+    "capability_name_conflict",
 ];
 
 fn exit(code: i32) -> ! {
@@ -578,7 +579,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                         Ok(_) => {
                             value["person"]["bound"] = json!(true);
                             value["person"]["next"] = Value::Null;
-                            tools_cli::trust_outcome(
+                            capability_cli::trust_outcome(
                                 &mut value,
                                 &socket,
                                 &network,
@@ -669,7 +670,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                     let id = value["id"].as_str().unwrap_or_default().to_owned();
                     value["trusted"] = json!(false);
                     if bound {
-                        tools_cli::trust_outcome(
+                        capability_cli::trust_outcome(
                             &mut value,
                             &socket,
                             &id,

@@ -1,18 +1,19 @@
-//! Calls to shared tools (tools contract): the receiving host. A peer lists
-//! what it may call, submits a `tools/call` or `resources/read` request,
-//! and polls its status. The host authorizes each call by policy or self
-//! access from a trusted host, persists it, and runs it on the
-//! server's instance, never twice.
+//! Calls (capabilities contract): the receiving host. A peer lists the
+//! capabilities it may use, and the sources opened to it; submits a call to
+//! one operation; and polls its status. The host authorizes each call by
+//! policy, or by self access from a trusted host, persists it, and runs it
+//! on the serving instance, never twice.
 use crate::{
     api::{blocking, decode},
+    capabilities::{
+        CapabilityRecord, READ, capability_record, capability_records, current, present_resources,
+    },
     mcp::{self, Reply},
     model::Error,
     peer_store::{Origin, valid_id},
-    policy::{
-        ALL_AGENTS, MAX_INPUT_BYTES, Policy, PolicyRef, SelfRef, ToolRule, principal_matches,
-    },
+    policy::{MAX_INPUT_BYTES, Policy, name_shape, person_id_shape, principal_matches},
+    sources::{Instance, ServerRecord, Snapshot, open_to_host, server_record},
     store::{Store, append_event, now, rfc3339},
-    tools::{Instance, Snapshot},
 };
 use axum::{
     Extension, Json, Router,
@@ -23,9 +24,9 @@ use axum::{
     },
     routing::{get, post},
 };
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{TimeDelta, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::{
@@ -37,7 +38,7 @@ use tokio::sync::{Notify, watch};
 
 /// A deadline is at most this long after submission.
 pub const MAX_DEADLINE: TimeDelta = TimeDelta::minutes(15);
-/// Arguments and results are deleted this long after a call is final.
+/// Inputs and results are deleted this long after a call is final.
 const RETENTION: TimeDelta = TimeDelta::days(7);
 /// One instance runs at most this many calls at once.
 const PER_INSTANCE: usize = 4;
@@ -65,9 +66,21 @@ pub fn is_final(state: &str) -> bool {
     FINAL.contains(&state)
 }
 
-/// Present, possibly null: `profile` must always be sent.
-fn nullable<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    Option::<String>::deserialize(d)
+/// A policy citation: the owner, the network, and the newest version the
+/// sender has verified.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyCitation {
+    pub person_id: String,
+    pub network_id: String,
+    pub version: u64,
+}
+/// A self citation: the sender's person, in one network.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SelfCitation {
+    pub person_id: String,
+    pub network_id: String,
 }
 
 /// A call as submitted on the wire.
@@ -75,29 +88,12 @@ fn nullable<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error>
 #[serde(deny_unknown_fields)]
 pub struct CallRequest {
     pub call_id: String,
-    pub target_agent_id: String,
-    pub server: String,
-    #[serde(deserialize_with = "nullable")]
-    pub profile: Option<String>,
-    pub kind: String,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::policy::present"
-    )]
-    pub name: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::policy::present"
-    )]
-    pub uri: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::policy::present"
-    )]
-    pub arguments: Option<Value>,
+    /// A capability name, or `AGENT/SERVER` for a source.
+    pub capability: String,
+    pub operation: String,
+    /// The operation's input; deleted 7 days after the call is final.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub input: Value,
     pub deadline: String,
     #[serde(
         default,
@@ -110,75 +106,62 @@ pub struct CallRequest {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::policy::present"
     )]
-    pub policy: Option<PolicyRef>,
+    pub policy: Option<PolicyCitation>,
     #[serde(
         rename = "self",
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::policy::present"
     )]
-    pub self_access: Option<SelfRef>,
+    pub self_access: Option<SelfCitation>,
 }
 impl CallRequest {
-    pub fn instance(&self) -> Instance {
-        Instance {
-            agent_id: self.target_agent_id.clone(),
-            server: self.server.clone(),
-            profile: self.profile.clone(),
-        }
+    /// `AGENT` and `SERVER` when the call is to a source.
+    pub fn source(&self) -> Option<(&str, &str)> {
+        self.capability.rsplit_once('/')
     }
-    fn tool(&self) -> bool {
-        self.kind == "tool"
-    }
-    /// The tool name or the URI.
-    fn target(&self) -> &str {
-        self.name
-            .as_deref()
-            .or(self.uri.as_deref())
-            .unwrap_or_default()
-    }
-    /// What `max_input_bytes` bounds: the JSON encoding of `arguments`, or
-    /// the URI.
+    /// What `max_input_bytes` bounds: the JSON encoding of the input.
     fn input_size(&self) -> usize {
-        match &self.arguments {
-            Some(a) if self.tool() => serde_json::to_vec(a).map(|v| v.len()).unwrap_or(usize::MAX),
-            _ => self.uri.as_deref().map_or(0, str::len),
-        }
+        serde_json::to_vec(&self.input)
+            .map(|v| v.len())
+            .unwrap_or(usize::MAX)
     }
-    fn arguments_sha256(&self) -> String {
-        let encoded = match &self.arguments {
-            Some(a) => serde_json::to_vec(a).unwrap_or_default(),
-            None => Vec::new(),
-        };
-        hex::encode(sha2::Sha256::digest(encoded))
+    fn input_sha256(&self) -> String {
+        hex::encode(sha2::Sha256::digest(
+            serde_json::to_vec(&self.input).unwrap_or_default(),
+        ))
     }
 }
 pub fn call_id_shape(id: &str) -> bool {
     valid_id(id, "call", 16)
 }
+fn network_shape(id: &str) -> bool {
+    valid_id(id, "net", 32)
+}
+/// A capability name, or `AGENT/SERVER`.
+pub fn capability_shape(value: &str) -> bool {
+    match value.rsplit_once('/') {
+        Some((agent, server)) => {
+            !agent.is_empty() && crate::membership::label(agent).is_ok() && name_shape(server)
+        }
+        None => name_shape(value),
+    }
+}
 fn validate(r: &CallRequest) -> Result<(), Error> {
-    let shape = call_id_shape(&r.call_id)
-        && valid_id(&r.target_agent_id, "agent", 16)
-        && crate::policy::tool_name_shape(&r.server)
-        && r.profile
-            .as_deref()
-            .is_none_or(crate::policy::tool_name_shape)
-        && r.origin.as_ref().is_none_or(Origin::valid)
-        && crate::peer_store::one_authorization(None, r.policy.as_ref(), r.self_access.as_ref());
-    let body = match r.kind.as_str() {
-        "tool" => {
-            r.name.as_deref().is_some_and(|n| !n.is_empty())
-                && r.uri.is_none()
-                && r.arguments.as_ref().is_some_and(Value::is_object)
+    let citation = match (&r.policy, &r.self_access) {
+        (Some(p), None) => {
+            p.version >= 1 && person_id_shape(&p.person_id) && network_shape(&p.network_id)
         }
-        "resource" => {
-            r.uri.as_deref().is_some_and(|u| !u.is_empty())
-                && r.name.is_none()
-                && r.arguments.is_none()
-        }
+        (None, Some(s)) => person_id_shape(&s.person_id) && network_shape(&s.network_id),
         _ => false,
     };
-    if !shape || !body {
+    if !call_id_shape(&r.call_id)
+        || !capability_shape(&r.capability)
+        || r.operation.is_empty()
+        || !r.input.is_object()
+        || r.origin.as_ref().is_some_and(|o| !o.valid())
+        || !citation
+    {
         return Err(Error::Invalid("invalid call".into()));
     }
     crate::membership::time(&r.deadline)?;
@@ -191,12 +174,8 @@ pub struct CallStatus {
     pub call_id: String,
     pub sender_host_id: String,
     pub receiver_host_id: String,
-    pub target_agent_id: String,
-    pub server: String,
-    pub profile: Option<String>,
-    pub kind: String,
-    pub name: Option<String>,
-    pub uri: Option<String>,
+    pub capability: String,
+    pub operation: String,
     pub state: String,
     pub cancel_requested: bool,
     pub error: Option<String>,
@@ -213,8 +192,8 @@ struct Stored {
     status: CallStatus,
     #[serde(default)]
     result: Option<Value>,
-    arguments_sha256: String,
-    /// The rule or grant whose hourly budget the call counted against.
+    input_sha256: String,
+    /// The rule whose hourly budget the call counted against.
     #[serde(default)]
     budget: Option<String>,
     caller: String,
@@ -301,25 +280,59 @@ fn expire(
     Ok(true)
 }
 
-/// Whether a tool rule covers a tool (by its scope) or a resource (every
-/// resource of the snapshot, under `resource.read`).
-fn covers(rule: &ToolRule, tool: bool, target: &str, snapshot: Option<&Snapshot>) -> bool {
-    if !tool {
-        return rule.reads_resources();
-    }
-    rule.calls_tools()
-        && rule.scope.iter().any(|entry| match entry.as_str() {
-            "*" => true,
-            "readonly" => snapshot
-                .and_then(|s| s.tool(target))
-                .is_some_and(|t| t.read_only),
-            name => name == target,
-        })
+/// What a call reaches on this host.
+enum Target {
+    Capability(CapabilityRecord),
+    /// A source called as an implicit capability `AGENT/SERVER`.
+    Source {
+        server: ServerRecord,
+    },
 }
-/// The read-only rule: under policy or a grant, a tool of a server without
-/// a profile must be read-only.
-fn read_only_ok(instance: &Instance, tool: bool, target: &str, snapshot: &Snapshot) -> bool {
-    !tool || instance.profile.is_some() || snapshot.tool(target).is_some_and(|t| t.read_only)
+impl Target {
+    fn instance(&self) -> Instance {
+        match self {
+            Self::Capability(c) => c.instance(),
+            Self::Source { server } => Instance {
+                agent_id: server.agent_id.clone(),
+                server: server.definition.name.clone(),
+                capability: None,
+            },
+        }
+    }
+}
+/// The agent ID of a local agent named `name`.
+fn agent_id(conn: &Connection, name: &str) -> Result<Option<String>, Error> {
+    Ok(conn
+        .query_row("SELECT id FROM agents WHERE name = ?1", [name], |r| {
+            r.get(0)
+        })
+        .optional()?)
+}
+/// The source behind `AGENT/SERVER`, when it is shareable and snapshotted.
+fn open_source(
+    conn: &Connection,
+    agent: &str,
+    server: &str,
+) -> Result<Option<ServerRecord>, Error> {
+    let Some(id) = agent_id(conn, agent)? else {
+        return Ok(None);
+    };
+    Ok(server_record(conn, &id, server)?.filter(|s| s.shareable && s.snapshot.is_some()))
+}
+
+/// The operations a source offers as an implicit capability: every tool
+/// but one named `read`, plus `read` when it has resources.
+fn source_operations(snapshot: &Snapshot) -> Vec<String> {
+    let mut ops: Vec<String> = snapshot
+        .tools
+        .iter()
+        .filter(|t| t.name != READ)
+        .map(|t| t.name.clone())
+        .collect();
+    if !snapshot.resources.is_empty() {
+        ops.push(READ.into());
+    }
+    ops
 }
 
 /// One way a call is authorized: its bounds and budget.
@@ -328,7 +341,6 @@ struct Candidate {
     /// The budget key and its hourly limit; none under self access.
     budget: Option<(String, i64)>,
     max_input: i64,
-    until: Option<DateTime<Utc>>,
     allow_disconnected: bool,
     caller: String,
 }
@@ -338,7 +350,7 @@ pub(crate) struct Authorized {
     caller: String,
 }
 
-/// The policy of this host's person in a network, if in its window.
+/// The policy of this host's person in a network.
 fn own_policy(
     store: &Store,
     conn: &Connection,
@@ -350,161 +362,139 @@ fn own_policy(
     };
     store.stored_policy(conn, network, &key)
 }
-/// The networks in which self access from a trusted host covers `sender`:
-/// both hosts are bound to the same person, and that person's newest
-/// verified policy there, within its window, lists the sender as trusted.
-fn trusted_networks(
+/// Whether self access covers `sender` in `network`: both hosts are bound
+/// to `person` there, and that person's newest verified policy, within its
+/// window, lists the sender as trusted.
+fn trusted_in(
     store: &Store,
     conn: &Connection,
     sender: &str,
-    person: Option<&str>,
-) -> Result<Vec<(String, String)>, Error> {
-    let mut out = Vec::new();
+    network: &str,
+    person: &str,
+) -> Result<bool, Error> {
     if sender == store.identity().id {
-        return Ok(out);
+        return Ok(false);
     }
-    let at = Utc::now();
+    let own = store
+        .own_members(conn)?
+        .into_iter()
+        .any(|(n, m)| n == network && m.person_id.as_deref() == Some(person));
+    let bound = crate::chain::member(conn, network, sender)?
+        .is_some_and(|m| m.person_id.as_deref() == Some(person));
+    if !own || !bound {
+        return Ok(false);
+    }
+    Ok(own_policy(store, conn, network, person)?
+        .is_some_and(|p| p.in_window(Utc::now()) && p.trusted_hosts().iter().any(|h| h == sender)))
+}
+/// The networks in which self access covers `sender`.
+fn trusted_networks(store: &Store, conn: &Connection, sender: &str) -> Result<Vec<String>, Error> {
+    let mut out = Vec::new();
     for (network, own) in store.own_members(conn)? {
-        let Some(p) = own.person_id.as_deref() else {
-            continue;
-        };
-        if person.is_some_and(|x| x != p) {
-            continue;
-        }
-        let bound = crate::chain::member(conn, &network, sender)?
-            .is_some_and(|m| m.person_id.as_deref() == Some(p));
-        if !bound {
-            continue;
-        }
-        if let Some(policy) = own_policy(store, conn, &network, p)?
-            && policy.in_window(at)
-            && policy.trusted_hosts().iter().any(|h| h == sender)
+        if let Some(person) = &own.person_id
+            && trusted_in(store, conn, sender, &network, person)?
         {
-            out.push((network.clone(), p.to_owned()));
+            out.push(network);
         }
     }
     Ok(out)
 }
-fn agent_name(conn: &Connection, id: &str) -> Result<Option<String>, Error> {
-    Ok(conn
-        .query_row("SELECT name FROM agents WHERE id = ?1", [id], |r| r.get(0))
-        .optional()?)
-}
-/// Whether a tool rule applies to agent `name` and this server or profile:
-/// the rule names the agent, or is a `*` rule while no tool rule names the
-/// agent for it.
-fn rule_applies(policy: &Policy, rule: &crate::policy::ToolRule, name: &str, server: &str) -> bool {
-    if rule.server != server {
-        return false;
-    }
-    if rule.agent == name {
-        return true;
-    }
-    rule.agent == ALL_AGENTS
-        && !policy
-            .tool_rules()
-            .iter()
-            .any(|r| r.agent == name && r.server == server)
-}
-/// A rule's budget identity: its network, owner, agent, server, actions,
-/// scope, and bounds, but not its principals.
-fn rule_key(network: &str, person: &str, rule: &crate::policy::ToolRule) -> String {
-    let identity = crate::policy::ToolRule {
-        principals: Vec::new(),
-        ..rule.clone()
-    };
-    let encoded = serde_json::to_vec(&identity).unwrap_or_default();
+/// A rule's budget identity: its network, owner, host, capability, and
+/// bounds, but not its principals.
+fn rule_key(network: &str, person: &str, rule: &crate::policy::CapabilityRule) -> String {
     format!(
-        "policy:{network}:{person}:{}",
-        hex::encode(sha2::Sha256::digest(encoded))
+        "policy:{network}:{person}:{}:{}:{} {} {}",
+        rule.host,
+        rule.capability,
+        rule.max_input_bytes,
+        rule.allow_disconnected,
+        rule.max_calls_per_hour
     )
 }
-/// The policy, grant, or self authorizations a call cites that match it,
-/// and whether it relies on self access.
+/// The authorization a call cites, when it matches, and whether it is
+/// self access.
 fn candidates(
     store: &Store,
     conn: &Connection,
     sender: &str,
     r: &CallRequest,
-    snapshot: Option<&Snapshot>,
 ) -> Result<(Vec<Candidate>, bool), Error> {
-    let instance = r.instance();
-    let label = instance.label();
-    let Some(name) = agent_name(conn, &r.target_agent_id)? else {
-        return Err(Error::NotFound);
-    };
+    let me = store.identity().id;
     if let Some(cited) = &r.self_access {
-        let trusted = trusted_networks(store, conn, sender, Some(&cited.person_id))?;
-        if trusted.is_empty() {
+        if !trusted_in(store, conn, sender, &cited.network_id, &cited.person_id)? {
+            return Err(Error::Forbidden);
+        }
+        // A source needs the serving host's open list as well.
+        if r.source().is_some() && !open_to_host(conn, sender)? {
             return Err(Error::Forbidden);
         }
         return Ok((
             vec![Candidate {
                 budget: None,
                 max_input: MAX_INPUT_BYTES,
-                until: None,
                 allow_disconnected: true,
                 caller: cited.person_id.clone(),
             }],
             true,
         ));
     }
-    let mut out = Vec::new();
-    if let Some(cited) = &r.policy {
-        let at = Utc::now();
-        let mut behind = false;
-        for (network, own) in store.own_members(conn)? {
-            if own.person_id.as_deref() != Some(cited.person_id.as_str()) {
-                continue;
-            }
-            let Some(policy) = own_policy(store, conn, &network, &cited.person_id)? else {
-                behind = true;
-                continue;
-            };
-            if policy.version < cited.version {
-                behind = true;
-                continue;
-            }
-            if !policy.in_window(at) {
-                continue;
-            }
-            let Some(sender_member) = crate::chain::member(conn, &network, sender)?
-                .filter(|m| m.host_id != store.identity().id)
-            else {
-                continue;
-            };
-            let groups = store.stored_groups(conn, &network)?;
-            let caller = sender_member
-                .person_id
-                .clone()
-                .unwrap_or_else(|| sender.to_owned());
-            for rule in policy.tool_rules() {
-                if rule_applies(&policy, rule, &name, &label)
-                    && rule
-                        .principals
-                        .iter()
-                        .any(|p| principal_matches(p, &sender_member, &groups, r.origin.as_ref()))
-                    && covers(rule, r.tool(), r.target(), snapshot)
-                {
-                    out.push(Candidate {
-                        budget: Some((
-                            rule_key(&network, &cited.person_id, rule),
-                            rule.max_calls_per_hour,
-                        )),
-                        max_input: rule.max_input_bytes,
-                        until: crate::membership::time(&policy.valid_until).ok(),
-                        allow_disconnected: rule.allow_disconnected,
-                        caller: caller.clone(),
-                    });
-                }
-            }
-        }
-        if out.is_empty() && behind {
-            return Err(Error::Unavailable(
-                "this host has not yet received the cited policy version".into(),
-            ));
-        }
+    let Some(cited) = &r.policy else {
+        return Err(Error::Forbidden);
+    };
+    // Sources are never shared through policy.
+    if r.source().is_some() {
+        return Err(Error::Forbidden);
     }
+    let bound = store.own_members(conn)?.into_iter().any(|(n, m)| {
+        n == cited.network_id && m.person_id.as_deref() == Some(cited.person_id.as_str())
+    });
+    if !bound {
+        return Err(Error::Forbidden);
+    }
+    let Some(policy) = own_policy(store, conn, &cited.network_id, &cited.person_id)? else {
+        return Err(Error::Unavailable(
+            "this host has not yet received the cited policy".into(),
+        ));
+    };
+    if policy.version < cited.version {
+        return Err(Error::Unavailable(
+            "this host has not yet received the cited policy version".into(),
+        ));
+    }
+    if !policy.in_window(Utc::now()) {
+        return Err(Error::Forbidden);
+    }
+    let Some(sender_member) =
+        crate::chain::member(conn, &cited.network_id, sender)?.filter(|m| m.host_id != me)
+    else {
+        return Err(Error::Forbidden);
+    };
+    let groups = store.stored_groups(conn, &cited.network_id)?;
+    let caller = sender_member
+        .person_id
+        .clone()
+        .unwrap_or_else(|| sender.to_owned());
+    let out: Vec<Candidate> = policy
+        .capability_rules()
+        .iter()
+        .filter(|rule| {
+            rule.host == me
+                && rule.capability == r.capability
+                && rule
+                    .principals
+                    .iter()
+                    .any(|p| principal_matches(p, &sender_member, &groups, r.origin.as_ref()))
+        })
+        .map(|rule| Candidate {
+            budget: Some((
+                rule_key(&cited.network_id, &cited.person_id, rule),
+                rule.max_calls_per_hour,
+            )),
+            max_input: rule.max_input_bytes,
+            allow_disconnected: rule.allow_disconnected,
+            caller: caller.clone(),
+        })
+        .collect();
     if out.is_empty() {
         return Err(Error::Forbidden);
     }
@@ -519,38 +509,75 @@ fn used(conn: &Connection, budget: &str, caller: &str) -> Result<i64, Error> {
         |r| r.get(0),
     )?)
 }
+fn unavailable(what: &str) -> Error {
+    Error::Coded {
+        status: 409,
+        code: "unavailable",
+        message: format!("{what} is unavailable"),
+        extra: Default::default(),
+    }
+}
+/// The target and whether the operation and its input fit it: 404 when the
+/// capability, operation, or URI is not there, 409 when it is unavailable.
+fn resolve_target(conn: &Connection, r: &CallRequest) -> Result<Target, Error> {
+    let uri = || r.input.get("uri").and_then(Value::as_str);
+    if let Some((agent, server)) = r.source() {
+        let Some(id) = agent_id(conn, agent)? else {
+            return Err(Error::NotFound);
+        };
+        let Some(source) = server_record(conn, &id, server)? else {
+            return Err(unavailable(&r.capability));
+        };
+        let Some(snapshot) = source.snapshot.as_ref().filter(|_| source.shareable) else {
+            return Err(unavailable(&r.capability));
+        };
+        if !source_operations(snapshot).contains(&r.operation) {
+            return Err(Error::NotFound);
+        }
+        if r.operation == READ && uri().is_none_or(|u| snapshot.resource(u).is_none()) {
+            return Err(Error::NotFound);
+        }
+        return Ok(Target::Source { server: source });
+    }
+    let Some(record) = capability_record(conn, &r.capability)? else {
+        return Err(Error::NotFound);
+    };
+    let is_read = r.operation == READ && record.reads();
+    if !is_read && !record.operations.contains(&r.operation) {
+        return Err(Error::NotFound);
+    }
+    let now = current(conn, &record)?;
+    if now.gone() {
+        return Err(unavailable(&r.capability));
+    }
+    if now.unavailable.contains(&r.operation) {
+        return Err(unavailable(&format!("{}/{}", r.capability, r.operation)));
+    }
+    if is_read {
+        let present = present_resources(&record, now.snapshot.as_ref());
+        if uri().is_none_or(|u| !present.iter().any(|p| p.uri == u)) {
+            return Err(Error::NotFound);
+        }
+    }
+    Ok(Target::Capability(record))
+}
 
 /// Authorizes a call, in the contract's order: a matching citation, then
-/// blocks (except self), the snapshot (404), the read-only rule (except
-/// self), the bounds (413, the deadline, the connected state), and, at
-/// submission, the hourly budget (429).
+/// blocks (except self), the capability and operation (404, or 409 when
+/// unavailable), the bounds (413, the deadline at submission, the
+/// connected state), and, at submission, the hourly budget (429).
 fn authorize(
     store: &Store,
     conn: &Connection,
     sender: &str,
     r: &CallRequest,
-    budget: bool,
-) -> Result<Authorized, Error> {
-    let instance = r.instance();
-    let snapshot = store.offered(conn, &instance)?;
-    let (candidates, self_access) = candidates(store, conn, sender, r, snapshot.as_ref())?;
+    submission: bool,
+) -> Result<(Authorized, Target), Error> {
+    let (candidates, self_access) = candidates(store, conn, sender, r)?;
     if !self_access && store.blocked(conn, sender)? {
         return Err(Error::Forbidden);
     }
-    let Some(snapshot) = snapshot else {
-        return Err(Error::NotFound);
-    };
-    let present = if r.tool() {
-        snapshot.tool(r.target()).is_some()
-    } else {
-        snapshot.resource(r.target()).is_some()
-    };
-    if !present {
-        return Err(Error::NotFound);
-    }
-    if !self_access && !read_only_ok(&instance, r.tool(), r.target(), &snapshot) {
-        return Err(Error::Forbidden);
-    }
+    let target = resolve_target(conn, r)?;
     let size = r.input_size() as i64;
     let fit: Vec<Candidate> = candidates
         .into_iter()
@@ -561,13 +588,15 @@ fn authorize(
             "the input is larger than the authorization's max_input_bytes".into(),
         ));
     }
-    let deadline = crate::membership::time(&r.deadline)?;
-    let fit: Vec<Candidate> = fit
-        .into_iter()
-        .filter(|c| c.until.is_none_or(|u| deadline <= u))
-        .collect();
-    if fit.is_empty() {
-        return Err(Error::Forbidden);
+    if submission {
+        // One minute of clock skew beyond the 15 minutes.
+        let at = Utc::now();
+        let deadline = crate::membership::time(&r.deadline)?;
+        if deadline <= at || deadline > at + MAX_DEADLINE + TimeDelta::minutes(1) {
+            return Err(Error::Invalid(
+                "a deadline is in the future and at most 15 minutes away".into(),
+            ));
+        }
     }
     let connected = store.connected(conn, sender)?;
     let fit: Vec<Candidate> = fit
@@ -586,26 +615,35 @@ fn authorize(
             Error::Forbidden
         });
     }
-    if !budget {
+    if !submission {
         let c = &fit[0];
-        return Ok(Authorized {
-            budget: c.budget.as_ref().map(|(k, _)| k.clone()),
-            caller: c.caller.clone(),
-        });
+        return Ok((
+            Authorized {
+                budget: c.budget.as_ref().map(|(k, _)| k.clone()),
+                caller: c.caller.clone(),
+            },
+            target,
+        ));
     }
     for c in &fit {
         match &c.budget {
             None => {
-                return Ok(Authorized {
-                    budget: None,
-                    caller: c.caller.clone(),
-                });
+                return Ok((
+                    Authorized {
+                        budget: None,
+                        caller: c.caller.clone(),
+                    },
+                    target,
+                ));
             }
             Some((key, limit)) if used(conn, key, &c.caller)? < *limit => {
-                return Ok(Authorized {
-                    budget: Some(key.clone()),
-                    caller: c.caller.clone(),
-                });
+                return Ok((
+                    Authorized {
+                        budget: Some(key.clone()),
+                        caller: c.caller.clone(),
+                    },
+                    target,
+                ));
             }
             Some(_) => {}
         }
@@ -614,6 +652,28 @@ fn authorize(
         limit: "max_calls_per_hour".into(),
         message: "the hourly call budget of this authorization is used up".into(),
     })
+}
+
+/// The input schema of `read`: one of the URIs.
+fn read_schema(uris: &[String]) -> Value {
+    json!({
+        "type": "object",
+        "properties": {"uri": {"type": "string", "enum": uris}},
+        "required": ["uri"],
+    })
+}
+fn tool_operation(snapshot: Option<&Snapshot>, name: &str) -> Value {
+    match snapshot.and_then(|s| s.tool(name)) {
+        Some(t) => json!({
+            "name": t.name,
+            "description": t.description,
+            "input_schema": t.input_schema,
+            "read_only": t.read_only,
+        }),
+        None => {
+            json!({"name": name, "description": null, "input_schema": null, "read_only": false})
+        }
+    }
 }
 
 /// In-memory state of the call runner.
@@ -634,7 +694,7 @@ pub struct Runner {
 const RECHECK: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize)]
-pub(crate) struct ToolsQuery {
+pub(crate) struct ListQuery {
     #[serde(default)]
     network: Option<String>,
 }
@@ -647,10 +707,10 @@ impl Store {
         let tx = connection.transaction()?;
         if let Some((old, mut s)) = load(&tx, sender, &r.call_id)? {
             let strip = |c: &CallRequest| CallRequest {
-                arguments: None,
+                input: Value::Null,
                 ..c.clone()
             };
-            if strip(&old) != strip(&r) || s.arguments_sha256 != r.arguments_sha256() {
+            if strip(&old) != strip(&r) || s.input_sha256 != r.input_sha256() {
                 return Err(Error::Conflict(
                     "call ID reused with different fields".into(),
                 ));
@@ -661,24 +721,13 @@ impl Store {
             return Ok(s.status);
         }
         let at = Utc::now();
-        let deadline = crate::membership::time(&r.deadline)?;
-        // One minute of clock skew beyond the 15 minutes.
-        if deadline <= at || deadline > at + MAX_DEADLINE + TimeDelta::minutes(1) {
-            return Err(Error::Invalid(
-                "a deadline is in the future and at most 15 minutes away".into(),
-            ));
-        }
-        let authorized = authorize(self, &tx, sender, &r, true)?;
+        let (authorized, _) = authorize(self, &tx, sender, &r, true)?;
         let status = CallStatus {
             call_id: r.call_id.clone(),
             sender_host_id: sender.to_owned(),
             receiver_host_id: self.identity().id,
-            target_agent_id: r.target_agent_id.clone(),
-            server: r.server.clone(),
-            profile: r.profile.clone(),
-            kind: r.kind.clone(),
-            name: r.name.clone(),
-            uri: r.uri.clone(),
+            capability: r.capability.clone(),
+            operation: r.operation.clone(),
             state: "queued".into(),
             cancel_requested: false,
             error: None,
@@ -690,7 +739,7 @@ impl Store {
         let stored = Stored {
             status: status.clone(),
             result: None,
-            arguments_sha256: r.arguments_sha256(),
+            input_sha256: r.input_sha256(),
             budget: authorized.budget,
             caller: authorized.caller,
             accepted_ms: at.timestamp_millis(),
@@ -792,16 +841,16 @@ impl Store {
         }
         Ok(out)
     }
-    /// `GET /peer/v1/tools`: what the sender may call or read here, from
-    /// snapshots, filtered by authorization without budgets. With a
-    /// network, only self and policy authorizations from it count.
+    /// `GET /peer/v1/capabilities`: the capabilities the sender may use
+    /// here, and the sources opened to it. With a network, only that
+    /// network is evaluated.
     pub fn listing(&self, sender: &str, network: Option<&str>) -> Result<Vec<Value>, Error> {
         let conn = self.connection()?;
         let at = Utc::now();
+        let me = self.identity().id;
         let in_scope = |n: &str| network.is_none_or(|x| x == n);
-        let selfs: Vec<String> = trusted_networks(self, &conn, sender, None)?
+        let selfs: Vec<String> = trusted_networks(self, &conn, sender)?
             .into_iter()
-            .map(|(n, _)| n)
             .filter(|n| in_scope(n))
             .collect();
         let blocked = self.blocked(&conn, sender)?;
@@ -821,8 +870,8 @@ impl Store {
                 if !policy.in_window(at) {
                     continue;
                 }
-                let Some(sender_member) = crate::chain::member(&conn, &net, sender)?
-                    .filter(|m| m.host_id != self.identity().id)
+                let Some(sender_member) =
+                    crate::chain::member(&conn, &net, sender)?.filter(|m| m.host_id != me)
                 else {
                     continue;
                 };
@@ -830,90 +879,93 @@ impl Store {
                 policies.push((net, person, policy, sender_member, groups));
             }
         }
-        let names = crate::tools::agent_names(&conn)?;
+        let self_via: Vec<Value> = selfs
+            .iter()
+            .map(|n| json!({"kind": "self", "network_id": n}))
+            .collect();
         let mut out = Vec::new();
-        for offered in self.offered_all(&conn)? {
-            let instance = &offered.instance;
-            let snapshot = &offered.snapshot;
-            let Some(name) = names.get(&instance.agent_id) else {
-                continue;
-            };
-            let label = instance.label();
-            let via = |tool: bool, target: &str| -> Vec<Value> {
-                let mut via: Vec<Value> = selfs
-                    .iter()
-                    .map(|n| json!({"kind": "self", "network_id": n}))
-                    .collect();
-                let read_only = read_only_ok(instance, tool, target, snapshot);
-                for (net, person, policy, member, groups) in &policies {
-                    let allowed = read_only
-                        && policy.tool_rules().iter().any(|rule| {
-                            rule_applies(policy, rule, name, &label)
-                                && rule
-                                    .principals
-                                    .iter()
-                                    .any(|p| principal_matches(p, member, groups, None))
-                                && covers(rule, tool, target, Some(snapshot))
-                        });
-                    if allowed {
-                        via.push(json!({"kind": "policy", "network_id": net, "person_id": person, "version": policy.version}));
-                    }
+        for record in capability_records(&conn)? {
+            let mut via = self_via.clone();
+            for (net, person, policy, member, groups) in &policies {
+                let allowed = policy.capability_rules().iter().any(|rule| {
+                    rule.host == me
+                        && rule.capability == record.name
+                        && rule
+                            .principals
+                            .iter()
+                            .any(|p| principal_matches(p, member, groups, None))
+                });
+                if allowed {
+                    via.push(json!({"kind": "policy", "network_id": net, "person_id": person, "version": policy.version}));
                 }
-                via
-            };
-            let tools: Vec<Value> = snapshot
-                .tools
-                .iter()
-                .filter_map(|t| {
-                    let via = via(true, &t.name);
-                    (!via.is_empty()).then(|| {
-                        json!({
-                            "name": t.name,
-                            "description": t.description,
-                            "input_schema": t.input_schema,
-                            "read_only": t.read_only,
-                            "via": via,
-                        })
-                    })
-                })
-                .collect();
-            let resources: Vec<Value> = snapshot
-                .resources
-                .iter()
-                .filter_map(|r| {
-                    let via = via(false, &r.uri);
-                    (!via.is_empty()).then(|| {
-                        json!({
-                            "uri": r.uri,
-                            "name": r.name,
-                            "description": r.description,
-                            "mime_type": r.mime_type,
-                            "via": via,
-                        })
-                    })
-                })
-                .collect();
-            if tools.is_empty() && resources.is_empty() {
+            }
+            if via.is_empty() {
                 continue;
             }
-            out.push((
-                (
-                    name.clone(),
-                    instance.server.clone(),
-                    instance.profile.clone(),
-                ),
-                json!({
-                    "agent": name,
-                    "agent_id": instance.agent_id,
-                    "server": instance.server,
-                    "profile": instance.profile,
-                    "tools": tools,
-                    "resources": resources,
-                }),
-            ));
+            let now = current(&conn, &record)?;
+            let mut operations: Vec<Value> = record
+                .operations
+                .iter()
+                .map(|op| tool_operation(now.snapshot.as_ref(), op))
+                .collect();
+            let resources = present_resources(&record, now.snapshot.as_ref());
+            if record.reads() {
+                let uris: Vec<String> = resources.iter().map(|r| r.uri.clone()).collect();
+                operations.push(json!({
+                    "name": READ,
+                    "description": "Read one of the capability's resources",
+                    "input_schema": read_schema(&uris),
+                    "read_only": true,
+                }));
+            }
+            out.push(json!({
+                "kind": "capability",
+                "capability": record.name,
+                "operations": operations,
+                "resources": resources,
+                "state": now.state(),
+                "unavailable": now.unavailable,
+                "via": via,
+            }));
         }
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(out.into_iter().map(|(_, v)| v).collect())
+        // Sources opened to a trusted sender.
+        if !self_via.is_empty() && open_to_host(&conn, sender)? {
+            let names = crate::sources::agent_names(&conn)?;
+            for source in self.snapshotted_sources(&conn)? {
+                let (Some(agent), Some(snapshot)) =
+                    (names.get(&source.agent_id), source.snapshot.as_ref())
+                else {
+                    continue;
+                };
+                let mut operations: Vec<Value> = snapshot
+                    .tools
+                    .iter()
+                    .filter(|t| t.name != READ)
+                    .map(|t| tool_operation(Some(snapshot), &t.name))
+                    .collect();
+                if !snapshot.resources.is_empty() {
+                    let uris: Vec<String> =
+                        snapshot.resources.iter().map(|r| r.uri.clone()).collect();
+                    operations.push(json!({
+                        "name": READ,
+                        "description": "Read one of the source's resources",
+                        "input_schema": read_schema(&uris),
+                        "read_only": true,
+                    }));
+                }
+                out.push(json!({
+                    "kind": "source",
+                    "capability": format!("{agent}/{}", source.definition.name),
+                    "operations": operations,
+                    "resources": snapshot.resources,
+                    "state": "available",
+                    "unavailable": [],
+                    "via": self_via,
+                }));
+            }
+        }
+        out.sort_by(|a, b| a["capability"].as_str().cmp(&b["capability"].as_str()));
+        Ok(out)
     }
 
     /// Expires queued calls past their deadlines.
@@ -930,13 +982,20 @@ impl Store {
         }
         Ok(())
     }
-    /// Queued calls in order: sender, call ID, and instance.
+    /// Queued calls in order: sender, call ID, and the instance they run
+    /// on; a call whose target is gone gets a placeholder its recheck ends.
     fn queued_calls(&self) -> Result<Vec<(String, String, Instance)>, Error> {
         let connection = self.connection()?;
-        Ok(queued(&connection)?
-            .into_iter()
-            .map(|(sender, r, _)| (sender, r.call_id.clone(), r.instance()))
-            .collect())
+        let mut out = Vec::new();
+        for (sender, r, _) in queued(&connection)? {
+            let instance = instance_of(&connection, &r)?.unwrap_or_else(|| Instance {
+                agent_id: String::new(),
+                server: r.capability.clone(),
+                capability: None,
+            });
+            out.push((sender, r.call_id.clone(), instance));
+        }
+        Ok(out)
     }
     /// Rechecks a queued call immediately before it starts and marks it
     /// `running`. A lapse records `rejected`; a call no longer queued, or
@@ -1019,7 +1078,7 @@ impl Store {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         for (sender, request, mut s) in queued(&tx)? {
-            if request.instance() == *instance {
+            if instance_of(&tx, &request)?.as_ref() == Some(instance) {
                 finish(&tx, &sender, &mut s, "failed", Some(error), None)?;
             }
         }
@@ -1072,14 +1131,14 @@ impl Store {
         }
         Ok(())
     }
-    /// Deletes arguments and results 7 days after their calls became final.
+    /// Deletes inputs and results 7 days after their calls became final.
     fn prune_calls(&self) -> Result<(), Error> {
         let cutoff = (Utc::now() - RETENTION).timestamp_millis();
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let rows: Vec<(String, String, String)> = {
             let mut statement = tx.prepare(
-                "SELECT sender, request, record FROM received_calls WHERE json_extract(record, '$.finished_ms') < ?1 AND (json_extract(request, '$.arguments') IS NOT NULL OR json_extract(record, '$.result') IS NOT NULL)",
+                "SELECT sender, request, record FROM received_calls WHERE json_extract(record, '$.finished_ms') < ?1 AND (json_extract(request, '$.input') IS NOT NULL OR json_extract(record, '$.result') IS NOT NULL)",
             )?;
             statement
                 .query_map([cutoff], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
@@ -1089,7 +1148,7 @@ impl Store {
             let mut request: Value = serde_json::from_str(&request)?;
             let mut s: Stored = serde_json::from_str(&record)?;
             if let Some(object) = request.as_object_mut() {
-                object.remove("arguments");
+                object.remove("input");
             }
             s.result = None;
             tx.execute(
@@ -1100,6 +1159,14 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+}
+/// The instance a call runs on, while its target exists.
+fn instance_of(conn: &Connection, r: &CallRequest) -> Result<Option<Instance>, Error> {
+    if let Some((agent, server)) = r.source() {
+        return Ok(open_source(conn, agent, server)?
+            .map(|source| Target::Source { server: source }.instance()));
+    }
+    Ok(capability_record(conn, &r.capability)?.map(|c| c.instance()))
 }
 #[allow(clippy::type_complexity)]
 fn queued(conn: &Connection) -> Result<Vec<(String, CallRequest, Stored)>, Error> {
@@ -1196,7 +1263,7 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     };
     live.active
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let outcome = send(store, &live, &request, &cancel).await;
+    let outcome = send(&live, &request, &cancel).await;
     live.active
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut used) = live.used.lock() {
@@ -1231,14 +1298,16 @@ type Outcome = (
 /// Sends the call and waits for whichever comes first: the response, the
 /// instance ending, a cancellation, or the deadline. A cancellation or the
 /// deadline sends `notifications/cancelled`.
-async fn send(store: &Arc<Store>, live: &mcp::Live, r: &CallRequest, cancel: &Notify) -> Outcome {
-    let (method, params) = if r.tool() {
+async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify) -> Outcome {
+    // A tool operation is `tools/call`; `read` is `resources/read`.
+    let tool = r.operation != READ;
+    let (method, params) = if tool {
         (
             "tools/call",
-            json!({"name": r.name, "arguments": r.arguments.clone().unwrap_or_else(|| json!({}))}),
+            json!({"name": r.operation, "arguments": r.input}),
         )
     } else {
-        ("resources/read", json!({"uri": r.uri}))
+        ("resources/read", json!({"uri": r.input.get("uri")}))
     };
     let (rid, rx) = match live.client.send(method, params).await {
         Ok(sent) => sent,
@@ -1249,14 +1318,14 @@ async fn send(store: &Arc<Store>, live: &mcp::Live, r: &CallRequest, cancel: &No
     tokio::select! {
         reply = rx => match reply {
             Ok(Reply::Result(result)) => {
-                if r.tool() && result.get("isError") == Some(&json!(true)) {
+                if tool && result.get("isError") == Some(&json!(true)) {
                     (Some("failed"), Some("tool_error"), Some(result), None)
                 } else {
                     (Some("succeeded"), None, Some(result), None)
                 }
             }
             Ok(Reply::Error { code, message }) => {
-                let auth = crate::tools::auth_like(&message).then(|| message.clone());
+                let auth = crate::sources::auth_like(&message).then(|| message.clone());
                 (Some("failed"), Some("jsonrpc_error"), Some(json!({"code": code, "message": message})), auth)
             }
             Ok(Reply::TooLarge) => (Some("failed"), Some("result_too_large"), None, None),
@@ -1271,7 +1340,6 @@ async fn send(store: &Arc<Store>, live: &mcp::Live, r: &CallRequest, cancel: &No
         _ = tokio::time::sleep(wait) => {
             live.client.forget(rid);
             live.client.cancel(rid, "deadline").await;
-            let _ = store;
             (Some("uncertain"), Some("deadline"), None, None)
         }
     }
@@ -1327,7 +1395,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
 
 pub(crate) fn peer_routes() -> Router<Arc<Store>> {
     Router::new()
-        .route("/peer/v1/tools", get(tools_route))
+        .route("/peer/v1/capabilities", get(capabilities_route))
         .route("/peer/v1/calls", post(submit_route))
         .route("/peer/v1/calls/{id}", get(status_route))
         .route("/peer/v1/calls/{id}/cancel", post(cancel_route))
@@ -1335,10 +1403,10 @@ pub(crate) fn peer_routes() -> Router<Arc<Store>> {
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new().route("/v1/calls/received", get(received_route))
 }
-async fn tools_route(
+async fn capabilities_route(
     State(store): State<Arc<Store>>,
     Extension(sender): Extension<String>,
-    query: Result<Query<ToolsQuery>, QueryRejection>,
+    query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<Vec<Value>>, Error> {
     let Query(q) = query.map_err(|_| Error::Invalid("invalid query".into()))?;
     Ok(Json(

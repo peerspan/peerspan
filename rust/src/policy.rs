@@ -74,38 +74,28 @@ fn is_zero(n: &i64) -> bool {
     *n == 0
 }
 
-/// Calling a tool of a shared MCP server (tools contract).
-pub const TOOL_ACTION: &str = "tool.call";
-/// Reading a resource of a shared MCP server (tools contract).
-pub const RESOURCE_ACTION: &str = "resource.read";
-const MAX_TOOL_RULES: usize = 64;
-const MAX_SCOPE: usize = 256;
+const MAX_CAPABILITY_RULES: usize = 64;
 const MAX_TRUSTED: usize = 64;
 /// The largest `max_input_bytes`, which self access also allows.
 pub const MAX_INPUT_BYTES: i64 = 262_144;
 pub const MAX_CALLS_PER_HOUR: i64 = 10_000;
 
-/// A share (policy version 2): who may call tools or read resources of one
-/// server or profile of the owner's agents.
+/// A share (capabilities contract, policy version 2): who may call the
+/// operations of one capability on the host that serves it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct ToolRule {
-    pub agent: String,
-    /// `NAME` or `NAME@PROFILE`.
-    pub server: String,
+pub struct CapabilityRule {
+    /// The host ID of the host that serves the capability.
+    pub host: String,
+    pub capability: String,
     pub principals: Vec<String>,
-    /// `tool.call`, `resource.read` (every resource of the snapshot), or
-    /// both.
-    pub actions: Vec<String>,
-    /// `readonly`, `*`, or tool names.
-    pub scope: Vec<String>,
     pub max_input_bytes: i64,
     pub allow_disconnected: bool,
     pub max_calls_per_hour: i64,
 }
 
 /// An owner-signed access policy. Version 1 statements carry no `format`,
-/// tool rules, or trusted hosts; version 2 statements carry all three.
+/// capability rules, or trusted hosts; version 2 statements carry all three.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
@@ -127,7 +117,7 @@ pub struct Policy {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "present"
     )]
-    pub tool_rules: Option<Vec<ToolRule>>,
+    pub capability_rules: Option<Vec<CapabilityRule>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -137,11 +127,11 @@ pub struct Policy {
     pub signature: String,
 }
 
-/// What a policy grants: its rules, tool rules, and trusted hosts.
+/// What a policy grants: its rules, capability rules, and trusted hosts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Content {
     pub rules: Vec<Rule>,
-    pub tool_rules: Vec<ToolRule>,
+    pub capability_rules: Vec<CapabilityRule>,
     pub trusted_hosts: Vec<String>,
 }
 
@@ -290,8 +280,8 @@ impl Rule {
     }
 }
 
-/// A server or profile name: `[a-z0-9][a-z0-9_-]{0,62}`.
-pub fn tool_name_shape(value: &str) -> bool {
+/// A server or capability name: `[a-z0-9][a-z0-9_-]{0,62}`.
+pub fn name_shape(value: &str) -> bool {
     let bytes = value.as_bytes();
     !bytes.is_empty()
         && bytes.len() <= 63
@@ -300,72 +290,22 @@ pub fn tool_name_shape(value: &str) -> bool {
             .iter()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'_' || *b == b'-')
 }
-/// `NAME` or `NAME@PROFILE`, split into the server and its profile.
-pub fn split_server(value: &str) -> Option<(&str, Option<&str>)> {
-    match value.split_once('@') {
-        Some((server, profile)) => {
-            (tool_name_shape(server) && tool_name_shape(profile)).then_some((server, Some(profile)))
-        }
-        None => tool_name_shape(value).then_some((value, None)),
-    }
-}
-/// A scope entry is one token of its signed line: nonempty, with no
-/// whitespace or control characters.
-fn scope_token(value: &str) -> bool {
-    !value.is_empty() && !value.chars().any(|c| c.is_whitespace() || c.is_control())
-}
-impl ToolRule {
-    /// Whether the rule covers calling tools (within its scope).
-    pub fn calls_tools(&self) -> bool {
-        self.actions.iter().any(|a| a == TOOL_ACTION)
-    }
-    /// Whether the rule covers reading every resource of the snapshot.
-    pub fn reads_resources(&self) -> bool {
-        self.actions.iter().any(|a| a == RESOURCE_ACTION)
-    }
+impl CapabilityRule {
     fn check(&self) -> Result<(), Error> {
-        if self.agent != ALL_AGENTS {
-            agent_name(&self.agent)?;
+        if !crate::peer_store::valid_id(&self.host, "host", 32) {
+            return Err(invalid("a capability rule's host is a host ID"));
         }
-        let Some((_, profile)) = split_server(&self.server) else {
+        if !name_shape(&self.capability) {
             return Err(invalid(&format!(
-                "invalid server {:?} in a tool rule: use NAME or NAME@PROFILE",
-                self.server
+                "invalid capability name {:?}",
+                self.capability
             )));
-        };
+        }
         if self.principals.is_empty() || self.principals.len() > MAX_PRINCIPALS {
-            return Err(invalid("a tool rule has 1-64 principals"));
+            return Err(invalid("a capability rule has 1-64 principals"));
         }
         for p in &self.principals {
             principal(p)?;
-        }
-        let actions: Vec<&str> = self.actions.iter().map(String::as_str).collect();
-        if actions != [TOOL_ACTION] && actions != [TOOL_ACTION, RESOURCE_ACTION] {
-            return Err(invalid(
-                "a tool rule's actions are tool.call, or tool.call resource.read",
-            ));
-        }
-        if self.scope.is_empty() || self.scope.len() > MAX_SCOPE {
-            return Err(invalid("a tool rule has 1-256 scope entries"));
-        }
-        for entry in &self.scope {
-            if !scope_token(entry) || entry.contains('*') && entry != "*" {
-                return Err(invalid("invalid scope entry in a tool rule"));
-            }
-            match entry.as_str() {
-                "readonly" | "*" if self.scope.len() > 1 => {
-                    return Err(invalid("readonly and * stand alone in a scope"));
-                }
-                "*" if profile.is_none() => {
-                    return Err(invalid("* covers write tools, so it needs a profile"));
-                }
-                "readonly" | "*" => {}
-                // Every resource is shared only with a whole-server scope.
-                _ if self.reads_resources() => {
-                    return Err(invalid("resource.read goes with the scope readonly or *"));
-                }
-                _ => {}
-            }
         }
         if !(1..=MAX_INPUT_BYTES).contains(&self.max_input_bytes) {
             return Err(invalid("max_input_bytes must be 1-262144"));
@@ -405,13 +345,11 @@ impl Policy {
             lines.push(bounds);
         }
         if self.format == Some(2) {
-            for r in self.tool_rules() {
-                lines.push("tool_rule".into());
-                lines.push(r.agent.clone());
-                lines.push(r.server.clone());
+            for r in self.capability_rules() {
+                lines.push("capability_rule".into());
+                lines.push(r.host.clone());
+                lines.push(r.capability.clone());
                 lines.push(r.principals.join(" "));
-                lines.push(r.actions.join(" "));
-                lines.push(r.scope.join(" "));
                 lines.push(format!(
                     "{} {} {}",
                     r.max_input_bytes, r.allow_disconnected, r.max_calls_per_hour
@@ -433,9 +371,9 @@ impl Policy {
     pub fn statement_lines(&self) -> Vec<String> {
         self.lines()
     }
-    /// The tool rules; none in a version 1 policy.
-    pub fn tool_rules(&self) -> &[ToolRule] {
-        self.tool_rules.as_deref().unwrap_or_default()
+    /// The capability rules; none in a version 1 policy.
+    pub fn capability_rules(&self) -> &[CapabilityRule] {
+        self.capability_rules.as_deref().unwrap_or_default()
     }
     /// The trusted hosts; none in a version 1 policy.
     pub fn trusted_hosts(&self) -> &[String] {
@@ -445,7 +383,7 @@ impl Policy {
     pub fn content(&self) -> Content {
         Content {
             rules: self.rules.clone(),
-            tool_rules: self.tool_rules().to_vec(),
+            capability_rules: self.capability_rules().to_vec(),
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
@@ -463,14 +401,23 @@ impl Policy {
         for r in &self.rules {
             r.check()?;
         }
-        match (self.format, &self.tool_rules, &self.trusted_hosts) {
+        match (self.format, &self.capability_rules, &self.trusted_hosts) {
             (None, None, None) => {}
-            (Some(2), Some(tool_rules), Some(trusted)) => {
-                if tool_rules.len() > MAX_TOOL_RULES {
-                    return Err(invalid("a policy has at most 64 tool rules"));
+            (Some(2), Some(capability_rules), Some(trusted)) => {
+                if capability_rules.len() > MAX_CAPABILITY_RULES {
+                    return Err(invalid("a policy has at most 64 capability rules"));
                 }
-                for r in tool_rules {
+                for r in capability_rules {
                     r.check()?;
+                }
+                // A name is bound to one host, by at most one rule.
+                let mut names: Vec<&str> = capability_rules
+                    .iter()
+                    .map(|r| r.capability.as_str())
+                    .collect();
+                names.sort_unstable();
+                if names.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(invalid("a policy has at most one rule per capability name"));
                 }
                 if trusted.len() > MAX_TRUSTED {
                     return Err(invalid("a policy has at most 64 trusted hosts"));
@@ -490,7 +437,7 @@ impl Policy {
             }
             _ => {
                 return Err(invalid(
-                    "a version 2 policy has format 2, tool_rules, and trusted_hosts; a version 1 policy has none of them",
+                    "a version 2 policy has format 2, capability_rules, and trusted_hosts; a version 1 policy has none of them",
                 ));
             }
         }
@@ -516,7 +463,7 @@ impl Policy {
             issued_at: issued_at.into(),
             valid_until: valid_until.into(),
             rules: content.rules,
-            tool_rules: Some(content.tool_rules),
+            capability_rules: Some(content.capability_rules),
             trusted_hosts: Some(trusted),
             signature: String::new(),
         };
@@ -545,7 +492,7 @@ impl Policy {
             issued_at: issued_at.into(),
             valid_until: valid_until.into(),
             rules,
-            tool_rules: None,
+            capability_rules: None,
             trusted_hosts: None,
             signature: String::new(),
         };
@@ -1533,27 +1480,23 @@ mod tests {
             assert_eq!(sign(rule).is_ok(), ok, "{bound}");
         }
     }
-    /// The version 2 test vector (tools contract): the earlier owner and the
-    /// two rules of the version 1 vector, plus two tool rules and two
-    /// trusted hosts given unsorted.
+    /// The version 2 test vector (capabilities contract): the earlier owner
+    /// and the two rules of the version 1 vector, plus two capability rules
+    /// and two trusted hosts given unsorted.
     fn vector_v2() -> Policy {
-        let tool_rules = vec![
-            ToolRule {
-                agent: "reviewer".into(),
-                server: "github".into(),
+        let capability_rules = vec![
+            CapabilityRule {
+                host: format!("host_{}", "a".repeat(64)),
+                capability: "github-issues".into(),
                 principals: vec![format!("person:{SECOND_ID}")],
-                actions: vec![TOOL_ACTION.into(), RESOURCE_ACTION.into()],
-                scope: vec!["readonly".into()],
                 max_input_bytes: 65536,
                 allow_disconnected: false,
                 max_calls_per_hour: 100,
             },
-            ToolRule {
-                agent: ALL_AGENTS.into(),
-                server: "github@acme-api".into(),
+            CapabilityRule {
+                host: format!("host_{}", "b".repeat(64)),
+                capability: "docs".into(),
                 principals: vec!["group:backend".into()],
-                actions: vec![TOOL_ACTION.into()],
-                scope: vec!["create_issue".into(), "list_issues".into()],
                 max_input_bytes: 4096,
                 allow_disconnected: true,
                 max_calls_per_hour: 10,
@@ -1567,7 +1510,7 @@ mod tests {
             "2026-10-17T00:00:00Z",
             Content {
                 rules: rules(),
-                tool_rules,
+                capability_rules,
                 trusted_hosts: vec![
                     format!("host_{}", "b".repeat(64)),
                     format!("host_{}", "a".repeat(64)),
@@ -1580,35 +1523,22 @@ mod tests {
     #[test]
     fn policy_v2_reproduces_its_vector() {
         let p = vector_v2();
-        const V2_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQN3R+JpYFSWwJYDv5TPcPhxvjwoOUVpErPzSlzkRC3DfkaZYNtdsjUSgm0C3KvvXJtNSlozD1UJ894T6bomQvgE=";
+        const V2_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQIdUcW4XDuFhLCjOaodJFvZQpWHf7Ts4Aff2zCbA+r3M2sMjfqpB2uYZvqgUvVeL/AYaE45xVqHFAko3fUpOXQ8=";
         let lines = p.statement_lines();
         assert_eq!(p.signature, V2_SIG);
         assert_eq!(
             p.sha256(),
-            "84e7e3312f15fa07d06aee1a9bb8953f01d47602ba3439b25bc656a9d4d01729"
+            "ac815683015d0a505f33be4c9e680d73c37f389fef1c13a34224c4a174c0b274"
         );
-        assert_eq!(lines.len(), 33);
+        assert_eq!(lines.len(), 29);
         assert_eq!(lines[0], "peerspan-policy-v2");
-        assert_eq!(
-            lines[16..24].join("|"),
-            format!(
-                "tool_rule|reviewer|github|person:{SECOND_ID}|tool.call resource.read|readonly|65536 false 100|end"
-            )
-        );
-        assert_eq!(
-            lines.last().unwrap(),
-            &format!("trusted host_{} host_{}", "a".repeat(64), "b".repeat(64))
-        );
         p.verify(NETWORK).unwrap();
         // A version 1 policy reads as version 2 with nothing more.
         let v1 = vector();
-        assert!(v1.tool_rules().is_empty() && v1.trusted_hosts().is_empty());
+        assert!(v1.capability_rules().is_empty() && v1.trusted_hosts().is_empty());
         let mut t = p.clone();
-        t.tool_rules.as_mut().unwrap()[0].scope = vec!["*".into()];
+        t.capability_rules.as_mut().unwrap()[1].capability = "github-issues".into();
         assert!(t.verify(NETWORK).is_err());
-        let mut t = p.clone();
-        t.trusted_hosts.as_mut().unwrap().reverse();
-        t.verify(NETWORK).unwrap();
         let mut t = p.clone();
         let first = t.trusted_hosts().first().unwrap().clone();
         t.trusted_hosts.as_mut().unwrap().push(first);

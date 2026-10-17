@@ -175,7 +175,7 @@ impl Store {
             crate::live_delivery::migrate(&tx)?;
         }
         if version < 16 {
-            tx.execute_batch(crate::tools::SCHEMA)?;
+            tx.execute_batch(crate::sources::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(

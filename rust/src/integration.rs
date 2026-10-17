@@ -1595,7 +1595,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             "reused": reused,
             "unchecked_hosts": unchecked,
             "next": next,
-            "tools": tools,
+            "sources": tools,
         });
         let text = serde_json::to_string_pretty(&value).unwrap_or_default();
         if launching(p) {
@@ -1603,7 +1603,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         } else {
             println!("{text}");
         }
-        eprintln!("{}", crate::discovery::summary_line(&value["tools"]));
+        eprintln!("{}", crate::discovery::summary_line(&value["sources"]));
     };
     let launch = |p: &Profile, profile: PathBuf| {
         let start_now = launching(p);

@@ -32,14 +32,14 @@ const IDLE: Duration = Duration::from_secs(30);
 const MAX_CONNECTIONS: usize = 64;
 const MAX_STREAMS: u32 = 16;
 const MAX_BODY: usize = 1 << 20;
-/// A tool listing, or a call's status with a result of up to 1 MiB, may be
+/// A capability listing, or a call's status with a result of up to 1 MiB, may be
 /// larger than other peer responses.
 const MAX_LARGE_RESPONSE: usize = 4 << 20;
 /// The response bound of a peer request.
 fn response_limit(method: &str, path: &str) -> usize {
     let large = method == "GET"
-        && (path == "/peer/v1/tools"
-            || path.starts_with("/peer/v1/tools?")
+        && (path == "/peer/v1/capabilities"
+            || path.starts_with("/peer/v1/capabilities?")
             || path
                 .strip_prefix("/peer/v1/calls/")
                 .is_some_and(|id| !id.is_empty() && !id.contains('/')));

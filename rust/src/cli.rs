@@ -68,10 +68,10 @@ pub enum Command {
         /// Host-only membership: do not admit or bind a person
         #[arg(long)]
         no_person: bool,
-        /// Let this machine use tools shared from your other machines
+        /// Let this machine use your capabilities on your other machines
         #[arg(long, conflicts_with = "untrusted")]
         trusted: bool,
-        /// Do not let this machine use tools shared from your other machines
+        /// Do not let this machine use your capabilities on your other machines
         #[arg(long)]
         untrusted: bool,
     },
@@ -98,10 +98,9 @@ pub enum Command {
         /// agent:HOST/AGENT
         #[arg(value_name = "PRINCIPAL")]
         principal: String,
-        /// Agent name the access covers; * means every agent of yours (the
-        /// default, except with --tools: every agent here with the server)
-        #[arg(long, value_name = "NAME")]
-        agent: Option<String>,
+        /// Agent name the access covers; * means every agent of yours
+        #[arg(long, value_name = "NAME", default_value = "*")]
+        agent: String,
         /// Allow messages only, not task.submit
         #[arg(long)]
         no_tasks: bool,
@@ -111,16 +110,6 @@ pub enum Command {
         /// Also allow task.delegate, so your agent may pass tasks on
         #[arg(long)]
         delegate: bool,
-        /// Share an MCP server's tools: SERVER[@PROFILE] (read-only tools and
-        /// resources), SERVER[@PROFILE]:TOOL[,TOOL...], or SERVER@PROFILE:*
-        #[arg(long = "tools", value_name = "SPEC")]
-        tools: Vec<String>,
-        /// Confirm the credential's reach without asking
-        #[arg(long)]
-        yes: bool,
-        /// Calls per hour each caller may make under the share (default 100)
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(i64).range(1..=10000))]
-        calls_per_hour: Option<i64>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -133,9 +122,6 @@ pub enum Command {
         /// Only from this agent's rules (* names the * rules); default every rule
         #[arg(long, value_name = "NAME")]
         agent: Option<String>,
-        /// Remove the principal from tool shares of SERVER[@PROFILE] instead
-        #[arg(long = "tools", value_name = "SERVER[@PROFILE]")]
-        tools: Vec<String>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -225,35 +211,94 @@ pub enum Command {
         #[arg(long, value_name = "TIME")]
         deadline: Option<String>,
     },
-    /// Show the MCP servers your agents use, and what is shared
-    Tools(ToolsArgs),
-    /// Call a tool on another host: call TARGET TOOL
+    /// Show the sources this host can operate, from attached agents' harnesses
+    Sources(SourcesArgs),
+    /// Create, list, show, and remove capabilities on this host
+    #[command(subcommand)]
+    Capability(CapabilityCommand),
+    /// Share a capability: share NAME --with PRINCIPAL, or the guided share --with PRINCIPAL
+    Share {
+        /// The existing capability; omit for the guided share
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+        #[arg(long = "with", value_name = "PRINCIPAL")]
+        with: String,
+        /// Calls per hour each caller may make; on an existing share it changes the limit for every recipient
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(i64).range(1..=10000))]
+        calls_per_hour: Option<i64>,
+        /// Confirm without asking
+        #[arg(long)]
+        yes: bool,
+        /// Guided share: the source, AGENT/SERVER or SERVER
+        #[arg(long, value_name = "SOURCE")]
+        from: Option<String>,
+        /// Guided share: the operations, OP[,OP...]
+        #[arg(long, value_name = "OPS")]
+        operations: Option<String>,
+        /// Guided share: all, or URI[,URI...]
+        #[arg(long, value_name = "RESOURCES")]
+        resources: Option<String>,
+        /// Guided share: the capability's name; default the server's
+        #[arg(long = "name", value_name = "NAME")]
+        capability_name: Option<String>,
+        /// Guided share: the capability's own environment file
+        #[arg(long, value_name = "PATH")]
+        env_file: Option<PathBuf>,
+        /// Guided share: arguments replacing the source's; repeat for each
+        #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
+        args: Vec<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Show every capability here and every share in your policies
+    Shares {
+        #[arg(long)]
+        json: bool,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Stop sharing a capability with a principal
+    Unshare {
+        #[arg(value_name = "NAME")]
+        name: String,
+        #[arg(long = "with", value_name = "PRINCIPAL")]
+        with: String,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
+    },
+    /// Show reachable agents and usable capabilities together
+    Discover {
+        /// Only this person's
+        #[arg(value_name = "PERSON")]
+        person: Option<String>,
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Call an operation: call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]
     Call {
-        /// PERSON/AGENT/SERVER[@PROFILE] or HOST_ID/AGENT/SERVER[@PROFILE]
-        #[arg(value_name = "TARGET")]
-        target: String,
-        #[arg(value_name = "TOOL")]
-        tool: String,
-        /// The tool's arguments as a JSON object
-        #[arg(long, value_name = "JSON")]
-        arguments: Option<String>,
-        #[command(flatten)]
-        options: CallOptions,
+        /// PERSON/CAPABILITY, HOST_ID/CAPABILITY, PERSON/AGENT/SERVER, or HOST_ID/AGENT/SERVER
+        #[arg(value_name = "ADDRESS")]
+        address: String,
+        #[arg(value_name = "OPERATION")]
+        operation: String,
+        /// --input JSON, --KEY VALUE, --deadline T, --wait D, --network ID
+        #[arg(
+            value_name = "OPTIONS",
+            trailing_var_arg = true,
+            allow_hyphen_values = true
+        )]
+        options: Vec<String>,
     },
-    /// Read a resource on another host: read TARGET URI
-    Read {
-        /// PERSON/AGENT/SERVER[@PROFILE] or HOST_ID/AGENT/SERVER[@PROFILE]
-        #[arg(value_name = "TARGET")]
-        target: String,
-        #[arg(value_name = "URI")]
-        uri: String,
-        #[command(flatten)]
-        options: CallOptions,
-    },
-    /// List and inspect tool calls
+    /// List and inspect calls
     #[command(subcommand)]
     Calls(CallsCommand),
-    /// Let one of your machines use tools shared from your other machines
+    /// Let one of your machines use your capabilities on your other machines
     Trust {
         /// Host ID; default this host
         #[arg(value_name = "HOST")]
@@ -263,7 +308,7 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
-    /// Stop letting a machine use tools shared from your other machines
+    /// Stop letting a machine use your capabilities on your other machines
     Untrust {
         #[arg(value_name = "HOST")]
         host: String,
@@ -343,9 +388,9 @@ pub enum Command {
 
 #[derive(Debug, clap::Args)]
 #[command(args_conflicts_with_subcommands = true)]
-pub struct ToolsArgs {
+pub struct SourcesArgs {
     #[command(subcommand)]
-    pub command: Option<ToolsCommand>,
+    pub command: Option<SourcesCommand>,
     /// Only this agent
     #[arg(long, value_name = "NAME")]
     pub agent: Option<String>,
@@ -354,61 +399,77 @@ pub struct ToolsArgs {
     pub json: bool,
 }
 #[derive(Debug, Subcommand)]
-pub enum ToolsCommand {
-    /// Discover the MCP servers of each attached agent again
+pub enum SourcesCommand {
+    /// Discover the sources of each attached agent again
     Refresh {
         #[arg(long, value_name = "NAME")]
         agent: Option<String>,
     },
-    /// Show the tools other hosts let this host call
-    Remote {
-        /// PERSON, PERSON/AGENT, HOST_ID, or HOST_ID/AGENT; default every host
-        #[arg(value_name = "TARGET")]
-        target: Option<String>,
-        #[arg(long, value_name = "ID")]
-        network: Option<String>,
+    /// Let one of your trusted machines call this host's sources directly
+    OpenTo {
+        #[arg(
+            value_name = "HOST",
+            required_unless_present = "all",
+            conflicts_with = "all"
+        )]
+        host: Option<String>,
+        /// Every machine of yours that passes self access
+        #[arg(long)]
+        all: bool,
+    },
+    /// Stop letting a machine call this host's sources directly
+    CloseTo {
+        #[arg(
+            value_name = "HOST",
+            required_unless_present = "all",
+            conflicts_with = "all"
+        )]
+        host: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum CapabilityCommand {
+    /// Create a capability from a source, without sharing it
+    Create {
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// AGENT/SERVER, or SERVER when one agent here has it
+        #[arg(long, value_name = "SOURCE")]
+        from: String,
+        /// OP[,OP...]
+        #[arg(long, value_name = "OPS")]
+        operations: Option<String>,
+        /// all, or URI[,URI...]
+        #[arg(long, value_name = "RESOURCES")]
+        resources: Option<String>,
+        /// The capability's own environment file
+        #[arg(long, value_name = "PATH")]
+        env_file: Option<PathBuf>,
+        /// Arguments replacing the source's; repeat for each
+        #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// List this host's capabilities
+    List {
         #[arg(long)]
         json: bool,
     },
-    /// Manage share profiles: narrower credentials for a server
-    #[command(subcommand)]
-    Profile(ProfileCommand),
-}
-#[derive(Debug, Subcommand)]
-pub enum ProfileCommand {
-    /// Add a profile: SERVER PROFILE --env-file PATH [--arg A ...]
-    Add {
-        #[arg(value_name = "SERVER")]
-        server: String,
-        #[arg(value_name = "PROFILE")]
-        profile: String,
-        #[arg(long, value_name = "PATH")]
-        env_file: PathBuf,
-        /// Replaces the server's arguments; repeat for each
-        #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
-        args: Vec<String>,
-        #[arg(long, value_name = "NAME")]
-        agent: Option<String>,
+    /// Show one capability
+    Show {
+        #[arg(value_name = "NAME")]
+        name: String,
     },
-    /// Remove a profile: SERVER@PROFILE
+    /// Remove a capability, withdrawing its shares first
     Remove {
-        #[arg(value_name = "SERVER@PROFILE")]
-        spec: String,
-        #[arg(long, value_name = "NAME")]
-        agent: Option<String>,
+        #[arg(value_name = "NAME")]
+        name: String,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
-}
-#[derive(Debug, clap::Args)]
-pub struct CallOptions {
-    /// RFC3339 deadline, at most 15 minutes away; default 15 minutes
-    #[arg(long, value_name = "TIME")]
-    pub deadline: Option<String>,
-    /// How long to wait for a final state: seconds, or Ns or Nm; default 60s, at most 15m
-    #[arg(long, value_name = "D")]
-    pub wait: Option<String>,
-    /// Resolve and authorize only in this network
-    #[arg(long, value_name = "ID")]
-    pub network: Option<String>,
 }
 #[derive(Debug, Subcommand)]
 pub enum CallsCommand {
@@ -449,8 +510,9 @@ pub enum AgentCommand {
         /// Local owner label, not a network identity
         #[arg(long)]
         owner: String,
-        /// Advertised capability; repeat for multiple capabilities
-        #[arg(long = "capability", value_name = "NAME")]
+        /// Descriptive label, stored in the capabilities field; repeat for
+        /// several. It confers nothing. `--capability` is an alias.
+        #[arg(long = "label", visible_alias = "capability", value_name = "NAME")]
         capabilities: Vec<String>,
     },
     /// List registered agents
@@ -579,10 +641,10 @@ pub enum NetworkCommand {
         /// Do not admit or bind a person
         #[arg(long)]
         no_person: bool,
-        /// Let this machine use tools shared from your other machines
+        /// Let this machine use your capabilities on your other machines
         #[arg(long, conflicts_with = "untrusted")]
         trusted: bool,
-        /// Do not let this machine use tools shared from your other machines
+        /// Do not let this machine use your capabilities on your other machines
         #[arg(long)]
         untrusted: bool,
     },
@@ -624,10 +686,10 @@ pub enum NetworkCommand {
         /// Do not admit or bind a person
         #[arg(long)]
         no_person: bool,
-        /// Let this machine use tools shared from your other machines
+        /// Let this machine use your capabilities on your other machines
         #[arg(long, conflicts_with = "untrusted")]
         trusted: bool,
-        /// Do not let this machine use tools shared from your other machines
+        /// Do not let this machine use your capabilities on your other machines
         #[arg(long)]
         untrusted: bool,
     },
@@ -1319,6 +1381,8 @@ impl Command {
             | Self::Deny { network, .. }
             | Self::Trust { network, .. }
             | Self::Untrust { network, .. }
+            | Self::Share { network, .. }
+            | Self::Unshare { network, .. }
             | Self::Access(
                 AccessCommand::Allow { network, .. }
                 | AccessCommand::Deny { network, .. }
@@ -1419,9 +1483,13 @@ impl Command {
             | Self::Invite { .. }
             | Self::Allow { .. }
             | Self::Deny { .. }
-            | Self::Tools(_)
+            | Self::Sources(_)
+            | Self::Capability(_)
+            | Self::Share { .. }
+            | Self::Shares { .. }
+            | Self::Unshare { .. }
+            | Self::Discover { .. }
             | Self::Call { .. }
-            | Self::Read { .. }
             | Self::Trust { .. }
             | Self::Untrust { .. }
             | Self::Task(TaskCommand::Artifact { .. } | TaskCommand::To(_))
