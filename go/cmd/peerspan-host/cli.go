@@ -155,6 +155,49 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	}
 	add("agents", "agents", "Show the agents you can reach and who can reach yours", 0)
 	add("send", "send TARGET TEXT", "Send a message to an agent by address", 2)
+	add("sources refresh", "refresh", "Discover the sources of attached agents again", 0)
+	add("sources open-to", "open-to HOST", "Let a trusted machine of yours call this host's sources", 0).Args = cobra.RangeArgs(0, 1)
+	add("sources close-to", "close-to HOST", "Stop a machine calling this host's sources", 0).Args = cobra.RangeArgs(0, 1)
+	// sources is the sources group itself, listing this host's sources.
+	sourcesGroup := groups["sources"]
+	sourcesGroup.Use, sourcesGroup.Short, sourcesGroup.Args = "sources", "List this host's sources and the capabilities built on them", cobra.NoArgs
+	sourcesGroup.RunE = func(cmd *cobra.Command, args []string) error {
+		return execute(cmd.Context(), []string{"sources"}, cmd.Flags(), state, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	}
+	configureFlags(sourcesGroup, []string{"sources"})
+	leaves = append(leaves, sourcesGroup)
+	add("capability create", "create NAME", "Create a capability from a source", 1)
+	add("capability list", "list", "List this host's capabilities", 0)
+	add("capability show", "show NAME", "Show a capability and its recipients", 1)
+	add("capability remove", "remove NAME", "Remove a capability, withdrawing its shares", 1)
+	add("share", "share [NAME]", "Share a capability with a principal", 0).Args = cobra.RangeArgs(0, 1)
+	add("shares", "shares", "List capabilities and their shares", 0)
+	add("unshare", "unshare NAME", "Withdraw a principal's access to a capability", 1)
+	add("discover", "discover [PERSON]", "List reachable agents and usable capabilities", 0).Args = cobra.RangeArgs(0, 1)
+	// call ADDRESS OPERATION reads its own arguments: --KEY VALUE options
+	// name the operation's input properties.
+	callCommand := &cobra.Command{Use: "call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]", Short: "Call an operation of a capability", DisableFlagParsing: true}
+	callCommand.RunE = func(cmd *cobra.Command, args []string) error {
+		c, err := parseCallArgs(args)
+		if err != nil {
+			return err
+		}
+		if c.help {
+			return cmd.Help()
+		}
+		if c.state == "" {
+			c.state = state
+		}
+		return executeCall(cmd.Context(), c, cmd.OutOrStdout())
+	}
+	root.AddCommand(callCommand)
+	leaves = append(leaves, callCommand)
+	add("calls list", "list", "List outbound calls", 0)
+	add("calls received", "received", "List calls received by this host", 0)
+	add("calls inspect", "inspect ID", "Inspect an outbound call", 1)
+	add("calls cancel", "cancel ID", "Cancel an outbound call", 1)
+	add("trust", "trust [HOST]", "Let a machine of yours use your capabilities", 0).Args = cobra.RangeArgs(0, 1)
+	add("untrust", "untrust HOST", "Stop a machine of yours using your capabilities", 1)
 	add("artifact list", "list", "List stored artifacts", 0)
 	add("artifact prune", "prune", "Release artifacts of finished tasks", 0)
 	add("network create", "create [NAME]", "Create a coordinated network", 0).Args = cobra.RangeArgs(0, 1)
@@ -333,12 +376,58 @@ func configureFlags(cmd *cobra.Command, args []string) {
 				fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 			}
 		}
-	} else if args[0] == "person" || args[0] == "join" || args[0] == "invite" || args[0] == "allow" || args[0] == "deny" {
+	} else if args[0] == "person" || args[0] == "join" || args[0] == "invite" || args[0] == "allow" || args[0] == "deny" || args[0] == "trust" || args[0] == "untrust" || args[0] == "share" || args[0] == "unshare" || (args[0] == "capability" && command == "remove") {
 		fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 	}
 
 	switch strings.Join(args, " ") {
+	case "sources":
+		fs.String("agent", "", "only this local agent")
+		fs.Bool("json", false, "print the daemon's listing")
+	case "sources refresh":
+		fs.String("agent", "", "only this local agent")
+	case "sources open-to", "sources close-to":
+		fs.Bool("all", false, "every machine of yours that passes self access, including ones trusted later")
+	case "capability create":
+		fs.String("from", "", "the source: AGENT/SERVER, or SERVER when one agent here has it")
+		fs.String("operations", "", "tool names, comma-separated")
+		fs.String("resources", "", "all, or URIs, comma-separated; adds the read operation")
+		fs.String("env-file", "", "the capability's own environment file, applied whole to its own instance")
+		fs.StringArray("arg", nil, "argument replacing the source's args in its own instance; repeatable")
+	case "capability list":
+		fs.Bool("json", false, "print the daemon's listing")
+	case "capability remove":
+		fs.Bool("yes", false, "withdraw its shares without asking")
+	case "share":
+		fs.String("with", "", "the principal: PERSON, person:PERSON, group:NAME, everyone, network, or agent:HOST/AGENT")
+		fs.Int64("calls-per-hour", shareMaxCallsPerHour, "calls each caller may make in an hour, 1 to 10000; on an existing rule, for every recipient")
+		fs.Bool("yes", false, "share without asking for confirmation")
+		fs.String("network", "", "network ID; defaults to the only network")
+		fs.String("from", "", "guided share: the source, AGENT/SERVER or SERVER")
+		fs.String("operations", "", "guided share: tool names, comma-separated")
+		fs.String("resources", "", "guided share: all, or URIs, comma-separated")
+		fs.String("name", "", "guided share: the capability name")
+		fs.String("env-file", "", "guided share: the capability's own environment file")
+		fs.StringArray("arg", nil, "guided share: argument replacing the source's args; repeatable")
+	case "unshare":
+		fs.String("with", "", "the principal to remove")
+		fs.String("network", "", "network ID; defaults to the only network")
+	case "shares":
+		fs.Bool("json", false, "print the shares object")
+		fs.String("network", "", "only this network's rules")
+	case "discover":
+		fs.String("network", "", "only this network")
+		fs.Bool("json", false, "print the discover object")
+	case "calls list", "calls received":
+		fs.Int64("after", 0, "read calls after sequence")
+		fs.Int64("limit", 100, "maximum records, 1 to 1000")
+	case "calls inspect", "calls cancel":
+		fs.String("peer", "", "receiving host ID")
+	case "trust", "untrust":
+		fs.String("network", "", "network ID; defaults to the only network")
 	case "join":
+		fs.Bool("trusted", false, "let this machine use your capabilities on your other machines")
+		fs.Bool("untrusted", false, "do not let this machine use your capabilities on your other machines")
 		fs.Bool("no-person", false, "join as a host-only membership, without admitting or binding a person")
 		// network join's flags, filled in from TOKEN.
 		fs.String("token", "", "")
@@ -392,7 +481,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "agent register":
 		fs.String("name", "", "agent name")
 		fs.String("owner", "", "local owner label")
-		fs.StringArray("capability", nil, "advertised capability; repeatable")
+		fs.StringArray("label", nil, "descriptive label; repeatable; confers nothing")
+		fs.StringArray("capability", nil, "alias of --label")
 	case "session attach":
 		fs.String("agent", "", "registered agent ID")
 		fs.String("integration", "", "integration label")
@@ -502,6 +592,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "network redeem-person":
 		fs.String("token", "", "person invite token")
 	case "network create", "network join":
+		fs.Bool("trusted", false, "let this machine use your capabilities on your other machines")
+		fs.Bool("untrusted", false, "do not let this machine use your capabilities on your other machines")
 		fs.Bool("no-person", false, "host-only membership: do not admit or bind a person")
 		if command == "create" {
 			fs.String("name", "", "network name; or give NAME")

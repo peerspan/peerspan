@@ -69,6 +69,11 @@ func networkCreateOrJoin(ctx context.Context, client host.Client, command string
 	if noPerson && path != "" {
 		return errors.New("give at most one of --person-key and --no-person")
 	}
+	if trusted, _ := fs.GetBool("trusted"); trusted {
+		if untrusted, _ := fs.GetBool("untrusted"); untrusted {
+			return errors.New("give at most one of --trusted and --untrusted")
+		}
+	}
 	var signer person.Signer
 	var choice *person.Choice
 	skipped := "--no-person was given"
@@ -143,6 +148,7 @@ func networkCreateOrJoin(ctx context.Context, client host.Client, command string
 	if choice != nil {
 		describeKey(result, choice, command == "join" && strings.HasPrefix(join.Token, membership.MemberTokenPrefix))
 	}
+	joinTrust(ctx, client, fs, signer, result, errOut)
 	withState(result, state)
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")

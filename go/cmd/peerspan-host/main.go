@@ -118,6 +118,26 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if args[0] == "agents" {
 		return runAgents(ctx, client, fs, out)
 	}
+	switch args[0] {
+	case "sources":
+		return runSources(ctx, client, args, fs, out, errOut)
+	case "capability":
+		return runCapability(ctx, client, args, fs, out, errOut)
+	case "shares":
+		return runShares(ctx, client, fs, out)
+	case "discover":
+		return runDiscover(ctx, client, args, fs, out)
+	case "calls":
+		method, path, err := callsRequest(args, fs)
+		if err != nil {
+			return err
+		}
+		data, err := client.Call(ctx, method, path, nil)
+		if err != nil {
+			return err
+		}
+		return printJSON(out, json.RawMessage(data))
+	}
 	args, err := defaultNetwork(ctx, client, args, fs)
 	if err != nil {
 		return err
@@ -125,7 +145,14 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if len(args) >= 2 && args[0] == "network" && (args[1] == "create" || args[1] == "join") {
 		return networkCreateOrJoin(ctx, client, args[1], args[2:], fs, explicitState, out, errOut)
 	}
-	if args[0] == "allow" || args[0] == "deny" {
+	switch args[0] {
+	case "trust", "untrust":
+		return runTrust(ctx, client, args[0], args, fs, out)
+	case "share":
+		return runShare(ctx, client, args, fs, out, errOut)
+	case "unshare":
+		return runUnshare(ctx, client, args, fs, out, errOut)
+	case "allow", "deny":
 		return allowOrDeny(ctx, client, args[0], args[1], fs, out)
 	}
 	var method, path string
@@ -217,7 +244,9 @@ func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error)
 			var caps []string
 			req.Name, _ = fs.GetString("name")
 			req.Owner, _ = fs.GetString("owner")
+			labels, _ := fs.GetStringArray("label")
 			caps, _ = fs.GetStringArray("capability")
+			caps = append(labels, caps...)
 			req.Capabilities = caps
 			return "POST", "/v1/agents", req, nil
 		case "list":
@@ -778,6 +807,9 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		store.RunTaskWorkers(daemonCtx)
 	}()
 	defer func() { cancel(); <-tasksDone }()
+	callsDone := make(chan struct{})
+	go func() { defer close(callsDone); store.RunCallWorkers(daemonCtx) }()
+	defer func() { cancel(); <-callsDone }()
 	defer func() { cancel(); <-repliesDone }()
 	adapterListener, err := store.ListenAdapter()
 	if err != nil {

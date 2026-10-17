@@ -286,6 +286,8 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 			"agent": attachAgent{agent.ID, agent.Name, address(agent.Name)}, "session_id": p.SessionID, "adapter_id": p.AdapterID,
 			"profile": p.Directory, "workspace": workspace, "reused": reused, "unchecked_hosts": unchecked, "next": next,
 		}
+		// Discovery follows a successful setup.
+		result["sources"] = attachSources(ctx, client, agent.ID, p.Harness.ID, workspace, errOut)
 		if !p.Launchable() || noStart {
 			if err := printJSON(out, result); err != nil {
 				return err

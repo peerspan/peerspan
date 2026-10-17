@@ -66,7 +66,7 @@ var (
 		"network revoke-invite": true, "network admit": true, "network bind": true, "network unbind": true,
 		"network delegate-admin": true, "network group": true, "network move": true,
 		"access allow": true, "access deny": true, "access renew": true, "access show": true, "access sync": true,
-		"allow": true, "deny": true,
+		"allow": true, "deny": true, "trust": true, "untrust": true, "share": true, "unshare": true,
 	}
 	networkArgOptional = map[string]bool{"network members": true, "network sync": true, "network persons": true, "network groups": true}
 )
@@ -74,11 +74,14 @@ var (
 // defaultNetwork fills in an omitted network when this host is in exactly
 // one. It never guesses among several.
 func defaultNetwork(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet) ([]string, error) {
-	if len(args) < 2 {
+	if len(args) < 2 && args[0] != "trust" && args[0] != "share" {
 		return args, nil
 	}
-	command := strings.Join(args[:2], " ")
-	if args[0] == "allow" || args[0] == "deny" {
+	command := args[0]
+	if len(args) >= 2 {
+		command = strings.Join(args[:2], " ")
+	}
+	if args[0] == "allow" || args[0] == "deny" || args[0] == "trust" || args[0] == "untrust" || args[0] == "share" || args[0] == "unshare" {
 		command = args[0]
 	}
 	flag := networkFlagOptional[command] && fs.Lookup("network") != nil && !fs.Changed("network")
