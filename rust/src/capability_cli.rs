@@ -827,7 +827,8 @@ async fn share(
                         prompt("Include resources? (all, URI,URI..., or no)", Some("no"))?;
                     (
                         (!ops.is_empty()).then_some(ops),
-                        (include != "no" && !include.is_empty()).then_some(include),
+                        (!matches!(include.to_ascii_lowercase().as_str(), "" | "n" | "no"))
+                            .then_some(include),
                     )
                 };
             let cap_name = match guided.name.clone() {
