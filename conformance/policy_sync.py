@@ -34,8 +34,10 @@ machines) covers Concurrent edits (coordination contract, including PR #15's own
   signed into either policy;
 - entries of an administrator-revoked host kept; entries of a root-revoked host and a departed host dropped by the
   next signer;
-- a v2 policy with two rules for one agent refused with 400, and a v1 policy with two rules for one agent keeping
-  only the first when renewed as v2 (by `access renew` and by the daemon, with network.policy_rule_dropped);
+- concurrent edits of two rules of one agent with different settings, each keeping its own addition;
+- several rules for one agent with different settings accepted in v2; two with the same agent and settings
+  refused with 400; a v1 policy with such duplicates combined into one rule with united principals when renewed
+  as v2 (by `access renew` and by the daemon);
 - migration from version 16 to 17 (policy_edits keyed by network, person, and seq), and refusal of 18.
 
 Where the suite must make a race come out one way, it signs the competing policy itself (a renewal, or an edit
@@ -625,6 +627,62 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                 return status == 200
             wait_for(accepted, timeout=30, message='quinn calls the shared capability (200 once alice is connected)')
 
+            # --- Concurrent edits of different rules of one agent (PR #20: rules keyed by agent and settings). Agent
+            # `multi` has two rules with different settings; alice adds quinn to one and bob to the other, each from
+            # the same version while the other and the coordinator are stopped. Both daemons hold the key; after
+            # re-applying, each rule keeps its own addition. The edits are signed here from each host's edit route,
+            # as the CLI would (which of several rules `access allow` edits is not said).
+            def multi_rule(actions, size, principals):
+                return {'agent': 'multi', 'principals': principals, 'actions': actions, 'max_message_bytes': size,
+                        'allow_disconnected': False}
+
+            def edit_on(host, host_id, change):
+                code, start = edit_start(host, net)
+                assert code == 200, (code, start)
+                signed = sign_edit(start, net, pat_key, host_id, keys['pat'][0], root, change)
+                code, body = submit(host, signed)
+                assert code == 201, (code, body)
+                return signed
+            edit_on(alice, a, lambda p: p['rules'].extend([multi_rule(['message.append'], 4096, ['network']),
+                                                           multi_rule(['task.submit'], 65536, ['network'])]))
+            wait_for(lambda: sync(alice, bob) or mine(bob) == mine(alice), timeout=30, message='multi rules on bob')
+            base = mine(alice)
+            assert len([r for r in base['rules'] if r['agent'] == 'multi']) == 2, base['rules']
+
+            def add_quinn(actions):
+                def change(p):
+                    for r in p['rules']:
+                        if r['agent'] == 'multi' and r['actions'] == actions:
+                            r['principals'] = r['principals'] + ['person:' + quinn_id]
+                return change
+            coord.stop()
+            bob.stop()
+            mx = edit_on(alice, a, add_quinn(['message.append']))
+            alice.stop()
+            bob.start()
+            my = edit_on(bob, b, add_quinn(['task.submit']))
+            assert mx['version'] == my['version'] == base['version'] + 1
+            alice.start()
+
+            def both_rules():
+                sync(alice, bob)
+                pa = mine(alice)
+                if pa != mine(bob):
+                    return None
+                multi = {tuple(r['actions']): r['principals'] for r in pa['rules'] if r['agent'] == 'multi'}
+                want = ['network', 'person:' + quinn_id]
+                return pa if multi.get(('message.append',)) == want and multi.get(('task.submit',)) == want else None
+            try:
+                merged_multi = wait_for(both_rules, timeout=40, message='both rules of multi')
+            except AssertionError:
+                raise AssertionError(('both rules of multi keep their own addition after re-applying',
+                                      'alice', [r for r in mine(alice)['rules'] if r['agent'] == 'multi'],
+                                      mine(alice)['version'], 'bob', [r for r in mine(bob)['rules'] if r['agent'] == 'multi'],
+                                      mine(bob)['version'], 'base', base['version']))
+            assert merged_multi['version'] == base['version'] + 2, merged_multi['version']
+            coord.start()
+            sync(alice, bob)
+
             # --- An unshare racing a sibling's renewal: refused on the withdrawing host at once, settled after.
             keyed(alice, False)
             base = mine(alice)
@@ -911,17 +969,17 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             assert b in entries and d in entries, ('entries of hosts not removed for good stay', after['edits'])
             assert has_rule(after, 'fredrule') and has_rule(after, 'everule'), 'content is untouched'
 
-            # --- One rule per agent name in v2 (coordination contract, Policy statement, PR #20), in a network of
-            # its own (v1dup, alice only, no edits): a v2 policy with two rules for one agent is refused with 400; a
-            # v1 policy may hold several, and renewing it as v2 keeps only the first (CLI and daemon renewal), the
-            # daemon recording network.policy_rule_dropped. How `access` commands report a dropped rule in their
-            # output is not specified, so the CLI's output is not checked for it.
+            # --- Rules keyed by agent and settings (coordination contract, Policy statement, PR #20), in a network of
+            # its own (v1dup, alice only, no edits): several rules for one agent with different settings are
+            # accepted in v2; two with the same agent and settings are refused with 400; a v1 policy may hold such
+            # duplicates, and renewing it as v2 (by the CLI and by the daemon) combines them into the first, with
+            # their principals united (in no stated order, so compared as sets).
             dupnet = alice.cli('network', 'create', '--name', 'v1dup', '--member', 'pat', '--coordinator',
                                coord.address, '--coordinator-key', coordinator['public_key'])['id']
 
-            def rule(agent, principal):
+            def rule(agent, principal, size=4096):
                 return {'agent': agent, 'principals': [principal], 'actions': ['message.append'],
-                        'max_message_bytes': 4096, 'allow_disconnected': False}
+                        'max_message_bytes': size, 'allow_disconnected': False}
             first_dup, second_dup, other = rule('dup', 'network'), rule('dup', 'person:' + quinn_id), rule('solo', 'network')
 
             def signed_policy(version, rules, v2, issued, until):
@@ -932,30 +990,43 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                     p = {'format': 2, **p, 'capability_rules': [], 'trusted_hosts': [], 'edits': []}
                 p['signature'] = ssh_sign(policy_lines(p), keys['pat'][0], root)
                 return p
-            now = datetime.now(timezone.utc).replace(microsecond=0)
-            current = (mine_in(alice, dupnet) or {}).get('version', 0)
-            two = signed_policy(current + 1, [first_dup, second_dup], True, now - timedelta(minutes=1), now + timedelta(days=7))
-            code, body = alice.call('POST', f'/v1/networks/{dupnet}/policy', {'policy': two})
-            assert code == 400, ('a v2 policy with two rules for one agent is refused with 400', code, body)
-            v1dup = signed_policy(current + 1, [first_dup, second_dup, other], False, now - timedelta(minutes=1),
-                                  now + timedelta(days=7))
-            code, body = alice.call('POST', f'/v1/networks/{dupnet}/policy', {'policy': v1dup})
-            assert code == 201, ('a v1 policy may hold several rules for one agent', code, body)
+
             def plain(rules):
                 return [{k: v for k, v in r.items() if not (k == 'max_artifact_bytes' and not v)} for r in rules]
+
+            def combined(policy):
+                """The policy's rules hold `dup` once, with network and quinn united, then `solo`."""
+                rules = plain(policy['rules'])
+                return policy.get('format') == 2 and len(rules) == 2 and rules[1] == other and \
+                    {k: v for k, v in rules[0].items() if k != 'principals'} == \
+                    {k: v for k, v in first_dup.items() if k != 'principals'} and \
+                    sorted(rules[0]['principals']) == sorted(['network', 'person:' + quinn_id])
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            current = (mine_in(alice, dupnet) or {}).get('version', 0)
+            same = signed_policy(current + 1, [first_dup, second_dup], True, now - timedelta(minutes=1),
+                                 now + timedelta(days=7))
+            code, body = alice.call('POST', f'/v1/networks/{dupnet}/policy', {'policy': same})
+            assert code == 400, ('a v2 policy with two rules of the same agent and settings is refused with 400', code,
+                                 body)
+            varied = signed_policy(current + 1, [first_dup, rule('dup', 'person:' + quinn_id, 1024)], True,
+                                   now - timedelta(minutes=1), now + timedelta(days=7))
+            code, body = alice.call('POST', f'/v1/networks/{dupnet}/policy', {'policy': varied})
+            assert code == 201, ('several rules for one agent with different settings are accepted in v2', code, body)
+            v1dup = signed_policy(current + 2, [first_dup, second_dup, other], False, now - timedelta(minutes=1),
+                                  now + timedelta(days=7))
+            code, body = alice.call('POST', f'/v1/networks/{dupnet}/policy', {'policy': v1dup})
+            assert code == 201, ('a v1 policy may hold several rules with one agent and settings', code, body)
             renewed = alice.cli('access', 'renew', '--network', dupnet)
-            assert renewed.get('format') == 2 and plain(renewed['rules']) == [first_dup, other], \
-                ('renewed as v2, only the first rule for the agent is kept', renewed)
+            assert combined(renewed), ('renewed as v2, the duplicates are combined with their principals united',
+                                       renewed)
             ending = signed_policy(renewed['version'] + 1, [first_dup, second_dup, other], False,
                                    now - timedelta(hours=20), now + timedelta(hours=4))
             code, body = alice.call('POST', f'/v1/networks/{dupnet}/policy', {'policy': ending})
-            assert code == 201, ('setup: a v1 policy near its end with two rules for one agent', code, body)
+            assert code == 201, ('setup: a v1 policy near its end with duplicate rules', code, body)
             keyed(alice, True)
             wait_for(lambda: (mine_in(alice, dupnet) or {}).get('version', 0) > ending['version'], timeout=30,
                      message='daemon renewal of the v1 policy')
-            daemon = mine_in(alice, dupnet)
-            assert daemon.get('format') == 2 and plain(daemon['rules']) == [first_dup, other], daemon
-            assert ('network.policy_rule_dropped', f'{pat_id}/dup') in events(alice), events(alice)
+            assert combined(mine_in(alice, dupnet)), mine_in(alice, dupnet)
             keyed(alice, False)
 
             # --- Migration from version 16 to 17, and refusal of version 18.
