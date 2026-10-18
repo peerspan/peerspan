@@ -534,29 +534,6 @@ impl Store {
         Ok(view)
     }
 
-    /// `[{network_id, person_id}]` for each stored policy with this host's
-    /// rule for `name`, claim included.
-    pub fn capability_rule_holders(&self, name: &str) -> Result<Value, Error> {
-        let conn = self.connection()?;
-        let me = self.identity().id;
-        let mut statement = conn.prepare(
-            "SELECT network_id, record FROM network_statements WHERE kind = 'policy' ORDER BY network_id, subject",
-        )?;
-        let rows = statement
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut out = Vec::new();
-        for (network, record) in rows {
-            let p: Policy = json(record)?;
-            if p.capability_rules()
-                .iter()
-                .any(|r| r.host == me && r.capability == name)
-            {
-                out.push(json!({"network_id": network, "person_id": p.person_id()}));
-            }
-        }
-        Ok(json!(out))
-    }
     /// `status`'s `capabilities` counts.
     pub(crate) fn capabilities_summary(&self) -> Result<Value, Error> {
         let conn = self.connection()?;
@@ -681,7 +658,6 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
             "/v1/capabilities/{name}",
             get(show_route).delete(remove_route),
         )
-        .route("/v1/capabilities/{name}/rules", get(rules_route))
 }
 async fn list_route(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
     Ok(Json(blocking(store, |s| s.capabilities_view()).await?))
@@ -692,16 +668,6 @@ async fn show_route(
 ) -> Result<Json<Value>, Error> {
     Ok(Json(
         blocking(store, move |s| s.capability_show(&name)).await?,
-    ))
-}
-/// Every stored policy, of any person and network, with a rule binding the
-/// capability to this host: what `capability remove` withdraws.
-async fn rules_route(
-    State(store): State<Arc<Store>>,
-    Path(name): Path<String>,
-) -> Result<Json<Value>, Error> {
-    Ok(Json(
-        blocking(store, move |s| s.capability_rule_holders(&name)).await?,
     ))
 }
 async fn remove_route(
