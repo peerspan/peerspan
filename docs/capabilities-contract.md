@@ -120,7 +120,7 @@ Each discovered server is normalized to:
 
 **Following configuration.**
 - **Dropped servers.** A `PUT` that drops a server deletes its definition, stored values, and snapshot. Capabilities built on it remain, but become `unavailable`.
-- **Calls in flight.** Calls already `running` finish. New calls to an `unavailable` capability are refused.
+- **Calls in flight.** Calls already `running` finish. New calls are refused for an operation in the capability's `unavailable` list, or for any operation when the list contains `source`; its other operations still run (see [Authorization](#authorization)).
 - **New tools.** A tool that appears later is never added to an existing capability.
 - **Own credentials.** A `PUT` for an agent snapshots again, with their own credential, the capabilities built on that agent's sources that have their own credential context. A failure keeps the previous snapshot.
 - **Missing operations.** A selected tool missing from the latest snapshot makes that operation `unavailable`. A selected resource missing from it is excluded from `read` until it returns.
@@ -296,7 +296,7 @@ A `grant_id` is refused with 400. The CLI cites the first `via` entry of the lis
 ### Sources for the person's own machines
 
 A person's trusted machines can call a source's tools directly, without a capability, when the machine serving the source allows it. Both sides must agree:
-1. **The caller is trusted.** The sender passes self access: both hosts are bound to P in some network N, and the sender is in `trusted_hosts` of P's newest verified policy for N, within its validity window.
+1. **The caller is trusted.** The sender passes self access in the network N that the call cites: both hosts are bound to P in N, and the sender is in `trusted_hosts` of P's newest verified policy for N, within its validity window. Trust in another network does not count.
 2. **The server is open to the caller.** The receiving host's local open list contains the sender's host ID, or `*`.
 
 A source call that fails either check is refused with 403. The open list is stored only on the serving host, never in policy. A machine holding the person key can therefore mark itself trusted, and so reach P's capabilities, but it cannot open another machine's sources.
@@ -540,7 +540,7 @@ It covers:
   - `sources open-to` and `close-to`, with `--all`, and their refusals.
 - **Authorization:**
   - by policy, and by self from a trusted host;
-  - sources: called from a trusted host the server is open to, refused from a trusted host it is not open to, refused from an untrusted host it is open to, and `*` covering a host trusted later;
+  - sources: called from a trusted host the server is open to, refused from a trusted host it is not open to, refused from an untrusted host it is open to, refused with 403 when the call cites a network in which the sender is not trusted although it is trusted in another, and `*` covering a host trusted later;
   - a source never listed or callable by another person, even through `everyone`;
   - a rule for the same name bound to another host authorizing nothing here;
   - self refused from an untrusted host and from another person's host;
