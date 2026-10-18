@@ -363,7 +363,7 @@ func sameSettings(a, b membership.PolicyRule) bool {
 // identical settings or appends a new rule, drops rules left without
 // principals, and signs the next version, valid for 7 days. deny removes the
 // principal from every rule of the scope, or of every scope without --agent.
-func allowOrDeny(ctx context.Context, client host.Client, command, given string, fs *pflag.FlagSet, out io.Writer) error {
+func allowOrDeny(ctx context.Context, client host.Client, command, given string, fs *pflag.FlagSet, out, errOut io.Writer) error {
 	network, _ := fs.GetString("network")
 	agent, _ := fs.GetString("agent")
 	keyPath, _ := fs.GetString("person-key")
@@ -463,6 +463,9 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 	if err != nil {
 		return err
 	}
+	if changed {
+		o.reportDroppedRules(errOut)
+	}
 	if command == "deny" {
 		if !changed {
 			var policy any
@@ -471,15 +474,7 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 			}
 			return printJSON(out, map[string]any{"policy": policy, "removed": 0, "note": "no rule of your policy names " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
 		}
-		result := map[string]any{"policy": json.RawMessage(data), "removed": removed}
-		if len(o.droppedRules) > 0 {
-			result["dropped_rules"] = o.droppedRules
-		}
-		return printJSON(out, result)
+		return printJSON(out, map[string]any{"policy": json.RawMessage(data), "removed": removed})
 	}
-	result := map[string]any{"policy": json.RawMessage(data), "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes}
-	if len(o.droppedRules) > 0 {
-		result["dropped_rules"] = o.droppedRules
-	}
-	return printJSON(out, result)
+	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes})
 }

@@ -153,7 +153,7 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	case "unshare":
 		return runUnshare(ctx, client, args, fs, out, errOut)
 	case "allow", "deny":
-		return allowOrDeny(ctx, client, args[0], args[1], fs, out)
+		return allowOrDeny(ctx, client, args[0], args[1], fs, out, errOut)
 	}
 	var method, path string
 	var body any
