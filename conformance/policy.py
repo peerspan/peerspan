@@ -26,7 +26,7 @@ import time
 
 from agent_adapter import adapter_call, credential
 from coordination import Coordinator, wait_for
-from host_service import UnixHTTPConnection, stop_all
+from host_service import SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from peer_messaging import fixture_context, request_id, set_probe, timestamp, wire
 from persons import Agent, PersonHost, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent
 
@@ -500,7 +500,7 @@ def check(coord_binary, owner_binary, sender_binary, label):
             kinds = {e['kind'] for e in alice.cli('activity', '--limit', '1000')}
             assert {'network.policy_updated', 'access.blocked', 'access.unblocked'} <= kinds, kinds
             with sqlite3.connect(alice.state / 'host.db') as db:
-                assert db.execute('PRAGMA user_version').fetchone()[0] == 16
+                assert db.execute('PRAGMA user_version').fetchone()[0] == SCHEMA_VERSION
         finally:
             if saved_sock is None:
                 os.environ.pop('SSH_AUTH_SOCK', None)

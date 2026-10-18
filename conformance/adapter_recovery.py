@@ -12,7 +12,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
-from host_service import ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, TASK_TABLES
+from host_service import ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
 from adapter_outbound import route, send, wait_for
 from peer_messaging import PeerHost, timestamp
 
@@ -874,7 +874,7 @@ def migration(original, replacement, label):
             )
             wait_for(lambda: sql(a, "SELECT record FROM outbound_replies"))
             a.stop(crash=True)
-            for table in [*CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
+            for table in [*POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
                 sql(a, "DROP TABLE " + table)
             sql(a, "DROP TABLE access_blocks")
             sql(a, "DROP TABLE network_statements")
@@ -915,7 +915,7 @@ def migration(original, replacement, label):
             )
             a.binary = str(replacement)
             assert a.start() == ai
-            assert sql(a, "PRAGMA user_version")[0][0] == 16
+            assert sql(a, "PRAGMA user_version")[0][0] == SCHEMA_VERSION
             # Version 15 marks every existing item seen at migration time and
             # leaves every other column unchanged (live delivery slice 2).
             for table, records in rows.items():

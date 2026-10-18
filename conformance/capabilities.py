@@ -92,7 +92,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import CAPABILITY_TABLES, POLICY_EDIT_TABLES, Host, stop_all
+from host_service import CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
@@ -154,7 +154,7 @@ WORK_OPERATIONS = ['echo', 'info', 'sleep', 'fail', 'tool_error', 'big', 'crash'
 # daemon did not pass it.
 INTERPRETER_NAMES = {'LC_CTYPE'}
 CANARY = 'PEERSPAN_TOOLS_CANARY'
-CURRENT_VERSION = 17   # database version 17: policy_edits (coordination contract, Concurrent edits)
+CURRENT_VERSION = SCHEMA_VERSION   # database version 17: policy_edits (coordination contract, Concurrent edits)
 DAY = 86400
 
 # The adopted test vector's inputs (Policy statement, version 2: Test vector). The contract gives inputs, not the

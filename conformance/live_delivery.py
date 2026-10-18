@@ -122,7 +122,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import UnixHTTPConnection, stop_all
+from host_service import SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import Failure, near, need, parse_time
 from peer_messaging import request_id, set_probe, timestamp
@@ -2056,8 +2056,8 @@ class Pairing:
         h.stop()
         h.binary, h.cli_binary = str(self.daemon), str(self.cli_binary)
         h.start()
-        need(user_version(h) == 16, 'Shared state: the schema moves to the current version (16 since the '
-             'capabilities contract)', user_version(h))
+        need(user_version(h) == SCHEMA_VERSION, 'Shared state: the schema moves to the current version (17 since '
+             'concurrent policy edits, coordination contract)', user_version(h))
         need(h.cli('agent', 'list') == agents, 'existing state is preserved')
         for table, columns in MIGRATED_COLUMNS.items():
             present = {r['name'] for r in rows(h, f'SELECT name FROM pragma_table_info(\'{table}\')')}

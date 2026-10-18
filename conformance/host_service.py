@@ -24,7 +24,7 @@ import time
 
 
 # The current database version (capabilities contract, Persistence).
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17  # version 17: policy_edits (coordination contract, Concurrent edits)
 # Tables added by database version 16 (capabilities), dropped to model older state.
 CAPABILITY_TABLES = ["tool_servers", "tool_values", "capabilities", "source_access", "received_calls",
                      "outbound_calls"]
@@ -308,7 +308,7 @@ def check(binary, label):
             # Model an existing v1 installation, retaining its identity/registry.
             connection = sqlite3.connect(host.state / "host.db")
             try:
-                for table in [*CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
+                for table in [*POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
                               "network_members", "networks",
                               "outbound_messages", "received_messages", "grants", "peers"]:
                     connection.execute("DROP TABLE " + table)
@@ -329,7 +329,7 @@ def check(binary, label):
         finally:
             host.stop()
             host.logs.close()
-    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1→v16 migration", flush=True)
+    print(f"PASS {label}: local API, CLI, durability, crash recovery, exclusivity, concurrency, atomic activity, v1→v17 migration", flush=True)
 
 
 def main():
