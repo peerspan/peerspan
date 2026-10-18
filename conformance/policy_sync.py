@@ -511,8 +511,11 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                                 seq=start2['seq'] + 1000)
             assert submit(alice, unknown)[0] == 400, 'a policy citing an unknown seq for this host is refused'
             # A lapsed reservation. Ten real minutes are not waited: the reservation's persisted reserved_at is moved
-            # back 11 minutes while the daemon is stopped (database version 17 records it). If an implementation
-            # keeps reservations only in memory, the restart forgets it, and the number is unknown: 400 either way.
+            # back 11 minutes while the daemon is stopped. Database version 17 specifies the record as {seq, state,
+            # start, signed, signed_version, dropped, reserved_at, signed_at} (coordination contract, Direct
+            # propagation: Storage); reserved_at is written as RFC3339, as the contract's other timestamps are. No
+            # API exposes a reservation's age, so this is the only way short of waiting. If an implementation keeps
+            # reservations only in memory, the restart forgets it, and the number is unknown: 400 either way.
             code, start3 = edit_start(alice, net)
             alice.stop()
             with sqlite3.connect(alice.state / 'host.db') as db:
@@ -728,6 +731,11 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                 return seq
 
             def bob_records(seq):
+                """The state of bob's edit record for pat, read from the database. While bob is not bound to pat,
+                `access sync --status` answers 404 (and once bob is bound to quinn it lists quinn's edits), so no API
+                shows a suspended edit; the record's shape {seq, state, ...} is specified by database version 17
+                (coordination contract, Direct propagation: Storage). Where bob is bound to pat, the suite reads
+                `access sync --status` instead."""
                 with sqlite3.connect(bob.state / 'host.db') as db:
                     return [json.loads(r[0])['state'] for r in db.execute(
                         'SELECT record FROM policy_edits WHERE network_id = ? AND person_id = ? AND seq = ?',
@@ -820,7 +828,8 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                                       'bob policy has bobrule', has_rule(mine(bob), 'bobrule'),
                                       'alice members', alice.cli('network', 'members', net),
                                       'alice policy', mine(alice)))
-            wait_for(lambda: bob_records(first) == ['settled'], timeout=20, message='the resumed edit settled')
+            wait_for(lambda: edits_status(bob, net).get(first, {}).get('state') == 'settled', timeout=20,
+                     message='the resumed edit settled (access sync --status)')
 
             # --- A binding to another person: bob's new unsettled edit for pat is suspended when pat unbinds bob,
             # and never signed, into pat's policy or into quinn's after bob binds to quinn, although bob's daemon

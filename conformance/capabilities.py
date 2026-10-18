@@ -2930,17 +2930,19 @@ class Pairing:
                 if h.process is None or h.process.poll() is not None:
                     h.start()
             self.coord.start()
-        # Discovery from p2 (trusted in team): the claimed copy is PERSON/CAPABILITY, the other HOST_ID/CAPABILITY.
+        # Discovery from p2 (trusted in team), scoped to team, the network where the claims conflicted: the
+        # claimed copy is PERSON/CAPABILITY, the other HOST_ID/CAPABILITY. (Unscoped, p1's claims in other, v1net,
+        # and later could legitimately address p1's copy as PERSON/CAPABILITY in those networks when p1 lost team.)
         self.synced(self.version(), 'p2')
-        status, body = self.hosts['p2'].call('GET', '/v1/discover?person=pat')
+        status, body = self.hosts['p2'].call('GET', f'/v1/discover?person=pat&network={self.team}')
         found = {e['host_id']: e['address'] for e in (body or {}).get('capabilities', []) if e['capability'] == 'clash'}
         need(status == 200 and found == {ids[w]: 'pat/clash', ids[lost]: f'{ids[lost]}/clash'},
              'the claimed copy is addressed PERSON/CAPABILITY; the copy that lost its claim only HOST_ID/CAPABILITY',
              status, found)
-        code, out, stderr = self.call('p2', 'pat/clash', 'echo', {'text': 'claimed'})
+        code, out, stderr = self.call('p2', 'pat/clash', 'echo', {'text': 'claimed'}, '--network', self.team)
         need(code == 0 and dig(out, 'peer_host_id') == ids[w], 'PERSON/CAPABILITY resolves to the claimed copy',
              code, out)
-        code, out, stderr = self.call('p2', f'{ids[lost]}/clash', 'echo', {'text': 'lost'})
+        code, out, stderr = self.call('p2', f'{ids[lost]}/clash', 'echo', {'text': 'lost'}, '--network', self.team)
         need(code == 0 and dig(out, 'peer_host_id') == ids[lost],
              'the losing copy still works through self access as HOST_ID/CAPABILITY', code, out)
         code, out, stderr = self.share('clash', '--with', 'quinn', '--yes', host=lost, expect=False)
