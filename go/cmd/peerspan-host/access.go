@@ -228,11 +228,7 @@ type policyEdit struct {
 
 func (e policyEdit) submit(ctx context.Context, client host.Client, errOut io.Writer) (json.RawMessage, error) {
 	defer e.o.signer.Close()
-	data, err := e.run(ctx, client)
-	if err == nil {
-		e.o.reportDroppedRules(errOut)
-	}
-	return data, err
+	return e.run(ctx, client)
 }
 
 // renewPolicy re-signs the current rules now, at the next version with the
@@ -253,7 +249,7 @@ func renewPolicy(ctx context.Context, client host.Client, o *ownerContext) (json
 		var p membership.Policy
 		storedBody := membership.PolicyBody{}
 		if stored != nil {
-			storedBody, _ = membership.FirstRulePerAgent(stored.Body())
+			storedBody = membership.CombineDuplicateRules(stored.Body())
 		}
 		if stored != nil && membership.SameContent(storedBody, body) {
 			p, err = membership.SignPolicyV2(o.signer, o.network, o.version+1, time.Now().Truncate(time.Second), until.Sub(issued), body)
@@ -462,9 +458,6 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 	data, changed, err := o.edit(ctx, client, true, change)
 	if err != nil {
 		return err
-	}
-	if changed {
-		o.reportDroppedRules(errOut)
 	}
 	if command == "deny" {
 		if !changed {

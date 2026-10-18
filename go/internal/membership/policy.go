@@ -397,13 +397,13 @@ func CheckPolicy(network string, p Policy) error {
 			return fmt.Errorf("%w: a version 1 policy has no capability rules, trusted hosts, or edits", ErrInvalid)
 		}
 	case PolicyFormat2:
-		// A v2 policy holds at most one rule per agent name.
-		agents := map[string]bool{}
+		// No two rules of a v2 policy have the same agent and settings.
+		keys := map[string]bool{}
 		for _, r := range p.Rules {
-			if agents[r.Agent] {
-				return fmt.Errorf("%w: agent %q has more than one rule", ErrInvalid, r.Agent)
+			if keys[RuleKey(r)] {
+				return fmt.Errorf("%w: agent %q has two rules with the same settings", ErrInvalid, r.Agent)
 			}
-			agents[r.Agent] = true
+			keys[RuleKey(r)] = true
 		}
 		if p.CapabilityRules == nil || len(p.CapabilityRules) > PolicyMaxCapabilityRules {
 			return fmt.Errorf("%w: a policy has at most %d capability rules", ErrInvalid, PolicyMaxCapabilityRules)
@@ -535,24 +535,37 @@ func SignPolicy(owner PersonSigner, network string, version int64, issued time.T
 	return p, err
 }
 
-// FirstRulePerAgent keeps the first rule for each agent name, as a v1 policy
-// becomes v2, and returns the agents whose later rules were dropped.
-func FirstRulePerAgent(body PolicyBody) (PolicyBody, []string) {
-	seen := map[string]bool{}
+// RuleKey identifies a rule within a v2 policy: its agent and settings
+// (actions as a set, max_message_bytes, max_artifact_bytes, and
+// allow_disconnected).
+func RuleKey(r PolicyRule) string {
+	actions := append([]string{}, r.Actions...)
+	sort.Strings(actions)
+	return r.Agent + "\x00" + strings.Join(actions, " ") + "\x00" + strconv.FormatInt(r.MaxMessageBytes, 10) + "\x00" + strconv.FormatInt(r.MaxArtifactBytes, 10) + "\x00" + strconv.FormatBool(r.AllowDisconnected)
+}
+
+// CombineDuplicateRules combines rules with the same agent and settings
+// into the first of them, uniting their principals, as a v1 policy becomes
+// v2. Access is unchanged.
+func CombineDuplicateRules(body PolicyBody) PolicyBody {
+	index := map[string]int{}
 	kept := []PolicyRule{}
-	var dropped []string
 	for _, r := range body.Rules {
-		if seen[r.Agent] {
-			if !slicesContains(dropped, r.Agent) {
-				dropped = append(dropped, r.Agent)
+		key := RuleKey(r)
+		if i, ok := index[key]; ok {
+			for _, p := range r.Principals {
+				if !slicesContains(kept[i].Principals, p) {
+					kept[i].Principals = append(kept[i].Principals, p)
+				}
 			}
 			continue
 		}
-		seen[r.Agent] = true
+		index[key] = len(kept)
+		r.Principals = append([]string{}, r.Principals...)
 		kept = append(kept, r)
 	}
 	body.Rules = kept
-	return body, dropped
+	return body
 }
 
 func slicesContains(list []string, x string) bool {
@@ -562,21 +575,6 @@ func slicesContains(list []string, x string) bool {
 		}
 	}
 	return false
-}
-
-// RenewalDropping is Renewal, also returning the agents whose duplicate
-// rules a v1 policy lost on becoming v2.
-func RenewalDropping(owner PersonSigner, current Policy, now time.Time) (Policy, []string, error) {
-	issued, until, err := policyWindow(current)
-	if err != nil {
-		return Policy{}, nil, err
-	}
-	if !owner.PublicKey().Equal(ed25519.PublicKey(mustKey(current.PersonPublicKey))) {
-		return Policy{}, nil, fmt.Errorf("%w: renewing key is not the policy owner", ErrInvalid)
-	}
-	body, dropped := FirstRulePerAgent(current.Body())
-	p, err := SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), body)
-	return p, dropped, err
 }
 
 // Renewal returns the policy's rules, capability rules, trusted hosts, and edits re-signed
@@ -591,8 +589,7 @@ func Renewal(owner PersonSigner, current Policy, now time.Time) (Policy, error) 
 	if !owner.PublicKey().Equal(ed25519.PublicKey(mustKey(current.PersonPublicKey))) {
 		return Policy{}, fmt.Errorf("%w: renewing key is not the policy owner", ErrInvalid)
 	}
-	body, _ := FirstRulePerAgent(current.Body())
-	return SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), body)
+	return SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), CombineDuplicateRules(current.Body()))
 }
 
 func mustKey(value string) []byte {

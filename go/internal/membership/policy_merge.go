@@ -43,12 +43,13 @@ func sameSet(a, b []string) bool {
 	return true
 }
 
-// ruleKeys keys rules by agent name: a v2 policy holds at most one rule per
-// agent, so the name identifies a rule across B, O, and S.
+// ruleKeys keys rules by agent and settings: a v2 policy holds at most one
+// rule per key, so the key identifies a rule across B, O, and S. Changing
+// a rule's settings changes its key.
 func ruleKeys(rules []PolicyRule) []string {
 	keys := make([]string, len(rules))
 	for i, r := range rules {
-		keys[i] = r.Agent
+		keys[i] = RuleKey(r)
 	}
 	return keys
 }
@@ -136,7 +137,8 @@ func MergeEdit(b, o, s PolicyBody, removalsOnly bool, skip []string) (PolicyBody
 		}
 	}
 
-	// Rules, keyed by agent name.
+	// Rules, keyed by agent and settings; their members are principals,
+	// and their bounds, part of the key, are never merged.
 	bKeys, oKeys := ruleKeys(b.Rules), ruleKeys(o.Rules)
 	sKeys := ruleKeys(out.Rules)
 	removed := map[string]bool{}
@@ -144,7 +146,7 @@ func MergeEdit(b, o, s PolicyBody, removalsOnly bool, skip []string) (PolicyBody
 		j := indexOf(oKeys, key)
 		k := indexOf(sKeys, key)
 		if j < 0 {
-			removed[key] = true // O removed the rule
+			removed[key] = true // O removed the rule, or changed its settings
 			continue
 		}
 		br, or := b.Rules[i], o.Rules[j]
@@ -156,20 +158,11 @@ func MergeEdit(b, o, s PolicyBody, removalsOnly bool, skip []string) (PolicyBody
 						drop("principal " + m + " in rule " + or.Agent)
 					}
 				}
-				for _, a := range or.Actions {
-					if !slices.Contains(br.Actions, a) {
-						drop("action " + a + " in rule " + or.Agent)
-					}
-				}
 			}
 			continue
 		}
 		sr := &out.Rules[k]
 		sr.Principals = mergeMembers(br.Principals, or.Principals, sr.Principals, removalsOnly, func(m string) bool { return skipped("principal " + m + " in rule " + or.Agent) })
-		sr.Actions = mergeMembers(br.Actions, or.Actions, sr.Actions, removalsOnly, func(a string) bool { return skipped("action " + a + " in rule " + or.Agent) })
-		sr.MaxMessageBytes = mergeInt(br.MaxMessageBytes, or.MaxMessageBytes, sr.MaxMessageBytes, removalsOnly)
-		sr.MaxArtifactBytes = mergeInt(br.MaxArtifactBytes, or.MaxArtifactBytes, sr.MaxArtifactBytes, removalsOnly)
-		sr.AllowDisconnected = mergeBool(br.AllowDisconnected, or.AllowDisconnected, sr.AllowDisconnected, removalsOnly)
 	}
 	if !removalsOnly {
 		for j, key := range oKeys {
@@ -181,10 +174,6 @@ func MergeEdit(b, o, s PolicyBody, removalsOnly bool, skip []string) (PolicyBody
 				// S added the same rule concurrently: the two combine.
 				sr := &out.Rules[k]
 				sr.Principals = mergeMembers(nil, or.Principals, sr.Principals, false, func(m string) bool { return skipped("principal " + m + " in rule " + or.Agent) })
-				sr.Actions = mergeMembers(nil, or.Actions, sr.Actions, false, func(a string) bool { return skipped("action " + a + " in rule " + or.Agent) })
-				sr.MaxMessageBytes = min(sr.MaxMessageBytes, or.MaxMessageBytes)
-				sr.MaxArtifactBytes = min(sr.MaxArtifactBytes, or.MaxArtifactBytes)
-				sr.AllowDisconnected = sr.AllowDisconnected && or.AllowDisconnected
 				continue
 			}
 			if skipped("rule " + or.Agent) {
@@ -198,8 +187,8 @@ func MergeEdit(b, o, s PolicyBody, removalsOnly bool, skip []string) (PolicyBody
 	}
 	kept := []PolicyRule{}
 	for k, r := range out.Rules {
-		// A rule left without principals or actions is removed.
-		if removed[sKeys[k]] || len(r.Principals) == 0 || len(r.Actions) == 0 {
+		// A rule left without principals is removed.
+		if removed[sKeys[k]] || len(r.Principals) == 0 {
 			continue
 		}
 		kept = append(kept, r)

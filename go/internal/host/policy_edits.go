@@ -251,7 +251,7 @@ func reapplied(stored membership.PolicyBody, edits []policyEditRecord) (membersh
 	body := stored
 	if len(edits) > 0 {
 		// Signing as v2 keeps one rule per agent.
-		body, _ = membership.FirstRulePerAgent(body)
+		body = membership.CombineDuplicateRules(body)
 	}
 	dropped := make([][]string, len(edits))
 	for i, e := range edits {
@@ -474,7 +474,6 @@ func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(stri
 	if err = tx.Commit(); err != nil || len(unsettled) == 0 {
 		return err
 	}
-	_, ruleDrops := membership.FirstRulePerAgent(stored.Body())
 	body, dropped := reapplied(stored.Body(), unsettled)
 	changed := !membership.SameContent(body, stored.Body())
 	var signedPolicy *membership.Policy
@@ -539,11 +538,6 @@ func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(stri
 		}
 		if !storedNow {
 			return nil
-		}
-		for _, agent := range ruleDrops {
-			if err = appendEvent(ctx, tx, "network.policy_rule_dropped", person+"/"+agent, at); err != nil {
-				return err
-			}
 		}
 	}
 	if err = tx.Commit(); err != nil {

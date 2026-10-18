@@ -222,12 +222,6 @@ func membershipsOf(ctx context.Context, q queryer, host string) ([]networkRecord
 // One coordinator attempt is made now; the delivery worker retries. An
 // identical resubmission changes nothing.
 func (s *Store) SubmitPolicy(ctx context.Context, id string, p membership.Policy) (membership.Policy, error) {
-	return s.submitPolicyRecording(ctx, id, p, nil)
-}
-
-// submitPolicyRecording is SubmitPolicy, also recording the given activity
-// subjects of network.policy_rule_dropped in the transaction that stores p.
-func (s *Store) submitPolicyRecording(ctx context.Context, id string, p membership.Policy, ruleDrops []string) (membership.Policy, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return p, err
@@ -243,11 +237,6 @@ func (s *Store) submitPolicyRecording(ctx context.Context, id string, p membersh
 	now := time.Now()
 	if err = s.submitPolicyIn(ctx, tx, id, p, now); err != nil {
 		return p, err
-	}
-	for _, subject := range ruleDrops {
-		if err = appendEvent(ctx, tx, "network.policy_rule_dropped", subject, timestamp(now)); err != nil {
-			return p, err
-		}
 	}
 	if err = tx.Commit(); err != nil {
 		return p, err
@@ -867,7 +856,7 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 			continue // neither the agent nor the key file holds this owner's key
 		}
 		// A renewal copies edits, except retired entries.
-		renewed, ruleDrops, err := membership.RenewalDropping(signer, p, now.Truncate(time.Second))
+		renewed, err := membership.Renewal(signer, p, now.Truncate(time.Second))
 		if err == nil {
 			body := renewed.Body()
 			if body.Edits, err = s.retiredDropped(ctx, s.db, n.network, body.Edits); err == nil && len(body.Edits) != len(renewed.Edits) {
@@ -880,12 +869,7 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 			logf("policy renewal for %s: %v", n.network, err)
 			continue
 		}
-		// Dropped rules are recorded with the stored renewal.
-		var subjects []string
-		for _, agent := range ruleDrops {
-			subjects = append(subjects, *n.member.PersonID+"/"+agent)
-		}
-		_, err = s.submitPolicyRecording(ctx, n.network, renewed, subjects)
+		_, err = s.SubmitPolicy(ctx, n.network, renewed)
 		switch {
 		case err == nil:
 			logf("renewed access policy %d for %s", renewed.Version, n.network)
