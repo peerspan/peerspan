@@ -158,7 +158,7 @@ A capability record is:
 | --- | --- | --- |
 | `capability create NAME --from SOURCE [--operations OP[,OP...]] [--resources all\|URI[,URI...]] [--env-file PATH] [--arg A ...] [--person-key PATH]` | `POST /v1/capabilities` with `{name, source, operations, resources, env_file, args, policies}` | Creates the record and claims its name (see [Claims](#claims)), without sharing it. `SOURCE` is `AGENT/SERVER` as `sources` shows it, or `SERVER` when exactly one agent on this host has it. The source must be `shareable`, and each operation and URI must be in its snapshot. A capability with its own credential is snapshotted with that credential, and its operations are checked against that snapshot. Returns 201 with the record; an identical repeat signs nothing and returns 200; a different record under the same name returns 409. |
 | `capability list [--json]` / `capability show NAME` | `GET /v1/capabilities`, `GET /v1/capabilities/{name}` | The records, each with its recipients from this person's stored policies. |
-| `capability remove NAME [--yes]` | `DELETE /v1/capabilities/{name}` | Removes the record. If it is shared, it first shows the recipients and asks for confirmation (`y` at a terminal, or `--yes`). It then removes this host's rule for the capability from every network's policy, signing and storing new versions, and deletes the record only after every one of them is stored. If any signing fails, the command fails and the record is kept. Policies already signed stay signed, and repeating the command finishes the removal. |
+| `capability remove NAME [--yes] [--person-key PATH]` | `DELETE /v1/capabilities/{name}` | Removes the record. If it is shared, it first shows the recipients and asks for confirmation (`y` at a terminal, or `--yes`). It then removes this host's rule for the capability, claim included, from every stored policy that holds it, whoever owns that policy and whether or not this host is still bound in that network, signing and storing new versions. It deletes the record only after every one of them is stored. A policy owned by a person other than the signing key's cannot be withdrawn: the command fails before deleting, names that person and network, and says to run it again with that person's key. If any signing fails, the command fails and the record is kept. Policies already signed stay signed, and repeating the command finishes the removal. The daemon also refuses `DELETE` with 409 while any stored policy still holds this host's rule for the name. |
 
 **Uniqueness.** A capability name is unique on its host, and claimed across the person's hosts.
 
@@ -569,7 +569,7 @@ It covers:
   - `calls` listings.
 - **Status:** the `capabilities` counts, and items 14 and 15.
 - **Migration:** from version 15 to version 16.
-- **Removal:** `capability remove` keeping the record when a signing fails, and finishing on repeat.
+- **Removal:** `capability remove` keeping the record when a signing fails, and finishing on repeat; withdrawing the rule from a network where the host is no longer bound; refusing, with the record kept, while a policy of another person holds the rule, and finishing with that person's key; and the daemon's 409 for a `DELETE` while a rule remains.
 
 ## Owner decisions
 

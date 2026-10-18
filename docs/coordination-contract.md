@@ -475,7 +475,7 @@ The JSON is `{network_id, person_public_key, version, issued_at, valid_until, ru
 - **`max_message_bytes`:** 1 to 65,536.
 - **`max_artifact_bytes`:** optional, 0 to 1,073,741,824, for task artifacts; see the [artifact contract](artifact-contract.md), which also defines its signed encoding.
 - **Validity:** `valid_until` minus `issued_at` must be between 1 and 90 days. The CLI's default is 7 days, set with `--valid-days`.
-- **At most** 64 rules and 64 principals per rule.
+- **At most** 64 rules and 64 principals per rule. In a v2 policy, at most one rule per agent name; a v2 policy with two is refused with 400. A v1 policy may still hold several. When a v1 policy with several rules for one agent is renewed or edited as v2, only the first of them is kept; the others are dropped, which only narrows access, and the signer reports each dropped rule (`access` commands in their output, the daemon as `network.policy_rule_dropped` with the subject `<person_id>/<agent>`).
 
 **Test vector.** The person is the earlier one, as owner. Version 1, issued `2026-10-10T00:00:00Z`, valid until `2026-10-17T00:00:00Z`. It has two rules:
 - `reviewer` for `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2 group:backend`, `message.append`, `65536 false`;
@@ -588,7 +588,7 @@ It signs with the renewal key: the agent socket of `run --person-agent`, or the 
 
 **The merge.** Re-applying edit E, with starting point B and signed policy O, to the stored policy S, compares the rule content of the three. Content excludes the header, the validity window, and `edits`. Starting from S:
 - **Set members** are principals, actions, and trusted hosts. A member O added relative to B is added to S, unless S has removed the rule that holds it relative to B. A member O removed relative to B is removed from S.
-- **Rules** are keyed by agent name for rules and by capability name for capability rules.
+- **Rules** are keyed by agent name for rules and by capability name for capability rules. A v2 policy holds at most one rule per key, so the key identifies a rule across B, O, and S.
   - A rule O added is added to S at the end, in O's order.
   - If S has a rule with the same key, the two combine: members as above, and bounds as below.
   - A capability rule that S binds to another host is not added. That claim is dropped.
@@ -660,6 +660,7 @@ New activity kinds of version 12:
 - the edit route, edit numbers in `edits`, a lapsed reservation refused, two reservations on one host with the older submission refused as `edit_conflict` and succeeding on retry, a `closed` edit never re-applied, renewals copying `edits`, and `access sync --status` listing edits;
 - edits suspended when the host binds to another person, never signed into the new owner's policy, and resumed when a removal signed by an administrator is undone by `--revoke-admitted`;
 - entries of a host revoked by the root, or that left, dropped by the next signer, and entries of a host revoked by an administrator kept;
+- a v2 policy with two rules for one agent refused with 400, and a v1 policy with two rules for one agent keeping only the first when renewed as v2;
 - migration from version 16 to version 17;
 - refusal of pushes and fetches from a non-sibling, and of lower versions;
 - `access sync` and its status;
