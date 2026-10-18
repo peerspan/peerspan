@@ -275,7 +275,7 @@ impl Store {
             }
             for m in self.stored_members(&conn, &n)? {
                 if let Some(person) = m.person_id {
-                    out.persons.entry(m.host_id).or_insert(person);
+                    out.persons.insert((m.host_id, n.clone()), person);
                 }
             }
             for p in self.stored_persons(&conn, &n)? {
@@ -567,8 +567,8 @@ async fn listings(
 /// Host persons and their policies' capability rules.
 #[derive(Default)]
 struct Bindings {
-    /// Host ID to person ID.
-    persons: BTreeMap<String, String>,
+    /// (host ID, network ID) to the person the host is bound to there.
+    persons: BTreeMap<(String, String), String>,
     /// (person ID, network ID) to the policy's (capability, host) pairs.
     rules: BTreeMap<(String, String), Vec<(String, String)>>,
 }
@@ -578,25 +578,38 @@ impl Bindings {
     /// or none of the person's policies binds the name and the person has
     /// it on one host only.
     fn by_person(&self, host: &str, entry: &Value, name: &str, only: bool) -> bool {
-        let Some(person) = self.persons.get(host) else {
-            return only;
-        };
         let networks: Vec<&str> = entry["via"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|v| v["network_id"].as_str())
             .collect();
+        // The host's person in each of the entry's networks.
+        let persons: Vec<(&str, &String)> = networks
+            .iter()
+            .filter_map(|n| {
+                self.persons
+                    .get(&(host.to_owned(), (*n).to_owned()))
+                    .map(|p| (*n, p))
+            })
+            .collect();
+        if persons.is_empty() {
+            return only;
+        }
         let mut bound = false;
         for ((p, network), rules) in &self.rules {
-            if p != person {
+            if !persons.iter().any(|(_, person)| *person == p) {
                 continue;
             }
             for (capability, h) in rules {
                 if capability != name {
                     continue;
                 }
-                if h == host && networks.contains(&network.as_str()) {
+                if h == host
+                    && persons
+                        .iter()
+                        .any(|(n, person)| *n == network && *person == p)
+                {
                     return true;
                 }
                 bound = true;

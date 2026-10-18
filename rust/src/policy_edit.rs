@@ -400,6 +400,9 @@ pub(crate) struct Plan {
     edits: Vec<EditEntry>,
     duration: TimeDelta,
     dropped: Vec<(u64, Vec<String>)>,
+    /// Agents of rules dropped from a version 1 policy with several rules
+    /// for one agent.
+    dropped_rules: Vec<String>,
 }
 
 impl Store {
@@ -784,7 +787,8 @@ impl Store {
             tx.commit()?;
             return Ok(None);
         };
-        let (content, dropped) = Self::merged(&stored, &recs);
+        let (mut content, dropped) = Self::merged(&stored, &recs);
+        let dropped_rules = content.dedup_rules();
         if normalized(&content) == normalized(&stored.content()) {
             self.note_dropped(&tx, network, &person, &dropped, true)?;
             tx.commit()?;
@@ -807,6 +811,7 @@ impl Store {
             edits,
             duration,
             dropped,
+            dropped_rules,
         }))
     }
     /// Stores a signed re-application, unless the stored policy changed
@@ -822,6 +827,14 @@ impl Store {
             == crate::policy::Accepted::Stored;
         if stored {
             self.note_dropped(&tx, &plan.network, &p.person_id(), &plan.dropped, false)?;
+            for agent in &plan.dropped_rules {
+                append_event(
+                    &tx,
+                    "network.policy_rule_dropped",
+                    &format!("{}/{agent}", p.person_id()),
+                    &now(),
+                )?;
+            }
         }
         tx.commit()?;
         Ok(stored)

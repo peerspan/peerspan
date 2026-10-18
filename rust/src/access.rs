@@ -153,10 +153,17 @@ impl Editor {
         &self,
         signer: &PersonSigner,
         start: &Start,
-        content: Content,
+        mut content: Content,
         duration: Option<TimeDelta>,
         edit: bool,
     ) -> anyhow::Result<Policy> {
+        // A version 1 policy may hold several rules for one agent; version
+        // 2 keeps the first, and each dropped rule is reported.
+        for agent in content.dedup_rules() {
+            eprintln!(
+                "dropped a second rule for agent {agent}: a version 2 policy holds one rule per agent, and the first is kept"
+            );
+        }
         let duration = match (duration, &start.policy) {
             (Some(d), _) => d,
             (None, Some(p)) => duration_of(p)?,

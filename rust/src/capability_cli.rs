@@ -684,66 +684,78 @@ async fn remove(
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
-    // Every stored policy of the signing person with this host's rule,
-    // claim included, also in networks where this host is no longer bound;
-    // any failure keeps the record. Without a usable person key, only this
-    // host's own person's policies can be checked, and a rule found there
-    // still needs the key.
-    let opened = PersonSigner::open(person_key);
-    let me = opened
-        .as_ref()
-        .ok()
-        .map(|s| persons::person_id(&s.public_key()));
+    // Every stored policy holding this host's rule, claim included, of any
+    // person and in every network, also where this host is no longer
+    // bound. Any failure keeps the record.
     let networks = local.get("/v1/networks".into()).await?;
-    let mut signed = Vec::new();
+    let not_found = |e: &anyhow::Error| {
+        e.downcast_ref::<crate::integration::DaemonError>()
+            .is_some_and(|d| d.status == 404)
+    };
+    let mut holders: Vec<(String, String, String)> = Vec::new();
     for n in networks.as_array().into_iter().flatten() {
         let Some(network) = n["id"].as_str() else {
             continue;
         };
-        let path = match &me {
-            Some(me) => format!(
-                "/v1/networks/{}/policy?person={}",
-                encoded(network),
-                encoded(me)
-            ),
-            None => format!("/v1/networks/{}/policy", encoded(network)),
-        };
-        let policy = match local.get(path).await {
-            Ok(p) => p,
-            Err(e)
-                if e.downcast_ref::<crate::integration::DaemonError>()
-                    .is_some_and(|d| d.status == 404) =>
-            {
+        let persons = local
+            .get(format!("/v1/networks/{}/persons", encoded(network)))
+            .await?;
+        for p in persons.as_array().into_iter().flatten() {
+            let Some(person) = p["person_id"].as_str() else {
                 continue;
+            };
+            let policy = match local
+                .get(format!(
+                    "/v1/networks/{}/policy?person={}",
+                    encoded(network),
+                    encoded(person)
+                ))
+                .await
+            {
+                Ok(policy) => policy,
+                Err(e) if not_found(&e) => continue,
+                Err(e) => return Err(e),
+            };
+            let holds = policy["capability_rules"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|r| {
+                    r["host"].as_str() == Some(host.as_str())
+                        && r["capability"].as_str() == Some(name)
+                });
+            if holds {
+                holders.push((
+                    network.to_owned(),
+                    person.to_owned(),
+                    p["member"].as_str().unwrap_or(person).to_owned(),
+                ));
             }
-            Err(e) => return Err(e),
-        };
-        let holds = policy["capability_rules"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|r| {
-                r["host"].as_str() == Some(host.as_str()) && r["capability"].as_str() == Some(name)
-            });
-        if !holds {
-            continue;
         }
-        let signer = match &opened {
-            Ok(s) => s,
-            Err(e) => bail!(
-                "{name} is claimed or shared in network {network}, and its policy needs the person key: {e}"
-            ),
-        };
-        let (_, stored) = edit_policy(local, network, signer, |content| {
-            let before = content.capability_rules.len();
-            content
-                .capability_rules
-                .retain(|r| !(r.host == host && r.capability == name));
-            Ok(content.capability_rules.len() != before)
-        })
-        .await?;
-        if let Some(stored) = stored {
-            signed.push(json!({"network_id": network, "version": stored["version"]}));
+    }
+    let mut signed = Vec::new();
+    if !holders.is_empty() {
+        let signer = PersonSigner::open(person_key).map_err(failed)?;
+        let me = persons::person_id(&signer.public_key());
+        for (network, _, _) in holders.iter().filter(|(_, p, _)| *p == me) {
+            let (_, stored) = edit_policy(local, network, &signer, |content| {
+                let before = content.capability_rules.len();
+                content
+                    .capability_rules
+                    .retain(|r| !(r.host == host && r.capability == name));
+                Ok(content.capability_rules.len() != before)
+            })
+            .await?;
+            if let Some(stored) = stored {
+                signed.push(json!({"network_id": network, "version": stored["version"]}));
+            }
+        }
+        // A policy of another person cannot be withdrawn with this key: the
+        // record is kept.
+        if let Some((network, person, label)) = holders.iter().find(|(_, p, _)| *p != me) {
+            bail!(
+                "the policy of {label} ({person}) in network {network} holds this host's rule for {name}; run capability remove again with that person's key (--person-key)"
+            );
         }
     }
     let removed = crate::delete(local.0, format!("/v1/capabilities/{}", encoded(name))).await?;
@@ -810,6 +822,19 @@ async fn share(
             None,
         ),
         None => {
+            // The guided share creates the capability with its claims, so
+            // its network must be one where this host is bound to the
+            // signing person; it checks before creating anything.
+            let me = persons::person_id(&signer.public_key());
+            if !bound_networks(local)
+                .await?
+                .iter()
+                .any(|(n, p)| n == network && *p == me)
+            {
+                bail!(
+                    "this host is not bound to the person of that key ({me}) in network {network}; the guided share needs that binding"
+                );
+            }
             if !terminal && (guided.from.is_none() || !yes) {
                 bail!(
                     "without a terminal, the guided share needs --from, --operations or --resources, and --yes"

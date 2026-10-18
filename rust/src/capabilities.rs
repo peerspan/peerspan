@@ -528,6 +528,29 @@ impl Store {
         let view = self.capability_show(name)?;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
+        // The record stays while any stored policy, of any person, holds
+        // this host's rule for the name.
+        let me = self.identity().id;
+        let holders: Vec<(String, String)> = {
+            let mut statement = tx.prepare(
+                "SELECT network_id, record FROM network_statements WHERE kind = 'policy' ORDER BY network_id, subject",
+            )?;
+            statement
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?
+        };
+        for (network, record) in holders {
+            let p: Policy = json(record)?;
+            if p.capability_rules()
+                .iter()
+                .any(|r| r.host == me && r.capability == name)
+            {
+                return Err(Error::Conflict(format!(
+                    "the policy of {} in network {network} still holds this host's rule for {name}; withdraw it first",
+                    p.person_id()
+                )));
+            }
+        }
         tx.execute("DELETE FROM capabilities WHERE name = ?1", [name])?;
         append_event(&tx, "capability.removed", name, &now())?;
         tx.commit()?;

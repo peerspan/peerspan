@@ -417,6 +417,8 @@ impl Store {
                 let Some(policy) = self.stored_policy(&conn, net, &key)? else {
                     continue;
                 };
+                // With this host's unsettled withdrawals applied.
+                let policy = self.enforced(&conn, net, policy)?;
                 if !policy.in_window(now) {
                     continue;
                 }

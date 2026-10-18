@@ -167,6 +167,25 @@ pub struct Content {
     pub capability_rules: Vec<CapabilityRule>,
     pub trusted_hosts: Vec<String>,
 }
+impl Content {
+    /// Keeps the first rule per agent name, as a version 2 policy holds at
+    /// most one; returns the agent of each rule dropped. Only a version 1
+    /// policy can hold several.
+    pub fn dedup_rules(&mut self) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        let mut dropped = Vec::new();
+        self.rules.retain(|r| {
+            if seen.contains(&r.agent) {
+                dropped.push(r.agent.clone());
+                false
+            } else {
+                seen.push(r.agent.clone());
+                true
+            }
+        });
+        dropped
+    }
+}
 
 /// The owner policy a request relies on: the owner and the newest version the
 /// sender has verified.
@@ -480,6 +499,13 @@ impl Policy {
         ) {
             (None, None, None, None) => {}
             (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
+                let mut agents: Vec<&str> = self.rules.iter().map(|r| r.agent.as_str()).collect();
+                agents.sort_unstable();
+                if agents.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(invalid(
+                        "a version 2 policy has at most one rule per agent name",
+                    ));
+                }
                 if capability_rules.len() > MAX_CAPABILITY_RULES {
                     return Err(invalid("a policy has at most 256 capability rules"));
                 }
@@ -638,13 +664,17 @@ impl Policy {
         edits: Vec<EditEntry>,
     ) -> Result<Self, Error> {
         let (issued, until) = self.times();
+        // A version 1 policy may hold several rules for one agent; version
+        // 2 keeps the first.
+        let mut content = self.content();
+        content.dedup_rules();
         Self::sign_v2(
             signer,
             &self.network_id,
             self.version + 1,
             &rfc3339(at),
             &rfc3339(at + (until - issued)),
-            self.content(),
+            content,
             edits,
         )
     }
@@ -1194,6 +1224,23 @@ impl Store {
         Ok(out)
     }
 
+    /// Records each rule a version 2 signing dropped from a version 1
+    /// policy with several rules for one agent.
+    pub(crate) fn note_rule_drops(&self, person: &str, agents: &[String]) -> Result<(), Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let at = now();
+        for agent in agents {
+            append_event(
+                &tx,
+                "network.policy_rule_dropped",
+                &format!("{person}/{agent}"),
+                &at,
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn access_blocks(&self) -> Result<Vec<AccessBlock>, Error> {
         crate::peer_store::records(
             &*self.connection()?,
@@ -1335,10 +1382,18 @@ pub(crate) async fn renew(store: Arc<Store>) {
                 continue;
             }
         };
+        let dropped = policy.content().dedup_rules();
         match crate::policy_sync::submit(store.clone(), network, renewed).await {
+            Ok(_) => {
+                if !dropped.is_empty() {
+                    let person = policy.person_id();
+                    let _ = blocking(store.clone(), move |s| s.note_rule_drops(&person, &dropped))
+                        .await;
+                }
+            }
             // A sibling's concurrent renewal of the same version may win the
             // tie-break; this host keeps that one.
-            Ok(_) | Err(Error::Conflict(_)) => {}
+            Err(Error::Conflict(_)) => {}
             Err(e) => eprintln!("policy renewal failed: {e}"),
         }
     }
