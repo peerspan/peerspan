@@ -577,6 +577,11 @@ impl Store {
                 "the policy cites an unknown edit number {seq} for this host"
             )));
         };
+        // A recorded edit submitted again is no new edit: the acceptance
+        // rule decides, as for any policy.
+        if r.state != RESERVED && r.signed.as_ref() == Some(p) {
+            return Ok(None);
+        }
         if r.state != RESERVED {
             return Err(Error::Invalid(format!(
                 "edit number {seq} was already used"
