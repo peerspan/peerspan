@@ -568,15 +568,19 @@ Decided on 2026-10-18. A policy is one signed statement per person and network, 
 
 **Edit numbers.** Each edit gets a number from this host's daemon, unique per network and increasing. A v2 policy's `edits` line records, for each host, the highest number of that host's edits the policy reflects. A policy reflects edit k of host H when its entry for H is at least k; a host without an entry, or a v1 policy, reflects none.
 - **Signing an edit.** The CLI gets its starting point from `GET /v1/networks/{id}/policy/edit`, which returns `{policy, version, seq}`. `policy` is the newest stored policy with this host's unsettled edits re-applied, by the merge below; it is the stored policy when there are none, and null when there is no policy. `version` is the stored version, or 0 without one. `seq` is reserved for this edit. An unknown network, or one in which this host is not bound, returns 404. The CLI applies its change to `policy`, or to an empty policy when it is null, sets the version to `version` + 1, sets this host's `edits` entry to `seq`, keeps the other entries, signs, and submits through the existing route. It never starts from `GET /v1/networks/{id}/policy`.
+- **One edit at a time.** Reservations are serialized per network: a new reservation replaces any unused earlier one. The daemon refuses with 409 `edit_conflict` a submission whose `seq` is not the newest reservation, or whose version is not the stored version + 1, for example because a sibling's policy or a re-applied edit was stored in between. The CLI then starts again from the edit route, at most 3 times. Every stored edit is therefore built on the stored policy with all earlier edits of this host settled or re-applied, which is what lets one number stand for all lower ones.
 - **Recording.** The daemon records the edit when it stores the submitted policy: its number, its starting point (the `policy` returned with that `seq`), and the signed policy. A reservation not used within 10 minutes lapses, and a policy citing a lapsed or unknown `seq` for this host is refused with 400.
 - **Renewals** copy `edits`.
 
-**Settling.** An edit of this host is settled while the newest stored policy reflects it, and unsettled otherwise. An edit is unsettled when a concurrent policy wins the tie-break, or when a later version was built by a sibling that never stored it.
+**Settling.** An edit record is in one of these states:
+- `settled` while the newest stored policy reflects it;
+- `unsettled` when it does not, because a concurrent policy won the tie-break or a later version was built by a sibling that never stored it. A `settled` edit becomes `unsettled` again when that happens;
+- `closed` once re-applying it left the stored content unchanged, because its changes were already present or were dropped. This state is final: a closed edit is never re-applied, even though no policy's `edits` entry reflects it.
 
 **Re-applying.** Whenever the newest stored policy stops reflecting edits of this host, the daemon waits a random 0 to 2 seconds, then:
-1. re-applies every unsettled edit, in number order, to the newest stored policy, by the merge below;
+1. re-applies every `unsettled` edit, in number order, to the newest stored policy, by the merge below;
 2. if the content changed, signs the result as the stored version + 1, with this host's `edits` entry set to the highest re-applied number, the other entries unchanged, `issued_at` now, and the last edit's duration, then submits it as any policy;
-3. if the content is unchanged, signs nothing and marks those edits settled locally.
+3. if the content is unchanged, signs nothing and marks those edits `closed`.
 
 It signs with the renewal key: the agent socket of `run --person-agent`, or the key file of `run --person-key-file`. Without one, the edits stay unsettled. The daemon tries again at each sync and whenever a policy is stored, and the edit route folds them into the next CLI edit, so the next command that signs for that network settles them. `access renew` also starts from the edit route, so it re-applies them too.
 
@@ -598,9 +602,13 @@ It signs with the renewal key: the agent socket of `run --person-agent`, or the 
 - **Attention item 16, `policy_edit_unsettled`.** An edit of this host has been unsettled for more than 1 minute, usually because no key is available. The subject is the network ID, and the command is `peerspan access renew --network ID`.
 - **Attention item 17, `policy_edit_dropped`.** An addition was dropped in the last 7 days. The subject is `<network_id>/<seq>`, the detail names each dropped principal, action, rule, or claim, and the command is `peerspan access show --network ID`.
 
-`access sync --status` adds `edits: [{seq, state, signed_version, dropped}]`, the recorded edits sorted by number, where `state` is `settled` or `unsettled`.
+`access sync --status` adds `edits: [{seq, state, signed_version, dropped}]`, the recorded edits sorted by number, where `state` is `settled`, `unsettled`, or `closed`.
 
-**Retention.** An edit record is kept for 30 days after it was signed, and the newest edit record of each network is always kept.
+**Retention.** A policy that does not reflect an edit can displace it for as long as some copy of an older policy can still be built on, so an edit record is kept until no such copy remains:
+- A `settled` record is deleted once every current sibling has stored a policy that reflects it, and the coordinator has accepted one. A sibling counts when a sync fetch from it returns such a policy, or a push answer reports the `sha256` of a policy this host stored that reflects it. The coordinator counts when it answered 200 or 201 to the delivery of such a policy. A sibling that is no longer current stops counting.
+- A `closed` record is deleted after 7 days.
+- An `unsettled` record is never deleted.
+- The newest record of each network is always kept, so edit numbers keep increasing.
 
 **Peer routes**, on the peer router:
 
@@ -636,7 +644,7 @@ CREATE TABLE policy_edits (network_id TEXT NOT NULL, seq INTEGER NOT NULL, recor
 PRAGMA user_version = 17;
 ```
 
-A record is `{seq, state, start, signed, signed_version, dropped, reserved_at, signed_at}`, where `state` is `reserved`, `settled`, or `unsettled`; `start` is the policy returned with the reservation; `signed` is the submitted policy, null while reserved; and `dropped` lists dropped additions. Older binaries reject version 17, and the activity kind `network.policy_edit_dropped` is added.
+A record is `{seq, state, start, signed, signed_version, dropped, reserved_at, signed_at}`, where `state` is `reserved`, `settled`, `unsettled`, or `closed`; `start` is the policy returned with the reservation; `signed` is the submitted policy, null while reserved; and `dropped` lists dropped additions. Older binaries reject version 17, and the activity kind `network.policy_edit_dropped` is added.
 
 New activity kinds of version 12:
 - `network.policy_delivered`, with the subject `<person_id>/<target>`;
@@ -647,7 +655,7 @@ New activity kinds of version 12:
 - a sibling offline during the push, catching up on restart and by sync;
 - concurrent same-version policies from both siblings converging on the tie-break winner;
 - concurrent edits, each signed from the same version while the other sibling and the coordinator are stopped: both shares present after re-applying; an `unshare` racing a sibling's renewal, refused on the withdrawing host at once and settled after; an addition racing a removal of its rule, dropped with item 17; and without a renewal key, item 16 until the next CLI edit settles it;
-- the edit route, edit numbers in `edits`, a lapsed reservation refused, renewals copying `edits`, and `access sync --status` listing edits;
+- the edit route, edit numbers in `edits`, a lapsed reservation refused, two reservations on one host with the older submission refused as `edit_conflict` and succeeding on retry, a `closed` edit never re-applied, renewals copying `edits`, and `access sync --status` listing edits;
 - migration from version 16 to version 17;
 - refusal of pushes and fetches from a non-sibling, and of lower versions;
 - `access sync` and its status;
