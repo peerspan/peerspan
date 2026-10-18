@@ -36,8 +36,9 @@ Each pairing reports these sections separately (contract Verification items in b
   --yes, refusal), the guided share (flags, terminal, refusal), `shares`, `unshare`, several networks [Sharing];
 - trust/untrust [Sharing];
 - open list: `sources open-to`/`close-to`, --all, refusals, the listing, and activity [Sharing];
-- authorization: policy, self, the source gate (open and trusted, trusted not open, open but untrusted, `*`
-  covering a host trusted later), sources never reaching another person, a rule bound to another host, self
+- authorization: policy, self, the source gate (open and trusted, trusted not open, open but untrusted, a call
+  citing a network in which the sender is not trusted although trusted in another, `*` covering a host trusted
+  later), sources never reaching another person, a rule bound to another host, self
   refused, blocks, operations and URIs outside the capability, 413/429/deadline, budgets, rechecks (rejecting and
   leaving queued), and grant citations [Authorization];
 - routes: GET /peer/v1/capabilities filtered, sorted, with via and ?network; non-submitter 404 [Routes];
@@ -1984,8 +1985,19 @@ class Pairing:
         # Self is evaluated in the cited network only: p2 is trusted in team but not in other.
         status, _ = self.submit('p2', self.body('work', 'echo', {'text': 'x'}, cite=self.self_cite(self.other)))
         need(status == 403, 'a self citation is evaluated in the cited network only', status)
+        # A source call citing a network in which the sender is not trusted, although it is trusted in another: p2 is
+        # bound to pat in both team and other, trusted in team only, and p1's open list holds p2 (Sources for the
+        # person's own machines: the caller passes self access in the network the call cites; trust in another
+        # network does not count).
+        need(self.ids['p2'] in (self.policy('p1') or {}).get('trusted_hosts', []) and
+             self.ids['p2'] not in (self.policy('p1', self.other) or {}).get('trusted_hosts', []) and
+             self.ids['p2'] in self.open_list(), 'setup: p2 trusted in team only, and open on p1',
+             self.open_list())
         status, _ = self.submit('p2', self.body('cc/fx', 'echo', {'text': 'x'}, cite=self.self_cite(self.other)))
-        need(status == 403, 'and so is a source call\'s self citation', status)
+        need(status == 403, 'a source call citing a network in which the sender is not trusted, although trusted in '
+             'another, is refused with 403', status)
+        status, _ = self.submit('p2', self.body('cc/fx', 'echo', {'text': 'x'}, cite=self.self_cite()))
+        need(status == 200, 'the same source call citing the network in which it is trusted is accepted', status)
         # Self refused from an untrusted host and from another person's host.
         status, _ = self.submit('p3', self.body('work', 'echo', {'text': 'x'}, cite=self.self_cite()))
         need(status == 403, 'self is refused from an untrusted host of the same person', status)
@@ -2578,7 +2590,8 @@ class Pairing:
                  status, body)
             b = self.body('work', 'echo', {'text': 'still'}, cite=cite)
             need(self.submit('p2', b)[0] == 200 and self.final('p2', b['call_id'])['state'] == 'succeeded',
-                 'other operations still run')
+                 'other operations still run (Calls in flight matches Authorization: only unavailable operations are '
+                 'refused)')
             status, _ = self.submit('p2', self.body('docs', 'read', {'uri': 'fixture://docs/guide'}, cite=cite))
             need(status == 404, 'a selected resource missing from the snapshot is excluded from read', status)
             status, listed = self.listing('p1', 'q1')
