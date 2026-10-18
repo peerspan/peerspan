@@ -32,8 +32,8 @@ machines) covers Concurrent edits (coordination contract, including PR #15's own
 - a change of owner: edits suspended (kept, not re-applied) while the owner is removed by an administrator, and
   resumed when the removal is undone by --revoke-admitted; suspended on a binding to another person and never
   signed into either policy;
-- entries of an administrator-revoked host kept; entries of a root-revoked host and a departed host dropped by the
-  next signer;
+- entries of an administrator-revoked host, and of a host whose invite an administrator revoked, kept; entries of
+  a root-revoked host, a host whose invite the root revoked, and a departed host dropped by the next signer;
 - concurrent edits of two rules of one agent with different settings, each keeping its own addition;
 - several rules for one agent with different settings accepted in v2; two with the same agent and settings
   refused with 400; a v1 policy with such duplicates combined into one rule with united principals when renewed
@@ -418,7 +418,9 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
         dave = PolicyHost(second_binary, root / 'dave')
         eve = PolicyHost(first_binary, root / 'eve')
         fred = PolicyHost(second_binary, root / 'fred')
-        hosts = (alice, bob, carol, dave, eve, fred)
+        gus = PolicyHost(first_binary, root / 'gus')
+        hal = PolicyHost(second_binary, root / 'hal')
+        hosts = (alice, bob, carol, dave, eve, fred, gus, hal)
         (root / 'keys').mkdir()
         keys = {name: ssh_key(root / 'keys', name) for name in ('pat', 'quinn')}
         agents = {}
@@ -839,6 +841,14 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                 alice.cli('network', 'sync', net)
                 return {m['host_id'] for m in alice.cli('network', 'members', net)}
 
+            def invite_of(host_id):
+                """The invite a member joined through: its membership's invite_public_key in alice's view."""
+                alice.cli('network', 'sync', net)
+                entry = next(m for m in alice.cli('network', 'members', net) if m['host_id'] == host_id)
+                key = (entry.get('membership') or {}).get('invite_public_key')
+                assert key, ('setup: the member joined through an invite', entry)
+                return key
+
             # quinn becomes an administrator (delegated by the root, alice); quinn's statements are signed on carol,
             # which holds no root seed. A revoked host never syncs again (the coordinator refuses it), so it does not
             # learn of its own revocation; the removal a host can observe is its person's removal.
@@ -858,8 +868,21 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             carol.cli('network', 'revoke', '--network', net, '--host', d)
             use_agent(agents['pat'])
             wait_for(lambda: d not in members(), timeout=30, message='dave revoked by the administrator')
+            # The same for an invite revoked by an administrator: gus joins through its own invite and signs an
+            # edit; quinn revokes that invite, which drops gus (Invite revocation drops members who joined through
+            # it), and the entry is kept as well, since an administrator's revocation can be undone.
+            g = join_pat(gus, 'gusrule')
+            g_invite = invite_of(g)
+            wait_for(lambda: carol_knows(g), timeout=30, message='carol sees gus as a member')
+            use_agent(agents['quinn'])
+            carol.cli('network', 'revoke-invite', '--network', net, '--invite', g_invite)
+            use_agent(agents['pat'])
+            wait_for(lambda: g not in members(), timeout=30, message='gus dropped with its invite revoked by the '
+                     'administrator')
             kept = alice.cli('access', 'allow', '--network', net, '--agent', 'keepdave', '--principal', 'network')
             assert d in edits_map(kept), ('the entry of a host revoked by an administrator is kept', kept['edits'])
+            assert g in edits_map(kept), ('the entry of a host whose invite an administrator revoked is kept',
+                                          kept['edits'])
 
             # --- A change of owner (PR #15) through a removal signed by an administrator: quinn removes pat. Bob's
             # unsettled edit for pat is suspended: kept as it is and not re-applied, although bob holds pat's key.
@@ -955,19 +978,26 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             wait_for(lambda: d in members(), timeout=30, message='dave back once its revocation is undone')
             f = join_pat(fred, 'fredrule')
             e = join_pat(eve, 'everule')
+            h = join_pat(hal, 'halrule')
             alice.cli('network', 'revoke', '--network', net, '--host', f)
             wait_for(lambda: f not in members(), timeout=30, message='fred revoked by the root')
+            # hal joined through its own invite, which the root (alice) revokes: hal is dropped, and its membership
+            # has ended for good ("hosts whose key or invite was revoked by a root signature").
+            alice.cli('network', 'revoke-invite', '--network', net, '--invite', invite_of(h))
+            wait_for(lambda: h not in members(), timeout=30, message='hal dropped with its invite revoked by the root')
             eve.cli('network', 'leave', net)
             wait_for(lambda: e not in members(), timeout=30, message='eve gone after leaving')
             before = edits_map(mine(alice))
-            assert {b, d, e, f} <= set(before), before
+            assert {b, d, e, f, h} <= set(before), before
             after = alice.cli('access', 'allow', '--network', net, '--agent', 'afterrevoke', '--principal', 'network')
             entries = edits_map(after)
             assert f not in entries and e not in entries and a in entries, ('entries of a host revoked by the root '
                                                                              'and of a host that left are dropped',
                                                                              after['edits'])
+            assert h not in entries, ('the entry of a host whose invite the root revoked is dropped', after['edits'])
             assert b in entries and d in entries, ('entries of hosts not removed for good stay', after['edits'])
-            assert has_rule(after, 'fredrule') and has_rule(after, 'everule'), 'content is untouched'
+            assert has_rule(after, 'fredrule') and has_rule(after, 'everule') and has_rule(after, 'halrule'), \
+                'content is untouched'
 
             # --- Rules keyed by agent and settings (coordination contract, Policy statement, PR #20), in a network of
             # its own (v1dup, alice only, no edits): several rules for one agent with different settings are
