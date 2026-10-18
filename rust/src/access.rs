@@ -111,6 +111,40 @@ impl Editor {
             seq: None,
         })
     }
+    /// Whether the edit route's starting policy differs in content from
+    /// the stored policy, because it folded in unsettled edits.
+    pub async fn folds_in(
+        &self,
+        local: &Local<'_>,
+        start: &Option<Policy>,
+    ) -> anyhow::Result<bool> {
+        if !self.numbered {
+            return Ok(false);
+        }
+        let path = format!(
+            "/v1/networks/{}/policy?person={}",
+            encoded(&self.network),
+            encoded(&self.person_id)
+        );
+        let stored: Option<Policy> = match local.get(path).await {
+            Ok(value) => Some(serde_json::from_value(strip_view(value))?),
+            Err(e)
+                if e.downcast_ref::<DaemonError>()
+                    .is_some_and(|d| d.status == 404) =>
+            {
+                None
+            }
+            Err(e) => return Err(e),
+        };
+        let content = |p: &Option<Policy>| {
+            p.as_ref().map(|p| {
+                let mut c = p.content();
+                c.trusted_hosts.sort();
+                c
+            })
+        };
+        Ok(content(start) != content(&stored))
+    }
     /// Signs `content` as the next version after `start`, valid for
     /// `duration` or the starting policy's duration. An edit sets this
     /// host's `edits` entry to its reserved number; a renewal (`edit`
@@ -270,9 +304,11 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
                 if current.is_none() {
                     bail!("you have no policy in this network");
                 }
-                // A renewal is not an edit, though it starts from the edit
-                // route and so folds in unsettled edits.
-                edit = false;
+                // A renewal is not an edit, but it starts from the edit
+                // route: when that folded in unsettled edits, it re-applies
+                // them as an edit, so this host's entry advances and they
+                // settle.
+                edit = editor.folds_in(&local, current).await?;
             }
             _ => unreachable!("not a signing access command"),
         }

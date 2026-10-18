@@ -690,7 +690,15 @@ async fn remove(
             .await
         {
             Ok(p) if holds(&p) => {}
-            _ => continue,
+            Ok(_) => continue,
+            // No policy here; any other failure keeps the record.
+            Err(e)
+                if e.downcast_ref::<crate::integration::DaemonError>()
+                    .is_some_and(|d| d.status == 404) =>
+            {
+                continue;
+            }
+            Err(e) => return Err(e),
         }
         let me = match &signer {
             Some(s) => s,
