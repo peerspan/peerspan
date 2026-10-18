@@ -376,7 +376,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 				fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 			}
 		}
-	} else if args[0] == "person" || args[0] == "join" || args[0] == "invite" || args[0] == "allow" || args[0] == "deny" || args[0] == "trust" || args[0] == "untrust" || args[0] == "share" || args[0] == "unshare" || (args[0] == "capability" && command == "remove") {
+	} else if args[0] == "person" || args[0] == "join" || args[0] == "invite" || args[0] == "allow" || args[0] == "deny" || args[0] == "trust" || args[0] == "untrust" || args[0] == "share" || args[0] == "unshare" || (args[0] == "capability" && (command == "remove" || command == "create")) {
 		fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
 	}
 

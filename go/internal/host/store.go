@@ -91,6 +91,7 @@ type Store struct {
 	retry     outboundRetry // automatic retry state for uncertain sends
 	agent     personAgent   // the ssh-agent for policy renewal
 	policies  policySync    // direct policy propagation to sibling hosts
+	editsMu   sync.Mutex    // serializes re-applying policy edits
 	tasks     taskWork      // the in-memory task poll schedule
 	limits    coordinatorLimits
 	directory directoryState // the in-memory agent directory per network
@@ -154,7 +155,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 16 {
+	if version < 0 || version > 17 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -240,6 +241,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 16 {
 		if err = migrateTools(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
+	if version < 17 {
+		if _, err = tx.ExecContext(ctx, policyEditsSchema); err != nil {
 			return nil, err
 		}
 	}

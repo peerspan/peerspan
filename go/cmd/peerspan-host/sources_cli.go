@@ -488,12 +488,22 @@ func callsRequest(args []string, fs *pflag.FlagSet) (string, string, error) {
 }
 
 // ownerContext loads the signing person key and this network's view of the
-// owner: the current persons, the owner's person ID, and current policy.
+// owner: the current persons, the owner's person ID, and the starting point
+// of an edit, from the daemon's edit route (Concurrent edits).
 type ownerContext struct {
 	signer  person.Signer
 	persons []host.Person
 	ownerID string
+	network string
+	hostID  string
+	// current is the edit's starting point; version is the stored version
+	// and seq the reserved edit number, 0 when the signer is not this
+	// host's person and the edit route does not apply.
 	current *membership.Policy
+	version int64
+	seq     int64
+	// validFor, when set, is the signed duration instead.
+	validFor time.Duration
 }
 
 func loadOwner(ctx context.Context, client host.Client, network, keyPath string) (*ownerContext, error) {
@@ -501,7 +511,7 @@ func loadOwner(ctx context.Context, client host.Client, network, keyPath string)
 	if err != nil {
 		return nil, err
 	}
-	o := &ownerContext{signer: signer}
+	o := &ownerContext{signer: signer, network: network}
 	if o.persons, err = personsOf(ctx, client, network); err != nil {
 		signer.Close()
 		return nil, err
@@ -516,33 +526,128 @@ func loadOwner(ctx context.Context, client host.Client, network, keyPath string)
 		signer.Close()
 		return nil, fmt.Errorf("the person key %s is not a current person of that network", membership.PersonID(signer.PublicKey()))
 	}
-	if o.current, err = currentPolicy(ctx, client, network, o.ownerID); err != nil {
+	if err = o.start(ctx, client); err != nil {
 		signer.Close()
 		return nil, err
 	}
 	return o, nil
 }
 
-// next signs the owner's next policy version with body; keep keeps the
-// current policy's duration, otherwise it is valid for 7 days.
-func (o *ownerContext) next(network string, body membership.PolicyBody, keep bool) (membership.Policy, error) {
-	version, validFor := int64(1), 7*24*time.Hour
-	if o.current != nil {
-		version = o.current.Version + 1
-		if keep {
-			issued, _ := membership.ParseTime(o.current.IssuedAt)
-			until, _ := membership.ParseTime(o.current.ValidUntil)
-			validFor = until.Sub(issued)
+// editStart is the edit route's answer.
+type editStart struct {
+	Policy  json.RawMessage `json:"policy"`
+	Version int64           `json:"version"`
+	Seq     int64           `json:"seq"`
+}
+
+// start gets the edit's starting point from GET .../policy/edit, reserving
+// an edit number. When this host is not bound to the signing person, it
+// starts from that person's stored policy instead, without an edit number.
+func (o *ownerContext) start(ctx context.Context, client host.Client) error {
+	if o.hostID == "" {
+		identity, err := call[host.Identity](ctx, client, "GET", "/v1/host")
+		if err != nil {
+			return err
 		}
+		o.hostID = identity.ID
+	}
+	bound := false
+	if members, err := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(o.network)+"/members"); err == nil {
+		for _, m := range members {
+			if m.HostID == o.hostID && m.PersonID != nil && *m.PersonID == o.ownerID {
+				bound = true
+			}
+		}
+	}
+	if bound {
+		start, err := call[editStart](ctx, client, "GET", policyPath(o.network)+"/edit")
+		if err != nil {
+			return err
+		}
+		o.current, o.version, o.seq = nil, start.Version, start.Seq
+		if len(start.Policy) > 0 && string(start.Policy) != "null" {
+			p, err := membership.DecodePolicy(start.Policy)
+			if err != nil {
+				return err
+			}
+			o.current = &p
+		}
+		return nil
+	}
+	current, err := currentPolicy(ctx, client, o.network, o.ownerID)
+	if err != nil {
+		return err
+	}
+	o.current, o.version, o.seq = current, 0, 0
+	if current != nil {
+		o.version = current.Version
+	}
+	return nil
+}
+
+// next signs the owner's next policy version with body, as an edit with
+// this host's reserved number; keep keeps the starting point's duration,
+// otherwise it is valid for 7 days.
+func (o *ownerContext) next(network string, body membership.PolicyBody, keep bool) (membership.Policy, error) {
+	version, validFor := o.version+1, 7*24*time.Hour
+	if o.current != nil && keep {
+		issued, _ := membership.ParseTime(o.current.IssuedAt)
+		until, _ := membership.ParseTime(o.current.ValidUntil)
+		validFor = until.Sub(issued)
+	}
+	if o.validFor > 0 {
+		validFor = o.validFor
+	}
+	if o.seq > 0 {
+		body.Edits = membership.WithEdit(body.Edits, o.hostID, o.seq)
 	}
 	return membership.SignPolicyV2(o.signer, network, version, time.Now().Truncate(time.Second), validFor, body)
 }
 
 func (o *ownerContext) body() membership.PolicyBody {
 	if o.current == nil {
-		return membership.PolicyBody{Rules: []membership.PolicyRule{}, CapabilityRules: []membership.CapabilityRule{}, TrustedHosts: []string{}}
+		return membership.PolicyBody{Rules: []membership.PolicyRule{}, CapabilityRules: []membership.CapabilityRule{}, TrustedHosts: []string{}, Edits: []membership.PolicyEdit{}}
 	}
 	return o.current.Body()
+}
+
+// editRetries is how many times an edit refused as edit_conflict starts
+// again from the edit route.
+const editRetries = 3
+
+func isEditConflict(err error) bool {
+	var failure *host.ClientError
+	return errors.As(err, &failure) && failure.Status == 409 && failure.Code == "edit_conflict"
+}
+
+// edit applies change to the starting point, signs, and submits it,
+// starting again from the edit route after an edit_conflict, at most 3
+// times. change reports whether anything changed; when nothing does,
+// nothing is signed and the starting point is returned.
+func (o *ownerContext) edit(ctx context.Context, client host.Client, keep bool, change func(body *membership.PolicyBody) (bool, error)) (json.RawMessage, bool, error) {
+	for attempt := 0; ; attempt++ {
+		body := o.body()
+		changed, err := change(&body)
+		if err != nil {
+			return nil, false, err
+		}
+		if !changed {
+			data, err := json.Marshal(o.current)
+			return data, false, err
+		}
+		p, err := o.next(o.network, body, keep)
+		if err != nil {
+			return nil, false, err
+		}
+		data, err := client.Call(ctx, "POST", policyPath(o.network), host.SubmitPolicy{Policy: &p})
+		if isEditConflict(err) && attempt < editRetries {
+			if err = o.start(ctx, client); err != nil {
+				return nil, false, err
+			}
+			continue
+		}
+		return data, err == nil, err
+	}
 }
 
 func contains(list []string, value string) bool {
@@ -612,32 +717,32 @@ func runTrust(ctx context.Context, client host.Client, command string, args []st
 		}
 		return printJSON(out, map[string]any{"policy": policy, "host": target, "trusted": trusted, "changed": false})
 	}
-	data, err := setTrusted(ctx, client, o, network, target, trusted)
+	data, changed, err := setTrusted(ctx, client, o, target, trusted)
 	if err != nil {
 		return err
 	}
-	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "host": target, "trusted": trusted, "changed": true})
+	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "host": target, "trusted": trusted, "changed": changed})
 }
 
 // setTrusted signs and submits the next policy version with host added to
 // or removed from trusted_hosts.
-func setTrusted(ctx context.Context, client host.Client, o *ownerContext, network, target string, trusted bool) (json.RawMessage, error) {
-	body := o.body()
-	hosts := []string{}
-	for _, h := range body.TrustedHosts {
-		if h != target {
-			hosts = append(hosts, h)
+func setTrusted(ctx context.Context, client host.Client, o *ownerContext, target string, trusted bool) (json.RawMessage, bool, error) {
+	return o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
+		if contains(body.TrustedHosts, target) == trusted {
+			return false, nil
 		}
-	}
-	if trusted {
-		hosts = append(hosts, target)
-	}
-	body.TrustedHosts = hosts
-	p, err := o.next(network, body, true)
-	if err != nil {
-		return nil, err
-	}
-	return client.Call(ctx, "POST", policyPath(network), host.SubmitPolicy{Policy: &p})
+		hosts := []string{}
+		for _, h := range body.TrustedHosts {
+			if h != target {
+				hosts = append(hosts, h)
+			}
+		}
+		if trusted {
+			hosts = append(hosts, target)
+		}
+		body.TrustedHosts = hosts
+		return true, nil
+	})
 }
 
 // joinTrust applies join's and network create's --trusted and --untrusted:
@@ -662,11 +767,9 @@ func joinTrust(ctx context.Context, client host.Client, fs *pflag.FlagSet, signe
 	}
 	identity, err := call[host.Identity](ctx, client, "GET", "/v1/host")
 	if err == nil {
-		var current *membership.Policy
-		ownerID := membership.PersonID(signer.PublicKey())
-		if current, err = currentPolicy(ctx, client, network, ownerID); err == nil {
-			o := &ownerContext{signer: signer, ownerID: ownerID, current: current}
-			_, err = setTrusted(ctx, client, o, network, identity.ID, true)
+		o := &ownerContext{signer: signer, ownerID: membership.PersonID(signer.PublicKey()), network: network, hostID: identity.ID}
+		if err = o.start(ctx, client); err == nil {
+			_, _, err = setTrusted(ctx, client, o, identity.ID, true)
 		}
 	}
 	if err != nil {

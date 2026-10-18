@@ -624,7 +624,7 @@ func TestAdapterTaskHTTPBodies(t *testing.T) {
 	}
 }
 
-const dropArtifactTables = "DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE artifact_files; DROP TABLE task_artifacts"
+const dropArtifactTables = "DROP TABLE policy_edits; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE artifact_files; DROP TABLE task_artifacts"
 const dropTaskTables = dropArtifactTables + "; DROP TABLE received_tasks; DROP TABLE task_events; DROP TABLE outbound_tasks; DROP TABLE outbound_task_events; DROP TABLE task_deliveries; DROP TABLE task_update_notifications"
 
 func TestTaskMigrationToVersion10(t *testing.T) {
@@ -639,7 +639,7 @@ func TestTaskMigrationToVersion10(t *testing.T) {
 	s = must(Open(ctx, dir))
 	defer s.Close()
 	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 16 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 17 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if kept := must(s.Agent(ctx, agent.ID)); kept.Name != "kept" {

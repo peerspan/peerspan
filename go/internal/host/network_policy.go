@@ -234,39 +234,77 @@ func (s *Store) SubmitPolicy(ctx context.Context, id string, p membership.Policy
 	if old, ok := g.storedPolicy(p.PersonPublicKey); ok && old.Version == p.Version && old.Signature == p.Signature {
 		return p, nil
 	}
-	now := time.Now()
-	stored, err := s.acceptPolicy(ctx, tx, id, p, now)
-	if err != nil {
+	if err = s.submitPolicyIn(ctx, tx, id, p, time.Now()); err != nil {
 		return p, err
-	}
-	if !stored {
-		old, _ := g.storedPolicy(p.PersonPublicKey)
-		return p, fmt.Errorf("%w: policy version %d does not supersede the stored version %d", ErrConflict, p.Version, old.Version)
-	}
-	person := personIDOf(p.PersonPublicKey)
-	own, err := s.ownPerson(ctx, tx, id)
-	if err != nil {
-		return p, err
-	}
-	if own != person {
-		if err = queueDeliveries(ctx, tx, id, person, p, []string{policyTargetCoordinator}, timestamp(now)); err != nil {
-			return p, err
-		}
 	}
 	if err = tx.Commit(); err != nil {
 		return p, err
 	}
+	return p, s.afterSubmit(ctx, id, personIDOf(p.PersonPublicKey))
+}
+
+// submitPolicyIn checks and stores a policy submitted through the local
+// API, within a transaction: an edit of this host's person must cite its
+// newest reservation, and is recorded once stored.
+func (s *Store) submitPolicyIn(ctx context.Context, tx *sql.Tx, id string, p membership.Policy, now time.Time) error {
+	g, err := s.loadGovernance(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	person := personIDOf(p.PersonPublicKey)
+	own, err := s.ownPerson(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	var reservation *policyEditRecord
+	if own == person && own != "" {
+		var stored *membership.Policy
+		if old, ok := g.storedPolicy(p.PersonPublicKey); ok {
+			stored = &old
+		}
+		if err = membership.VerifyPolicy(id, p); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		if reservation, err = s.checkEdit(ctx, tx, id, person, stored, p, now); err != nil {
+			return err
+		}
+	}
+	stored, err := s.acceptPolicy(ctx, tx, id, p, now)
+	if err != nil {
+		return err
+	}
+	if !stored {
+		old, _ := g.storedPolicy(p.PersonPublicKey)
+		if reservation != nil {
+			return errEditConflict
+		}
+		return fmt.Errorf("%w: policy version %d does not supersede the stored version %d", ErrConflict, p.Version, old.Version)
+	}
+	if reservation != nil {
+		if err = s.recordEdit(ctx, tx, id, person, *reservation, p, now); err != nil {
+			return err
+		}
+	}
+	if own != person {
+		return queueDeliveries(ctx, tx, id, person, p, []string{policyTargetCoordinator}, timestamp(now))
+	}
+	return nil
+}
+
+// afterSubmit makes one coordinator attempt for a submitted policy; the
+// delivery worker retries.
+func (s *Store) afterSubmit(ctx context.Context, id, person string) error {
 	s.wakePolicyDeliveries()
 	delivered, err := s.attemptDelivery(ctx, id, person, policyTargetCoordinator)
 	if err != nil {
-		return p, err
+		return err
 	}
 	if delivered {
 		if _, err = s.SyncNetwork(ctx, id); err != nil {
-			return p, err
+			return err
 		}
 	}
-	return p, nil
+	return nil
 }
 
 // Policy is the newest verified policy of a person, this host's bound person
@@ -380,7 +418,11 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 			behind = true
 			continue
 		}
-		// The receiver evaluates its own newest version.
+		// The receiver evaluates its own newest version, with the
+		// withdrawals of this host's unsettled edits.
+		if p, err = s.enforcedPolicy(ctx, tx, n.network, p); err != nil {
+			return authority{}, err
+		}
 		until, _ := membership.ParseTime(p.ValidUntil)
 		if !membership.PolicyActive(p, now) || deadline.After(until) {
 			continue
@@ -793,6 +835,17 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		if !ok || !membership.PolicyExpiresSoon(p, now) || !now.Before(until) {
 			continue
 		}
+		// Unsettled edits of this host are re-applied instead; the result
+		// also renews.
+		if err := s.ReapplyEdits(ctx, n.network, logf); err != nil {
+			logf("re-applying policy edits for %s: %v", n.network, err)
+		}
+		if g, err = s.loadGovernance(ctx, s.db, n.network); err != nil {
+			continue
+		}
+		if p, ok = g.storedPolicy(key); !ok || !membership.PolicyExpiresSoon(p, now) {
+			continue
+		}
 		public, err := membership.DecodeKey(key)
 		if err != nil {
 			continue
@@ -801,7 +854,15 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		if err != nil {
 			continue // neither the agent nor the key file holds this owner's key
 		}
+		// A renewal copies edits, except retired entries.
 		renewed, err := membership.Renewal(signer, p, now.Truncate(time.Second))
+		if err == nil {
+			body := renewed.Body()
+			if body.Edits, err = s.retiredDropped(ctx, s.db, n.network, body.Edits); err == nil && len(body.Edits) != len(renewed.Edits) {
+				issued, until, _ := policyDuration(p)
+				renewed, err = membership.SignPolicyV2(signer, n.network, p.Version+1, now.Truncate(time.Second), until.Sub(issued), body)
+			}
+		}
 		signer.Close()
 		if err != nil {
 			logf("policy renewal for %s: %v", n.network, err)

@@ -148,6 +148,9 @@ type CreateCapability struct {
 	Resources  CapabilityResources `json:"resources"`
 	EnvFile    *string             `json:"env_file"`
 	Args       []string            `json:"args"`
+	// Policies claim the name: one signed policy per network in which this
+	// host is bound to its person, each with this host's rule for the name.
+	Policies []membership.Policy `json:"policies"`
 }
 
 func readCapability(ctx context.Context, q dbQuerier, name string) (capabilityRecord, error) {
@@ -398,12 +401,27 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			return Capability{}, fmt.Errorf("%w: the source's snapshot has no resource %q", ErrInvalid, uri)
 		}
 	}
+	claims, err := s.checkClaims(ctx, r)
+	if err != nil {
+		return Capability{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Capability{}, err
 	}
 	defer tx.Rollback()
-	c.CreatedAt = timestamp(time.Now())
+	now := time.Now()
+	c.CreatedAt = timestamp(now)
+	// The claims and the record are stored together; a refusal stores
+	// nothing.
+	for _, p := range claims {
+		if err = s.submitPolicyIn(ctx, tx, p.NetworkID, p, now); err != nil {
+			if errors.Is(err, ErrForbidden) {
+				err = fmt.Errorf("%w: %v", ErrInvalid, err)
+			}
+			return Capability{}, err
+		}
+	}
 	if err = putJSON(ctx, tx, `INSERT INTO capabilities (record, name) VALUES (?, ?)`, c, c.Name); err != nil {
 		if isUniqueViolation(err) {
 			return Capability{}, ErrConflict
@@ -416,7 +434,60 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	if err = tx.Commit(); err != nil {
 		return Capability{}, err
 	}
+	for _, p := range claims {
+		if err = s.afterSubmit(ctx, p.NetworkID, personIDOf(p.PersonPublicKey)); err != nil {
+			return Capability{}, err
+		}
+	}
 	return s.capabilityView(ctx, s.db, c)
+}
+
+// checkClaims checks a new capability's policies: exactly one for each
+// network in which this host is bound to its person, signed by that person,
+// verifying, and holding this host's rule for the name.
+func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membership.Policy, error) {
+	own, err := membershipsOf(ctx, s.db, s.identity.ID)
+	if err != nil {
+		return nil, err
+	}
+	given := map[string]membership.Policy{}
+	for _, p := range r.Policies {
+		if _, dup := given[p.NetworkID]; dup {
+			return nil, fmt.Errorf("%w: policies has more than one policy for network %s", ErrInvalid, p.NetworkID)
+		}
+		given[p.NetworkID] = p
+	}
+	out := []membership.Policy{}
+	for _, n := range own {
+		if n.member.PersonID == nil {
+			continue
+		}
+		p, ok := given[n.network]
+		if !ok {
+			return nil, fmt.Errorf("%w: policies lacks a policy for network %s, in which this host is bound", ErrInvalid, n.network)
+		}
+		delete(given, n.network)
+		if personIDOf(p.PersonPublicKey) != *n.member.PersonID {
+			return nil, fmt.Errorf("%w: the policy for network %s is not signed by this host's person", ErrInvalid, n.network)
+		}
+		if err := membership.VerifyPolicy(n.network, p); err != nil {
+			return nil, fmt.Errorf("%w: the policy for network %s: %v", ErrInvalid, n.network, err)
+		}
+		claimed := false
+		for _, rule := range p.CapabilityRules {
+			if rule.Host == s.identity.ID && rule.Capability == r.Name {
+				claimed = true
+			}
+		}
+		if !claimed {
+			return nil, fmt.Errorf("%w: the policy for network %s has no claim of %s for this host", ErrInvalid, n.network, r.Name)
+		}
+		out = append(out, p)
+	}
+	for network := range given {
+		return nil, fmt.Errorf("%w: this host is not bound to a person in network %s", ErrInvalid, network)
+	}
+	return out, nil
 }
 
 // Capabilities lists this host's capabilities, sorted by name, with their
@@ -494,7 +565,7 @@ func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, 
 func localCapabilityRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateCapability
-		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args") {
+		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "policies") {
 			return
 		}
 		c, err := store.CreateCapability(r.Context(), req)

@@ -40,10 +40,13 @@ const (
 	// rules and trusted hosts. Signers always produce it; version 1 is still
 	// read.
 	PolicyFormat2            = 2
-	PolicyMaxCapabilityRules = 64
-	PolicyMaxTrustedHosts    = 64
-	PolicyMaxInputBytes      = 262144
-	PolicyMaxCallsPerHour    = 10000
+	PolicyMaxCapabilityRules = 256
+	PolicyMaxEdits           = 256
+	// PolicyMaxEditSeq is the largest edit number, 2^53 - 1.
+	PolicyMaxEditSeq      = 1<<53 - 1
+	PolicyMaxTrustedHosts = 64
+	PolicyMaxInputBytes   = 262144
+	PolicyMaxCallsPerHour = 10000
 	// OperationRead is the operation that reads a capability's resources;
 	// no capability may be named after it.
 	OperationRead = "read"
@@ -67,8 +70,10 @@ func checkCapabilityRule(r CapabilityRule) error {
 	if !ValidCapabilityName(r.Capability) {
 		return fmt.Errorf("%w: invalid capability name %q in a capability rule", ErrInvalid, r.Capability)
 	}
-	if len(r.Principals) == 0 || len(r.Principals) > PolicyMaxPrincipals {
-		return fmt.Errorf("%w: a capability rule needs 1 to %d principals", ErrInvalid, PolicyMaxPrincipals)
+	// A rule without principals is a claim: it binds the name to the host
+	// and authorizes no one.
+	if r.Principals == nil || len(r.Principals) > PolicyMaxPrincipals {
+		return fmt.Errorf("%w: a capability rule has 0 to %d principals", ErrInvalid, PolicyMaxPrincipals)
 	}
 	for _, principal := range r.Principals {
 		if !ValidPrincipal(principal) {
@@ -124,10 +129,46 @@ type Policy struct {
 	IssuedAt        string       `json:"issued_at"`
 	ValidUntil      string       `json:"valid_until"`
 	Rules           []PolicyRule `json:"rules"`
-	// CapabilityRules and TrustedHosts exist only in format 2.
+	// CapabilityRules, TrustedHosts, and Edits exist only in format 2.
 	CapabilityRules []CapabilityRule `json:"capability_rules,omitempty"`
 	TrustedHosts    []string         `json:"trusted_hosts,omitempty"`
+	Edits           []PolicyEdit     `json:"edits,omitempty"`
 	Signature       string           `json:"signature"`
+}
+
+// PolicyEdit is one entry of a v2 policy's edits line: the highest number
+// of the host's edits the policy reflects.
+type PolicyEdit struct {
+	Host string `json:"host"`
+	Seq  int64  `json:"seq"`
+}
+
+func (e *PolicyEdit) UnmarshalJSON(data []byte) error {
+	type plain PolicyEdit
+	return Strict(data, (*plain)(e), "host", "seq")
+}
+
+// EditSeq is the policy's edits entry for a host, or 0 without one.
+func (p Policy) EditSeq(host string) int64 {
+	for _, e := range p.Edits {
+		if e.Host == host {
+			return e.Seq
+		}
+	}
+	return 0
+}
+
+// WithEdit returns edits with the host's entry set to seq, sorted by host.
+func WithEdit(edits []PolicyEdit, host string, seq int64) []PolicyEdit {
+	out := []PolicyEdit{}
+	for _, e := range edits {
+		if e.Host != host {
+			out = append(out, e)
+		}
+	}
+	out = append(out, PolicyEdit{Host: host, Seq: seq})
+	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+	return out
 }
 
 // CapabilityRule is a v2 share: its principals may call the operations of
@@ -148,7 +189,8 @@ func (r *CapabilityRule) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON writes a version 1 policy in its original shape, and a format
-// 2 policy with format, capability_rules, and trusted_hosts, never omitted.
+// 2 policy with format, capability_rules, trusted_hosts, and edits, never
+// omitted.
 func (p Policy) MarshalJSON() ([]byte, error) {
 	if p.Format != PolicyFormat2 {
 		type v1 struct {
@@ -172,16 +214,29 @@ func (p Policy) MarshalJSON() ([]byte, error) {
 		Rules           []PolicyRule     `json:"rules"`
 		CapabilityRules []CapabilityRule `json:"capability_rules"`
 		TrustedHosts    []string         `json:"trusted_hosts"`
+		Edits           []PolicyEdit     `json:"edits"`
 		Signature       string           `json:"signature"`
 	}
-	capabilities, trusted := p.CapabilityRules, p.TrustedHosts
+	capabilities, trusted, edits := p.CapabilityRules, p.TrustedHosts, p.Edits
+	if edits == nil {
+		edits = []PolicyEdit{}
+	}
 	if capabilities == nil {
 		capabilities = []CapabilityRule{}
 	}
 	if trusted == nil {
 		trusted = []string{}
 	}
-	return json.Marshal(v2{p.Format, p.NetworkID, p.PersonPublicKey, p.Version, p.IssuedAt, p.ValidUntil, p.Rules, capabilities, trusted, p.Signature})
+	// A claim's principals are [].
+	normalized := make([]CapabilityRule, len(capabilities))
+	for i, r := range capabilities {
+		if r.Principals == nil {
+			r.Principals = []string{}
+		}
+		normalized[i] = r
+	}
+	capabilities = normalized
+	return json.Marshal(v2{p.Format, p.NetworkID, p.PersonPublicKey, p.Version, p.IssuedAt, p.ValidUntil, p.Rules, capabilities, trusted, edits, p.Signature})
 }
 
 // UnmarshalJSON accepts exactly the rule's fields; max_artifact_bytes is
@@ -199,7 +254,7 @@ func (r *PolicyRule) UnmarshalJSON(data []byte) error {
 }
 
 // UnmarshalJSON accepts a version 1 policy exactly, or a format 2 policy,
-// which also has format, capability_rules, and trusted_hosts.
+// which also has format, capability_rules, trusted_hosts, and edits.
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type plain Policy
 	fields := []string{"network_id", "person_public_key", "version", "issued_at", "valid_until", "rules", "signature"}
@@ -207,7 +262,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	v2 := false
 	if json.Unmarshal(data, &raw) == nil {
 		if _, v2 = raw["format"]; v2 {
-			fields = append(fields, "format", "capability_rules", "trusted_hosts")
+			fields = append(fields, "format", "capability_rules", "trusted_hosts", "edits")
 		}
 	}
 	*p = Policy{}
@@ -224,7 +279,8 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 // in JSON order. A nonzero max_artifact_bytes is appended to the fifth line,
 // so policies without artifacts sign as before. A format 2 policy has the
 // header peerspan-policy-v2, then six lines per capability rule, and a final
-// line of trusted followed by the sorted trusted host IDs.
+// line of trusted followed by the sorted trusted host IDs, and a final line of
+// edits followed by the sorted HOST_ID:SEQ entries.
 func (p Policy) Message() []byte {
 	header := "peerspan-policy-v1"
 	if p.Format == PolicyFormat2 {
@@ -248,6 +304,12 @@ func (p Policy) Message() []byte {
 	trusted := append([]string{}, p.TrustedHosts...)
 	sort.Strings(trusted)
 	lines = append(lines, strings.Join(append([]string{"trusted"}, trusted...), " "))
+	edits := []string{"edits"}
+	for _, e := range p.Edits {
+		edits = append(edits, e.Host+":"+strconv.FormatInt(e.Seq, 10))
+	}
+	sort.Strings(edits[1:])
+	lines = append(lines, strings.Join(edits, " "))
 	return statement(lines...)
 }
 
@@ -331,8 +393,8 @@ func CheckPolicy(network string, p Policy) error {
 	}
 	switch p.Format {
 	case 0:
-		if p.CapabilityRules != nil || p.TrustedHosts != nil {
-			return fmt.Errorf("%w: a version 1 policy has no capability rules or trusted hosts", ErrInvalid)
+		if p.CapabilityRules != nil || p.TrustedHosts != nil || p.Edits != nil {
+			return fmt.Errorf("%w: a version 1 policy has no capability rules, trusted hosts, or edits", ErrInvalid)
 		}
 	case PolicyFormat2:
 		if p.CapabilityRules == nil || len(p.CapabilityRules) > PolicyMaxCapabilityRules {
@@ -359,6 +421,19 @@ func CheckPolicy(network string, p Policy) error {
 			}
 			seen[h] = true
 		}
+		if p.Edits == nil || len(p.Edits) > PolicyMaxEdits {
+			return fmt.Errorf("%w: a policy has at most %d edits entries", ErrInvalid, PolicyMaxEdits)
+		}
+		edited := map[string]bool{}
+		for _, e := range p.Edits {
+			if !ValidHostID(e.Host) || edited[e.Host] {
+				return fmt.Errorf("%w: edits entries name distinct host IDs; %q is not", ErrInvalid, e.Host)
+			}
+			if e.Seq < 1 || e.Seq > PolicyMaxEditSeq {
+				return fmt.Errorf("%w: an edits entry's seq is 1 to %d", ErrInvalid, int64(PolicyMaxEditSeq))
+			}
+			edited[e.Host] = true
+		}
 	default:
 		return fmt.Errorf("%w: unknown policy format %d", ErrInvalid, p.Format)
 	}
@@ -366,16 +441,18 @@ func CheckPolicy(network string, p Policy) error {
 }
 
 // PolicyBody is what an owner signs in a policy besides its header: rules,
-// capability rules, and trusted hosts.
+// capability rules, trusted hosts, and edits.
 type PolicyBody struct {
 	Rules           []PolicyRule
 	CapabilityRules []CapabilityRule
 	TrustedHosts    []string
+	Edits           []PolicyEdit
 }
 
-// Body is the policy's rules, capability rules, and trusted hosts, copied.
+// Body is the policy's rules, capability rules, trusted hosts, and edits,
+// copied.
 func (p Policy) Body() PolicyBody {
-	b := PolicyBody{Rules: []PolicyRule{}, CapabilityRules: []CapabilityRule{}, TrustedHosts: append([]string{}, p.TrustedHosts...)}
+	b := PolicyBody{Rules: []PolicyRule{}, CapabilityRules: []CapabilityRule{}, TrustedHosts: append([]string{}, p.TrustedHosts...), Edits: append([]PolicyEdit{}, p.Edits...)}
 	for _, r := range p.Rules {
 		r.Principals = append([]string{}, r.Principals...)
 		r.Actions = append([]string{}, r.Actions...)
@@ -390,12 +467,13 @@ func (p Policy) Body() PolicyBody {
 
 // SignPolicyV2 signs a format 2 policy as its owner. Rules, capability rules, and
 // their lists are copied in the given order, which the signature covers;
-// trusted hosts are sorted.
+// trusted hosts and edits are sorted.
 func SignPolicyV2(owner PersonSigner, network string, version int64, issued time.Time, validFor time.Duration, body PolicyBody) (Policy, error) {
 	p := Policy{Format: PolicyFormat2, NetworkID: network, PersonPublicKey: EncodeKey(owner.PublicKey()), Version: version, IssuedAt: Timestamp(issued), ValidUntil: Timestamp(issued.Add(validFor))}
-	b := Policy{Rules: body.Rules, CapabilityRules: body.CapabilityRules, TrustedHosts: body.TrustedHosts}.Body()
-	p.Rules, p.CapabilityRules, p.TrustedHosts = b.Rules, b.CapabilityRules, b.TrustedHosts
+	b := Policy{Rules: body.Rules, CapabilityRules: body.CapabilityRules, TrustedHosts: body.TrustedHosts, Edits: body.Edits}.Body()
+	p.Rules, p.CapabilityRules, p.TrustedHosts, p.Edits = b.Rules, b.CapabilityRules, b.TrustedHosts, b.Edits
 	sort.Strings(p.TrustedHosts)
+	sort.Slice(p.Edits, func(i, j int) bool { return p.Edits[i].Host < p.Edits[j].Host })
 	if err := CheckPolicy(network, p); err != nil {
 		return p, err
 	}
@@ -449,7 +527,7 @@ func SignPolicy(owner PersonSigner, network string, version int64, issued time.T
 	return p, err
 }
 
-// Renewal returns the policy's rules, capability rules, and trusted hosts re-signed
+// Renewal returns the policy's rules, capability rules, trusted hosts, and edits re-signed
 // at version+1 with the same duration, issued at now. A renewal is always a
 // format 2 policy; a version 1 policy renews with no capability rules or trusted
 // hosts.

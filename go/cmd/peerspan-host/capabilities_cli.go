@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -281,7 +282,8 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		if err != nil {
 			return err
 		}
-		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
+		keyPath, _ := fs.GetString("person-key")
+		data, _, err := createWithClaims(ctx, client, keyPath, spec.name, body, "", "", 0)
 		if err != nil {
 			return err
 		}
@@ -361,10 +363,19 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 	if err != nil {
 		return err
 	}
+	// Every network whose policy has this host's rule for the name, claim
+	// included.
 	networks := []string{}
 	for _, r := range c.Recipients {
 		if !contains(networks, r.NetworkID) {
 			networks = append(networks, r.NetworkID)
+		}
+	}
+	if _, persons, err := readHostPersons(ctx, client); err == nil {
+		for _, n := range sortedNetworks(persons.ids) {
+			if p, err := currentPolicy(ctx, client, n, persons.ids[n]); err == nil && p != nil && hostRule(p.CapabilityRules, identity.ID, name) >= 0 && !contains(networks, n) {
+				networks = append(networks, n)
+			}
 		}
 	}
 	signed := []json.RawMessage{}
@@ -373,19 +384,16 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 		if err != nil {
 			return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, network, err)
 		}
-		body := o.body()
-		kept := []membership.CapabilityRule{}
-		for _, r := range body.CapabilityRules {
-			if !(r.Host == identity.ID && r.Capability == name) {
-				kept = append(kept, r)
+		data, changed, err := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
+			i := hostRule(body.CapabilityRules, identity.ID, name)
+			if i < 0 {
+				return false, nil
 			}
-		}
-		body.CapabilityRules = kept
-		p, err := o.next(network, body, true)
+			body.CapabilityRules = append(body.CapabilityRules[:i:i], body.CapabilityRules[i+1:]...)
+			return true, nil
+		})
 		o.signer.Close()
-		if err == nil {
-			var data json.RawMessage
-			data, err = client.Call(ctx, "POST", policyPath(network), host.SubmitPolicy{Policy: &p})
+		if changed {
 			signed = append(signed, data)
 		}
 		if err != nil {
@@ -671,35 +679,154 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 	if err = confirmShare(errOut, yes); err != nil {
 		return err
 	}
-	created := false
 	if guided {
-		createSpec, err := createBody(listing, spec)
-		if err != nil {
-			return err
+		// An identical capability that already exists is not created again;
+		// otherwise creating it claims the name in every network and shares
+		// it in this one, in one policy per network.
+		if _, existsErr := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil); existsErr != nil {
+			createSpec, err := createBody(listing, spec)
+			if err != nil {
+				return err
+			}
+			_, signed, err := createWithClaims(ctx, client, keyPath, name, createSpec, network, principal, calls)
+			if err != nil {
+				return err
+			}
+			var policy any
+			if p, ok := signed[network]; ok {
+				policy = p
+			}
+			return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "created": true})
 		}
-		// An identical capability that already exists is not created again.
-		_, existsErr := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil)
-		if _, err = client.Call(ctx, "POST", "/v1/capabilities", createSpec); err != nil {
-			return err
-		}
-		created = existsErr != nil
 	}
 	if !changed {
 		var policy any
 		if o.current != nil {
 			policy = o.current
 		}
-		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "created": created})
+		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "created": false})
 	}
-	p, err := o.next(network, body, false)
+	data, _, err := o.edit(ctx, client, false, func(body *membership.PolicyBody) (bool, error) {
+		return shareRule(body, identity.ID, name, principal, calls), nil
+	})
 	if err != nil {
 		return err
 	}
-	data, err := client.Call(ctx, "POST", policyPath(network), host.SubmitPolicy{Policy: &p})
-	if err != nil {
-		return err
+	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "created": false})
+}
+
+// shareRule adds principal to this host's rule for name, usually its claim,
+// creating the rule when the policy has none; calls, when nonzero, sets its
+// limit. It reports whether anything changed.
+func shareRule(body *membership.PolicyBody, hostID, name, principal string, calls int64) bool {
+	i := hostRule(body.CapabilityRules, hostID, name)
+	if i < 0 {
+		limit := int64(shareMaxCallsPerHour)
+		if calls != 0 {
+			limit = calls
+		}
+		body.CapabilityRules = append(body.CapabilityRules, membership.CapabilityRule{Host: hostID, Capability: name, Principals: []string{principal}, MaxInputBytes: shareMaxInputBytes, MaxCallsPerHour: limit})
+		return true
 	}
-	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "created": created})
+	r := &body.CapabilityRules[i]
+	changed := false
+	if calls != 0 && calls != r.MaxCallsPerHour {
+		r.MaxCallsPerHour, changed = calls, true
+	}
+	if !contains(r.Principals, principal) {
+		r.Principals, changed = append(r.Principals, principal), true
+	}
+	return changed
+}
+
+// hostRule is the index of the capability rule binding name to hostID, or
+// -1.
+func hostRule(rules []membership.CapabilityRule, hostID, name string) int {
+	for i, r := range rules {
+		if r.Host == hostID && r.Capability == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func sortedNetworks(ids map[string]string) []string {
+	out := make([]string, 0, len(ids))
+	for n := range ids {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// createWithClaims creates a capability and claims its name: for every
+// network in which this host is bound to its person, it signs that
+// person's policy with this host's rule for the name, a claim without
+// principals, or in shareNetwork the rule with principal, and sends the
+// policies with the record. An identical repeat signs nothing. An
+// edit_conflict starts again from the edit route, at most 3 times. It
+// returns the daemon's answer and the signed policies by network.
+func createWithClaims(ctx context.Context, client host.Client, keyPath, name string, body map[string]any, shareNetwork, principal string, calls int64) (json.RawMessage, map[string]membership.Policy, error) {
+	signed := map[string]membership.Policy{}
+	body["policies"] = []membership.Policy{}
+	if _, err := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil); err == nil {
+		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
+		return data, signed, err
+	}
+	_, persons, err := readHostPersons(ctx, client)
+	if err != nil {
+		return nil, nil, err
+	}
+	networks := sortedNetworks(persons.ids)
+	if len(networks) == 0 {
+		// A host without a person creates the record without claims.
+		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
+		return data, signed, err
+	}
+	owners := map[string]*ownerContext{}
+	defer func() {
+		for _, o := range owners {
+			o.signer.Close()
+		}
+	}()
+	for attempt := 0; ; attempt++ {
+		policies := []membership.Policy{}
+		for _, n := range networks {
+			o := owners[n]
+			if o == nil {
+				if o, err = loadOwner(ctx, client, n, keyPath); err != nil {
+					return nil, nil, fmt.Errorf("claiming %s in %s: %w", name, n, err)
+				}
+				owners[n] = o
+			} else if err = o.start(ctx, client); err != nil {
+				return nil, nil, err
+			}
+			b := o.body()
+			// A name another host holds is refused before anything is signed.
+			for _, r := range b.CapabilityRules {
+				if r.Capability == name && r.Host != o.hostID {
+					return nil, nil, fmt.Errorf("a capability rule of yours binds %s to host %s (409); choose another name", name, r.Host)
+				}
+			}
+			if n == shareNetwork {
+				shareRule(&b, o.hostID, name, principal, calls)
+			} else if hostRule(b.CapabilityRules, o.hostID, name) < 0 {
+				b.CapabilityRules = append(b.CapabilityRules, membership.CapabilityRule{Host: o.hostID, Capability: name, Principals: []string{}, MaxInputBytes: shareMaxInputBytes, MaxCallsPerHour: shareMaxCallsPerHour})
+			}
+			p, err := o.next(n, b, n != shareNetwork)
+			if err != nil {
+				return nil, nil, err
+			}
+			policies = append(policies, p)
+			signed[n] = p
+		}
+		body["policies"] = policies
+		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
+		if isEditConflict(err) && attempt < editRetries {
+			continue
+		}
+		return data, signed, err
+	}
 }
 
 func principalUnless(list []string, principal string) []string {
@@ -744,17 +871,18 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 	if err != nil {
 		return err
 	}
-	body := o.body()
 	removed := 0
-	kept := []membership.CapabilityRule{}
-	for _, r := range body.CapabilityRules {
-		if r.Host == identity.ID && r.Capability == name && contains(r.Principals, principal) {
-			r.Principals = without(r.Principals, []string{principal})
+	data, _, err := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
+		removed = 0
+		// The rule stays as a claim when its last principal goes.
+		if i := hostRule(body.CapabilityRules, identity.ID, name); i >= 0 && contains(body.CapabilityRules[i].Principals, principal) {
+			body.CapabilityRules[i].Principals = without(body.CapabilityRules[i].Principals, []string{principal})
 			removed++
 		}
-		if len(r.Principals) > 0 {
-			kept = append(kept, r)
-		}
+		return removed > 0, nil
+	})
+	if err != nil {
+		return err
 	}
 	if removed == 0 {
 		var policy any
@@ -762,15 +890,6 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 			policy = o.current
 		}
 		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "removed": 0, "note": "the rule for " + name + " on this host does not name " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
-	}
-	body.CapabilityRules = kept
-	p, err := o.next(network, body, true)
-	if err != nil {
-		return err
-	}
-	data, err := client.Call(ctx, "POST", policyPath(network), host.SubmitPolicy{Policy: &p})
-	if err != nil {
-		return err
 	}
 	fmt.Fprintf(errOut, "%s's future calls to %s are denied. Calls already running finish, and queued calls are refused when they would start.\n", given, name)
 	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "removed": removed})

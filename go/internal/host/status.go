@@ -96,7 +96,7 @@ type AttentionItem struct {
 // Attention kinds, in the order status reports them. The CLI adds
 // service_not_installed and linger_disabled.
 var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
-	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict"}
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped"}
 
 // SortAttention orders items by kind, then subject.
 func SortAttention(items []AttentionItem) {
@@ -221,6 +221,9 @@ func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, ow
 						attend("policy_expiring", n.ID, "your access policy expires at "+p.ValidUntil+" and was not renewed; check the daemon's ssh-agent", renew)
 					}
 				}
+			}
+			if err = s.editAttention(ctx, tx, n.ID, person, now, attend); err != nil {
+				return nil, err
 			}
 			_, hosts, err := s.siblings(ctx, tx, n.ID)
 			if err != nil {

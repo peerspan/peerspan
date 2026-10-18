@@ -415,21 +415,83 @@ func (s *Store) Discover(ctx context.Context, person, network string) (Discovery
 	}
 	listings, unanswered := s.fetchListings(ctx, ids, network)
 	out.Unanswered = unanswered
-	// A name a person has on more than one host is addressed by host.
+	personal, err := s.personAddressed(ctx, hosts, listings, network)
+	if err != nil {
+		return Discovery{}, err
+	}
+	for _, h := range hosts {
+		for i, e := range listings[h.host] {
+			address := h.host + "/" + e.Capability
+			if personal[h.host][i] && h.label != "" {
+				address = h.label + "/" + e.Capability
+			}
+			out.Capabilities = append(out.Capabilities, DiscoveredCapability{Address: address, HostID: h.host, ListedCapability: e})
+		}
+	}
+	return out, nil
+}
+
+// personAddressed reports, for each listed entry, whether discover
+// addresses it as PERSON/CAPABILITY. A capability is when the person's
+// policy for the entry's network binds the name to that host, or when none
+// of the person's policies binds the name and the person has it on only one
+// host. A source is when the person has that agent and server on only one
+// host.
+func (s *Store) personAddressed(ctx context.Context, hosts []personHost, listings map[string][]ListedCapability, network string) (map[string][]bool, error) {
 	count := map[string]int{}
 	for _, h := range hosts {
 		for _, e := range listings[h.host] {
 			count[h.person+"/"+e.Capability]++
 		}
 	}
+	networks, err := s.selectedNetworks(ctx, network)
+	if err != nil {
+		return nil, err
+	}
+	// bindings maps network/person/capability to the host its rule names.
+	bindings := map[string]string{}
+	bound := map[string]bool{} // person/capability bound in any policy
+	persons := map[string]bool{}
 	for _, h := range hosts {
-		for _, e := range listings[h.host] {
-			address := h.label + "/" + e.Capability
-			if h.label == "" || count[h.person+"/"+e.Capability] > 1 {
-				address = h.host + "/" + e.Capability
-			}
-			out.Capabilities = append(out.Capabilities, DiscoveredCapability{Address: address, HostID: h.host, ListedCapability: e})
+		persons[h.person] = true
+	}
+	for _, id := range networks {
+		g, err := s.loadGovernance(ctx, s.db, id)
+		if err != nil {
+			return nil, err
 		}
+		for person := range persons {
+			key, ok := g.personKey(person)
+			if !ok {
+				continue
+			}
+			p, ok := g.storedPolicy(key)
+			if !ok {
+				continue
+			}
+			for _, r := range p.CapabilityRules {
+				bindings[id+"/"+person+"/"+r.Capability] = r.Host
+				bound[person+"/"+r.Capability] = true
+			}
+		}
+	}
+	out := map[string][]bool{}
+	for _, h := range hosts {
+		flags := make([]bool, len(listings[h.host]))
+		for i, e := range listings[h.host] {
+			if e.Kind == ListedKindSource {
+				flags[i] = count[h.person+"/"+e.Capability] == 1
+				continue
+			}
+			here := false
+			for _, via := range e.Via {
+				if via.NetworkID != nil && bindings[*via.NetworkID+"/"+h.person+"/"+e.Capability] == h.host {
+					here = true
+				}
+			}
+			flags[i] = here || (!bound[h.person+"/"+e.Capability] && count[h.person+"/"+e.Capability] == 1)
+		}
+		out[h.host] = flags
 	}
 	return out, nil
 }
@@ -458,6 +520,7 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 		return "", ListedCapability{}, err
 	}
 	var hosts []string
+	var found []personHost
 	if validID(left, "host", 32) {
 		var member bool
 		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM network_members WHERE host_id = ?)`, left).Scan(&member); err != nil {
@@ -468,7 +531,7 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 		}
 		hosts = []string{left}
 	} else {
-		found, err := s.personHosts(ctx, left, network)
+		found, err = s.personHosts(ctx, left, network)
 		if err != nil {
 			return "", ListedCapability{}, err
 		}
@@ -481,10 +544,17 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 		host  string
 		entry ListedCapability
 	}
+	// PERSON/CAPABILITY matches only entries discover addresses that way.
+	var personal map[string][]bool
+	if found != nil && !strings.Contains(capability, "/") {
+		if personal, err = s.personAddressed(ctx, found, listings, network); err != nil {
+			return "", ListedCapability{}, err
+		}
+	}
 	var matches []match
 	for _, h := range hosts {
-		for _, e := range listings[h] {
-			if e.Capability == capability {
+		for i, e := range listings[h] {
+			if e.Capability == capability && (personal == nil || personal[h][i] || listings[h][i].Kind == ListedKindSource) {
 				matches = append(matches, match{h, e})
 			}
 		}

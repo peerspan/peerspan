@@ -483,6 +483,9 @@ func (s *Store) trustedSelf(ctx context.Context, q dbQuerier, sender, person, ne
 		if !ok || !membership.PolicyActive(p, now) {
 			continue
 		}
+		if p, err = s.enforcedPolicy(ctx, q, id, p); err != nil {
+			return nil, err
+		}
 		if contains(p.TrustedHosts, sender) {
 			trusted = append(trusted, id)
 		}
@@ -531,6 +534,10 @@ func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, 
 		}
 		if !membership.PolicyActive(p, now) {
 			continue
+		}
+		// Withdrawals of this host's unsettled edits apply at once.
+		if p, err = s.enforcedPolicy(ctx, q, n.network, p); err != nil {
+			return nil, false, err
 		}
 		member, err := readJSON[NetworkMember](q.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", n.network, sender))
 		if errors.Is(err, ErrNotFound) {

@@ -12,7 +12,6 @@ import (
 
 	"github.com/peerspan/peerspan/go/internal/host"
 	"github.com/peerspan/peerspan/go/internal/membership"
-	"github.com/peerspan/peerspan/go/internal/person"
 	"github.com/spf13/pflag"
 )
 
@@ -157,87 +156,114 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 	if validDays < 0 || (args[1] == "allow" && (validDays < 1 || validDays > 90)) {
 		return "", "", nil, errors.New("--valid-days must be 1 to 90")
 	}
-	signer, err := person.Load(personKey)
+	o, err := loadOwner(ctx, client, network, personKey)
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer signer.Close()
-	owner := membership.EncodeKey(signer.PublicKey())
-	persons, err := personsOf(ctx, client, network)
-	if err != nil {
-		return "", "", nil, err
-	}
-	ownerID := ""
-	for _, p := range persons {
-		if p.PublicKey == owner {
-			ownerID = p.PersonID
-		}
-	}
-	if ownerID == "" {
-		return "", "", nil, fmt.Errorf("the person key %s is not a current person of that network", membership.PersonID(signer.PublicKey()))
-	}
-	current, err := currentPolicy(ctx, client, network, ownerID)
-	if err != nil {
-		return "", "", nil, err
-	}
-	now := time.Now().Truncate(time.Second)
 	if args[1] == "renew" {
-		if current == nil {
-			return "", "", nil, errors.New("you have no access policy in that network to renew; use access allow")
-		}
-		p, err := membership.Renewal(signer, *current, now)
-		return "POST", policyPath(network), host.SubmitPolicy{Policy: &p}, err
+		return "POST", policyPath(network), policyEdit{o: o, run: func(ctx context.Context, client host.Client) (json.RawMessage, error) {
+			return renewPolicy(ctx, client, o)
+		}}, nil
 	}
 	resolved := make([]string, 0, len(principals))
 	for _, given := range principals {
-		principal, err := resolvePrincipal(persons, given)
+		principal, err := resolvePrincipal(o.persons, given)
 		if err != nil {
+			o.signer.Close()
 			return "", "", nil, err
 		}
 		resolved = append(resolved, principal)
 	}
-	version, validFor := int64(1), time.Duration(validDays)*24*time.Hour
-	var rules []membership.PolicyRule
-	found := false
-	if current != nil {
-		version = current.Version + 1
-		for _, rule := range current.Rules {
-			if rule.Agent != agent {
-				rules = append(rules, rule)
+	command := args[1]
+	rule := membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected}
+	change := func(body *membership.PolicyBody) (bool, error) {
+		var rules []membership.PolicyRule
+		found := false
+		for _, r := range body.Rules {
+			if r.Agent != agent {
+				rules = append(rules, r)
 				continue
 			}
 			switch {
-			case args[1] == "allow" && found:
+			case command == "allow" && found:
 				// Several rules for the agent become one.
-			case args[1] == "allow":
-				rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected})
+			case command == "allow":
+				rules = append(rules, rule)
 			case len(resolved) != 0:
-				rule.Principals = without(rule.Principals, resolved)
-				if len(rule.Principals) != 0 {
-					rules = append(rules, rule)
+				r.Principals = without(r.Principals, resolved)
+				if len(r.Principals) != 0 {
+					rules = append(rules, r)
 				}
 			}
 			found = true
 		}
-		if args[1] == "deny" {
-			issued, _ := membership.ParseTime(current.IssuedAt)
-			until, _ := membership.ParseTime(current.ValidUntil)
-			validFor = until.Sub(issued)
+		if !found {
+			if command == "deny" {
+				return false, fmt.Errorf("your access policy has no rule for agent %q", agent)
+			}
+			rules = append(rules, rule)
 		}
-	}
-	if !found {
-		if args[1] == "deny" {
-			return "", "", nil, fmt.Errorf("your access policy has no rule for agent %q", agent)
+		if rules == nil {
+			rules = []membership.PolicyRule{}
 		}
-		rules = append(rules, membership.PolicyRule{Agent: agent, Principals: resolved, Actions: []string(actions), MaxMessageBytes: maxBytes, MaxArtifactBytes: maxArtifactBytes, AllowDisconnected: allowDisconnected})
+		body.Rules = rules
+		return true, nil
 	}
-	body := membership.PolicyBody{}
-	if current != nil {
-		body = current.Body()
+	if command == "allow" {
+		// access allow signs for --valid-days, from now.
+		o.validFor = time.Duration(validDays) * 24 * time.Hour
 	}
-	body.Rules = rules
-	p, err := membership.SignPolicyV2(signer, network, version, now, validFor, body)
-	return "POST", policyPath(network), host.SubmitPolicy{Policy: &p}, err
+	return "POST", policyPath(network), policyEdit{o: o, run: func(ctx context.Context, client host.Client) (json.RawMessage, error) {
+		data, _, err := o.edit(ctx, client, true, change)
+		return data, err
+	}}, nil
+}
+
+// policyEdit is a request that signs and submits a policy edit itself,
+// starting again from the edit route after an edit_conflict.
+type policyEdit struct {
+	o   *ownerContext
+	run func(context.Context, host.Client) (json.RawMessage, error)
+}
+
+func (e policyEdit) submit(ctx context.Context, client host.Client) (json.RawMessage, error) {
+	defer e.o.signer.Close()
+	return e.run(ctx, client)
+}
+
+// renewPolicy re-signs the current rules now, at the next version with the
+// same duration. A renewal copies edits; when the edit route folded in this
+// host's unsettled edits, it signs them as an edit, which settles them.
+func renewPolicy(ctx context.Context, client host.Client, o *ownerContext) (json.RawMessage, error) {
+	for attempt := 0; ; attempt++ {
+		if o.current == nil {
+			return nil, errors.New("you have no access policy in that network to renew; use access allow")
+		}
+		stored, err := currentPolicy(ctx, client, o.network, o.ownerID)
+		if err != nil {
+			return nil, err
+		}
+		body := o.current.Body()
+		issued, _ := membership.ParseTime(o.current.IssuedAt)
+		until, _ := membership.ParseTime(o.current.ValidUntil)
+		var p membership.Policy
+		if stored != nil && membership.SameContent(stored.Body(), body) {
+			p, err = membership.SignPolicyV2(o.signer, o.network, o.version+1, time.Now().Truncate(time.Second), until.Sub(issued), body)
+		} else {
+			p, err = o.next(o.network, body, true)
+		}
+		if err != nil {
+			return nil, err
+		}
+		data, err := client.Call(ctx, "POST", policyPath(o.network), host.SubmitPolicy{Policy: &p})
+		if isEditConflict(err) && attempt < editRetries {
+			if err = o.start(ctx, client); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		return data, err
+	}
 }
 
 // without removes the given principals, keeping the others in order.
@@ -358,111 +384,86 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 			rule.MaxArtifactBytes = bound
 		}
 	}
-	signer, err := person.Load(keyPath)
+	o, err := loadOwner(ctx, client, network, keyPath)
 	if err != nil {
 		return err
 	}
-	defer signer.Close()
-	owner := membership.EncodeKey(signer.PublicKey())
-	persons, err := personsOf(ctx, client, network)
-	if err != nil {
-		return err
-	}
-	ownerID := ""
-	for _, p := range persons {
-		if p.PublicKey == owner {
-			ownerID = p.PersonID
-		}
-	}
-	if ownerID == "" {
-		return fmt.Errorf("the person key %s is not a current person of that network", membership.PersonID(signer.PublicKey()))
-	}
-	principal, err := resolveTopPrincipal(persons, given)
+	defer o.signer.Close()
+	principal, err := resolveTopPrincipal(o.persons, given)
 	if errors.Is(err, host.ErrNotFound) {
 		// A person admitted moments ago may not have reached this host yet:
 		// sync the network once and resolve again.
 		if _, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil); err != nil {
 			return err
 		}
-		if persons, err = personsOf(ctx, client, network); err != nil {
+		if o.persons, err = personsOf(ctx, client, network); err != nil {
 			return err
 		}
-		principal, err = resolveTopPrincipal(persons, given)
+		principal, err = resolveTopPrincipal(o.persons, given)
 	}
 	if err != nil {
 		return err
-	}
-	current, err := currentPolicy(ctx, client, network, ownerID)
-	if err != nil {
-		return err
-	}
-	now := time.Now().Truncate(time.Second)
-	version, validFor := int64(1), 7*24*time.Hour
-	var old []membership.PolicyRule
-	if current != nil {
-		version, old = current.Version+1, current.Rules
 	}
 	scoped := command == "allow" || fs.Changed("agent")
-	var rules []membership.PolicyRule
 	removed := 0
-	for _, r := range old {
-		r.Principals = append([]string{}, r.Principals...)
-		if !scoped || r.Agent == agent {
-			if kept := without(r.Principals, []string{principal}); len(kept) != len(r.Principals) {
-				r.Principals = kept
-				removed++
+	change := func(body *membership.PolicyBody) (bool, error) {
+		var rules []membership.PolicyRule
+		removed = 0
+		for _, r := range body.Rules {
+			r.Principals = append([]string{}, r.Principals...)
+			if !scoped || r.Agent == agent {
+				if kept := without(r.Principals, []string{principal}); len(kept) != len(r.Principals) {
+					r.Principals = kept
+					removed++
+				}
+			}
+			rules = append(rules, r)
+		}
+		if command == "allow" {
+			added := false
+			for i := range rules {
+				if rules[i].Agent == agent && sameSettings(rules[i], rule) {
+					rules[i].Principals = append(rules[i].Principals, principal)
+					added = true
+					break
+				}
+			}
+			if !added {
+				r := rule
+				r.Principals = []string{principal}
+				r.Actions = append([]string{}, rule.Actions...)
+				rules = append(rules, r)
 			}
 		}
-		rules = append(rules, r)
+		kept := []membership.PolicyRule{}
+		for _, r := range rules {
+			if len(r.Principals) != 0 {
+				kept = append(kept, r)
+			}
+		}
+		if command == "deny" && removed == 0 {
+			return false, nil
+		}
+		body.Rules = kept
+		return true, nil
 	}
+	// allow signs for 7 days; deny keeps the duration.
 	if command == "allow" {
-		added := false
-		for i := range rules {
-			if rules[i].Agent == agent && sameSettings(rules[i], rule) {
-				rules[i].Principals = append(rules[i].Principals, principal)
-				added = true
-				break
-			}
-		}
-		if !added {
-			rule.Principals = []string{principal}
-			rules = append(rules, rule)
-		}
+		o.validFor = 7 * 24 * time.Hour
 	}
-	kept := []membership.PolicyRule{}
-	for _, r := range rules {
-		if len(r.Principals) != 0 {
-			kept = append(kept, r)
-		}
+	data, changed, err := o.edit(ctx, client, true, change)
+	if err != nil {
+		return err
 	}
 	if command == "deny" {
-		if removed == 0 {
+		if !changed {
 			var policy any
-			if current != nil {
-				policy = current
+			if o.current != nil {
+				policy = o.current
 			}
 			return printJSON(out, map[string]any{"policy": policy, "removed": 0, "note": "no rule of your policy names " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
 		}
-		issued, _ := membership.ParseTime(current.IssuedAt)
-		until, _ := membership.ParseTime(current.ValidUntil)
-		validFor = until.Sub(issued)
+		return printJSON(out, map[string]any{"policy": json.RawMessage(data), "removed": removed})
 	}
-	body := membership.PolicyBody{}
-	if current != nil {
-		body = current.Body()
-	}
-	body.Rules = kept
-	p, err := membership.SignPolicyV2(signer, network, version, now, validFor, body)
-	if err != nil {
-		return err
-	}
-	data, err := client.Call(ctx, "POST", policyPath(network), host.SubmitPolicy{Policy: &p})
-	if err != nil {
-		return err
-	}
-	var stored json.RawMessage = data
-	if command == "deny" {
-		return printJSON(out, map[string]any{"policy": stored, "removed": removed})
-	}
-	return printJSON(out, map[string]any{"policy": stored, "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes})
+	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes})
 }

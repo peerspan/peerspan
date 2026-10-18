@@ -64,10 +64,11 @@ type PolicyHead struct {
 // PolicySyncStatus is `access sync --status`: this host's person's stored
 // policy and its deliveries.
 type PolicySyncStatus struct {
-	PersonID   string           `json:"person_id"`
-	Version    *int64           `json:"version"`
-	SHA256     *string          `json:"sha256"`
-	Deliveries []PolicyDelivery `json:"deliveries"`
+	PersonID   string             `json:"person_id"`
+	Version    *int64             `json:"version"`
+	SHA256     *string            `json:"sha256"`
+	Deliveries []PolicyDelivery   `json:"deliveries"`
+	Edits      []PolicyEditStatus `json:"edits"`
 }
 
 // policySync is the daemon's propagation state: deliveries in flight, and
@@ -78,6 +79,12 @@ type policySync struct {
 	wake     chan struct{}
 	networks map[string]bool // networks that gained a sibling
 	gained   chan struct{}
+	// editWake and reapply schedule re-applying policy edits; acks holds,
+	// per network/person, the highest edit of this host each sibling and
+	// the coordinator is known to hold.
+	editWake chan struct{}
+	reapply  map[string]bool
+	acks     map[string]map[string]int64
 }
 
 func (s *Store) policyState() *policySync {
@@ -86,6 +93,7 @@ func (s *Store) policyState() *policySync {
 	defer p.mu.Unlock()
 	if p.wake == nil {
 		p.wake, p.gained, p.inflight, p.networks = make(chan struct{}, 1), make(chan struct{}, 1), map[string]bool{}, map[string]bool{}
+		p.editWake, p.reapply, p.acks = make(chan struct{}, 1), map[string]bool{}, map[string]map[string]int64{}
 	}
 	return p
 }
@@ -211,6 +219,10 @@ func (s *Store) storePolicy(ctx context.Context, tx *sql.Tx, network string, p m
 	if err := appendEvent(ctx, tx, "network.policy_updated", person, now); err != nil {
 		return err
 	}
+	at, _ := parseTime(now)
+	if err := s.editsChanged(ctx, tx, network, p, at); err != nil {
+		return err
+	}
 	own, hosts, err := s.siblings(ctx, tx, network)
 	if err != nil || own != person {
 		return err
@@ -307,10 +319,16 @@ func (s *Store) attemptDelivery(ctx context.Context, network, person, target str
 	if target == policyTargetCoordinator {
 		_, attemptErr = s.callCoordinator(ctx, n, networkPath(n, "/policies"), map[string]any{"policy": rec.Policy})
 		done = attemptErr == nil || errors.Is(attemptErr, ErrConflict)
+		if attemptErr == nil {
+			s.ackEdits(network, person, policyTargetCoordinator, rec.Policy.EditSeq(s.identity.ID))
+		}
 	} else {
 		var head PolicyHead
 		head, attemptErr = s.pushPolicy(ctx, network, target, rec.Policy)
 		done = attemptErr == nil && head.Version >= rec.Version
+		if attemptErr == nil && head.SHA256 == membership.PolicyHash(rec.Policy) {
+			s.ackEdits(network, person, target, rec.Policy.EditSeq(s.identity.ID))
+		}
 		if attemptErr == nil && !done {
 			attemptErr = fmt.Errorf("sibling reported version %d", head.Version)
 		}
@@ -413,6 +431,9 @@ func (s *Store) syncPolicy(ctx context.Context, network string, logf func(string
 		if p == nil || p.NetworkID != network || personIDOf(p.PersonPublicKey) != person {
 			continue
 		}
+		if membership.VerifyPolicy(network, *p) == nil {
+			s.ackEdits(network, person, sibling, p.EditSeq(s.identity.ID))
+		}
 		stored, err := s.storeSynced(ctx, network, sibling, *p)
 		if err != nil {
 			logf("policy sync %s with %s: %v", network, sibling, err)
@@ -513,7 +534,7 @@ func (s *Store) SiblingPolicy(ctx context.Context, sender, network, person strin
 // PolicySyncStatus reports this host's person's stored policy in a network
 // and its deliveries, dropping deliveries to hosts no longer siblings.
 func (s *Store) PolicySyncStatus(ctx context.Context, network string) (PolicySyncStatus, error) {
-	status := PolicySyncStatus{Deliveries: []PolicyDelivery{}}
+	status := PolicySyncStatus{Deliveries: []PolicyDelivery{}, Edits: []PolicyEditStatus{}}
 	if _, err := s.Network(ctx, network); err != nil {
 		return status, err
 	}
@@ -570,7 +591,8 @@ func (s *Store) PolicySyncStatus(ctx context.Context, network string) (PolicySyn
 		}
 	}
 	sort.Slice(status.Deliveries, func(i, j int) bool { return status.Deliveries[i].Target < status.Deliveries[j].Target })
-	return status, nil
+	status.Edits, err = s.editStatus(ctx, s.db, network, person)
+	return status, err
 }
 
 // SyncPolicyNow runs one sync with every sibling, then attempts every pending
@@ -662,7 +684,11 @@ func (s *Store) RunPolicySync(ctx context.Context, logf func(string, ...any)) {
 	p := s.policyState()
 	var running sync.WaitGroup
 	defer running.Wait()
-	running.Add(1)
+	running.Add(2)
+	go func() {
+		defer running.Done()
+		s.runPolicyEdits(ctx, logf)
+	}()
 	go func() {
 		defer running.Done()
 		s.syncAllPolicies(ctx, logf)

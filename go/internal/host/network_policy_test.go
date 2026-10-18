@@ -391,18 +391,18 @@ func TestAccessBlocksMigrationToVersion8(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err = s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 16 {
+	if err = s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 17 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if blocks, err := s.AccessBlocks(ctx); err != nil || len(blocks) != 0 {
 		t.Fatalf("blocks: %v %v", blocks, err)
 	}
-	if _, err = s.db.ExecContext(ctx, "PRAGMA user_version = 17"); err != nil {
+	if _, err = s.db.ExecContext(ctx, "PRAGMA user_version = 18"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
 	if _, err = Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version") {
-		t.Fatalf("version 17 opened: %v", err)
+		t.Fatalf("version 18 opened: %v", err)
 	}
 }
 

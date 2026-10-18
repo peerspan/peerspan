@@ -80,6 +80,7 @@ func Handler(store *Store) http.Handler {
 	localAdminRoutes(mux, store)
 	localPolicyRoutes(mux, store)
 	localPolicySyncRoutes(mux, store)
+	localPolicyEditRoutes(mux, store)
 	localAdapterRoutes(mux, store)
 	localTaskRoutes(mux, store)
 	localStatusRoutes(mux, store)

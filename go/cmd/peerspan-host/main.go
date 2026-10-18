@@ -192,6 +192,8 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		result, err = client.Call(ctx, method, path, b.body)
 	case artifactDownload:
 		result, err = downloadArtifact(ctx, client, path, b.out)
+	case policyEdit:
+		result, err = b.submit(ctx, client)
 	default:
 		result, err = client.Call(ctx, method, path, body)
 	}

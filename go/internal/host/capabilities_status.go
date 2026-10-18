@@ -66,7 +66,8 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 				continue
 			}
 			if r.Host == s.identity.ID {
-				shared = true
+				// A claim, without principals, shares nothing.
+				shared = shared || len(r.Principals) > 0
 			} else {
 				conflict = true
 			}
@@ -75,7 +76,7 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 			st.Shared++
 		}
 		if conflict {
-			attend("capability_name_conflict", c.Name, "a capability rule of yours binds "+c.Name+" to another host", "peerspan capability remove "+c.Name)
+			attend("capability_name_conflict", c.Name, "a capability rule of yours binds "+c.Name+" to another host, because a concurrent claim won; it still works through self access as HOST_ID/"+c.Name+" only, and cannot be shared under its name", renameCommand(c))
 		}
 		state, unavailable, _, err := capabilityState(ctx, tx, c)
 		if err != nil {
@@ -104,4 +105,26 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 	}
 	st.OpenTo = int64(len(open))
 	return st, nil
+}
+
+// renameCommand recreates a capability under a new name, with its
+// operations and credential options, then removes it.
+func renameCommand(c capabilityRecord) string {
+	parts := []string{"peerspan capability create NEW_NAME --from " + c.Source.Agent + "/" + c.Source.Server}
+	if len(c.Operations) > 0 {
+		parts = append(parts, "--operations "+strings.Join(c.Operations, ","))
+	}
+	switch {
+	case c.Resources.All:
+		parts = append(parts, "--resources all")
+	case c.Resources.Set:
+		parts = append(parts, "--resources "+strings.Join(c.Resources.URIs, ","))
+	}
+	if c.Credential.EnvFile != nil {
+		parts = append(parts, "--env-file "+*c.Credential.EnvFile)
+	}
+	for _, arg := range c.Credential.Args {
+		parts = append(parts, "--arg "+arg)
+	}
+	return strings.Join(parts, " ") + " && peerspan capability remove " + c.Name
 }
