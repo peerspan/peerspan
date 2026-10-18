@@ -303,7 +303,7 @@ func (s *Store) EditStart(ctx context.Context, network string) (EditStart, error
 
 // checkEdit applies the edit rules to a policy of this host's person
 // submitted through the local route. A policy whose entry for this host
-// differs from the stored one's cites a reserved edit number: it must be
+// is above the stored one's cites a reserved edit number: it must be
 // the newest reservation, not lapsed, and the version the stored + 1. It
 // returns the reservation, or nil for a policy that is not an edit.
 func (s *Store) checkEdit(ctx context.Context, tx *sql.Tx, network, person string, stored *membership.Policy, p membership.Policy, now time.Time) (*policyEditRecord, error) {
@@ -311,7 +311,9 @@ func (s *Store) checkEdit(ctx context.Context, tx *sql.Tx, network, person strin
 	if stored != nil {
 		old, version = stored.EditSeq(s.identity.ID), stored.Version
 	}
-	if seq == old {
+	if seq <= old {
+		// Not a new edit of this host: a renewal, or a policy built from
+		// an older one, which the acceptance rule handles.
 		return nil, nil
 	}
 	rec, err := readJSON[policyEditRecord](tx.QueryRowContext(ctx, `SELECT record FROM policy_edits WHERE network_id = ? AND person_id = ? AND seq = ?`, network, person, seq))
