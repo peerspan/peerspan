@@ -16,6 +16,7 @@ import (
 	"github.com/peerspan/peerspan/go/internal/host"
 	"github.com/peerspan/peerspan/go/internal/integration"
 	"github.com/peerspan/peerspan/go/internal/membership"
+	"github.com/peerspan/peerspan/go/internal/person"
 	"github.com/spf13/pflag"
 )
 
@@ -371,10 +372,32 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 			networks = append(networks, r.NetworkID)
 		}
 	}
+	// The stored policies of this host's persons, and of the signing key's
+	// person when it loads, in every network of this host, bound there or
+	// not: a claim left in a network where this host is no longer bound
+	// would come back on rebinding.
+	candidates := []string{}
 	if _, persons, err := readHostPersons(ctx, client); err == nil {
 		for _, n := range sortedNetworks(persons.ids) {
-			if p, err := currentPolicy(ctx, client, n, persons.ids[n]); err == nil && p != nil && hostRule(p.CapabilityRules, identity.ID, name) >= 0 && !contains(networks, n) {
-				networks = append(networks, n)
+			if !contains(candidates, persons.ids[n]) {
+				candidates = append(candidates, persons.ids[n])
+			}
+		}
+	}
+	if signer, err := person.Load(keyPath); err == nil {
+		if id := membership.PersonID(signer.PublicKey()); !contains(candidates, id) {
+			candidates = append(candidates, id)
+		}
+		signer.Close()
+	}
+	holders := map[string][]string{} // network: persons whose policy holds the rule
+	for _, n := range ownNetworks(ctx, client) {
+		for _, id := range candidates {
+			if p, err := currentPolicy(ctx, client, n, id); err == nil && p != nil && hostRule(p.CapabilityRules, identity.ID, name) >= 0 {
+				holders[n] = append(holders[n], id)
+				if !contains(networks, n) {
+					networks = append(networks, n)
+				}
 			}
 		}
 	}
@@ -395,6 +418,13 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 		o.signer.Close()
 		if changed {
 			signed = append(signed, data)
+		}
+		if err == nil {
+			for _, id := range holders[network] {
+				if id != o.ownerID {
+					err = fmt.Errorf("the policy of %s still has this host's rule for %s; sign with that person's key", id, name)
+				}
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, network, err)
@@ -785,11 +815,28 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 	if err != nil {
 		return nil, nil, err
 	}
-	networks := sortedNetworks(persons.ids)
-	if len(networks) == 0 {
+	if len(persons.ids) == 0 {
 		// A host without a person creates the record without claims.
 		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
 		return data, signed, err
+	}
+	// Claims are signed in the networks where this host is bound to the
+	// signing person; networks bound to another person gain the claim at
+	// their first share.
+	signer, err := person.Load(keyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	signerID := membership.PersonID(signer.PublicKey())
+	signer.Close()
+	networks := []string{}
+	for _, n := range sortedNetworks(persons.ids) {
+		if persons.ids[n] == signerID {
+			networks = append(networks, n)
+		}
+	}
+	if len(networks) == 0 {
+		return nil, nil, fmt.Errorf("this host is not bound to the person key %s in any network", signerID)
 	}
 	owners := map[string]*ownerContext{}
 	defer func() {

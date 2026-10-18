@@ -853,6 +853,10 @@ func (s *Store) ownCapabilityRules(ctx context.Context, q dbQuerier) ([]OwnCapab
 		if !ok {
 			continue
 		}
+		// The view authorization uses: unsettled withdrawals applied.
+		if p, err = s.enforcedPolicy(ctx, q, n.network, p); err != nil {
+			return nil, err
+		}
 		for _, r := range p.CapabilityRules {
 			out = append(out, OwnCapabilityRule{NetworkID: n.network, CapabilityRule: r})
 		}

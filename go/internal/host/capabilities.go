@@ -442,19 +442,26 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	return s.capabilityView(ctx, s.db, c)
 }
 
-// checkClaims checks a new capability's policies: exactly one for each
-// network in which this host is bound to its person, signed by that person,
-// verifying, and holding this host's rule for the name.
+// checkClaims checks a new capability's policies: signed by one person, and
+// exactly one for each network in which this host is bound to that person,
+// verifying, and holding this host's rule for the name. Networks where this
+// host is bound to another person gain the claim at their first share.
 func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membership.Policy, error) {
 	own, err := membershipsOf(ctx, s.db, s.identity.ID)
 	if err != nil {
 		return nil, err
 	}
 	given := map[string]membership.Policy{}
+	signer := ""
 	for _, p := range r.Policies {
 		if _, dup := given[p.NetworkID]; dup {
 			return nil, fmt.Errorf("%w: policies has more than one policy for network %s", ErrInvalid, p.NetworkID)
 		}
+		person := personIDOf(p.PersonPublicKey)
+		if signer != "" && person != signer {
+			return nil, fmt.Errorf("%w: the policies are signed by more than one person", ErrInvalid)
+		}
+		signer = person
 		given[p.NetworkID] = p
 	}
 	out := []membership.Policy{}
@@ -462,14 +469,15 @@ func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membersh
 		if n.member.PersonID == nil {
 			continue
 		}
+		// Without policies, the claims of any person bound here are missing.
+		if signer != "" && *n.member.PersonID != signer {
+			continue
+		}
 		p, ok := given[n.network]
 		if !ok {
 			return nil, fmt.Errorf("%w: policies lacks a policy for network %s, in which this host is bound", ErrInvalid, n.network)
 		}
 		delete(given, n.network)
-		if personIDOf(p.PersonPublicKey) != *n.member.PersonID {
-			return nil, fmt.Errorf("%w: the policy for network %s is not signed by this host's person", ErrInvalid, n.network)
-		}
 		if err := membership.VerifyPolicy(n.network, p); err != nil {
 			return nil, fmt.Errorf("%w: the policy for network %s: %v", ErrInvalid, n.network, err)
 		}
@@ -485,7 +493,7 @@ func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membersh
 		out = append(out, p)
 	}
 	for network := range given {
-		return nil, fmt.Errorf("%w: this host is not bound to a person in network %s", ErrInvalid, network)
+		return nil, fmt.Errorf("%w: this host is not bound to the policies' person in network %s", ErrInvalid, network)
 	}
 	return out, nil
 }
