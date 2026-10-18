@@ -156,6 +156,7 @@ impl Merge<'_> {
             }
         }
     }
+    /// A rule's bounds are part of its key, so only its principals merge.
     fn rule(&mut self, s: &mut Rule, b: Option<&Rule>, o: &Rule) {
         let of = format!("rule {}", o.agent);
         let empty = Vec::new();
@@ -166,35 +167,6 @@ impl Merge<'_> {
             "principal",
             &of,
         );
-        self.members(
-            &mut s.actions,
-            b.map_or(&empty, |b| &b.actions),
-            &o.actions,
-            "action",
-            &of,
-        );
-        let a = self.additions;
-        s.max_message_bytes = bound(
-            s.max_message_bytes,
-            b.map(|b| b.max_message_bytes),
-            o.max_message_bytes,
-            a,
-        );
-        s.max_artifact_bytes = bound(
-            s.max_artifact_bytes,
-            b.map(|b| b.max_artifact_bytes),
-            o.max_artifact_bytes,
-            a,
-        );
-        s.allow_disconnected = flag(
-            s.allow_disconnected,
-            b.map(|b| b.allow_disconnected),
-            o.allow_disconnected,
-            a,
-        );
-        if !crate::policy::task_actions(s.actions.iter().map(String::as_str)) {
-            s.max_artifact_bytes = 0;
-        }
     }
     fn capability_rule(
         &mut self,
@@ -260,22 +232,22 @@ pub(crate) fn merge(
         "the policy",
     );
     out.trusted_hosts.sort();
-    // Rules, keyed by agent name.
-    let first = |rules: &[Rule], agent: &str| rules.iter().position(|r| r.agent == agent);
-    let mut seen: Vec<&str> = Vec::new();
+    // Rules, keyed by agent name and settings: changing a rule's settings
+    // removes the old rule and adds the new one.
+    let first = |rules: &[Rule], key: &Rule| rules.iter().position(|r| r.same_key(key));
+    let mut seen: Vec<&Rule> = Vec::new();
     for or in &o.rules {
-        if seen.contains(&or.agent.as_str()) {
+        if seen.iter().any(|r| r.same_key(or)) {
             continue;
         }
-        seen.push(&or.agent);
-        let br = first(&b.rules, &or.agent).map(|i| &b.rules[i]);
-        let si = first(&out.rules, &or.agent);
+        seen.push(or);
+        let br = first(&b.rules, or).map(|i| &b.rules[i]);
+        let si = first(&out.rules, or);
         match (br, si) {
             (Some(br), Some(si)) => m.rule(&mut out.rules[si], Some(br), or),
             (Some(br), None) => {
                 let of = format!("rule {}", or.agent);
                 m.drop_members(&br.principals, &or.principals, "principal", &of);
-                m.drop_members(&br.actions, &or.actions, "action", &of);
             }
             (None, _) if !additions => {}
             (None, _) if skip.contains(&format!("rule {}", or.agent)) => {}
@@ -284,12 +256,11 @@ pub(crate) fn merge(
         }
     }
     for br in &b.rules {
-        if first(&o.rules, &br.agent).is_none() {
-            out.rules.retain(|r| r.agent != br.agent);
+        if first(&o.rules, br).is_none() {
+            out.rules.retain(|r| !r.same_key(br));
         }
     }
-    out.rules
-        .retain(|r| !r.principals.is_empty() && !r.actions.is_empty());
+    out.rules.retain(|r| !r.principals.is_empty());
     // Capability rules, keyed by capability name; a name is bound to one
     // host.
     let find =
@@ -400,9 +371,6 @@ pub(crate) struct Plan {
     edits: Vec<EditEntry>,
     duration: TimeDelta,
     dropped: Vec<(u64, Vec<String>)>,
-    /// Agents of rules dropped from a version 1 policy with several rules
-    /// for one agent.
-    dropped_rules: Vec<String>,
 }
 
 impl Store {
@@ -788,7 +756,8 @@ impl Store {
             return Ok(None);
         };
         let (mut content, dropped) = Self::merged(&stored, &recs);
-        let dropped_rules = content.dedup_rules();
+        // Identical duplicate rules of a version 1 policy become one.
+        content.dedup_rules();
         if normalized(&content) == normalized(&stored.content()) {
             self.note_dropped(&tx, network, &person, &dropped, true)?;
             tx.commit()?;
@@ -811,7 +780,6 @@ impl Store {
             edits,
             duration,
             dropped,
-            dropped_rules,
         }))
     }
     /// Stores a signed re-application, unless the stored policy changed
@@ -827,14 +795,6 @@ impl Store {
             == crate::policy::Accepted::Stored;
         if stored {
             self.note_dropped(&tx, &plan.network, &p.person_id(), &plan.dropped, false)?;
-            for agent in &plan.dropped_rules {
-                append_event(
-                    &tx,
-                    "network.policy_rule_dropped",
-                    &format!("{}/{agent}", p.person_id()),
-                    &now(),
-                )?;
-            }
         }
         tx.commit()?;
         Ok(stored)

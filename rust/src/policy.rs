@@ -168,22 +168,25 @@ pub struct Content {
     pub trusted_hosts: Vec<String>,
 }
 impl Content {
-    /// Keeps the first rule per agent name, as a version 2 policy holds at
-    /// most one; returns the agent of each rule dropped. Only a version 1
-    /// policy can hold several.
-    pub fn dedup_rules(&mut self) -> Vec<String> {
-        let mut seen: Vec<String> = Vec::new();
-        let mut dropped = Vec::new();
-        self.rules.retain(|r| {
-            if seen.contains(&r.agent) {
-                dropped.push(r.agent.clone());
-                false
-            } else {
-                seen.push(r.agent.clone());
-                true
+    /// Combines rules with the same agent and settings into the first of
+    /// them, uniting their principals, as a version 2 policy holds at most
+    /// one rule per key. Only a version 1 policy can hold such duplicates;
+    /// access is unchanged.
+    pub fn dedup_rules(&mut self) {
+        let mut out: Vec<Rule> = Vec::new();
+        for r in std::mem::take(&mut self.rules) {
+            match out.iter_mut().find(|k| k.same_key(&r)) {
+                Some(k) => {
+                    for p in r.principals {
+                        if !k.principals.contains(&p) {
+                            k.principals.push(p);
+                        }
+                    }
+                }
+                None => out.push(r),
             }
-        });
-        dropped
+        }
+        self.rules = out;
     }
 }
 
@@ -309,6 +312,22 @@ pub fn agent_name(value: &str) -> Result<(), Error> {
 }
 
 impl Rule {
+    /// Whether two rules have the same merge key: the agent and the
+    /// settings (actions as a set, `max_message_bytes`,
+    /// `max_artifact_bytes`, and `allow_disconnected`).
+    pub fn same_key(&self, other: &Rule) -> bool {
+        fn actions(r: &Rule) -> Vec<&str> {
+            let mut a: Vec<&str> = r.actions.iter().map(String::as_str).collect();
+            a.sort_unstable();
+            a.dedup();
+            a
+        }
+        self.agent == other.agent
+            && self.max_message_bytes == other.max_message_bytes
+            && self.max_artifact_bytes == other.max_artifact_bytes
+            && self.allow_disconnected == other.allow_disconnected
+            && actions(self) == actions(other)
+    }
     fn check(&self) -> Result<(), Error> {
         agent_name(&self.agent)?;
         if self.principals.is_empty() || self.principals.len() > MAX_PRINCIPALS {
@@ -499,11 +518,14 @@ impl Policy {
         ) {
             (None, None, None, None) => {}
             (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
-                let mut agents: Vec<&str> = self.rules.iter().map(|r| r.agent.as_str()).collect();
-                agents.sort_unstable();
-                if agents.windows(2).any(|w| w[0] == w[1]) {
+                if self
+                    .rules
+                    .iter()
+                    .enumerate()
+                    .any(|(i, r)| self.rules[..i].iter().any(|k| k.same_key(r)))
+                {
                     return Err(invalid(
-                        "a version 2 policy has at most one rule per agent name",
+                        "a version 2 policy has no two rules with the same agent and settings",
                     ));
                 }
                 if capability_rules.len() > MAX_CAPABILITY_RULES {
@@ -664,8 +686,7 @@ impl Policy {
         edits: Vec<EditEntry>,
     ) -> Result<Self, Error> {
         let (issued, until) = self.times();
-        // A version 1 policy may hold several rules for one agent; version
-        // 2 keeps the first.
+        // Identical duplicate rules of a version 1 policy become one.
         let mut content = self.content();
         content.dedup_rules();
         Self::sign_v2(
@@ -1365,8 +1386,7 @@ pub(crate) async fn renew(store: Arc<Store>) {
                 continue;
             }
         };
-        let dropped = policy.content().dedup_rules();
-        match crate::policy_sync::submit_noting(store.clone(), network, renewed, dropped).await {
+        match crate::policy_sync::submit(store.clone(), network, renewed).await {
             Ok(_) => {}
             // A sibling's concurrent renewal of the same version may win the
             // tie-break; this host keeps that one.

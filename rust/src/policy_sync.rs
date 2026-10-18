@@ -427,7 +427,6 @@ impl Store {
     /// Applies the acceptance rule to a policy the owner's CLI or the renewal
     /// task signed. An identical policy is accepted again; a lower version, or
     /// an equal one that loses the tie-break, is a conflict.
-    #[cfg(test)]
     fn submit_local_policy(&self, network: &str, p: &Policy) -> Result<Accepted, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -745,35 +744,9 @@ pub(crate) async fn sync_sibling(
 /// submitting it, then submits it to the coordinator and the siblings. The
 /// result does not depend on the coordinator being reachable.
 pub async fn submit(store: Arc<Store>, network: String, policy: Policy) -> Result<Policy, Error> {
-    submit_noting(store, network, policy, Vec::new()).await
-}
-
-/// `submit` for the daemon's own renewal, recording in the same transaction
-/// each rule it dropped from a version 1 policy (`network.policy_rule_dropped`).
-pub(crate) async fn submit_noting(
-    store: Arc<Store>,
-    network: String,
-    policy: Policy,
-    dropped: Vec<String>,
-) -> Result<Policy, Error> {
     let (lookup, checked) = (network.clone(), policy.clone());
     blocking(store.clone(), move |s| {
-        let mut connection = s.connection()?;
-        let tx = connection.transaction()?;
-        let outcome = s.submit_local_in(&tx, &lookup, &checked)?;
-        if outcome == Accepted::Stored {
-            let at = now();
-            for agent in &dropped {
-                append_event(
-                    &tx,
-                    "network.policy_rule_dropped",
-                    &format!("{}/{agent}", checked.person_id()),
-                    &at,
-                )?;
-            }
-        }
-        tx.commit()?;
-        Ok(())
+        s.submit_local_policy(&lookup, &checked)
     })
     .await?;
     after_store(store, network, policy.clone()).await;
