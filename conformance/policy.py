@@ -26,7 +26,7 @@ import time
 
 from agent_adapter import adapter_call, credential
 from coordination import Coordinator, wait_for
-from host_service import stop_all
+from host_service import UnixHTTPConnection, stop_all
 from peer_messaging import fixture_context, request_id, set_probe, timestamp, wire
 from persons import Agent, PersonHost, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent
 
@@ -63,7 +63,7 @@ def rfc3339(moment):
 
 def is_v2(p):
     """A version 2 statement (capabilities contract): `format` 2, or its v2 keys present."""
-    return p.get('format') == 2 or 'capability_rules' in p or 'trusted_hosts' in p
+    return p.get('format') == 2 or 'capability_rules' in p or 'trusted_hosts' in p or 'edits' in p
 
 
 def policy_lines_v1(p):
@@ -79,8 +79,13 @@ def policy_lines_v1(p):
 
 def policy_lines_v2(p):
     """The v2 statement (capabilities contract, "Policy statement, version 2"): the v1 header fields under the
-    header `peerspan-policy-v2`, the v1 rules unchanged, six lines per capability rule in JSON order, and the
-    `trusted` line with the host IDs sorted (the bare word `trusted` with none)."""
+    header `peerspan-policy-v2`, the v1 rules unchanged, six lines per capability rule in JSON order (the principals
+    line is empty for a claim), the `trusted` line with the host IDs sorted (the bare word `trusted` with none), and
+    the final `edits` line of `HOST_ID:SEQ` entries sorted in byte order (the bare word `edits` with none).
+
+    The amended v2 text (2026-10-18) always has the `edits` line, and its JSON always has the `edits` key. The line
+    is emitted here whenever the key is present; suites assert the key's presence separately, so a policy of the
+    earlier v2 text (no key) still verifies in sections that do not concern the amendment."""
     lines = policy_lines_v1(p)
     lines[0] = 'peerspan-policy-v2'
     for c in p.get('capability_rules') or []:
@@ -88,6 +93,8 @@ def policy_lines_v2(p):
                   f"{c['max_input_bytes']} {'true' if c['allow_disconnected'] else 'false'} {c['max_calls_per_hour']}",
                   'end']
     lines.append(' '.join(['trusted', *sorted(p.get('trusted_hosts') or [])]))
+    if 'edits' in p:
+        lines.append(' '.join(['edits', *sorted(f"{e['host']}:{e['seq']}" for e in p['edits'] or [])]))
     return lines
 
 
@@ -109,7 +116,71 @@ def crafted(current, version, issued, until, key, directory):
     if is_v2(current):
         p = {'format': 2, **p, 'capability_rules': current.get('capability_rules') or [],
              'trusted_hosts': sorted(current.get('trusted_hosts') or [])}
+        if 'edits' in current:
+            # Not an edit: like a renewal, it copies `edits` (coordination contract, Concurrent edits), so that no
+            # host's edits stop being reflected and get re-applied.
+            p['edits'] = edits_list(edits_map(current))
     p['signature'] = ssh_sign(policy_lines(p), key, directory)
+    return p
+
+
+def edits_map(p):
+    """{host_id: seq} from a policy's `edits` (empty for a v1 policy or a policy without the key)."""
+    return {e['host']: e['seq'] for e in (p or {}).get('edits') or []}
+
+
+def edits_list(mapping):
+    """The JSON `edits`: [{host, seq}], sorted by host."""
+    return [{'host': h, 'seq': mapping[h]} for h in sorted(mapping)]
+
+
+def edit_start(host, network):
+    """GET /v1/networks/{id}/policy/edit (coordination contract, Concurrent edits): (status, {policy, version, seq}).
+    A body that is not JSON (such as a router's plain 404) comes back as text."""
+    connection = UnixHTTPConnection(host.state / 'admin.sock')
+    try:
+        connection.request('GET', f'/v1/networks/{network}/policy/edit')
+        response = connection.getresponse()
+        text = response.read().decode(errors='replace')
+        try:
+            return response.status, json.loads(text)
+        except ValueError:
+            return response.status, text
+    finally:
+        connection.close()
+
+
+def sign_edit(start, network_id, person_public_key, host_id, key, directory, change=None, keep=None,
+              issued=None, duration=None, seq=None):
+    """Sign an edit as the CLI does (coordination contract, Concurrent edits: Signing an edit): apply `change`
+    (a function mutating the policy in place) to the edit route's `policy`, or to an empty policy when it is null;
+    set the version to `version` + 1 and this host's `edits` entry to `seq`; keep the other entries, or only those of
+    hosts in `keep` when given (retired entries are dropped, PR #15); sign over this suite's v2 lines. The duration
+    is the starting policy's (7 days without one), `issued_at` now unless given."""
+    base = start.get('policy')
+    if base is None:
+        base = {'format': 2, 'network_id': network_id, 'person_public_key': person_public_key, 'version': 0,
+                'issued_at': rfc3339(datetime.now(timezone.utc)), 'valid_until': '', 'rules': [],
+                'capability_rules': [], 'trusted_hosts': [], 'edits': []}
+        length = timedelta(days=7)
+    else:
+        length = (datetime.fromisoformat(base['valid_until'].replace('Z', '+00:00')) -
+                  datetime.fromisoformat(base['issued_at'].replace('Z', '+00:00')))
+    issued = issued or datetime.now(timezone.utc).replace(microsecond=0)
+    p = json.loads(json.dumps({'format': 2, 'network_id': base['network_id'],
+                               'person_public_key': base['person_public_key'], 'version': start['version'] + 1,
+                               'issued_at': rfc3339(issued), 'valid_until': rfc3339(issued + (duration or length)),
+                               'rules': base.get('rules') or [],
+                               'capability_rules': base.get('capability_rules') or [],
+                               'trusted_hosts': sorted(base.get('trusted_hosts') or [])}))
+    if change:
+        change(p)
+    entries = edits_map(base)
+    if keep is not None:
+        entries = {h: s for h, s in entries.items() if h in keep or h == host_id}
+    entries[host_id] = start['seq'] if seq is None else seq
+    p['edits'] = edits_list(entries)
+    p['signature'] = ssh_sign(policy_lines_v2(p), key, directory)
     return p
 
 

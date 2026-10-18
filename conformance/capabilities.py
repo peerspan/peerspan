@@ -19,11 +19,19 @@ Each pairing reports these sections separately (contract Verification items in b
   trusted_hosts signed at once [Sharing: the join and create prompt and flags];
 - sources: each harness's discovery, not-shareable reasons, references, missing_env, `sources` and
   `sources refresh`, the PUT route, and `attach` output [Sources];
-- capabilities: create with operations, resources, and both; refusals; repeat and conflict; list and show
-  [Capabilities];
-- policy v2: capability rule lines and JSON verified with ssh-keygen over this suite's encoding, validation
-  (including one name bound to two hosts), v1 acceptance, coordinator acceptance, and sibling propagation
-  [Policy v2];
+- capabilities: create with operations, resources, and both (the local API with claim policies signed here as the
+  CLI would, from the edit route); refusals, including the policies (missing, without the claim, not verifying);
+  repeat and conflict (an identical CLI repeat signing nothing); list and show [Capabilities];
+- claims: one per network at creation through the CLI (an edit, the empty principals line), never authorizing,
+  refused on another of the person's hosts, kept after the last unshare, at the first share in a network bound
+  later (`later`, created on p2) and refused there when another host holds the name, removed with the
+  capability, none for a host without a person (u1) [Capabilities: claims]; the guided share's claims are checked
+  under sharing;
+- policy v2: capability rule lines and JSON (with `edits` and claims) verified with ssh-keygen over this suite's
+  encoding, validation (one name bound to two hosts, 256 rules with claims, 0 to 64 principals, the `edits`
+  bounds), v1 acceptance (in `v1only`, created on q2, where no host has edits), coordinator acceptance, sibling
+  propagation, and each implementation's stored statement hash matching this suite's for a policy with claims,
+  trusted hosts, and edits [Policy v2];
 - sharing: `share NAME --with` (the review, `(can change things)`, --calls-per-hour on an existing rule, terminal,
   --yes, refusal), the guided share (flags, terminal, refusal), `shares`, `unshare`, several networks [Sharing];
 - trust/untrust [Sharing];
@@ -44,13 +52,18 @@ Each pairing reports these sections separately (contract Verification items in b
   and recovery [Sources, Capabilities];
 - CLI: discover, call (--input, --KEY VALUE and errors, call's own flags, --deadline, --wait, exit codes),
   resolution errors, calls listings [CLI];
-- status: the capabilities counts with open_to, items 14 and 15 [Status, Capabilities: item 15];
+- status: the capabilities counts (shared excluding claims) with open_to, item 14 [Status];
 - removal: `capability remove` with and without shares, keeping the record when signing fails and finishing on
   repeat [Removal, Capabilities];
 - tie-break [Policy v2];
-- idle stop [Calls].
+- idle stop [Calls];
+- concurrent claims: p1 and p4 each create `clash` while the other and the coordinator are stopped; the loser's
+  re-applied claim is dropped (closed, item 17), item 15 reports it, discover addresses the claimed copy as
+  PERSON/CAPABILITY and the other only as HOST_ID/CAPABILITY, `call` resolves accordingly, and the losing copy
+  cannot be shared [Capabilities: item 15, Status, CLI: discover].
 Once per run: the adopted v2 test vector (and the v1 vector) built with this suite's encoding, signed, and
-verified with ssh-keygen [Policy v2], and migration from version 15 to 16 in each direction [Migration].
+verified with ssh-keygen [Policy v2], and migration from version 15 to the current 17 in each direction
+[Migration].
 
 Where the contract is silent, the suite takes the narrowest reading or makes no assertion; those spots are marked
 "ambiguous" in comments and soft results are printed as NOTE lines, not failures.
@@ -79,12 +92,12 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import CAPABILITY_TABLES, Host, stop_all
+from host_service import CAPABILITY_TABLES, POLICY_EDIT_TABLES, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
 from persons import Agent, coord_db, person_id, ssh_key, ssh_sign, ssh_verify
-from policy import policy_lines, policy_lines_v1, policy_lines_v2
+from policy import edit_start, edits_list, edits_map, policy_lines, policy_lines_v1, policy_lines_v2, sign_edit
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / 'fixtures' / 'mcp' / 'server.py'
@@ -105,7 +118,7 @@ RECORD_KEYS = {'name', 'source', 'operations', 'resources', 'credential', 'bound
 RECIPIENT_KEYS = {'network_id', 'principal', 'label'}
 CAP_RULE_KEYS = {'host', 'capability', 'principals', 'max_input_bytes', 'allow_disconnected', 'max_calls_per_hour'}
 POLICY_V2_ORDER = ['format', 'network_id', 'person_public_key', 'version', 'issued_at', 'valid_until', 'rules',
-                   'capability_rules', 'trusted_hosts', 'signature']
+                   'capability_rules', 'trusted_hosts', 'edits', 'signature']
 SHARE_KEYS = {'policy', 'capability', 'principal', 'created'}
 UNSHARE_KEYS = {'policy', 'capability', 'principal', 'removed'}
 TRUST_KEYS = {'policy', 'host', 'trusted', 'changed'}
@@ -141,6 +154,7 @@ WORK_OPERATIONS = ['echo', 'info', 'sleep', 'fail', 'tool_error', 'big', 'crash'
 # daemon did not pass it.
 INTERPRETER_NAMES = {'LC_CTYPE'}
 CANARY = 'PEERSPAN_TOOLS_CANARY'
+CURRENT_VERSION = 17   # database version 17: policy_edits (coordination contract, Concurrent edits)
 DAY = 86400
 
 # The adopted test vector's inputs (Policy statement, version 2: Test vector). The contract gives inputs, not the
@@ -204,13 +218,22 @@ def rfc3339(seconds_from_now):
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + seconds_from_now))
 
 
-def crafted_v2(current, version, key, directory, capability_rules=None, trusted=None):
-    """The next v2 policy, signed here with OpenSSH over this suite's v2 lines, in the contract's key order."""
+def crafted_v2(current, version, key, directory, capability_rules=None, trusted=None, edits=None):
+    """The next v2 policy, signed here with OpenSSH over this suite's v2 lines, in the contract's key order.
+
+    It is not an edit: like a renewal it copies `edits` (coordination contract, Concurrent edits) unless `edits` is
+    given, so no host's edits stop being reflected (which would make them unsettled, re-applied, and enforced
+    locally). The contract does not say how a daemon treats a policy submitted through its local API whose entry
+    for this host is unchanged; this suite reads it, most literally, as no edit of this host (it cites no new seq)."""
     p = {'format': 2, 'network_id': current['network_id'], 'person_public_key': current['person_public_key'],
          'version': version, 'issued_at': rfc3339(-60), 'valid_until': rfc3339(7 * DAY),
          'rules': current.get('rules') or [],
          'capability_rules': (current.get('capability_rules') or []) if capability_rules is None else capability_rules,
          'trusted_hosts': sorted((current.get('trusted_hosts') or []) if trusted is None else trusted)}
+    if edits is not None:
+        p['edits'] = edits
+    elif 'edits' in current:
+        p['edits'] = edits_list(edits_map(current))
     p['signature'] = ssh_sign(policy_lines_v2(p), key, directory)
     return p
 
@@ -449,6 +472,7 @@ class Pairing:
         self.secrets = {}
         self.exposed = []   # (where, text) collected for the secret scan
         self.notes = []     # soft results where the contract is silent
+        self.pre_claims = False
         self.setup_notes = []
 
     # --- infrastructure --------------------------------------------------------------------------------------
@@ -553,8 +577,51 @@ class Pairing:
                  'unshare prints {policy, capability, principal, removed} and signs the next version', out)
         return out
 
-    def create(self, name, source, *args, host='p1', expect=201):
-        """`capability create` through the local API (so that status codes are checked). Returns (status, body)."""
+    def claim_policies(self, host, name):
+        """The `policies` the CLI sends with POST /v1/capabilities (capabilities contract, Claims: At creation),
+        signed here as the CLI would: for each network in which the host is bound to its person, the edit route's
+        policy plus this host's claim for NAME (65,536, false, 100), signed as an edit. A rule the policy already has
+        for NAME is left as it is (so a name bound to another host stays bound there, for the daemon to refuse).
+        Empty for a host without a person."""
+        person = self.person_of.get(host)
+        if not person:
+            return []
+        if self.pre_claims:
+            return None
+        hid, out = self.ids[host], []
+        for net in self.bound[host]:
+            status, start = edit_start(self.hosts[host], net)
+            if status == 404 and not isinstance(start, dict):
+                # A router's plain 404: an implementation from before claims. The record is sent without claims so
+                # that sections unrelated to claims still run against it; the claims sections fail on their own.
+                if not self.pre_claims:
+                    self.pre_claims = True
+                    self.setup_notes.append('no edit route (an implementation from before claims): capabilities '
+                                            'created through the API without claim policies')
+                return None
+            need(status == 200 and isinstance(start, dict) and set(start) == {'policy', 'version', 'seq'},
+                 'GET /v1/networks/{id}/policy/edit returns {policy, version, seq}', host, net, status, start)
+
+            def change(p):
+                if not any(r['capability'] == name for r in p['capability_rules']):
+                    p['capability_rules'].append(cap_rule(hid, name, []))
+            out.append(sign_edit(start, net, self.keys[person][2], hid, self.keys[person][0], self.root, change))
+        return out
+
+    def claims_field(self, host, name):
+        """{'policies': claim_policies(...)}, or {} against an implementation from before claims."""
+        policies = self.claim_policies(host, name)
+        return {} if policies is None else {'policies': policies}
+
+    def versions(self, host='p1'):
+        """The host's stored version of its person's policy in each network where it is bound."""
+        person = self.person_of.get(host)
+        pid = {'pat': self.pat, 'quinn': self.quinn, 'rhea': self.rhea}.get(person)
+        return {net: (self.policy(host, net, pid) or {}).get('version', 0) for net in self.bound[host]}
+
+    def create(self, name, source, *args, host='p1', expect=201, policies=None):
+        """`capability create` through the local API (so that status codes are checked), with the claims signed
+        here (see claim_policies) unless `policies` is given. Returns (status, body)."""
         agent, _, server = source.partition('/')
         body = {'name': name, 'source': {'agent': agent, 'server': server}, 'operations': None, 'resources': None,
                 'env_file': None}
@@ -569,6 +636,7 @@ class Pairing:
                 body['env_file'] = value
             elif flag == 'args':
                 body['args'] = value
+        body.update(self.claims_field(host, name) if policies is None else {'policies': policies})
         status, out = self.hosts[host].call('POST', '/v1/capabilities', body)
         if expect is not None:
             need(status == expect, f'POST /v1/capabilities {name}', expect, status, out)
@@ -957,6 +1025,11 @@ class Pairing:
         self.other_members = ['p1', 'p2', 'q1']
         self.create_terminal = None
         self.v1net = self.create_network('v1net', terminal='n')
+        self.person_of = persons
+        # The networks in which each host is bound to its person (claims are signed in each).
+        self.bound = {'p1': [self.team, self.other, self.v1net], 'p2': [self.team, self.other], 'p3': [self.team],
+                      'p4': [self.team], 'q1': [self.team, self.other], 'q2': [self.team], 'r': [self.team],
+                      'u1': [], 'u2': [], 'n': []}
 
         expected = {ids[n]: {'pat': self.pat, 'quinn': self.quinn, 'rhea': self.rhea}.get(persons[n])
                     for n in self.team_members}
@@ -1045,6 +1118,7 @@ class Pairing:
         self.section('trust at create and join', self.check_trust_at_join)
         self.section('sources', self.check_sources)
         self.section('capabilities', self.check_capabilities)
+        self.section('claims', self.check_claims)
         self.section('policy v2', self.check_policy_v2)
         self.section('sharing', self.check_sharing)
         self.section('trust/untrust', self.check_trust)
@@ -1060,6 +1134,7 @@ class Pairing:
         self.section('status', self.check_status)
         self.section('removal', self.check_removal)
         self.section('idle stop', self.check_idle_stop)
+        self.section('concurrent claims and item 15', self.check_concurrent_claims)
         self.section('tie-break', self.check_tie_break)
         if self.setup_notes:
             print(f'NOTE {self.label} setup: ' + ' | '.join(self.setup_notes), flush=True)
@@ -1296,13 +1371,24 @@ class Pairing:
         code, out, stdout, stderr = api.outcome('capability', 'create', 'ambig', '--from', 'fx', '--operations', 'echo')
         need(code != 0, '--from SERVER refused when several agents have it', code)
 
-        # Repeat and conflict.
+        # Repeat and conflict. Through the CLI, an identical repeat signs nothing. Through the API, the body carries
+        # claim policies signed here (the name is already claimed, so only the version and edits entry change); the
+        # contract does not say whether a daemon stores such policies with an identical repeat, so only the status
+        # is checked there.
+        versions = self.versions()
+        code, out, stdout, stderr = api.outcome('capability', 'create', 'clitools', '--from', 'lit', '--operations',
+                                                'echo')
+        need(code == 0 and self.versions() == versions, 'an identical repeat through the CLI succeeds and signs '
+             'nothing', code, versions, self.versions(), stderr[-300:])
         body = {'name': 'clitools', 'source': {'agent': 'cc', 'server': 'lit'}, 'operations': ['echo'],
                 'resources': None, 'env_file': None}
-        status, again = api.call('POST', '/v1/capabilities', body)
+        status, again = api.call('POST', '/v1/capabilities', {**body, **self.claims_field('p1', 'clitools')})
         need(status == 200 and again['name'] == 'clitools', 'an identical repeat returns 200', status, again)
-        status, _ = api.call('POST', '/v1/capabilities', {**body, 'operations': ['echo', 'env_names']})
-        need(status == 409, 'a different record under the same name returns 409', status)
+        versions = self.versions()
+        status, _ = api.call('POST', '/v1/capabilities', {**body, 'operations': ['echo', 'env_names'],
+                                                          **self.claims_field('p1', 'clitools')})
+        need(status == 409 and self.versions() == versions,
+             'a different record under the same name returns 409, storing nothing', status)
 
         # Refusals.
         for bad, code, why in (
@@ -1330,9 +1416,30 @@ class Pairing:
                 ({**body, 'name': 'nosource', 'source': {'agent': 'cc', 'server': 'nosuch'}}, 404,
                  'an unknown source is 404'),
                 ({**body, 'name': 'work'}, 409, 'a name in use on this host is 409')):
-            status, out = api.call('POST', '/v1/capabilities', bad)
+            versions = self.versions()
+            # Each body carries valid claim policies, so that the refusal is the record's.
+            status, out = api.call('POST', '/v1/capabilities', {**bad, **self.claims_field('p1', bad['name'])})
             need(status == code, why, status, out)
-            need(self.capability(bad['name']) is None or bad['name'] == 'work', 'a refused create stores nothing', bad)
+            need((self.capability(bad['name']) is None or bad['name'] == 'work') and self.versions() == versions,
+                 'a refused create stores nothing (no record, no policy)', bad)
+        # The policies: one per network in which this host is bound, each with this host's claim, each verifying.
+        good = {**body, 'name': 'polcheck'}
+        claims = self.claim_policies('p1', 'polcheck') or []
+        unclaimed = []
+        for net in (self.bound['p1'] if claims else []):
+            status, start = edit_start(api, net)
+            unclaimed.append(sign_edit(start, net, self.keys['pat'][2], self.ids['p1'], self.keys['pat'][0],
+                                       self.root))
+        tampered = [dict(claims[0], signature=claims[1]['signature'])] + claims[1:] if claims else []
+        cases = [] if not claims else [
+            ([], 'no policies'), (claims[:-1], 'a missing policy for a network in which this host is bound'),
+            ([unclaimed[0]] + claims[1:], 'a policy without this host\'s claim'),
+            (tampered, 'a policy that fails verification')]
+        for policies, why in cases:
+            versions = self.versions()
+            status, out = api.call('POST', '/v1/capabilities', {**good, 'policies': policies})
+            need(status == 400 and self.capability('polcheck') is None and self.versions() == versions,
+                 f'POST /v1/capabilities refuses {why} with 400, storing nothing', status, out)
         # A name a stored rule binds to another host: a rule for `elsewhere` on p2, signed here.
         current = self.policy()
         signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root,
@@ -1340,11 +1447,18 @@ class Pairing:
                             [cap_rule(self.ids['p2'], 'elsewhere', ['person:' + self.rhea])])
         status, _ = api.call('POST', f'/v1/networks/{self.team}/policy', {'policy': signed})
         need(status == 201, 'setup: a stored rule binding a name to another host', status)
-        status, out = api.call('POST', '/v1/capabilities', {**body, 'name': 'elsewhere'})
-        need(status == 409, 'a name a stored capability rule binds to another host is 409', status, out)
+        versions = self.versions()
+        status, out = api.call('POST', '/v1/capabilities', {**body, 'name': 'elsewhere',
+                                                            **self.claims_field('p1', 'elsewhere')})
+        # Ambiguous: the policies cannot carry this host's claim for a name bound to another host (the policy would
+        # bind one name to two hosts, or lack the claim), which is also 400; the contract gives 409 for the name.
+        need(status in (400, 409) and self.capability('elsewhere') is None and self.versions() == versions,
+             'a name a stored capability rule binds to another host is refused, storing nothing', status, out)
+        self.soft(status == 409, 'a name bound to another host: 409 rather than 400 for its policies', status, out)
         code, out, stdout, stderr = api.outcome('capability', 'create', 'elsewhere', '--from', 'cc/lit',
                                                 '--operations', 'echo')
-        need(code != 0, 'capability create refuses it too', code)
+        need(code != 0 and self.versions() == versions, 'capability create refuses it too, before anything is '
+             'signed', code)
         restored = crafted_v2(signed, signed['version'] + 1, self.keys['pat'][0], self.root,
                               capability_rules=current['capability_rules'])
         api.call('POST', f'/v1/networks/{self.team}/policy', {'policy': restored})
@@ -1375,6 +1489,113 @@ class Pairing:
              kinds[-3:])
         for name in ('clitools', 'clires', 'cliall'):
             api.run('capability', 'remove', name, '--yes')
+        need(not self.pre_claims, 'the edit route exists, and the policies refusals were checked')
+
+    def check_claims(self):
+        """Claims (capabilities contract, Claims): one per network at creation, never authorizing, refused on another
+        host, kept after the last unshare, at the first share in a network bound later (refused where another host
+        holds the name), removed with the capability, and none for a host without a person. The guided share's
+        claims are checked in the sharing section."""
+        p1, p2, ids = self.hosts['p1'], self.hosts['p2'], self.ids
+        nets = list(self.bound['p1'])
+        before = {n: self.policy('p1', n) for n in nets}
+        code, out, stdout, stderr = p1.outcome('capability', 'create', 'claimed', '--from', 'cc/lit', '--operations',
+                                               'echo')
+        need(code == 0 and self.capability('claimed'), 'capability create (bound in three networks)', code,
+             stderr[-300:])
+        for n in nets:
+            p = self.policy('p1', n)
+            need(p and p['version'] == (before[n] or {}).get('version', 0) + 1,
+                 'the claim signs the next version in every network in which this host is bound', n, before[n], p)
+            need(self.rule_for('claimed', n) == cap_rule(ids['p1'], 'claimed', []),
+                 'a claim: this host, no principals, 65,536, false, 100', n, self.rule_for('claimed', n))
+            need(edits_map(p).get(ids['p1'], 0) > edits_map(before[n]).get(ids['p1'], 0),
+                 'the claim is signed as an edit: this host\'s edits entry rises', n, p.get('edits'))
+            lines = policy_lines_v2(p)
+            at = lines.index('claimed')
+            need(lines[at - 2:at + 4] == ['capability_rule', ids['p1'], 'claimed', '', '65536 false 100', 'end'],
+                 'a claim\'s principals line is empty', lines[at - 2:at + 4])
+            ssh_verify(lines, p['signature'], self.keys['pat'][1], self.root)
+        listed = next(c for c in self.capability_list() if c['name'] == 'claimed')
+        need(listed['recipients'] == [], 'a claim has no recipients', listed)
+        # Never authorizing.
+        self.synced(self.version(), 'q1', 'u1')
+        status, body = self.listing('p1', 'q1')
+        need(status == 200 and not self.entry(body, 'claimed'), 'a claim lists nothing to another person', body)
+        for caller in ('q1', 'u1'):
+            status, _ = self.submit(caller, self.body('claimed', 'echo', {'text': 'x'}, cite=self.policy_cite()))
+            need(status == 403, 'a claim authorizes no one', caller, status)
+        # Another of the person's hosts is refused the name, before anything is signed.
+        if 'dup2' not in self.aid:
+            self.register('p2', 'dup2')
+            self.put_servers('p2', 'dup2', self.root, {'fx': self.fixture.args('dup2-fx')})
+        self.synced(self.version(), 'p2')
+        self.synced(self.version('p1', self.other), 'p2', net=self.other)
+        versions = self.versions('p2')
+        code, out, stdout, stderr = p2.outcome('capability', 'create', 'claimed', '--from', 'dup2/fx', '--operations',
+                                               'echo')
+        need(code != 0 and self.capability('claimed', host='p2') is None and self.versions('p2') == versions,
+             'capability create refuses a name another host claims, signing nothing', code)
+        status, out = self.create('work', 'dup2/fx', 'operations', ['echo'], host='p2', expect=None)
+        need(status in (400, 409) and self.capability('work', host='p2') is None and self.versions('p2') == versions,
+             'the local API refuses it too, storing nothing', status, out)
+        self.soft(status == 409, 'a name claimed by another host: 409 rather than 400 for its policies', status, out)
+        # Kept after the last unshare.
+        self.share('claimed', '--with', 'rhea', '--yes')
+        need(self.rule_for('claimed')['principals'] == ['person:' + self.rhea], 'share adds to the claim')
+        self.unshare('claimed', 'rhea')
+        need(self.rule_for('claimed') == cap_rule(ids['p1'], 'claimed', []),
+             'unshare removing the last principal keeps the rule as a claim', self.rule_for('claimed'))
+        # A network bound later: p2 creates `later`, p1 joins it; the first share there claims the name.
+        later = p2.cli('network', 'create', 'later', '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
+        token = p2.cli('network', 'invite', '--network', later, '--member', 'pat', '--expires-in', '1h')['token']
+        p1.cli('join', token, '--untrusted')
+        self.later = later
+        self.bound['p1'].append(later)
+        self.bound['p2'].append(later)
+        wait_for(lambda: p1.run('network', 'sync', later) and self.ids['p1'] in
+                 {m['host_id'] for m in p2.cli('network', 'members', later)}, timeout=30, message='p1 in later')
+        need(self.rule_for('claimed', later) is None, 'a network bound later has no claim yet',
+             self.rule_for('claimed', later))
+        self.share('claimed', '--with', 'everyone', '--yes', net=later)
+        rule = self.rule_for('claimed', later)
+        need(rule and rule['host'] == ids['p1'] and rule['principals'],
+             'the next share in a network bound later creates the rule there', rule)
+        # It is refused where another host holds the name: litcap bound to p2 in `later`, signed here.
+        current = self.policy('p1', later)
+        held = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root,
+                          capability_rules=current['capability_rules'] + [cap_rule(ids['p2'], 'litcap', [])])
+        status, _ = p1.call('POST', f'/v1/networks/{later}/policy', {'policy': held})
+        need(status == 201, 'setup: litcap held by p2 in later', status)
+        code, out, stderr = self.share('litcap', '--with', 'everyone', '--yes', net=later, expect=False)
+        need(code != 0 and self.version('p1', later) == held['version'],
+             'share refuses a name another host holds in that network, signing nothing', code)
+        restored = crafted_v2(held, held['version'] + 1, self.keys['pat'][0], self.root,
+                              capability_rules=current['capability_rules'])
+        p1.call('POST', f'/v1/networks/{later}/policy', {'policy': restored})
+        # Removed with the capability, claim included, in every network.
+        code, out, stdout, stderr = p1.outcome('capability', 'remove', 'claimed', '--yes')
+        need(code == 0 and self.capability('claimed') is None, 'capability remove', code, stderr[-300:])
+        for n in self.bound['p1']:
+            need(self.rule_for('claimed', n) is None, 'capability remove removes the rule, claim included', n)
+        # A host without a person: no claims, `policies` empty.
+        self.register('u1', 'ux')
+        self.put_servers('u1', 'ux', self.root, {'fx': self.fixture.args('ux-fx')})
+        team = self.version()
+        status, out = self.create('loose', 'ux/fx', 'operations', ['echo'], host='u1', expect=None)
+        need(status == 201, 'a host without a person creates the record with policies []', status, out)
+        code, out, stdout, stderr = self.hosts['u1'].outcome('capability', 'create', 'loose2', '--from', 'ux/fx',
+                                                             '--operations', 'echo')
+        need(code == 0 and self.capability('loose2', host='u1'), 'capability create on a host without a person', code,
+             stderr[-300:])
+        self.hosts['u1'].run('network', 'sync', self.team)
+        need(self.version() == team and self.version('u1') == team and
+             not any(r['host'] == ids['u1'] for r in self.cap_rules(host='u1')),
+             'no claim for a host without a person', self.cap_rules(host='u1'))
+        for name in ('loose', 'loose2'):
+            self.hosts['u1'].run('capability', 'remove', name, '--yes')
+        self.sync_all()
+        return f'claims in {len(nets)} networks; later network {later}'
 
     def check_policy_v2(self):
         p = self.policy()
@@ -1382,6 +1603,17 @@ class Pairing:
              isinstance(p.get('trusted_hosts'), list), 'The JSON adds format 2, capability_rules, and trusted_hosts', p)
         need(list(p) == POLICY_V2_ORDER, 'the JSON keys in the contract\'s order', list(p))
         need(p['trusted_hosts'] == sorted(p['trusted_hosts']), 'trusted_hosts sorted', p['trusted_hosts'])
+        edits = p.get('edits')
+        need(isinstance(edits, list) and all(isinstance(e, dict) and set(e) == {'host', 'seq'} and
+                                             isinstance(e['seq'], int) and 1 <= e['seq'] <= 2 ** 53 - 1 for e in edits)
+             and [e['host'] for e in edits] == sorted(e['host'] for e in edits) and
+             len({e['host'] for e in edits}) == len(edits) and self.ids['p1'] in edits_map(p),
+             'edits is [{host, seq}], sorted by host, with an entry for the host whose CLI edited', edits)
+        lines = policy_lines_v2(p)
+        need(lines[-1] == ' '.join(['edits', *sorted(f"{e['host']}:{e['seq']}" for e in edits)]) and
+             lines[-2].split()[0] == 'trusted', 'the final edits line follows the trusted line', lines[-2:])
+        narrow = self.rule_for('narrow')
+        need(narrow and narrow['principals'] == [], 'an unshared capability is a claim (principals [])', narrow)
         need(len(p['capability_rules']) >= 4, 'setup: the shares', p['capability_rules'])
         for r in p['capability_rules']:
             need(set(r) == CAP_RULE_KEYS and r['host'] == self.ids['p1'],
@@ -1421,36 +1653,49 @@ class Pairing:
         self.unshare('litcap', 'rhea')
         self.sync_all()
 
-        # A v1 policy: accepted, stored in its v1 shape, read as v2 with no capability rules.
+        # A v1 policy: accepted, stored in its v1 shape, read as v2 with no capability rules, no trusted hosts, and
+        # no edits. It is stored in a network created on q2 (v1only, quinn's) where no host has signed an edit: in a
+        # network with edits, a v1 policy reflects none of them, so they would be re-applied on top of it.
+        q2 = self.hosts['q2']
+        v1only = q2.cli('network', 'create', 'v1only', '--as', 'quinn', '--untrusted', *self.coordinator_flags())['id']
+        self.bound['q2'].append(v1only)
         rules = [{'agent': 'legacy', 'principals': ['network'], 'actions': ['message.append'],
                   'max_message_bytes': 1000, 'allow_disconnected': False}]
-        current = self.policy('p1', self.v1net)
-        v1 = crafted_v1(self.v1net, self.keys['pat'][2], (current or {}).get('version', 0) + 1, rules,
-                        self.keys['pat'][0], self.root)
-        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v1})
+        current = self.policy('q2', v1only, self.quinn)
+        v1 = crafted_v1(v1only, self.keys['quinn'][2], (current or {}).get('version', 0) + 1, rules,
+                        self.keys['quinn'][0], self.root)
+        status, body = q2.call('POST', f'/v1/networks/{v1only}/policy', {'policy': v1})
         need(status == 201, 'a v1 policy is accepted', status, body)
-        stored = self.policy('p1', self.v1net)
+        stored = self.policy('q2', v1only, self.quinn)
         need(stored['version'] == v1['version'] and plain(stored['rules']) == rules and
              stored['signature'] == v1['signature'] and
-             not {'format', 'capability_rules', 'trusted_hosts'} & set(stored),
+             not {'format', 'capability_rules', 'trusted_hosts', 'edits'} & set(stored),
              'a v1 policy is stored in its v1 JSON shape', stored)
 
         def at_coordinator():
             with coord_db(self.coord) as db:
                 row = db.execute("SELECT statement FROM statements WHERE network_id = ? AND kind = 'policy' AND "
-                                 "subject = ?", (self.v1net, self.keys['pat'][2])).fetchone()
+                                 "subject = ?", (v1only, self.keys['quinn'][2])).fetchone()
             return row and json.loads(row[0])['version'] == v1['version']
         wait_for(at_coordinator, timeout=30, message='the coordinator accepts a v1 policy')
-        self.hosts['p1'].cli('allow', 'network', '--agent', 'more', '--network', self.v1net)
-        nxt = self.policy('p1', self.v1net)
+        q2.cli('allow', 'network', '--agent', 'more', '--network', v1only)
+        nxt = self.policy('q2', v1only, self.quinn)
         need(nxt['format'] == 2 and nxt['version'] == v1['version'] + 1 and plain(nxt['rules'])[0] == rules[0] and
-             nxt['capability_rules'] == [] and nxt['trusted_hosts'] == [],
-             'the CLI always signs v2, keeping the v1 rules', nxt)
-        ssh_verify(policy_lines_v2(nxt), nxt['signature'], self.keys['pat'][1], self.root)
-        need(policy_lines_v2(nxt)[-1] == 'trusted', 'with no trusted hosts the line is the bare word trusted')
+             nxt['capability_rules'] == [] and nxt['trusted_hosts'] == [] and
+             [e['host'] for e in nxt.get('edits') or []] == [self.ids['q2']],
+             'the CLI always signs v2, keeping the v1 rules, with its own edits entry', nxt)
+        ssh_verify(policy_lines_v2(nxt), nxt['signature'], self.keys['quinn'][1], self.root)
+        mine = edits_map(nxt)
+        need(policy_lines_v2(nxt)[-2] == 'trusted' and
+             policy_lines_v2(nxt)[-1] == f"edits {self.ids['q2']}:{mine[self.ids['q2']]}",
+             'with no trusted hosts the line is the bare word trusted; then the edits line', policy_lines_v2(nxt)[-2:])
 
-        # Validation, with policies signed here over this suite's encoding.
+        # Validation, with policies signed here over this suite's encoding (q2's own edits entry always kept, so
+        # that no refusal is about an unknown number of this host).
+        own = edits_list(mine)
+        fake = ['host_' + format(i, '064x') for i in range(1, 300)]
         ok_rule = cap_rule('host_' + 'c' * 64, 'remote-only', ['network'])
+        post = lambda v: q2.call('POST', f'/v1/networks/{v1only}/policy', {'policy': v})
         for bad, why in (
                 ([{**ok_rule, 'max_input_bytes': 0}], 'max_input_bytes 1 to 262,144'),
                 ([{**ok_rule, 'max_input_bytes': 262145}], 'max_input_bytes 1 to 262,144'),
@@ -1461,27 +1706,51 @@ class Pairing:
                 ([{**ok_rule, 'host': 'not-a-host'}], 'the host is a host ID'),
                 ([ok_rule, {**ok_rule, 'host': 'host_' + 'd' * 64}], 'a name bound to two hosts is refused'),
                 ([ok_rule, {**ok_rule, 'principals': ['group:x']}], 'at most one rule per capability name'),
-                ([{**ok_rule, 'capability': f'c{i}'} for i in range(65)], 'at most 64 capability rules'),
+                ([ok_rule, {**ok_rule, 'principals': []}], 'at most one rule per capability name, a claim included'),
+                ([{**ok_rule, 'capability': f'c{i}', 'principals': []} for i in range(257)],
+                 'at most 256 capability rules, claims included'),
                 ([{**ok_rule, 'principals': [f'group:g{i}' for i in range(65)]}], 'at most 64 principals per rule')):
-            v = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, capability_rules=bad)
-            status, _ = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v})
+            v = crafted_v2(nxt, nxt['version'] + 1, self.keys['quinn'][0], self.root, capability_rules=bad)
+            status, _ = post(v)
             need(status == 400, f'validation: {why} (400)', status)
         for bad_trusted in (['not-a-host'], [self.ids['p1'], self.ids['p1']],
                             ['host_' + format(i, '064x') for i in range(65)]):
-            v = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, trusted=bad_trusted)
-            status, _ = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': v})
+            v = crafted_v2(nxt, nxt['version'] + 1, self.keys['quinn'][0], self.root, trusted=bad_trusted)
+            status, _ = post(v)
             need(status == 400, 'trusted hosts: host IDs, at most 64, no duplicates (400)', len(bad_trusted), status)
-        ok = crafted_v2(nxt, nxt['version'] + 1, self.keys['pat'][0], self.root, capability_rules=[
-            cap_rule('host_' + 'c' * 64, 'remote-only', ['network', 'group:backend'], 262144, True, 10000),
-            cap_rule('host_' + 'd' * 64, 'other-name', ['person:' + self.quinn], 1, False, 1)],
-            trusted=['host_' + 'e' * 64, self.ids['p1']])
-        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': ok})
+        for bad_edits, why in (
+                (own + [{'host': h, 'seq': 1} for h in fake[:256]], 'at most 256 edits entries'),
+                (own + [{'host': fake[0], 'seq': 1}, {'host': fake[0], 'seq': 2}], 'edits hosts without duplicates'),
+                (own + [{'host': fake[0], 'seq': 0}], 'seq from 1'),
+                (own + [{'host': fake[0], 'seq': 2 ** 53}], 'seq at most 2^53 - 1'),
+                (own + [{'host': 'not-a-host', 'seq': 1}], 'an edits entry is a host ID')):
+            v = crafted_v2(nxt, nxt['version'] + 1, self.keys['quinn'][0], self.root,
+                           edits=sorted(bad_edits, key=lambda e: e['host']))
+            status, _ = post(v)
+            need(status == 400, f'validation: {why} (400)', status)
+        # At the bounds: 256 rules (claims and rules on hosts outside the network map), 0 and 64 principals, 256
+        # edits entries with seq 2^53 - 1, and trusted hosts outside the map.
+        at_bounds = [cap_rule('host_' + 'c' * 64, 'remote-only', ['network', 'group:backend'], 262144, True, 10000),
+                     cap_rule('host_' + 'd' * 64, 'other-name', ['person:' + self.quinn], 1, False, 1),
+                     cap_rule('host_' + 'd' * 64, 'wide', [f'group:g{i}' for i in range(64)])] + \
+            [cap_rule('host_' + 'e' * 64, f'claim{i}', []) for i in range(253)]
+        many = sorted(own + [{'host': h, 'seq': 2 ** 53 - 1} for h in fake[:255]], key=lambda e: e['host'])
+        ok = crafted_v2(nxt, nxt['version'] + 1, self.keys['quinn'][0], self.root, capability_rules=at_bounds,
+                        trusted=['host_' + 'e' * 64, self.ids['p1']], edits=many)
+        status, body = post(ok)
         need(status == 201 and policy_of(body) == ok, 'a v2 policy signed with this suite\'s encoding is accepted at '
-             'the bounds, with hosts outside the network map', status, body)
-        # Leave no stored rule binding names to other hosts (it would raise item 15 later).
-        clean = crafted_v2(ok, ok['version'] + 1, self.keys['pat'][0], self.root, capability_rules=[], trusted=[])
-        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{self.v1net}/policy', {'policy': clean})
-        need(status == 201, 'setup: a clean v1net policy again', status, body)
+             'the bounds (256 rules with claims, 0 and 64 principals, 256 edits entries, seq 2^53 - 1)', status,
+             str(body)[:400])
+        # The implementation's own statement hash for it (access sync --status reports the stored statement's
+        # sha256) matches this suite's: claims, the trusted line, and the edits line encode identically.
+        view = q2.cli('access', 'sync', '--network', v1only, '--status')
+        need(view['sha256'] == policy_hash(ok), 'the stored statement hash matches this suite\'s v2 encoding',
+             view.get('sha256'), policy_hash(ok))
+        # Leave a small clean policy.
+        clean = crafted_v2(ok, ok['version'] + 1, self.keys['quinn'][0], self.root, capability_rules=[], trusted=[],
+                           edits=own)
+        status, body = post(clean)
+        need(status == 201, 'setup: a clean v1only policy again', status, body)
         return f"team v{p['version']}, {len(p['capability_rules'])} capability rules"
 
     def check_sharing(self):
@@ -1561,6 +1830,13 @@ class Pairing:
              self.capability('guided')['operations'] == ['echo', 'info'] and
              self.capability('guided')['resources'] == 'all' and self.rule_for('guided'),
              'the guided share creates the capability and shares it', out, self.capability('guided'))
+        need(self.rule_for('guided')['principals'] == ['person:' + self.rhea], 'in the selected network, the rule '
+             'with its principal', self.rule_for('guided'))
+        for n in self.bound['p1']:
+            if n != self.team:
+                need(self.rule_for('guided', n) == cap_rule(self.ids['p1'], 'guided', []),
+                     'the guided share signs the claim in every other network in which this host is bound', n,
+                     self.rule_for('guided', n))
         # The guided share at a terminal: source, operations, resources, name, then the review. The answer formats
         # are not specified (ambiguous), so this case is soft.
         code, out, tty, stdout, seen = p1.converse('share', '--with', 'rhea', '--network', self.team,
@@ -1579,10 +1855,11 @@ class Pairing:
         code, out, stdout, stderr = p1.outcome('shares')
         need(code == 0 and 'work' in stdout and 'unshare' in stdout, 'shares readable output', code, stdout[:300])
 
-        # unshare: output, the rule dropped when empty, and the zero-removal note.
+        # unshare: output, the rule kept as a claim when it empties, and the zero-removal note.
         out = self.unshare('guided', 'rhea')
-        need(out['removed'] == 1 and out['capability'] == 'guided' and self.rule_for('guided') is None,
-             'unshare removes PRINCIPAL and drops the rule when it empties', out)
+        need(out['removed'] == 1 and out['capability'] == 'guided' and
+             self.rule_for('guided') == cap_rule(self.ids['p1'], 'guided', []),
+             'unshare removes PRINCIPAL, keeping the rule as a claim when it empties', out, self.rule_for('guided'))
         out = self.unshare('guided', 'rhea')
         need(out['removed'] == 0, 'unshare when PRINCIPAL was not in the rule: removed 0 with a note', out)
         for name in ('work', 'narrow'):
@@ -1593,11 +1870,17 @@ class Pairing:
         need(code != 0, 'share without --network on a host in several networks is refused', code)
         before_team = self.version()
         self.share('docs', '--with', 'quinn', '--yes', net=self.other)
-        need(self.rule_for('docs', self.other) and self.version() == before_team,
-             'a share is written to the selected network\'s policy only', self.rule_for('docs', self.other))
+        need((self.rule_for('docs', self.other) or {}).get('principals') == ['person:' + self.quinn] and
+             self.version() == before_team and self.rule_for('docs')['principals'] == ['person:' + self.quinn],
+             'a share is written to the selected network\'s policy only (there, onto the claim)',
+             self.rule_for('docs', self.other))
         self.unshare('docs', 'quinn', net=self.other)
+        need(self.rule_for('docs', self.other) == cap_rule(self.ids['p1'], 'docs', []), 'the claim stays',
+             self.rule_for('docs', self.other))
         for name in ('guided', 'guided-tty'):
             p1.run('capability', 'remove', name, '--yes')
+        for n in self.bound['p1']:
+            need(self.rule_for('guided', n) is None, 'capability remove removes its rules and claims', n)
         self.sync_all()
 
     def check_trust(self):
@@ -2356,23 +2639,12 @@ class Pairing:
         sources = [e for e in (out or {}).get('capabilities', []) if e['kind'] == 'source']
         need(code == 0 and any(e['address'] == 'pat/cc/fx' for e in sources), 'discover includes sources opened to '
              'this host, addressed PERSON/AGENT/SERVER', [e['address'] for e in sources])
-        # Ambiguous names: `clash` on p1 and p2, seen by a trusted host.
-        self.register('p2', 'dup2')
-        self.put_servers('p2', 'dup2', self.root, {'fx': self.fixture.args('dup2-fx')})
-        self.create('clash', 'cc/lit', 'operations', ['echo'])
-        self.create('clash', 'dup2/fx', 'operations', ['echo'], host='p2')
-        status, body = self.hosts['p4'].call('GET', '/v1/discover?person=pat')
-        clashes = [e for e in body['capabilities'] if e['capability'] == 'clash']
-        need(status == 200 and sorted(e['address'] for e in clashes) == sorted([f"{ids['p1']}/clash",
-                                                                                f"{ids['p2']}/clash"]),
-             'a name on more than one host is addressed HOST_ID/CAPABILITY', clashes)
-        status, body = self.hosts['p4'].call('POST', '/v1/calls', {'target': 'pat/clash', 'operation': 'echo',
-                                                                   'input': {}, 'deadline': timestamp(300)})
-        need(status == 409 and body.get('code') == 'ambiguous' and
-             sorted(body.get('candidates') or []) == sorted([f"{ids['p1']}/clash", f"{ids['p2']}/clash"]),
-             '409 {code: "ambiguous", error, candidates}', status, body)
-        code, out, stderr = self.call('p4', f"{ids['p2']}/clash", 'echo', {'text': 'by host'})
-        need(code == 0 and dig(out, 'peer_host_id') == ids['p2'], 'HOST_ID/CAPABILITY names one host', code, out)
+        # Names on more than one host: since claims, a second host cannot create a claimed name, so the only way to
+        # one name on two of a person's hosts is a lost concurrent claim. The address rule for that case (the claimed
+        # copy as PERSON/CAPABILITY, the other only as HOST_ID/CAPABILITY, PERSON/CAPABILITY resolving to the claimed
+        # copy) is checked in the concurrent claims section. A 409 `ambiguous` needs two entries both addressed
+        # PERSON/CAPABILITY, which the contract no longer lets arise from the person's policies (owner decision 3);
+        # it is not exercised (see the run's notes).
         # Unanswered hosts, and not found.
         self.hosts['p3'].stop()
         try:
@@ -2481,9 +2753,10 @@ class Pairing:
         all_servers = sum(len(a['servers']) for a in view['agents'])
         shareable = sum(1 for a in view['agents'] for s in a['servers'] if s['shareable'])
         records = self.capability_list()
-        rules = [r for net in (self.team, self.other, self.v1net) for r in self.cap_rules(net)
-                 if r['host'] == ids['p1']]
-        shared = sum(1 for c in records if any(r['capability'] == c['name'] for r in rules))
+        rules = [r for net in self.bound['p1'] for r in self.cap_rules(net) if r['host'] == ids['p1']]
+        # `shared` counts capabilities named by a rule for this host with at least one principal (claims excluded).
+        shared = sum(1 for c in records if any(r['capability'] == c['name'] and r['principals'] for r in rules))
+        need(shared < len(records), 'setup: some capabilities only claimed', shared, len(records))
         running = sum(1 for i in self.hosts['p1'].cli('calls', 'received', '--limit', '1000')
                       if i['status']['state'] == 'running')
         # "discovered sources on this host": whether unshareable servers count is not said (ambiguous); either.
@@ -2543,35 +2816,17 @@ class Pairing:
                 f.set(key)
             self.refresh('cc')
             self.hosts['p1'].run('capability', 'remove', 'failstart', '--yes')
-        # Item 15: a name on this host bound to another host by a stored rule (p2 shares its `clash` after p1
-        # created one; see the CLI section).
-        if self.capability('clash') is None:
-            self.create('clash', 'cc/lit', 'operations', ['echo'])
-        if self.capability('clash', host='p2') is None:
-            if 'dup2' not in self.aid:
-                self.register('p2', 'dup2')
-                self.put_servers('p2', 'dup2', self.root, {'fx': self.fixture.args('dup2-fx')})
-            self.create('clash', 'dup2/fx', 'operations', ['echo'], host='p2')
-        self.share('clash', '--with', 'quinn', '--yes', host='p2')
-        self.synced(self.version('p2'), 'p1')
-        items = self.items(kind='capability_name_conflict')
-        need([i['subject'] for i in items] == ['clash'] and items[0]['command'] == 'peerspan capability remove clash',
-             'item 15 capability_name_conflict', items)
-        status, body = self.submit('q1', self.body('clash', 'echo', {'text': 'x'}, cite=self.policy_cite()))
-        need(status == 403, 'p2\'s rule authorizes nothing on p1', status)
-        code, out, stderr = self.share('clash', '--with', 'rhea', '--yes', expect=False)
-        need(code != 0, 'share refuses a name a stored rule binds to another host (409)', code)
-        self.hosts['p1'].run('capability', 'remove', 'clash', '--yes')
-        need(not self.items(kind='capability_name_conflict'), 'item 15 clears once the local copy is removed')
-        self.hosts['p2'].run('capability', 'remove', 'clash', '--yes')
-        self.sync_all()
+        # Item 15 is checked in the concurrent claims section, the only way it now arises.
 
     def check_removal(self):
         p1 = self.hosts['p1']
         # Without shares: removed at once.
         self.create('plain', 'cc/lit', 'operations', ['echo'])
         code, out, stdout, stderr = p1.outcome('capability', 'remove', 'plain')
-        need(code == 0 and self.capability('plain') is None, 'capability remove without shares', code, stderr[-300:])
+        need(code == 0 and self.capability('plain') is None, 'capability remove without shares (no confirmation)',
+             code, stderr[-300:])
+        for n in self.bound['p1']:
+            need(self.rule_for('plain', n) is None, 'its claims are removed in every network', n)
         # With shares in two networks: confirmation, then every rule withdrawn before the record goes.
         self.create('shared2', 'cc/lit', 'operations', ['echo'])
         self.share('shared2', '--with', 'quinn', '--yes')
@@ -2593,9 +2848,111 @@ class Pairing:
         need(code == 0 and self.capability('shared2') is None and self.rule_for('shared2') is None and
              self.rule_for('shared2', self.other) is None,
              'repeating finishes the removal: every network\'s rule withdrawn, then the record deleted', code)
+        for n in self.bound['p1']:
+            need(self.rule_for('shared2', n) is None, 'no rule or claim left in any network', n)
         kinds = {(e['kind'], e['subject_id']) for e in self.activity('p1')}
         need(('capability.removed', 'shared2') in kinds, 'capability.removed activity')
         self.sync_all()
+
+    def check_concurrent_claims(self):
+        """Item 15 after two hosts each claim one name while the other and the coordinator are stopped (Claims:
+        Concurrent claims; Status: item 15; Discovery: the address rule). p1 (in team, other, v1net, later) and p4
+        (in team only) both create `clash`, so the claims conflict in team only. Both daemons hold pat's key as the
+        renewal key, so the loser re-applies: its claim is dropped (item 17, the edit closed) and item 15 reports
+        the capability, which stays reachable through self only as HOST_ID/CAPABILITY."""
+        ids = self.ids
+        hosts = {n: self.hosts[n] for n in ('p1', 'p2', 'p3', 'p4')}
+        if 'dup4' not in self.aid:
+            self.register('p4', 'dup4')
+            self.put_servers('p4', 'dup4', self.root, {'fx': self.fixture.args('dup4-fx')})
+        self.sync_all()
+        for name in ('p1', 'p4'):
+            self.hosts[name].agent_socket = self.agents['pat'].socket
+            self.restart(name)
+        claims = {}
+        self.coord.stop()
+        try:
+            for name in ('p2', 'p3', 'p4'):   # p2 and p3 could relay p1's claim to p4 (see check_tie_break)
+                hosts[name].stop()
+            code, out, stdout, stderr = hosts['p1'].outcome('capability', 'create', 'clash', '--from', 'cc/lit',
+                                                            '--operations', 'echo')
+            need(code == 0, 'p1 claims clash', code, stderr[-300:])
+            claims['p1'] = self.policy('p1')
+            hosts['p1'].stop()
+            hosts['p4'].start()
+            code, out, stdout, stderr = hosts['p4'].outcome('capability', 'create', 'clash', '--from', 'dup4/fx',
+                                                            '--operations', 'echo')
+            need(code == 0, 'p4, out of contact, claims the same name', code, stderr[-300:])
+            claims['p4'] = self.policy('p4')
+            need(claims['p1']['version'] == claims['p4']['version'], 'both claims signed from the same version',
+                 claims['p1']['version'], claims['p4']['version'])
+            hosts['p1'].start()
+            w = min(claims, key=lambda n: policy_hash(claims[n]))
+            lost = 'p4' if w == 'p1' else 'p1'
+            seq = edits_map(claims[lost]).get(ids[lost])
+            need(seq, 'each claim is signed as an edit, with its host\'s edits entry', claims[lost].get('edits'))
+
+            def converged():
+                for name in ('p1', 'p4', 'p1'):
+                    hosts[name].run('access', 'sync', '--network', self.team)
+                return self.policy('p1') == claims[w] and self.policy('p4') == claims[w]
+            wait_for(converged, timeout=60, message='both on the winning claim (the loser re-applies, changing '
+                     'nothing, so signs nothing)')
+            need(self.rule_for('clash', serving=w) and not self.rule_for('clash', serving=lost),
+                 'the policy binds the name to one host', self.cap_rules())
+
+            def closed():
+                view = self.hosts[lost].cli('access', 'sync', '--network', self.team, '--status')
+                entry = next((e for e in view.get('edits', []) if e['seq'] == seq), None)
+                return entry if entry and entry['state'] == 'closed' else None
+            entry = wait_for(closed, timeout=30, message='the losing claim closed')
+            need(entry['dropped'], 'the dropped claim is listed', entry)
+            dropped = [i for i in self.items(lost, 'policy_edit_dropped') if i['subject'] == f'{self.team}/{seq}']
+            need(dropped and 'clash' in dropped[0]['detail'] and
+                 dropped[0]['command'] == f'peerspan access show --network {self.team}',
+                 'item 17 names the dropped claim', self.items(lost, 'policy_edit_dropped'))
+            conflict = self.items(lost, 'capability_name_conflict')
+            need([i['subject'] for i in conflict] == ['clash'], 'item 15 on the losing host, subject the name',
+                 conflict)
+            command = conflict[0]['command']
+            source = 'dup4/fx' if lost == 'p4' else 'cc/lit'
+            # The exact form of "followed by" is not specified; both commands must appear, in that order.
+            need(command.startswith('peerspan capability create ') and f'--from {source}' in command and
+                 'peerspan capability remove clash' in command and
+                 command.index('capability create') < command.index('capability remove'),
+                 'item 15 command: capability create NEW_NAME --from AGENT/SERVER ..., then capability remove NAME',
+                 command)
+            need(not self.items(w, 'capability_name_conflict'), 'no item 15 on the winning host',
+                 self.items(w, 'capability_name_conflict'))
+        finally:
+            for name in ('p1', 'p2', 'p3', 'p4'):
+                h = hosts[name]
+                if h.process is None or h.process.poll() is not None:
+                    h.start()
+            self.coord.start()
+        # Discovery from p2 (trusted in team): the claimed copy is PERSON/CAPABILITY, the other HOST_ID/CAPABILITY.
+        self.synced(self.version(), 'p2')
+        status, body = self.hosts['p2'].call('GET', '/v1/discover?person=pat')
+        found = {e['host_id']: e['address'] for e in (body or {}).get('capabilities', []) if e['capability'] == 'clash'}
+        need(status == 200 and found == {ids[w]: 'pat/clash', ids[lost]: f'{ids[lost]}/clash'},
+             'the claimed copy is addressed PERSON/CAPABILITY; the copy that lost its claim only HOST_ID/CAPABILITY',
+             status, found)
+        code, out, stderr = self.call('p2', 'pat/clash', 'echo', {'text': 'claimed'})
+        need(code == 0 and dig(out, 'peer_host_id') == ids[w], 'PERSON/CAPABILITY resolves to the claimed copy',
+             code, out)
+        code, out, stderr = self.call('p2', f'{ids[lost]}/clash', 'echo', {'text': 'lost'})
+        need(code == 0 and dig(out, 'peer_host_id') == ids[lost],
+             'the losing copy still works through self access as HOST_ID/CAPABILITY', code, out)
+        code, out, stderr = self.share('clash', '--with', 'quinn', '--yes', host=lost, expect=False)
+        need(code != 0, 'the losing copy cannot be shared under its name', code)
+        self.hosts[lost].run('capability', 'remove', 'clash', '--yes')
+        need(not self.items(lost, 'capability_name_conflict'), 'item 15 clears once the local copy is removed')
+        self.hosts[w].run('capability', 'remove', 'clash', '--yes')
+        for name in ('p1', 'p4'):
+            self.hosts[name].agent_socket = None
+            self.restart(name)
+        self.sync_all()
+        return f'{w} won the claim'
 
     def check_tie_break(self):
         p1, p2 = self.hosts['p1'], self.hosts['p2']
@@ -2670,7 +3027,8 @@ class Pairing:
 # --- once per run --------------------------------------------------------------------------------------------
 
 def vector_policy(person_b64):
-    """The contract's test vector inputs, as v2 policy JSON (trusted hosts given b then a, as specified)."""
+    """The contract's amended test vector inputs (2026-10-18), as v2 policy JSON: trusted hosts and edits given b
+    then a, as specified (the statement sorts both)."""
     return {'format': 2, 'network_id': VECTOR_NETWORK, 'person_public_key': person_b64, 'version': 1,
             'issued_at': '2026-10-10T00:00:00Z', 'valid_until': '2026-10-17T00:00:00Z',
             'rules': [{'agent': 'reviewer', 'principals': [f'person:{SECOND_PERSON}', 'group:backend'],
@@ -2679,8 +3037,10 @@ def vector_policy(person_b64):
                        'max_message_bytes': 4096, 'allow_disconnected': True}],
             'capability_rules': [cap_rule('host_' + 'a' * 64, 'github-issues', [f'person:{SECOND_PERSON}'],
                                           65536, False, 100),
-                                 cap_rule('host_' + 'b' * 64, 'docs', ['group:backend'], 4096, True, 10)],
-            'trusted_hosts': ['host_' + 'b' * 64, 'host_' + 'a' * 64]}
+                                 cap_rule('host_' + 'b' * 64, 'docs', ['group:backend'], 4096, True, 10),
+                                 cap_rule('host_' + 'a' * 64, 'notes', [], 65536, False, 100)],
+            'trusted_hosts': ['host_' + 'b' * 64, 'host_' + 'a' * 64],
+            'edits': [{'host': 'host_' + 'b' * 64, 'seq': 1}, {'host': 'host_' + 'a' * 64, 'seq': 3}]}
 
 
 def check_vector(directory):
@@ -2698,28 +3058,38 @@ def check_vector(directory):
     lines = policy_lines_v2(p)
     need(lines[16:22] == ['capability_rule', 'host_' + 'a' * 64, 'github-issues', f'person:{SECOND_PERSON}',
                           '65536 false 100', 'end'] and
-         lines[-1] == 'trusted host_' + 'a' * 64 + ' host_' + 'b' * 64,
-         'capability rules are six lines; trusted hosts sorted', lines)
+         lines[28:34] == ['capability_rule', 'host_' + 'a' * 64, 'notes', '', '65536 false 100', 'end'] and
+         lines[-2] == 'trusted host_' + 'a' * 64 + ' host_' + 'b' * 64 and
+         lines[-1] == 'edits host_' + 'a' * 64 + ':3 host_' + 'b' * 64 + ':1' and len(lines) == 36,
+         'capability rules are six lines (a claim\'s principals line empty); trusted hosts sorted; the final edits '
+         'line sorted', lines)
     signature = sshsig(person, lines)
     ssh_verify(lines, signature, VECTOR_PERSON_SSH, directory)  # raises unless OpenSSH accepts it
     digest = hashlib.sha256('\n'.join(lines).encode()).hexdigest()
-    print('NOTE v2 test vector (built from the contract inputs; compare with both implementations):',
+    # The vector is adopted only when both implementations produce the same statement; their statements come
+    # from their own tests, not from this suite. The same encoding is checked live against each implementation in
+    # the policy v2 section (the stored statement's sha256 of a policy with claims, trusted hosts, and edits).
+    print('NOTE amended v2 test vector (built from the contract inputs; compare with both implementations):',
           json.dumps({'lines': lines, 'sha256': digest, 'signature': signature}), flush=True)
     return f'v1 vector reproduced; v2 statement sha256 {digest}; ssh-keygen -Y verify accepts its signature'
 
 
 def check_migration(original, replacement, label):
-    """Version 15 (the version 16 tables dropped) to 16, and 17 refused."""
+    """Version 15 (the version 16 and 17 tables dropped) to the current version, and the next refused.
+
+    The capabilities contract specifies 15 to 16 and says version 16 binaries reject 17; database version 17
+    (coordination contract, Concurrent edits) has since been added, so current binaries migrate 15 to 17 (through
+    16) and reject 18."""
     with tempfile.TemporaryDirectory(prefix='peerspan-capabilities-migration-') as directory:
         host = Host(original, Path(directory) / 'host')
         try:
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == 16, 'Database version 16', label)
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'Database version 17', label)
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
             try:
-                for table in CAPABILITY_TABLES:
+                for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                     connection.execute(f'DROP TABLE {table}')
                 connection.execute('PRAGMA user_version = 15')
                 connection.commit()
@@ -2727,21 +3097,22 @@ def check_migration(original, replacement, label):
                 connection.close()
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == 16, 'migrated to version 16')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'migrated to version 17')
             tables = {r[0] for r in db_rows(host, "SELECT name FROM sqlite_master WHERE type = 'table'")}
-            need(set(CAPABILITY_TABLES) <= tables, 'version 16 adds its tables', sorted(tables))
+            need(set(CAPABILITY_TABLES) | set(POLICY_EDIT_TABLES) <= tables, 'versions 16 and 17 add their tables',
+                 sorted(tables))
             need(host.cli('agent', 'inspect', agent['id']) == agent, 'existing state preserved')
             need(host.cli('calls', 'list') == [], 'no calls after migration')
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
-            connection.execute('PRAGMA user_version = 17')
+            connection.execute(f'PRAGMA user_version = {CURRENT_VERSION + 1}')
             connection.commit()
             connection.close()
             for binary in (original, replacement):
                 result = subprocess.run([str(binary), '--state', str(host.state), 'run'], capture_output=True,
                                         timeout=10)
-                need(result.returncode != 0, 'version 16 binaries reject version 17', binary)
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == 17, 'refused without changes')
+                need(result.returncode != 0, 'current binaries reject the next version', binary)
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION + 1, 'refused without changes')
         finally:
             stop_all((host,))
     return label
@@ -2789,7 +3160,7 @@ def main():
     parser.add_argument('--coord', type=Path, required=True)
     parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
-    parser.add_argument('--skip-migration', action='store_true', help='skip the version 15 to 16 migration checks')
+    parser.add_argument('--skip-migration', action='store_true', help='skip the version 15 to 17 migration checks')
     parser.add_argument('--vector-only', action='store_true', help='only build and verify the v2 test vector')
     args = parser.parse_args()
     for tool in ('ssh-agent', 'ssh-add', 'ssh-keygen', 'openssl'):

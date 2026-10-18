@@ -28,6 +28,8 @@ SCHEMA_VERSION = 16
 # Tables added by database version 16 (capabilities), dropped to model older state.
 CAPABILITY_TABLES = ["tool_servers", "tool_values", "capabilities", "source_access", "received_calls",
                      "outbound_calls"]
+# Tables added by database version 17 (concurrent policy edits, coordination contract), dropped to model older state.
+POLICY_EDIT_TABLES = ["policy_edits"]
 # Tables added by database version 12 (policy propagation), dropped to model older state.
 POLICY_DELIVERY_TABLES = ["policy_deliveries", "directory_sends"]
 # Tables added by database version 11 (delegation chains), dropped to model older state.
