@@ -388,18 +388,13 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 		}
 		signerID := membership.PersonID(signer.PublicKey())
 		signer.Close()
-		// A policy of another person cannot be withdrawn with this key:
-		// fail before signing or deleting anything.
+		var others []holder
 		for _, h := range holders {
 			if h.personID != signerID {
-				who := h.personID
-				if h.label != "" {
-					who = h.label + " (" + h.personID + ")"
-				}
-				return fmt.Errorf("the policy of %s in network %s holds this host's rule for %s; the capability is kept; run the command again with that person's key (--person-key)", who, h.network, name)
+				// Another person's policy cannot be withdrawn with this key.
+				others = append(others, h)
+				continue
 			}
-		}
-		for _, h := range holders {
 			o, err := loadOwner(ctx, client, h.network, keyPath)
 			if err != nil {
 				return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, h.network, err)
@@ -419,6 +414,17 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 			if err != nil {
 				return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, h.network, err)
 			}
+		}
+		if len(others) > 0 {
+			var named []string
+			for _, h := range others {
+				who := h.personID
+				if h.label != "" {
+					who = h.label + " (" + h.personID + ")"
+				}
+				named = append(named, who+" in network "+h.network)
+			}
+			return fmt.Errorf("the policy of %s holds this host's rule for %s, and this key cannot withdraw it; the capability is kept; run the command again with that person's key (--person-key)", strings.Join(named, ", and of "), name)
 		}
 	}
 	data, err := client.Call(ctx, "DELETE", "/v1/capabilities/"+url.PathEscape(name), nil)
