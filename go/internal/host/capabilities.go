@@ -434,10 +434,10 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	if err = tx.Commit(); err != nil {
 		return Capability{}, err
 	}
-	for _, p := range claims {
-		if err = s.afterSubmit(ctx, p.NetworkID, personIDOf(p.PersonPublicKey)); err != nil {
-			return Capability{}, err
-		}
+	// The claims are delivered as any policy, by the delivery worker; the
+	// record is answered without waiting on the coordinator.
+	if len(claims) > 0 {
+		s.wakePolicyDeliveries()
 	}
 	return s.capabilityView(ctx, s.db, c)
 }
