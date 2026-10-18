@@ -479,9 +479,13 @@ class Pairing:
         g2.stop()
         g2.start()  # reads the generated key at start; no agent
         now = datetime.now(timezone.utc)
-        base = {'network_id': self.net, 'person_public_key': self.gen2_raw,
-                'rules': [{'agent': 'renewed', 'principals': ['network'], 'actions': ['message.append'],
-                           'max_message_bytes': 100, 'allow_disconnected': False}]}
+        # Built from the stored policy, so that it stays v2 and carries `edits`: g2's `allow` above is an edit of
+        # g2, and a policy that did not reflect it would make g2 re-apply it on renewal (coordination contract,
+        # Concurrent edits).
+        status, current = g2.call('GET', f'/v1/networks/{self.net}/policy?person={self.gen2}')
+        need(status == 200, 'renewal setup: the stored policy', status, current)
+        base = {**current, 'rules': [{'agent': 'renewed', 'principals': ['network'], 'actions': ['message.append'],
+                                      'max_message_bytes': 100, 'allow_disconnected': False}]}
         ending = crafted(base, 2, now - timedelta(hours=23), now + timedelta(hours=1), g2.key_file, self.root)
         status, body = g2.call('POST', f'/v1/networks/{self.net}/policy', {'policy': ending})
         need(status == 201, 'renewal setup: a crafted policy near its end', status, body)

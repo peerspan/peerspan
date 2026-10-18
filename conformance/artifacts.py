@@ -450,8 +450,8 @@ def parse_time(value):
 
 def policy_check(coord_binary, owner_binary, sender_binary, label):
     """max_artifact_bytes in an owner policy, signed by one implementation and verified by the other."""
-    from persons import Agent, ssh_key, ssh_sign, use_agent
-    from policy import PolicyHost, policy_lines
+    from persons import Agent, ssh_key, use_agent
+    from policy import PolicyHost, crafted, policy_lines
     with tempfile.TemporaryDirectory(prefix='peerspan-artifact-policy-') as temporary:
         root = Path(temporary)
         coord = Coordinator(coord_binary, root / 'coord')
@@ -521,10 +521,10 @@ def policy_check(coord_binary, owner_binary, sender_binary, label):
 
             # The default deadline is capped at a cited policy's valid_until.
             now = datetime.now(timezone.utc).replace(microsecond=0)
-            soon = {'network_id': net, 'person_public_key': v2['person_public_key'], 'version': 3,
-                    'issued_at': rfc3339(now - timedelta(hours=23, minutes=30)),
-                    'valid_until': rfc3339(now + timedelta(minutes=30)), 'rules': v2['rules']}
-            soon['signature'] = ssh_sign(policy_lines(soon), keys['pat'][0], root)
+            # A renewal of v2 with a short window: v2 and copying `edits`, so that alice's edit stays reflected
+            # (coordination contract, Concurrent edits).
+            soon = crafted(v2, 3, now - timedelta(hours=23, minutes=30), now + timedelta(minutes=30), keys['pat'][0],
+                           root)
             status, stored = bob.call('POST', f'/v1/networks/{net}/policy', {'policy': soon})
             assert status == 201, stored
             for host in hosts:
