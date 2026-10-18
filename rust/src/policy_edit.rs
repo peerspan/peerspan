@@ -416,6 +416,22 @@ impl Store {
                     out.push(m.host_id);
                 }
             }
+            // Hosts that joined with a revoked invite and have since left
+            // the view, from their kept join statements.
+            let mut statement = conn.prepare(
+                "SELECT subject, record FROM network_statements WHERE network_id = ?1 AND kind = 'join'",
+            )?;
+            let joins = statement
+                .query_map([network], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (host, record) in joins {
+                let joined: crate::membership::Membership = json(record)?;
+                if invites.contains(&joined.invite_public_key.as_str()) {
+                    out.push(host);
+                }
+            }
         }
         out.sort();
         out.dedup();
