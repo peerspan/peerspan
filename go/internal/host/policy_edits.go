@@ -410,6 +410,21 @@ func (s *Store) scheduleReapply(network string) {
 	}
 }
 
+// reapplyIfUnsettled schedules a re-application when this host's person in
+// a network has unsettled edits, or edits a stored policy no longer
+// reflects.
+func (s *Store) reapplyIfUnsettled(ctx context.Context, network string) {
+	person, stored, err := s.ownPolicy(ctx, s.db, network)
+	if err != nil || person == "" || stored == nil {
+		return
+	}
+	var pending bool
+	err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM policy_edits WHERE network_id = ? AND person_id = ? AND (json_extract(record, '$.state') = 'unsettled' OR (json_extract(record, '$.state') = 'settled' AND seq > ?)))`, network, person, stored.EditSeq(s.identity.ID)).Scan(&pending)
+	if err == nil && pending {
+		s.scheduleReapply(network)
+	}
+}
+
 // ackEdits records that a sibling or the coordinator holds a policy
 // reflecting this host's edits up to seq.
 func (s *Store) ackEdits(network, person, target string, seq int64) {

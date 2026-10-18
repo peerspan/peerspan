@@ -636,6 +636,9 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 		}
 		s.refreshUsage(finishCtx, n)
 		s.mapApplied(n.ID, applied.members)
+		// Unsettled edits are tried again at each sync, which also resumes
+		// suspended ones once their person's binding is current again.
+		s.reapplyIfUnsettled(finishCtx, n.ID)
 	}
 	return n, nil
 }
