@@ -603,13 +603,18 @@ struct VerifiedMap {
     roots: Vec<String>,
     statements: Statements,
 }
-/// Keeps each current member's join statement (`join`, by host ID), so a
-/// root-signed revocation of its invite can still be matched once the
-/// member has left the view.
+/// Keeps each member's membership statement (`membership`, by host public
+/// key), so a root-signed revocation of its invite can still be matched
+/// once the member has left the view.
 fn remember_joins(tx: &Connection, store: &Store, network: &str) -> Result<(), Error> {
-    for m in store.stored_members(tx, network)? {
-        if let Some(membership) = &m.membership {
-            insert_statement(tx, network, "join", &m.host_id, membership)?;
+    remember_memberships(tx, network, &store.stored_members(tx, network)?)
+}
+fn remember_memberships(tx: &Connection, network: &str, members: &[Member]) -> Result<(), Error> {
+    for m in members {
+        if let Some(membership) = &m.membership
+            && membership.host_public_key == m.public_key
+        {
+            insert_statement(tx, network, "membership", &m.public_key, membership)?;
         }
     }
     Ok(())
@@ -1844,6 +1849,8 @@ impl Store {
         // Members leaving the view keep their join statement, so a root's
         // revocation of their invite still retires their `edits` entries.
         remember_joins(&tx, self, &id)?;
+        // A map's members keep their membership statements as listed.
+        remember_memberships(&tx, &id, &members)?;
         tx.execute("DELETE FROM network_members WHERE network_id = ?1", [&id])?;
         for m in &mut members {
             if m.host_id == own_id {
