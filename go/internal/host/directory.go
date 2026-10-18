@@ -215,6 +215,10 @@ func (s *Store) ReachableAgents(ctx context.Context, caller, network string) ([]
 		}
 		if key, ok := g.personKey(*own.PersonID); ok {
 			if p, ok := g.storedPolicy(key); ok && membership.PolicyActive(p, now) {
+				// Withdrawals of this host's unsettled edits apply at once.
+				if p, err = s.enforcedPolicy(ctx, tx, network, p); err != nil {
+					return nil, err
+				}
 				policy = &p
 			}
 		}

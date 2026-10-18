@@ -249,6 +249,10 @@ func withBody(p membership.Policy, body membership.PolicyBody) membership.Policy
 // number order, and the additions each dropped.
 func reapplied(stored membership.PolicyBody, edits []policyEditRecord) (membership.PolicyBody, [][]string) {
 	body := stored
+	if len(edits) > 0 {
+		// Signing as v2 keeps one rule per agent.
+		body, _ = membership.FirstRulePerAgent(body)
+	}
 	dropped := make([][]string, len(edits))
 	for i, e := range edits {
 		if e.Signed == nil {
@@ -470,6 +474,7 @@ func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(stri
 	if err = tx.Commit(); err != nil || len(unsettled) == 0 {
 		return err
 	}
+	_, ruleDrops := membership.FirstRulePerAgent(stored.Body())
 	body, dropped := reapplied(stored.Body(), unsettled)
 	changed := !membership.SameContent(body, stored.Body())
 	var signedPolicy *membership.Policy
@@ -540,6 +545,7 @@ func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(stri
 		return err
 	}
 	if changed {
+		s.recordRuleDrops(ctx, network, person, ruleDrops)
 		logf("re-applied policy edits as version %d for %s", signedPolicy.Version, network)
 		s.wakePolicyDeliveries()
 		if _, err = s.attemptDelivery(ctx, network, person, policyTargetCoordinator); err != nil {
@@ -556,6 +562,26 @@ func policyDuration(p membership.Policy) (time.Time, time.Time, error) {
 		return issued, issued.Add(7 * 24 * time.Hour), errors.New("invalid policy window")
 	}
 	return issued, until, nil
+}
+
+// recordRuleDrops records network.policy_rule_dropped for each agent whose
+// later rules a v1 policy lost when this daemon signed it as v2.
+func (s *Store) recordRuleDrops(ctx context.Context, network, person string, agents []string) {
+	if len(agents) == 0 {
+		return
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	at := timestamp(time.Now())
+	for _, agent := range agents {
+		if appendEvent(ctx, tx, "network.policy_rule_dropped", person+"/"+agent, at) != nil {
+			return
+		}
+	}
+	_ = tx.Commit()
 }
 
 // reapplyAll re-applies unsettled edits in every network.

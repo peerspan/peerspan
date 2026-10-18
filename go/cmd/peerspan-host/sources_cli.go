@@ -504,6 +504,9 @@ type ownerContext struct {
 	seq     int64
 	// validFor, when set, is the signed duration instead.
 	validFor time.Duration
+	// droppedRules names agents whose later rules a v1 starting point
+	// lost when signed as v2.
+	droppedRules []string
 }
 
 func loadOwner(ctx context.Context, client host.Client, network, keyPath string) (*ownerContext, error) {
@@ -608,7 +611,21 @@ func (o *ownerContext) body() membership.PolicyBody {
 	if o.current == nil {
 		return membership.PolicyBody{Rules: []membership.PolicyRule{}, CapabilityRules: []membership.CapabilityRule{}, TrustedHosts: []string{}, Edits: []membership.PolicyEdit{}}
 	}
-	return o.current.Body()
+	// A v2 policy keeps the first rule of each agent.
+	body, dropped := membership.FirstRulePerAgent(o.current.Body())
+	for _, agent := range dropped {
+		if !contains(o.droppedRules, agent) {
+			o.droppedRules = append(o.droppedRules, agent)
+		}
+	}
+	return body
+}
+
+// reportDroppedRules says which agents' later rules were dropped.
+func (o *ownerContext) reportDroppedRules(errOut io.Writer) {
+	for _, agent := range o.droppedRules {
+		fmt.Fprintf(errOut, "dropped rule: your policy had more than one rule for agent %s; only the first is kept\n", agent)
+	}
 }
 
 // editRetries is how many times an edit refused as edit_conflict starts

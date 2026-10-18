@@ -855,7 +855,7 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 			continue // neither the agent nor the key file holds this owner's key
 		}
 		// A renewal copies edits, except retired entries.
-		renewed, err := membership.Renewal(signer, p, now.Truncate(time.Second))
+		renewed, ruleDrops, err := membership.RenewalDropping(signer, p, now.Truncate(time.Second))
 		if err == nil {
 			body := renewed.Body()
 			if body.Edits, err = s.retiredDropped(ctx, s.db, n.network, body.Edits); err == nil && len(body.Edits) != len(renewed.Edits) {
@@ -871,6 +871,7 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		_, err = s.SubmitPolicy(ctx, n.network, renewed)
 		switch {
 		case err == nil:
+			s.recordRuleDrops(ctx, n.network, *n.member.PersonID, ruleDrops)
 			logf("renewed access policy %d for %s", renewed.Version, n.network)
 		case errors.Is(err, ErrConflict):
 			// Another of the owner's hosts renewed first, and its renewal won.

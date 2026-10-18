@@ -364,70 +364,61 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 	if err != nil {
 		return err
 	}
-	// Every network whose policy has this host's rule for the name, claim
-	// included.
-	networks := []string{}
-	for _, r := range c.Recipients {
-		if !contains(networks, r.NetworkID) {
-			networks = append(networks, r.NetworkID)
-		}
-	}
-	// The stored policies of this host's persons, and of the signing key's
-	// person when it loads, in every network of this host, bound there or
-	// not: a claim left in a network where this host is no longer bound
-	// would come back on rebinding.
-	candidates := []string{}
-	if _, persons, err := readHostPersons(ctx, client); err == nil {
-		for _, n := range sortedNetworks(persons.ids) {
-			if !contains(candidates, persons.ids[n]) {
-				candidates = append(candidates, persons.ids[n])
-			}
-		}
-	}
-	if signer, err := person.Load(keyPath); err == nil {
-		if id := membership.PersonID(signer.PublicKey()); !contains(candidates, id) {
-			candidates = append(candidates, id)
-		}
-		signer.Close()
-	}
-	holders := map[string][]string{} // network: persons whose policy holds the rule
+	// Every stored policy that holds this host's rule for the name, claim
+	// included, whoever owns it and whether or not this host is still bound
+	// in that network: a claim left behind would come back on rebinding.
+	type holder struct{ network, personID, label string }
+	var holders []holder
 	for _, n := range ownNetworks(ctx, client) {
-		for _, id := range candidates {
-			if p, err := currentPolicy(ctx, client, n, id); err == nil && p != nil && hostRule(p.CapabilityRules, identity.ID, name) >= 0 {
-				holders[n] = append(holders[n], id)
-				if !contains(networks, n) {
-					networks = append(networks, n)
-				}
+		persons, err := personsOf(ctx, client, n)
+		if err != nil {
+			return err
+		}
+		for _, p := range persons {
+			if policy, err := currentPolicy(ctx, client, n, p.PersonID); err == nil && policy != nil && hostRule(policy.CapabilityRules, identity.ID, name) >= 0 {
+				holders = append(holders, holder{n, p.PersonID, p.Member})
 			}
 		}
 	}
 	signed := []json.RawMessage{}
-	for _, network := range networks {
-		o, err := loadOwner(ctx, client, network, keyPath)
+	if len(holders) > 0 {
+		signer, err := person.Load(keyPath)
 		if err != nil {
-			return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, network, err)
+			return fmt.Errorf("withdrawing %s needs the person key; the capability is kept: %w", name, err)
 		}
-		data, changed, err := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
-			i := hostRule(body.CapabilityRules, identity.ID, name)
-			if i < 0 {
-				return false, nil
-			}
-			body.CapabilityRules = append(body.CapabilityRules[:i:i], body.CapabilityRules[i+1:]...)
-			return true, nil
-		})
-		o.signer.Close()
-		if changed {
-			signed = append(signed, data)
-		}
-		if err == nil {
-			for _, id := range holders[network] {
-				if id != o.ownerID {
-					err = fmt.Errorf("the policy of %s still has this host's rule for %s; sign with that person's key", id, name)
+		signerID := membership.PersonID(signer.PublicKey())
+		signer.Close()
+		// A policy of another person cannot be withdrawn with this key:
+		// fail before signing or deleting anything.
+		for _, h := range holders {
+			if h.personID != signerID {
+				who := h.personID
+				if h.label != "" {
+					who = h.label + " (" + h.personID + ")"
 				}
+				return fmt.Errorf("the policy of %s in network %s holds this host's rule for %s; the capability is kept; run the command again with that person's key (--person-key)", who, h.network, name)
 			}
 		}
-		if err != nil {
-			return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, network, err)
+		for _, h := range holders {
+			o, err := loadOwner(ctx, client, h.network, keyPath)
+			if err != nil {
+				return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, h.network, err)
+			}
+			data, changed, err := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
+				i := hostRule(body.CapabilityRules, identity.ID, name)
+				if i < 0 {
+					return false, nil
+				}
+				body.CapabilityRules = append(body.CapabilityRules[:i:i], body.CapabilityRules[i+1:]...)
+				return true, nil
+			})
+			o.signer.Close()
+			if changed {
+				signed = append(signed, data)
+			}
+			if err != nil {
+				return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, h.network, err)
+			}
 		}
 	}
 	data, err := client.Call(ctx, "DELETE", "/v1/capabilities/"+url.PathEscape(name), nil)
@@ -604,6 +595,18 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		return err
 	}
 	guided := len(args) < 2
+	if guided {
+		// The guided share may create the capability, which claims its
+		// name in the signing person's networks: the share network must be
+		// one of them, or nothing is created.
+		_, persons, err := readHostPersons(ctx, client)
+		if err != nil {
+			return err
+		}
+		if persons.ids[network] != o.ownerID {
+			return fmt.Errorf("this host is not bound to %s in network %s; nothing was created", o.ownerID, network)
+		}
+	}
 	var name string
 	var listing sourcesListing
 	var c capabilityRecord

@@ -397,6 +397,14 @@ func CheckPolicy(network string, p Policy) error {
 			return fmt.Errorf("%w: a version 1 policy has no capability rules, trusted hosts, or edits", ErrInvalid)
 		}
 	case PolicyFormat2:
+		// A v2 policy holds at most one rule per agent name.
+		agents := map[string]bool{}
+		for _, r := range p.Rules {
+			if agents[r.Agent] {
+				return fmt.Errorf("%w: agent %q has more than one rule", ErrInvalid, r.Agent)
+			}
+			agents[r.Agent] = true
+		}
 		if p.CapabilityRules == nil || len(p.CapabilityRules) > PolicyMaxCapabilityRules {
 			return fmt.Errorf("%w: a policy has at most %d capability rules", ErrInvalid, PolicyMaxCapabilityRules)
 		}
@@ -527,6 +535,50 @@ func SignPolicy(owner PersonSigner, network string, version int64, issued time.T
 	return p, err
 }
 
+// FirstRulePerAgent keeps the first rule for each agent name, as a v1 policy
+// becomes v2, and returns the agents whose later rules were dropped.
+func FirstRulePerAgent(body PolicyBody) (PolicyBody, []string) {
+	seen := map[string]bool{}
+	kept := []PolicyRule{}
+	var dropped []string
+	for _, r := range body.Rules {
+		if seen[r.Agent] {
+			if !slicesContains(dropped, r.Agent) {
+				dropped = append(dropped, r.Agent)
+			}
+			continue
+		}
+		seen[r.Agent] = true
+		kept = append(kept, r)
+	}
+	body.Rules = kept
+	return body, dropped
+}
+
+func slicesContains(list []string, x string) bool {
+	for _, v := range list {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+// RenewalDropping is Renewal, also returning the agents whose duplicate
+// rules a v1 policy lost on becoming v2.
+func RenewalDropping(owner PersonSigner, current Policy, now time.Time) (Policy, []string, error) {
+	issued, until, err := policyWindow(current)
+	if err != nil {
+		return Policy{}, nil, err
+	}
+	if !owner.PublicKey().Equal(ed25519.PublicKey(mustKey(current.PersonPublicKey))) {
+		return Policy{}, nil, fmt.Errorf("%w: renewing key is not the policy owner", ErrInvalid)
+	}
+	body, dropped := FirstRulePerAgent(current.Body())
+	p, err := SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), body)
+	return p, dropped, err
+}
+
 // Renewal returns the policy's rules, capability rules, trusted hosts, and edits re-signed
 // at version+1 with the same duration, issued at now. A renewal is always a
 // format 2 policy; a version 1 policy renews with no capability rules or trusted
@@ -539,7 +591,8 @@ func Renewal(owner PersonSigner, current Policy, now time.Time) (Policy, error) 
 	if !owner.PublicKey().Equal(ed25519.PublicKey(mustKey(current.PersonPublicKey))) {
 		return Policy{}, fmt.Errorf("%w: renewing key is not the policy owner", ErrInvalid)
 	}
-	return SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), current.Body())
+	body, _ := FirstRulePerAgent(current.Body())
+	return SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), body)
 }
 
 func mustKey(value string) []byte {

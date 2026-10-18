@@ -2,7 +2,6 @@ package membership
 
 import (
 	"slices"
-	"strconv"
 )
 
 // Re-applying policy edits (coordination contract, Concurrent edits). An
@@ -44,14 +43,12 @@ func sameSet(a, b []string) bool {
 	return true
 }
 
-// ruleKey keys a rule by agent name. A policy may hold several rules for one
-// agent, so the n-th rule for an agent is keyed with its occurrence.
+// ruleKeys keys rules by agent name: a v2 policy holds at most one rule per
+// agent, so the name identifies a rule across B, O, and S.
 func ruleKeys(rules []PolicyRule) []string {
-	seen := map[string]int{}
 	keys := make([]string, len(rules))
 	for i, r := range rules {
-		keys[i] = r.Agent + "#" + strconv.Itoa(seen[r.Agent])
-		seen[r.Agent]++
+		keys[i] = r.Agent
 	}
 	return keys
 }

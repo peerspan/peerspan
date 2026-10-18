@@ -534,6 +534,34 @@ func (s *Store) CapabilityOf(ctx context.Context, name string) (CapabilityWithRe
 	return CapabilityWithRecipients{view, recipients}, err
 }
 
+// ruleHeld reports whether any stored policy, of any owner and in any
+// network of this host, holds this host's rule for a capability name.
+func (s *Store) ruleHeld(ctx context.Context, name string) (string, bool, error) {
+	networks, err := s.Networks(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	for _, n := range networks {
+		g, err := s.loadGovernance(ctx, s.db, n.ID)
+		if err != nil {
+			return "", false, err
+		}
+		current := g.persons()
+		for _, key := range sortedKeys(g.persisted.policies) {
+			p, ok := g.storedPolicy(key)
+			if _, person := current[key]; !ok || !person {
+				continue // a removed person's policy no longer applies
+			}
+			for _, r := range p.CapabilityRules {
+				if r.Host == s.identity.ID && r.Capability == name {
+					return n.ID, true, nil
+				}
+			}
+		}
+	}
+	return "", false, nil
+}
+
 // RemoveCapability deletes a capability once no stored rule of this host's
 // person shares it from this host; the CLI signs those withdrawals first.
 func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, error) {
@@ -541,12 +569,11 @@ func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, 
 	if err != nil {
 		return Capability{}, err
 	}
-	recipients, err := s.recipients(ctx, s.db, name)
-	if err != nil {
+	if network, held, err := s.ruleHeld(ctx, name); err != nil || held {
+		if err == nil {
+			err = fmt.Errorf("%w: a stored policy in network %s still holds this host's rule for %s; withdraw it first", ErrConflict, network, name)
+		}
 		return Capability{}, err
-	}
-	if len(recipients) > 0 {
-		return Capability{}, fmt.Errorf("%w: %s is still shared; withdraw its rules from every policy first", ErrConflict, name)
 	}
 	view, err := s.capabilityView(ctx, s.db, c)
 	if err != nil {

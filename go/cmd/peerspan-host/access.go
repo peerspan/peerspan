@@ -226,9 +226,13 @@ type policyEdit struct {
 	run func(context.Context, host.Client) (json.RawMessage, error)
 }
 
-func (e policyEdit) submit(ctx context.Context, client host.Client) (json.RawMessage, error) {
+func (e policyEdit) submit(ctx context.Context, client host.Client, errOut io.Writer) (json.RawMessage, error) {
 	defer e.o.signer.Close()
-	return e.run(ctx, client)
+	data, err := e.run(ctx, client)
+	if err == nil {
+		e.o.reportDroppedRules(errOut)
+	}
+	return data, err
 }
 
 // renewPolicy re-signs the current rules now, at the next version with the
@@ -243,11 +247,15 @@ func renewPolicy(ctx context.Context, client host.Client, o *ownerContext) (json
 		if err != nil {
 			return nil, err
 		}
-		body := o.current.Body()
+		body := o.body()
 		issued, _ := membership.ParseTime(o.current.IssuedAt)
 		until, _ := membership.ParseTime(o.current.ValidUntil)
 		var p membership.Policy
-		if stored != nil && membership.SameContent(stored.Body(), body) {
+		storedBody := membership.PolicyBody{}
+		if stored != nil {
+			storedBody, _ = membership.FirstRulePerAgent(stored.Body())
+		}
+		if stored != nil && membership.SameContent(storedBody, body) {
 			p, err = membership.SignPolicyV2(o.signer, o.network, o.version+1, time.Now().Truncate(time.Second), until.Sub(issued), body)
 		} else {
 			p, err = o.next(o.network, body, true)
@@ -463,7 +471,15 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 			}
 			return printJSON(out, map[string]any{"policy": policy, "removed": 0, "note": "no rule of your policy names " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
 		}
-		return printJSON(out, map[string]any{"policy": json.RawMessage(data), "removed": removed})
+		result := map[string]any{"policy": json.RawMessage(data), "removed": removed}
+		if len(o.droppedRules) > 0 {
+			result["dropped_rules"] = o.droppedRules
+		}
+		return printJSON(out, result)
 	}
-	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes})
+	result := map[string]any{"policy": json.RawMessage(data), "principal": principal, "agent": agent, "actions": rule.Actions, "max_artifact_bytes": rule.MaxArtifactBytes}
+	if len(o.droppedRules) > 0 {
+		result["dropped_rules"] = o.droppedRules
+	}
+	return printJSON(out, result)
 }
