@@ -504,13 +504,13 @@ Handoff and reply recheck authorization the same way. A lapsed or narrowed polic
 
 ### Renewal
 
-`run [--person-agent SOCKET]` gives the daemon an agent socket. It defaults to the `SSH_AUTH_SOCK` the daemon started with. When the agent holds the bound person's key, and that person's current policy has less than a quarter of its validity left, the daemon asks the agent to sign a renewal. A renewal has the same rules, version + 1, the same duration, and `issued_at` set to now. The daemon submits it, and never stores the key. If several of the owner's hosts renew at once, they converge on one version by the tie-break in [Direct propagation](#direct-propagation). If no agent is available, access lapses at `valid_until`. Hosts report `expires_soon` in `access show` once less than a quarter remains.
+`run [--person-agent SOCKET]` gives the daemon an agent socket. It defaults to the `SSH_AUTH_SOCK` the daemon started with. When the agent holds the bound person's key, and that person's current policy has less than a quarter of its validity left, the daemon asks the agent to sign a renewal. A renewal has the same rules and `edits`, version + 1, the same duration, and `issued_at` set to now. When edits of this host are unsettled, the daemon re-applies them instead (see [Concurrent edits](#concurrent-edits)); the result also renews. The daemon submits it, and never stores the key. If several of the owner's hosts renew at once, they converge on one version by the tie-break in [Direct propagation](#direct-propagation). If no agent is available, access lapses at `valid_until`. Hosts report `expires_soon` in `access show` once less than a quarter remains.
 
 ### Commands
 
 | CLI after `--state DIR` | Local API | Behavior |
 | --- | --- | --- |
-| `access allow --network ID --agent NAME --principal P [--principal P ...] [--action A [--action A ...]] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]` | `POST /v1/networks/{id}/policy` with `{policy}` | The CLI fetches the owner's current policy from the daemon. It adds or replaces the rule for NAME, with actions from `--action` (default `message.append`), resolving `person:LABEL` to an ID with an error on ambiguity, and signs version + 1. The daemon verifies and submits it. Returns 201 with the policy. |
+| `access allow --network ID --agent NAME --principal P [--principal P ...] [--action A [--action A ...]] [--max-message-bytes N] [--allow-disconnected] [--valid-days D] [--person-key PATH]` | `POST /v1/networks/{id}/policy` with `{policy}` | The CLI fetches the owner's policy from the edit route (see [Concurrent edits](#concurrent-edits)). It adds or replaces the rule for NAME, with actions from `--action` (default `message.append`), resolving `person:LABEL` to an ID with an error on ambiguity, and signs version + 1. The daemon verifies and submits it. Returns 201 with the policy. |
 | `access deny --network ID --agent NAME [--principal P ...] [--person-key PATH]` | same | Removes those principals, or the whole rule when none are given. It signs and submits a new version. |
 | `access renew --network ID [--person-key PATH]` | same | Re-signs the current rules now. |
 | `access show --network ID [--person PERSON]` | `GET /v1/networks/{id}/policy?person=ID` | The newest verified policy, mine by default, plus `expires_soon`. |
@@ -558,7 +558,49 @@ A coordinator could otherwise withhold a newer policy, such as a withdrawal, fro
 - its version is higher than the stored one; or
 - its version is equal and its signed statement has a lower lowercase hex SHA-256 than the stored one's. The hash covers the UTF-8 bytes of the signed statement's lines, not the JSON; the policy test vector above hashes to `26aef9dc978f7da4509ca4595195125839d5306f4eb951c0cedb61467df51ab1`.
 
-The tie-break lets hosts converge without coordination when siblings sign the same version concurrently, as simultaneous renewals do. The coordinator keeps refusing an equal version with 409, so it may hold the tie-break's loser; receivers always evaluate their own newest stored version. A host never accepts a lower version. Each stored policy records `network.policy_updated`.
+The tie-break lets hosts converge without coordination when siblings sign the same version concurrently, as simultaneous renewals do. The coordinator keeps refusing an equal version with 409, so it may hold the tie-break's loser; receivers always evaluate their own newest stored version. A host never accepts a lower version. Each stored policy records `network.policy_updated`. The tie-break picks one policy whole, so the loser's edit is re-applied as described in [Concurrent edits](#concurrent-edits).
+
+### Concurrent edits
+
+Decided on 2026-10-18. A policy is one signed statement per person and network, and each edit is signed from the version its host has stored. When two of an owner's hosts sign edits from the same version, the tie-break keeps one policy and discards the other edit whole, after both commands reported success. A withdrawal could be lost that way, for example an `unshare` that loses to a sibling's renewal. Each host therefore keeps its own edits until a stored policy reflects them, and re-applies any that a concurrent policy displaced. The coordinator is not involved.
+
+**Edits.** An edit is a policy signed by a CLI command on this host that changes the rules: `access allow`, `access deny`, `share`, `unshare`, `trust`, `untrust`, `capability create`, `capability remove`, and the trust signing in `join` and `network create`. Renewals, by the daemon or by `access renew`, are not edits.
+
+**Edit numbers.** Each edit gets a number from this host's daemon, unique per network and increasing. A v2 policy's `edits` line records, for each host, the highest number of that host's edits the policy reflects. A policy reflects edit k of host H when its entry for H is at least k; a host without an entry, or a v1 policy, reflects none.
+- **Signing an edit.** The CLI gets its starting point from `GET /v1/networks/{id}/policy/edit`, which returns `{policy, version, seq}`. `policy` is the newest stored policy with this host's unsettled edits re-applied, by the merge below; it is the stored policy when there are none, and null when there is no policy. `version` is the stored version, or 0 without one. `seq` is reserved for this edit. An unknown network, or one in which this host is not bound, returns 404. The CLI applies its change to `policy`, or to an empty policy when it is null, sets the version to `version` + 1, sets this host's `edits` entry to `seq`, keeps the other entries, signs, and submits through the existing route. It never starts from `GET /v1/networks/{id}/policy`.
+- **Recording.** The daemon records the edit when it stores the submitted policy: its number, its starting point (the `policy` returned with that `seq`), and the signed policy. A reservation not used within 10 minutes lapses, and a policy citing a lapsed or unknown `seq` for this host is refused with 400.
+- **Renewals** copy `edits`.
+
+**Settling.** An edit of this host is settled while the newest stored policy reflects it, and unsettled otherwise. An edit is unsettled when a concurrent policy wins the tie-break, or when a later version was built by a sibling that never stored it.
+
+**Re-applying.** Whenever the newest stored policy stops reflecting edits of this host, the daemon waits a random 0 to 2 seconds, then:
+1. re-applies every unsettled edit, in number order, to the newest stored policy, by the merge below;
+2. if the content changed, signs the result as the stored version + 1, with this host's `edits` entry set to the highest re-applied number, the other entries unchanged, `issued_at` now, and the last edit's duration, then submits it as any policy;
+3. if the content is unchanged, signs nothing and marks those edits settled locally.
+
+It signs with the renewal key: the agent socket of `run --person-agent`, or the key file of `run --person-key-file`. Without one, the edits stay unsettled. The daemon tries again at each sync and whenever a policy is stored, and the edit route folds them into the next CLI edit, so the next command that signs for that network settles them. `access renew` also starts from the edit route, so it re-applies them too.
+
+**The merge.** Re-applying edit E, with starting point B and signed policy O, to the stored policy S, compares the rule content of the three. Content excludes the header, the validity window, and `edits`. Starting from S:
+- **Set members** are principals, actions, and trusted hosts. A member O added relative to B is added to S, unless S has removed the rule that holds it relative to B. A member O removed relative to B is removed from S.
+- **Rules** are keyed by agent name for rules and by capability name for capability rules.
+  - A rule O added is added to S at the end, in O's order.
+  - If S has a rule with the same key, the two combine: members as above, and bounds as below.
+  - A capability rule that S binds to another host is not added. That claim is dropped.
+  - A rule O removed is removed from S.
+- **Bounds** are `max_message_bytes`, `max_artifact_bytes`, `max_input_bytes`, `max_calls_per_hour`, and `allow_disconnected`. A bound O changed takes O's value if S still has B's value; otherwise the more restrictive value: the lower number, or `false`. An absent `max_artifact_bytes` counts as 0.
+- **Empty rules.** A rule left without principals or actions is removed. A capability rule left without principals stays as a claim.
+
+**A withdrawal wins.** An addition dropped by the merge, because S removed its rule or bound its capability name to another host, is not re-applied later. The daemon records `network.policy_edit_dropped`, with the subject `<person_id>/<seq>`, and lists it in status item 17 for 7 days.
+
+**Withdrawals apply at once on this host.** While an edit of this host is unsettled, this host applies that edit's removals when it authorizes requests under that policy, as if the stored policy contained them. Removals are principals and actions removed from a rule, rules removed, lowered bounds, and trusted hosts removed. Its additions apply only once a stored policy reflects them. An owner's withdrawal for an agent or capability on the host where it is made therefore holds even before it settles.
+
+**Status.**
+- **Attention item 16, `policy_edit_unsettled`.** An edit of this host has been unsettled for more than 1 minute, usually because no key is available. The subject is the network ID, and the command is `peerspan access renew --network ID`.
+- **Attention item 17, `policy_edit_dropped`.** An addition was dropped in the last 7 days. The subject is `<network_id>/<seq>`, the detail names each dropped principal, action, rule, or claim, and the command is `peerspan access show --network ID`.
+
+`access sync --status` adds `edits: [{seq, state, signed_version, dropped}]`, the recorded edits sorted by number, where `state` is `settled` or `unsettled`.
+
+**Retention.** An edit record is kept for 30 days after it was signed, and the newest edit record of each network is always kept.
 
 **Peer routes**, on the peer router:
 
@@ -585,7 +627,18 @@ CREATE TABLE policy_deliveries (network_id TEXT NOT NULL, person_id TEXT NOT NUL
 PRAGMA user_version = 12;
 ```
 
-A delivery's `record` is its status fields plus `policy`, the policy being delivered. Older binaries reject version 12. New activity kinds:
+A delivery's `record` is its status fields plus `policy`, the policy being delivered. Older binaries reject version 12.
+
+Database version 17 adds the edit records of [Concurrent edits](#concurrent-edits):
+
+```sql
+CREATE TABLE policy_edits (network_id TEXT NOT NULL, seq INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, seq));
+PRAGMA user_version = 17;
+```
+
+A record is `{seq, state, start, signed, signed_version, dropped, reserved_at, signed_at}`, where `state` is `reserved`, `settled`, or `unsettled`; `start` is the policy returned with the reservation; `signed` is the submitted policy, null while reserved; and `dropped` lists dropped additions. Older binaries reject version 17, and the activity kind `network.policy_edit_dropped` is added.
+
+New activity kinds of version 12:
 - `network.policy_delivered`, with the subject `<person_id>/<target>`;
 - `network.policy_synced`, recorded when a sync stored a newer policy, with the subject `<person_id>/<sibling>`.
 
@@ -593,6 +646,9 @@ A delivery's `record` is its status fields plus `policy`, the policy being deliv
 - a withdrawal signed on one host while the coordinator is stopped: the sibling stores it by direct push, refuses the sender under the withdrawn rule, and the coordinator receives it once restarted;
 - a sibling offline during the push, catching up on restart and by sync;
 - concurrent same-version policies from both siblings converging on the tie-break winner;
+- concurrent edits, each signed from the same version while the other sibling and the coordinator are stopped: both shares present after re-applying; an `unshare` racing a sibling's renewal, refused on the withdrawing host at once and settled after; an addition racing a removal of its rule, dropped with item 17; and without a renewal key, item 16 until the next CLI edit settles it;
+- the edit route, edit numbers in `edits`, a lapsed reservation refused, renewals copying `edits`, and `access sync --status` listing edits;
+- migration from version 16 to version 17;
 - refusal of pushes and fetches from a non-sibling, and of lower versions;
 - `access sync` and its status;
 - migration from version 11 to version 12.

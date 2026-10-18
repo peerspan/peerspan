@@ -22,6 +22,8 @@ Slice 1 covers MCP sources and owner calls from the CLI. These come later:
 
 **Decided with the owner on 2026-10-17:** the [owner decisions](#owner-decisions) below, including raw sources for the person's own machines behind a two-sided gate.
 
+**Decided with the owner on 2026-10-18:** a capability's name is claimed in the person's policy when the capability is created, so `PERSON/CAPABILITY` names one capability everywhere. A policy edit lost to a concurrent one is re-applied, as specified under [Concurrent edits](coordination-contract.md#concurrent-edits).
+
 ## Model
 
 | Term | Meaning |
@@ -30,7 +32,8 @@ Slice 1 covers MCP sources and owner calls from the CLI. These come later:
 | **Snapshot** | The tools and resources a source reported when the host last listed them. |
 | **Capability** | The owner's named, host-local definition of one use case. It binds a source, selected operations, and the credential context that serves calls. |
 | **Operation** | One thing a capability lets a caller do. It is either a selected MCP tool, named as the tool, or `read`, which reads one of the capability's selected resources. |
-| **Share** | A `capability_rule` in the owner's signed policy. It names the host that serves the capability, and lets principals call that capability's operations there. |
+| **Claim** | A `capability_rule` with no principals. It reserves the capability's name for the host that serves it, and authorizes nothing. |
+| **Share** | A principal in the capability's rule. It lets that principal call the capability's operations on the host the rule names. |
 | **Call** | One invocation of an operation by a peer, persisted on both hosts. |
 
 **Names.**
@@ -153,15 +156,23 @@ A capability record is:
 
 | CLI | Local API | Behavior |
 | --- | --- | --- |
-| `capability create NAME --from SOURCE [--operations OP[,OP...]] [--resources all\|URI[,URI...]] [--env-file PATH] [--arg A ...]` | `POST /v1/capabilities` with `{name, source, operations, resources, env_file, args}` | Creates the record, without sharing it. `SOURCE` is `AGENT/SERVER` as `sources` shows it, or `SERVER` when exactly one agent on this host has it. The source must be `shareable`, and each operation and URI must be in its snapshot. A capability with its own credential is snapshotted with that credential, and its operations are checked against that snapshot. Returns 201 with the record; an identical repeat returns 200; a different record under the same name returns 409. |
+| `capability create NAME --from SOURCE [--operations OP[,OP...]] [--resources all\|URI[,URI...]] [--env-file PATH] [--arg A ...] [--person-key PATH]` | `POST /v1/capabilities` with `{name, source, operations, resources, env_file, args, policies}` | Creates the record and claims its name (see [Claims](#claims)), without sharing it. `SOURCE` is `AGENT/SERVER` as `sources` shows it, or `SERVER` when exactly one agent on this host has it. The source must be `shareable`, and each operation and URI must be in its snapshot. A capability with its own credential is snapshotted with that credential, and its operations are checked against that snapshot. Returns 201 with the record; an identical repeat signs nothing and returns 200; a different record under the same name returns 409. |
 | `capability list [--json]` / `capability show NAME` | `GET /v1/capabilities`, `GET /v1/capabilities/{name}` | The records, each with its recipients from this person's stored policies. |
 | `capability remove NAME [--yes]` | `DELETE /v1/capabilities/{name}` | Removes the record. If it is shared, it first shows the recipients and asks for confirmation (`y` at a terminal, or `--yes`). It then removes this host's rule for the capability from every network's policy, signing and storing new versions, and deletes the record only after every one of them is stored. If any signing fails, the command fails and the record is kept. Policies already signed stay signed, and repeating the command finishes the removal. |
 
-**Uniqueness.**
-- **On this host.** A capability name is unique on its host.
-- **Across the person's hosts.** `capability create` and `share` refuse a name that a capability rule in any of this person's stored policies binds to another host, with 409. This check is local, so it also covers hosts that are offline.
-- **Unshared duplicates.** A name used on two hosts but shared from at most one cannot be detected from policy. It confers nothing, because every rule names its host (see [Authorization](#authorization)). Trusted hosts reach both copies through self access and must use `HOST_ID/CAPABILITY` when `PERSON/CAPABILITY` is ambiguous.
-- **Status item 15** reports a name on this host that a stored rule binds to another host, which arises only when a policy from another host arrives after a local `capability create`. Its details are to be revisited with the owner.
+**Uniqueness.** A capability name is unique on its host, and claimed across the person's hosts.
+
+### Claims
+
+A claim is a capability rule with no principals. It binds the name to the host that serves the capability, so a person's capability names are unique across their hosts, and `PERSON/CAPABILITY` names one capability for every caller, including the person's own trusted machines.
+- **At creation.** `capability create`, and the guided share when it creates, claim the name in this person's policy for every network in which this host is bound to that person. The CLI gets each policy from the edit route ([Concurrent edits](coordination-contract.md#concurrent-edits)), adds a rule for this host with no principals, `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100, and signs each as an edit. It sends the signed policies in `policies` with the record. The daemon checks the record, then stores the policies and the record in one transaction, and submits the policies as any policy. A refusal stores nothing.
+- **Refusal.** A name that a capability rule in any of this person's stored policies binds to another host is refused with 409, before anything is signed. The check is local, so it also covers hosts that are offline.
+- **The guided share** signs one policy per network: in the selected network, the rule with its principal; in the others, the claim.
+- **A host without a person** creates the record without claims, and `policies` is empty. Nothing can use such a capability until the host is bound.
+- **A network bound later.** A network in which the name is not yet claimed gains the claim at the next `share` in it, which refuses the name if another host holds it there.
+- **`unshare`** that removes the last principal keeps the rule as a claim.
+- **`capability remove`** removes the rule, claim included.
+- **Concurrent claims.** Two hosts that claim one name while out of contact sign policies that cannot both stand, because a policy binds a name to one host. One wins; the other host's re-applied edit drops its claim, as a withdrawal wins over a concurrent addition. Status item 15 then reports the capability.
 
 ### Policy statement, version 2
 
@@ -172,19 +183,21 @@ The policy statement's header line is `peerspan-policy-v2`. Its lines are:
    1. `capability_rule`;
    2. the host ID of the host that serves the capability;
    3. the capability name;
-   4. the principals, space-separated;
+   4. the principals, space-separated, which is an empty line for a claim;
    5. `max_input_bytes`, `allow_disconnected`, and `max_calls_per_hour`, space-separated;
    6. `end`;
-4. a final line, `trusted` followed by host IDs, space-separated and sorted in byte order. With none, it is the bare word `trusted`.
+4. a line `trusted` followed by host IDs, space-separated and sorted in byte order. With none, it is the bare word `trusted`;
+5. a final line `edits` followed by `HOST_ID:SEQ` entries, space-separated and sorted in byte order, as defined under [Concurrent edits](coordination-contract.md#concurrent-edits). With none, it is the bare word `edits`.
 
 Lines are joined with `\n`, with no trailing newline, as in v1.
 
-**JSON.** It adds `format: 2`, `capability_rules`, and `trusted_hosts`. Each capability rule is `{host, capability, principals, max_input_bytes, allow_disconnected, max_calls_per_hour}`. The keys are, in order, `format`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`, `rules`, `capability_rules`, `trusted_hosts`, `signature`. A v1 policy is stored in its v1 JSON shape.
+**JSON.** It adds `format: 2`, `capability_rules`, `trusted_hosts`, and `edits`. Each capability rule is `{host, capability, principals, max_input_bytes, allow_disconnected, max_calls_per_hour}`, where `principals` is `[]` for a claim. `edits` is `[{host, seq}]`, sorted by host. The keys are, in order, `format`, `network_id`, `person_public_key`, `version`, `issued_at`, `valid_until`, `rules`, `capability_rules`, `trusted_hosts`, `edits`, `signature`. A v1 policy is stored in its v1 JSON shape.
 
 **Bounds and validation.**
 - `max_input_bytes` is 1 to 262,144, and bounds the JSON encoding of the call's `input`.
 - `max_calls_per_hour` is 1 to 10,000.
-- At most 64 capability rules, at most one rule per capability name, and 64 principals per rule. A name is bound to one host per policy, so two rules for the same name on different hosts are refused with 400.
+- At most 256 capability rules, claims included, at most one rule per capability name, and 0 to 64 principals per rule. A name is bound to one host per policy, so two rules for the same name on different hosts are refused with 400.
+- At most 256 `edits` entries, each a host ID without duplicates, with `seq` from 1 to 2^53 − 1.
 - The host is a host ID; it need not be in the network map when the policy is signed.
 - At most 64 trusted hosts, each a host ID, without duplicates.
 - Principals are as for rules.
@@ -192,28 +205,31 @@ Lines are joined with `\n`, with no trailing newline, as in v1.
 - A capability name that does not match the name pattern, or a malformed line, is refused with 400.
 
 **Compatibility.**
-- Coordinators and hosts that implement this contract accept v1 and v2. A v1 policy reads as v2 with no capability rules and no trusted hosts.
+- Coordinators and hosts that implement this contract accept v1 and v2. A v1 policy reads as v2 with no capability rules, no trusted hosts, and no edits.
+- Claims and the `edits` line amend v2 before any release. Software built to the earlier v2 text rejects them; nothing outside test runs signed that form.
 - The CLI and daemon renewal always sign v2.
 - Older software rejects v2, which is the clean break: coordinators are upgraded first.
-- Versions, the tie-break hash over the v2 lines, renewal, propagation, and storage are unchanged.
+- Versions, the tie-break hash over the v2 lines, propagation, and storage are unchanged. A renewal copies `edits`. Concurrent edits are re-applied as specified in the coordination contract.
 - The directory never shows capability rules.
 
-**Test vector.** Both implementations generate it independently from the inputs below. It is adopted only when both produce the same statement.
+**Test vector.** Both implementations generate it independently from the inputs below. It is adopted only when both produce the same statement. The amended inputs replace the vector adopted on 2026-10-17.
 - **Owner and network:** the earlier person as owner, in the network of the v1 vector.
 - **Validity:** version 1, issued `2026-10-10T00:00:00Z`, valid until `2026-10-17T00:00:00Z`.
 - **Rules:** the two v1 vector rules.
 - **Capability rule `github-issues`:** host `host_` followed by 64 `a`s, principal `person:person_72456720412037a6b339f884ce6d91bb4cc163a7dc3e4c58c658e6c2097b92a2`, bounds `65536 false 100`.
 - **Capability rule `docs`:** host `host_` followed by 64 `b`s, principal `group:backend`, bounds `4096 true 10`.
+- **Claim `notes`:** host `host_` followed by 64 `a`s, no principals, bounds `65536 false 100`.
 - **Trusted hosts:** `host_` followed by 64 `b`s and `host_` followed by 64 `a`s, given in that order.
+- **Edits:** `host_` followed by 64 `b`s at 1, and `host_` followed by 64 `a`s at 3, given in that order.
 
 ### Sharing
 
 | CLI | Behavior |
 | --- | --- |
-| `share NAME --with PRINCIPAL [--calls-per-hour N] [--yes] [--network ID]` | Grants PRINCIPAL access to the existing capability NAME on this host. It shows the review below and asks for confirmation. It then adds PRINCIPAL to the capability's rule for this host, creating the rule with `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100 or `--calls-per-hour`. When the rule exists, `--calls-per-hour` replaces its limit for every recipient, and the review lists the old and new limits and the recipients affected; without the flag the existing limit is kept. Finally it signs and submits the next version. Sharing again with a principal already in the rule and no limit change signs nothing. |
+| `share NAME --with PRINCIPAL [--calls-per-hour N] [--yes] [--network ID]` | Grants PRINCIPAL access to the existing capability NAME on this host. It shows the review below and asks for confirmation. It then adds PRINCIPAL to the capability's rule for this host, which is usually its claim, creating the rule when the network has none with `max_input_bytes` 65,536, `allow_disconnected` false, and `max_calls_per_hour` 100 or `--calls-per-hour`. When the rule exists, `--calls-per-hour` replaces its limit for every recipient, and the review lists the old and new limits and the recipients affected; without the flag the existing limit is kept. Finally it signs and submits the next version. Sharing again with a principal already in the rule and no limit change signs nothing. |
 | `share --with PRINCIPAL [--from SOURCE --operations … --resources … --name NAME --env-file … --arg …] [--yes] [--network ID]` | The guided first share. At a terminal it asks, in order, for: the source (from `sources`), the operations, whether to include resources, and the capability name, suggesting the server name. Then it shows the review and asks for confirmation. On confirmation it creates the capability and shares it. Without a terminal, every selection must be given as a flag, plus `--yes`. Otherwise it refuses with nothing created. |
 | `shares [--json] [--network ID]` | Every capability on this host and every capability rule in this person's stored policies. Each shows its source, operations, credential context, recipients (labels where they resolve), and state, and the `unshare` command for each recipient. |
-| `unshare NAME --with PRINCIPAL [--network ID]` | Removes PRINCIPAL from the capability's rule for this host, drops the rule when it empties, and signs the next version. Its output says that PRINCIPAL's future calls are denied, that calls already running finish, and that queued calls are refused when they would start. When PRINCIPAL was not in the rule, it reports `removed: 0` with a note explaining that access through a group or `everyone` is unaffected, and signs nothing. |
+| `unshare NAME --with PRINCIPAL [--network ID]` | Removes PRINCIPAL from the capability's rule for this host, keeping the rule as a claim when it empties, and signs the next version. Its output says that PRINCIPAL's future calls are denied, that calls already running finish, and that queued calls are refused when they would start. When PRINCIPAL was not in the rule, it reports `removed: 0` with a note explaining that access through a group or `everyone` is unaffected, and signs nothing. |
 | `trust [HOST] [--network ID]` / `untrust HOST [--network ID]` | Adds the host to, or removes it from, `trusted_hosts` in this person's policy for the selected network, then signs and submits that policy's next version. `--network` is optional when this host belongs to exactly one network. `HOST` defaults to this host, and for `trust` it must be bound to this person in the selected network. Without a change, it signs nothing. |
 
 **The review.** Before every confirmation, `share` prints to stderr:
@@ -244,7 +260,7 @@ It then states the reach: `PRINCIPAL can use these operations with the credentia
 
 A receiving host bound to person P authorizes a call to its capability C, operation O, when the call cites one of the following.
 
-**Policy.** P's newest verified policy for the cited network has a capability rule for C whose host is this host and whose principals match the sender, as for rules. A rule naming another host never authorizes a call here.
+**Policy.** P's newest verified policy for the cited network has a capability rule for C whose host is this host and whose principals match the sender, as for rules. A rule naming another host never authorizes a call here, and a claim authorizes no one. While an edit made on this host is unsettled, its withdrawals apply here at once ([Concurrent edits](coordination-contract.md#concurrent-edits)).
 
 **Self.** In the network N that the call cites:
 - the sender and the receiver are both bound to P;
@@ -401,7 +417,7 @@ The receiver stores the request, the status record, and the result. Seven days a
 - **`capabilities: {sources, capabilities, shared, calls_running}`.** These count:
   - discovered sources on this host;
   - capabilities on this host;
-  - capabilities on this host named by at least one rule for this host in this person's stored policies;
+  - capabilities on this host named by a rule for this host with at least one principal in this person's stored policies;
   - received calls in `running`.
 
   The object also contains `open_to`, the number of entries in this host's open list.
@@ -413,7 +429,7 @@ The receiver stores the request, the status record, and the result. Seven days a
   - a capability that is `unavailable`.
 
   The subject is `AGENT/SERVER`, `CAPABILITY`, or `env`. The command is `peerspan sources refresh --agent AGENT`, `peerspan capability show NAME`, or `chmod 600 PATH`.
-- **Attention item 15, `capability_name_conflict`.** A capability name on this host is bound to another host by a capability rule in one of this person's stored policies. The subject is the name, and the command is `peerspan capability remove NAME` on one of them.
+- **Attention item 15, `capability_name_conflict`.** A capability name on this host is bound to another host by a capability rule in one of this person's stored policies, which happens only when a concurrent claim was lost ([Claims](#claims)). The capability still works through self access, but cannot be shared under its name. The subject is the name. The command is `peerspan capability create NEW_NAME --from AGENT/SERVER`, with the capability's operations and credential options, followed by `peerspan capability remove NAME`.
 
 ## Persistence
 
@@ -476,12 +492,14 @@ Activity never includes inputs, results, or secret values.
 
 ### Capabilities
 
-- **`POST /v1/capabilities` body.** It is `{name, source: {agent, server}, operations, resources, env_file, args}`.
+- **`POST /v1/capabilities` body.** It is `{name, source: {agent, server}, operations, resources, env_file, args, policies}`.
   - A null `operations` means none, and a null `resources` means no `read`.
   - `args` is absent or an array.
+  - `policies` holds one signed policy for each network in which this host is bound to its person, each the stored policy's successor with this host's claim for `name`. It is `[]` for a host without a person.
 - **Refusals.**
   - An unknown agent or source is 404.
   - An invalid body or name, a non-shareable source, an operation or URI not in the snapshot, an operation named `read`, or a missing `env_file` is 400.
+  - A missing policy for a network in which this host is bound, a policy without this host's claim for `name`, or a policy that fails verification is 400.
   - A name in use on this host, or bound to another host by a stored capability rule, is 409.
 - **`GET /v1/capabilities`** returns `{capabilities: [RECORD + {recipients: [{network_id, principal, label}]}]}`, sorted by name.
 - **`GET /v1/discover`** follows the `discover` JSON above.
@@ -503,12 +521,13 @@ It covers:
   - `capability create` with operations, resources, and both;
   - its own credential context: a separate instance, the whole `env_file`, and `args`;
   - refusals: a non-shareable source, an unknown operation or URI, a tool named `read`, a name containing `/`, a missing `env_file`, a name in use on this host, and a name a stored rule binds to another host;
+  - claims: one per network at creation, in the guided share, at the first `share` in a network bound later, kept after the last `unshare`, removed with the capability, never authorizing, and none for a host without a person;
   - repeat and conflict;
   - `list`, `show`, and `remove`, with and without shares;
   - `unavailable` when a source or tool disappears, and recovery when it returns;
-  - item 15.
+  - item 15, after two hosts each claim one name while the other and the coordinator are stopped.
 - **Policy v2:**
-  - capability rule lines and JSON, validation including a name bound to two hosts, and v1 acceptance;
+  - capability rule lines and JSON, claims, the `edits` line, validation including a name bound to two hosts, and v1 acceptance;
   - coordinator acceptance, sibling propagation, and the tie-break;
   - the adopted test vector.
 - **Sharing:**
@@ -557,10 +576,15 @@ It covers:
 Settled with the owner on 2026-10-17.
 1. **Operations.** An MCP tool operation keeps the tool's name, as the server gives it. Owners cannot rename operations, and Peerspan-defined operations come with adapters. Resources are read through one `read` operation, and a tool named `read` cannot be selected in slice 1.
 2. **Write tools.** They may be selected when creating a capability. The review marks them `(can change things)` and states the credential's reach. A narrower credential is optional, not required; argument rules are later work.
-3. **Name uniqueness.** Each capability rule names the host that serves it, so a duplicate name on another host is never authorized by accident. Names are checked at creation and at sharing against the person's stored rules. An unshared duplicate shows only as an ambiguous `PERSON/CAPABILITY`, resolved with `HOST_ID/CAPABILITY`. Status item 15 is to be revisited.
+3. **Name uniqueness.** Each capability rule names the host that serves it, so a duplicate name on another host is never authorized by accident. Revised on 2026-10-18: the name is claimed in the person's policy at creation, so names are unique across the person's hosts and `PERSON/CAPABILITY` is never ambiguous, even for the person's own machines. Status item 15 reports only a claim lost to a concurrent one.
 4. **Confirmation.** Every `share` shows the review and asks for confirmation, not only the first. `--yes` skips it.
 5. **Removal.** `capability remove` also withdraws the capability's shares, after confirmation. Every affected policy is signed before the record is deleted.
 6. **Sources for the person's own machines.** Trusted machines may call raw sources, each as an implicit capability with every tool and resource, on the serving machine's credentials. The serving machine must also list the caller in its local open list, which starts empty and is never in policy, so the person key alone never opens a machine's sources. Sources are never shared with others.
 7. **`--KEY VALUE`** options fill top-level scalar input properties, as in the CLI experience's `--repo acme/api` example. `call`'s own flags win on a clash.
 8. **After `unshare`,** running calls finish, queued ones are refused at start, and the output says so.
 9. **Agent registration.** `agent register --capability` is renamed `--label`, with `--capability` kept as an alias, to avoid two meanings of "capability". The API field is unchanged.
+
+Settled with the owner on 2026-10-18:
+
+10. **Claims.** Capabilities stay host-local, but their names are claimed in the person's signed policy at creation. The policy is the person's shared record, carried but not controlled by the coordinator. Creating a capability therefore needs the person key, and unshared capability names are visible to coordination.
+11. **Concurrent edits are re-applied.** A host whose policy edit loses to a concurrent one signs it again on top of the winner. A withdrawal wins over a concurrent addition. See [Concurrent edits](coordination-contract.md#concurrent-edits).
