@@ -1224,23 +1224,6 @@ impl Store {
         Ok(out)
     }
 
-    /// Records each rule a version 2 signing dropped from a version 1
-    /// policy with several rules for one agent.
-    pub(crate) fn note_rule_drops(&self, person: &str, agents: &[String]) -> Result<(), Error> {
-        let mut connection = self.connection()?;
-        let tx = connection.transaction()?;
-        let at = now();
-        for agent in agents {
-            append_event(
-                &tx,
-                "network.policy_rule_dropped",
-                &format!("{person}/{agent}"),
-                &at,
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
     pub fn access_blocks(&self) -> Result<Vec<AccessBlock>, Error> {
         crate::peer_store::records(
             &*self.connection()?,
@@ -1383,14 +1366,8 @@ pub(crate) async fn renew(store: Arc<Store>) {
             }
         };
         let dropped = policy.content().dedup_rules();
-        match crate::policy_sync::submit(store.clone(), network, renewed).await {
-            Ok(_) => {
-                if !dropped.is_empty() {
-                    let person = policy.person_id();
-                    let _ = blocking(store.clone(), move |s| s.note_rule_drops(&person, &dropped))
-                        .await;
-                }
-            }
+        match crate::policy_sync::submit_noting(store.clone(), network, renewed, dropped).await {
+            Ok(_) => {}
             // A sibling's concurrent renewal of the same version may win the
             // tie-break; this host keeps that one.
             Err(Error::Conflict(_)) => {}
