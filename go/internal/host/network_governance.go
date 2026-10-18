@@ -31,6 +31,10 @@ const (
 	kindPersonStatement = "person"         // subject: person key; a PersonProof
 	kindHostAdmission   = "host_admission" // subject: host key
 	kindBinding         = "binding"        // subject: host key
+	// A member's join statement, kept after the member is dropped so a
+	// host that joined through a root-revoked invite can still be named
+	// by host ID (retired policy edits entries).
+	kindMembership = "membership" // subject: host key
 	// A person removal is stored apart from the "person" admission kind; it
 	// is the "person" kind in a map's revocations.
 	kindPersonRemoval = "person_removal"
@@ -137,7 +141,7 @@ func loadStatements(ctx context.Context, q queryer, network string) (persistedSt
 			p.rotations = append(p.rotations, rotation)
 		case kindAttestation:
 			p.attestations = append(p.attestations, r.statement)
-		case kindPendingRotation, kindBinding, kindMoveApplied:
+		case kindPendingRotation, kindBinding, kindMoveApplied, kindMembership:
 		case kindMove:
 			p.move = r.statement
 		case kindPersonStatement:

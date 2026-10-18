@@ -690,6 +690,11 @@ func (s *Store) replaceMembers(ctx context.Context, tx *sql.Tx, network string, 
 		if err = putJSON(ctx, tx, "INSERT INTO network_members (record, network_id, host_id) VALUES (?, ?, ?)", member, network, member.HostID); err != nil {
 			return err
 		}
+		if member.Membership != nil && member.Membership.HostPublicKey == member.PublicKey {
+			if err = putRecord(ctx, tx, network, kindMembership, member.PublicKey, member.Membership); err != nil {
+				return err
+			}
+		}
 		if !previous[member.HostID] && member.HostID != s.identity.ID {
 			if err = appendEvent(ctx, tx, "network.member_added", member.HostID, now); err != nil {
 				return err

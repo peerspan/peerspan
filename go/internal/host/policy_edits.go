@@ -190,6 +190,8 @@ func (s *Store) retiredDropped(ctx context.Context, q dbQuerier, network string,
 		}
 	}
 	if len(rootInvites) > 0 {
+		// Hosts that joined through such an invite: current members, and
+		// the join statements kept for members already dropped.
 		members, err := records[NetworkMember](ctx, q, `SELECT record FROM network_members WHERE network_id = ?`, network)
 		if err != nil {
 			return nil, err
@@ -197,6 +199,15 @@ func (s *Store) retiredDropped(ctx context.Context, q dbQuerier, network string,
 		for _, m := range members {
 			if rootInvites[m.inviteKey()] {
 				retired[m.HostID] = true
+			}
+		}
+		joined, err := records[membership.Membership](ctx, q, `SELECT record FROM network_statements WHERE network_id = ? AND kind = ?`, network, kindMembership)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range joined {
+			if key, err := membership.DecodeKey(m.HostPublicKey); err == nil && rootInvites[m.InvitePublicKey] {
+				retired[membership.HostID(key)] = true
 			}
 		}
 	}

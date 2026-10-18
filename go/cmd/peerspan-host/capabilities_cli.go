@@ -683,11 +683,19 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		// An identical capability that already exists is not created again;
 		// otherwise creating it claims the name in every network and shares
 		// it in this one, in one policy per network.
-		if _, existsErr := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil); existsErr != nil {
-			createSpec, err := createBody(listing, spec)
-			if err != nil {
+		createSpec, err := createBody(listing, spec)
+		if err != nil {
+			return err
+		}
+		if _, existsErr := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil); existsErr == nil {
+			// The create request is always made: an identical capability
+			// answers 200 and is shared below; a different one under the
+			// name answers 409, and nothing is shared.
+			createSpec["policies"] = []membership.Policy{}
+			if _, err = client.Call(ctx, "POST", "/v1/capabilities", createSpec); err != nil {
 				return err
 			}
+		} else {
 			_, signed, err := createWithClaims(ctx, client, keyPath, name, createSpec, network, principal, calls)
 			if err != nil {
 				return err
