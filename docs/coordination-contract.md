@@ -566,11 +566,13 @@ Decided on 2026-10-18. A policy is one signed statement per person and network, 
 
 **Edits.** An edit is a policy signed by a CLI command on this host that changes the rules: `access allow`, `access deny`, `share`, `unshare`, `trust`, `untrust`, `capability create`, `capability remove`, and the trust signing in `join` and `network create`. Renewals, by the daemon or by `access renew`, are not edits.
 
-**Edit numbers.** Each edit gets a number from this host's daemon, unique per network and increasing. A v2 policy's `edits` line records, for each host, the highest number of that host's edits the policy reflects. A policy reflects edit k of host H when its entry for H is at least k; a host without an entry, or a v1 policy, reflects none.
-- **Signing an edit.** The CLI gets its starting point from `GET /v1/networks/{id}/policy/edit`, which returns `{policy, version, seq}`. `policy` is the newest stored policy with this host's unsettled edits re-applied, by the merge below; it is the stored policy when there are none, and null when there is no policy. `version` is the stored version, or 0 without one. `seq` is reserved for this edit. An unknown network, or one in which this host is not bound, returns 404. The CLI applies its change to `policy`, or to an empty policy when it is null, sets the version to `version` + 1, sets this host's `edits` entry to `seq`, keeps the other entries, signs, and submits through the existing route. It never starts from `GET /v1/networks/{id}/policy`.
+**Edit numbers.** Each edit gets a number from this host's daemon, unique and increasing per network and policy owner. An edit belongs to the person whose policy it changes, and only that person's policies settle or re-apply it. A v2 policy's `edits` line records, for each host, the highest number of that host's edits the policy reflects. A policy reflects edit k of host H when its entry for H is at least k; a host without an entry, or a v1 policy, reflects none.
+- **A change of owner.** When this host stops being bound to a person in a network, by `network unbind`, a binding to another person, or that person's removal, its edits for that person in that network become `closed`, unsettled ones included. They are never re-applied or signed under another person.
+- **Retired entries.** Whoever signs a policy, for an edit, a re-application, or a renewal, drops the `edits` entries of hosts that are neither the signer nor one of its current siblings for the owner. A host that rejoins or binds again starts without an entry, so its earlier edits look unsettled; re-applying them leaves the content unchanged when they are already present, and they become `closed`. This keeps the entries within 256 as hosts come and go.
+- **Signing an edit.** The CLI gets its starting point from `GET /v1/networks/{id}/policy/edit`, which returns `{policy, version, seq}`. `policy` is the newest stored policy with this host's unsettled edits re-applied, by the merge below; it is the stored policy when there are none, and null when there is no policy. `version` is the stored version, or 0 without one. `seq` is reserved for this edit. An unknown network, or one in which this host is not bound, returns 404. The CLI applies its change to `policy`, or to an empty policy when it is null, sets the version to `version` + 1, sets this host's `edits` entry to `seq`, keeps the other entries except retired ones, signs, and submits through the existing route. It never starts from `GET /v1/networks/{id}/policy`.
 - **One edit at a time.** Reservations are serialized per network: a new reservation replaces any unused earlier one. The daemon refuses with 409 `edit_conflict` a submission whose `seq` is not the newest reservation, or whose version is not the stored version + 1, for example because a sibling's policy or a re-applied edit was stored in between. The CLI then starts again from the edit route, at most 3 times. Every stored edit is therefore built on the stored policy with all earlier edits of this host settled or re-applied, which is what lets one number stand for all lower ones.
 - **Recording.** The daemon records the edit when it stores the submitted policy: its number, its starting point (the `policy` returned with that `seq`), and the signed policy. A reservation not used within 10 minutes lapses, and a policy citing a lapsed or unknown `seq` for this host is refused with 400.
-- **Renewals** copy `edits`.
+- **Renewals** copy `edits`, except retired entries.
 
 **Settling.** An edit record is in one of these states:
 - `settled` while the newest stored policy reflects it;
@@ -579,7 +581,7 @@ Decided on 2026-10-18. A policy is one signed statement per person and network, 
 
 **Re-applying.** Whenever the newest stored policy stops reflecting edits of this host, the daemon waits a random 0 to 2 seconds, then:
 1. re-applies every `unsettled` edit, in number order, to the newest stored policy, by the merge below;
-2. if the content changed, signs the result as the stored version + 1, with this host's `edits` entry set to the highest re-applied number, the other entries unchanged, `issued_at` now, and the last edit's duration, then submits it as any policy;
+2. if the content changed, signs the result as the stored version + 1, with this host's `edits` entry set to the highest re-applied number, the other entries unchanged except retired ones, `issued_at` now, and the last edit's duration, then submits it as any policy;
 3. if the content is unchanged, signs nothing and marks those edits `closed`.
 
 It signs with the renewal key: the agent socket of `run --person-agent`, or the key file of `run --person-key-file`. Without one, the edits stay unsettled. The daemon tries again at each sync and whenever a policy is stored, and the edit route folds them into the next CLI edit, so the next command that signs for that network settles them. `access renew` also starts from the edit route, so it re-applies them too.
@@ -608,7 +610,7 @@ It signs with the renewal key: the agent socket of `run --person-agent`, or the 
 - A `settled` record is deleted once every current sibling has stored a policy that reflects it, and the coordinator has accepted one. A sibling counts when a sync fetch from it returns such a policy, or a push answer reports the `sha256` of a policy this host stored that reflects it. The coordinator counts when it answered 200 or 201 to the delivery of such a policy. A sibling that is no longer current stops counting.
 - A `closed` record is deleted after 7 days.
 - An `unsettled` record is never deleted.
-- The newest record of each network is always kept, so edit numbers keep increasing.
+- The newest record of each network and owner is always kept, so edit numbers keep increasing.
 
 **Peer routes**, on the peer router:
 
@@ -640,7 +642,7 @@ A delivery's `record` is its status fields plus `policy`, the policy being deliv
 Database version 17 adds the edit records of [Concurrent edits](#concurrent-edits):
 
 ```sql
-CREATE TABLE policy_edits (network_id TEXT NOT NULL, seq INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, seq));
+CREATE TABLE policy_edits (network_id TEXT NOT NULL, person_id TEXT NOT NULL, seq INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY(network_id, person_id, seq));
 PRAGMA user_version = 17;
 ```
 
@@ -656,6 +658,8 @@ New activity kinds of version 12:
 - concurrent same-version policies from both siblings converging on the tie-break winner;
 - concurrent edits, each signed from the same version while the other sibling and the coordinator are stopped: both shares present after re-applying; an `unshare` racing a sibling's renewal, refused on the withdrawing host at once and settled after; an addition racing a removal of its rule, dropped with item 17; and without a renewal key, item 16 until the next CLI edit settles it;
 - the edit route, edit numbers in `edits`, a lapsed reservation refused, two reservations on one host with the older submission refused as `edit_conflict` and succeeding on retry, a `closed` edit never re-applied, renewals copying `edits`, and `access sync --status` listing edits;
+- edits closed when the host binds to another person, never signed into the new owner's policy;
+- entries of a revoked host dropped by the next signer;
 - migration from version 16 to version 17;
 - refusal of pushes and fetches from a non-sibling, and of lower versions;
 - `access sync` and its status;

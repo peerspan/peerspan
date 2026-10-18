@@ -209,7 +209,7 @@ Lines are joined with `\n`, with no trailing newline, as in v1.
 - Claims and the `edits` line amend v2 before any release. Software built to the earlier v2 text rejects them; nothing outside test runs signed that form.
 - The CLI and daemon renewal always sign v2.
 - Older software rejects v2, which is the clean break: coordinators are upgraded first.
-- Versions, the tie-break hash over the v2 lines, propagation, and storage are unchanged. A renewal copies `edits`. Concurrent edits are re-applied as specified in the coordination contract.
+- Versions, the tie-break hash over the v2 lines, propagation, and storage are unchanged. A renewal copies `edits`, dropping retired entries. Concurrent edits are re-applied as specified in the coordination contract.
 - The directory never shows capability rules.
 
 **Test vector.** Both implementations generate it independently from the inputs below. It is adopted only when both produce the same statement. The amended inputs replace the vector adopted on 2026-10-17.
