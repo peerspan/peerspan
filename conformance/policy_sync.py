@@ -457,11 +457,12 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
                         return r
                 raise AssertionError('no lower-hash renewal found')
 
-            def call(version, text='x'):
+            def call(version, text='x', full=False):
                 body = {'call_id': 'call_' + os.urandom(16).hex(), 'capability': 'notes-a', 'operation': 'echo',
                         'input': {'text': text}, 'deadline': timestamp(300),
                         'policy': {'person_id': pat_id, 'network_id': net, 'version': version}}
-                return wire(alice, fixture_context(carol), 'POST', '/peer/v1/calls', body)[0]
+                status, value = wire(alice, fixture_context(carol), 'POST', '/peer/v1/calls', body)
+                return (status, value) if full else status
 
             use_agent(agents['pat'])
             net = alice.cli('network', 'create', '--name', 'edits', '--member', 'pat', '--coordinator', coord.address,
@@ -608,7 +609,16 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             coord.start()
             sync(alice, bob)
             carol.cli('network', 'sync', net)
-            assert call(mine(alice)['version']) == 200, 'quinn calls the shared capability'
+            # The share's rule has allow_disconnected false, so while alice reconnects after the coordinator's
+            # restart a call may get the recoverable 503 (capabilities contract, Authorization: Bounds); it is
+            # retried. Any other refusal fails at once.
+            def accepted():
+                status, value = call(mine(alice)['version'], full=True)
+                assert status in (200, 503), ('quinn calls the shared capability', status, value)
+                if status == 503:
+                    print(f'NOTE {label}: 503 while alice reconnects, retried: {value}', flush=True)
+                return status == 200
+            wait_for(accepted, timeout=30, message='quinn calls the shared capability (200 once alice is connected)')
 
             # --- An unshare racing a sibling's renewal: refused on the withdrawing host at once, settled after.
             keyed(alice, False)
@@ -775,6 +785,12 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             # --- Entries of a host revoked by an administrator are kept (PR #15): dave, pat's third machine, signs
             # an edit and is revoked by quinn; alice's next edit keeps dave's entry.
             d = join_pat(dave, 'daverule')
+
+            def carol_knows(host_id):
+                carol.cli('network', 'sync', net)
+                return host_id in {m['host_id'] for m in carol.cli('network', 'members', net)}
+            # carol (where quinn signs) must have dave in its own member view before revoking it.
+            wait_for(lambda: carol_knows(d), timeout=30, message='carol sees dave as a member')
             use_agent(agents['quinn'])
             carol.cli('network', 'revoke', '--network', net, '--host', d)
             use_agent(agents['pat'])
