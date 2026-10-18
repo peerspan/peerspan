@@ -1013,25 +1013,42 @@ pub(crate) async fn reapply(store: Arc<Store>, network: String) -> bool {
     };
     let signer = {
         let store = store.clone();
-        match tokio::task::spawn_blocking(move || store.renewal_signer(key)).await {
-            Ok(Ok(signer)) => signer,
+        let lookup = tokio::task::spawn_blocking(move || store.renewal_signer(key));
+        match tokio::time::timeout(Duration::from_secs(10), lookup).await {
+            Ok(Ok(Ok(signer))) => signer,
             // Without a key the edits stay unsettled.
             _ => return false,
         }
     };
     let at = Utc::now();
-    let signed = match Policy::sign_v2(
-        &signer,
-        &network,
+    // An ssh-agent answers over a blocking socket: sign off the runtime's
+    // worker threads, bounded in time.
+    let (n, version, content, edits, duration) = (
+        network.clone(),
         plan.stored.version + 1,
-        &rfc3339(at),
-        &rfc3339(at + plan.duration),
         plan.content.clone(),
         plan.edits.clone(),
-    ) {
-        Ok(p) => p,
-        Err(e) => {
+        plan.duration,
+    );
+    let signing = tokio::task::spawn_blocking(move || {
+        Policy::sign_v2(
+            &signer,
+            &n,
+            version,
+            &rfc3339(at),
+            &rfc3339(at + duration),
+            content,
+            edits,
+        )
+    });
+    let signed = match tokio::time::timeout(Duration::from_secs(10), signing).await {
+        Ok(Ok(Ok(p))) => p,
+        Ok(Ok(Err(e))) => {
             eprintln!("policy edit re-application signing failed: {e}");
+            return false;
+        }
+        _ => {
+            eprintln!("policy edit re-application signing did not finish");
             return false;
         }
     };

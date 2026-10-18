@@ -164,15 +164,20 @@ where
     }
 }
 
-/// The networks in which this host is bound to a person.
-async fn bound_networks(local: &Local<'_>) -> anyhow::Result<Vec<String>> {
+/// The networks in which this host is bound to a person, with that
+/// person's ID.
+async fn bound_networks(local: &Local<'_>) -> anyhow::Result<Vec<(String, String)>> {
     let status = local.get("/v1/status".into()).await?;
     Ok(status["networks"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|n| n["person"]["id"].is_string())
-        .filter_map(|n| n["id"].as_str().map(str::to_owned))
+        .filter_map(|n| {
+            Some((
+                n["id"].as_str()?.to_owned(),
+                n["person"]["id"].as_str()?.to_owned(),
+            ))
+        })
         .collect())
 }
 
@@ -201,15 +206,28 @@ async fn create_claimed(
         .get(format!("/v1/capabilities/{}", encoded(&name)))
         .await
         .is_ok();
-    let networks = if exists {
+    let bound = if exists {
         Vec::new()
     } else {
         bound_networks(local).await?
     };
-    let signer = if networks.is_empty() {
+    let signer = if bound.is_empty() {
         None
     } else {
         Some(PersonSigner::open(person_key).map_err(failed)?)
+    };
+    // Claims are signed in the networks where this host is bound to the
+    // signing person; the others gain theirs at the first share there.
+    let networks: Vec<String> = match &signer {
+        Some(signer) => {
+            let me = persons::person_id(&signer.public_key());
+            bound
+                .into_iter()
+                .filter(|(_, p)| *p == me)
+                .map(|(n, _)| n)
+                .collect()
+        }
+        None => Vec::new(),
     };
     let mut attempt = 0;
     loop {
@@ -666,57 +684,39 @@ async fn remove(
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
-    let networks = local.get("/v1/networks".into()).await?;
-    let mut signed = Vec::new();
-    let mut signer = None;
-    for n in networks.as_array().into_iter().flatten() {
-        let Some(network) = n["id"].as_str() else {
-            continue;
-        };
-        // A policy needs signing only if it holds this host's rule, claim
-        // included.
-        let holds = |p: &Value| {
-            p["capability_rules"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|r| {
-                    r["host"].as_str() == Some(host.as_str())
-                        && r["capability"].as_str() == Some(name)
-                })
-        };
-        match local
-            .get(format!("/v1/networks/{}/policy", encoded(network)))
-            .await
-        {
-            Ok(p) if holds(&p) => {}
-            Ok(_) => continue,
-            // No policy here; any other failure keeps the record.
-            Err(e)
-                if e.downcast_ref::<crate::integration::DaemonError>()
-                    .is_some_and(|d| d.status == 404) =>
-            {
-                continue;
-            }
-            Err(e) => return Err(e),
-        }
-        let me = match &signer {
-            Some(s) => s,
-            None => {
-                signer = Some(PersonSigner::open(person_key).map_err(failed)?);
-                signer.as_ref().expect("just set")
-            }
-        };
-        let (_, stored) = edit_policy(local, network, me, |content| {
-            let before = content.capability_rules.len();
-            content
-                .capability_rules
-                .retain(|r| !(r.host == host && r.capability == name));
-            Ok(content.capability_rules.len() != before)
-        })
+    // Every stored policy of the signing person with this host's rule,
+    // claim included, also in networks where this host is no longer bound;
+    // any failure keeps the record.
+    let holders = local
+        .get(format!("/v1/capabilities/{}/rules", encoded(name)))
         .await?;
-        if let Some(stored) = stored {
-            signed.push(json!({"network_id": network, "version": stored["version"]}));
+    let holders: Vec<(String, String)> = holders
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|h| {
+            Some((
+                h["network_id"].as_str()?.to_owned(),
+                h["person_id"].as_str()?.to_owned(),
+            ))
+        })
+        .collect();
+    let mut signed = Vec::new();
+    if !holders.is_empty() {
+        let signer = PersonSigner::open(person_key).map_err(failed)?;
+        let me = persons::person_id(&signer.public_key());
+        for (network, _) in holders.iter().filter(|(_, p)| *p == me) {
+            let (_, stored) = edit_policy(local, network, &signer, |content| {
+                let before = content.capability_rules.len();
+                content
+                    .capability_rules
+                    .retain(|r| !(r.host == host && r.capability == name));
+                Ok(content.capability_rules.len() != before)
+            })
+            .await?;
+            if let Some(stored) = stored {
+                signed.push(json!({"network_id": network, "version": stored["version"]}));
+            }
         }
     }
     let removed = crate::delete(local.0, format!("/v1/capabilities/{}", encoded(name))).await?;
