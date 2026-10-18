@@ -212,7 +212,14 @@ pub struct CreateCapability {
     /// Absent, or an array.
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub args: Option<Vec<String>>,
+    /// One signed policy for each network in which this host is bound to
+    /// its person, each claiming `name` for this host.
+    #[serde(default)]
+    pub policies: Option<Vec<Policy>>,
 }
+
+/// A checked new capability and its claims, by network.
+type Drafted = (CapabilityRecord, Vec<(String, Policy)>);
 
 impl Store {
     /// This host's person's stored policies, by network.
@@ -280,7 +287,7 @@ impl Store {
     }
     /// Checks a new capability and builds its record. Returns an existing
     /// identical record instead, when there is one.
-    fn draft(&self, c: CreateCapability) -> Result<Result<CapabilityRecord, Value>, Error> {
+    fn draft(&self, c: CreateCapability) -> Result<Result<Drafted, Value>, Error> {
         let conn = self.connection()?;
         let agent: Option<String> = conn
             .query_row(
@@ -379,7 +386,61 @@ impl Store {
                 c.name
             )));
         }
-        Ok(Ok(record))
+        let policies = self.claim_policies(&conn, &c.name, c.policies.unwrap_or_default())?;
+        Ok(Ok((record, policies)))
+    }
+    /// Checks the claims sent with a new capability: one policy for each
+    /// network in which this host is bound to its person, verified, signed
+    /// by that person, and binding `name` to this host.
+    fn claim_policies(
+        &self,
+        conn: &Connection,
+        name: &str,
+        mut given: Vec<Policy>,
+    ) -> Result<Vec<(String, Policy)>, Error> {
+        let me = self.identity().id;
+        let at = chrono::Utc::now();
+        let mut out = Vec::new();
+        for (network, own) in self.own_members(conn)? {
+            let Some(person) = &own.person_id else {
+                continue;
+            };
+            let Some(i) = given.iter().position(|p| p.network_id == network) else {
+                return Err(Error::Invalid(format!(
+                    "policies has no signed policy for network {network}, in which this host is bound"
+                )));
+            };
+            let p = given.remove(i);
+            p.verify(&network)?;
+            if !p.in_window(at) {
+                return Err(Error::Invalid(
+                    "a claim policy is not within its validity window".into(),
+                ));
+            }
+            if self.person_key(conn, &network, person)?.as_deref()
+                != Some(p.person_public_key.as_str())
+            {
+                return Err(Error::Invalid(format!(
+                    "the policy for network {network} is not signed by this host's person"
+                )));
+            }
+            if !p
+                .capability_rules()
+                .iter()
+                .any(|r| r.host == me && r.capability == name)
+            {
+                return Err(Error::Invalid(format!(
+                    "the policy for network {network} does not claim {name} for this host"
+                )));
+            }
+            out.push((network, p));
+        }
+        if !given.is_empty() {
+            return Err(Error::Invalid(
+                "policies holds a policy for a network in which this host is not bound, or two for one network".into(),
+            ));
+        }
+        Ok(out)
     }
     /// Checks the operations and URIs against the snapshot that will serve
     /// them, and stores the record.
@@ -387,6 +448,7 @@ impl Store {
         &self,
         mut record: CapabilityRecord,
         own: Option<Snapshot>,
+        policies: &[(String, Policy)],
     ) -> Result<Value, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -432,6 +494,11 @@ impl Store {
         if record.credential.own() {
             record.snapshot = snapshot;
         }
+        // The claims and the record are stored together; a refusal stores
+        // nothing.
+        for (network, p) in policies {
+            self.submit_local_in(&tx, network, p)?;
+        }
         save(&tx, &record)?;
         append_event(&tx, "capability.created", &record.name, &record.created_at)?;
         tx.commit()?;
@@ -460,7 +527,7 @@ impl Store {
                 policies.iter().any(|(_, p)| {
                     p.capability_rules()
                         .iter()
-                        .any(|r| r.host == me && r.capability == c.name)
+                        .any(|r| r.host == me && r.capability == c.name && !r.principals.is_empty())
                 })
             })
             .count();
@@ -524,13 +591,39 @@ impl Store {
         let mut out = Vec::new();
         for r in capability_records(&conn)? {
             if self.bound_elsewhere(&conn, &r.name)? {
+                let mut create = format!(
+                    "peerspan capability create NEW_NAME --from {}/{}",
+                    r.source.agent, r.source.server
+                );
+                if !r.operations.is_empty() {
+                    create.push_str(&format!(" --operations {}", r.operations.join(",")));
+                }
+                match &r.resources {
+                    Value::String(all) => create.push_str(&format!(" --resources {all}")),
+                    Value::Array(list) => create.push_str(&format!(
+                        " --resources {}",
+                        list.iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )),
+                    _ => {}
+                }
+                if let Some(file) = &r.credential.env_file {
+                    create.push_str(&format!(" --env-file {file}"));
+                }
+                for a in r.credential.args.iter().flatten() {
+                    create.push_str(&format!(" --arg {a}"));
+                }
                 out.push((
                     r.name.clone(),
                     format!(
-                        "a capability rule of yours binds {} to another host as well as this one",
+                        "a capability rule of yours binds {} to another host, because a concurrent claim of that name won; it still works through self access, addressed as {}/{} only, but cannot be shared under its name",
+                        r.name,
+                        self.identity().id,
                         r.name
                     ),
-                    format!("peerspan capability remove {}", r.name),
+                    format!("{create} && peerspan capability remove {}", r.name),
                 ));
             }
         }
@@ -570,8 +663,8 @@ async fn create_route(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<Value>), Error> {
     let request: CreateCapability = decode(body)?;
-    let record = match blocking(store.clone(), move |s| s.draft(request)).await? {
-        Ok(record) => record,
+    let (record, policies) = match blocking(store.clone(), move |s| s.draft(request)).await? {
+        Ok(drafted) => drafted,
         Err(existing) => return Ok((StatusCode::OK, Json(existing))),
     };
     // A capability with its own credential is snapshotted with it, and its
@@ -593,8 +686,14 @@ async fn create_route(
     } else {
         None
     };
-    Ok((
-        StatusCode::CREATED,
-        Json(blocking(store, move |s| s.store_capability(record, own)).await?),
-    ))
+    let claims = policies.clone();
+    let view = blocking(store.clone(), move |s| {
+        s.store_capability(record, own, &claims)
+    })
+    .await?;
+    // The claims are then submitted as any policy.
+    for (network, p) in policies {
+        crate::policy_sync::after_store(store.clone(), network, p).await;
+    }
+    Ok((StatusCode::CREATED, Json(view)))
 }

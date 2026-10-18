@@ -23,7 +23,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-const KINDS: [&str; 15] = [
+const KINDS: [&str; 17] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -39,6 +39,8 @@ const KINDS: [&str; 15] = [
     "channel_unverified",
     "capability_failing",
     "capability_name_conflict",
+    "policy_edit_unsettled",
+    "policy_edit_dropped",
 ];
 
 /// How long an adapter may hold a lease without verifying its channel
@@ -311,6 +313,9 @@ impl Store {
         }
         for (subject, detail, command) in self.capability_name_conflicts()? {
             attention.push(item("capability_name_conflict", subject, detail, command));
+        }
+        for (kind, subject, detail, command) in self.edit_attention()? {
+            attention.push(item(&kind, subject, detail, command));
         }
         let capabilities = self.capabilities_summary()?;
         attention.sort_by(|a, b| {

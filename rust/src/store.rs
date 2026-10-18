@@ -90,6 +90,11 @@ pub struct Store {
     pub(crate) policy_sync_interval: AtomicU64,
     /// Policy deliveries and sibling syncs in progress, so each runs once.
     pub(crate) policy_inflight: Mutex<std::collections::BTreeSet<String>>,
+    /// When each network's re-application of unsettled policy edits is due.
+    pub(crate) edit_due: Mutex<BTreeMap<String, Instant>>,
+    /// The highest edit number of this host each sibling or the coordinator
+    /// is known to hold a policy for, by (network, target). Kept in memory.
+    pub(crate) edit_acks: Mutex<BTreeMap<(String, String), u64>>,
     /// Coordinator limits each network has reached, by network ID: from the
     /// usage fetched after a sync and from the latest 429. Kept in memory.
     pub(crate) coordinator_limits: Mutex<BTreeMap<String, crate::network::CoordinatorLimits>>,
@@ -125,7 +130,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=16).contains(&version) {
+        if !(0..=17).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -176,6 +181,9 @@ impl Store {
         }
         if version < 16 {
             tx.execute_batch(crate::sources::SCHEMA)?;
+        }
+        if version < 17 {
+            tx.execute_batch(crate::policy_edit::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -268,6 +276,8 @@ impl Store {
             host_queries: Mutex::new(BTreeMap::new()),
             policy_sync_interval: AtomicU64::new(crate::policy_sync::SYNC_INTERVAL_SECONDS),
             policy_inflight: Mutex::new(Default::default()),
+            edit_due: Mutex::new(BTreeMap::new()),
+            edit_acks: Mutex::new(BTreeMap::new()),
             coordinator_limits: Mutex::new(BTreeMap::new()),
             agent_directory: Mutex::new(Default::default()),
             tool_pool: Default::default(),

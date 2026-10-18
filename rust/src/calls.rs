@@ -360,7 +360,11 @@ fn own_policy(
     let Some(key) = store.person_key(conn, network, person)? else {
         return Ok(None);
     };
-    store.stored_policy(conn, network, &key)
+    // Withdrawals of this host's unsettled edits apply at once.
+    store
+        .stored_policy(conn, network, &key)?
+        .map(|p| store.enforced(conn, network, p))
+        .transpose()
 }
 /// Whether self access covers `sender` in `network`: both hosts are bound
 /// to `person` there, and that person's newest verified policy, within its

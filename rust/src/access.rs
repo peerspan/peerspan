@@ -11,13 +11,153 @@ use anyhow::{Context, bail};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use peerspan_host::{
     persons::{self, PersonSigner},
-    policy::{ACTION, ALL_AGENTS, Content, DELEGATE_ACTION, Policy, Rule, TASK_ACTION},
+    policy::{ACTION, ALL_AGENTS, Content, DELEGATE_ACTION, EditEntry, Policy, Rule, TASK_ACTION},
 };
 use serde_json::{Value, json};
 use std::path::Path;
 
 pub(crate) fn failed(e: impl std::fmt::Display) -> anyhow::Error {
     anyhow::anyhow!("{e}")
+}
+
+/// A submission refused because the stored policy or the newest
+/// reservation changed since the edit started.
+pub(crate) fn edit_conflict(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<DaemonError>()
+        .is_some_and(|d| d.status == 409 && d.message.contains("edit_conflict"))
+}
+/// A refused edit starts again from the edit route, at most 3 times.
+pub(crate) const EDIT_ATTEMPTS: usize = 4;
+
+/// Signs policy edits for one network (coordination contract, concurrent
+/// edits). On a host bound to the signer's person, each edit starts from
+/// `GET /v1/networks/{id}/policy/edit` and records its reserved number in
+/// `edits`. On any other host the owner's edit cannot be numbered there,
+/// and it starts from the owner's stored policy instead.
+pub(crate) struct Editor {
+    pub network: String,
+    pub host: String,
+    pub person_id: String,
+    numbered: bool,
+}
+/// Where one edit starts.
+pub(crate) struct Start {
+    pub policy: Option<Policy>,
+    pub version: u64,
+    seq: Option<u64>,
+}
+impl Editor {
+    pub async fn new(
+        local: &Local<'_>,
+        network: &str,
+        signer: &PersonSigner,
+    ) -> anyhow::Result<Self> {
+        let me = persons::person_id(&signer.public_key());
+        let host = local.get("/v1/host".into()).await?["id"]
+            .as_str()
+            .context("invalid daemon response")?
+            .to_owned();
+        let status = local.get("/v1/status".into()).await?;
+        let numbered = status["networks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|n| {
+                n["id"].as_str() == Some(network) && n["person"]["id"].as_str() == Some(me.as_str())
+            });
+        Ok(Self {
+            network: network.to_owned(),
+            host,
+            person_id: me,
+            numbered,
+        })
+    }
+    /// The starting point of the next edit.
+    pub async fn start(&self, local: &Local<'_>) -> anyhow::Result<Start> {
+        if self.numbered {
+            let v = local
+                .get(format!(
+                    "/v1/networks/{}/policy/edit",
+                    encoded(&self.network)
+                ))
+                .await?;
+            return Ok(Start {
+                policy: match &v["policy"] {
+                    Value::Null => None,
+                    p => Some(serde_json::from_value(p.clone())?),
+                },
+                version: v["version"].as_u64().context("invalid daemon response")?,
+                seq: Some(v["seq"].as_u64().context("invalid daemon response")?),
+            });
+        }
+        let path = format!(
+            "/v1/networks/{}/policy?person={}",
+            encoded(&self.network),
+            encoded(&self.person_id)
+        );
+        let policy: Option<Policy> = match local.get(path).await {
+            Ok(value) => Some(serde_json::from_value(strip_view(value))?),
+            Err(e)
+                if e.downcast_ref::<DaemonError>()
+                    .is_some_and(|d| d.status == 404) =>
+            {
+                None
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(Start {
+            version: policy.as_ref().map_or(0, |p| p.version),
+            policy,
+            seq: None,
+        })
+    }
+    /// Signs `content` as the next version after `start`, valid for
+    /// `duration` or the starting policy's duration. An edit sets this
+    /// host's `edits` entry to its reserved number; a renewal (`edit`
+    /// false) copies the entries.
+    pub fn sign(
+        &self,
+        signer: &PersonSigner,
+        start: &Start,
+        content: Content,
+        duration: Option<TimeDelta>,
+        edit: bool,
+    ) -> anyhow::Result<Policy> {
+        let duration = match (duration, &start.policy) {
+            (Some(d), _) => d,
+            (None, Some(p)) => duration_of(p)?,
+            (None, None) => TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS),
+        };
+        let edits = match (&start.policy, start.seq) {
+            (Some(p), Some(seq)) if edit => p.edits_with(&self.host, seq),
+            (None, Some(seq)) if edit => vec![EditEntry {
+                host: self.host.clone(),
+                seq,
+            }],
+            (Some(p), _) => p.edits().to_vec(),
+            (None, _) => Vec::new(),
+        };
+        let now = Utc::now();
+        Policy::sign_v2(
+            signer,
+            &self.network,
+            start.version + 1,
+            &at(now),
+            &at(now + duration),
+            content,
+            edits,
+        )
+        .map_err(failed)
+    }
+    /// Submits a signed policy.
+    pub async fn submit(&self, local: &Local<'_>, policy: &Policy) -> anyhow::Result<Value> {
+        local
+            .post(
+                format!("/v1/networks/{}/policy", encoded(&self.network)),
+                json!({ "policy": policy }),
+            )
+            .await
+    }
 }
 
 pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<Option<Value>> {
@@ -41,119 +181,107 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
     let network = resolved(network);
     let local = Local(socket);
     let signer = PersonSigner::open(person_key_path.as_deref()).map_err(failed)?;
-    let me = persons::person_id(&signer.public_key());
-    let path = format!("/v1/networks/{}/policy", encoded(network));
-    let current: Option<Policy> = match local.get(format!("{path}?person={}", encoded(&me))).await {
-        Ok(value) => Some(serde_json::from_value(strip_view(value))?),
-        Err(e)
-            if e.downcast_ref::<DaemonError>()
-                .is_some_and(|d| d.status == 404) =>
-        {
-            None
-        }
-        Err(e) => return Err(e),
-    };
-    let now = Utc::now();
-    // A new version keeps the current duration unless --valid-days is given.
-    let mut duration = current
-        .as_ref()
-        .map(duration_of)
-        .transpose()?
-        .unwrap_or(TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS));
-    let mut rules = current
-        .as_ref()
-        .map(|p| p.rules.clone())
-        .unwrap_or_default();
+    // Principals resolve once; the edit itself may start again.
+    let mut resolved_principals = Vec::new();
     match command {
-        AccessCommand::Allow {
-            agent,
-            principal,
-            max_message_bytes,
-            allow_disconnected,
-            valid_days,
-            actions,
-            max_artifact_bytes,
-            ..
-        } => {
-            let mut principals = Vec::new();
+        AccessCommand::Allow { principal, .. } | AccessCommand::Deny { principal, .. } => {
             for given in principal {
-                let resolved = resolve(&local, network, given).await?;
-                if !principals.contains(&resolved) {
-                    principals.push(resolved);
+                let r = resolve(&local, network, given).await?;
+                if !resolved_principals.contains(&r) {
+                    resolved_principals.push(r);
                 }
-            }
-            let rule = Rule {
-                agent: agent.clone(),
-                principals,
-                actions: if actions.is_empty() {
-                    vec![ACTION.into()]
-                } else {
-                    let mut unique = Vec::new();
-                    for a in actions {
-                        if !unique.contains(a) {
-                            unique.push(a.clone());
-                        }
-                    }
-                    unique
-                },
-                max_message_bytes: *max_message_bytes,
-                allow_disconnected: *allow_disconnected,
-                max_artifact_bytes: *max_artifact_bytes,
-            };
-            // Several rules for the agent become one, at the first's place.
-            match rules.iter().position(|r| r.agent == *agent) {
-                Some(first) => {
-                    rules[first] = rule;
-                    let mut index = 0;
-                    rules.retain(|r| {
-                        index += 1;
-                        index - 1 == first || r.agent != *agent
-                    });
-                }
-                None => rules.push(rule),
-            }
-            duration = TimeDelta::days(*valid_days);
-        }
-        AccessCommand::Deny {
-            agent, principal, ..
-        } => {
-            if current.is_none() {
-                bail!("you have no policy in this network");
-            }
-            if !rules.iter().any(|r| r.agent == *agent) {
-                bail!("your policy has no rule for agent {agent:?}");
-            }
-            if principal.is_empty() {
-                rules.retain(|r| r.agent != *agent);
-            } else {
-                let mut removed = Vec::new();
-                for given in principal {
-                    removed.push(resolve(&local, network, given).await?);
-                }
-                for rule in rules.iter_mut().filter(|r| r.agent == *agent) {
-                    rule.principals.retain(|p| !removed.contains(p));
-                }
-                rules.retain(|r| r.agent != *agent || !r.principals.is_empty());
             }
         }
-        AccessCommand::Renew { .. } => {
-            if current.is_none() {
-                bail!("you have no policy in this network");
-            }
-        }
-        _ => unreachable!("not a signing access command"),
+        _ => {}
     }
-    let version = current.as_ref().map_or(0, |p| p.version) + 1;
-    let policy = Policy::sign_v2(
-        &signer,
-        network,
-        version,
-        &at(now),
-        &at(now + duration),
-        kept(&current, rules),
-    )
-    .map_err(failed)?;
-    Ok(Some(local.post(path, json!({ "policy": policy })).await?))
+    let editor = Editor::new(&local, network, &signer).await?;
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let start = editor.start(&local).await?;
+        let current = &start.policy;
+        let mut duration = None;
+        let mut rules = current
+            .as_ref()
+            .map(|p| p.rules.clone())
+            .unwrap_or_default();
+        let mut edit = true;
+        match command {
+            AccessCommand::Allow {
+                agent,
+                max_message_bytes,
+                allow_disconnected,
+                valid_days,
+                actions,
+                max_artifact_bytes,
+                ..
+            } => {
+                let rule = Rule {
+                    agent: agent.clone(),
+                    principals: resolved_principals.clone(),
+                    actions: if actions.is_empty() {
+                        vec![ACTION.into()]
+                    } else {
+                        let mut unique = Vec::new();
+                        for a in actions {
+                            if !unique.contains(a) {
+                                unique.push(a.clone());
+                            }
+                        }
+                        unique
+                    },
+                    max_message_bytes: *max_message_bytes,
+                    allow_disconnected: *allow_disconnected,
+                    max_artifact_bytes: *max_artifact_bytes,
+                };
+                // Several rules for the agent become one, at the first's place.
+                match rules.iter().position(|r| r.agent == *agent) {
+                    Some(first) => {
+                        rules[first] = rule;
+                        let mut index = 0;
+                        rules.retain(|r| {
+                            index += 1;
+                            index - 1 == first || r.agent != *agent
+                        });
+                    }
+                    None => rules.push(rule),
+                }
+                duration = Some(TimeDelta::days(*valid_days));
+            }
+            AccessCommand::Deny {
+                agent, principal, ..
+            } => {
+                if current.is_none() {
+                    bail!("you have no policy in this network");
+                }
+                if !rules.iter().any(|r| r.agent == *agent) {
+                    bail!("your policy has no rule for agent {agent:?}");
+                }
+                if principal.is_empty() {
+                    rules.retain(|r| r.agent != *agent);
+                } else {
+                    for rule in rules.iter_mut().filter(|r| r.agent == *agent) {
+                        rule.principals.retain(|p| !resolved_principals.contains(p));
+                    }
+                    rules.retain(|r| r.agent != *agent || !r.principals.is_empty());
+                }
+            }
+            AccessCommand::Renew { .. } => {
+                if current.is_none() {
+                    bail!("you have no policy in this network");
+                }
+                // A renewal is not an edit, though it starts from the edit
+                // route and so folds in unsettled edits.
+                edit = false;
+            }
+            _ => unreachable!("not a signing access command"),
+        }
+        let policy = editor.sign(&signer, &start, kept(current, rules), duration, edit)?;
+        match editor.submit(&local, &policy).await {
+            Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
+            outcome => return Ok(Some(outcome?)),
+        }
+    }
 }
 
 /// New rules with the current policy's tool rules and trusted hosts.
@@ -367,68 +495,56 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
             )
         })?;
     let principal = top_principal(&local, network, given).await?;
-    let path = format!("/v1/networks/{}/policy", encoded(network));
-    let current: Option<Policy> = match local.get(format!("{path}?person={}", encoded(&me))).await {
-        Ok(value) => Some(serde_json::from_value(strip_view(value))?),
-        Err(e)
-            if e.downcast_ref::<DaemonError>()
-                .is_some_and(|d| d.status == 404) =>
-        {
-            None
-        }
-        Err(e) => return Err(e),
-    };
-    let scoped = allow || agent.is_some();
-    let mut removed = 0;
-    let mut rules: Vec<Rule> = current
-        .as_ref()
-        .map(|p| p.rules.clone())
-        .unwrap_or_default();
-    for r in &mut rules {
-        if (!scoped || r.agent == scope) && r.principals.contains(&principal) {
-            r.principals.retain(|p| *p != principal);
-            removed += 1;
-        }
-    }
-    if allow {
-        match rules
-            .iter_mut()
-            .find(|r| r.agent == scope && same_settings(r, &rule))
-        {
-            Some(existing) => existing.principals.push(principal.clone()),
-            None => {
-                let mut new = rule.clone();
-                new.principals = vec![principal.clone()];
-                rules.push(new);
+    let _ = me;
+    let editor = Editor::new(&local, network, &signer).await?;
+    let mut attempt = 0;
+    let (stored, removed) = loop {
+        attempt += 1;
+        let start = editor.start(&local).await?;
+        let current = &start.policy;
+        let scoped = allow || agent.is_some();
+        let mut removed = 0;
+        let mut rules: Vec<Rule> = current
+            .as_ref()
+            .map(|p| p.rules.clone())
+            .unwrap_or_default();
+        for r in &mut rules {
+            if (!scoped || r.agent == scope) && r.principals.contains(&principal) {
+                r.principals.retain(|p| *p != principal);
+                removed += 1;
             }
         }
-    }
-    rules.retain(|r| !r.principals.is_empty());
-    let mut duration = TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS);
-    if !allow {
-        if removed == 0 {
-            return Ok(Some(json!({
-                "policy": current,
-                "removed": 0,
-                "note": format!("no rule of your policy names {principal}; access through a group or everyone is unaffected, and block stops a person at once"),
-            })));
+        if allow {
+            match rules
+                .iter_mut()
+                .find(|r| r.agent == scope && same_settings(r, &rule))
+            {
+                Some(existing) => existing.principals.push(principal.clone()),
+                None => {
+                    let mut new = rule.clone();
+                    new.principals = vec![principal.clone()];
+                    rules.push(new);
+                }
+            }
         }
-        if let Some(current) = &current {
-            duration = duration_of(current)?;
+        rules.retain(|r| !r.principals.is_empty());
+        let mut duration = Some(TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS));
+        if !allow {
+            if removed == 0 {
+                return Ok(Some(json!({
+                    "policy": current,
+                    "removed": 0,
+                    "note": format!("no rule of your policy names {principal}; access through a group or everyone is unaffected, and block stops a person at once"),
+                })));
+            }
+            duration = None;
         }
-    }
-    let now = Utc::now();
-    let version = current.as_ref().map_or(0, |p| p.version) + 1;
-    let policy = Policy::sign_v2(
-        &signer,
-        network,
-        version,
-        &at(now),
-        &at(now + duration),
-        kept(&current, rules),
-    )
-    .map_err(failed)?;
-    let stored = local.post(path, json!({ "policy": policy })).await?;
+        let policy = editor.sign(&signer, &start, kept(current, rules), duration, true)?;
+        match editor.submit(&local, &policy).await {
+            Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
+            outcome => break (outcome?, removed),
+        }
+    };
     Ok(Some(if allow {
         json!({
             "policy": stored,

@@ -74,14 +74,19 @@ fn is_zero(n: &i64) -> bool {
     *n == 0
 }
 
-const MAX_CAPABILITY_RULES: usize = 64;
+const MAX_CAPABILITY_RULES: usize = 256;
 const MAX_TRUSTED: usize = 64;
+const MAX_EDITS: usize = 256;
+/// The largest edit number: 2^53 - 1.
+pub const MAX_EDIT_SEQ: u64 = (1 << 53) - 1;
 /// The largest `max_input_bytes`, which self access also allows.
 pub const MAX_INPUT_BYTES: i64 = 262_144;
 pub const MAX_CALLS_PER_HOUR: i64 = 10_000;
 
-/// A share (capabilities contract, policy version 2): who may call the
-/// operations of one capability on the host that serves it.
+/// A capability rule (capabilities contract, policy version 2): who may
+/// call the operations of one capability on the host that serves it. A rule
+/// without principals is a claim: it binds the name to the host and
+/// authorizes no one.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilityRule {
@@ -92,6 +97,28 @@ pub struct CapabilityRule {
     pub max_input_bytes: i64,
     pub allow_disconnected: bool,
     pub max_calls_per_hour: i64,
+}
+impl CapabilityRule {
+    /// A claim for `name` on `host`, with the default bounds.
+    pub fn claim(host: &str, name: &str) -> Self {
+        Self {
+            host: host.into(),
+            capability: name.into(),
+            principals: Vec::new(),
+            max_input_bytes: 65536,
+            allow_disconnected: false,
+            max_calls_per_hour: 100,
+        }
+    }
+}
+
+/// One `edits` entry (coordination contract, concurrent edits): the
+/// highest number of `host`'s edits the policy reflects.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct EditEntry {
+    pub host: String,
+    pub seq: u64,
 }
 
 /// An owner-signed access policy. Version 1 statements carry no `format`,
@@ -124,6 +151,12 @@ pub struct Policy {
         deserialize_with = "present"
     )]
     pub trusted_hosts: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub edits: Option<Vec<EditEntry>>,
     pub signature: String,
 }
 
@@ -301,8 +334,8 @@ impl CapabilityRule {
                 self.capability
             )));
         }
-        if self.principals.is_empty() || self.principals.len() > MAX_PRINCIPALS {
-            return Err(invalid("a capability rule has 1-64 principals"));
+        if self.principals.len() > MAX_PRINCIPALS {
+            return Err(invalid("a capability rule has 0-64 principals"));
         }
         for p in &self.principals {
             principal(p)?;
@@ -364,8 +397,46 @@ impl Policy {
                     .collect::<Vec<_>>()
                     .join(" "),
             );
+            let mut edits: Vec<String> = self
+                .edits()
+                .iter()
+                .map(|e| format!("{}:{}", e.host, e.seq))
+                .collect();
+            edits.sort_unstable();
+            lines.push(
+                std::iter::once("edits".to_owned())
+                    .chain(edits)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
         }
         lines
+    }
+    /// The `edits` entries; none in a version 1 policy.
+    pub fn edits(&self) -> &[EditEntry] {
+        self.edits.as_deref().unwrap_or_default()
+    }
+    /// The highest edit number of `host` this policy reflects, or 0.
+    pub fn edit_seq(&self, host: &str) -> u64 {
+        self.edits()
+            .iter()
+            .find(|e| e.host == host)
+            .map_or(0, |e| e.seq)
+    }
+    /// Its `edits` with `host`'s entry set to `seq`, sorted by host.
+    pub fn edits_with(&self, host: &str, seq: u64) -> Vec<EditEntry> {
+        let mut out: Vec<EditEntry> = self
+            .edits()
+            .iter()
+            .filter(|e| e.host != host)
+            .cloned()
+            .collect();
+        out.push(EditEntry {
+            host: host.into(),
+            seq,
+        });
+        out.sort_by(|a, b| a.host.cmp(&b.host));
+        out
     }
     /// The signed statement's lines, as the test vectors list them.
     pub fn statement_lines(&self) -> Vec<String> {
@@ -401,11 +472,32 @@ impl Policy {
         for r in &self.rules {
             r.check()?;
         }
-        match (self.format, &self.capability_rules, &self.trusted_hosts) {
-            (None, None, None) => {}
-            (Some(2), Some(capability_rules), Some(trusted)) => {
+        match (
+            self.format,
+            &self.capability_rules,
+            &self.trusted_hosts,
+            &self.edits,
+        ) {
+            (None, None, None, None) => {}
+            (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
                 if capability_rules.len() > MAX_CAPABILITY_RULES {
-                    return Err(invalid("a policy has at most 64 capability rules"));
+                    return Err(invalid("a policy has at most 256 capability rules"));
+                }
+                if edits.len() > MAX_EDITS {
+                    return Err(invalid("a policy has at most 256 edits entries"));
+                }
+                for e in edits {
+                    if !crate::peer_store::valid_id(&e.host, "host", 32) {
+                        return Err(invalid("an edits entry's host is a host ID"));
+                    }
+                    if !(1..=MAX_EDIT_SEQ).contains(&e.seq) {
+                        return Err(invalid("an edits entry's seq is 1 to 2^53 - 1"));
+                    }
+                }
+                let mut hosts: Vec<&str> = edits.iter().map(|e| e.host.as_str()).collect();
+                hosts.sort_unstable();
+                if hosts.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(invalid("an edits entry's host appears once"));
                 }
                 for r in capability_rules {
                     r.check()?;
@@ -437,14 +529,14 @@ impl Policy {
             }
             _ => {
                 return Err(invalid(
-                    "a version 2 policy has format 2, capability_rules, and trusted_hosts; a version 1 policy has none of them",
+                    "a version 2 policy has format 2, capability_rules, trusted_hosts, and edits; a version 1 policy has none of them",
                 ));
             }
         }
         Ok(())
     }
-    /// Signs a version 2 policy as `signer`, the owner. Trusted hosts are
-    /// stored sorted; duplicates are refused.
+    /// Signs a version 2 policy as `signer`, the owner. Trusted hosts and
+    /// edits are stored sorted; duplicates are refused.
     pub fn sign_v2(
         signer: &PersonSigner,
         network: &str,
@@ -452,9 +544,11 @@ impl Policy {
         issued_at: &str,
         valid_until: &str,
         content: Content,
+        mut edits: Vec<EditEntry>,
     ) -> Result<Self, Error> {
         let mut trusted = content.trusted_hosts;
         trusted.sort();
+        edits.sort_by(|a, b| a.host.cmp(&b.host));
         let mut p = Self {
             format: Some(2),
             network_id: network.into(),
@@ -465,6 +559,7 @@ impl Policy {
             rules: content.rules,
             capability_rules: Some(content.capability_rules),
             trusted_hosts: Some(trusted),
+            edits: Some(edits),
             signature: String::new(),
         };
         p.check_shape()?;
@@ -494,6 +589,7 @@ impl Policy {
             rules,
             capability_rules: None,
             trusted_hosts: None,
+            edits: None,
             signature: String::new(),
         };
         p.check_shape()?;
@@ -528,9 +624,19 @@ impl Policy {
         let (issued, until) = self.times();
         until - at < (until - issued) / 4
     }
-    /// The same rules at version + 1, with the same duration from `at`,
-    /// always signed as version 2.
+    /// The same rules and `edits` at version + 1, with the same duration
+    /// from `at`, always signed as version 2.
     pub fn renewal(&self, signer: &PersonSigner, at: DateTime<Utc>) -> Result<Self, Error> {
+        self.renewal_with(signer, at, self.edits().to_vec())
+    }
+    /// A renewal with the given `edits`: the stored ones without retired
+    /// entries.
+    pub fn renewal_with(
+        &self,
+        signer: &PersonSigner,
+        at: DateTime<Utc>,
+        edits: Vec<EditEntry>,
+    ) -> Result<Self, Error> {
         let (issued, until) = self.times();
         Self::sign_v2(
             signer,
@@ -539,7 +645,22 @@ impl Policy {
             &rfc3339(at),
             &rfc3339(at + (until - issued)),
             self.content(),
+            edits,
         )
+    }
+    /// Its `edits` without retired entries: those of hosts for which `keep`
+    /// is false.
+    pub fn kept_edits(&self, keep: impl Fn(&str) -> bool) -> Vec<EditEntry> {
+        self.edits()
+            .iter()
+            .filter(|e| keep(&e.host))
+            .cloned()
+            .collect()
+    }
+    /// Its validity duration.
+    pub fn duration(&self) -> TimeDelta {
+        let (issued, until) = self.times();
+        until - issued
     }
     /// The lowercase hex SHA-256 of the signed statement (its lines), which
     /// breaks ties between equal versions.
@@ -724,6 +845,8 @@ impl Store {
                 behind = true;
                 continue;
             }
+            // Withdrawals of this host's unsettled edits apply at once.
+            let policy = self.enforced(connection, &network, policy)?;
             // The receiver evaluates its own newest version.
             if !policy.in_window(at) || deadline > time(&policy.valid_until)? {
                 continue;
@@ -1045,6 +1168,7 @@ impl Store {
         )?;
         append_event(tx, "network.policy_updated", &p.person_id(), &rfc3339(at))?;
         self.queue_policy_deliveries(tx, network, p)?;
+        self.settle_edits(tx, network, p)?;
         Ok(Accepted::Stored)
     }
     /// The policies this host should renew: its own person's, in networks
@@ -1177,6 +1301,16 @@ pub(crate) async fn renew(store: Arc<Store>) {
         let Ok(key) = <[u8; 32]>::try_from(key) else {
             continue;
         };
+        let network = policy.network_id.clone();
+        // Unsettled edits are re-applied instead, which also renews.
+        let n = network.clone();
+        if blocking(store.clone(), move |s| s.has_unsettled(&n))
+            .await
+            .unwrap_or(false)
+            && crate::policy_edit::reapply(store.clone(), network.clone()).await
+        {
+            continue;
+        }
         let signer = {
             let store = store.clone();
             match tokio::task::spawn_blocking(move || store.renewal_signer(key)).await {
@@ -1184,14 +1318,23 @@ pub(crate) async fn renew(store: Arc<Store>) {
                 _ => continue,
             }
         };
-        let renewed = match policy.renewal(&signer, Utc::now()) {
+        // A renewal copies `edits`, except retired entries.
+        let n = network.clone();
+        let p = policy.clone();
+        let Ok(edits) = blocking(store.clone(), move |s| {
+            s.unretired_edits(&*s.connection()?, &n, &p)
+        })
+        .await
+        else {
+            continue;
+        };
+        let renewed = match policy.renewal_with(&signer, Utc::now(), edits) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("policy renewal signing failed: {e}");
                 continue;
             }
         };
-        let network = policy.network_id.clone();
         match crate::policy_sync::submit(store.clone(), network, renewed).await {
             // A sibling's concurrent renewal of the same version may win the
             // tie-break; this host keeps that one.
@@ -1220,6 +1363,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         .route("/v1/access-blocks", get(blocks_route).post(block_route))
         .route("/v1/access-blocks/remove", post(unblock_route))
         .merge(crate::policy_sync::local_routes())
+        .merge(crate::policy_edit::local_routes())
 }
 async fn show_route(
     State(store): State<Arc<Store>>,
@@ -1480,9 +1624,10 @@ mod tests {
             assert_eq!(sign(rule).is_ok(), ok, "{bound}");
         }
     }
-    /// The version 2 test vector (capabilities contract): the earlier owner
-    /// and the two rules of the version 1 vector, plus two capability rules
-    /// and two trusted hosts given unsorted.
+    /// The version 2 test vector (capabilities contract, amended on
+    /// 2026-10-18): the earlier owner and the two rules of the version 1
+    /// vector, plus two capability rules, a claim, and two trusted hosts and
+    /// two edits entries given unsorted.
     fn vector_v2() -> Policy {
         let capability_rules = vec![
             CapabilityRule {
@@ -1501,6 +1646,7 @@ mod tests {
                 allow_disconnected: true,
                 max_calls_per_hour: 10,
             },
+            CapabilityRule::claim(&format!("host_{}", "a".repeat(64)), "notes"),
         ];
         Policy::sign_v2(
             &owner(),
@@ -1516,6 +1662,16 @@ mod tests {
                     format!("host_{}", "a".repeat(64)),
                 ],
             },
+            vec![
+                EditEntry {
+                    host: format!("host_{}", "b".repeat(64)),
+                    seq: 1,
+                },
+                EditEntry {
+                    host: format!("host_{}", "a".repeat(64)),
+                    seq: 3,
+                },
+            ],
         )
         .unwrap()
     }
@@ -1523,15 +1679,17 @@ mod tests {
     #[test]
     fn policy_v2_reproduces_its_vector() {
         let p = vector_v2();
-        const V2_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQIdUcW4XDuFhLCjOaodJFvZQpWHf7Ts4Aff2zCbA+r3M2sMjfqpB2uYZvqgUvVeL/AYaE45xVqHFAko3fUpOXQ8=";
+        const V2_SIG: &str = "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/EAAAAScGVlcnNwYW4tcGVyc29uLXYxAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQOZL7vRHm5jeIFxS6jfoD4z/QKQyTtlJ7PRIFsOn4lXricgtmZvYKWXJOjbTLVtSKJ6xeGoFdxIsUMvLP8g7lAI=";
         let lines = p.statement_lines();
         assert_eq!(p.signature, V2_SIG);
         assert_eq!(
             p.sha256(),
-            "ac815683015d0a505f33be4c9e680d73c37f389fef1c13a34224c4a174c0b274"
+            "56a3bc8a6ab3df290823e1b9777e43ff82fc8a24d9f0c7c5a1ff57e582b28fd0"
         );
-        assert_eq!(lines.len(), 29);
+        assert_eq!(lines.len(), 36);
         assert_eq!(lines[0], "peerspan-policy-v2");
+        assert_eq!(lines[31], "");
+        assert!(lines[35].starts_with(&format!("edits host_{}:3 ", "a".repeat(64))));
         p.verify(NETWORK).unwrap();
         // A version 1 policy reads as version 2 with nothing more.
         let v1 = vector();

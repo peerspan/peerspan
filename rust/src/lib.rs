@@ -21,6 +21,7 @@ pub mod peer;
 pub mod peer_store;
 pub mod persons;
 pub mod policy;
+pub mod policy_edit;
 pub mod policy_sync;
 pub mod presence;
 pub mod quic;

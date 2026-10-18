@@ -66,6 +66,8 @@ pub struct SyncStatus {
     pub version: Option<u64>,
     pub sha256: Option<String>,
     pub deliveries: Vec<PolicyDelivery>,
+    /// This host's recorded edits, by number.
+    pub edits: Vec<crate::policy_edit::EditView>,
 }
 
 /// What a sibling reports holding after a push.
@@ -428,8 +430,22 @@ impl Store {
     fn submit_local_policy(&self, network: &str, p: &Policy) -> Result<Accepted, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
-        self.network_record(&tx, network)?;
-        let outcome = self.accept_policy(&tx, network, p, Utc::now())?;
+        let outcome = self.submit_local_in(&tx, network, p)?;
+        tx.commit()?;
+        Ok(outcome)
+    }
+    /// `submit_local_policy` within a transaction. A policy raising this
+    /// host's `edits` entry is an edit: it must cite the newest reservation
+    /// and build on the stored version, and is recorded once stored.
+    pub(crate) fn submit_local_in(
+        &self,
+        tx: &Transaction<'_>,
+        network: &str,
+        p: &Policy,
+    ) -> Result<Accepted, Error> {
+        self.network_record(tx, network)?;
+        let edit = self.check_edit(tx, network, p)?;
+        let outcome = self.accept_policy(tx, network, p, Utc::now())?;
         match &outcome {
             Accepted::Kept(old) => {
                 return Err(Error::Conflict(format!(
@@ -438,13 +454,15 @@ impl Store {
                 )));
             }
             Accepted::Stored
-                if self.own_person(&tx, network)?.as_deref() != Some(p.person_id().as_str()) =>
+                if self.own_person(tx, network)?.as_deref() != Some(p.person_id().as_str()) =>
             {
-                self.queue_coordinator_delivery(&tx, network, p)?;
+                self.queue_coordinator_delivery(tx, network, p)?;
             }
             _ => {}
         }
-        tx.commit()?;
+        if let (Some(seq), Accepted::Stored) = (edit, &outcome) {
+            self.record_edit(tx, network, seq, p)?;
+        }
         Ok(outcome)
     }
     /// A sibling's push: both hosts must be bound to the policy's owner.
@@ -553,23 +571,25 @@ impl Store {
             .filter(|(n, p, _)| *n == network && *p == person)
             .map(|(_, _, r)| r.delivery)
             .collect();
+        let edits = self.edit_views(&tx, network, &person)?;
         tx.commit()?;
         Ok(SyncStatus {
             person_id: person,
             version: policy.as_ref().map(|p| p.version),
             sha256: policy.as_ref().map(Policy::sha256),
             deliveries,
+            edits,
         })
     }
 }
 
 /// Claims a unit of work so it runs once at a time; released on drop.
-struct Claim {
+pub(crate) struct Claim {
     store: Arc<Store>,
     key: String,
 }
 impl Claim {
-    fn take(store: &Arc<Store>, key: String) -> Option<Self> {
+    pub(crate) fn take(store: &Arc<Store>, key: String) -> Option<Self> {
         let mut inflight = store.policy_inflight.lock().ok()?;
         inflight.insert(key.clone()).then(|| Self {
             store: store.clone(),
@@ -614,6 +634,9 @@ async fn push_to_sibling(store: &Arc<Store>, sibling: &str, p: &Policy) -> Resul
         (200, body) => {
             let reported: StoredPolicy = serde_json::from_slice(&body)
                 .map_err(|_| "invalid sibling policy report".to_owned())?;
+            if reported.sha256 == p.sha256() {
+                store.note_edit_ack(&p.network_id, sibling, p.edit_seq(&store.identity().id));
+            }
             if reported.person_id == p.person_id() && reported.version >= p.version {
                 Ok(())
             } else {
@@ -642,6 +665,7 @@ async fn push_to_coordinator(
     .map_err(|e| format!("{e:#}"))?;
     match response {
         (200 | 201, body) => {
+            store.note_edit_ack(&network.id, COORDINATOR, p.edit_seq(&store.identity().id));
             let _ = crate::network::apply_returned_map(store.clone(), network, &body).await;
             Ok(())
         }
@@ -706,6 +730,9 @@ pub(crate) async fn sync_sibling(
         (404, _) => return Ok(false),
         (status, _) => return Err(format!("sibling returned HTTP {status}")),
     };
+    if policy.person_id() == person && policy.verify(&network).is_ok() {
+        store.note_edit_ack(&network, &sibling, policy.edit_seq(&store.identity().id));
+    }
     blocking(store, move |s| {
         s.accept_synced_policy(&network, &person, &sibling, &policy)
     })
@@ -722,6 +749,14 @@ pub async fn submit(store: Arc<Store>, network: String, policy: Policy) -> Resul
         s.submit_local_policy(&lookup, &checked)
     })
     .await?;
+    after_store(store, network, policy.clone()).await;
+    Ok(policy)
+}
+
+/// After a local policy is stored: siblings are pushed to in the
+/// background, while the coordinator is tried once before returning, and
+/// synced after it accepts.
+pub(crate) async fn after_store(store: Arc<Store>, network: String, policy: Policy) {
     let checked_policy = policy.clone();
     // Siblings may be slow or offline; the worker pushes to them in the
     // background, while the coordinator is tried once before returning, and
@@ -757,7 +792,6 @@ pub async fn submit(store: Arc<Store>, network: String, policy: Policy) -> Resul
     if delivered {
         let _ = crate::network::sync_network(store, network).await;
     }
-    Ok(policy)
 }
 
 /// `access sync`: one sync with every sibling now, then every pending
@@ -805,6 +839,8 @@ pub async fn sync_now(store: Arc<Store>, network: String) -> Result<SyncStatus, 
     for h in handles {
         let _ = h.await;
     }
+    // Unsettled edits are re-applied at each sync.
+    let _ = blocking(store.clone(), |s| s.schedule_unsettled()).await;
     blocking(store, move |s| s.policy_sync_status(&network)).await
 }
 
@@ -814,6 +850,7 @@ pub async fn sync_now(store: Arc<Store>, network: String) -> Result<SyncStatus, 
 pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
     let mut known: BTreeSet<(String, String)> = BTreeSet::new();
     let mut last_full: Option<Instant> = None;
+    let mut last_prune: Option<Instant> = None;
     loop {
         let interval = Duration::from_secs(store.policy_sync_interval.load(Ordering::Relaxed));
         let full = last_full.is_none_or(|t| t.elapsed() >= interval);
@@ -850,6 +887,20 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
         {
             for (n, p, t) in due {
                 tokio::spawn(deliver(store.clone(), n, p, t));
+            }
+        }
+        // Unsettled edits are re-applied at each sync, and when due after a
+        // stored policy displaced them.
+        if full {
+            let _ = blocking(store.clone(), |s| s.schedule_unsettled()).await;
+        }
+        for network in store.due_reapplies() {
+            tokio::spawn(crate::policy_edit::reapply(store.clone(), network));
+        }
+        if last_prune.is_none_or(|t| t.elapsed() >= Duration::from_secs(5)) {
+            last_prune = Some(Instant::now());
+            if let Err(e) = blocking(store.clone(), |s| s.prune_edits()).await {
+                eprintln!("policy edit retention: {e}");
             }
         }
         tokio::select! {
@@ -1064,20 +1115,20 @@ mod tests {
     }
 
     #[test]
-    fn version_eleven_migrates_to_latest_and_seventeen_is_refused() {
+    fn version_eleven_migrates_to_latest_and_eighteen_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("host");
         drop(Store::open(&path).unwrap());
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
+            .execute_batch("DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
             .unwrap();
         let store = Store::open(&path).unwrap();
         let connection = store.connection().unwrap();
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 17);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",
@@ -1093,7 +1144,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 17;")
+            .execute_batch("PRAGMA user_version = 18;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }
@@ -1412,7 +1463,7 @@ mod tests {
         };
         assert_eq!(
             keys(&status),
-            ["deliveries", "person_id", "sha256", "version"]
+            ["deliveries", "edits", "person_id", "sha256", "version"]
         );
         assert_eq!(
             keys(&status["deliveries"][0]),

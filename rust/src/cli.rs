@@ -450,6 +450,9 @@ pub enum CapabilityCommand {
         /// Arguments replacing the source's; repeat for each
         #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
         args: Vec<String>,
+        /// The person key that signs the name's claims
+        #[arg(long, value_name = "PATH")]
+        person_key: Option<PathBuf>,
     },
     /// List this host's capabilities
     List {

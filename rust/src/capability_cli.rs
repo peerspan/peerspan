@@ -3,10 +3,9 @@
 //! `discover`, `call`, and the trust question of `join` and `network
 //! create`. Signing stays here; the daemon never sees the person key.
 use crate::{
-    access::{at, duration_of, failed, strip_view, top_principal},
+    access::{EDIT_ATTEMPTS, Editor, at, edit_conflict, failed, top_principal},
     admin::Local,
     cli::{CapabilityCommand, Command, SourcesArgs, SourcesCommand, encoded, resolved},
-    integration::DaemonError,
 };
 use anyhow::{Context, bail};
 use chrono::{TimeDelta, Utc};
@@ -131,60 +130,145 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
     }))
 }
 
-async fn current(
+/// One policy edit: applies `change` to the starting content, signs, and
+/// submits, starting again from the edit route on an edit conflict.
+/// `change` returns false to sign nothing. Returns the starting policy and
+/// the stored policy, if one was signed.
+async fn edit_policy<F>(
     local: &Local<'_>,
     network: &str,
     signer: &PersonSigner,
-) -> anyhow::Result<Option<Policy>> {
-    let me = persons::person_id(&signer.public_key());
-    let path = format!(
-        "/v1/networks/{}/policy?person={}",
-        encoded(network),
-        encoded(&me)
-    );
-    match local.get(path).await {
-        Ok(value) => Ok(Some(serde_json::from_value(strip_view(value))?)),
-        Err(e)
-            if e.downcast_ref::<DaemonError>()
-                .is_some_and(|d| d.status == 404) =>
-        {
-            Ok(None)
+    mut change: F,
+) -> anyhow::Result<(Option<Policy>, Option<Value>)>
+where
+    F: FnMut(&mut Content) -> anyhow::Result<bool>,
+{
+    let editor = Editor::new(local, network, signer).await?;
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let start = editor.start(local).await?;
+        let mut content = start
+            .policy
+            .as_ref()
+            .map(Policy::content)
+            .unwrap_or_default();
+        if !change(&mut content)? {
+            return Ok((start.policy, None));
         }
-        Err(e) => Err(e),
+        let policy = editor.sign(signer, &start, content, None, true)?;
+        match editor.submit(local, &policy).await {
+            Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
+            outcome => return Ok((start.policy, Some(outcome?))),
+        }
     }
 }
-/// Signs the next version of the signer's policy with `content`, valid for
-/// `duration` or the current policy's duration, and submits it.
-async fn sign_next(
+
+/// The networks in which this host is bound to a person.
+async fn bound_networks(local: &Local<'_>) -> anyhow::Result<Vec<String>> {
+    let status = local.get("/v1/status".into()).await?;
+    Ok(status["networks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|n| n["person"]["id"].is_string())
+        .filter_map(|n| n["id"].as_str().map(str::to_owned))
+        .collect())
+}
+
+/// The share a guided first share signs in its network.
+struct FirstShare<'a> {
+    network: &'a str,
+    principal: &'a str,
+    calls_per_hour: Option<i64>,
+}
+
+/// Creates a capability and claims its name (capabilities contract,
+/// claims): one signed policy for each network in which this host is bound
+/// to its person, each an edit adding this host's rule for `name` with no
+/// principals, or in the guided share's network with its principal.
+/// Refuses a name bound to another host before signing.
+async fn create_claimed(
     local: &Local<'_>,
-    network: &str,
-    signer: &PersonSigner,
-    current: &Option<Policy>,
-    content: Content,
-    duration: Option<TimeDelta>,
-) -> anyhow::Result<Value> {
-    let duration = match (duration, current) {
-        (Some(d), _) => d,
-        (None, Some(c)) => duration_of(c)?,
-        (None, None) => TimeDelta::days(peerspan_host::policy::DEFAULT_VALID_DAYS),
-    };
-    let now = Utc::now();
-    let version = current.as_ref().map_or(0, |p| p.version) + 1;
-    let policy = Policy::sign_v2(
-        signer,
-        network,
-        version,
-        &at(now),
-        &at(now + duration),
-        content,
-    )
-    .map_err(failed)?;
-    local
-        .post(
-            format!("/v1/networks/{}/policy", encoded(network)),
-            json!({ "policy": policy }),
-        )
+    person_key: Option<&Path>,
+    mut body: Value,
+    first: Option<FirstShare<'_>>,
+) -> anyhow::Result<(Value, bool)> {
+    let name = body["name"].as_str().unwrap_or_default().to_owned();
+    // An identical repeat signs nothing; another record under the name is
+    // refused by the daemon.
+    let exists = local
+        .get(format!("/v1/capabilities/{}", encoded(&name)))
         .await
+        .is_ok();
+    let networks = if exists {
+        Vec::new()
+    } else {
+        bound_networks(local).await?
+    };
+    let signer = if networks.is_empty() {
+        None
+    } else {
+        Some(PersonSigner::open(person_key).map_err(failed)?)
+    };
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let mut policies = Vec::new();
+        for network in &networks {
+            let signer = signer.as_ref().expect("opened for bound networks");
+            let editor = Editor::new(local, network, signer).await?;
+            let start = editor.start(local).await?;
+            let mut content = start
+                .policy
+                .as_ref()
+                .map(Policy::content)
+                .unwrap_or_default();
+            if content
+                .capability_rules
+                .iter()
+                .any(|r| r.capability == name && r.host != editor.host)
+            {
+                bail!("a capability rule of yours binds {name} to another host (409)");
+            }
+            let share = first.as_ref().filter(|f| f.network == network.as_str());
+            match content
+                .capability_rules
+                .iter_mut()
+                .find(|r| r.capability == name)
+            {
+                Some(r) => {
+                    if let Some(f) = share {
+                        if !r.principals.iter().any(|p| p == f.principal) {
+                            r.principals.push(f.principal.to_owned());
+                        }
+                        if let Some(n) = f.calls_per_hour {
+                            r.max_calls_per_hour = n;
+                        }
+                    }
+                }
+                None => {
+                    let mut rule = CapabilityRule::claim(&editor.host, &name);
+                    if let Some(f) = share {
+                        rule.principals.push(f.principal.to_owned());
+                        rule.max_calls_per_hour = f.calls_per_hour.unwrap_or(100);
+                    }
+                    content.capability_rules.push(rule);
+                }
+            }
+            policies.push(editor.sign(signer, &start, content, None, true)?);
+        }
+        body["policies"] = json!(policies);
+        match local.post("/v1/capabilities".into(), body.clone()).await {
+            Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
+            outcome => {
+                let shared = first
+                    .as_ref()
+                    .is_some_and(|f| networks.iter().any(|n| n == f.network));
+                return Ok((outcome?, shared));
+            }
+        }
+    }
 }
 
 /// `trust [HOST]` and `untrust HOST`.
@@ -216,19 +300,23 @@ async fn trust(
             bail!("host {host} is not bound to your person in network {network}");
         }
     }
-    let current = current(local, network, &signer).await?;
-    let mut content = current.as_ref().map(Policy::content).unwrap_or_default();
-    let present = content.trusted_hosts.contains(&host);
-    if add == present {
-        return Ok(json!({"policy": current, "host": host, "trusted": add, "changed": false}));
-    }
-    if add {
-        content.trusted_hosts.push(host.clone());
-    } else {
-        content.trusted_hosts.retain(|h| *h != host);
-    }
-    let policy = sign_next(local, network, &signer, &current, content, None).await?;
-    Ok(json!({"policy": policy, "host": host, "trusted": add, "changed": true}))
+    let (current, policy) = edit_policy(local, network, &signer, |content| {
+        let present = content.trusted_hosts.contains(&host);
+        if add == present {
+            return Ok(false);
+        }
+        if add {
+            content.trusted_hosts.push(host.clone());
+        } else {
+            content.trusted_hosts.retain(|h| *h != host);
+        }
+        Ok(true)
+    })
+    .await?;
+    Ok(match policy {
+        None => json!({"policy": current, "host": host, "trusted": add, "changed": false}),
+        Some(policy) => json!({"policy": policy, "host": host, "trusted": add, "changed": true}),
+    })
 }
 
 /// `trusted`, and `trusted_error` when signing the trust change failed, for
@@ -281,12 +369,14 @@ async fn trust_after_join(
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
-    let current = current(&local, network, signer).await?;
-    let mut content = current.as_ref().map(Policy::content).unwrap_or_default();
-    if !content.trusted_hosts.contains(&host) {
-        content.trusted_hosts.push(host);
-        sign_next(&local, network, signer, &current, content, None).await?;
-    }
+    edit_policy(&local, network, signer, |content| {
+        if content.trusted_hosts.contains(&host) {
+            return Ok(false);
+        }
+        content.trusted_hosts.push(host.clone());
+        Ok(true)
+    })
+    .await?;
     Ok(true)
 }
 
@@ -494,6 +584,7 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
             resources,
             env_file,
             args,
+            person_key,
         } => {
             let (agent, server, _) = source_of(local, from).await?;
             let env_file = env_file
@@ -510,7 +601,9 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
                 env_file,
                 args,
             );
-            local.post("/v1/capabilities".into(), body).await?
+            create_claimed(local, person_key.as_deref(), body, None)
+                .await?
+                .0
         }
         CapabilityCommand::List { json } => {
             let value = local.get("/v1/capabilities".into()).await?;
@@ -580,31 +673,43 @@ async fn remove(
         let Some(network) = n["id"].as_str() else {
             continue;
         };
-        // A policy needs signing only if it holds this host's rule.
+        // A policy needs signing only if it holds this host's rule, claim
+        // included.
+        let holds = |p: &Value| {
+            p["capability_rules"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|r| {
+                    r["host"].as_str() == Some(host.as_str())
+                        && r["capability"].as_str() == Some(name)
+                })
+        };
+        match local
+            .get(format!("/v1/networks/{}/policy", encoded(network)))
+            .await
+        {
+            Ok(p) if holds(&p) => {}
+            _ => continue,
+        }
         let me = match &signer {
             Some(s) => s,
             None => {
-                if recipients.is_empty() {
-                    break;
-                }
                 signer = Some(PersonSigner::open(person_key).map_err(failed)?);
                 signer.as_ref().expect("just set")
             }
         };
-        let current = current(local, network, me).await?;
-        let Some(policy) = &current else {
-            continue;
-        };
-        let mut content = policy.content();
-        let before = content.capability_rules.len();
-        content
-            .capability_rules
-            .retain(|r| !(r.host == host && r.capability == name));
-        if content.capability_rules.len() == before {
-            continue;
+        let (_, stored) = edit_policy(local, network, me, |content| {
+            let before = content.capability_rules.len();
+            content
+                .capability_rules
+                .retain(|r| !(r.host == host && r.capability == name));
+            Ok(content.capability_rules.len() != before)
+        })
+        .await?;
+        if let Some(stored) = stored {
+            signed.push(json!({"network_id": network, "version": stored["version"]}));
         }
-        let stored = sign_next(local, network, me, &current, content, None).await?;
-        signed.push(json!({"network_id": network, "version": stored["version"]}));
     }
     let removed = crate::delete(local.0, format!("/v1/capabilities/{}", encoded(name))).await?;
     Ok(json!({"capability": removed, "policies": signed}))
@@ -742,8 +847,20 @@ async fn share(
         }
     };
     let cap = record["name"].as_str().unwrap_or_default().to_owned();
-    let current = current(local, network, &signer).await?;
-    let mut content = current.as_ref().map(Policy::content).unwrap_or_default();
+    // The review reads the stored policy; the edit starts from the edit
+    // route after confirmation.
+    let me = persons::person_id(&signer.public_key());
+    let current: Option<Policy> = local
+        .get(format!(
+            "/v1/networks/{}/policy?person={}",
+            encoded(network),
+            encoded(&me)
+        ))
+        .await
+        .ok()
+        .map(|v| serde_json::from_value(crate::access::strip_view(v)))
+        .transpose()?;
+    let content = current.as_ref().map(Policy::content).unwrap_or_default();
     if content
         .capability_rules
         .iter()
@@ -866,35 +983,81 @@ async fn share(
             json!({"policy": current, "capability": cap, "principal": principal, "created": false}),
         );
     }
-    let mut created = false;
+    let mut created_now = false;
     if let Some(body) = draft {
-        local.post("/v1/capabilities".into(), body).await?;
-        created = true;
-    }
-    match content
-        .capability_rules
-        .iter_mut()
-        .find(|r| r.capability == cap && r.host == host)
-    {
-        Some(r) => {
-            if !r.principals.contains(&principal) {
-                r.principals.push(principal.clone());
-            }
-            if let Some(n) = calls_per_hour {
-                r.max_calls_per_hour = n;
-            }
+        // The guided share creates the capability with its claims: the
+        // share in this network, the claim in the others.
+        let (_, shared) = create_claimed(
+            local,
+            person_key,
+            body,
+            Some(FirstShare {
+                network,
+                principal: &principal,
+                calls_per_hour,
+            }),
+        )
+        .await?;
+        let policy = local
+            .get(format!(
+                "/v1/networks/{}/policy?person={}",
+                encoded(network),
+                encoded(&me)
+            ))
+            .await
+            .map(crate::access::strip_view)
+            .unwrap_or(Value::Null);
+        if shared {
+            return Ok(
+                json!({"policy": policy, "capability": cap, "principal": principal, "created": true}),
+            );
         }
-        None => content.capability_rules.push(CapabilityRule {
-            host: host.clone(),
-            capability: cap.clone(),
-            principals: vec![principal.clone()],
-            max_input_bytes: 65536,
-            allow_disconnected: false,
-            max_calls_per_hour: calls_per_hour.unwrap_or(100),
-        }),
+        // An identical capability existed already, or this host has no
+        // person here: it is shared as usual.
+        created_now = true;
     }
-    let policy = sign_next(local, network, &signer, &current, content, None).await?;
-    Ok(json!({"policy": policy, "capability": cap, "principal": principal, "created": created}))
+    let (start, policy) = edit_policy(local, network, &signer, |content| {
+        if content
+            .capability_rules
+            .iter()
+            .any(|r| r.capability == cap && r.host != host)
+        {
+            bail!("a capability rule of yours binds {cap} to another host (409)");
+        }
+        match content
+            .capability_rules
+            .iter_mut()
+            .find(|r| r.capability == cap && r.host == host)
+        {
+            Some(r) => {
+                let limit = calls_per_hour.filter(|n| *n != r.max_calls_per_hour);
+                if r.principals.contains(&principal) && limit.is_none() {
+                    return Ok(false);
+                }
+                if !r.principals.contains(&principal) {
+                    r.principals.push(principal.clone());
+                }
+                if let Some(n) = limit {
+                    r.max_calls_per_hour = n;
+                }
+            }
+            None => content.capability_rules.push(CapabilityRule {
+                host: host.clone(),
+                capability: cap.clone(),
+                principals: vec![principal.clone()],
+                max_input_bytes: 65536,
+                allow_disconnected: false,
+                max_calls_per_hour: calls_per_hour.unwrap_or(100),
+            }),
+        }
+        Ok(true)
+    })
+    .await?;
+    let policy = match policy {
+        Some(p) => p,
+        None => json!(start),
+    };
+    Ok(json!({"policy": policy, "capability": cap, "principal": principal, "created": created_now}))
 }
 fn list_text(v: &Value) -> String {
     v.as_array()
@@ -919,16 +1082,20 @@ async fn unshare(
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
-    let current = current(local, network, &signer).await?;
-    let mut content = current.as_ref().map(Policy::content).unwrap_or_default();
     let mut removed = 0;
-    for r in content.capability_rules.iter_mut() {
-        if r.host == host && r.capability == name && r.principals.contains(&principal) {
-            r.principals.retain(|p| *p != principal);
-            removed += 1;
+    let (current, policy) = edit_policy(local, network, &signer, |content| {
+        removed = 0;
+        for r in content.capability_rules.iter_mut() {
+            if r.host == host && r.capability == name && r.principals.contains(&principal) {
+                r.principals.retain(|p| *p != principal);
+                removed += 1;
+            }
         }
-    }
-    if removed == 0 {
+        // A rule left without principals stays as the name's claim.
+        Ok(removed > 0)
+    })
+    .await?;
+    let Some(policy) = policy else {
         return Ok(json!({
             "policy": current,
             "capability": name,
@@ -936,11 +1103,7 @@ async fn unshare(
             "removed": 0,
             "note": format!("{principal} is not in the share of {name}; access through a group or everyone is unaffected, and block stops a person at once"),
         }));
-    }
-    content
-        .capability_rules
-        .retain(|r| !r.principals.is_empty());
-    let policy = sign_next(local, network, &signer, &current, content, None).await?;
+    };
     eprintln!(
         "{principal}'s future calls to {name} are denied. Calls already running finish; queued calls are refused when they would start."
     );

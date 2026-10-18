@@ -258,6 +258,41 @@ impl Store {
         hosts.sort();
         Ok(hosts)
     }
+    /// Who binds capability names, from the networks searched: each host's
+    /// person ID, and each person's capability rules by network, as
+    /// (name, host).
+    fn capability_bindings(&self, network: Option<&str>) -> Result<Bindings, Error> {
+        let conn = self.connection()?;
+        let mut out = Bindings::default();
+        let mut statement = conn.prepare("SELECT id FROM networks ORDER BY id")?;
+        let networks: Vec<String> = statement
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        drop(statement);
+        for n in networks {
+            if network.is_some_and(|x| x != n) {
+                continue;
+            }
+            for m in self.stored_members(&conn, &n)? {
+                if let Some(person) = m.person_id {
+                    out.persons.entry(m.host_id).or_insert(person);
+                }
+            }
+            for p in self.stored_persons(&conn, &n)? {
+                if let Some(policy) = self.stored_policy(&conn, &n, &p.person_public_key)? {
+                    out.rules.insert(
+                        (p.person_id.clone(), n.clone()),
+                        policy
+                            .capability_rules()
+                            .iter()
+                            .map(|r| (r.capability.clone(), r.host.clone()))
+                            .collect(),
+                    );
+                }
+            }
+        }
+        Ok(out)
+    }
     /// Each host's bound person label, from the networks searched.
     fn host_labels(&self, network: Option<&str>) -> Result<BTreeMap<String, String>, Error> {
         let mut out = BTreeMap::new();
@@ -529,9 +564,58 @@ async fn listings(
     out.into_iter().map(|(_, h, o)| (h, o)).collect()
 }
 
-/// Each host's capability entries with their addresses: `PERSON/NAME`, or
-/// `HOST_ID/NAME` when the person has the name on more than one host.
-fn addressed(found: Vec<(String, Vec<Value>)>, labels: &BTreeMap<String, String>) -> Vec<Value> {
+/// Host persons and their policies' capability rules.
+#[derive(Default)]
+struct Bindings {
+    /// Host ID to person ID.
+    persons: BTreeMap<String, String>,
+    /// (person ID, network ID) to the policy's (capability, host) pairs.
+    rules: BTreeMap<(String, String), Vec<(String, String)>>,
+}
+impl Bindings {
+    /// Whether a capability entry on `host` is addressed by its person: the
+    /// person's policy for the entry's network binds the name to that host,
+    /// or none of the person's policies binds the name and the person has
+    /// it on one host only.
+    fn by_person(&self, host: &str, entry: &Value, name: &str, only: bool) -> bool {
+        let Some(person) = self.persons.get(host) else {
+            return only;
+        };
+        let networks: Vec<&str> = entry["via"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v["network_id"].as_str())
+            .collect();
+        let mut bound = false;
+        for ((p, network), rules) in &self.rules {
+            if p != person {
+                continue;
+            }
+            for (capability, h) in rules {
+                if capability != name {
+                    continue;
+                }
+                if h == host && networks.contains(&network.as_str()) {
+                    return true;
+                }
+                bound = true;
+            }
+        }
+        !bound && only
+    }
+}
+
+/// Each host's capability entries with their addresses: `PERSON/NAME` when
+/// the person's policy binds the name to that host, or when none binds it
+/// and the person has it on one host only; otherwise `HOST_ID/NAME`. A
+/// source is `PERSON/AGENT/SERVER` unless the person has it on more than
+/// one host.
+fn addressed(
+    found: Vec<(String, Vec<Value>)>,
+    labels: &BTreeMap<String, String>,
+    bindings: &Bindings,
+) -> Vec<Value> {
     let mut hosts_of: BTreeMap<(String, String), usize> = BTreeMap::new();
     for (host, entries) in &found {
         let person = labels.get(host).cloned().unwrap_or_else(|| host.clone());
@@ -545,10 +629,16 @@ fn addressed(found: Vec<(String, Vec<Value>)>, labels: &BTreeMap<String, String>
         let person = labels.get(&host).cloned();
         for e in entries {
             let name = e["capability"].as_str().unwrap_or_default().to_owned();
+            let only = person
+                .as_ref()
+                .is_some_and(|p| hosts_of.get(&(p.clone(), name.clone())) == Some(&1));
+            let by_person = if e["kind"] == "source" {
+                only
+            } else {
+                bindings.by_person(&host, &e, &name, only)
+            };
             let address = match &person {
-                Some(p) if hosts_of.get(&(p.clone(), name.clone())) == Some(&1) => {
-                    format!("{p}/{name}")
-                }
+                Some(p) if by_person => format!("{p}/{name}"),
                 _ => format!("{host}/{name}"),
             };
             out.push(json!({
@@ -662,6 +752,8 @@ async fn discover(
     .await?;
     let n = network.clone();
     let labels = blocking(store.clone(), move |s| s.host_labels(n.as_deref())).await?;
+    let n = network.clone();
+    let bindings = blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
     let mut found = Vec::new();
     let mut unanswered = Vec::new();
     for (host, outcome) in listings(&store, hosts, network.as_deref()).await {
@@ -673,7 +765,7 @@ async fn discover(
     let agents = reachable_agents(&store, person.as_deref(), network.as_deref()).await?;
     Ok(json!({
         "agents": agents,
-        "capabilities": addressed(found, &labels),
+        "capabilities": addressed(found, &labels, &bindings),
         "unanswered": unanswered,
     }))
 }
@@ -686,7 +778,8 @@ async fn resolve(
 ) -> Result<(String, Value), Error> {
     let (owner, n) = (a.owner.clone(), network.map(str::to_owned));
     let hosts = blocking(store.clone(), move |s| s.owner_hosts(&owner, n.as_deref())).await?;
-    let mut matches = Vec::new();
+    let by_host = valid_id(&a.owner, "host", 32);
+    let mut found = Vec::new();
     let mut unanswered = Vec::new();
     for (host, outcome) in listings(store, hosts, network).await {
         match outcome {
@@ -695,12 +788,45 @@ async fn resolve(
                     .into_iter()
                     .find(|e| e["capability"].as_str() == Some(a.capability.as_str()))
                 {
-                    matches.push((host, e));
+                    found.push((host, vec![e]));
                 }
             }
             Err(error) => unanswered.push((host, error)),
         }
     }
+    // `PERSON/CAPABILITY` matches only entries `discover` addresses that
+    // way.
+    let keep: Vec<bool> = if by_host {
+        vec![true; found.len()]
+    } else {
+        let n = network.map(str::to_owned);
+        let labels = blocking(store.clone(), {
+            let n = n.clone();
+            move |s| s.host_labels(n.as_deref())
+        })
+        .await?;
+        let bindings =
+            blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
+        // Addresses over every listed host of the person, so a name on
+        // several hosts counts as such.
+        addressed(found.clone(), &labels, &bindings)
+            .iter()
+            .zip(&found)
+            .map(|(e, (host, _))| {
+                e["kind"] == "source"
+                    || !e["address"]
+                        .as_str()
+                        .is_some_and(|x| x.starts_with(&format!("{host}/")))
+            })
+            .collect()
+    };
+    let matches: Vec<(String, Value)> = found
+        .into_iter()
+        .zip(keep)
+        .filter(|(_, k)| *k)
+        .map(|((h, mut e), _)| (h, e.remove(0)))
+        .collect();
+    let mut matches = matches;
     match matches.len() {
         1 => Ok(matches.remove(0)),
         0 => Err(not_found(
