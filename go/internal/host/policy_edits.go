@@ -540,12 +540,16 @@ func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(stri
 		if !storedNow {
 			return nil
 		}
+		for _, agent := range ruleDrops {
+			if err = appendEvent(ctx, tx, "network.policy_rule_dropped", person+"/"+agent, at); err != nil {
+				return err
+			}
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return err
 	}
 	if changed {
-		s.recordRuleDrops(ctx, network, person, ruleDrops)
 		logf("re-applied policy edits as version %d for %s", signedPolicy.Version, network)
 		s.wakePolicyDeliveries()
 		if _, err = s.attemptDelivery(ctx, network, person, policyTargetCoordinator); err != nil {
@@ -562,26 +566,6 @@ func policyDuration(p membership.Policy) (time.Time, time.Time, error) {
 		return issued, issued.Add(7 * 24 * time.Hour), errors.New("invalid policy window")
 	}
 	return issued, until, nil
-}
-
-// recordRuleDrops records network.policy_rule_dropped for each agent whose
-// later rules a v1 policy lost when this daemon signed it as v2.
-func (s *Store) recordRuleDrops(ctx context.Context, network, person string, agents []string) {
-	if len(agents) == 0 {
-		return
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return
-	}
-	defer tx.Rollback()
-	at := timestamp(time.Now())
-	for _, agent := range agents {
-		if appendEvent(ctx, tx, "network.policy_rule_dropped", person+"/"+agent, at) != nil {
-			return
-		}
-	}
-	_ = tx.Commit()
 }
 
 // reapplyAll re-applies unsettled edits in every network.

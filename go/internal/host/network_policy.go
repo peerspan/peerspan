@@ -222,6 +222,12 @@ func membershipsOf(ctx context.Context, q queryer, host string) ([]networkRecord
 // One coordinator attempt is made now; the delivery worker retries. An
 // identical resubmission changes nothing.
 func (s *Store) SubmitPolicy(ctx context.Context, id string, p membership.Policy) (membership.Policy, error) {
+	return s.submitPolicyRecording(ctx, id, p, nil)
+}
+
+// submitPolicyRecording is SubmitPolicy, also recording the given activity
+// subjects of network.policy_rule_dropped in the transaction that stores p.
+func (s *Store) submitPolicyRecording(ctx context.Context, id string, p membership.Policy, ruleDrops []string) (membership.Policy, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return p, err
@@ -234,8 +240,14 @@ func (s *Store) SubmitPolicy(ctx context.Context, id string, p membership.Policy
 	if old, ok := g.storedPolicy(p.PersonPublicKey); ok && old.Version == p.Version && old.Signature == p.Signature {
 		return p, nil
 	}
-	if err = s.submitPolicyIn(ctx, tx, id, p, time.Now()); err != nil {
+	now := time.Now()
+	if err = s.submitPolicyIn(ctx, tx, id, p, now); err != nil {
 		return p, err
+	}
+	for _, subject := range ruleDrops {
+		if err = appendEvent(ctx, tx, "network.policy_rule_dropped", subject, timestamp(now)); err != nil {
+			return p, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return p, err
@@ -868,10 +880,14 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 			logf("policy renewal for %s: %v", n.network, err)
 			continue
 		}
-		_, err = s.SubmitPolicy(ctx, n.network, renewed)
+		// Dropped rules are recorded with the stored renewal.
+		var subjects []string
+		for _, agent := range ruleDrops {
+			subjects = append(subjects, *n.member.PersonID+"/"+agent)
+		}
+		_, err = s.submitPolicyRecording(ctx, n.network, renewed, subjects)
 		switch {
 		case err == nil:
-			s.recordRuleDrops(ctx, n.network, *n.member.PersonID, ruleDrops)
 			logf("renewed access policy %d for %s", renewed.Version, n.network)
 		case errors.Is(err, ErrConflict):
 			// Another of the owner's hosts renewed first, and its renewal won.
