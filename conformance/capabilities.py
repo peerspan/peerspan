@@ -55,7 +55,9 @@ Each pairing reports these sections separately (contract Verification items in b
   resolution errors, calls listings [CLI];
 - status: the capabilities counts (shared excluding claims) with open_to, item 14 [Status];
 - removal: `capability remove` with and without shares, keeping the record when signing fails and finishing on
-  repeat [Removal, Capabilities];
+  repeat; the daemon's 409 for a DELETE while a rule remains; refusing while another person's policy holds the
+  rule (the record kept) and finishing with that person's key; withdrawing the rule from a network where the host
+  is no longer bound [Removal, Capabilities];
 - tie-break [Policy v2];
 - idle stop [Calls];
 - concurrent claims: p1 and p4 each create `clash` while the other and the coordinator are stopped; the loser's
@@ -2866,6 +2868,73 @@ class Pairing:
         kinds = {(e['kind'], e['subject_id']) for e in self.activity('p1')}
         need(('capability.removed', 'shared2') in kinds, 'capability.removed activity')
         self.sync_all()
+        self.removal_holders()
+
+    def removal_holders(self):
+        """`capability remove` withdraws this host's rule from every stored policy that holds it (PR #20): from a
+        network where the host is no longer bound, and from another person's policy only with that person's key;
+        the daemon refuses DELETE with 409 while any stored policy holds the rule."""
+        p1, ids = self.hosts['p1'], self.ids
+        # The daemon's 409: a DELETE while claims remain.
+        self.create('rmhold', 'cc/lit', 'operations', ['echo'])
+        status, body = p1.call('DELETE', '/v1/capabilities/rmhold')
+        need(status == 409 and self.capability('rmhold'), 'DELETE refused with 409 while a stored policy holds this '
+             'host\'s rule for the name, the record kept', status, body)
+        # Another person's policy holding p1's rule: quinn's team policy, signed here, with p1's claim for rmhold.
+        current = self.policy('p1', self.team, self.quinn)
+        held = {'format': 2, 'network_id': self.team, 'person_public_key': self.keys['quinn'][2],
+                'version': (current or {}).get('version', 0) + 1, 'issued_at': rfc3339(-60),
+                'valid_until': rfc3339(7 * DAY), 'rules': (current or {}).get('rules') or [],
+                'capability_rules': [r for r in (current or {}).get('capability_rules') or []
+                                     if r['capability'] != 'rmhold'] + [cap_rule(ids['p1'], 'rmhold', [])],
+                'trusted_hosts': sorted((current or {}).get('trusted_hosts') or []),
+                'edits': edits_list(edits_map(current))}
+        held['signature'] = ssh_sign(policy_lines_v2(held), self.keys['quinn'][0], self.root)
+        status, body = p1.call('POST', f'/v1/networks/{self.team}/policy', {'policy': held})
+        need(status == 201, 'setup: quinn\'s policy holding p1\'s rule for rmhold', status, body)
+        code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmhold', '--yes')
+        need(code != 0 and self.capability('rmhold'), 'a policy of another person holding the rule: the command fails '
+             'and the record is kept', code)
+        # "names that person and network": by label or person ID (the form is not said).
+        need(self.quinn in stderr or 'quinn' in stderr, 'it names that person', stderr[-400:])
+        need(self.team in stderr, 'and that network', stderr[-400:])
+        # Whether the policies pat's key can sign are withdrawn before the command fails is not said ("fails before
+        # deleting"); noted, not counted.
+        self.soft(all(self.rule_for('rmhold', n) is None for n in self.bound['p1']),
+                  'the policies the signing key owns are withdrawn before the command fails on another person\'s')
+        # That person's key: --person-key selects quinn's identity (its .pub) in an agent holding it.
+        quinn_pub = str(self.keys['quinn'][0]) + '.pub'
+        code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmhold', '--yes', '--person-key', quinn_pub,
+                                               sock=self.agents['quinn'].socket)
+        if code != 0 and any(self.rule_for('rmhold', n) for n in self.bound['p1']):
+            # pat's policies were left for a run with pat's key (see above).
+            code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmhold', '--yes')
+        quinns = self.policy('p1', self.team, self.quinn)
+        need(code == 0 and self.capability('rmhold') is None and quinns['version'] == held['version'] + 1 and
+             not any(r['capability'] == 'rmhold' and r['host'] == ids['p1'] for r in quinns['capability_rules']),
+             'repeating with that person\'s key withdraws the rule from their policy, then deletes the record', code,
+             stderr[-400:], quinns)
+        # A network where p1 is no longer bound: p1 is unbound from pat in `later` (permanent; later sections use
+        # only team), and the claim there is still withdrawn.
+        later = self.later
+        self.create('rmgone', 'cc/lit', 'operations', ['echo'])
+        need(self.rule_for('rmgone', later), 'setup: claimed in later')
+        p1.cli('network', 'unbind', '--network', later, '--host', ids['p1'])
+        self.bound['p1'].remove(later)
+
+        def unbound():
+            p1.run('network', 'sync', later)
+            return edit_start(p1, later)[0] == 404
+        wait_for(unbound, timeout=30, message='p1 no longer bound in later')
+        before = self.version('p1', later)
+        code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmgone', '--yes')
+        need(code == 0 and self.capability('rmgone') is None, 'capability remove with a claim in a network where the '
+             'host is no longer bound', code, stderr[-400:])
+        need(self.rule_for('rmgone', later) is None and self.version('p1', later) == before + 1,
+             'the rule is withdrawn from that network\'s policy too', self.rule_for('rmgone', later))
+        self.synced(before + 1, 'p2', net=later)
+        need(not any(r['capability'] == 'rmgone' for r in self.cap_rules(later, host='p2')),
+             'the sibling stores the withdrawal', self.cap_rules(later, host='p2'))
 
     def check_concurrent_claims(self):
         """Item 15 after two hosts each claim one name while the other and the coordinator are stopped (Claims:
