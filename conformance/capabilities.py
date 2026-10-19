@@ -799,7 +799,14 @@ class Pairing:
         return [i for i in self.status(host).get('attention', []) if i.get('kind') == kind]
 
     def activity(self, host):
-        return self.hosts[host].cli('activity', '--limit', '1000')
+        """Every local event, read in pages of 1,000 (the most one read returns) after a sequence cursor."""
+        events, after = [], 0
+        while True:
+            page = self.hosts[host].cli('activity', '--after', str(after), '--limit', '1000')
+            events += page
+            if len(page) < 1000:
+                return events
+            after = page[-1]['sequence']
 
     def restart(self, name):
         h = self.hosts[name]
@@ -2660,7 +2667,7 @@ class Pairing:
         # another host, and a source on two hosts. A lost concurrent claim is also checked in the concurrent claims
         # section. Their failures are reported at the end of the section, so one does not hide the others.
         deferred = []
-        for check in (self.cli_unsettled, self.cli_source_ambiguous):
+        for check in (self.cli_unsettled, self.cli_source_ambiguous, self.cli_cross_person):
             try:
                 check(deferred)
             except Failure as error:
@@ -2895,6 +2902,92 @@ class Pairing:
             status, body, persisted = self.resolution(f'{ids[host]}/{name}')
             need(status == 200 and body.get('peer_host_id') == ids[host], 'each candidate address resolves '
                  'to its host', host, status, body)
+
+    def cli_cross_person(self, deferred):
+        """Resolving an address: unsettled candidates are copies "each bound to the person in the entry's network".
+
+        Bindings are per network (coordination contract: a host is bound to at most one person in a network), so
+        q2, quinn's host in team, also joins `mixed` (created on p2, untrusted, so p2 has no self access there)
+        bound to pat. p2's unscoped discover of pat then queries q2, whose `crossed` p2 may use only through
+        quinn's team policy (via names team, where q2 is bound to quinn). That copy is never pat's: with pat's
+        unsettled copy on p1 alone, `pat/crossed` resolves to p1 (not 409), and with pat's unsettled copies on p1
+        and p4, it is 409 with exactly those two, quinn's policy binding the name to q2 suppressing nothing."""
+        ids, p2, q2 = self.ids, self.hosts['p2'], self.hosts['q2']
+        name, mixed = 'crossed', None
+        self.register('q2', 'q2agent')
+        self.put_servers('q2', 'q2agent', self.root, {'fx': self.fixture.args('q2-fx')})
+        self.create(name, 'q2agent/fx', 'operations', ['echo'], host='q2')
+        code, out, stdout, stderr = q2.outcome('share', name, '--with', 'pat', '--yes', '--network', self.team)
+        need(code == 0, 'setup: quinn shares q2\'s crossed with pat in team', code, stderr[-300:])
+        mixed = p2.cli('network', 'create', 'mixed', '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
+        try:
+            token = p2.cli('network', 'invite', '--network', mixed, '--member', 'pat', '--expires-in', '1h')['token']
+            q2.cli('join', token, '--untrusted', sock=self.agents['pat'].socket)
+
+            def bound():
+                q2.run('network', 'sync', mixed)
+                p2.run('network', 'sync', mixed)
+                return {m['host_id']: m['person_id'] for m in p2.cli('network', 'members', mixed)}.get(ids['q2']) \
+                    == self.pat
+            wait_for(bound, timeout=30, message='q2 bound to pat in mixed')
+            self.create(name, 'cc/lit', 'operations', ['echo'])
+            for net in list(self.bound['p1']):
+                if self.rule_for(name, net):
+                    self.drop_or_bind(name, net)
+
+            def unscoped():
+                status, body = p2.call('GET', '/v1/discover?person=pat')
+                need(status == 200, 'GET /v1/discover', status, body)
+                return [e for e in body.get('capabilities', []) if e.get('capability') == name]
+
+            def call():
+                count = self.outbound_count('p2')
+                status, body = p2.call('POST', '/v1/calls', {'target': f'pat/{name}', 'operation': 'echo',
+                                                             'input': {'text': 'x'}, 'deadline': timestamp(300)})
+                return status, body, self.outbound_count('p2') != count
+
+            # q2 is queried as pat's host (bound to pat in mixed); whether discover lists an entry whose network binds
+            # its host to another person is not said (ambiguous), so its presence is only noted. Listed, it is
+            # authorized only in team, and never PERSON/CAPABILITY.
+            entries = unscoped()
+            theirs = [e for e in entries if e['host_id'] == ids['q2']]
+            self.soft(theirs, 'unscoped discover of pat lists q2\'s copy (authorized only through quinn\'s policy)',
+                      entries)
+            need(all({v.get('network_id') for v in e['via']} == {self.team} for e in theirs),
+                 'setup: q2\'s copy is authorized for p2 only in team, where q2 is quinn\'s', theirs)
+            try:
+                need(all(e['address'] == f"{ids['q2']}/{name}" for e in theirs) and
+                     [e['address'] for e in entries if e['host_id'] == ids['p1']] and
+                     all(e['address'] == f'pat/{name}' for e in entries if e['host_id'] == ids['p1']),
+                     'discover: a copy whose entry\'s network binds its host to another person is not pat\'s, so '
+                     'pat\'s only copy is PERSON/CAPABILITY', entries)
+                status, body, persisted = call()
+                need(status == 200 and body.get('peer_host_id') == ids['p1'],
+                     'PERSON/CAPABILITY resolves to pat\'s one copy: a host bound to pat in one network whose entry\'s '
+                     'network binds it to another person is never a candidate', status, body)
+            except Failure as error:
+                deferred.append(f'cross_person_single: {error}')
+            self.synced(self.version(), 'p4')
+            self.create(name, 'dup4/fx', 'operations', ['echo'], host='p4')
+            self.synced(self.version('p4'), 'p1')
+            if any(r['capability'] == name for r in self.cap_rules()):
+                self.drop_or_bind(name, self.team)
+            status, body, persisted = call()
+            expected = sorted([f"{ids['p1']}/{name}", f"{ids['p4']}/{name}"])
+            candidates = (body or {}).get('candidates') if isinstance(body, dict) else None
+            need(status == 409 and body.get('code') == 'ambiguous' and isinstance(candidates, list) and
+                 candidates == sorted(candidates) and set(candidates) == set(expected) and not persisted,
+                 '409 ambiguous with exactly pat\'s two unsettled copies: another person\'s policy binding the name '
+                 'suppresses nothing, and that person\'s copy is not a candidate', status, body, expected)
+        finally:
+            if mixed:
+                q2.run('network', 'leave', mixed)
+            if any(r['capability'] == name for r in self.cap_rules()):
+                self.drop_or_bind(name, self.team)
+            self.hosts['p4'].call('DELETE', f'/v1/capabilities/{name}')
+            self.hosts['p1'].call('DELETE', f'/v1/capabilities/{name}')
+            q2.run('capability', 'remove', name, '--yes')
+            self.sync_all()
 
     def cli_source_ambiguous(self, deferred=None):
         """CLI: Resolving an address: PERSON/AGENT/SERVER with the same agent and server on two of pat's hosts (p1
