@@ -22,7 +22,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. These come later:
 
 **Decided with the owner on 2026-10-17:** the [owner decisions](#owner-decisions) below, including raw sources for the person's own machines behind a two-sided gate.
 
-**Decided with the owner on 2026-10-18:** a capability's name is claimed in the person's policy when the capability is created, so `PERSON/CAPABILITY` names one capability everywhere. A policy edit lost to a concurrent one is re-applied, as specified under [Concurrent edits](coordination-contract.md#concurrent-edits).
+**Decided with the owner on 2026-10-18:** a capability's name is claimed in the person's policy when the capability is created, so `PERSON/CAPABILITY` names one capability everywhere for a claimed name. A name no policy binds that the person has on several hosts is 409 `ambiguous` (decision 12). A policy edit lost to a concurrent one is re-applied, as specified under [Concurrent edits](coordination-contract.md#concurrent-edits).
 
 ## Model
 
