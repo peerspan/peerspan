@@ -472,6 +472,9 @@ type entryAddress struct {
 	binding  personHost
 	bound    bool
 	personal bool
+	// unsettled is a capability no policy of the person binds, which the
+	// person has on more than one host.
+	unsettled bool
 }
 
 // personAddressed decides, for each listed entry, the person it is
@@ -545,6 +548,7 @@ func (s *Store) personAddressed(ctx context.Context, hosts []personHost, listing
 				}
 			}
 			a.personal = here || (!bound[person+"/"+e.Capability] && count[person+"/"+e.Capability] == 1)
+			a.unsettled = !bound[person+"/"+e.Capability] && count[person+"/"+e.Capability] > 1
 		}
 	}
 	return out, nil
@@ -605,7 +609,7 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 			return "", ListedCapability{}, err
 		}
 	}
-	var matches []match
+	var matches, unsettled []match
 	for _, h := range hosts {
 		for i, e := range listings[h] {
 			if e.Capability != capability {
@@ -613,12 +617,20 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 			}
 			if addressed != nil {
 				a := addressed[h][i]
+				if a.unsettled {
+					unsettled = append(unsettled, match{h, e})
+				}
 				if !a.bound || (e.Kind != ListedKindSource && !a.personal) {
 					continue
 				}
 			}
 			matches = append(matches, match{h, e})
 		}
+	}
+	// With no match, a name no policy binds that the person has on
+	// several hosts is unsettled, and its copies are the candidates.
+	if len(matches) == 0 && len(unsettled) > 1 {
+		matches = unsettled
 	}
 	switch len(matches) {
 	case 0:
@@ -638,6 +650,7 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 	for i, m := range matches {
 		names[i] = m.host + "/" + m.entry.Capability
 	}
+	sort.Strings(names)
 	return "", ListedCapability{}, &codedError{status: http.StatusConflict, code: "ambiguous", message: fmt.Sprintf("the address %s names more than one host's %s: %s; use HOST_ID/%s", address, capability, strings.Join(names, ", "), capability), candidates: names}
 }
 
