@@ -187,9 +187,9 @@ impl Store {
         owner: &str,
         network: Option<&str>,
     ) -> Result<Vec<String>, Error> {
-        let own = self.identity().id;
-        let conn = self.connection()?;
         if valid_id(owner, "host", 32) {
+            let own = self.identity().id;
+            let conn = self.connection()?;
             // A member host of a network shared with this one.
             let member: bool = conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM network_members WHERE host_id = ?1 AND host_id != ?2)",
@@ -201,6 +201,24 @@ impl Store {
             }
             return Ok(vec![owner.to_owned()]);
         }
+        let mut hosts: Vec<String> = Vec::new();
+        for (host, _, _) in self.owner_bindings(owner, network)? {
+            if !hosts.contains(&host) {
+                hosts.push(host);
+            }
+        }
+        hosts.sort();
+        Ok(hosts)
+    }
+    /// The (host, network, person ID) bindings of the person `owner` (label
+    /// or ID) in each network searched, other than this host.
+    fn owner_bindings(
+        &self,
+        owner: &str,
+        network: Option<&str>,
+    ) -> Result<Vec<(String, String, String)>, Error> {
+        let own = self.identity().id;
+        let conn = self.connection()?;
         let networks: Vec<String> = match network {
             Some(n) => {
                 self.network_record(&conn, n)?;
@@ -214,7 +232,7 @@ impl Store {
             }
         };
         let mut found = false;
-        let mut hosts = Vec::new();
+        let mut out = Vec::new();
         for n in &networks {
             let persons = self.stored_persons(&conn, n)?;
             let person = match crate::admins::resolve_person(&persons, owner) {
@@ -224,11 +242,8 @@ impl Store {
             };
             found = true;
             for m in self.stored_members(&conn, n)? {
-                if m.person_id.as_deref() == Some(person.as_str())
-                    && m.host_id != own
-                    && !hosts.contains(&m.host_id)
-                {
-                    hosts.push(m.host_id);
+                if m.person_id.as_deref() == Some(person.as_str()) && m.host_id != own {
+                    out.push((m.host_id, n.clone(), person.clone()));
                 }
             }
         }
@@ -238,8 +253,7 @@ impl Store {
                 &[],
             ));
         }
-        hosts.sort();
-        Ok(hosts)
+        Ok(out)
     }
     /// Every other member host bound to a person in the networks searched.
     fn all_hosts(&self, network: Option<&str>) -> Result<Vec<String>, Error> {
@@ -578,21 +592,6 @@ impl Bindings {
     /// or none of the person's policies binds the name and the person has
     /// it on one host only.
     fn by_person(&self, host: &str, entry: &Value, name: &str, only: bool) -> bool {
-        match self.binding(host, entry, name) {
-            Binding::Unknown | Binding::Unbound => only,
-            Binding::Here => true,
-            Binding::Elsewhere => false,
-        }
-    }
-
-    /// Whether a capability entry on `host` is an unsettled copy: the host
-    /// is bound to a person in the entry's network, and none of that
-    /// person's policies binds the name.
-    fn unsettled(&self, host: &str, entry: &Value, name: &str) -> bool {
-        matches!(self.binding(host, entry, name), Binding::Unbound)
-    }
-
-    fn binding(&self, host: &str, entry: &Value, name: &str) -> Binding {
         let networks: Vec<&str> = entry["via"]
             .as_array()
             .into_iter()
@@ -609,7 +608,7 @@ impl Bindings {
             })
             .collect();
         if persons.is_empty() {
-            return Binding::Unknown;
+            return only;
         }
         let mut bound = false;
         for ((p, network), rules) in &self.rules {
@@ -625,29 +624,44 @@ impl Bindings {
                         .iter()
                         .any(|(n, person)| *n == network && *person == p)
                 {
-                    return Binding::Here;
+                    return true;
                 }
                 bound = true;
             }
         }
-        if bound {
-            Binding::Elsewhere
-        } else {
-            Binding::Unbound
-        }
+        !bound && only
     }
-}
 
-/// How the person's policies bind a capability entry's name.
-enum Binding {
-    /// The host is bound to no person in the entry's networks.
-    Unknown,
-    /// No policy of the host's person binds the name.
-    Unbound,
-    /// A policy binds the name to this host.
-    Here,
-    /// A policy binds the name, but not to this host.
-    Elsewhere,
+    /// The requested person an entry on `host` is an unsettled copy of:
+    /// the first of the entry's networks in which `host` is bound to the
+    /// requested person (`owner`, as (host, network, person) bindings)
+    /// selects the person, and none of that person's policies binds the
+    /// name.
+    fn unsettled(
+        &self,
+        host: &str,
+        entry: &Value,
+        name: &str,
+        owner: &[(String, String, String)],
+    ) -> Option<String> {
+        let person = entry["via"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v["network_id"].as_str())
+            .find_map(|n| {
+                owner
+                    .iter()
+                    .find(|(h, network, _)| h == host && network == n)
+                    .map(|(_, _, p)| p.clone())
+            })?;
+        let bound = self
+            .rules
+            .iter()
+            .filter(|((p, _), _)| *p == person)
+            .any(|(_, rules)| rules.iter().any(|(capability, _)| capability == name));
+        (!bound).then_some(person)
+    }
 }
 
 /// Each host's capability entries with their addresses: `PERSON/NAME` when
@@ -850,17 +864,29 @@ async fn resolve(
             move |s| s.host_labels(n.as_deref())
         })
         .await?;
+        let owner = blocking(store.clone(), {
+            let (o, n) = (a.owner.clone(), n.clone());
+            move |s| s.owner_bindings(&o, n.as_deref())
+        })
+        .await?;
         let bindings =
             blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
-        // Copies no policy settles, each bound to the person, are the
-        // candidates when nothing matches.
-        unsettled = found
+        // Copies no policy of the requested person settles, each bound to
+        // that person in the entry's network, are the candidates when
+        // nothing matches.
+        let copies: Vec<(String, String)> = found
             .iter()
-            .filter(|(host, entries)| {
-                entries[0]["kind"] != "source"
-                    && bindings.unsettled(host, &entries[0], &a.capability)
+            .filter(|(_, entries)| entries[0]["kind"] != "source")
+            .filter_map(|(host, entries)| {
+                bindings
+                    .unsettled(host, &entries[0], &a.capability, &owner)
+                    .map(|p| (p, format!("{host}/{}", a.capability)))
             })
-            .map(|(host, _)| format!("{host}/{}", a.capability))
+            .collect();
+        unsettled = copies
+            .iter()
+            .filter(|(p, _)| copies.iter().filter(|(q, _)| q == p).count() > 1)
+            .map(|(_, form)| form.clone())
             .collect();
         // Addresses over every listed host of the person, so a name on
         // several hosts counts as such.
