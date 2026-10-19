@@ -401,7 +401,11 @@ The receiver stores the request, the status record, and the result. Seven days a
 
 **Resolving an address.**
 - **`HOST_ID/CAPABILITY`** names a member host directly. `HOST_ID/AGENT/SERVER` likewise names a source, and `PERSON/AGENT/SERVER` resolves as below.
-- **`PERSON/CAPABILITY`** queries the person's hosts, as `discover` does, and matches only entries whose `discover` address is `PERSON/CAPABILITY`. Exactly one match is the target. None is 404 `{code: "not_found", error, unanswered}`. More than one is 409 `{code: "ambiguous", error, candidates: ["HOST_ID/CAPABILITY", ...]}`.
+- **`PERSON/CAPABILITY`** queries the person's hosts, as `discover` does, and matches the entries whose `discover` address is `PERSON/CAPABILITY`.
+  - Exactly one match is the target, and more than one is 409 `{code: "ambiguous", error, candidates: ["HOST_ID/CAPABILITY", ...]}`.
+  - With no match, the name may still be unsettled: none of the person's policies binds it, and the person has it on more than one host, each bound to the person in the entry's network. That is also 409 `ambiguous`, with those entries as `candidates`, so the caller learns which `HOST_ID/CAPABILITY` addresses to use. Copies of a name that a policy binds to another host are never candidates.
+  - Otherwise it is 404 `{code: "not_found", error, unanswered}`.
+  - `candidates` are sorted. A source named `PERSON/AGENT/SERVER` follows the same rule: one host is the target, and several are 409 `ambiguous`.
 - **Before persisting.** All of these refusals happen before anything is persisted. The resolved host and the citation are stored in the outbound record.
 
 **Deadlines.** `--deadline` is RFC3339, or a duration in the `--wait` form, where a bare `N` is seconds. It defaults to 15 minutes, capped by the cited policy's `valid_until`. The daemon refuses a past deadline, or one more than 15 minutes ahead, with 400 before persisting.
@@ -565,7 +569,7 @@ It covers:
 - **CLI:**
   - `discover`, by person, with `--network`, with ambiguous names, and with unanswered hosts;
   - `call` with `--input`, the `--KEY VALUE` options and their errors, a property named like one of `call`'s flags, `--deadline`, `--wait`, and exit codes;
-  - address resolution errors;
+  - address resolution errors, including 409 `ambiguous` with `candidates` for a name unsettled on two of the person's hosts, and 404 when the only other copy lost its claim;
   - `calls` listings.
 - **Status:** the `capabilities` counts, and items 14 and 15.
 - **Migration:** from version 15 to version 16.
@@ -576,7 +580,7 @@ It covers:
 Settled with the owner on 2026-10-17.
 1. **Operations.** An MCP tool operation keeps the tool's name, as the server gives it. Owners cannot rename operations, and Peerspan-defined operations come with adapters. Resources are read through one `read` operation, and a tool named `read` cannot be selected in slice 1.
 2. **Write tools.** They may be selected when creating a capability. The review marks them `(can change things)` and states the credential's reach. A narrower credential is optional, not required; argument rules are later work.
-3. **Name uniqueness.** Each capability rule names the host that serves it, so a duplicate name on another host is never authorized by accident. Revised on 2026-10-18: the name is claimed in the person's policy at creation, so names are unique across the person's hosts and `PERSON/CAPABILITY` is never ambiguous, even for the person's own machines. Status item 15 reports only a claim lost to a concurrent one.
+3. **Name uniqueness.** Each capability rule names the host that serves it, so a duplicate name on another host is never authorized by accident. Revised on 2026-10-18: the name is claimed in the person's policy at creation, so claimed names are unique across the person's hosts and `PERSON/CAPABILITY` is never ambiguous for them, even for the person's own machines. Unclaimed copies on several hosts are 409 `ambiguous` (decision 12). Status item 15 reports only a claim lost to a concurrent one.
 4. **Confirmation.** Every `share` shows the review and asks for confirmation, not only the first. `--yes` skips it.
 5. **Removal.** `capability remove` also withdraws the capability's shares, after confirmation. Every affected policy is signed before the record is deleted.
 6. **Sources for the person's own machines.** Trusted machines may call raw sources, each as an implicit capability with every tool and resource, on the serving machine's credentials. The serving machine must also list the caller in its local open list, which starts empty and is never in policy, so the person key alone never opens a machine's sources. Sources are never shared with others.
@@ -588,3 +592,16 @@ Settled with the owner on 2026-10-18:
 
 10. **Claims.** Capabilities stay host-local, but their names are claimed in the person's signed policy at creation. The policy is the person's shared record, carried but not controlled by the coordinator. Creating a capability therefore needs the person key, and unshared capability names are visible to coordination.
 11. **Concurrent edits are re-applied.** A host whose policy edit loses to a concurrent one signs it again on top of the winner. A withdrawal wins over a concurrent addition. See [Concurrent edits](coordination-contract.md#concurrent-edits).
+
+Settled with the owner on 2026-10-19:
+
+12. **Unsettled names are ambiguous.** When no policy binds a name and the person has it on several hosts, as with copies created before claims or whose claim could not be signed, `PERSON/CAPABILITY` is 409 `ambiguous` with the `HOST_ID/CAPABILITY` candidates, not 404.
+13. **Agent capability tools (slice 2).** Attached agents reach capabilities through the shared adapter:
+    - **Tools.** Four generic MCP tools, `list_capabilities`, `call_capability {address, operation, input}`, `call_status`, and `call_cancel`, rather than one MCP tool per remote operation. Remote descriptions appear only inside results.
+    - **Opt-in per agent.** `attach` asks at a terminal whether the agent may call capabilities shared with the person; `--calls` and `--no-calls` answer without a prompt. The setting is stored on the adapter credential, as `directory` is.
+    - **Rate limit.** `max_calls_per_hour` on the adapter credential, default 100, set at `attach`. Each call counts once when first persisted, never on retries, and a call over the limit is refused with 429 `rate_limited` and `retry_after`, as `max_sends_per_hour` is.
+    - **The person's own machines.** Self access covers the person's capabilities on their other machines. Raw sources stay CLI-only.
+    - **Waiting.** `call_capability` waits up to `wait` seconds, default 30 and at most 60, for a final state, then returns the call ID and state. A call that ends later produces a `call_update` event through live delivery, listed in `pending_work`, and `call_status` always answers.
+    - **Large results.** At most 64 KiB of a result is returned inline, with `truncated: true` and `result_bytes`; `call_status {call_id, offset}` returns the next part.
+    - **Uncertain calls.** An `uncertain` result tells the agent the call may or may not have taken effect, that it must not call again on its own, and that it should check the effect or ask the person. `rejected`, `expired`, and `cancelled` say the call never ran. Nothing is retried automatically.
+    - **Out of scope:** approving each call, remote OAuth servers, capabilities inside delegation chains, tools provided by sessions, and streaming results.
