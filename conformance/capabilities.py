@@ -2909,7 +2909,8 @@ class Pairing:
         Bindings are per network (coordination contract: a host is bound to at most one person in a network), so
         q2, quinn's host in team, also joins `mixed` (created on p2, untrusted, so p2 has no self access there)
         bound to pat. p2's unscoped discover of pat then queries q2, whose `crossed` p2 may use only through
-        quinn's team policy (via names team, where q2 is bound to quinn). That copy is never pat's: with pat's
+        quinn's team policy (via names team, where q2 is bound to quinn). That entry belongs to quinn (the discover
+        row): `discover quinn` lists it and `discover pat` leaves it out. It is never pat's: with pat's
         unsettled copy on p1 alone, `pat/crossed` resolves to p1 (not 409), and with pat's unsettled copies on p1
         and p4, it is 409 with exactly those two, quinn's policy binding the name to q2 suppressing nothing."""
         ids, p2, q2 = self.ids, self.hosts['p2'], self.hosts['q2']
@@ -2946,15 +2947,28 @@ class Pairing:
                                                              'input': {'text': 'x'}, 'deadline': timestamp(300)})
                 return status, body, self.outbound_count('p2') != count
 
-            # q2 is queried as pat's host (bound to pat in mixed); whether discover lists an entry whose network binds
-            # its host to another person is not said (ambiguous), so its presence is only noted. Listed, it is
-            # authorized only in team, and never PERSON/CAPABILITY.
+            # Discover: an entry belongs to the person its host is bound to in one of the entry's `via` networks, the
+            # first deciding, and with PERSON, entries that belong to someone else are left out. q2's copy reaches p2
+            # only through team, where q2 is quinn's: it is quinn's, listed under quinn, and never under pat.
+            p2.run('network', 'sync', self.team)
+            status, body = p2.call('GET', '/v1/discover?person=quinn')
+            quinns = [e for e in (body or {}).get('capabilities', []) if e.get('capability') == name and
+                      e.get('host_id') == ids['q2']]
+            need(status == 200 and len(quinns) == 1 and
+                 {v.get('network_id') for v in quinns[0]['via']} == {self.team},
+                 'setup: discover quinn lists q2\'s copy, reached only through team', status, quinns)
+            try:
+                need(quinns[0]['address'] == f'quinn/{name}', 'discover quinn addresses it quinn/CAPABILITY (quinn\'s '
+                     'team policy binds the name to q2)', quinns)
+            except Failure as error:
+                deferred.append(f'cross_person_quinn: {error}')
             entries = unscoped()
             theirs = [e for e in entries if e['host_id'] == ids['q2']]
-            self.soft(theirs, 'unscoped discover of pat lists q2\'s copy (authorized only through quinn\'s policy)',
-                      entries)
-            need(all({v.get('network_id') for v in e['via']} == {self.team} for e in theirs),
-                 'setup: q2\'s copy is authorized for p2 only in team, where q2 is quinn\'s', theirs)
+            try:
+                need(not theirs, 'discover pat leaves out q2\'s copy: its only via network binds q2 to quinn, so the '
+                     'entry belongs to quinn', entries)
+            except Failure as error:
+                deferred.append(f'cross_person_discover: {error}')
             try:
                 need(all(e['address'] == f"{ids['q2']}/{name}" for e in theirs) and
                      [e['address'] for e in entries if e['host_id'] == ids['p1']] and
