@@ -578,6 +578,21 @@ impl Bindings {
     /// or none of the person's policies binds the name and the person has
     /// it on one host only.
     fn by_person(&self, host: &str, entry: &Value, name: &str, only: bool) -> bool {
+        match self.binding(host, entry, name) {
+            Binding::Unknown | Binding::Unbound => only,
+            Binding::Here => true,
+            Binding::Elsewhere => false,
+        }
+    }
+
+    /// Whether a capability entry on `host` is an unsettled copy: the host
+    /// is bound to a person in the entry's network, and none of that
+    /// person's policies binds the name.
+    fn unsettled(&self, host: &str, entry: &Value, name: &str) -> bool {
+        matches!(self.binding(host, entry, name), Binding::Unbound)
+    }
+
+    fn binding(&self, host: &str, entry: &Value, name: &str) -> Binding {
         let networks: Vec<&str> = entry["via"]
             .as_array()
             .into_iter()
@@ -594,7 +609,7 @@ impl Bindings {
             })
             .collect();
         if persons.is_empty() {
-            return only;
+            return Binding::Unknown;
         }
         let mut bound = false;
         for ((p, network), rules) in &self.rules {
@@ -610,13 +625,29 @@ impl Bindings {
                         .iter()
                         .any(|(n, person)| *n == network && *person == p)
                 {
-                    return true;
+                    return Binding::Here;
                 }
                 bound = true;
             }
         }
-        !bound && only
+        if bound {
+            Binding::Elsewhere
+        } else {
+            Binding::Unbound
+        }
     }
+}
+
+/// How the person's policies bind a capability entry's name.
+enum Binding {
+    /// The host is bound to no person in the entry's networks.
+    Unknown,
+    /// No policy of the host's person binds the name.
+    Unbound,
+    /// A policy binds the name to this host.
+    Here,
+    /// A policy binds the name, but not to this host.
+    Elsewhere,
 }
 
 /// Each host's capability entries with their addresses: `PERSON/NAME` when
@@ -809,6 +840,7 @@ async fn resolve(
     }
     // `PERSON/CAPABILITY` matches only entries `discover` addresses that
     // way.
+    let mut unsettled: Vec<String> = Vec::new();
     let keep: Vec<bool> = if by_host {
         vec![true; found.len()]
     } else {
@@ -820,6 +852,16 @@ async fn resolve(
         .await?;
         let bindings =
             blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
+        // Copies no policy settles, each bound to the person, are the
+        // candidates when nothing matches.
+        unsettled = found
+            .iter()
+            .filter(|(host, entries)| {
+                entries[0]["kind"] != "source"
+                    && bindings.unsettled(host, &entries[0], &a.capability)
+            })
+            .map(|(host, _)| format!("{host}/{}", a.capability))
+            .collect();
         // Addresses over every listed host of the person, so a name on
         // several hosts counts as such.
         addressed(found.clone(), &labels, &bindings)
@@ -840,6 +882,10 @@ async fn resolve(
         .map(|((h, mut e), _)| (h, e.remove(0)))
         .collect();
     let mut matches = matches;
+    if matches.is_empty() && unsettled.len() > 1 {
+        unsettled.sort();
+        return Err(ambiguous(unsettled));
+    }
     match matches.len() {
         1 => Ok(matches.remove(0)),
         0 => Err(not_found(
@@ -850,22 +896,28 @@ async fn resolve(
             &unanswered,
         )),
         _ => {
-            let forms: Vec<String> = matches
+            let mut forms: Vec<String> = matches
                 .iter()
                 .map(|(h, _)| format!("{h}/{}", a.capability))
                 .collect();
-            Err(Error::Coded {
-                status: 409,
-                code: "ambiguous",
-                message: format!(
-                    "the address matches several hosts; use one of: {}",
-                    forms.join(", ")
-                ),
-                extra: [("candidates".to_owned(), json!(forms))]
-                    .into_iter()
-                    .collect(),
-            })
+            forms.sort();
+            Err(ambiguous(forms))
         }
+    }
+}
+
+/// 409 `ambiguous` with the sorted `HOST_ID/CAPABILITY` candidates.
+fn ambiguous(forms: Vec<String>) -> Error {
+    Error::Coded {
+        status: 409,
+        code: "ambiguous",
+        message: format!(
+            "the address matches several hosts; use one of: {}",
+            forms.join(", ")
+        ),
+        extra: [("candidates".to_owned(), json!(forms))]
+            .into_iter()
+            .collect(),
     }
 }
 
