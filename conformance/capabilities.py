@@ -52,7 +52,9 @@ Each pairing reports these sections separately (contract Verification items in b
 - configuration changes: a dropped server and a disappearing tool or resource making capabilities unavailable,
   and recovery [Sources, Capabilities];
 - CLI: discover, call (--input, --KEY VALUE and errors, call's own flags, --deadline, --wait, exit codes),
-  resolution errors, calls listings [CLI];
+  resolution errors (409 `ambiguous` for a name unsettled on two of pat's hosts and for a source on two hosts;
+  the claimed copy against one bound to another host; 404 when the only copy is bound to another host), calls
+  listings [CLI];
 - status: the capabilities counts (shared excluding claims) with open_to, item 14 [Status];
 - removal: `capability remove` with and without shares, keeping the record when signing fails and finishing on
   repeat; the daemon's 409 for a DELETE while a rule remains; refusing while another person's policy holds the
@@ -2654,12 +2656,15 @@ class Pairing:
         sources = [e for e in (out or {}).get('capabilities', []) if e['kind'] == 'source']
         need(code == 0 and any(e['address'] == 'pat/cc/fx' for e in sources), 'discover includes sources opened to '
              'this host, addressed PERSON/AGENT/SERVER', [e['address'] for e in sources])
-        # Names on more than one host: since claims, a second host cannot create a claimed name, so the only way to
-        # one name on two of a person's hosts is a lost concurrent claim. The address rule for that case (the claimed
-        # copy as PERSON/CAPABILITY, the other only as HOST_ID/CAPABILITY, PERSON/CAPABILITY resolving to the claimed
-        # copy) is checked in the concurrent claims section. A 409 `ambiguous` needs two entries both addressed
-        # PERSON/CAPABILITY, which the contract no longer lets arise from the person's policies (owner decision 3);
-        # it is not exercised (see the run's notes).
+        # Names on more than one of the person's hosts: unsettled (409 `ambiguous`), claimed against a copy bound to
+        # another host, and a source on two hosts. A lost concurrent claim is also checked in the concurrent claims
+        # section. Their failures are reported at the end of the section, so one does not hide the others.
+        deferred = []
+        for check in (self.cli_unsettled, self.cli_source_ambiguous):
+            try:
+                check(deferred)
+            except Failure as error:
+                deferred.append(f'{check.__name__}: {error}')
         # Unanswered hosts, and not found.
         self.hosts['p3'].stop()
         try:
@@ -2758,6 +2763,173 @@ class Pairing:
              'calls received: [{sequence, request, status}]', received[-1:])
         code, out, stdout, stderr = self.hosts['p1'].outcome('calls', 'cancel', '--peer', ids['q1'], call_id())
         need(code != 0, 'calls cancel of an unknown outbound call fails', code)
+        if deferred:
+            raise Failure(' || '.join(deferred))
+
+    def drop_or_bind(self, name, net, serving=None):
+        """Sign here, with pat's key, the next version of pat's policy in NET with no rule for NAME, plus a claim
+        binding NAME to SERVING when given; submit it through p1 and let p2 and p4 store it where they are members.
+        Like crafted_v2, it is not an edit and copies `edits`, so no host's edits stop being reflected (nothing is
+        re-applied over it)."""
+        current = self.policy('p1', net)
+        rules = [r for r in current.get('capability_rules') or [] if r['capability'] != name]
+        if serving:
+            rules.append(cap_rule(self.ids[serving], name, []))
+        signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root, capability_rules=rules)
+        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{net}/policy', {'policy': signed})
+        need(status == 201, f'setup: pat\'s policy in {net} with {name} ' + (f'bound to {serving}' if serving else
+             'bound to no host'), status, body)
+        for host in ('p2', 'p4'):
+            if net in self.bound[host]:
+                self.synced(signed['version'], host, net=net)
+
+    def resolution(self, target, operation='echo', input=None):
+        """POST /v1/calls from p2 (trusted in team, open on p1 and p4) scoped to team; returns (status, body,
+        whether an outbound record was persisted)."""
+        count = self.outbound_count('p2')
+        status, body = self.hosts['p2'].call('POST', '/v1/calls', {
+            'target': target, 'operation': operation, 'input': input if input is not None else {'text': 'r'},
+            'deadline': timestamp(300), 'network': self.team})
+        return status, body, self.outbound_count('p2') != count
+
+    def addresses(self, name, kind='capability'):
+        """discover from p2 scoped to team: {host_id: address} of the entries for NAME."""
+        status, body = self.hosts['p2'].call('GET', f'/v1/discover?person=pat&network={self.team}')
+        need(status == 200, 'GET /v1/discover', status, body)
+        return {e['host_id']: e['address'] for e in body.get('capabilities', [])
+                if e.get('kind') == kind and e.get('capability') == name}
+
+    def cli_unsettled(self, deferred):
+        """Owner decisions 3 and 12; CLI: Resolving an address; the discover row.
+
+        An unsettled name (no policy of pat binds it, and pat has it on two hosts bound to pat in team) can only be
+        built through contract-visible means by withdrawing claims: creation always claims for a host with a person
+        (Claims: At creation; the daemon refuses POST /v1/capabilities without the claim policies), and a host
+        without a person is not bound to the person, so its copy could never be a candidate. So `unsettled` is
+        created on p1 (claimed in every network p1 is bound in), each claim is withdrawn by a policy signed here
+        with pat's key (as an owner could sign one by hand, not an edit, copying `edits`), then p4 creates the same
+        name (allowed: no stored rule binds it to another host) and its claim is withdrawn the same way. Copies
+        created before claims, or whose claim could not be signed, are the cases owner decision 12 names; this is
+        the same state."""
+        ids, p1, p4 = self.ids, 'p1', 'p4'
+        name = 'unsettled'
+        if 'dup4' not in self.aid:
+            self.register('p4', 'dup4')
+            self.put_servers('p4', 'dup4', self.root, {'fx': self.fixture.args('dup4-fx')})
+        self.create(name, 'cc/lit', 'operations', ['echo'])
+        for net in list(self.bound['p1']):
+            if self.rule_for(name, net):
+                self.drop_or_bind(name, net)
+        self.synced(self.version(), 'p4')
+        self.create(name, 'dup4/fx', 'operations', ['echo'], host='p4')
+        self.synced(self.version('p4'), 'p1', 'p2')
+        if any(r['capability'] == name for r in self.cap_rules()):
+            self.drop_or_bind(name, self.team)
+        for net in self.bound['p2']:
+            need(not any(r['capability'] == name for r in self.cap_rules(net, host='p2')),
+                 'setup: no policy of pat stored on the caller binds the unsettled name', net)
+        try:
+            try:
+                self.unsettled_two_hosts(name)
+            except Failure as error:   # reported at the end of the section; the claimed cases below still run
+                deferred.append(f'unsettled_two_hosts: {error}')
+            # 2. Claimed on p1, so p4's copy is bound to another host: PERSON/NAME is the claimed copy, not 409.
+            self.drop_or_bind(name, self.team, serving=p1)
+            found = self.addresses(name)
+            need(found == {ids[p1]: f'pat/{name}', ids[p4]: f'{ids[p4]}/{name}'}, 'discover: the claimed copy is '
+                 'PERSON/CAPABILITY, the copy bound to another host only HOST_ID/CAPABILITY', found)
+            status, body, persisted = self.resolution(f'pat/{name}')
+            need(status == 200 and body.get('peer_host_id') == ids[p1] and persisted,
+                 'PERSON/CAPABILITY resolves to the claimed copy, not 409', status, body)
+            # Removing p1's copy withdraws its claim: p4's copy, now the only one and bound nowhere, is
+            # PERSON/CAPABILITY.
+            code, out, stdout, stderr = self.hosts[p1].outcome('capability', 'remove', name, '--yes')
+            need(code == 0 and self.capability(name) is None, 'setup: p1\'s copy removed', code, stderr[-300:])
+            self.synced(self.version(), 'p2', 'p4')
+            found = self.addresses(name)
+            need(found == {ids[p4]: f'pat/{name}'}, 'discover: an unclaimed name on only one host is '
+                 'PERSON/CAPABILITY', found)
+            status, body, persisted = self.resolution(f'pat/{name}')
+            need(status == 200 and body.get('peer_host_id') == ids[p4], 'PERSON/CAPABILITY resolves to the only '
+                 'copy when no policy binds the name', status, body)
+            # The name bound to p1, which no longer has it: the only remaining copy is bound to another host, so it
+            # is never a candidate and PERSON/NAME is 404, persisting nothing.
+            self.drop_or_bind(name, self.team, serving=p1)
+            found = self.addresses(name)
+            need(found == {ids[p4]: f'{ids[p4]}/{name}'}, 'discover: a copy bound to another host is only '
+                 'HOST_ID/CAPABILITY', found)
+            status, body, persisted = self.resolution(f'pat/{name}')
+            need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found' and
+                 'unanswered' in body and not persisted,
+                 '404 {code: "not_found", error, unanswered} when the only remaining copy is bound to another host '
+                 '(never a candidate), persisting nothing', status, body)
+        finally:
+            if any(r['capability'] == name for r in self.cap_rules()):
+                self.drop_or_bind(name, self.team)
+            self.hosts['p4'].call('DELETE', f'/v1/capabilities/{name}')
+            if self.capability(name):
+                self.hosts['p1'].run('capability', 'remove', name, '--yes')
+            self.sync_all()
+
+    def unsettled_two_hosts(self, name):
+        ids, p1, p4 = self.ids, 'p1', 'p4'
+        # 1. Unsettled on two hosts: discover lists each copy by host ID; PERSON/NAME is 409 ambiguous with
+        # both, sorted, and nothing is persisted.
+        found = self.addresses(name)
+        need(found == {ids[p1]: f'{ids[p1]}/{name}', ids[p4]: f'{ids[p4]}/{name}'},
+             'discover: an unsettled name on two hosts is addressed only HOST_ID/CAPABILITY', found)
+        status, body, persisted = self.resolution(f'pat/{name}')
+        expected = sorted([f'{ids[p1]}/{name}', f'{ids[p4]}/{name}'])
+        need(status == 409 and isinstance(body, dict) and body.get('code') == 'ambiguous' and
+             isinstance(body.get('error'), str) and body.get('candidates') == expected,
+             '409 {code: "ambiguous", error, candidates} for a name unsettled on two of the person\'s hosts, '
+             'candidates the sorted HOST_ID/CAPABILITY addresses', status, body, expected)
+        need(not persisted, 'the ambiguous refusal persists nothing (no outbound call record)')
+        count = self.outbound_count('p2')
+        code, out, stdout, stderr = self.hosts['p2'].outcome('call', f'pat/{name}', 'echo', '--input',
+                                                             '{"text": "r"}', '--network', self.team,
+                                                             '--wait', '5s')
+        need(code != 0 and self.outbound_count('p2') == count, 'call PERSON/NAME of an unsettled name fails, '
+             'persisting nothing', code, stderr[-300:])
+        for host in (p1, p4):
+            status, body, persisted = self.resolution(f'{ids[host]}/{name}')
+            need(status == 200 and body.get('peer_host_id') == ids[host], 'each candidate address resolves '
+                 'to its host', host, status, body)
+
+    def cli_source_ambiguous(self, deferred=None):
+        """CLI: Resolving an address: PERSON/AGENT/SERVER with the same agent and server on two of pat's hosts (p1
+        and p4, both open to p2) is 409 ambiguous with the sorted HOST_ID/AGENT/SERVER candidates; discover lists
+        each by host ID. Agent names are unique per host only (host service contract), so the same name is
+        registered on both through the local API, as two hosts can end up with it."""
+        ids = self.ids
+        agents = {}
+        for host in ('p1', 'p4'):
+            h = self.hosts[host]
+            h.cli('agent', 'register', '--name', 'twin', '--owner', 'pat')
+            agents[host] = next(a for a in h.cli('agent', 'list') if a['name'] == 'twin')['id']
+            definition = {'name': 'tw', 'transport': 'stdio', 'command': PYTHON,
+                          'args': self.fixture.args(f'twin-{host}'), 'env': {}, 'url': None,
+                          'source': 'claude-code:user'}
+            status, body = h.call('PUT', f'/v1/agents/{agents[host]}/tool-servers',
+                                  {'workspace': str(self.root), 'servers': [definition], 'values': {}})
+            need(status == 200, 'setup: twin/tw on ' + host, status, body)
+        try:
+            found = self.addresses('twin/tw', kind='source')
+            need(found == {ids['p1']: f"{ids['p1']}/twin/tw", ids['p4']: f"{ids['p4']}/twin/tw"},
+                 'discover: a source on more than one host is HOST_ID/AGENT/SERVER', found)
+            status, body, persisted = self.resolution('pat/twin/tw')
+            expected = sorted([f"{ids['p1']}/twin/tw", f"{ids['p4']}/twin/tw"])
+            need(status == 409 and isinstance(body, dict) and body.get('code') == 'ambiguous' and
+                 body.get('candidates') == expected and not persisted,
+                 'PERSON/AGENT/SERVER on two hosts: 409 ambiguous with sorted candidates, persisting nothing',
+                 status, body, expected)
+            status, body, persisted = self.resolution(f"{ids['p4']}/twin/tw")
+            need(status == 200 and body.get('peer_host_id') == ids['p4'], 'HOST_ID/AGENT/SERVER names one host',
+                 status, body)
+        finally:
+            for host, aid in agents.items():
+                self.hosts[host].call('PUT', f'/v1/agents/{aid}/tool-servers',
+                                      {'workspace': str(self.root), 'servers': [], 'values': {}})
 
     def check_status(self):
         f, ids = self.fixture, self.ids
