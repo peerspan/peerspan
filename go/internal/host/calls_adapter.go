@@ -182,13 +182,26 @@ func viewState(o OutboundCall) string {
 	return o.Status.State
 }
 
-// resultText is the compact JSON encoding of the stored result, as this
-// daemon encodes it in responses, or nil before there is a result.
+// resultText is the compact JSON encoding of the stored result as this
+// daemon encodes it: strings as UTF-8 rather than escapes, and numbers as
+// received; or nil before there is a result.
 func resultText(o OutboundCall) ([]byte, error) {
 	if o.Result == nil {
 		return nil, nil
 	}
-	return json.Marshal(o.Result)
+	decoder := json.NewDecoder(bytes.NewReader(o.Result))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // callView builds the view of an agent's call from byte offset of its
@@ -367,13 +380,8 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 	if err != nil {
 		return CallView{}, err
 	}
-	listed := false
-	for _, op := range entry.Operations {
-		listed = listed || op.Name == r.Operation
-	}
-	if !listed {
-		return CallView{}, fmt.Errorf("%w: %s/%s has no operation %s", ErrInvalid, peer, entry.Capability, r.Operation)
-	}
+	// An operation the listing lacks is not refused here: the receiver
+	// decides, and its refusal makes the call rejected.
 	// 5. The citation: the first via entry that applies to this agent.
 	if len(entry.Via) == 0 {
 		return CallView{}, fmt.Errorf("%w: nothing authorizes this call", ErrInvalid)
@@ -544,12 +552,17 @@ type CallUpdateNotification struct {
 	UpdatedAt  string `json:"updated_at"`
 }
 
-// callUpdateRecord is call_update_notifications.record: the notification,
-// and when it was claimed.
+// callUpdateRecord is call_update_notifications.record. A notification is
+// created with updated_at equal to created_at, and every claim moves
+// updated_at later, so one never claimed is one whose updated_at is still
+// its created_at.
 type callUpdateRecord struct {
 	CallUpdateNotification
-	ClaimedAt *string `json:"claimed_at,omitempty"`
 }
+
+// callUpdateUnclaimed is the SQL condition for a notification never
+// claimed.
+const callUpdateUnclaimed = `json_extract(n.record, '$.updated_at') = json_extract(n.record, '$.created_at')`
 
 // CallUpdateHandoff is a claimed call-update notification with the call
 // view at offset 0.
@@ -575,7 +588,7 @@ func createCallUpdate(ctx context.Context, tx *sql.Tx, out OutboundCall, at stri
 		return err
 	}
 	n := callUpdateRecord{CallUpdateNotification: CallUpdateNotification{ID: id, PeerHostID: out.PeerHostID, CallID: out.Request.CallID, AdapterID: deref(out.AdapterID), SessionID: session, State: "unknown", CreatedAt: at, UpdatedAt: at}}
-	return putJSON(ctx, tx, `INSERT OR IGNORE INTO call_update_notifications (record, id, peer, call_id, session_id) VALUES (?, ?, ?, ?, ?)`, n, id, n.PeerHostID, n.CallID, session)
+	return putJSON(ctx, tx, `INSERT OR IGNORE INTO call_update_notifications (record, id, peer, call_id, session_id) VALUES (?, ?, ?, ?, ?)`, n.CallUpdateNotification, id, n.PeerHostID, n.CallID, session)
 }
 
 // NextCallUpdate claims the oldest unseen call-update notification this
@@ -605,7 +618,7 @@ func (s *Store) NextCallUpdate(ctx context.Context, auth AdapterAuth) (*CallUpda
 	}
 	var record string
 	var returned bool
-	err = tx.QueryRowContext(ctx, `SELECT n.record, n.returned_at IS NOT NULL FROM call_update_notifications n JOIN sessions s ON s.id = n.session_id WHERE n.seen_at IS NULL AND ((n.returned_at IS NOT NULL AND s.agent_id = ?) OR (n.returned_at IS NULL AND json_extract(n.record, '$.claimed_at') IS NULL AND ((n.session_id = ? AND json_extract(n.record, '$.adapter_id') = ?) OR json_extract(n.record, '$.adapter_id') IN (SELECT value FROM json_each(?))))) ORDER BY n.rowid LIMIT 1`, ss.AgentID, ss.ID, a.ID, jsonList(ended)).Scan(&record, &returned)
+	err = tx.QueryRowContext(ctx, `SELECT n.record, n.returned_at IS NOT NULL FROM call_update_notifications n JOIN sessions s ON s.id = n.session_id WHERE n.seen_at IS NULL AND ((n.returned_at IS NOT NULL AND s.agent_id = ?) OR (n.returned_at IS NULL AND `+callUpdateUnclaimed+` AND ((n.session_id = ? AND json_extract(n.record, '$.adapter_id') = ?) OR json_extract(n.record, '$.adapter_id') IN (SELECT value FROM json_each(?))))) ORDER BY n.rowid LIMIT 1`, ss.AgentID, ss.ID, a.ID, jsonList(ended)).Scan(&record, &returned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, tx.Commit()
 	}
@@ -617,12 +630,15 @@ func (s *Store) NextCallUpdate(ctx context.Context, auth AdapterAuth) (*CallUpda
 		return nil, err
 	}
 	at := timestamp(now)
-	n.AdapterID, n.SessionID, n.State, n.UpdatedAt, n.ClaimedAt = a.ID, ss.ID, "unknown", at, &at
+	if at == n.CreatedAt {
+		at = timestamp(now.Add(time.Nanosecond))
+	}
+	n.AdapterID, n.SessionID, n.State, n.UpdatedAt = a.ID, ss.ID, "unknown", at
 	redeliveries := 0
 	if returned {
 		redeliveries = 1
 	}
-	if err = putJSON(ctx, tx, `UPDATE call_update_notifications SET record = ?, session_id = ?, returned_at = NULL, redeliveries = redeliveries + ? WHERE id = ?`, n, ss.ID, redeliveries, n.ID); err != nil {
+	if err = putJSON(ctx, tx, `UPDATE call_update_notifications SET record = ?, session_id = ?, returned_at = NULL, redeliveries = redeliveries + ? WHERE id = ?`, n.CallUpdateNotification, ss.ID, redeliveries, n.ID); err != nil {
 		return nil, err
 	}
 	c := agentCall{peer: n.PeerHostID, callID: n.CallID}
@@ -658,7 +674,7 @@ func (s *Store) CallUpdateForwarded(ctx context.Context, auth AdapterAuth, id st
 		return n.CallUpdateNotification, err
 	}
 	n.State, n.UpdatedAt = "forwarded", timestamp(time.Now())
-	if err = putJSON(ctx, tx, `UPDATE call_update_notifications SET record = ? WHERE id = ?`, n, n.ID); err != nil {
+	if err = putJSON(ctx, tx, `UPDATE call_update_notifications SET record = ? WHERE id = ?`, n.CallUpdateNotification, n.ID); err != nil {
 		return n.CallUpdateNotification, err
 	}
 	return n.CallUpdateNotification, tx.Commit()

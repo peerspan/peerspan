@@ -307,7 +307,7 @@ func returnItems(ctx context.Context, tx *sql.Tx, ended []string, now time.Time)
 	}
 	// Call updates claimed and unseen return; one never claimed goes to the
 	// agent's next verified session as a late arrival.
-	_, err = tx.ExecContext(ctx, `UPDATE call_update_notifications SET returned_at = ? WHERE json_extract(record, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND json_extract(record, '$.claimed_at') IS NOT NULL AND returned_at IS NULL AND seen_at IS NULL AND redeliveries < ?`, at, list, redeliveryLimit)
+	_, err = tx.ExecContext(ctx, `UPDATE call_update_notifications AS n SET returned_at = ? WHERE json_extract(record, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND NOT (`+callUpdateUnclaimed+`) AND returned_at IS NULL AND seen_at IS NULL AND redeliveries < ?`, at, list, redeliveryLimit)
 	return err
 }
 
