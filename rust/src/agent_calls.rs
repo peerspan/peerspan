@@ -194,11 +194,14 @@ fn view_error(out: &OutboundCall) -> Option<String> {
     }
     out.status.as_ref().and_then(|s| s.error.clone())
 }
-/// The compact JSON encoding of the stored result.
+/// The canonical encoding of the stored result: as received, or from the
+/// parsed value for a record stored without it.
 fn result_text(out: &OutboundCall) -> Option<String> {
-    out.result
-        .as_ref()
-        .map(|r| serde_json::to_string(r).unwrap_or_default())
+    out.result.as_ref().map(|r| {
+        out.result_text
+            .clone()
+            .unwrap_or_else(|| crate::canonical::value_text(r))
+    })
 }
 fn created_at(called_at_ms: i64) -> String {
     DateTime::<Utc>::from_timestamp_millis(called_at_ms)
@@ -291,20 +294,77 @@ pub(crate) fn holds_call(conn: &Connection, session: &Session, call: &str) -> Re
         |r| r.get(0),
     )?)
 }
-/// The view of a call for its agent's session, marking the session's
-/// notification seen when the view is final.
+/// The view of a call for its agent's session. When the view is final it
+/// marks the notification this session holds seen; a late notification no
+/// session holds yet is bound to this session, when it is verified
+/// (`verified` is then its credential), and seen at once.
 fn seen_view(
     tx: &Transaction<'_>,
-    session: &str,
+    ss: &Session,
+    verified: Option<&Adapter>,
     out: &OutboundCall,
     called_at_ms: i64,
     offset: usize,
 ) -> Result<Value, Error> {
     let value = view(out, called_at_ms, offset)?;
     if out.finished() {
-        mark_call_seen(tx, session, &out.request.call_id, &now())?;
+        let at = now();
+        if !mark_call_seen(tx, &ss.id, &out.request.call_id, &at)?
+            && let Some(a) = verified
+        {
+            bind_late(tx, a, ss, out, &at)?;
+        }
     }
     Ok(value)
+}
+/// Binds a late notification of the call, one never claimed whose
+/// authorization has ended, to this session, seen.
+fn bind_late(
+    tx: &Transaction<'_>,
+    a: &Adapter,
+    ss: &Session,
+    out: &OutboundCall,
+    at: &str,
+) -> Result<(), Error> {
+    let record: Option<String> = tx
+        .query_row(
+            "SELECT record FROM call_update_notifications WHERE peer = ?1 AND call_id = ?2 AND seen_at IS NULL AND returned_at IS NULL AND COALESCE(json_extract(record, '$.claimed'), 0) = 0",
+            params![out.peer_host_id, out.request.call_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(record) = record else {
+        return Ok(());
+    };
+    let mut n: StoredNotification = serde_json::from_str(&record)?;
+    if n.notification.session_id == ss.id
+        || !crate::live_delivery::ended(tx, &n.notification.adapter_id)?
+    {
+        return Ok(());
+    }
+    n.notification.adapter_id = a.id.clone();
+    n.notification.session_id = ss.id.clone();
+    n.notification.updated_at = at.to_owned();
+    tx.execute(
+        "UPDATE call_update_notifications SET record = ?1, session_id = ?2, seen_at = ?3 WHERE id = ?4",
+        params![serde_json::to_string(&n)?, ss.id, at, n.notification.id],
+    )?;
+    Ok(())
+}
+/// Whether a session has ended: its authorization has (detached, revoked,
+/// replaced, or expired), for every credential it had.
+fn session_ended(conn: &Connection, session: &str) -> Result<bool, Error> {
+    let ids: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT id FROM adapter_credentials WHERE session_id = ?1")?;
+        stmt.query_map([session], |r| r.get(0))?
+            .collect::<Result<_, _>>()?
+    };
+    for id in ids {
+        if !crate::live_delivery::ended(conn, &id)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[derive(Deserialize)]
@@ -329,7 +389,8 @@ impl Store {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = calls_authority(&tx, auth)?;
-        if let Some(existing) = repeat(&tx, &ss, r)? {
+        let verified = crate::adapter_connection::verified_authority(&tx, auth).is_ok();
+        if let Some(existing) = repeat(&tx, &ss, verified.then_some(&a), r)? {
             tx.commit()?;
             return Ok(Prior::Existing(existing));
         }
@@ -348,7 +409,7 @@ impl Store {
     ) -> Result<Result<OutboundCall, Value>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        if let Some(existing) = repeat(&tx, ss, r)? {
+        if let Some(existing) = repeat(&tx, ss, None, r)? {
             tx.commit()?;
             return Ok(Err(existing));
         }
@@ -366,7 +427,7 @@ impl Store {
             params![
                 out.peer_host_id,
                 out.request.call_id,
-                serde_json::to_string(out)?
+                call_outbound::encode(out)?
             ],
         )?;
         tx.execute(
@@ -391,12 +452,21 @@ impl Store {
     }
     /// The view of one of this agent's calls after its submission's first
     /// attempt, marking the session's notification seen when final.
-    fn agent_call_view(&self, ss: &Session, peer: &str, id: &str) -> Result<Value, Error> {
+    fn agent_call_view(
+        &self,
+        auth: &AdapterAuth,
+        ss: &Session,
+        peer: &str,
+        id: &str,
+    ) -> Result<Value, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
+        let verified = crate::adapter_connection::verified_authority(&tx, auth)
+            .ok()
+            .map(|(a, _)| a);
         let (_, called) = agent_call(&tx, &ss.agent_id, id)?;
         let out = call_outbound::stored(&tx, peer, id)?;
-        let value = seen_view(&tx, &ss.id, &out, called, 0)?;
+        let value = seen_view(&tx, ss, verified.as_ref(), &out, called, 0)?;
         tx.commit()?;
         Ok(value)
     }
@@ -409,10 +479,11 @@ impl Store {
     ) -> Result<Value, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let (_, ss) = calls_authority(&tx, auth)?;
+        let (a, ss) = calls_authority(&tx, auth)?;
+        let verified = crate::adapter_connection::verified_authority(&tx, auth).is_ok();
         let (peer, called) = agent_call(&tx, &ss.agent_id, id)?;
         let out = call_outbound::stored(&tx, &peer, id)?;
-        let value = seen_view(&tx, &ss.id, &out, called, offset)?;
+        let value = seen_view(&tx, &ss, verified.then_some(&a), &out, called, offset)?;
         tx.commit()?;
         Ok(value)
     }
@@ -536,7 +607,12 @@ impl Store {
 
 /// An existing call of this agent under the request's call ID: its view
 /// when the request is identical, and 409 when it differs.
-fn repeat(tx: &Transaction<'_>, ss: &Session, r: &AgentCall) -> Result<Option<Value>, Error> {
+fn repeat(
+    tx: &Transaction<'_>,
+    ss: &Session,
+    verified: Option<&Adapter>,
+    r: &AgentCall,
+) -> Result<Option<Value>, Error> {
     let Ok((peer, called)) = agent_call(tx, &ss.agent_id, &r.call_id) else {
         return Ok(None);
     };
@@ -552,7 +628,7 @@ fn repeat(tx: &Transaction<'_>, ss: &Session, r: &AgentCall) -> Result<Option<Va
             json!({}),
         ));
     }
-    Ok(Some(seen_view(tx, &ss.id, &out, called, 0)?))
+    Ok(Some(seen_view(tx, ss, verified, &out, called, 0)?))
 }
 /// Refuses a call that would make more than `max_calls_per_hour` calls
 /// persisted through this credential in the preceding 60 minutes.
@@ -648,7 +724,10 @@ async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Va
     ));
     let _ = tokio::time::timeout_at((received + SUBMIT_BOUND).into(), attempt).await;
     let (peer, id) = (out.peer_host_id.clone(), out.request.call_id.clone());
-    blocking(store, move |s| s.agent_call_view(&session, &peer, &id)).await
+    blocking(store, move |s| {
+        s.agent_call_view(&auth, &session, &peer, &id)
+    })
+    .await
 }
 
 /// Steps 4 to 6: resolves the address over what `GET
@@ -694,6 +773,7 @@ async fn prepare(
         network_id: Some(network_id),
         target: r.address.clone(),
         adapter_id: Some(adapter.id.clone()),
+        result_text: None,
     })
 }
 
@@ -723,35 +803,28 @@ pub(crate) fn pending_calls(conn: &Connection, session: &str) -> Result<Vec<Pend
         [session],
         |r| r.get(0),
     )?;
-    type Row = (String, String, String, String, i64, Option<i64>);
+    type Row = (String, String, String, i64, Option<i64>);
     let rows: Vec<Row> = {
-        let mut stmt = conn.prepare("SELECT c.peer, c.call_id, c.adapter_id, c.session_id, c.called_at_ms, (SELECT n.redeliveries FROM call_update_notifications n WHERE n.peer = c.peer AND n.call_id = c.call_id AND n.session_id = ?2 AND n.seen_at IS NULL AND n.returned_at IS NULL) FROM adapter_calls c WHERE c.agent_id = ?1 ORDER BY c.called_at_ms, c.rowid")?;
+        let mut stmt = conn.prepare("SELECT c.peer, c.call_id, c.session_id, c.called_at_ms, (SELECT n.redeliveries FROM call_update_notifications n WHERE n.peer = c.peer AND n.call_id = c.call_id AND n.session_id = ?2 AND n.seen_at IS NULL AND n.returned_at IS NULL) FROM adapter_calls c WHERE c.agent_id = ?1 ORDER BY c.called_at_ms, c.rowid")?;
         stmt.query_map(params![agent, session], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })?
         .collect::<Result<_, _>>()?
     };
     let mut ended: HashMap<String, bool> = HashMap::new();
     let mut out = Vec::new();
-    for (peer, id, adapter, maker, called, held) in rows {
+    for (peer, id, maker, called, held) in rows {
         let call = call_outbound::stored(conn, &peer, &id)?;
         let listed = if call.finished() {
             held.is_some()
         } else if maker == session {
             true
         } else {
-            match ended.get(&adapter) {
+            match ended.get(&maker) {
                 Some(v) => *v,
                 None => {
-                    let v = crate::live_delivery::ended(conn, &adapter)?;
-                    ended.insert(adapter.clone(), v);
+                    let v = session_ended(conn, &maker)?;
+                    ended.insert(maker.clone(), v);
                     v
                 }
             }

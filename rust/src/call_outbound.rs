@@ -76,6 +76,21 @@ pub struct OutboundCall {
     /// The adapter credential that made the call, or null for owner calls.
     #[serde(default)]
     pub adapter_id: Option<String>,
+    /// The result's canonical text, from the received JSON so that numbers
+    /// keep their form. Stored in the record, never shown.
+    #[serde(default, skip_serializing)]
+    pub(crate) result_text: Option<String>,
+}
+/// A received result: the parsed value and its canonical text.
+type Received = Option<(Value, Option<String>)>;
+
+/// The stored form of an outbound record, with its hidden result text.
+pub(crate) fn encode(out: &OutboundCall) -> Result<String, Error> {
+    let mut value = serde_json::to_value(out)?;
+    if let (Some(object), Some(text)) = (value.as_object_mut(), &out.result_text) {
+        object.insert("result_text".into(), Value::String(text.clone()));
+    }
+    Ok(value.to_string())
 }
 impl Attempted for OutboundCall {
     fn uncertain(&self) -> bool {
@@ -118,11 +133,7 @@ pub(crate) fn stored(conn: &Connection, peer: &str, id: &str) -> Result<Outbound
 fn save(tx: &Transaction<'_>, out: &OutboundCall) -> Result<(), Error> {
     tx.execute(
         "UPDATE outbound_calls SET record = ?1 WHERE peer = ?2 AND call_id = ?3",
-        params![
-            serde_json::to_string(out)?,
-            out.peer_host_id,
-            out.request.call_id
-        ],
+        params![encode(out)?, out.peer_host_id, out.request.call_id],
     )?;
     // An agent's call that has just become final notifies its session.
     crate::agent_calls::notify_final(tx, out)
@@ -366,11 +377,7 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO outbound_calls VALUES (?1, ?2, ?3)",
-            params![
-                out.peer_host_id,
-                out.request.call_id,
-                serde_json::to_string(&out)?
-            ],
+            params![out.peer_host_id, out.request.call_id, encode(&out)?],
         )?;
         append_event(&tx, "call.submitted", &subject(&out), &now())?;
         tx.commit()?;
@@ -396,6 +403,7 @@ impl Store {
         }
         if out.result.is_some() {
             current.result = out.result;
+            current.result_text = out.result_text;
         }
         save(&tx, &current)?;
         if changed {
@@ -410,7 +418,7 @@ impl Store {
         peer: &str,
         id: &str,
         status: Option<CallStatus>,
-        result: Option<Value>,
+        result: Received,
         cancel_sent: bool,
     ) -> Result<OutboundCall, Error> {
         let mut connection = self.connection()?;
@@ -426,7 +434,12 @@ impl Store {
         };
         let changed = out.status.as_ref().map(|s| &s.state) != Some(&status.state);
         if is_final(&status.state) {
-            out.result = result;
+            let (value, text) = match result {
+                Some((value, text)) if !value.is_null() => (Some(value), text),
+                _ => (None, None),
+            };
+            out.result = value;
+            out.result_text = text;
         }
         out.status = Some(status);
         if cancel_sent {
@@ -1107,6 +1120,7 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         network_id: Some(network_id),
         target: r.target,
         adapter_id: None,
+        result_text: None,
     };
     let out = blocking(store.clone(), move |s| s.prepare_call(out)).await?;
     let status_only = crate::retry::receipt_only(&out, Utc::now());
@@ -1194,7 +1208,7 @@ pub(crate) async fn default_deadline(
 async fn fetch_status(
     store: &Arc<Store>,
     out: &OutboundCall,
-) -> anyhow::Result<(CallStatus, Option<Value>)> {
+) -> anyhow::Result<(CallStatus, Received)> {
     let path = format!("/peer/v1/calls/{}", out.request.call_id);
     match peer_request(
         store,
@@ -1213,7 +1227,8 @@ async fn fetch_status(
             if !valid_status(store, out, &status) {
                 anyhow::bail!("invalid peer call status");
             }
-            Ok((status, result))
+            let text = crate::canonical::member_text(&body, "result");
+            Ok((status, result.map(|r| (r, text))))
         }
         (code, _) => anyhow::bail!("peer returned HTTP {code}"),
     }
@@ -1228,7 +1243,7 @@ pub(crate) async fn submit(
     if out.submit_state != "unknown" {
         return Ok(out);
     }
-    let result: anyhow::Result<(CallStatus, Option<Value>)> = if status_only {
+    let result: anyhow::Result<(CallStatus, Received)> = if status_only {
         fetch_status(&store, &out).await
     } else {
         let body = serde_json::to_vec(&out.request).map_err(Error::from)?;
@@ -1272,8 +1287,9 @@ pub(crate) async fn submit(
             out.submit_state = "accepted".into();
             if !is_final(&status.state) {
                 out.status = Some(status);
-            } else if let Some(result) = result {
+            } else if let Some((result, text)) = result {
                 // From a GET: the final status with its result.
+                out.result_text = text.filter(|_| !result.is_null());
                 out.result = Some(result).filter(|r| !r.is_null());
                 out.status = Some(status);
             }

@@ -8,6 +8,7 @@ pub mod api;
 pub mod artifact;
 pub mod call_outbound;
 pub mod calls;
+pub mod canonical;
 pub mod capabilities;
 pub mod chain;
 pub mod coordinator_move;
