@@ -501,14 +501,20 @@ type capabilityRuleCandidate struct {
 	rule            membership.CapabilityRule
 	until           time.Time
 	caller          string
+	// In a listing, broad reports a principal other than agent: matching
+	// the sender, and agents the sender's agents that agent: principals
+	// name.
+	broad  bool
+	agents []string
 }
 
 // policyCapabilityRules lists the capability rules naming this host of
 // person's newest verified policy in a network (or every network where this
 // host is bound to person, when network is ""), whose principals match the
 // sender, for one capability or all ("" capability). behind reports a
-// policy older than cited.
-func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, person string, cited int64, network, capability string, origin *Origin, now time.Time) ([]capabilityRuleCandidate, bool, error) {
+// policy older than cited. A listing matches any origin, and records which
+// principals matched.
+func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, person string, cited int64, network, capability string, origin *Origin, now time.Time, listing bool) ([]capabilityRuleCandidate, bool, error) {
 	own, err := membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, false, err
@@ -553,10 +559,30 @@ func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, 
 		}
 		for _, r := range p.CapabilityRules {
 			// A rule naming another host never authorizes a call here.
-			if r.Host != s.identity.ID || (capability != "" && r.Capability != capability) || !g.principalMatches(membership.PolicyRule{Principals: r.Principals}, member, origin) {
+			if r.Host != s.identity.ID || (capability != "" && r.Capability != capability) {
 				continue
 			}
-			out = append(out, capabilityRuleCandidate{network: n.network, person: person, version: p.Version, rule: r, until: until, caller: caller})
+			c := capabilityRuleCandidate{network: n.network, person: person, version: p.Version, rule: r, until: until, caller: caller}
+			if listing {
+				var others []string
+				for _, principal := range r.Principals {
+					if host, agent, ok := membership.AgentPrincipal(principal); ok {
+						if host == sender && !contains(c.agents, agent) {
+							c.agents = append(c.agents, agent)
+						}
+						continue
+					}
+					others = append(others, principal)
+				}
+				c.broad = g.principalMatches(membership.PolicyRule{Principals: others}, member, nil)
+				if !c.broad && len(c.agents) == 0 {
+					continue
+				}
+				sort.Strings(c.agents)
+			} else if !g.principalMatches(membership.PolicyRule{Principals: r.Principals}, member, origin) {
+				continue
+			}
+			out = append(out, c)
 		}
 	}
 	return out, behind, nil
@@ -599,7 +625,7 @@ func (s *Store) callAuthority(ctx context.Context, tx *sql.Tx, sender string, r 
 		if isSource {
 			return callGrant{}, instanceTarget{}, ErrForbidden
 		}
-		rules, behind, err := s.policyCapabilityRules(ctx, tx, sender, r.Policy.PersonID, r.Policy.Version, r.Policy.NetworkID, r.Capability, r.Origin, now)
+		rules, behind, err := s.policyCapabilityRules(ctx, tx, sender, r.Policy.PersonID, r.Policy.Version, r.Policy.NetworkID, r.Capability, r.Origin, now, false)
 		if err != nil {
 			return callGrant{}, instanceTarget{}, err
 		}
@@ -880,6 +906,29 @@ type ToolVia struct {
 	NetworkID *string `json:"network_id"`
 	PersonID  *string `json:"person_id,omitempty"`
 	Version   *int64  `json:"version,omitempty"`
+	// FromAgent, on a policy entry, is the agent of the sender whose agent:
+	// principals alone match the rule, or null when another principal
+	// does. A listing from a host that predates it reads as null.
+	FromAgent *string `json:"from_agent,omitempty"`
+}
+
+// MarshalJSON shows from_agent on every policy entry, null or not, and
+// never on a self entry.
+func (v ToolVia) MarshalJSON() ([]byte, error) {
+	type plain struct {
+		Kind      string  `json:"kind"`
+		NetworkID *string `json:"network_id"`
+		PersonID  *string `json:"person_id,omitempty"`
+		Version   *int64  `json:"version,omitempty"`
+	}
+	p := plain{v.Kind, v.NetworkID, v.PersonID, v.Version}
+	if v.Kind != AuthorizationPolicy {
+		return json.Marshal(p)
+	}
+	return json.Marshal(struct {
+		plain
+		FromAgent *string `json:"from_agent"`
+	}{p, v.FromAgent})
 }
 
 // ListedOperation is one operation in GET /peer/v1/capabilities.
@@ -908,12 +957,20 @@ const (
 	ListedKindSource     = "source"
 )
 
+// viaLess orders via entries self before policy, then by network, and
+// within one network the entry with from_agent null first, then by agent.
 func viaLess(a, b ToolVia) bool {
 	rank := map[string]int{AuthorizationSelf: 0, AuthorizationPolicy: 1}
 	if rank[a.Kind] != rank[b.Kind] {
 		return rank[a.Kind] < rank[b.Kind]
 	}
-	return deref(a.NetworkID) < deref(b.NetworkID)
+	if deref(a.NetworkID) != deref(b.NetworkID) {
+		return deref(a.NetworkID) < deref(b.NetworkID)
+	}
+	if (a.FromAgent == nil) != (b.FromAgent == nil) {
+		return a.FromAgent == nil
+	}
+	return deref(a.FromAgent) < deref(b.FromAgent)
 }
 
 // readOperation is the read operation over a capability's resources.
@@ -966,7 +1023,7 @@ func (s *Store) ListCapabilities(ctx context.Context, sender, network string) ([
 		}
 		selfNetworks = append(selfNetworks, trusted...)
 		if !isBlocked {
-			found, _, err := s.policyCapabilityRules(ctx, tx, sender, *n.member.PersonID, 0, network, "", nil, now)
+			found, _, err := s.policyCapabilityRules(ctx, tx, sender, *n.member.PersonID, 0, network, "", nil, now, true)
 			if err != nil {
 				return nil, err
 			}
@@ -991,12 +1048,27 @@ func (s *Store) ListCapabilities(ctx context.Context, sender, network string) ([
 		via := selfVia()
 		seen := map[string]bool{}
 		for _, r := range rules {
-			if r.rule.Capability != c.Name || seen[r.network] {
+			if r.rule.Capability != c.Name {
 				continue
 			}
-			seen[r.network] = true
-			network, person, version := r.network, r.person, r.version
-			via = append(via, ToolVia{Kind: AuthorizationPolicy, NetworkID: &network, PersonID: &person, Version: &version})
+			// A rule any other principal matches appears once; one only
+			// agent: principals of the sender match, once per agent.
+			agents := []*string{nil}
+			if !r.broad {
+				agents = nil
+				for _, agent := range r.agents {
+					agents = append(agents, &agent)
+				}
+			}
+			for _, agent := range agents {
+				key := r.network + "/" + deref(agent)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				network, person, version := r.network, r.person, r.version
+				via = append(via, ToolVia{Kind: AuthorizationPolicy, NetworkID: &network, PersonID: &person, Version: &version, FromAgent: agent})
+			}
 		}
 		if len(via) == 0 {
 			continue

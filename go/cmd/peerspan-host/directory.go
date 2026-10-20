@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,6 +176,18 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 	if maxSends < 1 || maxSends > 10000 {
 		return errors.New("--max-sends-per-hour must be 1 to 10000")
 	}
+	callsFlag, _ := fs.GetBool("calls")
+	noCalls, _ := fs.GetBool("no-calls")
+	maxCalls, _ := fs.GetInt64("max-calls-per-hour")
+	maxCallsGiven := fs.Changed("max-calls-per-hour")
+	switch {
+	case callsFlag && noCalls:
+		return errors.New("--calls and --no-calls exclude each other")
+	case maxCallsGiven && noCalls:
+		return errors.New("--max-calls-per-hour requires calls; omit --no-calls")
+	case maxCallsGiven && (maxCalls < 1 || maxCalls > 10000):
+		return errors.New("--max-calls-per-hour must be 1 to 10000")
+	}
 	if name != "" && !host.AddressableName(name) {
 		return errors.New("--name must be 1 to 64 lowercase letters, digits, '.', '_', or '-', starting with a letter or digit")
 	}
@@ -282,9 +295,14 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 		if p.Launchable() {
 			next = "peerspan session start"
 		}
+		credential, err := call[host.Adapter](ctx, client, "GET", "/v1/adapters/"+url.PathEscape(p.AdapterID))
+		if err != nil {
+			return err
+		}
 		result := map[string]any{
 			"agent": attachAgent{agent.ID, agent.Name, address(agent.Name)}, "session_id": p.SessionID, "adapter_id": p.AdapterID,
 			"profile": p.Directory, "workspace": workspace, "reused": reused, "unchecked_hosts": unchecked, "next": next,
+			"calls": credential.Calls, "max_calls_per_hour": credential.MaxCallsPerHour,
 		}
 		// Discovery follows a successful setup.
 		result["sources"] = attachSources(ctx, client, agent.ID, p.Harness.ID, workspace, errOut)
@@ -320,6 +338,15 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 		}
 		switch {
 		case valid && conn.State == "registered":
+			// The stored call settings stand; a flag that differs is
+			// refused before anything changes.
+			if (callsFlag && !adapter.Calls) || (noCalls && adapter.Calls) || (maxCallsGiven && (adapter.MaxCallsPerHour == nil || *adapter.MaxCallsPerHour != maxCalls)) {
+				stored := "null"
+				if adapter.MaxCallsPerHour != nil {
+					stored = strconv.FormatInt(*adapter.MaxCallsPerHour, 10)
+				}
+				return fmt.Errorf("the reused credential %s of agent %s has calls %t and max_calls_per_hour %s; the given call settings differ, so nothing was changed; give matching flags, or revoke the credential (peerspan adapter revoke %s) to set up a new one", adapter.ID, agent.Name, adapter.Calls, stored, adapter.ID)
+			}
 			return print(reusedProfile, true)
 		case conn.State == "ready":
 			// An adapter that has just exited keeps its lease for up to 15
@@ -408,6 +435,19 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 			}
 		}
 	}
+	// A new setup decides calls again: the flags, or the prompt at a
+	// terminal, where no terminal answers no.
+	callsLimit := int64(0)
+	allow := callsFlag
+	if !callsFlag && !noCalls && isTerminal(os.Stdin) {
+		allow = askYes(errOut, "Let this agent call capabilities shared with you, and yours on your other trusted machines?")
+	}
+	if allow {
+		callsLimit = 100
+		if maxCallsGiven {
+			callsLimit = maxCalls
+		}
+	}
 	root, err := integration.SessionsDir()
 	if err != nil {
 		return err
@@ -428,7 +468,7 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 	} else {
 		backup = ""
 	}
-	p, err := integration.Setup(ctx, integration.Options{Action: "setup", Directory: dir, State: state, Harness: harness, Integrations: integrations, Runner: runner, Agent: agent.ID, ExpiresAt: expiresAt, ProviderOptions: options, Program: programName, AttachWorkspace: workspace, MaxSendsPerHour: maxSends})
+	p, err := integration.Setup(ctx, integration.Options{Action: "setup", Directory: dir, State: state, Harness: harness, Integrations: integrations, Runner: runner, Agent: agent.ID, ExpiresAt: expiresAt, ProviderOptions: options, Program: programName, AttachWorkspace: workspace, MaxSendsPerHour: maxSends, MaxCallsPerHour: callsLimit})
 	if err != nil {
 		if backup != "" {
 			_ = os.RemoveAll(dir)

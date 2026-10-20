@@ -115,7 +115,7 @@ func relativeExpiryDuration(value string) (time.Duration, error) {
 
 // pendingHookLead introduces the pending work in the session start hook's
 // context.
-const pendingHookLead = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. "
+const pendingHookLead = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, and check each call with call_status; call pending_work for the current list. "
 
 // runSessionPending prints the pending work of the current directory's
 // attachment, read through the local administration API. Without an
@@ -157,7 +157,7 @@ func runSessionPending(ctx context.Context, fs *pflag.FlagSet, state string, out
 	if hook, _ := fs.GetBool("hook"); hook {
 		// Claude Code reads a hook's JSON output as hook output, so the list
 		// reaches the model only as additionalContext.
-		if len(work.Deliveries)+len(work.Replies)+len(work.Tasks) == 0 {
+		if len(work.Deliveries)+len(work.Replies)+len(work.Tasks)+len(work.Calls) == 0 {
 			return nil
 		}
 		var compact bytes.Buffer
@@ -196,6 +196,9 @@ func runSessionPending(ctx context.Context, fs *pflag.FlagSet, state string, out
 	}
 	for _, t := range work.Tasks {
 		fmt.Fprintf(out, "task %s %s from %s%s: %s\n", t.TaskID, t.State, t.SenderHostID, marks(flag(t.Adopted), "adopted"), line(t.Preview))
+	}
+	for _, c := range work.Calls {
+		fmt.Fprintf(out, "call %s %s %s %s%s\n", c.CallID, c.State, c.Address, c.Operation, marks(flag(c.Redelivered), "redelivered"))
 	}
 	return nil
 }

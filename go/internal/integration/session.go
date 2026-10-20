@@ -31,6 +31,8 @@ type Options struct {
 	AttachWorkspace string
 	// MaxSendsPerHour, when nonzero, gives the session directory access.
 	MaxSendsPerHour int64
+	// MaxCallsPerHour, when nonzero, lets the session call capabilities.
+	MaxCallsPerHour int64
 }
 type Profile struct {
 	Version       int                      `json:"version"`
@@ -337,6 +339,10 @@ func prepare(ctx context.Context, o Options) (*Profile, error) {
 	if o.MaxSendsPerHour > 0 {
 		limit := o.MaxSendsPerHour
 		p.Request.Directory, p.Request.MaxSendsPerHour = true, &limit
+	}
+	if o.MaxCallsPerHour > 0 {
+		limit := o.MaxCallsPerHour
+		p.Request.Calls, p.Request.MaxCallsPerHour = true, &limit
 	}
 	prepared, err := provider(ctx, p, "prepare", "", nil)
 	if err != nil {

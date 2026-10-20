@@ -34,6 +34,11 @@ type Adapter struct {
 	// MaxSendsPerHour is null without directory access.
 	Directory       bool   `json:"directory"`
 	MaxSendsPerHour *int64 `json:"max_sends_per_hour"`
+	// Calls credentials may list and call capabilities, at most
+	// MaxCallsPerHour calls in any 60 minutes; MaxCallsPerHour is null
+	// without calls. A record from before calls reads as false and null.
+	Calls           bool   `json:"calls"`
+	MaxCallsPerHour *int64 `json:"max_calls_per_hour"`
 }
 
 // CreateAdapter without ExpiresAt issues a renewable credential.
@@ -42,6 +47,8 @@ type CreateAdapter struct {
 	ExpiresAt string `json:"expires_at,omitempty"`
 	// maxSendsPerHour, nonzero only through setup, grants directory access.
 	maxSendsPerHour int64
+	// maxCallsPerHour, nonzero only through setup, grants calls.
+	maxCallsPerHour int64
 }
 
 const (
@@ -225,6 +232,9 @@ func (s *Store) createAdapter(ctx context.Context, tx *sql.Tx, r CreateAdapter) 
 	adapter := Adapter{ID: id, SessionID: r.SessionID, ExpiresAt: r.ExpiresAt, Renewable: renewable}
 	if r.maxSendsPerHour > 0 {
 		adapter.Directory, adapter.MaxSendsPerHour = true, &r.maxSendsPerHour
+	}
+	if r.maxCallsPerHour > 0 {
+		adapter.Calls, adapter.MaxCallsPerHour = true, &r.maxCallsPerHour
 	}
 	data, err := json.Marshal(adapter)
 	if err != nil {

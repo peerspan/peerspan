@@ -59,6 +59,9 @@ type OutboundCall struct {
 	NextAttemptAt *string `json:"next_attempt_at"`
 	Error         *string `json:"error"`
 	StatusQueries int64   `json:"status_queries"`
+	// AdapterID is the credential that made an agent's call, or null for
+	// an owner call.
+	AdapterID *string `json:"adapter_id"`
 }
 
 // MarshalJSON shows a missing result as null.
@@ -355,8 +358,40 @@ func (s *Store) personHosts(ctx context.Context, person, network string) ([]pers
 	return out, nil
 }
 
-// fetchListings reads the listings of several hosts, at most 8 at once.
-func (s *Store) fetchListings(ctx context.Context, hosts []string, network string) (map[string][]ListedCapability, []Unanswered) {
+// listingView is whose view of the listings a caller takes. The owner's
+// (the zero value) ignores via entries whose from_agent is set, since an
+// owner call carries no origin; an agent's also keeps those for its agent,
+// and keeps only capabilities. Entries left without a via entry are
+// omitted.
+type listingView struct {
+	agent            string
+	capabilitiesOnly bool
+}
+
+func (v listingView) filter(listing []ListedCapability) []ListedCapability {
+	out := []ListedCapability{}
+	for _, e := range listing {
+		if v.capabilitiesOnly && e.Kind != ListedKindCapability {
+			continue
+		}
+		var via []ToolVia
+		for _, entry := range e.Via {
+			if entry.FromAgent == nil || (v.agent != "" && *entry.FromAgent == v.agent) {
+				via = append(via, entry)
+			}
+		}
+		if len(via) == 0 {
+			continue
+		}
+		e.Via = via
+		out = append(out, e)
+	}
+	return out
+}
+
+// fetchListings reads the listings of several hosts, at most 8 at once, as
+// view sees them.
+func (s *Store) fetchListings(ctx context.Context, hosts []string, network string, view listingView) (map[string][]ListedCapability, []Unanswered) {
 	var mu sync.Mutex
 	listings := map[string][]ListedCapability{}
 	unanswered := []Unanswered{}
@@ -375,7 +410,7 @@ func (s *Store) fetchListings(ctx context.Context, hosts []string, network strin
 				unanswered = append(unanswered, Unanswered{HostID: h, Error: err.Error()})
 				return
 			}
-			listings[h] = listing
+			listings[h] = view.filter(listing)
 		}()
 	}
 	wg.Wait()
@@ -427,7 +462,7 @@ func (s *Store) Discover(ctx context.Context, person, network string) (Discovery
 	if err != nil {
 		return Discovery{}, err
 	}
-	out := Discovery{Agents: []ReachableAgent{}, Capabilities: []DiscoveredCapability{}}
+	out := Discovery{Agents: []ReachableAgent{}}
 	networks, err := s.selectedNetworks(ctx, network)
 	if err != nil {
 		return Discovery{}, err
@@ -443,12 +478,19 @@ func (s *Store) Discover(ctx context.Context, person, network string) (Discovery
 		}
 		out.Agents = append(out.Agents, agents...)
 	}
+	out.Capabilities, out.Unanswered, err = s.discoverCapabilities(ctx, hosts, network, listingView{})
+	return out, err
+}
+
+// discoverCapabilities lists the capabilities, and sources, of the given
+// person hosts as view sees them, each with its discover address.
+func (s *Store) discoverCapabilities(ctx context.Context, hosts []personHost, network string, view listingView) ([]DiscoveredCapability, []Unanswered, error) {
+	out := []DiscoveredCapability{}
 	ids := uniqueHosts(hosts)
-	listings, unanswered := s.fetchListings(ctx, ids, network)
-	out.Unanswered = unanswered
+	listings, unanswered := s.fetchListings(ctx, ids, network, view)
 	entries, err := s.personAddressed(ctx, hosts, listings, network)
 	if err != nil {
-		return Discovery{}, err
+		return nil, nil, err
 	}
 	for _, host := range ids {
 		for i, e := range listings[host] {
@@ -460,10 +502,10 @@ func (s *Store) Discover(ctx context.Context, person, network string) (Discovery
 			if a.personal && a.binding.label != "" {
 				address = a.binding.label + "/" + e.Capability
 			}
-			out.Capabilities = append(out.Capabilities, DiscoveredCapability{Address: address, HostID: host, ListedCapability: e})
+			out = append(out, DiscoveredCapability{Address: address, HostID: host, ListedCapability: e})
 		}
 	}
-	return out, nil
+	return out, unanswered, nil
 }
 
 // entryAddress is how discover addresses one listed entry: the binding its
@@ -475,6 +517,9 @@ type entryAddress struct {
 	// unsettled is a capability no policy of the person binds, which the
 	// person has on more than one host.
 	unsettled bool
+	// slash marks a person whose label contains '/', who is never PERSON
+	// in an address.
+	slash bool
 }
 
 // personAddressed decides, for each listed entry, the person it is
@@ -485,7 +530,8 @@ type entryAddress struct {
 // that person's policy for the entry's network binds the name to that
 // host, or when none of the person's policies binds the name and the
 // person has it on only one host. A source is when the person has that
-// agent and server on only one host.
+// agent and server on only one host. Neither is when the person's label
+// contains '/': such a person's entries are addressed by host ID.
 func (s *Store) personAddressed(ctx context.Context, wanted []personHost, listings map[string][]ListedCapability, network string) (map[string][]entryAddress, error) {
 	// Whose an entry is depends on every person's bindings, not only the
 	// searched person's.
@@ -548,6 +594,9 @@ func (s *Store) personAddressed(ctx context.Context, wanted []personHost, listin
 			}
 			e := listings[host][i]
 			person := a.binding.person
+			if a.slash = strings.Contains(a.binding.label, "/"); a.slash {
+				continue
+			}
 			if e.Kind == ListedKindSource {
 				a.personal = count[person+"/"+e.Capability] == 1
 				continue
@@ -581,9 +630,9 @@ func splitAddress(address string) (string, string, error) {
 	return parts[0], strings.Join(parts[1:], "/"), nil
 }
 
-// resolveCapabilityAddress finds the one host that lists the address's capability or
-// source for this host.
-func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network string) (string, ListedCapability, error) {
+// resolveCapabilityAddress finds the one host that lists the address's
+// capability or source for this host, as view sees the listings.
+func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network string, view listingView) (string, ListedCapability, error) {
 	left, capability, err := splitAddress(address)
 	if err != nil {
 		return "", ListedCapability{}, err
@@ -606,7 +655,7 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 		}
 		hosts = uniqueHosts(found)
 	}
-	listings, unanswered := s.fetchListings(ctx, hosts, network)
+	listings, unanswered := s.fetchListings(ctx, hosts, network, view)
 	type match struct {
 		host  string
 		entry ListedCapability
@@ -631,7 +680,9 @@ func (s *Store) resolveCapabilityAddress(ctx context.Context, address, network s
 				if a.unsettled {
 					unsettled = append(unsettled, match{h, e})
 				}
-				if !a.bound || (e.Kind != ListedKindSource && !a.personal) {
+				// A person whose label contains '/' is never PERSON in an
+				// address.
+				if !a.bound || a.slash || (e.Kind != ListedKindSource && !a.personal) {
 					continue
 				}
 			}
@@ -733,7 +784,7 @@ func (s *Store) PrepareCall(ctx context.Context, r SubmitCall) (OutboundCall, er
 	} else if !errors.Is(err, ErrNotFound) {
 		return OutboundCall{}, err
 	}
-	peer, entry, err := s.resolveCapabilityAddress(ctx, r.Target, r.Network)
+	peer, entry, err := s.resolveCapabilityAddress(ctx, r.Target, r.Network, listingView{})
 	if err != nil {
 		return OutboundCall{}, err
 	}
@@ -809,11 +860,19 @@ func (s *Store) updateOutboundCall(ctx context.Context, peer, id string, change 
 	if err != nil {
 		return out, err
 	}
+	wasFinal := outboundCallFinal(out)
 	updates := change(&out)
 	if err = putJSON(ctx, tx, `UPDATE outbound_calls SET record = ? WHERE peer = ? AND call_id = ?`, out, peer, id); err != nil {
 		return out, err
 	}
 	at := timestamp(time.Now())
+	// An agent's call that becomes final gets its call-update notification
+	// in the same transaction.
+	if !wasFinal && outboundCallFinal(out) && out.AdapterID != nil {
+		if err = createCallUpdate(ctx, tx, out, at); err != nil {
+			return out, err
+		}
+	}
 	for range updates {
 		if err = appendEvent(ctx, tx, "call.updated", callSubject(peer, id), at); err != nil {
 			return out, err
@@ -904,6 +963,9 @@ func (s *Store) exchangeCall(ctx context.Context, peerID, id string, statusOnly 
 		}
 		if err == nil {
 			state, status = submitAccepted, &st
+			if out.AdapterID != nil {
+				s.noteCallAccepted(callKey(peerID, id), time.Now())
+			}
 		}
 	case statusOnly && code == 404:
 		err = errors.New("the receiver has no record of this call")
@@ -1130,7 +1192,7 @@ func (s *Store) runCallJob(ctx context.Context, out OutboundCall) {
 	}
 	key := callKey(out.PeerHostID, out.Request.CallID)
 	progressed, _ := s.pollCall(ctx, out.PeerHostID, out.Request.CallID)
-	s.schedulePoll(key, progressed)
+	s.scheduleCallPoll(key, progressed)
 }
 
 // SubmitOwnerCall prepares and submits an owner call.

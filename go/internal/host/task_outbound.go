@@ -179,6 +179,9 @@ type taskWork struct {
 	poll map[string]taskPoll
 	// fetching holds the digests being downloaded.
 	fetching map[string]bool
+	// accepted holds when each agent's call was accepted by its receiver,
+	// for its fast status checks.
+	accepted map[string]time.Time
 }
 type taskPoll struct {
 	at    time.Time

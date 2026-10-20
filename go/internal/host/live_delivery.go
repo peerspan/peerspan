@@ -302,7 +302,12 @@ func returnItems(ctx context.Context, tx *sql.Tx, ended []string, now time.Time)
 	if _, err = tx.ExecContext(ctx, `UPDATE task_update_notifications SET returned_at = ? WHERE json_extract(record, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND returned_at IS NULL AND seen_at IS NULL AND redeliveries < ?`, at, list, redeliveryLimit); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET reply_returned_at = ? WHERE reply_delivery IS NOT NULL AND json_extract(reply_delivery, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND reply_returned_at IS NULL AND reply_seen_at IS NULL AND reply_redeliveries < ?`, at, list, redeliveryLimit)
+	if _, err = tx.ExecContext(ctx, `UPDATE adapter_outbound SET reply_returned_at = ? WHERE reply_delivery IS NOT NULL AND json_extract(reply_delivery, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND reply_returned_at IS NULL AND reply_seen_at IS NULL AND reply_redeliveries < ?`, at, list, redeliveryLimit); err != nil {
+		return err
+	}
+	// Call updates claimed and unseen return; one never claimed goes to the
+	// agent's next verified session as a late arrival.
+	_, err = tx.ExecContext(ctx, `UPDATE call_update_notifications SET returned_at = ? WHERE json_extract(record, '$.adapter_id') IN (SELECT value FROM json_each(?)) AND json_extract(record, '$.claimed_at') IS NOT NULL AND returned_at IS NULL AND seen_at IS NULL AND redeliveries < ?`, at, list, redeliveryLimit)
 	return err
 }
 
@@ -336,11 +341,11 @@ func chainOriginatorPerson(ctx context.Context, tx *sql.Tx, r TaskRequest) (*str
 	return nil, nil
 }
 
-var seenIDPattern = regexp.MustCompile(`^(delivery|request|task)_[0-9a-f]{32}$`)
+var seenIDPattern = regexp.MustCompile(`^(delivery|request|task|call)_[0-9a-f]{32}$`)
 
 // MarkSeen records items this session holds as seen, by delivery, request,
-// or task ID, and returns the IDs newly seen. An ID the session does not
-// hold fails the whole call as not found.
+// task, or call ID, and returns the IDs newly seen. An ID the session does
+// not hold fails the whole call as not found.
 func (s *Store) MarkSeen(ctx context.Context, auth AdapterAuth, ids []string) ([]string, error) {
 	if len(ids) < 1 || len(ids) > 100 {
 		return nil, ErrInvalid
@@ -424,6 +429,8 @@ func markSeen(ctx context.Context, tx *sql.Tx, adapterID, sessionID, id, at stri
 		}
 		held, err := count(`SELECT COUNT(*) FROM adapter_outbound WHERE request_id = ? AND (adapter_id = ? OR (reply_delivery IS NOT NULL AND json_extract(reply_delivery, '$.adapter_id') = ? AND reply_returned_at IS NULL))`, id, adapterID, adapterID)
 		return held > 0, false, err
+	case strings.HasPrefix(id, "call_"):
+		return markCallSeen(ctx, tx, adapterID, sessionID, id, at)
 	default:
 		held, changed, err := markTaskSeen(ctx, tx, adapterID, sessionID, id, false, at)
 		return held, changed, err
@@ -492,6 +499,7 @@ type PendingWork struct {
 	Deliveries []PendingDelivery `json:"deliveries"`
 	Replies    []PendingReply    `json:"replies"`
 	Tasks      []PendingTask     `json:"tasks"`
+	Calls      []PendingCall     `json:"calls"`
 }
 
 // PendingDelivery is an unanswered inbound delivery the session holds.
@@ -554,7 +562,7 @@ func taskEventState(st TaskStatus) string {
 // item first reached this host, so returned and adopted items keep their
 // place.
 func pendingWork(ctx context.Context, q queryer, session string) (PendingWork, error) {
-	work := PendingWork{Deliveries: []PendingDelivery{}, Replies: []PendingReply{}, Tasks: []PendingTask{}}
+	work := PendingWork{Deliveries: []PendingDelivery{}, Replies: []PendingReply{}, Tasks: []PendingTask{}, Calls: []PendingCall{}}
 	rows, err := q.QueryContext(ctx, `SELECT d.record, d.seen_at IS NOT NULL, d.redeliveries, m.request FROM deliveries d JOIN received_messages m ON m.sender = d.sender AND m.request_id = d.request_id WHERE d.session_id = ? AND d.returned_at IS NULL AND json_extract(d.record, '$.state') IN ('unknown', 'forwarded') ORDER BY m.rowid`, session)
 	if err != nil {
 		return work, err
@@ -642,6 +650,10 @@ func pendingWork(ctx context.Context, q queryer, session string) (PendingWork, e
 		err = rows.Err()
 	}
 	rows.Close()
+	if err != nil {
+		return work, err
+	}
+	work.Calls, err = pendingAgentCalls(ctx, q, session)
 	return work, err
 }
 

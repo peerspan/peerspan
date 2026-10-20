@@ -360,7 +360,9 @@ func operationSchema(ctx context.Context, client host.Client, address, operation
 	}
 	var matches []host.DiscoveredCapability
 	for _, e := range d.Capabilities {
-		if e.Capability == capability && (!byHost || e.HostID == left) {
+		// A person's entry matches by its discover address, which is by
+		// host ID for a person whose label contains '/'.
+		if (byHost && e.Capability == capability && e.HostID == left) || (!byHost && e.Address == address) {
 			matches = append(matches, e)
 		}
 	}

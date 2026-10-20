@@ -67,6 +67,10 @@ type AdapterSetupRequest struct {
 	// 100) sends and delegations by address in any 60 minutes.
 	Directory       bool   `json:"directory,omitempty"`
 	MaxSendsPerHour *int64 `json:"max_sends_per_hour,omitempty"`
+	// Calls lets the session list and call capabilities, capped at
+	// MaxCallsPerHour (default 100) calls in any 60 minutes.
+	Calls           bool   `json:"calls,omitempty"`
+	MaxCallsPerHour *int64 `json:"max_calls_per_hour,omitempty"`
 }
 type SetupRoute struct {
 	Name            string  `json:"name"`
@@ -133,6 +137,15 @@ func (s *Store) SetupAdapter(ctx context.Context, r AdapterSetupRequest) (Adapte
 	} else if r.Directory {
 		maxSends = defaultMaxSendsPerHour
 	}
+	var maxCalls int64
+	if r.MaxCallsPerHour != nil {
+		if !r.Calls || *r.MaxCallsPerHour < 1 || *r.MaxCallsPerHour > 10000 {
+			return AdapterSetup{}, fmt.Errorf("%w: max_calls_per_hour is 1 to 10000 and requires calls", ErrInvalid)
+		}
+		maxCalls = *r.MaxCallsPerHour
+	} else if r.Calls {
+		maxCalls = defaultMaxCallsPerHour
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AdapterSetup{}, err
@@ -142,7 +155,7 @@ func (s *Store) SetupAdapter(ctx context.Context, r AdapterSetupRequest) (Adapte
 	if err != nil {
 		return AdapterSetup{}, err
 	}
-	credential, err := s.createAdapter(ctx, tx, CreateAdapter{SessionID: ss.ID, ExpiresAt: r.ExpiresAt, maxSendsPerHour: maxSends})
+	credential, err := s.createAdapter(ctx, tx, CreateAdapter{SessionID: ss.ID, ExpiresAt: r.ExpiresAt, maxSendsPerHour: maxSends, maxCallsPerHour: maxCalls})
 	if err != nil {
 		return AdapterSetup{}, err
 	}
@@ -176,7 +189,7 @@ func localSetupRoute(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/adapters/setup", func(w http.ResponseWriter, r *http.Request) {
 		var req AdapterSetupRequest
-		if !decode(w, r, &req, "agent_id", "session_id", "integration", "expires_at", "routes", "directory", "max_sends_per_hour") {
+		if !decode(w, r, &req, "agent_id", "session_id", "integration", "expires_at", "routes", "directory", "max_sends_per_hour", "calls", "max_calls_per_hour") {
 			return
 		}
 		setup, err := store.SetupAdapter(r.Context(), req)

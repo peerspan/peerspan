@@ -50,7 +50,10 @@ it, and send and task address an agent there, citing self access, a policy
 rule, or the grant with the latest expiry unless --grant is given. attach
 registers an agent for a project and sets up a session with directory access:
 its agent may send and delegate by address to anyone in the directory, at most
---max-sends-per-hour times in an hour. For a harness that supports launch,
+--max-sends-per-hour times in an hour. With --calls, its agent may also call
+capabilities shared with you, and yours on your other trusted machines, at
+most --max-calls-per-hour times in an hour; without --calls or --no-calls,
+attach asks at a terminal. For a harness that supports launch,
 attach then starts it in the project as session start does, printing its
 result on stderr first; --no-start only sets up, and arguments after -- go to
 the harness.
@@ -457,6 +460,9 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("expires-at", "", "credential expiration; by default the credential is renewable")
 		fs.String("expires-in", "", "relative credential lifetime (1m to 720h); excludes --expires-at")
 		fs.Int64("max-sends-per-hour", 100, "sends and delegations by address the session may make in any 60 minutes, 1 to 10000")
+		fs.Bool("calls", false, "let the agent call capabilities shared with you, and yours on your other trusted machines")
+		fs.Bool("no-calls", false, "do not let the agent call capabilities")
+		fs.Int64("max-calls-per-hour", 100, "capability calls the session may make in any 60 minutes, 1 to 10000; requires calls")
 		fs.StringArray("option", nil, "integration-specific KEY=VALUE; repeatable")
 		fs.String("integrations", "", "integration bundle directory; defaults to PEERSPAN_INTEGRATIONS_DIR or installation")
 		fs.String("runner", "", "integration helper executable override")
