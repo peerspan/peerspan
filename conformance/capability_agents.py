@@ -661,7 +661,7 @@ class AgentPairing:
             status, body = h[host].call('POST', '/v1/sources/open-to', {'host_id': ids[target]})
             need(status in (200, 201), 'setup: sources open-to', host, target, status, body)
 
-        for name, operations in (('tools', ['echo', 'sleep', 'big', 'fail', 'tool_error', 'write_note']),
+        for name, operations in (('tools', ['echo', 'sleep', 'big', 'canon', 'fail', 'tool_error', 'write_note']),
                                  ('limited', ['echo']), ('agentonly', ['echo']), ('mixed', ['echo']),
                                  ('recheck', ['echo', 'sleep']), ('revoke', ['echo', 'sleep']),
                                  ('private', ['echo']), ('dup', ['echo'])):
