@@ -3009,14 +3009,15 @@ class Pairing:
         networks, the first such network deciding; with PERSON, entries that belong to someone else are left out."
         `via` is ordered self before policy, then by network ID (GET /peer/v1/capabilities).
 
-        q2 is quinn's in team and joins a network `firstvia` (created on p2, untrusted) bound to pat; `firstvia` is
-        created until its ID sorts after team's. q2's `firstvia` reaches p2 through quinn's team policy and through
-        pat's firstvia policy (signed here with pat's key), so its via is [policy team, policy firstvia]: the first
-        network, team, binds q2 to quinn, so the entry is quinn's although q2 is pat's in a later via network.
-        `discover pat` leaves it out, `discover quinn` lists it as quinn/NAME, and `pat/NAME` (pat has no other
-        copy) is 404 not_found, persisting nothing. Reversed, once p2 is trusted in firstvia, a self entry for
-        firstvia comes first: the entry is pat's, so `discover quinn` leaves it out, `discover pat` lists it as
-        pat/NAME (pat's only copy, no policy of pat binding the name), and `quinn/NAME` is 404."""
+        q2 is quinn's in team and joins a network `firstvia` (created once on p2, untrusted) bound to pat. q2's
+        `firstvia` reaches p2 through quinn's team policy and through pat's firstvia policy (signed here with pat's
+        key), so its via is the two policy entries by network ID, and which person it belongs to follows from the
+        random IDs: quinn's when team sorts first, pat's when firstvia does. The owner's `discover` lists it as
+        OWNER/NAME (the owner's only copy), the other person's leaves it out, and OTHER/NAME (no other copy) is 404
+        not_found, persisting nothing. Then p2 is trusted in firstvia, so a self entry for firstvia comes first
+        whatever the IDs: the entry is pat's (quinn's discover leaves it out, `quinn/NAME` is 404). When team sorted
+        first, that reverses the policy-only outcome; otherwise it reaches the same owner by a different first
+        entry."""
         ids, p2, q2 = self.ids, self.hosts['p2'], self.hosts['q2']
         name, net = 'firstvia', None
         if 'q2agent' not in self.aid:
@@ -3026,12 +3027,7 @@ class Pairing:
         code, out, stdout, stderr = q2.outcome('share', name, '--with', 'pat', '--yes', '--network', self.team)
         need(code == 0, f'setup: quinn shares q2\'s {name} with pat in team', code, stderr[-300:])
         try:
-            for _ in range(10):
-                created = p2.cli('network', 'create', name, '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
-                if created > self.team:
-                    net = created
-                    break
-            need(net, 'setup: a network whose ID sorts after team\'s')
+            net = p2.cli('network', 'create', name, '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
             token = p2.cli('network', 'invite', '--network', net, '--member', 'pat', '--expires-in', '1h')['token']
             q2.cli('join', token, '--untrusted', sock=self.agents['pat'].socket)
 
@@ -3066,48 +3062,47 @@ class Pairing:
                                                              'input': {'text': 'x'}, 'deadline': timestamp(300)})
                 return status, body, self.outbound_count('p2') != count
 
-            # 1. Quinn's network first: the entry is quinn's.
-            quinns = entries('quinn')
-            need(len(quinns) == 1 and [(v.get('kind'), v.get('network_id')) for v in quinns[0]['via']] ==
-                 [('policy', self.team), ('policy', net)],
-                 'setup: discover quinn lists q2\'s copy with via [policy team, policy firstvia] (policy entries by '
-                 'network ID)', quinns, self.team, net)
-            try:
-                need(not entries('pat'), 'discover pat leaves out q2\'s copy: the first of its via networks (team) '
-                     'binds q2 to quinn, so it belongs to quinn although a later via network binds q2 to pat',
-                     entries('pat'))
-            except Failure as error:
-                deferred.append(f'first_via_discover_pat: {error}')
-            try:
-                need(quinns[0]['address'] == f'quinn/{name}', 'discover quinn addresses it quinn/CAPABILITY (the '
-                     'entry is quinn\'s, and quinn\'s team policy binds the name to q2)', quinns)
-            except Failure as error:
-                deferred.append(f'first_via_discover_quinn: {error}')
-            try:
-                status, body, persisted = resolve('pat')
-                need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found' and
-                     'unanswered' in body and not persisted,
-                     'pat/CAPABILITY is 404 not_found, persisting nothing: q2\'s copy belongs to quinn (first via '
-                     'network) and pat has no other copy', status, body)
-            except Failure as error:
-                deferred.append(f'first_via_resolve_pat: {error}')
-            # 2. Reversed: with p2 trusted in firstvia, a self entry for firstvia comes first; the entry is pat's.
+            def belongs(owner, other, label, first):
+                owned, others = entries(owner), entries(other)
+                try:
+                    need(not others, f'{label}: discover {other} leaves out q2\'s copy: the first of its via networks '
+                         f'({first}) binds q2 to {owner}, so it belongs to {owner}', others)
+                except Failure as error:
+                    deferred.append(f'first_via_{label}_discover_{other}: {error}')
+                try:
+                    need(len(owned) == 1 and owned[0]['address'] == f'{owner}/{name}',
+                         f'{label}: discover {owner} lists it {owner}/CAPABILITY (the entry is {owner}\'s, and '
+                         f'{owner}\'s only copy)', owned)
+                except Failure as error:
+                    deferred.append(f'first_via_{label}_discover_{owner}: {error}')
+                try:
+                    status, body, persisted = resolve(other)
+                    need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found' and
+                         'unanswered' in body and not persisted,
+                         f'{label}: {other}/CAPABILITY is 404 not_found, persisting nothing: q2\'s copy belongs to '
+                         f'{owner} and {other} has no other copy', status, body)
+                except Failure as error:
+                    deferred.append(f'first_via_{label}_resolve_{other}: {error}')
+
+            # 1. Policy entries only, by network ID: the lower ID decides.
+            team_first = self.team < net
+            owner, other = ('quinn', 'pat') if team_first else ('pat', 'quinn')
+            order = sorted([self.team, net])
+            listed = entries('quinn') + entries('pat')
+            need(listed and all([(v.get('kind'), v.get('network_id')) for v in e['via']] ==
+                                [('policy', n) for n in order] for e in listed),
+                 'setup: discover lists q2\'s copy with via [policy, policy] by network ID', listed, self.team, net)
+            print(f'NOTE {self.label} first via: ' + ('team sorts first (the entry is quinn\'s)' if team_first else
+                  'firstvia sorts first (the entry is pat\'s)'), flush=True)
+            belongs(owner, other, 'policy_order', 'team' if team_first else 'firstvia')
+            # 2. With p2 trusted in firstvia, a self entry for firstvia comes first: the entry is pat's.
             p2.cli('trust', '--network', net)
             self.synced(self.version('p2', net), 'q2', net=net)
-            pats = entries('pat')
-            need(len(pats) == 1 and pats[0]['via'] and (pats[0]['via'][0].get('kind'),
-                                                         pats[0]['via'][0].get('network_id')) == ('self', net),
-                 'setup: discover pat lists q2\'s copy with a self entry for firstvia first', pats, entries('quinn'))
-            try:
-                need(not entries('quinn') and pats[0]['address'] == f'pat/{name}',
-                     'reversed: the first via network (firstvia) binds q2 to pat, so the entry is pat\'s: discover '
-                     'quinn leaves it out, discover pat lists it pat/CAPABILITY (pat\'s only copy)',
-                     pats, entries('quinn'))
-                status, body, persisted = resolve('quinn')
-                need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found' and not persisted,
-                     'reversed: quinn/CAPABILITY is 404 not_found, persisting nothing', status, body)
-            except Failure as error:
-                deferred.append(f'first_via_reversed: {error}')
+            listed = entries('quinn') + entries('pat')
+            need(listed and all(e['via'] and (e['via'][0].get('kind'), e['via'][0].get('network_id')) ==
+                                ('self', net) for e in listed),
+                 'setup: discover lists q2\'s copy with a self entry for firstvia first', listed)
+            belongs('pat', 'quinn', 'self_first', 'firstvia, a self entry')
         finally:
             if net:
                 q2.run('network', 'leave', net)
