@@ -252,7 +252,7 @@ export const tools = [
       properties: {
         address: {
           type: 'string',
-          pattern: '^[^/]{1,191}/[a-z0-9][a-z0-9_-]{0,62}$',
+          pattern: '^[^/]+/[^/]+(/[^/]+)?$',
           maxLength: 256,
           description: 'PERSON/CAPABILITY or HOST_ID/CAPABILITY, as list_capabilities gives it.'
         },
@@ -418,7 +418,15 @@ function callRefusal(error, callId, address) {
 }
 
 // callError is the tool error for a failed call route other than submission.
+// A no_calls refusal takes the refusal shape, without address.
 function callError(error, callId) {
+  if (error.status === 403 && error.code === 'no_calls')
+    return errorResult({
+      ...(callId && { call_id: callId }),
+      code: 'no_calls',
+      error: callRefusalTexts.no_calls,
+      recovery: 'Nothing was called or recorded.'
+    });
   return errorResult({
     ...(callId && { call_id: callId }),
     ...(error.code && { code: error.code }),
