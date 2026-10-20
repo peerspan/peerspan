@@ -14,7 +14,7 @@ quinn) as the sender, with real ssh-agents. It covers:
   lower statement hash;
 - refusal of pushes and fetches from a non-sibling, and of lower versions;
 - `access sync` and `access sync --status` (now with `edits`);
-- migration from database version 11 to the current 17, and refusal of version 18.
+- migration from database version 11 to the current version (18), and refusal of the next.
 
 A second run per combination (check_edits, with alice, bob, carol, and later dave, eve, and fred, more of pat's
 machines) covers Concurrent edits (coordination contract, including PR #15's owner scope and retired entries):
@@ -64,7 +64,7 @@ import threading
 import time
 
 from coordination import Coordinator, wait_for
-from host_service import CAPABILITY_TABLES, POLICY_EDIT_TABLES, stop_all
+from host_service import AGENT_CALL_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
 from peer_messaging import fixture_context, set_probe, timestamp, wire
 from persons import Agent, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent
 from policy import PolicyHost, crafted, edit_start, edits_map, policy_lines, policy_of, send, show, sign_edit
@@ -288,32 +288,32 @@ def check(coord_binary, first_binary, second_binary, sender_binary, label):
                                   ('network.policy_updated', pat_id)):
                 assert (kind, subject) in kinds, (kind, subject)
 
-            # Migration from version 11 (to the current version 17), and refusal of version 18.
+            # Migration from version 11 (to the current version), and refusal of the next.
             for host in (alice, bob):
-                assert user_version(host) == 17
+                assert user_version(host) == SCHEMA_VERSION
                 host.stop()
                 with sqlite3.connect(host.state / 'host.db') as db:
                     db.execute('DROP TABLE policy_deliveries')
                     db.execute('DROP TABLE directory_sends')
-                    for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
+                    for table in (*AGENT_CALL_TABLES, *CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                         db.execute('DROP TABLE ' + table)
                     db.execute('PRAGMA user_version = 11')
                 host.start()
-                assert user_version(host) == 17
+                assert user_version(host) == SCHEMA_VERSION
                 assert stored(host, net, pat_id) == winner
                 assert status(host, net)['deliveries'] == []
                 host.stop()
                 with sqlite3.connect(host.state / 'host.db') as db:
-                    db.execute('PRAGMA user_version = 18')
+                    db.execute(f'PRAGMA user_version = {SCHEMA_VERSION + 1}')
                 try:
                     host.start()
                     opened = True
                 except AssertionError as error:
                     assert 'exited at startup' in str(error), error
                     opened = False
-                assert not opened, 'version 18 opened'
+                assert not opened, f'version {SCHEMA_VERSION + 1} opened'
                 with sqlite3.connect(host.state / 'host.db') as db:
-                    db.execute('PRAGMA user_version = 17')
+                    db.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
                 host.start()
             assert len(status(alice, net, sync=True)['deliveries']) == 0
         finally:
@@ -1059,15 +1059,15 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             assert combined(mine_in(alice, dupnet)), mine_in(alice, dupnet)
             keyed(alice, False)
 
-            # --- Migration from version 16 to 17, and refusal of version 18.
+            # --- Migration from version 16 to the current version (through 17), and refusal of the next.
             kept = mine(alice)
             alice.stop()
             with sqlite3.connect(alice.state / 'host.db') as db:
-                for table in POLICY_EDIT_TABLES:
+                for table in (*AGENT_CALL_TABLES, *POLICY_EDIT_TABLES):
                     db.execute('DROP TABLE ' + table)
                 db.execute('PRAGMA user_version = 16')
             alice.start()
-            assert user_version(alice) == 17 and mine(alice) == kept
+            assert user_version(alice) == SCHEMA_VERSION and mine(alice) == kept
             with sqlite3.connect(alice.state / 'host.db') as db:
                 tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
                 columns = [r[1] for r in db.execute('PRAGMA table_info(policy_edits)')]
@@ -1075,14 +1075,14 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             assert edits_status(alice, net) == {}
             alice.stop()
             with sqlite3.connect(alice.state / 'host.db') as db:
-                db.execute('PRAGMA user_version = 18')
+                db.execute(f'PRAGMA user_version = {SCHEMA_VERSION + 1}')
             try:
                 alice.start()
                 opened = True
             except AssertionError as error:
                 assert 'exited at startup' in str(error), error
                 opened = False
-            assert not opened, 'version 18 opened'
+            assert not opened, f'version {SCHEMA_VERSION + 1} opened'
         finally:
             if hook:
                 hook.close()

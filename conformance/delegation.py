@@ -28,7 +28,7 @@ import tempfile
 
 from agent_adapter import Channel, adapter_call, credential, sql
 from coordination import Coordinator, wait_for
-from host_service import CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
+from host_service import AGENT_CALL_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
 import peer_messaging
 from peer_messaging import set_probe, timestamp
 from persons import Agent, person_id, ssh_key, use_agent
@@ -483,7 +483,7 @@ def migration_check(original, replacement, label):
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
             host.stop()
-            for table in [*POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES]:
+            for table in [*AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES]:
                 sql(host, 'DROP TABLE ' + table)
             sql(host, 'PRAGMA user_version = 10')
             host.binary = str(replacement)
@@ -499,7 +499,7 @@ def migration_check(original, replacement, label):
                 assert result.returncode != 0 and sql(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION + 1
         finally:
             stop_all((host,))
-    print(f'PASS {label}: v10→v17 migration; version 18 refused', flush=True)
+    print(f'PASS {label}: v10→v{SCHEMA_VERSION} migration; version {SCHEMA_VERSION + 1} refused', flush=True)
 
 
 def main():

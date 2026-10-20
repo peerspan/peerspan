@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 
-from host_service import ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES, UnixHTTPConnection
+from host_service import AGENT_CALL_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES, UnixHTTPConnection
 from peer_messaging import PeerHost, fixture_context, set_probe, timestamp, wire
 
 
@@ -112,7 +112,7 @@ def check_v2_migration(original_binary, replacement_binary, label):
             messages = receiver.cli('message', 'list')
             activity = receiver.cli('activity')
             receiver.stop()
-            for table in [*POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, 'access_blocks', 'network_statements', 'adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
+            for table in [*AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, 'access_blocks', 'network_statements', 'adapter_connections', 'adapter_outbound', 'adapter_routes', 'outbound_replies', 'received_replies', 'deliveries', 'adapter_credentials']:
                 sql(receiver, 'DROP TABLE ' + table)
             sql(receiver, 'PRAGMA user_version = 3')
             # Force failure after migration begins; no partial extension may persist.
