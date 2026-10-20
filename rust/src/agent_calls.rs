@@ -344,6 +344,7 @@ impl Store {
         ss: &Session,
         r: &AgentCall,
         out: &OutboundCall,
+        deadline: Instant,
     ) -> Result<Result<OutboundCall, Value>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -380,6 +381,11 @@ impl Store {
             ],
         )?;
         append_event(&tx, "call.submitted", &call_outbound::subject(out), &now())?;
+        // Past the 20-second bound nothing is persisted: dropping the
+        // transaction rolls it back.
+        if Instant::now() >= deadline {
+            return Err(timeout());
+        }
         tx.commit()?;
         Ok(Ok(out.clone()))
     }
@@ -625,7 +631,7 @@ async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Va
     // 7. Persist.
     let (request, a, ss) = (r.clone(), adapter.clone(), session.clone());
     let out = match blocking(store.clone(), move |s| {
-        s.persist_agent_call(&a, &ss, &request, &resolved)
+        s.persist_agent_call(&a, &ss, &request, &resolved, received + PERSIST_BOUND)
     })
     .await?
     {
