@@ -2667,7 +2667,8 @@ class Pairing:
         # another host, and a source on two hosts. A lost concurrent claim is also checked in the concurrent claims
         # section. Their failures are reported at the end of the section, so one does not hide the others.
         deferred = []
-        for check in (self.cli_unsettled, self.cli_source_ambiguous, self.cli_cross_person):
+        for check in (self.cli_unsettled, self.cli_source_ambiguous, self.cli_cross_person,
+                      self.cli_first_via):
             try:
                 check(deferred)
             except Failure as error:
@@ -3000,6 +3001,116 @@ class Pairing:
                 self.drop_or_bind(name, self.team)
             self.hosts['p4'].call('DELETE', f'/v1/capabilities/{name}')
             self.hosts['p1'].call('DELETE', f'/v1/capabilities/{name}')
+            q2.run('capability', 'remove', name, '--yes')
+            self.sync_all()
+
+    def cli_first_via(self, deferred):
+        """The discover row: "An entry belongs to the person its host is bound to in one of the entry's `via`
+        networks, the first such network deciding; with PERSON, entries that belong to someone else are left out."
+        `via` is ordered self before policy, then by network ID (GET /peer/v1/capabilities).
+
+        q2 is quinn's in team and joins a network `firstvia` (created on p2, untrusted) bound to pat; `firstvia` is
+        created until its ID sorts after team's. q2's `firstvia` reaches p2 through quinn's team policy and through
+        pat's firstvia policy (signed here with pat's key), so its via is [policy team, policy firstvia]: the first
+        network, team, binds q2 to quinn, so the entry is quinn's although q2 is pat's in a later via network.
+        `discover pat` leaves it out, `discover quinn` lists it as quinn/NAME, and `pat/NAME` (pat has no other
+        copy) is 404 not_found, persisting nothing. Reversed, once p2 is trusted in firstvia, a self entry for
+        firstvia comes first: the entry is pat's, so `discover quinn` leaves it out, `discover pat` lists it as
+        pat/NAME (pat's only copy, no policy of pat binding the name), and `quinn/NAME` is 404."""
+        ids, p2, q2 = self.ids, self.hosts['p2'], self.hosts['q2']
+        name, net = 'firstvia', None
+        if 'q2agent' not in self.aid:
+            self.register('q2', 'q2agent')
+        self.put_servers('q2', 'q2agent', self.root, {'fx': self.fixture.args('q2-fx')})
+        self.create(name, 'q2agent/fx', 'operations', ['echo'], host='q2')
+        code, out, stdout, stderr = q2.outcome('share', name, '--with', 'pat', '--yes', '--network', self.team)
+        need(code == 0, f'setup: quinn shares q2\'s {name} with pat in team', code, stderr[-300:])
+        try:
+            for _ in range(10):
+                created = p2.cli('network', 'create', name, '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
+                if created > self.team:
+                    net = created
+                    break
+            need(net, 'setup: a network whose ID sorts after team\'s')
+            token = p2.cli('network', 'invite', '--network', net, '--member', 'pat', '--expires-in', '1h')['token']
+            q2.cli('join', token, '--untrusted', sock=self.agents['pat'].socket)
+
+            def bound():
+                q2.run('network', 'sync', net)
+                p2.run('network', 'sync', net)
+                return {m['host_id']: m['person_id'] for m in p2.cli('network', 'members', net)}.get(ids['q2']) \
+                    == self.pat
+            wait_for(bound, timeout=30, message=f'q2 bound to pat in {name}')
+            # pat's policy for firstvia shares q2's copy with pat (so p2 may use it there too).
+            current = self.policy('p2', net) or {'network_id': net,
+                                                 'person_public_key': self.policy('p1')['person_public_key'],
+                                                 'version': 0, 'edits': []}
+            rules = [r for r in current.get('capability_rules') or [] if r['capability'] != name]
+            rules.append(cap_rule(ids['q2'], name, [self.principal('pat')]))
+            signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root,
+                                capability_rules=rules)
+            status, body = p2.call('POST', f'/v1/networks/{net}/policy', {'policy': signed})
+            need(status == 201, f'setup: pat\'s policy in {name} shares q2\'s copy with pat', status, body)
+            self.synced(signed['version'], 'q2', net=net)
+            p2.run('network', 'sync', self.team)
+
+            def entries(person):
+                status, body = p2.call('GET', f'/v1/discover?person={person}')
+                need(status == 200, 'GET /v1/discover', person, status, body)
+                return [e for e in body.get('capabilities', []) if e.get('capability') == name and
+                        e.get('host_id') == ids['q2']]
+
+            def resolve(person):
+                count = self.outbound_count('p2')
+                status, body = p2.call('POST', '/v1/calls', {'target': f'{person}/{name}', 'operation': 'echo',
+                                                             'input': {'text': 'x'}, 'deadline': timestamp(300)})
+                return status, body, self.outbound_count('p2') != count
+
+            # 1. Quinn's network first: the entry is quinn's.
+            quinns = entries('quinn')
+            need(len(quinns) == 1 and [(v.get('kind'), v.get('network_id')) for v in quinns[0]['via']] ==
+                 [('policy', self.team), ('policy', net)],
+                 'setup: discover quinn lists q2\'s copy with via [policy team, policy firstvia] (policy entries by '
+                 'network ID)', quinns, self.team, net)
+            try:
+                need(not entries('pat'), 'discover pat leaves out q2\'s copy: the first of its via networks (team) '
+                     'binds q2 to quinn, so it belongs to quinn although a later via network binds q2 to pat',
+                     entries('pat'))
+            except Failure as error:
+                deferred.append(f'first_via_discover_pat: {error}')
+            try:
+                need(quinns[0]['address'] == f'quinn/{name}', 'discover quinn addresses it quinn/CAPABILITY (the '
+                     'entry is quinn\'s, and quinn\'s team policy binds the name to q2)', quinns)
+            except Failure as error:
+                deferred.append(f'first_via_discover_quinn: {error}')
+            try:
+                status, body, persisted = resolve('pat')
+                need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found' and
+                     'unanswered' in body and not persisted,
+                     'pat/CAPABILITY is 404 not_found, persisting nothing: q2\'s copy belongs to quinn (first via '
+                     'network) and pat has no other copy', status, body)
+            except Failure as error:
+                deferred.append(f'first_via_resolve_pat: {error}')
+            # 2. Reversed: with p2 trusted in firstvia, a self entry for firstvia comes first; the entry is pat's.
+            p2.cli('trust', '--network', net)
+            self.synced(self.version('p2', net), 'q2', net=net)
+            pats = entries('pat')
+            need(len(pats) == 1 and pats[0]['via'] and (pats[0]['via'][0].get('kind'),
+                                                         pats[0]['via'][0].get('network_id')) == ('self', net),
+                 'setup: discover pat lists q2\'s copy with a self entry for firstvia first', pats, entries('quinn'))
+            try:
+                need(not entries('quinn') and pats[0]['address'] == f'pat/{name}',
+                     'reversed: the first via network (firstvia) binds q2 to pat, so the entry is pat\'s: discover '
+                     'quinn leaves it out, discover pat lists it pat/CAPABILITY (pat\'s only copy)',
+                     pats, entries('quinn'))
+                status, body, persisted = resolve('quinn')
+                need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found' and not persisted,
+                     'reversed: quinn/CAPABILITY is 404 not_found, persisting nothing', status, body)
+            except Failure as error:
+                deferred.append(f'first_via_reversed: {error}')
+        finally:
+            if net:
+                q2.run('network', 'leave', net)
             q2.run('capability', 'remove', name, '--yes')
             self.sync_all()
 
