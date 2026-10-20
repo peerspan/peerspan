@@ -70,6 +70,13 @@ Once per run: the adopted v2 test vector (and the v1 vector) built with this sui
 verified with ssh-keygen [Policy v2], and migration from version 15 to the current 17 in each direction
 [Migration].
 
+Slice 2 (agent tools) runs from conformance/capability_agents.py, in a topology of its own per pairing, after
+the slice 1 sections: opt-in, listing, calls, agent rules and repeats, the queued window, running calls, the rate
+limit, results, call updates and pending work, revocation, a person whose label contains `/` (the slice 1 CLI case
+added with slice 2), and `unanswered`; and once per run, migration from version 17 to 18 (with `--baseline17`,
+from a real version 17 state as well). It needs `--node` for the shared adapter (`--skip-agents` skips it;
+`--agents-only` runs only it).
+
 Where the contract is silent, the suite takes the narrowest reading or makes no assertion; those spots are marked
 "ambiguous" in comments and soft results are printed as NOTE lines, not failures.
 
@@ -3558,6 +3565,11 @@ def check_migration(original, replacement, label):
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
             try:
+                # Version 18 (agent tools, slice 2) tables, when the binaries have them, go first: they refer to
+                # outbound_calls.
+                connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
+                for table in ('adapter_calls', 'call_update_notifications'):
+                    connection.execute(f'DROP TABLE IF EXISTS {table}')
                 for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                     connection.execute(f'DROP TABLE {table}')
                 connection.execute('PRAGMA user_version = 15')
@@ -3631,7 +3643,18 @@ def main():
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
     parser.add_argument('--skip-migration', action='store_true', help='skip the version 15 to 17 migration checks')
     parser.add_argument('--vector-only', action='store_true', help='only build and verify the v2 test vector')
+    parser.add_argument('--node', type=Path, help='Node 22 or newer, for the shared adapter in the agent tool cases '
+                        '(slice 2, capability_agents.py); required unless --skip-agents')
+    parser.add_argument('--skip-agents', action='store_true', help='skip the agent tool cases (slice 2)')
+    parser.add_argument('--agents-only', action='store_true', help='run only the agent tool cases (slice 2) and their '
+                        'migration')
+    parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1), whose '
+                        'state the version 17 to 18 migration opens; without it, version 17 state is simulated')
     args = parser.parse_args()
+    if not args.skip_agents and not args.node:
+        parser.error('--node is required for the agent tool cases (or pass --skip-agents)')
+    if args.skip_agents and args.agents_only:
+        parser.error('--skip-agents and --agents-only exclude each other')
     for tool in ('ssh-agent', 'ssh-add', 'ssh-keygen', 'openssl'):
         if not shutil.which(tool):
             parser.error(f'{tool} is required')
@@ -3649,16 +3672,32 @@ def main():
             parser.error(f'unknown pairing {pairing}')
         if binaries[cli] is None or binaries[daemon] is None:
             parser.error(f'pairing {pairing} needs --rust')
+    import capability_agents
+    available = [name for name, binary in binaries.items() if binary]
     if not args.skip_migration:
-        available = [name for name, binary in binaries.items() if binary]
         for first in available:
             for second in available:
-                failures += once(f'migration {first}→{second}', check_migration, binaries[first], binaries[second],
-                                 f'{first} state opened by {second}')
+                if not args.agents_only:
+                    failures += once(f'migration {first}→{second}', check_migration, binaries[first],
+                                     binaries[second], f'{first} state opened by {second}')
+                if not args.skip_agents:
+                    failures += once(f'migration 17→18 {first}→{second}', capability_agents.check_migration,
+                                     binaries[first], binaries[second], f'{first} state opened by {second}')
+        if args.baseline17 and not args.skip_agents:
+            for second in available:
+                failures += once(f'migration 17→18 baseline→{second}', capability_agents.check_migration,
+                                 binaries[second], binaries[second], f'version 17 baseline state opened by {second}',
+                                 args.baseline17.resolve())
     for pairing in pairings:
         cli, _, daemon = pairing.partition('/')
         label = f'{cli} CLI, {daemon} daemon'
-        for name, ok, detail in run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label):
+        results = []
+        if not args.agents_only:
+            results += run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label)
+        if not args.skip_agents:
+            results += capability_agents.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
+                                                     args.node.resolve(), label)
+        for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')
     print('==== summary', flush=True)

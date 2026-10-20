@@ -1,4 +1,5 @@
-"""A fixture MCP stdio server for conformance/tools.py (written from docs/tools-contract.md).
+"""A fixture MCP stdio server for conformance/capabilities.py and capability_agents.py (written from
+docs/capabilities-contract.md).
 
 Speaks newline-delimited JSON-RPC 2.0 over stdio, as MCP's stdio transport does: `initialize`,
 `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, and
@@ -35,7 +36,8 @@ Tools (`readOnlyHint` true unless noted):
   sleep {seconds, text?}      sleeps, then returns; a cancellation ends it without a response
   fail {message?, code?}      a JSON-RPC error
   tool_error {message?}       a CallToolResult with isError true
-  big {bytes}                 a text result of that many characters
+  big {bytes, unit?, pad?}    a text result: `pad` ASCII `a`s, then `bytes` copies of `unit` (default `b`; a
+                              multi-byte character such as `é` places part boundaries inside characters)
   crash {delay?}              exits the process mid-call, after `delay` seconds
   write_note {text}           readOnlyHint false: a write tool
   purge {}                    no annotations at all: not read-only
@@ -163,7 +165,8 @@ def tools():
         tool('sleep', 'Sleeps for seconds' + padding, {'seconds': {'type': 'number'}, 'text': {'type': 'string'}}),
         tool('fail', 'Answers with a JSON-RPC error' + padding, {'message': {'type': 'string'}}),
         tool('tool_error', 'Returns isError' + padding, {'message': {'type': 'string'}}),
-        tool('big', 'Returns a result of the given size' + padding, {'bytes': {'type': 'integer'}}),
+        tool('big', 'Returns a result of the given size' + padding,
+             {'bytes': {'type': 'integer'}, 'unit': {'type': 'string'}, 'pad': {'type': 'integer'}}),
         tool('crash', 'Exits mid-call' + padding, {'delay': {'type': 'number'}}),
         tool('write_note', 'Writes a note' + padding, {'text': {'type': 'string'}}, read_only=False),
         tool('purge', 'Deletes every note; no annotations' + padding, annotate=False),
@@ -241,7 +244,8 @@ def execute(request_id, name, arguments, cancelled):
         elif name == 'tool_error':
             reply = text_result(str(arguments.get('message', 'the tool failed')), is_error=True)
         elif name == 'big':
-            reply = text_result('b' * int(arguments.get('bytes', 0)))
+            reply = text_result('a' * int(arguments.get('pad', 0)) +
+                                str(arguments.get('unit', 'b')) * int(arguments.get('bytes', 0)))
         elif name == 'crash':
             time.sleep(float(arguments.get('delay', 0)))
             log('exit', reason='crash')
