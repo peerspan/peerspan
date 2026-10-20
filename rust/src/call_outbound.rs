@@ -73,6 +73,9 @@ pub struct OutboundCall {
     pub network_id: Option<String>,
     /// The target as given.
     pub target: String,
+    /// The adapter credential that made the call, or null for owner calls.
+    #[serde(default)]
+    pub adapter_id: Option<String>,
 }
 impl Attempted for OutboundCall {
     fn uncertain(&self) -> bool {
@@ -90,6 +93,11 @@ impl Attempted for OutboundCall {
     }
 }
 impl OutboundCall {
+    /// Whether the call is final: its status is final with its result, or
+    /// its submission was refused.
+    pub(crate) fn finished(&self) -> bool {
+        self.submit_state == "rejected" || self.final_state()
+    }
     fn pollable(&self) -> bool {
         self.submit_state == "accepted"
             && (self.status.as_ref().is_none_or(|s| !is_final(&s.state))
@@ -100,7 +108,7 @@ impl OutboundCall {
     }
 }
 
-fn stored(conn: &Connection, peer: &str, id: &str) -> Result<OutboundCall, Error> {
+pub(crate) fn stored(conn: &Connection, peer: &str, id: &str) -> Result<OutboundCall, Error> {
     read(
         conn,
         "SELECT record FROM outbound_calls WHERE peer = ?1 AND call_id = ?2",
@@ -116,9 +124,10 @@ fn save(tx: &Transaction<'_>, out: &OutboundCall) -> Result<(), Error> {
             out.request.call_id
         ],
     )?;
-    Ok(())
+    // An agent's call that has just become final notifies its session.
+    crate::agent_calls::notify_final(tx, out)
 }
-fn subject(out: &OutboundCall) -> String {
+pub(crate) fn subject(out: &OutboundCall) -> String {
     format!("{}/{}", out.peer_host_id, out.request.call_id)
 }
 fn valid_status(store: &Store, out: &OutboundCall, s: &CallStatus) -> bool {
@@ -131,11 +140,11 @@ fn valid_status(store: &Store, out: &OutboundCall, s: &CallStatus) -> bool {
 
 /// A parsed address: who holds it, and the capability name or the source's
 /// `AGENT/SERVER`.
-struct Address {
+pub(crate) struct Address {
     owner: String,
     capability: String,
 }
-fn parse_address(target: &str) -> Result<Address, Error> {
+pub(crate) fn parse_address(target: &str) -> Result<Address, Error> {
     let parts: Vec<&str> = target.split('/').collect();
     let invalid = || {
         Error::Invalid(
@@ -160,7 +169,7 @@ fn parse_address(target: &str) -> Result<Address, Error> {
         _ => Err(invalid()),
     }
 }
-fn not_found(message: String, unanswered: &[(String, String)]) -> Error {
+pub(crate) fn not_found(message: String, unanswered: &[(String, String)]) -> Error {
     Error::Coded {
         status: 404,
         code: "not_found",
@@ -432,7 +441,7 @@ impl Store {
     }
     /// Marks a cancellation to send, unless the call was refused or is
     /// final.
-    fn request_call_cancel(&self, peer: &str, id: &str) -> Result<OutboundCall, Error> {
+    pub(crate) fn request_call_cancel(&self, peer: &str, id: &str) -> Result<OutboundCall, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let mut out = stored(&tx, peer, id)?;
@@ -462,7 +471,7 @@ impl Store {
         due.sort();
         Ok(due.into_iter().map(|(_, p, i)| (p, i)).collect())
     }
-    pub(crate) fn pollable_calls(&self) -> Result<Vec<(String, String)>, Error> {
+    pub(crate) fn pollable_calls(&self) -> Result<Vec<(String, String, bool)>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT record FROM outbound_calls WHERE json_extract(record, '$.submit_state') = 'accepted' ORDER BY rowid",
@@ -471,7 +480,8 @@ impl Store {
         for record in statement.query_map([], |r| r.get::<_, String>(0))? {
             let call: OutboundCall = serde_json::from_str(&record?)?;
             if call.pollable() {
-                out.push((call.peer_host_id, call.request.call_id));
+                let agent = call.adapter_id.is_some();
+                out.push((call.peer_host_id, call.request.call_id, agent));
             }
         }
         Ok(out)
@@ -562,6 +572,51 @@ struct PersonHost {
     label: String,
 }
 
+/// Who a listing is for: the owner CLI, or an attached agent's adapter.
+#[derive(Clone)]
+pub(crate) enum Viewer {
+    Owner,
+    Agent(String),
+}
+impl Viewer {
+    /// The entry as this viewer may use it: only the `via` entries that
+    /// apply, and `None` when none is left. The owner ignores entries for
+    /// one agent (`from_agent` not null); an agent keeps capabilities only,
+    /// through self or a policy entry for no agent or for itself.
+    fn visible(&self, mut entry: Value) -> Option<Value> {
+        let applies = |v: &Value| match self {
+            Viewer::Owner => v["from_agent"].is_null(),
+            Viewer::Agent(agent) => {
+                v["kind"] == "self"
+                    || (v["kind"] == "policy"
+                        && (v["from_agent"].is_null()
+                            || v["from_agent"].as_str() == Some(agent.as_str())))
+            }
+        };
+        if matches!(self, Viewer::Agent(_)) && entry["kind"] != "capability" {
+            return None;
+        }
+        let via: Vec<Value> = entry["via"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|v| applies(v))
+            .cloned()
+            .collect();
+        if via.is_empty() {
+            return None;
+        }
+        entry["via"] = Value::Array(via);
+        Some(entry)
+    }
+    fn filter(&self, entries: Vec<Value>) -> Vec<Value> {
+        entries
+            .into_iter()
+            .filter_map(|e| self.visible(e))
+            .collect()
+    }
+}
+
 /// The distinct hosts of bindings, sorted.
 fn unique_hosts(bindings: &[PersonHost]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -645,10 +700,13 @@ fn entry_addresses<'a>(
                     }
                     let name = name(e);
                     let only = count.get(&(binding.person.clone(), name.clone())) == Some(&1);
+                    // A person whose label contains `/` is never used as
+                    // PERSON in an address.
+                    let nameable = !binding.label.contains('/');
                     if e["kind"] == "source" {
                         return Some(EntryAddress {
                             binding,
-                            personal: only,
+                            personal: nameable && only,
                             unsettled: false,
                         });
                     }
@@ -673,8 +731,8 @@ fn entry_addresses<'a>(
                     }
                     Some(EntryAddress {
                         binding,
-                        personal: here || (!bound && only),
-                        unsettled: !bound && !only,
+                        personal: nameable && (here || (!bound && only)),
+                        unsettled: nameable && !bound && !only,
                     })
                 })
                 .collect()
@@ -821,7 +879,7 @@ async fn discover(
     let mut unanswered = Vec::new();
     for (host, outcome) in listings(&store, hosts, network.as_deref()).await {
         match outcome {
-            Ok(entries) => found.push((host, entries)),
+            Ok(entries) => found.push((host, Viewer::Owner.filter(entries))),
             Err(error) => unanswered.push(json!({"host_id": host, "error": error})),
         }
     }
@@ -833,11 +891,53 @@ async fn discover(
     }))
 }
 
+/// `GET /adapter/v1/capabilities`: the capabilities an agent may call, from
+/// every host bound to a person in this host's networks, addressed as
+/// `discover` addresses them, sorted by address and then host ID; and the
+/// hosts that did not answer.
+pub(crate) async fn agent_capabilities(
+    store: &Arc<Store>,
+    agent: &str,
+) -> Result<(Vec<Value>, Vec<Value>), Error> {
+    let persons = blocking(store.clone(), |s| s.person_hosts(None, None)).await?;
+    let hosts = unique_hosts(&persons);
+    let bindings = blocking(store.clone(), |s| s.capability_bindings(None)).await?;
+    let viewer = Viewer::Agent(agent.to_owned());
+    let mut found = Vec::new();
+    let mut unanswered = Vec::new();
+    for (host, outcome) in listings(store, hosts, None).await {
+        match outcome {
+            Ok(entries) => found.push((host, viewer.filter(entries))),
+            Err(error) => unanswered.push(json!({"host_id": host, "error": error})),
+        }
+    }
+    let mut entries: Vec<Value> = addressed(found, &persons, &persons, &bindings)
+        .into_iter()
+        .map(|e| {
+            json!({
+                "address": e["address"],
+                "host_id": e["host_id"],
+                "capability": e["capability"],
+                "operations": e["operations"],
+                "resources": e["resources"],
+                "state": e["state"],
+                "unavailable": e["unavailable"],
+            })
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        (a["address"].as_str(), a["host_id"].as_str())
+            .cmp(&(b["address"].as_str(), b["host_id"].as_str()))
+    });
+    Ok((entries, unanswered))
+}
+
 /// Resolves an address to exactly one host and its listing entry.
-async fn resolve(
+pub(crate) async fn resolve(
     store: &Arc<Store>,
     a: &Address,
     network: Option<&str>,
+    viewer: &Viewer,
 ) -> Result<(String, Value), Error> {
     let by_host = valid_id(&a.owner, "host", 32);
     let (owner, n) = (a.owner.clone(), network.map(str::to_owned));
@@ -860,7 +960,8 @@ async fn resolve(
     for (host, outcome) in listings(store, hosts, network).await {
         match outcome {
             Ok(entries) => {
-                if let Some(e) = entries
+                if let Some(e) = viewer
+                    .filter(entries)
                     .into_iter()
                     .find(|e| e["capability"].as_str() == Some(a.capability.as_str()))
                 {
@@ -892,8 +993,9 @@ async fn resolve(
             .iter()
             .zip(&found)
             .map(|(e, (_, entries))| {
-                e[0].as_ref()
-                    .is_some_and(|e| e.personal || entries[0]["kind"] == "source")
+                e[0].as_ref().is_some_and(|e| {
+                    e.personal || (entries[0]["kind"] == "source" && !e.binding.label.contains('/'))
+                })
             })
             .collect()
     };
@@ -972,12 +1074,63 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         }
     }
     let address = parse_address(&r.target)?;
-    let (peer, entry) = resolve(&store, &address, r.network.as_deref()).await?;
+    let (peer, entry) = resolve(&store, &address, r.network.as_deref(), &Viewer::Owner).await?;
+    let (network_id, policy, self_access) = cite(&store, &entry, r.network.as_deref()).await?;
+    let deadline = match r.deadline.filter(|d| !d.is_empty()) {
+        Some(d) => d,
+        None => rfc3339(default_deadline(&store, policy.as_ref()).await?),
+    };
+    let request = CallRequest {
+        call_id: match r.call_id {
+            Some(id) => id,
+            None => new_id("call")?,
+        },
+        capability: address.capability.clone(),
+        operation: r.operation,
+        input,
+        deadline,
+        origin: None,
+        policy,
+        self_access,
+    };
+    let out = OutboundCall {
+        peer_host_id: peer,
+        request,
+        submit_state: "unknown".into(),
+        status: None,
+        result: None,
+        cancel_state: None,
+        attempts: 0,
+        next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
+        error: None,
+        status_queries: 0,
+        network_id: Some(network_id),
+        target: r.target,
+        adapter_id: None,
+    };
+    let out = blocking(store.clone(), move |s| s.prepare_call(out)).await?;
+    let status_only = crate::retry::receipt_only(&out, Utc::now());
+    submit(store, out, status_only).await
+}
+
+impl Address {
+    pub(crate) fn capability(&self) -> &str {
+        &self.capability
+    }
+}
+
+/// The citation for a resolved listing entry: its first `via` entry, or
+/// the first in `network` when given.
+pub(crate) async fn cite(
+    store: &Arc<Store>,
+    entry: &Value,
+    network: Option<&str>,
+) -> Result<(String, Option<PolicyCitation>, Option<SelfCitation>), Error> {
     let via: Vec<&Value> = entry["via"].as_array().into_iter().flatten().collect();
-    let chosen = match &r.network {
+    let chosen = match network {
         Some(network) => via
             .iter()
-            .find(|v| v["network_id"].as_str() == Some(network.as_str()))
+            .find(|v| v["network_id"].as_str() == Some(network))
             .ok_or_else(|| {
                 Error::Invalid(format!("nothing in network {network} authorizes this call"))
             })?,
@@ -1018,52 +1171,23 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
             ));
         }
     };
-    let at = Utc::now();
-    let deadline = match r.deadline.filter(|d| !d.is_empty()) {
-        Some(d) => d,
-        None => {
-            let mut end = at + MAX_DEADLINE;
-            if let Some(p) = &policy {
-                let (n, person) = (p.network_id.clone(), p.person_id.clone());
-                if let Some(until) =
-                    blocking(store.clone(), move |s| s.policy_end(&n, &person)).await?
-                {
-                    end = end.min(until);
-                }
-            }
-            rfc3339(end)
+    Ok((network_id, policy, self_access))
+}
+
+/// The default deadline: 15 minutes from now, capped by the cited
+/// policy's end.
+pub(crate) async fn default_deadline(
+    store: &Arc<Store>,
+    policy: Option<&PolicyCitation>,
+) -> Result<DateTime<Utc>, Error> {
+    let mut end = Utc::now() + MAX_DEADLINE;
+    if let Some(p) = policy {
+        let (n, person) = (p.network_id.clone(), p.person_id.clone());
+        if let Some(until) = blocking(store.clone(), move |s| s.policy_end(&n, &person)).await? {
+            end = end.min(until);
         }
-    };
-    let request = CallRequest {
-        call_id: match r.call_id {
-            Some(id) => id,
-            None => new_id("call")?,
-        },
-        capability: address.capability.clone(),
-        operation: r.operation,
-        input,
-        deadline,
-        origin: None,
-        policy,
-        self_access,
-    };
-    let out = OutboundCall {
-        peer_host_id: peer,
-        request,
-        submit_state: "unknown".into(),
-        status: None,
-        result: None,
-        cancel_state: None,
-        attempts: 0,
-        next_attempt_at: Some(rfc3339(Utc::now() + crate::retry::PREPARE_GUARD)),
-        error: None,
-        status_queries: 0,
-        network_id: Some(network_id),
-        target: r.target,
-    };
-    let out = blocking(store.clone(), move |s| s.prepare_call(out)).await?;
-    let status_only = crate::retry::receipt_only(&out, Utc::now());
-    submit(store, out, status_only).await
+    }
+    Ok(end)
 }
 
 /// Fetches the remote status, with the result once final.
@@ -1163,7 +1287,10 @@ pub(crate) async fn submit(
 }
 
 /// Sends a pending cancellation; an uncertain result is resent by polling.
-async fn send_cancel(store: &Arc<Store>, out: OutboundCall) -> Result<OutboundCall, Error> {
+pub(crate) async fn send_cancel(
+    store: &Arc<Store>,
+    out: OutboundCall,
+) -> Result<OutboundCall, Error> {
     let path = format!("/peer/v1/calls/{}/cancel", out.request.call_id);
     let response = peer_request(
         store,
@@ -1294,10 +1421,16 @@ async fn discover_route(
 
 /// A peer host ID and call ID.
 pub(crate) type CallKey = (String, String);
-/// Uncertain call submissions due now, and accepted calls to poll, for the
-/// task worker, which shares its 4 slots with them.
-pub(crate) fn jobs(store: &Store, now: DateTime<Utc>) -> (Vec<CallKey>, Vec<CallKey>) {
+/// Uncertain call submissions due now, and accepted calls to poll, each
+/// with whether an agent made it, for the task worker, which shares its 4
+/// slots with them.
+pub(crate) fn jobs(store: &Store, now: DateTime<Utc>) -> (Vec<CallKey>, Vec<(CallKey, bool)>) {
     let due = store.due_call_retries(now).unwrap_or_default();
-    let polls = store.pollable_calls().unwrap_or_default();
+    let polls = store
+        .pollable_calls()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(p, i, agent)| ((p, i), agent))
+        .collect();
     (due, polls)
 }

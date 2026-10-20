@@ -33,6 +33,12 @@ pub struct AdapterSetupRequest {
     /// 1 to 10,000, default 100; only with `directory`.
     #[serde(default, deserialize_with = "crate::policy::present")]
     pub max_sends_per_hour: Option<i64>,
+    /// Capability calls (capabilities slice 2), default false.
+    #[serde(default)]
+    pub calls: bool,
+    /// 1 to 10,000, default 100; only with `calls`.
+    #[serde(default, deserialize_with = "crate::policy::present")]
+    pub max_calls_per_hour: Option<i64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -105,6 +111,19 @@ impl Store {
                 ));
             }
         };
+        let calls = match (r.calls, r.max_calls_per_hour) {
+            (false, None) => None,
+            (false, Some(_)) => {
+                return Err(Error::Invalid("max_calls_per_hour requires calls".into()));
+            }
+            (true, None) => Some(crate::agent_calls::DEFAULT_CALLS_PER_HOUR),
+            (true, Some(n)) if (1..=10000).contains(&n) => Some(n),
+            (true, Some(_)) => {
+                return Err(Error::Invalid(
+                    "max_calls_per_hour must be 1 to 10000".into(),
+                ));
+            }
+        };
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let session = Self::attach_session_in(
@@ -122,6 +141,7 @@ impl Store {
                 expires_at: r.expires_at,
             },
             directory,
+            calls,
         )?;
         let mut routes = Vec::new();
         for route in r.routes {

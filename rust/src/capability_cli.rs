@@ -398,7 +398,7 @@ async fn trust_after_join(
     Ok(true)
 }
 
-fn ask(prompt: &str) -> anyhow::Result<bool> {
+pub(crate) fn ask(prompt: &str) -> anyhow::Result<bool> {
     eprint!("{prompt}");
     std::io::stderr().flush()?;
     let mut line = String::new();

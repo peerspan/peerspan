@@ -7590,7 +7590,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -7602,11 +7602,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 18;")
+            .execute_batch("PRAGMA user_version = 19;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

@@ -891,16 +891,33 @@ impl Store {
         for record in capability_records(&conn)? {
             let mut via = self_via.clone();
             for (net, person, policy, member, groups) in &policies {
-                let allowed = policy.capability_rules().iter().any(|rule| {
-                    rule.host == me
-                        && rule.capability == record.name
-                        && rule
-                            .principals
-                            .iter()
-                            .any(|p| principal_matches(p, member, groups, None))
-                });
-                if allowed {
-                    via.push(json!({"kind": "policy", "network_id": net, "person_id": person, "version": policy.version}));
+                // A rule matching the sender only through `agent:`
+                // principals for its host is listed once per such agent;
+                // any other matching principal lists it once for no agent.
+                let mut anyone = false;
+                let mut agents: Vec<&str> = Vec::new();
+                for rule in policy.capability_rules() {
+                    if rule.host != me || rule.capability != record.name {
+                        continue;
+                    }
+                    for p in &rule.principals {
+                        match crate::policy::agent_principal(p) {
+                            Some((host, agent)) if host == sender => {
+                                if !agents.contains(&agent) {
+                                    agents.push(agent);
+                                }
+                            }
+                            Some(_) => {}
+                            None => anyone |= principal_matches(p, member, groups, None),
+                        }
+                    }
+                }
+                let entry = |from: Option<&str>| json!({"kind": "policy", "network_id": net, "person_id": person, "version": policy.version, "from_agent": from});
+                if anyone {
+                    via.push(entry(None));
+                } else {
+                    agents.sort_unstable();
+                    via.extend(agents.into_iter().map(|a| entry(Some(a))));
                 }
             }
             if via.is_empty() {

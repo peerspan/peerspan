@@ -53,6 +53,13 @@ pub struct Adapter {
     /// without directory access.
     #[serde(default)]
     pub max_sends_per_hour: Option<i64>,
+    /// Capability calls (capabilities slice 2): the adapter may call
+    /// capabilities. Older records read as false.
+    #[serde(default)]
+    pub calls: bool,
+    /// The cap on capability calls in any 60 minutes; null without `calls`.
+    #[serde(default)]
+    pub max_calls_per_hour: Option<i64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -240,16 +247,18 @@ impl Store {
     pub fn create_adapter(&self, r: CreateAdapter) -> Result<AdapterCredential, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
-        let credential = self.create_adapter_in(&tx, r, None)?;
+        let credential = self.create_adapter_in(&tx, r, None, None)?;
         tx.commit()?;
         Ok(credential)
     }
-    /// `directory` is the rate cap of a credential with directory access.
+    /// `directory` is the rate cap of a credential with directory access,
+    /// and `calls` that of one that may call capabilities.
     pub(crate) fn create_adapter_in(
         &self,
         tx: &Transaction<'_>,
         r: CreateAdapter,
         directory: Option<i64>,
+        calls: Option<i64>,
     ) -> Result<AdapterCredential, Error> {
         let renewable = r.expires_at.is_none();
         let expires_at = r.expires_at.unwrap_or_else(renewed_expiry);
@@ -348,6 +357,8 @@ impl Store {
             renewable,
             directory: directory.is_some(),
             max_sends_per_hour: directory,
+            calls: calls.is_some(),
+            max_calls_per_hour: calls,
         };
         let mut random = [0u8; 32];
         getrandom::fill(&mut random)
@@ -767,6 +778,7 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::artifact::adapter_routes())
         .merge(crate::directory::adapter_routes())
         .merge(crate::live_delivery::adapter_routes())
+        .merge(crate::agent_calls::adapter_routes())
         .route("/adapter/v1/session", get(adapter_session))
         .route("/adapter/v1/next", post(next))
         .route("/adapter/v1/deliveries/{id}/forwarded", post(forwarded))

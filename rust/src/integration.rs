@@ -134,6 +134,8 @@ struct SetupOptions {
     options: Vec<String>,
     /// Directory access with this rate cap, for `attach`.
     max_sends_per_hour: Option<i64>,
+    /// Capability calls with this rate cap, for `attach`.
+    max_calls_per_hour: Option<i64>,
     /// The project an `attach` profile records.
     workspace: Option<String>,
 }
@@ -842,6 +844,10 @@ async fn prepare(o: SetupOptions) -> anyhow::Result<Profile> {
         p.request["directory"] = json!(true);
         p.request["max_sends_per_hour"] = json!(cap);
     }
+    if let Some(cap) = o.max_calls_per_hour {
+        p.request["calls"] = json!(true);
+        p.request["max_calls_per_hour"] = json!(cap);
+    }
     // Without an expiry the credential is renewable.
     if let Some(expiry) = &o.expiry {
         p.request["expires_at"] = json!(expiry);
@@ -1009,6 +1015,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
                     routes,
                     options,
                     max_sends_per_hour: None,
+                    max_calls_per_hour: None,
                     workspace: None,
                 })
                 .await?
@@ -1189,7 +1196,7 @@ fn workspace_profiles(state: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         .collect())
 }
 /// Introduces the pending work in the session start hook's context.
-const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools and answer each delivery with reply; call pending_work for the current list. ";
+const PENDING_HOOK_LEAD: &str = "Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task with the task_* tools, answer each delivery with reply, and check each call with call_status; call pending_work for the current list. ";
 
 /// `session pending`: the work the current directory's attached session
 /// still owes. Without an attachment it prints nothing, so a session start
@@ -1229,7 +1236,7 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
     if hook {
         // Claude Code reads a hook's JSON output as hook output, so the list
         // reaches the model only as additionalContext.
-        let empty = ["deliveries", "replies", "tasks"]
+        let empty = ["deliveries", "replies", "tasks", "calls"]
             .iter()
             .all(|k| value[k].as_array().is_none_or(|a| a.is_empty()));
         if !empty {
@@ -1286,6 +1293,16 @@ async fn pending(state: &Option<PathBuf>, json: bool, hook: bool) -> anyhow::Res
             text(&t["sender_host_id"]),
             marks(&[(t["adopted"] == true, "adopted")]),
             text(&t["preview"])
+        );
+    }
+    for c in value["calls"].as_array().into_iter().flatten() {
+        println!(
+            "call {} {} {} {}{}",
+            text(&c["call_id"]),
+            text(&c["state"]),
+            text(&c["address"]),
+            text(&c["operation"]),
+            marks(&[(c["redelivered"] == true, "redelivered")]),
         );
     }
     Ok(())
@@ -1457,6 +1474,9 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         expires_at,
         expires_in: _,
         max_sends_per_hour,
+        calls,
+        no_calls,
+        max_calls_per_hour,
         options,
         integrations,
         runner,
@@ -1465,6 +1485,20 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
     } = command
     else {
         bail!("not an attach command")
+    };
+    // The capability call flags are checked before anything changes.
+    if calls && no_calls {
+        bail!("--calls and --no-calls are mutually exclusive")
+    }
+    if no_calls && max_calls_per_hour.is_some() {
+        bail!("--max-calls-per-hour requires calls; omit --no-calls")
+    }
+    let max_calls_per_hour = match max_calls_per_hour {
+        None => None,
+        Some(text) => match text.parse::<i64>() {
+            Ok(n) if (1..=10000).contains(&n) => Some(n),
+            _ => bail!("--max-calls-per-hour must be a whole number from 1 to 10000"),
+        },
     };
     let integration = if harness == "claude" {
         "claude-code".to_owned()
@@ -1580,6 +1614,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                  p: &Profile,
                  profile: &Path,
                  reused: bool,
+                 adapter: &Value,
                  tools: Value| {
         let next = if p.harness.supports("launch") {
             "peerspan session start"
@@ -1595,6 +1630,8 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             "reused": reused,
             "unchecked_hosts": unchecked,
             "next": next,
+            "calls": adapter["calls"] == true,
+            "max_calls_per_hour": adapter["max_calls_per_hour"],
             "sources": tools,
         });
         let text = serde_json::to_string_pretty(&value).unwrap_or_default();
@@ -1652,12 +1689,33 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                     && adapter["revoked_at"].is_null()
                     && future(adapter["expires_at"].as_str().unwrap_or(""))
                 {
+                    // The stored call setting stands; a flag that differs
+                    // is refused before anything changes.
+                    let stored = adapter["calls"] == true;
+                    let stored_max = adapter["max_calls_per_hour"].as_i64();
+                    if (calls && !stored)
+                        || (no_calls && stored)
+                        || max_calls_per_hour.is_some_and(|n| stored_max != Some(n))
+                    {
+                        bail!(
+                            "this agent's credential, never connected, is reused with its stored setting calls: {stored}, max_calls_per_hour: {}; give matching flags or none",
+                            stored_max.map_or("null".to_owned(), |n| n.to_string())
+                        )
+                    }
                     let agent_name = directory
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     let tools = discovered(p.agent_id.clone()).await;
-                    print(&p.agent_id, &agent_name, p, directory, true, tools);
+                    print(
+                        &p.agent_id,
+                        &agent_name,
+                        p,
+                        directory,
+                        true,
+                        &adapter,
+                        tools,
+                    );
                     return launch(p, directory.clone()).await;
                 }
             }
@@ -1741,6 +1799,22 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             }
         }
     };
+    use std::io::IsTerminal;
+    // Capability calls: the flags decide, or else the prompt at a terminal;
+    // without a terminal the answer is no.
+    let call_cap = if calls {
+        Some(max_calls_per_hour.unwrap_or(peerspan_host::agent_calls::DEFAULT_CALLS_PER_HOUR))
+    } else if no_calls {
+        None
+    } else if std::io::stdin().is_terminal()
+        && crate::capability_cli::ask(
+            "Let this agent call capabilities shared with you, and yours on your other trusted machines? [y/N] ",
+        )?
+    {
+        Some(max_calls_per_hour.unwrap_or(peerspan_host::agent_calls::DEFAULT_CALLS_PER_HOUR))
+    } else {
+        None
+    };
     // A new setup replaces an old profile only once it succeeds.
     let directory = root.join(&agent_name);
     let aside = root.join(format!(".{agent_name}.old"));
@@ -1762,6 +1836,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         routes: None,
         options,
         max_sends_per_hour: Some(max_sends_per_hour),
+        max_calls_per_hour: call_cap,
         workspace: Some(workspace_text.clone()),
     })
     .await;
@@ -1770,8 +1845,23 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             if moved {
                 let _ = fs::remove_dir_all(&aside);
             }
+            let adapter = admin(
+                &state,
+                Method::GET,
+                format!("/v1/adapters/{}", p.adapter_id),
+                None,
+            )
+            .await?;
             let tools = discovered(agent_id.clone()).await;
-            print(&agent_id, &agent_name, &p, &directory, false, tools);
+            print(
+                &agent_id,
+                &agent_name,
+                &p,
+                &directory,
+                false,
+                &adapter,
+                tools,
+            );
             launch(&p, directory).await
         }
         Err(error) => {

@@ -199,6 +199,8 @@ pub(crate) fn return_items(tx: &Transaction<'_>, agent: &str) -> Result<(), Erro
             )?;
         }
     }
+    // Call updates handed off but unseen.
+    crate::agent_calls::return_calls(tx, agent, &mut ended, &at)?;
     // Tasks: queued and unseen, to redeliver, or running, to adopt.
     let rows = {
         let mut stmt = tx.prepare("SELECT d.record, d.redeliveries, d.seen_at IS NOT NULL, t.request, t.record FROM task_deliveries d JOIN sessions s ON s.id = d.session_id JOIN received_tasks t ON t.sender = d.sender AND t.task_id = d.task_id WHERE s.agent_id = ?1 AND d.returned_at IS NULL AND json_extract(t.record, '$.state') IN ('queued', 'running') ORDER BY d.rowid")?;
@@ -285,6 +287,7 @@ pub struct Pending {
     pub deliveries: Vec<PendingDelivery>,
     pub replies: Vec<PendingReply>,
     pub tasks: Vec<PendingTask>,
+    pub calls: Vec<crate::agent_calls::PendingCall>,
 }
 
 /// The items a session holds: by its session, and by its authorization
@@ -383,6 +386,7 @@ fn pending(conn: &Connection, session: &str, adapter: Option<&str>) -> Result<Pe
         deliveries,
         replies,
         tasks,
+        calls: crate::agent_calls::pending_calls(conn, session)?,
     })
 }
 
@@ -445,6 +449,12 @@ fn mark(
                 |r| r.get(0),
             )?
             };
+        return Ok((held, changed));
+    }
+    if id.starts_with("call_") {
+        let ss = crate::adapter::session(tx, session)?;
+        let held = crate::agent_calls::holds_call(tx, &ss, id)?;
+        let changed = crate::agent_calls::mark_call_seen(tx, session, id, at)?;
         return Ok((held, changed));
     }
     if id.starts_with("task_") {
@@ -513,7 +523,7 @@ pub(crate) fn mark_updates(
 }
 
 fn valid_item(id: &str) -> bool {
-    ["delivery", "request", "task"]
+    ["delivery", "request", "task", "call"]
         .iter()
         .any(|prefix| crate::peer_store::valid_id(id, prefix, 16))
 }
@@ -524,7 +534,7 @@ impl Store {
     pub fn mark_seen(&self, auth: &AdapterAuth, ids: &[String]) -> Result<Vec<String>, Error> {
         if ids.is_empty() || ids.len() > 100 || !ids.iter().all(|id| valid_item(id)) {
             return Err(Error::Invalid(
-                "ids must be 1 to 100 delivery, request, or task IDs".into(),
+                "ids must be 1 to 100 delivery, request, task, or call IDs".into(),
             ));
         }
         let mut conn = self.connection()?;

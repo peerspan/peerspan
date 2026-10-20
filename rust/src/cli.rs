@@ -168,6 +168,16 @@ pub enum Command {
         /// Cap on the session's sends and delegations by address per hour
         #[arg(long, value_name = "N", default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
         max_sends_per_hour: i64,
+        /// Let the agent call capabilities shared with you, and yours on your
+        /// other trusted machines, without asking
+        #[arg(long)]
+        calls: bool,
+        /// Do not let the agent call capabilities, without asking
+        #[arg(long)]
+        no_calls: bool,
+        /// Cap on the agent's capability calls per hour, 1 to 10000; default 100
+        #[arg(long, value_name = "N")]
+        max_calls_per_hour: Option<String>,
         #[arg(long = "option", value_name = "KEY=VALUE")]
         options: Vec<String>,
         #[arg(long, value_name = "DIR")]

@@ -1115,20 +1115,20 @@ mod tests {
     }
 
     #[test]
-    fn version_eleven_migrates_to_latest_and_eighteen_is_refused() {
+    fn version_eleven_migrates_to_latest_and_nineteen_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("host");
         drop(Store::open(&path).unwrap());
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
+            .execute_batch("DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
             .unwrap();
         let store = Store::open(&path).unwrap();
         let connection = store.connection().unwrap();
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",
@@ -1144,7 +1144,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 18;")
+            .execute_batch("PRAGMA user_version = 19;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }
