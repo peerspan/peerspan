@@ -52,7 +52,8 @@ import traceback
 from coordination import Coordinator, wait_for
 from host_service import UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need
-from live_delivery import Consumer, Fixture as ClaudeFixture, INTEGRATIONS, flag
+import live_delivery
+from live_delivery import Consumer, Fixture as ClaudeFixture, flag
 from peer_messaging import fixture_context, timestamp, wire
 from persons import Agent, person_id, ssh_key
 
@@ -102,6 +103,8 @@ NOTIFICATION_ID = re.compile(r'notification_[0-9a-f]{32}')
 INLINE = 65536
 NEW_TABLES = ('adapter_calls', 'call_update_notifications')
 VERSION = 18
+# The integrations directory whose shared adapter `attach --runner NODE` runs (capabilities.py --integrations).
+INTEGRATIONS = live_delivery.INTEGRATIONS
 
 
 def cid():
@@ -390,9 +393,10 @@ class AgentPairing:
              *[n for n in self.setup_notes if name in n])
         return s
 
-    def replace(self, name, terminal=None, flags=()):
+    def replace(self, name, terminal=None, flags=('--calls',)):
         """Close the session's consumer and attach the same workspace again: a new authorization of the same agent
-        (launch contract, Re-attaching), verified."""
+        (launch contract, Re-attaching), verified. A replacement does not carry the calls setting over, so --calls is
+        given again."""
         s = self.s(name)
         s['consumer'].close()
         code, out, text, seen = self.attach(s['host'], name, *flags, workspace=s['workspace'], terminal=terminal)
@@ -1024,13 +1028,14 @@ class AgentPairing:
         failed, value, _ = self.cc('pa', f"{ids['p4']}/dup", 'echo', {'text': marker('dup4')})
         need(not failed and value.get('state') == 'succeeded' and value.get('peer_host_id') == ids['p4'],
              'a candidate address resolves to its host (self citation)', value)
+        dup4 = value['call_id']
         before = self.count('q1', 'outbound_calls')
         failed, value, _ = self.cc('qa', 'pat/nothing', 'echo', {})
         need(failed, 'not_found is a tool error', value)
         self.refusal(value, 'not_found', 'not_found')
         need(isinstance(value.get('unanswered'), list), 'not_found gives unanswered', value)
         need(self.count('q1', 'outbound_calls') == before, 'not_found persists nothing')
-        record = self.inspect('p2', 'p4', self.find_outbound('p2', 'p4'))
+        record = self.inspect('p2', 'p4', dup4)
         need('self' in record['request'] and record['request']['self'] == {'person_id': self.pat,
                                                                         'network_id': self.team},
              'a self-authorized call cites self', record['request'])
@@ -1049,12 +1054,6 @@ class AgentPairing:
         need(not self.events_for('qa', view['call_id']), 'no call_update event for a call refused at its first '
              'attempt')
         return '; '.join(notes)
-
-    def find_outbound(self, host, peer):
-        rows = db_rows(self.hosts[host], 'SELECT call_id FROM outbound_calls WHERE peer = ? ORDER BY rowid DESC',
-                       (self.ids[peer],))
-        need(rows, 'an outbound call', host, peer)
-        return rows[0][0]
 
     # --- agent rules and repeats ---------------------------------------------------------------------------
 
@@ -1416,7 +1415,8 @@ class AgentPairing:
         failed, current = self.status('qend', call)
         need(not failed and check_view(current)['call_id'] == call and current['state'] in PENDING_STATES,
              'call_status from the new session answers for the earlier session\'s call', current)
-        need(mine[0]['created_at'] == current['created_at'] and mine[0]['deadline'] == current['deadline'],
+        need(caps.parse_time(mine[0]['created_at']) == caps.parse_time(current['created_at']) and
+             caps.parse_time(mine[0]['deadline']) == caps.parse_time(current['deadline']),
              'pending calls carry the view\'s created_at and deadline', mine[0], current)
         workspace = self.s('qend')['workspace']
         result = q1.run('session', 'pending', '--json', cwd=str(workspace))
@@ -1428,9 +1428,11 @@ class AgentPairing:
              result.stdout[-600:])
         params = self.wait_update('qend', call, timeout=90)
         meta, content = self.check_event('qend', params, 'a late call update')
-        need(meta_equal(meta['redelivered'], False) and content['state'] == 'succeeded' and
-             meta_equal(meta['session_id'], old['session_id']),
+        need(meta_equal(meta['redelivered'], False) and content['state'] == 'succeeded',
              'a call finishing after its session ended reaches the next verified session, redelivered false', meta)
+        # Q: meta.session_id of an update for an ended session's call: the session that made the call (as in pending
+        # work) or the one that holds the notification; not asserted.
+        notes.append(f"late update meta.session_id is the {'maker' if meta_equal(meta['session_id'], old['session_id']) else 'holder' if meta_equal(meta['session_id'], self.s('qend')['session_id']) else 'neither'}")
         failed, final = self.status('qend', call)
         need(not failed and final['state'] == 'succeeded', 'call_status answers with the result', final)
         need(not [x for x in self.pending('qend')['calls'] if x['call_id'] == call], 'then nothing is pending')
@@ -1438,7 +1440,7 @@ class AgentPairing:
 
     def replace_after_revoke(self, name):
         s = self.s(name)
-        code, out, text, _ = self.attach(s['host'], name, workspace=s['workspace'])
+        code, out, text, _ = self.attach(s['host'], name, '--calls', workspace=s['workspace'])
         need(code == 0 and out['agent']['id'] == s['agent_id'] and out['session_id'] != s['session_id'],
              'attach after revocation sets up a new session for the same agent', code, text[-400:])
         s.update({'session_id': out['session_id'], 'adapter_id': out['adapter_id'], 'profile': out['profile'],
@@ -1547,7 +1549,10 @@ class AgentPairing:
                 agent.stop()
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, label):
+def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None):
+    global INTEGRATIONS
+    if integrations:
+        INTEGRATIONS = Path(integrations)
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-') as temporary:
         pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary))
         started = time.monotonic()

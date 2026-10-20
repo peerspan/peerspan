@@ -149,6 +149,12 @@ MATCHER = 'clear|compact|resume'
 # `session pending --hook`: additionalContext is this lead followed by the object as compact JSON.
 HOOK_LEAD = ('Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each task '
              'with the task_* tools and answer each delivery with reply; call pending_work for the current list. ')
+# Database version 18 (capabilities contract, Agent tools: Pending work) adds `calls` to pending work and replaces
+# the hook's lead sentence; hosts at version 18 or later are held to that.
+CALLS_VERSION = 18
+HOOK_LEAD_CALLS = ('Peerspan work this session still owes, listed after /clear, compaction, or resume. Finish each '
+                   'task with the task_* tools, answer each delivery with reply, and check each call with call_status; '
+                   'call pending_work for the current list. ')
 DELIVERY_KEYS = {'delivery_id', 'request_id', 'sender_host_id', 'origin_agent_id', 'preview', 'seen', 'deadline',
                  'redelivered'}
 REPLY_KEYS = {'notification_id', 'request_id', 'peer_host_id', 'preview'}
@@ -443,7 +449,7 @@ def expected_settings(peerspan):
         {'type': 'command', 'command': f'{shell_quoted(peerspan)} session pending --hook'}]}]}}
 
 
-def hook_output(stdout, pending):
+def hook_output(stdout, pending, lead=None):
     """`session pending --hook` output for a nonempty pending object: the SessionStart hookSpecificOutput whose
     additionalContext is HOOK_LEAD followed by the object as compact JSON (compared parsed). Returns a failure
     description, or None."""
@@ -458,9 +464,10 @@ def hook_output(stdout, pending):
             and isinstance(value['hookSpecificOutput']['additionalContext'], str)):
         return 'not {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": TEXT}}'
     text = value['hookSpecificOutput']['additionalContext']
-    if not text.startswith(HOOK_LEAD):
+    lead = lead or (HOOK_LEAD_CALLS if 'calls' in pending else HOOK_LEAD)
+    if not text.startswith(lead):
         return 'additionalContext does not start with the lead sentence'
-    rest = text[len(HOOK_LEAD):]
+    rest = text[len(lead):]
     if '\n' in rest or rest != rest.strip():
         return 'the object after the lead is not compact JSON'
     try:
@@ -1286,7 +1293,8 @@ class Pairing:
     def pending(self, c):
         failed, value = c.tool('pending_work', {})
         need(not failed and isinstance(value, dict), 'pending_work returns an object', failed, value)
-        need(set(value) == {'deliveries', 'replies', 'tasks'}, 'pending_work returns {deliveries, replies, tasks}',
+        keys = {'deliveries', 'replies', 'tasks'} | ({'calls'} if user_version(self.a) >= CALLS_VERSION else set())
+        need(set(value) == keys, 'pending_work returns {deliveries, replies, tasks} (and calls from version 18)',
              value)
         for name, keys in (('deliveries', DELIVERY_KEYS), ('replies', REPLY_KEYS), ('tasks', TASK_KEYS)):
             need(isinstance(value[name], list), f'pending_work {name} is a list', value[name])
@@ -1795,7 +1803,10 @@ class Pairing:
         idle_ws = self.root / 'projects' / 'idle'
         idle = self.attach_profile(idle_ws, 'idle')
         status, listed = a.call('GET', f"/v1/sessions/{idle['session_id']}/pending")
-        need(status == 200 and listed == {'deliveries': [], 'replies': [], 'tasks': []},
+        empty = {'deliveries': [], 'replies': [], 'tasks': []}
+        if user_version(a) >= CALLS_VERSION:
+            empty['calls'] = []
+        need(status == 200 and listed == empty,
              'an idle attachment has no pending work', status, listed)
         result = a.run('session', 'pending', '--hook', cwd=str(idle_ws))
         need(result.returncode == 0 and result.stdout == '',

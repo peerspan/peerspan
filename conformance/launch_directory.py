@@ -122,6 +122,8 @@ ENDPOINT_PATHS = {'direct', 'relay', 'none', 'local'}
 # `sources: {servers, errors}` added by the capabilities contract (Local API details: "`attach` output").
 ATTACH_KEYS = {'agent', 'session_id', 'adapter_id', 'profile', 'workspace', 'reused', 'unchecked_hosts', 'next',
                'sources'}
+# `calls` and `max_calls_per_hour` added by the capabilities contract (Agent tools: Opt-in at attach), version 18.
+CALLS_KEYS = {'calls', 'max_calls_per_hour'}
 
 
 def sources_shaped(out):
@@ -1075,7 +1077,7 @@ class Pairing:
             return path
 
         def attached(out, name, host, workspace, rule):
-            need(set(out) == ATTACH_KEYS, 'attach prints {agent, session_id, adapter_id, profile, workspace, reused, '
+            need(set(out) - CALLS_KEYS == ATTACH_KEYS, 'attach prints {agent, session_id, adapter_id, profile, workspace, reused, '
                  'unchecked_hosts, next, sources}', out)
             need(sources_shaped(out), 'attach output sources: {servers, errors} (capabilities contract)', out)
             need(out['agent']['name'] == name, f'{rule}: agent name {name}', out['agent'])
@@ -1313,7 +1315,7 @@ class Pairing:
                  run.text())
             out = output_object(run.stderr.decode(errors='replace'))
             need(out is not None, 'Before launching, attach prints its output object on stderr', run.errors())
-            need(set(out) == ATTACH_KEYS, 'the object on stderr is attach\'s output object', out)
+            need(set(out) - CALLS_KEYS == ATTACH_KEYS, 'the object on stderr is attach\'s output object', out)
             need(out['agent']['name'] == name and out['agent']['address'] == f'ana/{name}'
                  and out['reused'] is reused and Path(out['workspace']).resolve() == workspace.resolve(),
                  f'{rule}: the output object names the agent and its address', out)
@@ -1384,7 +1386,7 @@ class Pairing:
         except json.JSONDecodeError:
             need(False, '--no-start stops after setup and prints the output object as before (stdout is the object '
                  'only)', result.stdout[-800:])
-        need(set(out) == ATTACH_KEYS and out['agent']['name'] == 'relaunched' and out['reused'] is False,
+        need(set(out) - CALLS_KEYS == ATTACH_KEYS and out['agent']['name'] == 'relaunched' and out['reused'] is False,
              '--no-start prints the output object as before', out)
         need(isinstance(out['next'], str) and 'peerspan session start' in out['next'],
              '--no-start: next names peerspan session start', out['next'])
@@ -1409,7 +1411,7 @@ class Pairing:
             need(False, 'connected is true only while the adapter holds a valid lease (15 seconds at most)',
                  connected(again['agent']['id']))
         renewed = self.attach(a1, 'claude', '--directory', str(w2))
-        need(set(renewed) == ATTACH_KEYS and renewed['reused'] is False
+        need(set(renewed) - CALLS_KEYS == ATTACH_KEYS and renewed['reused'] is False
              and renewed['agent']['id'] == again['agent']['id'] and renewed['adapter_id'] != again['adapter_id']
              and renewed['session_id'] != again['session_id'],
              'Re-attaching (offline after connecting): a new setup for the same agent', renewed, again)
@@ -1423,7 +1425,7 @@ class Pairing:
             plain = json.loads(result.stdout)
         except json.JSONDecodeError:
             need(False, 'For an integration without launch, attach prints its output as before', result.stdout)
-        need(set(plain) == ATTACH_KEYS and plain['agent']['name'] == default_name('no-launch', SHORT_HOST)
+        need(set(plain) - CALLS_KEYS == ATTACH_KEYS and plain['agent']['name'] == default_name('no-launch', SHORT_HOST)
              and plain['reused'] is False,
              'For an integration without launch, attach prints its output as before', plain)
         notes.append(f"launched {first['agent']['name']} and reused {again['agent']['name']}")

@@ -3646,6 +3646,8 @@ def main():
     parser.add_argument('--node', type=Path, help='Node 22 or newer, for the shared adapter in the agent tool cases '
                         '(slice 2, capability_agents.py); required unless --skip-agents')
     parser.add_argument('--skip-agents', action='store_true', help='skip the agent tool cases (slice 2)')
+    parser.add_argument('--integrations', type=Path, help='the integrations directory holding the shared adapter '
+                        '(default: this checkout\'s integrations/)')
     parser.add_argument('--agents-only', action='store_true', help='run only the agent tool cases (slice 2) and their '
                         'migration')
     parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1), whose '
@@ -3696,7 +3698,8 @@ def main():
             results += run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label)
         if not args.skip_agents:
             results += capability_agents.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
-                                                     args.node.resolve(), label)
+                                                     args.node.resolve(), label,
+                                                     args.integrations.resolve() if args.integrations else None)
         for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')
