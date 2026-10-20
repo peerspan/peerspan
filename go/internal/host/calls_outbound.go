@@ -478,19 +478,30 @@ type entryAddress struct {
 }
 
 // personAddressed decides, for each listed entry, the person it is
-// addressed under, by the host's binding in the entry's via networks, and
+// addressed under, by the host's binding to any person in the entry's via
+// networks, the first such network deciding; an entry whose binding is not
+// among wanted, the searched person's bindings, is not bound. It also decides
 // whether discover addresses it as PERSON/CAPABILITY. A capability is when
 // that person's policy for the entry's network binds the name to that
 // host, or when none of the person's policies binds the name and the
 // person has it on only one host. A source is when the person has that
 // agent and server on only one host.
-func (s *Store) personAddressed(ctx context.Context, hosts []personHost, listings map[string][]ListedCapability, network string) (map[string][]entryAddress, error) {
+func (s *Store) personAddressed(ctx context.Context, wanted []personHost, listings map[string][]ListedCapability, network string) (map[string][]entryAddress, error) {
+	// Whose an entry is depends on every person's bindings, not only the
+	// searched person's.
+	hosts, err := s.personHosts(ctx, "", network)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string][]entryAddress{}
 	count := map[string]int{}
-	for _, host := range uniqueHosts(hosts) {
+	for _, host := range uniqueHosts(wanted) {
 		list := make([]entryAddress, len(listings[host]))
 		for i, e := range listings[host] {
 			b, ok := entryBinding(hosts, host, e)
+			if ok && !slices.ContainsFunc(wanted, func(w personHost) bool { return w.host == b.host && w.network == b.network }) {
+				ok = false
+			}
 			list[i] = entryAddress{binding: b, bound: ok}
 			if ok {
 				count[b.person+"/"+e.Capability]++
