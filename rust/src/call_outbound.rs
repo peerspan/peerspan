@@ -608,8 +608,9 @@ struct EntryAddress<'a> {
 }
 
 /// For each listed entry, the person it is addressed under, by its host's
-/// binding in the entry's via networks (`None` when no via network binds
-/// the host to a person searched), and whether it is `PERSON/CAPABILITY`:
+/// binding to any person in the entry's via networks, the first such
+/// network deciding (`None` when there is none, or when that binding is
+/// not among `wanted`, the searched person's bindings), and whether it is `PERSON/CAPABILITY`:
 /// for a capability, when that person's policy for the entry's network
 /// binds the name to that host, or when none of the person's policies
 /// binds the name and the person has it on only one host; for a source,
@@ -617,6 +618,7 @@ struct EntryAddress<'a> {
 fn entry_addresses<'a>(
     found: &[(String, Vec<Value>)],
     hosts: &'a [PersonHost],
+    wanted: &[PersonHost],
     bindings: &Bindings,
 ) -> Vec<Vec<Option<EntryAddress<'a>>>> {
     let name = |e: &Value| e["capability"].as_str().unwrap_or_default().to_owned();
@@ -635,6 +637,12 @@ fn entry_addresses<'a>(
                 .iter()
                 .map(|e| {
                     let binding = entry_binding(hosts, host, e)?;
+                    if !wanted
+                        .iter()
+                        .any(|w| w.host == binding.host && w.network == binding.network)
+                    {
+                        return None;
+                    }
                     let name = name(e);
                     let only = count.get(&(binding.person.clone(), name.clone())) == Some(&1);
                     if e["kind"] == "source" {
@@ -680,9 +688,10 @@ fn entry_addresses<'a>(
 fn addressed(
     found: Vec<(String, Vec<Value>)>,
     hosts: &[PersonHost],
+    wanted: &[PersonHost],
     bindings: &Bindings,
 ) -> Vec<Value> {
-    let addresses = entry_addresses(&found, hosts, bindings);
+    let addresses = entry_addresses(&found, hosts, wanted, bindings);
     let mut out = Vec::new();
     for ((host, entries), addresses) in found.iter().zip(addresses) {
         for (e, a) in entries.iter().zip(addresses) {
@@ -802,6 +811,10 @@ async fn discover(
     })
     .await?;
     let hosts = unique_hosts(&persons);
+    // Whose an entry is depends on every person's bindings, not only the
+    // searched person's.
+    let n = network.clone();
+    let all = blocking(store.clone(), move |s| s.person_hosts(None, n.as_deref())).await?;
     let n = network.clone();
     let bindings = blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
     let mut found = Vec::new();
@@ -815,7 +828,7 @@ async fn discover(
     let agents = reachable_agents(&store, person.as_deref(), network.as_deref()).await?;
     Ok(json!({
         "agents": agents,
-        "capabilities": addressed(found, &persons, &bindings),
+        "capabilities": addressed(found, &all, &persons, &bindings),
         "unanswered": unanswered,
     }))
 }
@@ -865,9 +878,11 @@ async fn resolve(
         vec![true; found.len()]
     } else {
         let n = network.map(str::to_owned);
+        let all = blocking(store.clone(), move |s| s.person_hosts(None, n.as_deref())).await?;
+        let n = network.map(str::to_owned);
         let bindings =
             blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
-        let addresses = entry_addresses(&found, &persons, &bindings);
+        let addresses = entry_addresses(&found, &all, &persons, &bindings);
         for ((host, _), e) in found.iter().zip(&addresses) {
             if e[0].as_ref().is_some_and(|e| e.unsettled) {
                 unsettled.push(format!("{host}/{}", a.capability));
