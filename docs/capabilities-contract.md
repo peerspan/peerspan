@@ -590,14 +590,14 @@ The setting belongs to the adapter credential, as `directory` does.
   - `--calls` and `--no-calls` together, `--max-calls-per-hour` with `--no-calls`, or a value outside 1 to 10,000, are refused with exit 1 before anything changes. When the prompt is declined, `--max-calls-per-hour` is not used.
   - Setup sends `calls` and, when enabled, `max_calls_per_hour` (default 100).
   - Its output gains `calls` and `max_calls_per_hour`, as on the adapter record.
-  - **Re-attaching.** When `attach` reuses a never-connected credential (`reused: true`), the stored setting stands. A `--calls`, `--no-calls`, or `--max-calls-per-hour` that differs from it is refused with exit 1 before anything changes, naming the stored `calls` and `max_calls_per_hour`; a matching flag is accepted. When `attach` replaces the credential with a new setup, the old setting is not carried over: the flags or the prompt decide again, as for a first attach.
+  - **Re-attaching.** When `attach` reuses a never-connected credential (`reused: true`), the stored setting stands. A `--calls`, `--no-calls`, or `--max-calls-per-hour` that differs from it is refused with exit 1 before anything changes, naming the stored `calls` and `max_calls_per_hour`; a matching flag is accepted. When `attach` replaces the credential with a new setup, the old setting is not carried over: the flags or the prompt decide again, as for a first attach. Re-attaching with none of the three flags asks nothing and keeps the stored setting. Without a terminal and without `--calls`, the answer is no and `--max-calls-per-hour` is not used, as when the prompt is declined.
 
 ### Agent origin and agent principals
 
 - **Origin.** Every call an adapter makes carries `origin: {agent_id, session_id}`, the session's agent and session, as adapter sends do. Owner CLI calls carry none. The outbound record stores it in `request`, and the receiver stores it with the request, shown by `calls received`.
 - **Agent principals.** A capability rule may name `agent:HOST_ID/AGENT_ID`, as policy rules may (`share NAME --with agent:HOST_ID/AGENT_ID`, and `unshare` likewise). It matches only calls from that authenticated host whose `origin.agent_id` is that agent. Other principals match as before, whatever the origin.
 - **Listing.** In `GET /peer/v1/capabilities`, each `via` entry of kind `policy` gains `from_agent`. A rule whose only matching principals are `agent:` principals for the caller host appears once per such agent, with `from_agent` set to that agent ID; a rule with any other matching principal appears once, with `from_agent` null. Self entries have no `from_agent`. Within one network, the entry with `from_agent` null comes first, then by agent ID. A capability is listed when at least one entry applies. An entry from a host that predates this slice has no `from_agent` and reads as null.
-- **Owner views are unchanged.** `GET /v1/discover` and `call` ignore `via` entries whose `from_agent` is not null, and omit capabilities left with none, so the owner CLI never cites a rule it cannot use without an origin. There is no `call --from-agent`: an owner tests an agent-only share from that agent.
+- **Owner views are unchanged.** `GET /v1/discover` and `call` ignore `via` entries whose `from_agent` is not null (the remaining policy entries keep `from_agent: null` in `discover` JSON), and omit capabilities left with none, so the owner CLI never cites a rule it cannot use without an origin. There is no `call --from-agent`: an owner tests an agent-only share from that agent.
 - **Naming the agent.** `share` and `unshare` take an agent only as `agent:HOST_ID/AGENT_ID` in this slice.
 - **Budget.** Agent calls count against `max_calls_per_hour` of the receiver's rule exactly as owner calls do: per rule identity and caller, where the caller is the sender's bound person, or else its host ID.
 
@@ -609,7 +609,7 @@ All of them require the adapter's credential and lease, as `/adapter/v1/next` do
 | --- | --- |
 | `GET /adapter/v1/capabilities` | `{capabilities: [ENTRY], unanswered: [{host_id, error}]}`. It queries hosts as `GET /v1/discover` does, in every network of this host, and keeps the entries of kind `capability` that have a `via` entry of kind `self`, or of kind `policy` with `from_agent` null or this session's agent. `ENTRY` is `{address, host_id, capability, operations, resources, state, unavailable}`, with `address` and the other fields as in `discover`. Sorted by address, then host ID. Sources never appear. |
 | `POST /adapter/v1/calls` | Exactly `{call_id, address, operation, input}`. Persists and submits one call (below), and returns 200 with the call view. |
-| `GET /adapter/v1/calls/{call_id}?offset=N` | The call view from byte `offset` of the result (default 0). Answers for calls made through any credential of this session's agent on this host; any other call ID is 404. An `offset` greater than `result_bytes`, or inside a UTF-8 character of the result text, is 400. |
+| `GET /adapter/v1/calls/{call_id}?offset=N` | The call view from byte `offset` of the result (default 0). Answers for calls made through any credential of this session's agent on this host; any other call ID is 404. An `offset` greater than `result_bytes`, or inside a UTF-8 character of the result text, is 400; before there is a result, any `offset` other than 0 is 400. |
 | `POST /adapter/v1/calls/{call_id}/cancel` with `{}` | As `calls cancel`: sends cancellation, resent while uncertain. Returns the call view. Same scope and 404 as the `GET`. |
 | `POST /adapter/v1/call-updates/next` with `{}` | Claims the oldest unseen call-update notification this session may claim, and returns `{delivery, call, redelivered}`, where `delivery` is the notification record and `call` the call view at offset 0; or `null`. Before the channel is verified, it answers 409 `{code: "conflict", error: "channel not verified"}`, as the other work routes do. |
 | `POST /adapter/v1/call-updates/{id}/forwarded` with `{}` | Marks the notification `forwarded`. Idempotent; 404 for another credential. |
@@ -618,20 +618,20 @@ All of them require the adapter's credential and lease, as `/adapter/v1/next` do
 1. **Shape.** `call_id` is `call_` and 32 lowercase hex digits, `address` a string of at most 256 bytes, `operation` a string of 1 to 128 bytes, and `input` a JSON object; otherwise 400.
 2. **Repeat.** A `call_id` this agent already used returns the existing call view when `address`, `operation`, and `input` are identical, and 409 `{code: "conflict"}` when they differ. Neither counts against the rate limit.
 3. **Rate limit.** A call that would make more than `max_calls_per_hour` calls persisted through this credential in the preceding 60 minutes returns 429 `{code: "rate_limited", error, retry_after}`, where `retry_after` is a whole number of seconds, at least 1, until the oldest counted call leaves the window. It persists nothing.
-4. **Address.** An address with two `/` names a source, and returns 400 `{code: "source", error}`. Otherwise it resolves as `call` does, over the entries `GET /adapter/v1/capabilities` would list: 409 `{code: "ambiguous", error, candidates}` and 404 `{code: "not_found", error, unanswered}` as for `call`.
+4. **Address.** An address with two `/` names a source, and returns 400 `{code: "source", error}`. Otherwise it resolves as `call` does, over the entries `GET /adapter/v1/capabilities` would list: 409 `{code: "ambiguous", error, candidates}` and 404 `{code: "not_found", error, unanswered}` as for `call`. The operation is not checked against the entry's `operations`: the receiver refuses one it does not serve, and the call becomes `rejected`.
 5. **Citation.** The first `via` entry of the resolved entry that applies to this agent: self, then policy entries in listed order.
 6. **Deadline.** 15 minutes, capped by the cited policy's `valid_until` and the credential's `expires_at`.
 7. **Persist.** In one transaction: the outbound record, with `origin` and `adapter_id`; the `adapter_calls` row, which is what the rate limit counts; and the `call.submitted` activity. If steps 4 to 7 cannot finish within 20 seconds of receipt, the route returns 503 `{code: "timeout", error}` and persists nothing.
 8. **Submit.** It submits as `call` does, with retries as for tasks, and returns once the first attempt ends or 25 seconds after receipt, whichever comes first. Later attempts continue in the background.
-9. **Fast status checks.** For the first 60 seconds after the call is accepted by its receiver, the daemon polls `GET /peer/v1/calls/{id}` every second instead of backing off, so a result is seen while `call_capability` can still be waiting. After that it backs off from 1 to 60 seconds as for owner calls.
+9. **Fast status checks.** For the first 60 seconds after the call is accepted by its receiver, the daemon polls `GET /peer/v1/calls/{id}` every second instead of backing off, so a result is seen while `call_capability` can still be waiting. After that it backs off from 1 to 60 seconds as for owner calls. The window is kept in memory: after a daemon restart, a call still in it is polled with the usual backoff.
 
 **The outbound record** gains `adapter_id`, the credential that made the call, or null for owner calls. `calls list` and `calls inspect` show agent calls with the owner's.
 
 **The call view** is `{call_id, address, peer_host_id, operation, submit_state, state, error, created_at, deadline, result, result_part, truncated, result_bytes, offset, next_offset, note}`:
-- `address` is the address as given, and `peer_host_id` the resolved host.
+- `address` is the address as given, and `peer_host_id` the resolved host. `created_at` is when the call was persisted (step 7 of Submitting).
 - `submit_state` is from the outbound record. `state` is `submitting` while it is `unknown`, `rejected` when the submission was refused, and otherwise the status record's `state`.
 - `error` is the status record's `error`, or the refusal's error text for a refused submission, or null.
-- **The result text** is the compact JSON encoding of the outbound record's stored `result`, as this daemon encodes it. `result_bytes` is its length in bytes, or null before there is a result.
+- **The result text** is the outbound record's stored `result` encoded the same way by every implementation: no whitespace outside strings; object keys sorted by their UTF-8 bytes; numbers exactly as the receiver sent them; strings as raw UTF-8, escaping only `"` and `\` as `\"` and `\\`, U+0008, U+0009, U+000A, U+000C, and U+000D as `\b`, `\t`, `\n`, `\f`, and `\r`, and the other characters below U+0020 as `\u00` and two lowercase hex digits. So the same result has the same `result_bytes` and part boundaries in Go and Rust. `result_bytes` is its length in bytes, or null before there is a result.
 - **Inline or in parts.** When the result text is at most 65,536 bytes and `offset` is 0, `result` is the result object, `result_part` is null, and `truncated` is false. Otherwise `result` is null, `truncated` is true, and `result_part` is the longest piece of the result text that starts at `offset`, is at most 65,536 bytes, and ends on a UTF-8 character boundary. `next_offset` is the offset after it, or null when the piece reaches the end. Concatenating the parts from 0 gives the result text. Before there is a result, `result` and `result_part` are null, `truncated` is false, and `next_offset` is null.
 - **`note`** is one of these exact texts:
   - while `state` is `submitting`, `queued`, or `running`: `The call has not finished. Its result arrives as a kind=call_update event; call_status reports it at any time.`
@@ -654,7 +654,7 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 | `call_cancel` | `{call_id}` | `POST /adapter/v1/calls/{call_id}/cancel`. Returns the call view. |
 
 **Input schemas.**
-- `address`: string, pattern `^[^/]{1,191}/[a-z0-9][a-z0-9_-]{0,62}$`, at most 256 characters: `PERSON/CAPABILITY` or `HOST_ID/CAPABILITY` from `list_capabilities`.
+- `address`: string, pattern `^[^/]+/[^/]+(/[^/]+)?$`, at most 256 characters: `PERSON/CAPABILITY` or `HOST_ID/CAPABILITY` from `list_capabilities`. A source address, with a second `/`, passes the schema so that the daemon's `source` refusal and its text reach the agent.
 - `operation`: string, 1 to 128 characters.
 - `input`: object, default `{}`.
 - `wait`: integer, 0 to 60, default 30.
@@ -663,7 +663,7 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 - Each schema has `additionalProperties: false`. Invalid arguments return a tool error naming the tool, and call nothing.
 
 **Results.** Each tool returns its object as JSON text. A call view is never a tool error, whatever its state. A tool error (`isError: true`) is returned for invalid arguments and for refusals:
-- **Refusals that persisted nothing** (`no_calls`, `rate_limited`, `source`, `ambiguous`, `not_found`, `timeout`, `conflict`, and any other 4xx from `POST /adapter/v1/calls`) return `{call_id, address, code, error, recovery}`, plus `retry_after`, `candidates`, or `unanswered` when the daemon gave them. `recovery` is `Nothing was called or recorded.` `error` is the daemon's text, except for these codes, which use exactly:
+- **Refusals that persisted nothing** (`no_calls`, `rate_limited`, `source`, `ambiguous`, `not_found`, `timeout`, `conflict`, and any other 4xx from `POST /adapter/v1/calls`) return `{call_id, address, code, error, recovery}`, plus `retry_after`, `candidates`, or `unanswered` when the daemon gave them. `recovery` is `Nothing was called or recorded.` `error` is the daemon's text, except for these codes, which use exactly: `code` is null when the daemon's refusal has none. `list_capabilities`, `call_status`, and `call_cancel` refused with 403 `no_calls` return the same shape, without `address` for any of them and without `call_id` for `list_capabilities`.
   - `no_calls`: `This session may not call capabilities. The person enables it with peerspan attach --calls.`
   - `rate_limited`: `This session reached its hourly limit of capability calls.`
   - `source`: `Sources can be called only from the peerspan CLI.`
@@ -680,15 +680,15 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 
 When a call made through an adapter becomes final (its outbound status becomes final with its result, or its submission is refused), the daemon creates, in the same transaction, a **call-update notification** `{id, peer_host_id, call_id, adapter_id, session_id, state, created_at, updated_at}`, with an ID of `notification_` and 32 hex digits, and `state` `unknown` or `forwarded`, following the task-update notification rules. It is bound to the session that made the call.
 
-- **Seen.** A notification is seen, under the [Seen](live-delivery-contract.md#seen) rules of live delivery, when the session that holds it gets a call view in a final state for that call through `POST /adapter/v1/calls` (including a repeat) or `GET /adapter/v1/calls/{call_id}` (so `call_capability` and `call_status` both count), or calls `mark_seen` with the call ID. `mark_seen` accepts call IDs, `call_` and 32 hex digits, beside delivery, request, and task IDs. A notification already seen is never claimed.
+- **Seen.** A notification is seen, under the [Seen](live-delivery-contract.md#seen) rules of live delivery, when the session that holds it gets a call view in a final state for that call through `POST /adapter/v1/calls` (including a repeat) or `GET /adapter/v1/calls/{call_id}` (so `call_capability` and `call_status` both count), or calls `mark_seen` with the call ID. `mark_seen` accepts call IDs, `call_` and 32 hex digits, beside delivery, request, and task IDs. A notification already seen is never claimed. Only the session that holds the notification marks it seen this way. A late notification that no session holds yet is bound to a verified session of its agent that gets a final call view for its call, and is seen at once, so it is never claimed afterwards.
 - **No event for a call already answered.** When `call-updates/next` returns a notification for a call that a `call_capability` of this adapter is still waiting on, the adapter does not emit it yet. It ends that wait at once: the waiting tool makes one more `GET /adapter/v1/calls/{call_id}`, which marks the notification seen, and returns that view. Only then does the adapter acknowledge the notification through `forwarded`. If that `GET` fails, the tool returns its last view and the adapter emits the event as below.
-- **The event.** Otherwise the adapter emits a channel event with `meta.kind` `call_update`, and `meta` `{call_id, notification_id, address, operation, state, error, result_bytes, truncated, session_id, redelivered}`, then acknowledges it through `forwarded`. Its content is the call view at offset 0, as JSON text, so the result or its first part and the `note` come with it.
+- **The event.** Otherwise the adapter emits a channel event with `meta.kind` `call_update`, and `meta` `{call_id, notification_id, address, operation, state, error, result_bytes, truncated, session_id, redelivered}`, then acknowledges it through `forwarded`. Its content is the call view at offset 0, as JSON text, so the result or its first part and the `note` come with it. `meta.session_id` is the session that holds the notification, which may differ from the session that made the call. A channel that cannot carry null meta values, as the Claude Code channel cannot, omits those keys, and a missing key reads as null.
 - **Redelivery and late arrivals** follow live delivery slice 2, as for task updates: a notification forwarded but unseen when its authorization ends returns to the agent's queue and is claimed again by the agent's next verified session with `redelivered` true, at most 3 times. One created after its session's authorization ended goes to the agent's next verified session with `redelivered` false.
 
 ### Pending work
 
 `pending_work`, `GET /adapter/v1/pending`, and `GET /v1/sessions/{id}/pending` gain `calls`, ordered oldest first by `created_at`:
-- calls made by this session, or by an ended session of the same agent on this host, that are not final;
+- calls made by this session, or by an ended session of the same agent on this host, that are not final. A session has ended when its authorization has: detached, revoked, replaced, or expired;
 - calls whose call-update notification this session holds and has not seen.
 
 Each is `{call_id, address, operation, state, error, result_bytes, created_at, deadline, session_id, redelivered}`, with `state` as in the call view, `session_id` the session that made the call, and `redelivered` from the notification, false when there is none. As with task adoption, a new session of the agent so sees the unfinished calls its earlier sessions started, and can follow them with `call_status` and `call_cancel`.
@@ -741,6 +741,8 @@ PRAGMA user_version = 18;
   - no `call_update` event for a call `call_capability` already returned final;
   - `wait` 0 and 60, and 61 refused;
   - a source address refused with `source`;
+  - the same source address through `call_capability` returning the `source` text;
+  - an operation the capability does not list submitted and `rejected` by the receiver;
   - `ambiguous` with candidates, and `not_found`;
   - a call refused at its first attempt (the receiver's 429 `limit`) returned final by `call_capability` with no `call_update` event;
   - a call whose update is claimed while `call_capability` waits returning the final view, with no `call_update` event and the notification seen;
@@ -758,12 +760,15 @@ PRAGMA user_version = 18;
   - a result of exactly 65,536 bytes inline, and one byte more in parts;
   - paging with `offset` until `next_offset` is null, the parts concatenating to the result text, a multi-byte character at a part boundary, and a bad `offset` refused;
   - `result_too_large` as `failed`.
+  - a result with unsorted keys, escapes, control characters, and non-ASCII text giving the same `result_bytes` and parts from Go and Rust daemons;
+  - a non-zero `offset` before there is a result refused with 400.
 - **Call updates and pending work:**
   - `mark_seen` and `call_status` marking a notification seen;
   - `call-updates/next` answering 409 before verification;
   - redelivery to the next attachment after replacement, with `redelivered`, and at most 3 times;
   - a call finishing after its session ended reaching the next verified session;
   - `call_status` from that session answering for the earlier session's call;
+  - a late notification no session holds marked seen by the next session's `call_status`, and never claimed afterwards;
   - `calls` in `pending_work`, `session pending --json`, and the `--hook` text, including an unfinished call made by the agent's ended session, with its `session_id`.
 - **Revocation:** after `unshare`, `call_capability` refused with the `not_found` text; a running call finishing.
 - **Migration:** from version 17 to version 18, with existing credentials reading `calls` false.
