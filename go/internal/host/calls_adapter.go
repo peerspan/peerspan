@@ -454,6 +454,11 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 	if err = appendEvent(ctx, tx, "call.submitted", callSubject(peer, request.CallID), timestamp(now)); err != nil {
 		return CallView{}, err
 	}
+	// Steps 4 to 7 finish within 20 seconds of receipt or persist nothing:
+	// a deadline passed while writing rolls the transaction back.
+	if time.Since(received) > adapterCallResolve {
+		return CallView{}, errCallTimeout
+	}
 	if err = tx.Commit(); err != nil {
 		return CallView{}, err
 	}
