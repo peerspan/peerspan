@@ -128,9 +128,10 @@ def control():
 
 
 def send(message):
-    data = json.dumps(message, separators=(',', ':')) + '\n'
+    # Raw UTF-8, as MCP servers commonly send it (not \u escapes), whatever the locale.
+    data = (json.dumps(message, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8')
     with WRITE:
-        sys.stdout.write(data)
+        sys.stdout.buffer.write(data)
         sys.stdout.flush()
 
 

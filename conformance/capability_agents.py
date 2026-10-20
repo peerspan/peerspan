@@ -205,8 +205,9 @@ class Raw:
 
 
 class AgentPairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root):
+    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None):
         self.label, self.cli_binary, self.daemon, self.node, self.root = label, cli_binary, daemon_binary, node, root
+        self.only = only
         self.coord = Coordinator(coord_binary, root / 'coord')
         self.results, self.notes, self.setup_notes = [], [], []
         self.hosts, self.ids, self.keys, self.agents = {}, {}, {}, {}
@@ -223,6 +224,8 @@ class AgentPairing:
         return h
 
     def section(self, name, function):
+        if self.only and name not in self.only:
+            return None
         started = time.monotonic()
         try:
             notes = function() or ''
@@ -259,7 +262,8 @@ class AgentPairing:
                                     '--expires-in', '1h')['token']
 
     def policy(self, host='p1', net=None, person=None):
-        status, body = self.hosts[host].call('GET', f'/v1/networks/{net or self.team}/policy?person={person or self.pat}')
+        path = f'/v1/networks/{net or self.team}/policy?person={person or self.pat}'
+        status, body = self.hosts[host].call('GET', path)
         return policy_of(body) if status == 200 else None
 
     def version(self, host='p1', net=None, person=None):
@@ -479,8 +483,8 @@ class AgentPairing:
         """meta {call_id, notification_id, address, operation, state, error, result_bytes, truncated, session_id,
         redelivered}; content the call view at offset 0 as JSON text."""
         meta = {k: v for k, v in (params.get('meta') or {}).items() if k != 'kind'}
-        need(set(meta) == META_KEYS, f'{view_rule}: meta has exactly the contract\'s keys (besides kind)',
-             sorted(set(meta) ^ META_KEYS))
+        need(set(meta) <= META_KEYS, f'{view_rule}: meta has only the contract\'s keys (besides kind)',
+             sorted(set(meta) - META_KEYS))
         need(NOTIFICATION_ID.fullmatch(str(meta['notification_id'])), f'{view_rule}: notification_id is '
              'notification_ and 32 hex digits', meta)
         try:
@@ -489,9 +493,13 @@ class AgentPairing:
             raise Failure(f'{view_rule}: content is the call view as JSON text: {str(params.get("content"))[:300]}')
         check_view(view, view_rule)
         need(view['offset'] == 0, f'{view_rule}: the view at offset 0', view)
+        # The Claude channel omits null meta fields (agent adapter contract: meta values are strings).
+        absent = META_KEYS - set(meta)
+        need(not absent - {'error', 'result_bytes'} and all(view[k] is None for k in absent),
+             f'{view_rule}: meta has every field, null ones omitted', sorted(absent))
         for key in ('call_id', 'address', 'operation', 'state', 'error', 'result_bytes', 'truncated'):
-            need(meta_equal(meta[key], view[key]), f'{view_rule}: meta {key} matches the call view', meta[key],
-                 view[key])
+            need(meta_equal(meta.get(key), view[key]), f'{view_rule}: meta {key} matches the call view',
+                 meta.get(key), view[key])
         return meta, view
 
     def pending(self, name):
@@ -523,6 +531,14 @@ class AgentPairing:
         status, value = self.hosts[host].call('POST', '/v1/adapters/setup', body)
         need(status == 201, 'POST /v1/adapters/setup', body, status, value)
         return Raw(self.hosts[host], value['credential']), value
+
+    def qraw_session(self):
+        """A raw adapter session of quinn's agent `qraw` on q1, with calls, verified."""
+        if getattr(self, 'qraw', None) is None:
+            agent = self.register('q1', 'qraw', 'quinn')
+            self.qraw, _ = self.raw_setup('q1', agent['id'])
+            self.qraw.ready()
+        return self.qraw
 
     def received(self, host, call_id):
         after = 0
@@ -579,7 +595,8 @@ class AgentPairing:
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         ids, h = self.ids, self.hosts
 
-        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted', *self.coordinator_flags())['id']
+        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
+                                *self.coordinator_flags())['id']
         for name, label, flags in (('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)),
                                    ('p4', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--untrusted',)),
                                    ('s1', 'ops/sam', ('--trusted',)), ('s2', 'ops/sam', ('--trusted',))):
@@ -925,8 +942,9 @@ class AgentPairing:
         need(n and n[0], 'its call-update notification is seen', n)
         notes.append(f"first call's notification {n[2].get('state') if isinstance(n[2], dict) else n[2]}")
         if isinstance(n[2], dict):
-            need(set(n[2]) == NOTIFICATION_KEYS, 'the notification record is {id, peer_host_id, call_id, adapter_id, '
-                 'session_id, state, created_at, updated_at}', n[2])
+            # The stored record may hold more; the route's `delivery` object is checked exactly (queued window).
+            need(NOTIFICATION_KEYS <= set(n[2]), 'the stored notification record has the notification\'s fields',
+                 n[2])
             # Q: the claim-while-waiting path (forwarded) and the GET-first path (unknown) are not distinguishable by
             # the caller; both are allowed here, and which ran is noted.
 
@@ -1094,10 +1112,7 @@ class AgentPairing:
                      'agent:HOST/AGENT matches no other origin, and no call without one', origin, status, record)
 
         # Repeats through the route.
-        agent = self.register('q1', 'qraw', 'quinn')
-        raw, value = self.raw_setup('q1', agent['id'])
-        raw.ready()
-        self.qraw = raw
+        raw = self.qraw_session()
         text = marker('rep')
         body = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'echo', 'input': {'text': text}}
         status, first = raw.call('POST', '/adapter/v1/calls', body)
@@ -1136,12 +1151,17 @@ class AgentPairing:
         exp_agent = self.register('q1', 'qexp', 'quinn')
         expiring, _ = self.raw_setup('q1', exp_agent['id'], expires_in=45)
         expiring.ready()
-        # A rejection at submission (the receiver's 404: an operation outside the capability).
-        text = marker('sub404')
-        view, _ = self.ok_call('qa', 'pat/tools', 'purge', {'text': text})
+        # A rejection at submission: the receiver's 413 for an input over the rule's max_input_bytes (65,536).
+        text = marker('sub413')
+        view, _ = self.ok_call('qa', 'pat/tools', 'echo', {'text': text + 'x' * 70000})
         need(view['state'] == 'rejected' and view['submit_state'] == 'rejected' and view['note'] == NEVER_RAN_NOTE and
-             isinstance(view['error'], str) and view['error'], 'rejected at submission, with the never-ran note',
-             view)
+             isinstance(view['error'], str) and view['error'], 'rejected at submission (the receiver\'s 413), with '
+             'the never-ran note', view)
+        # Q: the submission steps do not check the operation against the listing, so an operation outside the
+        # capability would be persisted and refused by the receiver (404); an implementation may refuse it first.
+        failed, value, _ = self.cc('qa', 'pat/tools', 'purge', {'text': marker('sub404')})
+        self.soft(not failed and value.get('state') == 'rejected', 'an operation outside the capability is '
+                  'submitted and rejected by the receiver (the submission steps have no operation check)', value)
 
         started = self.fill_slots(60)
         texts = {k: marker(k) for k in ('cq', 'rc', 'ex')}
@@ -1174,12 +1194,37 @@ class AgentPairing:
         later, _ = self.raw_setup('q1', exp_agent['id'])
         later.ready()
 
-        def expired():
-            status, v = later.call('GET', f"/adapter/v1/calls/{body['call_id']}")
-            return v if status == 200 and v.get('state') in FINAL else None
-        view = check_view(wait_for(expired, timeout=60, message='the expiring call final'), 'GET /adapter/v1/calls')
-        need(view['state'] == 'expired' and view['note'] == NEVER_RAN_NOTE,
-             'expired, with the never-ran note; GET answers for calls made through any credential of the agent', view)
+        # The call's notification is created after its session's authorization ended (the credential expired), so
+        # it goes to the agent's next verified session, redelivered false. It is claimed before any GET, so that no
+        # call view marks it seen first (Q: which session holds a late notification before its claim is not said).
+        def claim():
+            status, value = later.call('POST', '/adapter/v1/call-updates/next', {})
+            need(status == 200, 'call-updates/next answers 200 for a verified session', status, value)
+            return value
+        claimed = wait_for(claim, timeout=60, message='the late call update claimed by the next session')
+        need(isinstance(claimed, dict) and set(claimed) == {'delivery', 'call', 'redelivered'},
+             'call-updates/next returns {delivery, call, redelivered}', claimed)
+        delivery = claimed['delivery']
+        need(isinstance(delivery, dict) and set(delivery) == NOTIFICATION_KEYS and
+             NOTIFICATION_ID.fullmatch(delivery['id']) and delivery['call_id'] == body['call_id'] and
+             delivery['peer_host_id'] == self.ids['p1'] and delivery['state'] == 'unknown',
+             'the notification record {id, peer_host_id, call_id, adapter_id, session_id, state, created_at, '
+             'updated_at}, claimed while unknown', delivery)
+        view = check_view(claimed['call'], 'call-updates/next')
+        need(claimed['redelivered'] is False and view['offset'] == 0 and view['state'] == 'expired' and
+             view['note'] == NEVER_RAN_NOTE, 'a late arrival: redelivered false; the call view at offset 0, expired '
+             'with the never-ran note', claimed)
+        status, view = later.call('GET', f"/adapter/v1/calls/{body['call_id']}")
+        need(status == 200 and check_view(view)['state'] == 'expired',
+             'GET answers for calls made through any credential of the agent', status, view)
+        status, value = later.call('POST', f"/adapter/v1/call-updates/{delivery['id']}/forwarded", {})
+        need(status == 200, 'POST /adapter/v1/call-updates/{id}/forwarded', status, value)
+        status, again = later.call('POST', f"/adapter/v1/call-updates/{delivery['id']}/forwarded", {})
+        need(status == 200, 'forwarded is idempotent', status, again)
+        status, value = self.qraw_session().call('POST', f"/adapter/v1/call-updates/{delivery['id']}/forwarded", {})
+        need(status == 404, 'forwarded answers 404 for another credential', status, value)
+        n = self.notification('q1', body['call_id'])
+        need(n and isinstance(n[2], dict) and n[2].get('state') == 'forwarded', 'the notification is forwarded', n)
         for key, text in texts.items():
             need(not f.calls('fx', marker=text), 'a call that never ran is never executed', key)
         self.share('p1', 'recheck', 'quinn')
@@ -1293,7 +1338,9 @@ class AgentPairing:
             if (data[INLINE] & 0xC0) == 0x80:
                 inside, inside_pad = view, pad
                 break
-        need(inside is not None, 'setup: a result with a multi-byte character across byte 65,536')
+        need(inside is not None, 'a multi-byte character can reach a part boundary: the result text keeps é as '
+             'UTF-8 (it is not ASCII-escaped)', 'result text is ASCII' if data.isascii() else 'not ASCII',
+             data[INLINE - 8:INLINE + 8])
         need(len(inside['result_part'].encode()) == INLINE - 1 and inside['next_offset'] == INLINE - 1,
              'a part ends on a UTF-8 character boundary, the longest such piece', len(inside['result_part'].encode()),
              inside['next_offset'])
@@ -1303,8 +1350,7 @@ class AgentPairing:
                  offset, value)
 
         # Route-level offsets (400).
-        raw = getattr(self, 'qraw', None)
-        need(raw is not None, 'setup: the raw qraw session from the agent rules section')
+        raw = self.qraw_session()
         body = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'big',
                 'input': {'bytes': 40000, 'unit': 'é', 'pad': inside_pad}}
         status, view = raw.call('POST', '/adapter/v1/calls', body)
@@ -1432,7 +1478,10 @@ class AgentPairing:
              'a call finishing after its session ended reaches the next verified session, redelivered false', meta)
         # Q: meta.session_id of an update for an ended session's call: the session that made the call (as in pending
         # work) or the one that holds the notification; not asserted.
-        notes.append(f"late update meta.session_id is the {'maker' if meta_equal(meta['session_id'], old['session_id']) else 'holder' if meta_equal(meta['session_id'], self.s('qend')['session_id']) else 'neither'}")
+        holder = self.s('qend')['session_id']
+        which = ('the maker' if meta_equal(meta['session_id'], old['session_id']) else
+                 'the holder' if meta_equal(meta['session_id'], holder) else 'neither')
+        notes.append(f'late update meta.session_id is {which}')
         failed, final = self.status('qend', call)
         need(not failed and final['state'] == 'succeeded', 'call_status answers with the result', final)
         need(not [x for x in self.pending('qend')['calls'] if x['call_id'] == call], 'then nothing is pending')
@@ -1512,8 +1561,8 @@ class AgentPairing:
             code, out, stdout, stderr = s2.outcome('call', target, 'echo', '--input', json.dumps({'text': text}),
                                                    '--wait', '30s')
             need(code == 0 and caps.dig(out, 'status', 'state') == 'succeeded' and
-                 len(self.fixture.calls('sfx', marker=text)) == 1, 'callable by its host-ID address', target, code,
-                 stderr[-300:])
+                 len(self.fixture.calls('sfx', marker=text)) == 1, 'callable by its host-ID address', target,
+                 code, stderr[-300:])
         before = self.count('q1', 'outbound_calls')
         code, out, stdout, stderr = q1.outcome('call', 'ops/sam/sx', 'echo', '--input', '{"text": "no"}', '--wait', '5s')
         need(code != 0 and self.count('q1', 'outbound_calls') == before, 'the label is never used as PERSON',
@@ -1549,12 +1598,12 @@ class AgentPairing:
                 agent.stop()
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None):
+def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None, only=None):
     global INTEGRATIONS
     if integrations:
         INTEGRATIONS = Path(integrations)
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-') as temporary:
-        pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary))
+        pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only)
         started = time.monotonic()
         try:
             pairing.run()

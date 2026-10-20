@@ -3650,6 +3650,8 @@ def main():
                         '(default: this checkout\'s integrations/)')
     parser.add_argument('--agents-only', action='store_true', help='run only the agent tool cases (slice 2) and their '
                         'migration')
+    parser.add_argument('--agent-section', action='append', help='run only this agent tool section (by name, such '
+                        'as "results"); repeatable')
     parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1), whose '
                         'state the version 17 to 18 migration opens; without it, version 17 state is simulated')
     args = parser.parse_args()
@@ -3699,7 +3701,8 @@ def main():
         if not args.skip_agents:
             results += capability_agents.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
                                                      args.node.resolve(), label,
-                                                     args.integrations.resolve() if args.integrations else None)
+                                                     args.integrations.resolve() if args.integrations else None,
+                                                     args.agent_section)
         for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')

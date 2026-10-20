@@ -1077,8 +1077,8 @@ class Pairing:
             return path
 
         def attached(out, name, host, workspace, rule):
-            need(set(out) - CALLS_KEYS == ATTACH_KEYS, 'attach prints {agent, session_id, adapter_id, profile, workspace, reused, '
-                 'unchecked_hosts, next, sources}', out)
+            need(set(out) - CALLS_KEYS == ATTACH_KEYS, 'attach prints {agent, session_id, adapter_id, profile, '
+                 'workspace, reused, unchecked_hosts, next, sources}', out)
             need(sources_shaped(out), 'attach output sources: {servers, errors} (capabilities contract)', out)
             need(out['agent']['name'] == name, f'{rule}: agent name {name}', out['agent'])
             need(out['agent']['address'] == f'ana/{name}', 'agent.address is PERSON/NAME', out['agent'])

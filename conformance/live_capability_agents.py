@@ -276,7 +276,8 @@ class Run:
                      message='both members')
 
             # Bob's GitHub server in his Claude Code user configuration, discovered at attach.
-            server = {'command': args.github_command, 'args': args.github_arg or ['-y', '@modelcontextprotocol/server-github'],
+            server = {'command': args.github_command,
+                      'args': args.github_arg or ['-y', '@modelcontextprotocol/server-github'],
                       'env': {'GITHUB_PERSONAL_ACCESS_TOKEN': '${GITHUB_PERSONAL_ACCESS_TOKEN}'}}
             (self.bob.home / '.claude.json').write_text(json.dumps({'mcpServers': {'github': server}}))
             workspace = root / 'projects' / 'bob'
