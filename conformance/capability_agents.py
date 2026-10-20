@@ -154,6 +154,41 @@ def check_view(view, rule='a call view'):
     return view
 
 
+# The fixture's canon text (fixtures/mcp/server.py).
+CANON_TEXT = 'q"b\\s/\x01\b\t\n\x0c\r\x1f\x7f é€😀 '
+
+
+def canonical(value):
+    """The contract's result text encoding: no whitespace, keys sorted by UTF-8 bytes (code point order), raw
+    UTF-8, escaping only \" and \\, \b \t \n \f \r, and other characters below U+0020 as \\u00xx (lowercase).
+    The fixture's numbers are integers and 1.5, which Python renders as sent."""
+    if isinstance(value, dict):
+        items = sorted(value.items(), key=lambda kv: kv[0].encode())
+        return '{' + ','.join(canonical(k) + ':' + canonical(v) for k, v in items) + '}'
+    if isinstance(value, list):
+        return '[' + ','.join(canonical(v) for v in value) + ']'
+    if isinstance(value, str):
+        out = []
+        for ch in value:
+            if ch in '"\\':
+                out.append('\\' + ch)
+            elif ch in '\b\t\n\f\r':
+                out.append({'\b': '\\b', '\t': '\\t', '\n': '\\n', '\f': '\\f', '\r': '\\r'}[ch])
+            elif ord(ch) < 0x20:
+                out.append('\\u%04x' % ord(ch))
+            else:
+                out.append(ch)
+        return '"' + ''.join(out) + '"'
+    return json.dumps(value)
+
+
+def first_difference(a, b):
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return i, a[max(0, i - 20):i + 20], b[max(0, i - 20):i + 20]
+    return min(len(a), len(b)), a[-40:], b[-40:]
+
+
 def meta_equal(got, want):
     """Channel meta values may arrive as strings (Claude Code meta is string-valued)."""
     if got == want:
@@ -719,7 +754,9 @@ class AgentPairing:
 
         # Flags, output, and the adapter record.
         cases = ((('--calls',), True, 100), (('--calls', '--max-calls-per-hour', '7'), True, 7),
-                 (('--no-calls',), False, None), ((), False, None))
+                 (('--no-calls',), False, None), ((), False, None),
+                 # Without a terminal and without --calls the answer is no, and --max-calls-per-hour is not used.
+                 (('--max-calls-per-hour', '9'), False, None))
         for flags, calls, limit in cases:
             name = 'opt' + secrets.token_hex(2)
             code, out, stderr, seen = self.attach('q1', name, *flags)
@@ -730,8 +767,8 @@ class AgentPairing:
             need(record.get('calls') is calls and 'max_calls_per_hour' in record and
                  record['max_calls_per_hour'] == limit, 'the adapter record gains calls and max_calls_per_hour',
                  flags, record)
-            if not flags:
-                need(not seen, 'without a terminal, attach asks nothing and the answer is no', stderr[-400:])
+            if '--calls' not in flags and '--no-calls' not in flags:
+                need(not seen, 'without a terminal, attach asks nothing and the answer is no', flags, stderr[-400:])
 
         # The prompt at a terminal.
         name = 'tty' + secrets.token_hex(2)
@@ -791,6 +828,10 @@ class AgentPairing:
                  out['calls'] is True and out['max_calls_per_hour'] == 5,
                  'a matching flag (or none) is accepted, and the stored setting stands', flags, code, out,
                  stderr[-300:])
+        code, out, tty, seen = self.attach('q1', name, workspace=workspace, terminal='n')
+        need(code == 0 and not seen and isinstance(out, dict) and out['reused'] is True and out['calls'] is True and
+             out['max_calls_per_hour'] == 5, 're-attaching with none of the three flags asks nothing, even at a '
+             'terminal, and keeps the stored setting', code, seen, tty[-400:], out)
 
         # After replacement, the flags or the prompt decide again.
         name = 'rep' + secrets.token_hex(2)
@@ -831,11 +872,15 @@ class AgentPairing:
         need(failed, 'call_capability without opt-in is a tool error', value)
         self.refusal(value, 'no_calls', 'call_capability without opt-in')
         need(self.count('q1', 'outbound_calls') == before, 'a no_calls refusal persists nothing')
-        for name, arguments in (('list_capabilities', {}), ('call_status', {'call_id': some}),
-                                ('call_cancel', {'call_id': some})):
+        for name, arguments, keys in (('list_capabilities', {}, {'code', 'error', 'recovery'}),
+                                      ('call_status', {'call_id': some}, {'call_id', 'code', 'error', 'recovery'}),
+                                      ('call_cancel', {'call_id': some}, {'call_id', 'code', 'error', 'recovery'})):
             failed, value = self.tool(c, name, arguments)
-            need(failed and TEXTS['no_calls'] in json.dumps(value, ensure_ascii=False),
-                 f'{name} without opt-in returns the no_calls text as a tool error', failed, value)
+            need(failed and isinstance(value, dict) and set(value) == keys and value['code'] == 'no_calls' and
+                 value['error'] == TEXTS['no_calls'] and value['recovery'] == RECOVERY and
+                 value.get('call_id', some) == some,
+                 f'{name} without opt-in returns the refusal shape without address'
+                 + (' or call_id' if 'call_id' not in keys else ''), failed, value)
         return '; '.join(notes)
 
     # --- listing -------------------------------------------------------------------------------------------
@@ -896,6 +941,8 @@ class AgentPairing:
              'discover omits capabilities left with no via entry whose from_agent is null', sorted(names))
         need(all(v.get('from_agent') is None for e in body['capabilities'] for v in e['via']),
              'discover ignores via entries whose from_agent is not null', names.get('mixed'))
+        need(all('from_agent' in v for e in body['capabilities'] for v in e['via'] if v.get('kind') == 'policy'),
+             'the remaining policy entries keep from_agent: null in discover JSON', names.get('mixed'))
         before = self.count('q1', 'outbound_calls')
         code, out, stdout, stderr = self.hosts['q1'].outcome('call', 'pat/agentonly', 'echo', '--input',
                                                              '{"text": "owner"}', '--wait', '5s')
@@ -1011,15 +1058,8 @@ class AgentPairing:
         failed, value, _ = self.cc('pa', 'pat/srv/fx', 'echo', {'text': 'source'})
         need(failed and self.count('p2', 'outbound_calls') == before,
              'call_capability with a source address is a tool error that calls nothing', value)
-        if isinstance(value, dict) and value.get('code') == 'source':
-            self.refusal(value, 'source', 'a source address')
-            notes.append('source address: the source refusal')
-        else:
-            # Q: the address schema's pattern excludes PERSON/AGENT/SERVER, so the adapter may refuse it as an
-            # invalid argument before posting; both are accepted.
-            need('call_capability' in json.dumps(value), 'an invalid address is a tool error naming the tool',
-                 value)
-            notes.append('source address: refused by the input schema')
+        # The address schema admits a second /, so the daemon's source refusal and its text reach the agent.
+        self.refusal(value, 'source', 'a source address through call_capability')
         agent = self.register('p2', 'praw', 'pat')
         raw, _ = self.raw_setup('p2', agent['id'])
         raw.ready()
@@ -1157,11 +1197,14 @@ class AgentPairing:
         need(view['state'] == 'rejected' and view['submit_state'] == 'rejected' and view['note'] == NEVER_RAN_NOTE and
              isinstance(view['error'], str) and view['error'], 'rejected at submission (the receiver\'s 413), with '
              'the never-ran note', view)
-        # Q: the submission steps do not check the operation against the listing, so an operation outside the
-        # capability would be persisted and refused by the receiver (404); an implementation may refuse it first.
-        failed, value, _ = self.cc('qa', 'pat/tools', 'purge', {'text': marker('sub404')})
-        self.soft(not failed and value.get('state') == 'rejected', 'an operation outside the capability is '
-                  'submitted and rejected by the receiver (the submission steps have no operation check)', value)
+        # The operation is not checked against the entry's operations: the receiver refuses it, and the call is
+        # rejected.
+        text = marker('sub404')
+        before = self.count('q1', 'outbound_calls')
+        view, _ = self.ok_call('qa', 'pat/tools', 'purge', {'text': text})
+        need(view['state'] == 'rejected' and view['submit_state'] == 'rejected' and view['note'] == NEVER_RAN_NOTE
+             and self.count('q1', 'outbound_calls') == before + 1 and not self.executions('fx', text),
+             'an operation the capability does not list is submitted and rejected by the receiver', view)
 
         started = self.fill_slots(60)
         texts = {k: marker(k) for k in ('cq', 'rc', 'ex')}
@@ -1181,6 +1224,11 @@ class AgentPairing:
         status, expiring_view = expiring.call('POST', '/adapter/v1/calls', body)
         need(status == 200 and expiring_view.get('state') == 'queued', 'a call queued until its deadline (capped by '
              'the credential\'s expiry, 45 seconds)', status, expiring_view)
+        texts['ex2'] = marker('ex2')
+        body2 = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'echo', 'input': {'text': texts['ex2']}}
+        status, second_view = expiring.call('POST', '/adapter/v1/calls', body2)
+        need(status == 200 and second_view.get('state') == 'queued', 'a second call queued until its deadline',
+             status, second_view)
         deadline = caps.parse_time(expiring_view['deadline'])
         need(deadline.timestamp() <= time.time() + 50, 'the deadline is capped by the credential\'s expires_at',
              expiring_view['deadline'])
@@ -1194,9 +1242,21 @@ class AgentPairing:
         later, _ = self.raw_setup('q1', exp_agent['id'])
         later.ready()
 
-        # The call's notification is created after its session's authorization ended (the credential expired), so
-        # it goes to the agent's next verified session, redelivered false. It is claimed before any GET, so that no
-        # call view marks it seen first (Q: which session holds a late notification before its claim is not said).
+        # Both notifications are created after their session's authorization ended (the credential expired). The
+        # second is seen by the next session's GET of a final view (bound to it and seen at once, so never claimed);
+        # the first goes to that session through call-updates/next, redelivered false.
+        def second_final():
+            status, v = later.call('GET', f"/adapter/v1/calls/{body2['call_id']}")
+            return v if status == 200 and v.get('state') in FINAL else None
+        view = check_view(wait_for(second_final, timeout=60, message='the second expiring call final'))
+        need(view['state'] == 'expired', 'the second call expired', view)
+        n = self.notification('q1', body2['call_id'])
+        need(n and n[0], 'a late notification no session holds is seen by the next session\'s final call view', n)
+        rows = db_rows(self.hosts['q1'], 'SELECT session_id FROM call_update_notifications WHERE call_id = ?',
+                       (body2['call_id'],))
+        need(rows and rows[0][0] == later.adapter['session_id'], 'it is bound to that session', rows,
+             later.adapter['session_id'])
+
         def claim():
             status, value = later.call('POST', '/adapter/v1/call-updates/next', {})
             need(status == 200, 'call-updates/next answers 200 for a verified session', status, value)
@@ -1225,6 +1285,10 @@ class AgentPairing:
         need(status == 404, 'forwarded answers 404 for another credential', status, value)
         n = self.notification('q1', body['call_id'])
         need(n and isinstance(n[2], dict) and n[2].get('state') == 'forwarded', 'the notification is forwarded', n)
+        time.sleep(2)
+        status, value = later.call('POST', '/adapter/v1/call-updates/next', {})
+        need(status == 200 and value is None, 'the notification seen by call_status is never claimed afterwards',
+             status, value)
         for key, text in texts.items():
             need(not f.calls('fx', marker=text), 'a call that never ran is never executed', key)
         self.share('p1', 'recheck', 'quinn')
@@ -1365,6 +1429,36 @@ class AgentPairing:
         need(status == 200 and value['offset'] == INLINE - 1 and value['truncated'] is True,
              'a part from a valid offset', status, str(value)[:300])
 
+        # The canonical result text: sorted keys, raw UTF-8, the specified escapes; the same result_bytes and parts
+        # from Go and Rust daemons, so it is compared with this suite's own encoding of the parsed result.
+        for repeat in (1, 3000):
+            view, _ = self.ok_call('qa', 'pat/tools', 'canon', {'repeat': repeat})
+            need(view['state'] == 'succeeded', 'the canon call succeeds', {k: view[k] for k in ('state', 'error')})
+            if view['truncated']:
+                text = self.page('qa', view)
+                expected = canonical(json.loads(text))
+            else:
+                expected = text = canonical(view['result'])
+            need(text == expected and view['result_bytes'] == len(expected.encode()),
+                 'the result text is the canonical encoding (sorted keys, raw UTF-8, only the specified escapes)',
+                 repeat, view['result_bytes'], len(expected.encode()), first_difference(text, expected))
+            need(json.loads(text)['content'][0]['text'] == CANON_TEXT * repeat, 'the result is the server\'s')
+        notes.append('canonical result text matches')
+
+        # A non-zero offset before there is a result is 400.
+        view, _ = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 4, 'text': marker('pre')}, wait=0)
+        need(view['result_bytes'] is None, 'no result yet', view)
+        failed, value = self.status('qa', view['call_id'], 1)
+        need(failed, 'call_status with a non-zero offset before there is a result is a tool error', value)
+        failed, value = self.status('qa', view['call_id'], 0)
+        need(not failed and check_view(value)['offset'] == 0, 'offset 0 before there is a result', value)
+        body = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'sleep',
+                'input': {'seconds': 4, 'text': marker('pre2')}}
+        status, value = raw.call('POST', '/adapter/v1/calls', body)
+        need(status == 200 and value.get('result_bytes') is None, 'a call without a result yet', status, value)
+        status, value = raw.call('GET', f"/adapter/v1/calls/{body['call_id']}?offset=1")
+        need(status == 400, 'GET with a non-zero offset before there is a result is 400', status, value)
+
         # result_too_large.
         view, _ = self.ok_call('qa', 'pat/tools', 'big', {'bytes': 1100000})
         need(view['state'] == 'failed' and view['error'] == 'result_too_large' and view['result'] is None and
@@ -1432,7 +1526,7 @@ class AgentPairing:
             params = self.wait_update('qred', call, timeout=40)
             meta, content = self.check_event('qred', params, f'redelivery {attempt}')
             need(meta_equal(meta['redelivered'], True) and meta_equal(meta['notification_id'], notification) and
-                 content['state'] == 'succeeded',
+                 content['state'] == 'succeeded' and meta_equal(meta['session_id'], self.s('qred')['session_id']),
                  'redelivered to the next attachment with redelivered true and the same notification', attempt, meta)
             pend = [x for x in self.pending('qred')['calls'] if x['call_id'] == call]
             need(len(pend) == 1 and pend[0]['redelivered'] is True, 'pending_work: redelivered true', pend)
@@ -1476,12 +1570,9 @@ class AgentPairing:
         meta, content = self.check_event('qend', params, 'a late call update')
         need(meta_equal(meta['redelivered'], False) and content['state'] == 'succeeded',
              'a call finishing after its session ended reaches the next verified session, redelivered false', meta)
-        # Q: meta.session_id of an update for an ended session's call: the session that made the call (as in pending
-        # work) or the one that holds the notification; not asserted.
-        holder = self.s('qend')['session_id']
-        which = ('the maker' if meta_equal(meta['session_id'], old['session_id']) else
-                 'the holder' if meta_equal(meta['session_id'], holder) else 'neither')
-        notes.append(f'late update meta.session_id is {which}')
+        need(meta_equal(meta['session_id'], self.s('qend')['session_id']),
+             'meta.session_id is the session that holds the notification, not the one that made the call', meta,
+             old['session_id'])
         failed, final = self.status('qend', call)
         need(not failed and final['state'] == 'succeeded', 'call_status answers with the result', final)
         need(not [x for x in self.pending('qend')['calls'] if x['call_id'] == call], 'then nothing is pending')

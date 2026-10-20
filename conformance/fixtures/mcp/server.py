@@ -42,6 +42,8 @@ Tools (`readOnlyHint` true unless noted):
   write_note {text}           readOnlyHint false: a write tool
   purge {}                    no annotations at all: not read-only
   read {text?}                a tool literally named `read` (reserved as an operation name by the contract)
+  canon {repeat?}              a result with unsorted keys, escapes, control characters, and non-ASCII text, its
+                              text repeated `repeat` times (for the canonical result text)
   typed {text, count, ratio, flag, obj, list}   returns its arguments as JSON (scalar and non-scalar properties)
   flags {input, deadline, wait, network, text}  returns its arguments as JSON (properties named like call's flags)
 
@@ -173,6 +175,8 @@ def tools():
         tool('purge', 'Deletes every note; no annotations' + padding, annotate=False),
         # A tool literally named `read`, which the capabilities contract reserves as an operation name.
         tool('read', 'A tool named read' + padding, {'text': {'type': 'string'}}),
+        tool('canon', 'Returns a result with unsorted keys, escapes, and non-ASCII text' + padding,
+             {'repeat': {'type': 'integer'}}),
         tool('typed', 'Returns its arguments; scalar and object properties' + padding,
              {'text': {'type': 'string'}, 'count': {'type': 'integer'}, 'ratio': {'type': 'number'},
               'flag': {'type': 'boolean'}, 'obj': {'type': 'object'}, 'list': {'type': 'array'}}),
@@ -211,6 +215,17 @@ def text_result(text, is_error=False):
     if is_error:
         value['isError'] = True
     return value
+
+
+CANON_TEXT = 'q"b\\s/\x01\b\t\n\x0c\r\x1f\x7f é€😀 '
+
+
+def canon_result(repeat):
+    """Keys deliberately out of order (insertion order is kept on the wire), strings needing every escape class,
+    U+007F (not escaped), and 2-, 3-, and 4-byte characters; integers and a short decimal only."""
+    return {'structuredContent': {'zeta': 1, 'Émile': 1.5, 'alpha': {'b': -2, 'a': [3, CANON_TEXT, None, True]},
+                                  'Zed': 'Z', 'beta': '\u2028\u2029'},
+            'content': [{'text': CANON_TEXT * repeat, 'type': 'text'}]}
 
 
 def execute(request_id, name, arguments, cancelled):
@@ -253,6 +268,8 @@ def execute(request_id, name, arguments, cancelled):
             os._exit(7)
         elif name == 'write_note':
             reply = text_result('noted ' + str(arguments.get('text', '')))
+        elif name == 'canon':
+            reply = canon_result(int(arguments.get('repeat', 1)))
         elif name in ('typed', 'flags'):
             reply = text_result(json.dumps(arguments, sort_keys=True))
         elif name == 'read':
