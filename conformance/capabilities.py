@@ -382,6 +382,16 @@ def received_count(host):
         connection.close()
 
 
+def at_least_18(host):
+    """Whether the host's database is at version 18 or later (agent capability tools, capabilities contract slice 2),
+    which adds `adapter_id` to outbound call records (null for owner calls) and `from_agent` to policy via entries."""
+    return db_rows(host, 'PRAGMA user_version')[0][0] >= 18
+
+
+def outbound_keys(host):
+    return OUTBOUND_KEYS | ({'adapter_id'} if at_least_18(host) else set())
+
+
 def db_rows(host, statement, args=()):
     connection = sqlite3.connect(host.state / 'host.db')
     try:
@@ -2194,9 +2204,11 @@ class Pairing:
         nets = sorted([self.team, self.other])
         need([v['network_id'] for v in work['via']] == nets and all(v['kind'] == 'policy' for v in work['via']),
              'via: policy entries ordered by network ID', work['via'])
+        via_keys = {'kind', 'network_id', 'person_id', 'version'} | ({'from_agent'} if at_least_18(self.hosts['p1'])
+                                                                      else set())
         for v in work['via']:
-            need(set(v) == {'kind', 'network_id', 'person_id', 'version'} and v['person_id'] == self.pat,
-                 'policy via {kind, network_id, person_id, version}', v)
+            need(set(v) == via_keys and v['person_id'] == self.pat and v.get('from_agent') is None,
+                 'policy via {kind, network_id, person_id, version} (and from_agent null, from version 18)', v)
         status, scoped = self.listing('p1', 'q1', network=self.other)
         need(status == 200 and {e['capability'] for e in scoped} == {'work', 'litcap'} and
              all(v['network_id'] == self.other for e in scoped for v in e['via']), '?network: only that network',
@@ -2313,7 +2325,8 @@ class Pairing:
             relay.close()
         finally:
             self.hosts['p2'].configure(self.hosts['p1'], identity)
-        need(out and set(out) == OUTBOUND_KEYS and out['submit_state'] == 'unknown' and out['next_attempt_at'] and
+        need(out and set(out) == outbound_keys(self.hosts['p2']) and out['submit_state'] == 'unknown' and
+             out['next_attempt_at'] and
              code == 3, 'the outbound record after a lost response; exit 3 while pending', code, out, stderr[-300:])
         recovered = wait_for(lambda: (r := self.inspect('p2', ids['p1'], out['request']['call_id']))['submit_state'] ==
                              'accepted' and r, timeout=40, message='automatic call retry')
@@ -2732,7 +2745,8 @@ class Pairing:
         # record must be printed either way, and a final state must match the exit code.
         for wait in ('1', '1s', '1m'):
             code, out, stderr = self.call('q1', 'pat/work', 'echo', {'text': 'w'}, '--network', self.team, wait=wait)
-            need(code in (0, 3) and isinstance(out, dict) and set(out) == OUTBOUND_KEYS and
+            need(code in (0, 3) and isinstance(out, dict) and set(out) == outbound_keys(q1) and
+                 out.get('adapter_id') is None and
                  (code == 3) == (not out.get('status') or out['status'].get('state') not in FINAL),
                  '--wait takes N, Ns, or Nm; exit 0 when succeeded, 3 while pending', wait, code, out, stderr[-200:])
         count = self.outbound_count('q1')
@@ -2760,12 +2774,12 @@ class Pairing:
         need(self.outbound_count('q1') == count, 'nothing persisted')
         status, body = q1.call('POST', '/v1/calls', {'target': 'pat/work', 'operation': 'echo', 'input': {'text': 'a'},
                                                      'deadline': timestamp(300), 'network': self.team, 'call_id': None})
-        need(status == 200 and set(body) == OUTBOUND_KEYS and body['network_id'] == self.team and
+        need(status == 200 and set(body) == outbound_keys(q1) and body['network_id'] == self.team and
              body['target'] == 'pat/work' and 'grant_id' not in body['request'],
              'POST /v1/calls returns the outbound record', status, body)
         # calls listings.
         listed = q1.cli('calls', 'list', '--limit', '1000')
-        need(listed and all(set(i) == {'sequence', 'call'} and set(i['call']) == OUTBOUND_KEYS for i in listed),
+        need(listed and all(set(i) == {'sequence', 'call'} and set(i['call']) == outbound_keys(q1) for i in listed),
              'calls list: [{sequence, call}]', listed[:1])
         need([i['sequence'] for i in listed] == sorted(i['sequence'] for i in listed), 'insertion order')
         need(pending['request']['call_id'] in {i['call']['request']['call_id'] for i in listed}, 'calls list')
