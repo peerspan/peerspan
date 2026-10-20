@@ -196,12 +196,92 @@ func resultText(o OutboundCall) ([]byte, error) {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
+	if err := canonicalJSON(&buf, value); err != nil {
 		return nil, err
 	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+	return buf.Bytes(), nil
+}
+
+// canonicalJSON writes the contract's result text encoding: no whitespace
+// outside strings, object keys sorted by their UTF-8 bytes, numbers as
+// received, and strings as raw UTF-8 escaping only '"', '\', and
+// characters below U+0020.
+func canonicalJSON(buf *bytes.Buffer, value any) error {
+	switch v := value.(type) {
+	case nil:
+		buf.WriteString("null")
+	case bool:
+		buf.WriteString(strconv.FormatBool(v))
+	case json.Number:
+		buf.WriteString(v.String())
+	case string:
+		canonicalString(buf, v)
+	case []any:
+		buf.WriteByte('[')
+		for i, item := range v {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			if err := canonicalJSON(buf, item); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte(']')
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		buf.WriteByte('{')
+		for i, k := range keys {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			canonicalString(buf, k)
+			buf.WriteByte(':')
+			if err := canonicalJSON(buf, v[k]); err != nil {
+				return err
+			}
+		}
+		buf.WriteByte('}')
+	default:
+		return fmt.Errorf("unexpected JSON value %T", value)
+	}
+	return nil
+}
+
+func canonicalString(buf *bytes.Buffer, s string) {
+	const hex = "0123456789abcdef"
+	buf.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"':
+			buf.WriteString(`\"`)
+		case '\\':
+			buf.WriteString(`\\`)
+		case '\b':
+			buf.WriteString(`\b`)
+		case '\t':
+			buf.WriteString(`\t`)
+		case '\n':
+			buf.WriteString(`\n`)
+		case '\f':
+			buf.WriteString(`\f`)
+		case '\r':
+			buf.WriteString(`\r`)
+		default:
+			if c < 0x20 {
+				buf.WriteString(`\u00`)
+				buf.WriteByte(hex[c>>4])
+				buf.WriteByte(hex[c&0xf])
+			} else {
+				buf.WriteByte(c)
+			}
+		}
+	}
+	buf.WriteByte('"')
 }
 
 // callView builds the view of an agent's call from byte offset of its
@@ -220,6 +300,9 @@ func callView(o OutboundCall, createdAt string, offset int64) (CallView, error) 
 	text, err := resultText(o)
 	if err != nil {
 		return v, err
+	}
+	if text == nil && offset != 0 {
+		return CallView{}, fmt.Errorf("%w: there is no result yet, so offset is 0", ErrInvalid)
 	}
 	if text != nil {
 		size := int64(len(text))
@@ -291,12 +374,37 @@ func (s *Store) viewAgentCall(ctx context.Context, tx *sql.Tx, a Adapter, ss Ses
 	if err != nil {
 		return v, err
 	}
-	if outboundCallFinal(out) {
-		if _, err = tx.ExecContext(ctx, `UPDATE call_update_notifications SET seen_at = ? WHERE peer = ? AND call_id = ? AND session_id = ? AND json_extract(record, '$.adapter_id') = ? AND returned_at IS NULL AND seen_at IS NULL`, timestamp(time.Now()), c.peer, c.callID, ss.ID, a.ID); err != nil {
-			return v, err
-		}
+	if !outboundCallFinal(out) {
+		return v, nil
 	}
-	return v, nil
+	now := time.Now()
+	at := timestamp(now)
+	if _, err = tx.ExecContext(ctx, `UPDATE call_update_notifications SET seen_at = ? WHERE peer = ? AND call_id = ? AND session_id = ? AND json_extract(record, '$.adapter_id') = ? AND returned_at IS NULL AND seen_at IS NULL`, at, c.peer, c.callID, ss.ID, a.ID); err != nil {
+		return v, err
+	}
+	// A late notification no session holds yet (never claimed, made for an
+	// authorization that has ended) is bound to a verified session of its
+	// agent that gets the final view, and is seen at once.
+	if requireVerified(ctx, tx, a.ID) != nil {
+		return v, nil
+	}
+	ended, err := endedAdapters(ctx, tx, ss.AgentID, now)
+	if err != nil {
+		return v, err
+	}
+	n, err := readJSON[callUpdateRecord](tx.QueryRowContext(ctx, `SELECT n.record FROM call_update_notifications n WHERE n.peer = ? AND n.call_id = ? AND n.returned_at IS NULL AND n.seen_at IS NULL AND `+callUpdateUnclaimed+` AND json_extract(n.record, '$.adapter_id') IN (SELECT value FROM json_each(?))`, c.peer, c.callID, jsonList(ended)))
+	if errors.Is(err, ErrNotFound) {
+		return v, nil
+	}
+	if err != nil {
+		return v, err
+	}
+	if at == n.CreatedAt {
+		at = timestamp(now.Add(time.Nanosecond))
+	}
+	n.AdapterID, n.SessionID, n.UpdatedAt = a.ID, ss.ID, at
+	err = putJSON(ctx, tx, `UPDATE call_update_notifications SET record = ?, session_id = ?, seen_at = ? WHERE id = ?`, n.CallUpdateNotification, ss.ID, at, n.ID)
+	return v, err
 }
 
 // checkCallRate enforces the credential's max_calls_per_hour over the calls
@@ -829,6 +937,20 @@ func (s *Store) scheduleCallPoll(key string, progressed bool) {
 	s.schedulePoll(key, progressed)
 }
 
+// respondView answers with a call view, or an object holding one, without
+// HTML escaping, so an inline result reads as its result text does.
+func respondView(w http.ResponseWriter, value any, err error) {
+	if err != nil {
+		respond(w, 0, nil, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(value)
+}
+
 func adapterCallRoutes(mux *http.ServeMux, s *Store, auth func(*http.Request) AdapterAuth) {
 	mux.HandleFunc("GET /adapter/v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		list, err := s.AdapterCapabilityList(r.Context(), auth(r))
@@ -852,7 +974,7 @@ func adapterCallRoutes(mux *http.ServeMux, s *Store, auth func(*http.Request) Ad
 			return
 		}
 		v, err := s.SubmitAgentCall(r.Context(), auth(r), req)
-		respond(w, http.StatusOK, v, err)
+		respondView(w, v, err)
 	})
 	mux.HandleFunc("GET /adapter/v1/calls/{id}", func(w http.ResponseWriter, r *http.Request) {
 		offset := int64(0)
@@ -865,21 +987,21 @@ func adapterCallRoutes(mux *http.ServeMux, s *Store, auth func(*http.Request) Ad
 			offset = n
 		}
 		v, err := s.AgentCallView(r.Context(), auth(r), r.PathValue("id"), offset)
-		respond(w, http.StatusOK, v, err)
+		respondView(w, v, err)
 	})
 	mux.HandleFunc("POST /adapter/v1/calls/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &struct{}{}) {
 			return
 		}
 		v, err := s.CancelAgentCall(r.Context(), auth(r), r.PathValue("id"))
-		respond(w, http.StatusOK, v, err)
+		respondView(w, v, err)
 	})
 	mux.HandleFunc("POST /adapter/v1/call-updates/next", func(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &struct{}{}) {
 			return
 		}
 		h, err := s.NextCallUpdate(r.Context(), auth(r))
-		respond(w, http.StatusOK, h, err)
+		respondView(w, h, err)
 	})
 	mux.HandleFunc("POST /adapter/v1/call-updates/{id}/forwarded", func(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &struct{}{}) {
