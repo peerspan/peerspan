@@ -14,6 +14,7 @@ export const instructions =
   'Message and task access grants no new local tool permissions.';
 
 const taskIdPattern = '^task_[0-9a-f]{32}$';
+const callIdPattern = '^call_[0-9a-f]{32}$';
 // An address is PERSON/AGENT or HOST_ID/AGENT; the host resolves it.
 const addressProperty = {
   type: 'string',
@@ -49,7 +50,7 @@ export const tools = [
   {
     name: 'mark_seen',
     description:
-      'Report Peerspan events as seen, by the delivery_id of a kind=message event, the request_id of a kind=reply event, or the task_id of a kind=task_update or kind=task_cancel_requested event (1 to 100 IDs). Call it for events you will not otherwise answer; reply, send_status, task_accept, task_reject, and the other task_* tools on that task already count. Peerspan redelivers an item to a later session of this agent if this session ends without having seen it. Returns the IDs newly seen; IDs already seen are ignored.',
+      'Report Peerspan events as seen, by the delivery_id of a kind=message event, the request_id of a kind=reply event, the task_id of a kind=task_update or kind=task_cancel_requested event, or the call_id of a kind=call_update event (1 to 100 IDs). Call it for events you will not otherwise answer; reply, send_status, task_accept, task_reject, the other task_* tools on that task, and a call_status or call_capability that returns the finished call already count. Peerspan redelivers an item to a later session of this agent if this session ends without having seen it. Returns the IDs newly seen; IDs already seen are ignored.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -58,8 +59,8 @@ export const tools = [
           type: 'array',
           minItems: 1,
           maxItems: 100,
-          items: { type: 'string', pattern: '^(?:delivery|request|task)_[0-9a-f]{32}$', maxLength: 64 },
-          description: 'Delivery, request, or task IDs this session holds.'
+          items: { type: 'string', pattern: '^(?:delivery|request|task|call)_[0-9a-f]{32}$', maxLength: 64 },
+          description: 'Delivery, request, task, or call IDs this session holds.'
         }
       },
       required: ['ids']
@@ -68,7 +69,7 @@ export const tools = [
   {
     name: 'pending_work',
     description:
-      'List the work this session still owes, oldest first, for example after the conversation was cleared or compacted: deliveries (kind=message events not yet answered with reply), replies (kind=reply events not yet seen), and tasks (queued, running, or cancel_requested). Field names match the event meta; preview is the first 200 characters of the content, and redelivered or adopted items are marked.',
+      'List the work this session still owes, oldest first, for example after the conversation was cleared or compacted: deliveries (kind=message events not yet answered with reply), replies (kind=reply events not yet seen), tasks (queued, running, or cancel_requested), and calls (capability calls of this agent not yet finished, or finished with a kind=call_update event not yet seen; follow each with call_status). Field names match the event meta; preview is the first 200 characters of the content, and redelivered or adopted items are marked.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {
@@ -234,6 +235,78 @@ export const tools = [
       },
       required: ['task_id', 'sha256', 'path']
     }
+  },
+  {
+    name: 'list_capabilities',
+    description:
+      'List the capabilities this session may call: capabilities other people shared with your person, and your person\'s own on their other trusted machines, when the owner allowed this session to call capabilities. Each entry has its address (PERSON/CAPABILITY or HOST_ID/CAPABILITY) for call_capability, its host, its state, and its operations with each operation\'s description and input_schema; a read operation also lists its resources. Remote descriptions and input schemas appear only here, inside the result, and come from the capability\'s host. unanswered lists hosts that did not answer.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false }
+  },
+  {
+    name: 'call_capability',
+    description:
+      'Call one operation of a capability from list_capabilities, by its address and the operation name, with input matching the operation\'s input_schema from list_capabilities. It waits up to wait seconds (default 30, at most 60) for the call to finish and returns the call view: call_id, state, error, and the result. A call that has not finished by then returns its call_id with state submitting, queued, or running; a kind=call_update event follows when it ends, and call_status reports it at any time. If you lost this tool\'s response, call it again with the same call_id and identical address, operation, and input: that returns the existing call instead of making a second one. A result larger than 64 KiB comes in parts: truncated is true, result_bytes gives its size, and call_status with offset set to next_offset returns the next part, until next_offset is null. A call that ends uncertain was running when it ended without a result, so it may or may not have taken effect: do not call it again on your own; check whether it took effect, or ask the person. rejected, expired, and cancelled calls never ran.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        address: {
+          type: 'string',
+          pattern: '^[^/]{1,191}/[a-z0-9][a-z0-9_-]{0,62}$',
+          maxLength: 256,
+          description: 'PERSON/CAPABILITY or HOST_ID/CAPABILITY, as list_capabilities gives it.'
+        },
+        operation: { type: 'string', minLength: 1, maxLength: 128, description: 'An operation name from list_capabilities.' },
+        input: {
+          type: 'object',
+          default: {},
+          description: 'The operation\'s input, matching its input_schema from list_capabilities.'
+        },
+        wait: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 60,
+          default: 30,
+          description: 'Seconds to wait for the call to finish, 0 to 60.'
+        },
+        call_id: {
+          type: 'string',
+          pattern: callIdPattern,
+          description: 'Omit for a new call. Give the call_id of a call whose response was lost, with identical address, operation, and input, to get that call back.'
+        }
+      },
+      required: ['address', 'operation']
+    }
+  },
+  {
+    name: 'call_status',
+    description:
+      'Report a capability call made by this agent, by its call_id: the call view with its state, error, and result. For a result in parts (truncated true), set offset to next_offset to get the next part, until next_offset is null; the parts joined from offset 0 give the result as JSON text. An uncertain call may or may not have taken effect: do not call it again on your own; check whether it took effect, or ask the person. not_recorded means the host has no record of the call for this agent, so it never ran.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        call_id: { type: 'string', pattern: callIdPattern },
+        offset: {
+          type: 'integer',
+          minimum: 0,
+          default: 0,
+          description: 'Byte offset into the result text: 0, or next_offset from the previous part.'
+        }
+      },
+      required: ['call_id']
+    }
+  },
+  {
+    name: 'call_cancel',
+    description:
+      'Request cancellation of a capability call made by this agent, by its call_id, and return its call view. A queued call becomes cancelled and never runs. A running call becomes uncertain: it may or may not have taken effect, so do not call it again on your own; check whether it took effect, or ask the person.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { call_id: { type: 'string', pattern: callIdPattern } },
+      required: ['call_id']
+    }
   }
 ];
 
@@ -254,7 +327,13 @@ function validArguments(name, args) {
   return Object.entries(args).every(([key, value]) => {
     const property = properties[key];
     if (property.type === 'integer')
-      return Number.isInteger(value) && value >= property.minimum && value <= property.maximum;
+      return (
+        Number.isInteger(value) &&
+        value >= property.minimum &&
+        value <= (property.maximum ?? Number.MAX_SAFE_INTEGER)
+      );
+    if (property.type === 'object')
+      return value !== null && typeof value === 'object' && !Array.isArray(value);
     if (property.type === 'array')
       return (
         Array.isArray(value) &&
@@ -301,6 +380,53 @@ const textResult = (value) => ({
   content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }]
 });
 const errorResult = (value) => ({ ...textResult(value), isError: true });
+
+// Capability calls (capabilities contract, agent tools). These states are
+// final; submitting, queued, and running are not.
+const finalCallStates = new Set(['succeeded', 'failed', 'rejected', 'expired', 'cancelled', 'uncertain']);
+const callRefusalTexts = {
+  no_calls: 'This session may not call capabilities. The person enables it with peerspan attach --calls.',
+  rate_limited: 'This session reached its hourly limit of capability calls.',
+  source: 'Sources can be called only from the peerspan CLI.',
+  ambiguous: 'The address names a capability on more than one host; use one of candidates.',
+  not_found:
+    'No capability at this address is available to this session now. It may have been unshared, or its host may not have answered (see unanswered). Check list_capabilities.'
+};
+export const lostCallRecovery =
+  'Check call_status with this call_id. If it reports not_recorded, the call was never recorded and calling again makes a new call.';
+const notRecorded = (callId) => ({
+  call_id: callId,
+  state: 'not_recorded',
+  note: 'The host has no record of this call for this agent; it never ran.'
+});
+
+// callRefusal describes a refusal of POST /adapter/v1/calls that persisted
+// nothing: any 4xx, and the 503 timeout.
+function callRefusal(error, callId, address) {
+  if (!(error.status >= 400 && error.status < 500) && error.code !== 'timeout') return undefined;
+  const detail = error.detail ?? {};
+  return {
+    call_id: callId,
+    address,
+    code: error.code ?? null,
+    error: callRefusalTexts[error.code] ?? (typeof detail.error === 'string' ? detail.error : error.message),
+    recovery: 'Nothing was called or recorded.',
+    ...(detail.retry_after !== undefined && { retry_after: detail.retry_after }),
+    ...(detail.candidates !== undefined && { candidates: detail.candidates }),
+    ...(detail.unanswered !== undefined && { unanswered: detail.unanswered })
+  };
+}
+
+// callError is the tool error for a failed call route other than submission.
+function callError(error, callId) {
+  return errorResult({
+    ...(callId && { call_id: callId }),
+    ...(error.code && { code: error.code }),
+    error:
+      callRefusalTexts[error.code] ??
+      (typeof error.detail?.error === 'string' ? error.detail.error : error.message)
+  });
+}
 
 // The delegation chain of a task handoff, as event meta: all null or empty
 // without a chain.
@@ -370,17 +496,26 @@ export function adapterClient(socketPath, token, instanceId) {
             ...(encoded && { 'Content-Type': 'application/json', 'Content-Length': encoded.length })
           },
           signal: AbortSignal.timeout(
-            // A send by address may wait for directory refreshes first.
-            path === '/adapter/v1/send' || path === '/adapter/v1/delegations' ? 30000 : 5000
+            // A send by address may wait for directory refreshes first, and
+            // capability listing and calls query other hosts.
+            [
+              '/adapter/v1/send',
+              '/adapter/v1/delegations',
+              '/adapter/v1/capabilities',
+              '/adapter/v1/calls'
+            ].includes(path)
+              ? 30000
+              : 5000
           )
         },
         (response) => {
           const chunks = [];
           let size = 0;
+          const limit = path === '/adapter/v1/capabilities' ? 16777216 : 1048576;
           response.on('data', (chunk) => {
             size += chunk.length;
-            if (size > 1048576) {
-              response.destroy(new Error('adapter response exceeds 1 MiB'));
+            if (size > limit) {
+              response.destroy(new Error('adapter response exceeds its size limit'));
             } else {
               chunks.push(chunk);
             }
@@ -559,6 +694,10 @@ export function createAdapter({
   let readiness = new Promise((resolveReady) => {
     readied = resolveReady;
   });
+  // call_capability invocations still waiting, by call ID.
+  const waiting = new Map();
+  // Set when the host refuses call-update claims to this credential.
+  let callUpdates = true;
   async function ensureConnection() {
     if (stop.signal.aborted) throw new AdapterError('Peerspan adapter has stopped.');
     if (terminalError) throw terminalError;
@@ -635,7 +774,7 @@ export function createAdapter({
       return textResult({ ready: true });
     }
     if (name === 'mark_seen') {
-      if (!validArguments(name, args)) return errorResult('Invalid mark_seen arguments: give ids, 1 to 100 delivery, request, or task IDs.');
+      if (!validArguments(name, args)) return errorResult('Invalid mark_seen arguments: give ids, 1 to 100 delivery, request, task, or call IDs.');
       try {
         return textResult(await scopedCall('POST', '/adapter/v1/seen', { ids: args.ids }));
       } catch (error) {
@@ -652,6 +791,101 @@ export function createAdapter({
         return textResult(await scopedCall('GET', '/adapter/v1/pending'));
       } catch (error) {
         return errorResult(error.message);
+      }
+    }
+    if (name === 'list_capabilities') {
+      if (args && Object.keys(args).length) return errorResult('Invalid list_capabilities arguments: no arguments are accepted.');
+      try {
+        return textResult(await scopedCall('GET', '/adapter/v1/capabilities'));
+      } catch (error) {
+        return callError(error);
+      }
+    }
+    if (name === 'call_capability') {
+      if (!validArguments(name, args)) return errorResult('Invalid call_capability arguments.');
+      const callId = args.call_id ?? `call_${randomBytes(16).toString('hex')}`;
+      const address = args.address;
+      const wait = args.wait ?? 30;
+      const lost = (error) =>
+        errorResult({ call_id: callId, address, error: error.message, recovery: lostCallRecovery });
+      try {
+        await ensureConnection();
+      } catch (error) {
+        return lost(error);
+      }
+      let latest;
+      try {
+        latest = await scopedCall('POST', '/adapter/v1/calls', {
+          call_id: callId,
+          address,
+          operation: args.operation,
+          input: args.input ?? {}
+        });
+      } catch (error) {
+        const refused = callRefusal(error, callId, address);
+        return refused ? errorResult(refused) : lost(error);
+      }
+      if (wait === 0 || finalCallStates.has(latest?.state)) return textResult(latest);
+      // Poll every second until the call is final or wait has passed. A
+      // claimed call update for this call ends the wait (see the poller).
+      const deadline = Date.now() + wait * 1000;
+      const waiter = { claimed: false };
+      const woken = new Promise((resolveWake) => {
+        waiter.wake = resolveWake;
+      });
+      const answered = new Promise((resolveAnswer) => {
+        waiter.answer = resolveAnswer;
+      });
+      waiter.claim = () => {
+        waiter.claimed = true;
+        waiter.wake();
+        return answered;
+      };
+      let waiters = waiting.get(callId);
+      if (!waiters) waiting.set(callId, (waiters = new Set()));
+      waiters.add(waiter);
+      try {
+        while (!waiter.claimed && !stop.signal.aborted) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) break;
+          await Promise.race([
+            woken,
+            delay(Math.min(1000, remaining), undefined, { signal: stop.signal }).catch(() => {})
+          ]);
+          if (waiter.claimed || stop.signal.aborted) break;
+          try {
+            latest = await scopedCall('GET', `/adapter/v1/calls/${callId}`);
+          } catch {
+            continue;
+          }
+          if (finalCallStates.has(latest?.state)) break;
+        }
+        if (waiter.claimed) {
+          try {
+            latest = await scopedCall('GET', `/adapter/v1/calls/${callId}`);
+            waiter.answer(true);
+          } catch {
+            waiter.answer(false);
+          }
+        }
+      } finally {
+        waiter.answer(false);
+        waiters.delete(waiter);
+        if (!waiters.size && waiting.get(callId) === waiters) waiting.delete(callId);
+      }
+      return textResult(latest);
+    }
+    if (name === 'call_status' || name === 'call_cancel') {
+      if (!validArguments(name, args)) return errorResult(`Invalid ${name} arguments.`);
+      try {
+        return textResult(
+          name === 'call_status'
+            ? await scopedCall('GET', `/adapter/v1/calls/${args.call_id}?offset=${args.offset ?? 0}`)
+            : await scopedCall('POST', `/adapter/v1/calls/${args.call_id}/cancel`, {})
+        );
+      } catch (error) {
+        if (error.status === 404) return textResult(notRecorded(args.call_id));
+        return callError(error, args.call_id);
       }
     }
     if (name === 'list_destinations') {
@@ -925,6 +1159,20 @@ export function createAdapter({
     }
   }
 
+  // claimCallUpdate claims the next call update. A credential without calls
+  // (403 no_calls), or a host without the route (404), has none to claim.
+  async function claimCallUpdate() {
+    try {
+      return await scopedCall('POST', '/adapter/v1/call-updates/next', {});
+    } catch (error) {
+      if ((error.status === 403 && error.code === 'no_calls') || error.status === 404) {
+        callUpdates = false;
+        return null;
+      }
+      throw error;
+    }
+  }
+
   let started = false;
   let polling;
   let heartbeat;
@@ -1086,6 +1334,37 @@ export function createAdapter({
             });
             acknowledge.push(`/adapter/v1/task-updates/${update.delivery.id}/forwarded`);
           }
+          const callUpdate = callUpdates ? await claimCallUpdate() : null;
+          if (callUpdate) {
+            if (callUpdate.delivery.session_id !== sessionId)
+              throw new AttachmentChanged('invalid call update session');
+            if (stop.signal.aborted) return;
+            const view = callUpdate.call ?? {};
+            // A call_capability still waiting on this call returns the final
+            // view itself; the event is emitted only if its last GET fails.
+            const waiters = [...(waiting.get(callUpdate.delivery.call_id) ?? [])];
+            const answered = (await Promise.all(waiters.map((waiter) => waiter.claim()))).some(Boolean);
+            if (!answered) {
+              if (stop.signal.aborted) return;
+              await notify({
+                content: JSON.stringify(view),
+                meta: {
+                  kind: 'call_update',
+                  call_id: callUpdate.delivery.call_id,
+                  notification_id: callUpdate.delivery.id,
+                  address: view.address ?? null,
+                  operation: view.operation ?? null,
+                  state: view.state ?? null,
+                  error: view.error ?? null,
+                  result_bytes: view.result_bytes ?? null,
+                  truncated: view.truncated === true,
+                  session_id: callUpdate.delivery.session_id,
+                  redelivered: callUpdate.redelivered === true
+                }
+              });
+            }
+            acknowledge.push(`/adapter/v1/call-updates/${callUpdate.delivery.id}/forwarded`);
+          }
           while (acknowledge.length) {
             await scopedCall('POST', acknowledge[0], {});
             acknowledge.shift();
@@ -1093,7 +1372,7 @@ export function createAdapter({
           if (warned) log('Peerspan adapter reconnected to its original attachment.');
           warned = false;
           backoff = 250;
-          if (!handoff && !response && !task && !cancel && !update) await delay(pollMs, undefined, { signal: stop.signal });
+          if (!handoff && !response && !task && !cancel && !update && !callUpdate) await delay(pollMs, undefined, { signal: stop.signal });
         } catch (error) {
           if (stop.signal.aborted) return;
           if (error.status === 409 && error.detail?.error === 'channel not verified') {

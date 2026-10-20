@@ -3,6 +3,7 @@ import http from 'node:http';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
+import { lostCallRecovery } from './adapter.mjs';
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const socketDirectory = () => `/tmp/peerspan-tools-${process.getuid()}`;
 
@@ -124,14 +125,26 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
 export async function proxyTool(socket, callerSession, name, args) {
   // Allocate at the harness side of this extra hop so a lost gateway response
   // still leaves the caller with the exact ID the Peerspan host may have saved.
+  // call_capability likewise allocates its call_id here.
+  const objectArgs = args && typeof args === 'object' && !Array.isArray(args);
   const requestId =
     name === 'send'
       ? (args?.request_id ?? `request_${randomBytes(16).toString('hex')}`)
       : undefined;
+  const callId =
+    name === 'call_capability'
+      ? (args?.call_id ?? `call_${randomBytes(16).toString('hex')}`)
+      : undefined;
   const input =
-    name === 'send' && args && typeof args === 'object' && !Array.isArray(args)
+    name === 'send' && objectArgs
       ? { ...args, request_id: requestId }
-      : args;
+      : name === 'call_capability' && objectArgs
+        ? { ...args, call_id: callId }
+        : args;
+  // call_capability may wait for submission (30 s), then up to 60 s for the
+  // result; list_capabilities may return up to 16 MiB.
+  const timeout = name === 'call_capability' ? 120000 : 40000;
+  const limit = name === 'list_capabilities' ? 67108864 : 1048576;
   try {
     return await new Promise((resolve, reject) => {
       const encoded = Buffer.from(
@@ -144,14 +157,14 @@ export async function proxyTool(socket, callerSession, name, args) {
           method: 'POST',
           agent: false,
           headers: { 'Content-Type': 'application/json', 'Content-Length': encoded.length },
-          signal: AbortSignal.timeout(40000)
+          signal: AbortSignal.timeout(timeout)
         },
         (response) => {
           const chunks = [];
           let size = 0;
           response.on('data', (chunk) => {
             size += chunk.length;
-            if (size > 1048576) response.destroy();
+            if (size > limit) response.destroy();
             else chunks.push(chunk);
           });
           response.on('error', () => reject(new Error('Peerspan tool response unavailable.')));
@@ -180,6 +193,21 @@ export async function proxyTool(socket, callerSession, name, args) {
       request.end(encoded);
     });
   } catch (error) {
+    if (name === 'call_capability')
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              call_id: callId,
+              address: args?.address,
+              error: error.message,
+              recovery: lostCallRecovery
+            })
+          }
+        ]
+      };
     if (name !== 'send') throw error;
     return {
       isError: true,

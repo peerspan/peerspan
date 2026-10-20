@@ -7,7 +7,8 @@ const titles = {
   reply: 'Peerspan reply',
   task: 'Peerspan task',
   task_cancel_requested: 'Peerspan cancellation request',
-  task_update: 'Peerspan task update'
+  task_update: 'Peerspan task update',
+  call_update: 'Peerspan capability call update'
 };
 
 export function presentEvent(event) {

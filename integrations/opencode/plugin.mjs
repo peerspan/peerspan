@@ -13,6 +13,12 @@ export async function Peerspan(_input, { bindings } = {}) {
     if (property.maxLength) result = result.max(property.maxLength);
     return result;
   };
+  const integer = (property) => {
+    let result = schema.number().int();
+    if (property.minimum !== undefined) result = result.min(property.minimum);
+    if (property.maximum !== undefined) result = result.max(property.maximum);
+    return property.description ? result.describe(property.description) : result;
+  };
   return {
     tool: Object.fromEntries(
       tools.map((definition) => {
@@ -22,7 +28,11 @@ export async function Peerspan(_input, { bindings } = {}) {
             const value =
               property.type === 'array'
                 ? schema.array(string(property.items)).min(property.minItems ?? 0).max(property.maxItems)
-                : string(property);
+                : property.type === 'integer'
+                  ? integer(property)
+                  : property.type === 'object'
+                    ? schema.record(schema.string(), schema.unknown())
+                    : string(property);
             return [name, required.includes(name) ? value : value.optional()];
           })
         );
