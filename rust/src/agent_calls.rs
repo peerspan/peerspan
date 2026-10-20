@@ -183,7 +183,11 @@ fn view_error(out: &OutboundCall) -> Option<String> {
         return out.error.as_deref().map(|e| {
             // Stored as `peer returned HTTP N: TEXT`.
             match e.split_once(": ") {
-                Some((head, text)) if head.starts_with("peer returned HTTP ") => text.to_owned(),
+                Some((head, text))
+                    if head.starts_with("peer returned HTTP ") && !text.is_empty() =>
+                {
+                    text.to_owned()
+                }
                 _ => e.to_owned(),
             }
         });
