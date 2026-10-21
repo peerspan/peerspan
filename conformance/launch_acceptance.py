@@ -15,10 +15,8 @@ Preparation, not counted:
   machine's PATH (Node 22 is a documented prerequisite);
 - for each machine, creates a new user `peerspan-acc-N` with an empty home,
   enables linger for it (as a login would start its systemd user manager),
-  copies the archive and checksum into the home, and, as the user, checks the
-  checksum, extracts the bundle, and puts its `bin` first on PATH, as the quick
-  start says; writes a fixture `claude` into `~/.local/bin` and makes
-  `~/src/project`.
+  and copies the archive, checksum, and installer into that home; writes a
+  fixture `claude` into `~/.local/bin` and makes `~/src/project`.
 
 Every counted step then runs as that machine's user through `runuser`, with a
 clean environment (HOME, USER, PATH, XDG_RUNTIME_DIR; no ssh-agent), exactly as
@@ -87,7 +85,9 @@ RUNS = {
     'team-rust': ('team', ['rust', 'rust', 'rust']),
     'team-mixed': ('team', ['go', 'rust', 'go']),
 }
-EXPECTED_COUNTS = {'solo': {'peerspan': 7, 'copy': 1}, 'pair': {'peerspan': 9}, 'team': {'peerspan': 14}}
+EXPECTED_COUNTS = {'solo': {'install': 2, 'peerspan': 5, 'copy': 1},
+                   'pair': {'install': 2, 'peerspan': 7},
+                   'team': {'install': 3, 'peerspan': 11}}
 STEP_TIMEOUT = 120
 LAUNCH_SECONDS = 60
 CHECK_SECONDS = 60
@@ -505,22 +505,25 @@ class Machine:
         wait_for(lambda: (Path(self.runtime, 'bus').exists()
                           and quiet('systemctl', 'is-active', f'user@{self.uid}.service').stdout.strip() == 'active',
                           'user manager'), 30, f'{self.user}\'s systemd user manager')
-        archive, checksum, root = h.archives[self.impl]
+        archive, checksum, _ = h.archives[self.impl]
+        (self.home / 'dist').mkdir()
+        (self.home / 'scripts').mkdir()
         for source in [archive, checksum]:
-            shutil.copy(source, self.home / source.name)
-            os.chown(self.home / source.name, self.uid, self.gid)
-        self.bundle_bin = self.home / root / 'bin'
+            shutil.copy(source, self.home / 'dist' / source.name)
+            os.chown(self.home / 'dist' / source.name, self.uid, self.gid)
+        installer = self.home / 'scripts' / 'install-release.sh'
+        shutil.copy2(h.repo / 'scripts' / 'install-release.sh', installer)
+        os.chown(installer, self.uid, self.gid)
         self.env = {
             'HOME': str(self.home), 'USER': self.user, 'LOGNAME': self.user, 'SHELL': '/bin/bash',
             'LANG': 'C.UTF-8', 'XDG_RUNTIME_DIR': self.runtime,
-            'PATH': f'{self.bundle_bin}:{self.home}/.local/bin:{h.shared_node}:/usr/local/bin:/usr/bin:/bin',
+            'PATH': f'{self.home}/.local/bin:{h.shared_node}:/usr/local/bin:/usr/bin:/bin',
         }
         self.project = self.home / 'src' / 'project'
-        for argv in (['sha256sum', '-c', checksum.name], ['tar', '-xzf', archive.name],
-                     ['mkdir', '-p', str(self.home / '.local/bin'), str(self.project)]):
-            result = self.run(argv)
-            if result.returncode != 0:
-                raise Failure(f'{self.label} preparation {" ".join(argv)} failed: {result.stdout}{result.stderr}')
+        argv = ['mkdir', '-p', str(self.home / '.local/bin'), str(self.project)]
+        result = self.run(argv)
+        if result.returncode != 0:
+            raise Failure(f'{self.label} preparation {" ".join(argv)} failed: {result.stdout}{result.stderr}')
         fixture = self.home / '.local/bin/claude'
         fixture.write_text(FIXTURE)
         fixture.chmod(0o755)
@@ -578,7 +581,7 @@ class Run:
     # Counted steps.
 
     def step(self, machine, command, substitutions=None, cwd=None):
-        """Run one counted Peerspan command as the user typed it; return its parsed output."""
+        """Run one counted command as the user typed it; return its output."""
         argv = command.split() if isinstance(command, str) else command
         shown = ' '.join(argv)
         for value, placeholder in (substitutions or {}).items():
@@ -587,7 +590,8 @@ class Run:
         started = time.monotonic()
         result = machine.run(argv, cwd=cwd)
         record = {'machine': machine.label, 'user': machine.user, 'implementation': machine.impl,
-                  'command': shown, 'kind': 'peerspan', 'cwd': '~' + str((cwd or machine.home))[len(str(machine.home)):],
+                  'command': shown, 'kind': 'install' if argv[0] == 'scripts/install-release.sh' else 'peerspan',
+                  'cwd': '~' + str((cwd or machine.home))[len(str(machine.home)):],
                   'exit': result.returncode, 'seconds': round(time.monotonic() - started, 2)}
         if waited:
             record['paced_seconds'] = waited
@@ -710,26 +714,32 @@ class Run:
                           f'{tail(result.stdout)}')
         return label
 
+    def install(self, machine):
+        command = ['scripts/install-release.sh', VERSION, '--from', 'dist']
+        if machine.impl == 'go':
+            command.extend(['--implementation', 'go'])
+        self.step(machine, command)
+
     def path_solo(self, m1, m2):
-        self.step(m1, 'peerspan install')
+        self.install(m1)
         label = self.label_of(m1, self.step(m1, 'peerspan network create acme'))
         self.sources['LABEL'] = 'the member label printed by M1 `peerspan network create acme`'
         token = self.token(m1, self.step(m1, ['peerspan', 'invite', label]), label)
         self.sources['TOKEN'] = f'the join line printed by M1 `peerspan invite {label}`'
         self.attach(m1)
         self.copy_key(m1, m2)
-        self.step(m2, 'peerspan install')
+        self.install(m2)
         self.step(m2, ['peerspan', 'join', token], {token: 'TOKEN'})
         self.attach(m2)
         self.person_labels = {m1.label: label, m2.label: label}
 
     def path_pair(self, m1, m2):
-        self.step(m1, 'peerspan install')
+        self.install(m1)
         alice = self.label_of(m1, self.step(m1, 'peerspan network create acme'))
         token = self.token(m1, self.step(m1, 'peerspan invite bob'), 'bob')
         self.sources['TOKEN'] = 'the join line printed by M1 `peerspan invite bob`'
         self.sources['ALICE'] = 'the member label printed by M1 `peerspan network create acme` (her login name)'
-        self.step(m2, 'peerspan install')
+        self.install(m2)
         self.step(m2, ['peerspan', 'join', token], {token: 'TOKEN'})
         self.step(m2, ['peerspan', 'allow', alice])
         self.attach(m2)
@@ -740,7 +750,7 @@ class Run:
                           'bob types it in `peerspan allow`.')
 
     def path_team(self, m1, m2, m3):
-        self.step(m1, 'peerspan install')
+        self.install(m1)
         alice = self.label_of(m1, self.step(m1, 'peerspan network create acme'))
         tokens = {}
         for who in ['bob', 'carol']:
@@ -749,7 +759,7 @@ class Run:
         self.step(m1, 'peerspan allow everyone')
         self.attach(m1)
         for machine, who in [(m2, 'bob'), (m3, 'carol')]:
-            self.step(machine, 'peerspan install')
+            self.install(machine)
             self.step(machine, ['peerspan', 'join', tokens[who]], {tokens[who]: f'TOKEN_{who.upper()}'})
             self.step(machine, 'peerspan allow everyone')
             self.attach(machine)

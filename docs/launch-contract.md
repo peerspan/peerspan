@@ -671,25 +671,25 @@ Before launching, `attach` prints its output object on stderr, so the address is
 
 ### The documented path
 
-The quick start is the user path. `attach` runs last on each machine, because it keeps the terminal for Claude Code. Each counted step below is a command the user types; extracting the bundle, adding it to `PATH`, and `cd` into a project are preparation and not counted. `LABEL`, `TOKEN`, and `ADDRESS` are taken from the previous commands' output, as a user would read them.
+The quick start is the user path. `attach` runs last on each machine, because it keeps the terminal for Claude Code. Each counted step below is a command the user types, including the archive installer, which verifies the checksum, extracts the selected Rust or Go bundle to a stable location, and calls `peerspan install`. Rust is the default in the installer commands below; Go runs append `--implementation go`. Obtaining the archive and checksum, adding `~/.local/bin` to `PATH` once if needed, and `cd` into a project are preparation and not counted. `LABEL`, `TOKEN`, and `ADDRESS` are taken from the previous commands' output, as a user would read them.
 
 **Solo** (one person, machines M1 and M2):
-1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite LABEL` with the person's own label, `peerspan attach claude`;
+1. M1: `scripts/install-release.sh VERSION --from dist`, `peerspan network create acme`, `peerspan invite LABEL` with the person's own label, `peerspan attach claude`;
 2. copying `~/.config/peerspan/person_ed25519` and `person_ed25519.pub` from M1 to the same place on M2 (one counted non-Peerspan step);
-3. M2: `peerspan install`, `peerspan join TOKEN`, `peerspan attach claude`.
+3. M2: `scripts/install-release.sh VERSION --from dist`, `peerspan join TOKEN`, `peerspan attach claude`.
 
-That is 7 Peerspan commands and one copy. The agents are named `claude-HOSTNAME` after each machine, and `claude-HOSTNAME-HHHH` on M2 if both machines have the same host name.
+That is 7 commands, including 2 installer calls, and one copy. The agents are named `claude-HOSTNAME` after each machine, and `claude-HOSTNAME-HHHH` on M2 if both machines have the same host name.
 
 **Pair** (alice on M1, bob on M2):
-1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite bob`;
-2. M2: `peerspan install`, `peerspan join TOKEN`, `peerspan allow alice`, `peerspan attach claude`;
+1. M1: `scripts/install-release.sh VERSION --from dist`, `peerspan network create acme`, `peerspan invite bob`;
+2. M2: `scripts/install-release.sh VERSION --from dist`, `peerspan join TOKEN`, `peerspan allow alice`, `peerspan attach claude`;
 3. M1: `peerspan allow bob`, which needs bob to have joined, then `peerspan attach claude`.
 
 That is 9 commands.
 
 **Team** (alice, bob, and carol on M1 to M3):
-1. M1: `peerspan install`, `peerspan network create acme`, `peerspan invite bob`, `peerspan invite carol`, `peerspan allow everyone`, `peerspan attach claude`;
-2. M2 and M3, each: `peerspan install`, `peerspan join TOKEN`, `peerspan allow everyone`, `peerspan attach claude`.
+1. M1: `scripts/install-release.sh VERSION --from dist`, `peerspan network create acme`, `peerspan invite bob`, `peerspan invite carol`, `peerspan allow everyone`, `peerspan attach claude`;
+2. M2 and M3, each: `scripts/install-release.sh VERSION --from dist`, `peerspan join TOKEN`, `peerspan allow everyone`, `peerspan attach claude`.
 
 That is 14 commands.
 
@@ -704,7 +704,7 @@ That is 14 commands.
 
 `conformance/launch_acceptance.py` is an end-to-end check, separate from the conformance rule for new suites. It needs root, systemd 250 or newer, Python 3.12, and Node 22.
 - **Bundles.** It packages both implementations with `scripts/package-release.sh`, with `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` set to a `peerspan-coord` it runs on loopback, standing in for the hosted coordinator. It verifies each archive's checksum.
-- **Machines.** Each machine is a new user (`peerspan-acc-N`) with an empty home. Before the path, the harness enables linger for the user, so its systemd user manager runs as it would after a login. It then extracts the bundle into the user's home and runs every step as that user, with `XDG_RUNTIME_DIR` set, through `runuser`. No `ssh-agent` runs, so each person's key is generated. A fixture `claude` in the user's `~/.local/bin` stands in for Claude Code: it accepts the arguments the launch passes and runs the configured MCP adapter, as `conformance/claude_setup.py`'s fixture does. The harness runs each `attach` in the background, as a user's terminal would keep it, and stops it at the end. No model is called.
+- **Machines.** Each machine is a new user (`peerspan-acc-N`) with an empty home. Before the path, the harness enables linger for the user, so its systemd user manager runs as it would after a login. It copies the archive, checksum, and installer into the user's home and runs every step as that user, with `XDG_RUNTIME_DIR` set, through `runuser`. The counted installer step verifies and places the bundle, creates the stable command link, and installs the service. No `ssh-agent` runs, so each person's key is generated. A fixture `claude` in the user's `~/.local/bin` stands in for Claude Code: it accepts the arguments the launch passes and runs the configured MCP adapter, as `conformance/claude_setup.py`'s fixture does. The harness runs each `attach` in the background, as a user's terminal would keep it, and stops it at the end. No model is called.
 - **Runs.** Solo and pair with each implementation; team with Go only, Rust only, and mixed (Go, Rust, Go).
 - **Cleanup.** Afterwards, it stops and removes every unit, disables linger, kills the users' processes, and deletes the users and their homes, also after a failure. `--keep` leaves them for inspection.
 - **Results.** It writes `docs/results/launch-acceptance.json`: for each run, the implementations, the exact commands with their machine, the counts by kind, each check's result, and the release metadata.
