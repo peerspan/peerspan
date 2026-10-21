@@ -106,10 +106,21 @@ if [[ -L $launcher ]]; then
     exit 1
   }
   current_release=${current%/bin/peerspan}
-  [[ ${current_release##*/} == *"-$implementation-"* ]] || {
-    echo "switching the installed host implementation needs a state migration review" >&2
-    exit 1
-  }
+  node - "$current_release/RELEASE.json" "$implementation" <<'JS'
+const fs = require('node:fs');
+const [metadata, implementation] = process.argv.slice(2);
+let installed;
+try {
+  installed = JSON.parse(fs.readFileSync(metadata, 'utf8')).implementation;
+} catch {
+  process.stderr.write('cannot read the installed release metadata\n');
+  process.exit(1);
+}
+if (installed !== implementation) {
+  process.stderr.write('switching the installed host implementation needs a state migration review\n');
+  process.exit(1);
+}
+JS
 fi
 
 stage=$(mktemp -d "$release_base/.install.XXXXXX")
