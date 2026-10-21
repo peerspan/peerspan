@@ -1,6 +1,6 @@
 # Implementation instructions
 
-The Go and Rust host services develop together in this repository, in `go/` and `rust/`. Shared specifications are in `docs/`; shared binary tests and build measurements are in `conformance/`. The broader architecture is maintained in the `mesh-new` design repository. Which implementation to release as OSS remains open.
+The Go and Rust host services develop together in this repository, in `go/` and `rust/`. Shared specifications are in `docs/`; shared binary tests and build measurements are in `conformance/`. The broader architecture is maintained in the `mesh-new` design repository. Both host implementations will ship for launch. Rust is the recommended first install; Go remains supported.
 
 The earlier prototype lives in `legacy/` with its own Go module. Do not extend its combined control-plane and execution model for the new host service.
 
