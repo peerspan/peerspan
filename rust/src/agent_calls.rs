@@ -24,7 +24,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -81,7 +81,7 @@ struct StoredNotification {
 #[derive(Serialize)]
 pub struct CallUpdate {
     pub delivery: CallUpdateNotification,
-    pub call: Value,
+    pub call: CallView,
     pub redelivered: bool,
 }
 
@@ -194,14 +194,12 @@ fn view_error(out: &OutboundCall) -> Option<String> {
     }
     out.status.as_ref().and_then(|s| s.error.clone())
 }
-/// The canonical encoding of the stored result: as received, or from the
-/// parsed value for a record stored without it.
+/// The canonical encoding of the stored result, numbers as the receiver
+/// sent them.
 fn result_text(out: &OutboundCall) -> Option<String> {
-    out.result.as_ref().map(|r| {
-        out.result_text
-            .clone()
-            .unwrap_or_else(|| crate::canonical::value_text(r))
-    })
+    out.result
+        .as_ref()
+        .map(|r| crate::canonical::text(r.get().as_bytes()).unwrap_or_else(|| r.get().to_owned()))
 }
 fn created_at(called_at_ms: i64) -> String {
     DateTime::<Utc>::from_timestamp_millis(called_at_ms)
@@ -209,8 +207,29 @@ fn created_at(called_at_ms: i64) -> String {
         .unwrap_or_default()
 }
 
+/// The call view. `result` is the stored result exactly as received.
+#[derive(Debug, Serialize)]
+pub struct CallView {
+    call_id: String,
+    address: String,
+    peer_host_id: String,
+    operation: String,
+    submit_state: String,
+    state: String,
+    error: Option<String>,
+    created_at: String,
+    deadline: String,
+    result: Option<Box<RawValue>>,
+    result_part: Option<String>,
+    truncated: bool,
+    result_bytes: Option<usize>,
+    offset: usize,
+    next_offset: Option<usize>,
+    note: Option<&'static str>,
+}
+
 /// The call view from byte `offset` of the result text.
-fn view(out: &OutboundCall, called_at_ms: i64, offset: usize) -> Result<Value, Error> {
+fn view(out: &OutboundCall, called_at_ms: i64, offset: usize) -> Result<CallView, Error> {
     let state = view_state(out);
     let text = result_text(out);
     let size = text.as_ref().map_or(0, String::len);
@@ -219,17 +238,17 @@ fn view(out: &OutboundCall, called_at_ms: i64, offset: usize) -> Result<Value, E
             "offset is past the result or inside a character".into(),
         ));
     }
-    let (mut result, mut part, mut truncated, mut next) = (Value::Null, Value::Null, false, None);
+    let (mut result, mut part, mut truncated, mut next) = (None, None, false, None);
     if let Some(text) = &text {
         if size <= PART && offset == 0 {
-            result = out.result.clone().unwrap_or(Value::Null);
+            result = out.result.clone();
         } else {
             truncated = true;
             let mut end = (offset + PART).min(size);
             while !text.is_char_boundary(end) {
                 end -= 1;
             }
-            part = Value::String(text[offset..end].to_owned());
+            part = Some(text[offset..end].to_owned());
             if end < size {
                 next = Some(end);
             }
@@ -242,24 +261,24 @@ fn view(out: &OutboundCall, called_at_ms: i64, offset: usize) -> Result<Value, E
         "succeeded" | "failed" if truncated => Some(NOTE_PARTS),
         _ => None,
     };
-    Ok(json!({
-        "call_id": out.request.call_id,
-        "address": out.target,
-        "peer_host_id": out.peer_host_id,
-        "operation": out.request.operation,
-        "submit_state": out.submit_state,
-        "state": state,
-        "error": view_error(out),
-        "created_at": created_at(called_at_ms),
-        "deadline": out.request.deadline,
-        "result": result,
-        "result_part": part,
-        "truncated": truncated,
-        "result_bytes": text.as_ref().map(String::len),
-        "offset": offset,
-        "next_offset": next,
-        "note": note,
-    }))
+    Ok(CallView {
+        call_id: out.request.call_id.clone(),
+        address: out.target.clone(),
+        peer_host_id: out.peer_host_id.clone(),
+        operation: out.request.operation.clone(),
+        submit_state: out.submit_state.clone(),
+        state,
+        error: view_error(out),
+        created_at: created_at(called_at_ms),
+        deadline: out.request.deadline.clone(),
+        result,
+        result_part: part,
+        truncated,
+        result_bytes: text.as_ref().map(String::len),
+        offset,
+        next_offset: next,
+        note,
+    })
 }
 
 /// One of this agent's calls: its peer, and when it was persisted.
@@ -305,7 +324,7 @@ fn seen_view(
     out: &OutboundCall,
     called_at_ms: i64,
     offset: usize,
-) -> Result<Value, Error> {
+) -> Result<CallView, Error> {
     let value = view(out, called_at_ms, offset)?;
     if out.finished() {
         let at = now();
@@ -379,7 +398,7 @@ struct AgentCall {
 /// What a submission found before resolving: an existing call, or the
 /// credential and session to make a new one with.
 enum Prior {
-    Existing(Value),
+    Existing(Box<CallView>),
     New(Box<(Adapter, Session)>),
 }
 
@@ -392,7 +411,7 @@ impl Store {
         let verified = crate::adapter_connection::verified_authority(&tx, auth).is_ok();
         if let Some(existing) = repeat(&tx, &ss, verified.then_some(&a), r)? {
             tx.commit()?;
-            return Ok(Prior::Existing(existing));
+            return Ok(Prior::Existing(Box::new(existing)));
         }
         rate_check(&tx, &a)?;
         Ok(Prior::New(Box::new((a, ss))))
@@ -406,7 +425,7 @@ impl Store {
         r: &AgentCall,
         out: &OutboundCall,
         deadline: Instant,
-    ) -> Result<Result<OutboundCall, Value>, Error> {
+    ) -> Result<Result<OutboundCall, CallView>, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         if let Some(existing) = repeat(&tx, ss, None, r)? {
@@ -458,7 +477,7 @@ impl Store {
         ss: &Session,
         peer: &str,
         id: &str,
-    ) -> Result<Value, Error> {
+    ) -> Result<CallView, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let verified = crate::adapter_connection::verified_authority(&tx, auth)
@@ -476,7 +495,7 @@ impl Store {
         auth: &AdapterAuth,
         id: &str,
         offset: usize,
-    ) -> Result<Value, Error> {
+    ) -> Result<CallView, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let (a, ss) = calls_authority(&tx, auth)?;
@@ -612,7 +631,7 @@ fn repeat(
     ss: &Session,
     verified: Option<&Adapter>,
     r: &AgentCall,
-) -> Result<Option<Value>, Error> {
+) -> Result<Option<CallView>, Error> {
     let Ok((peer, called)) = agent_call(tx, &ss.agent_id, &r.call_id) else {
         return Ok(None);
     };
@@ -665,7 +684,7 @@ fn timeout() -> Error {
 }
 
 /// `POST /adapter/v1/calls`.
-async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Value, Error> {
+async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<CallView, Error> {
     let received = Instant::now();
     // 1. Shape.
     if !call_id_shape(&r.call_id)
@@ -683,7 +702,7 @@ async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Va
     let (request, a) = (r.clone(), auth.clone());
     let (adapter, session) =
         match blocking(store.clone(), move |s| s.agent_call_prior(&a, &request)).await? {
-            Prior::Existing(view) => return Ok(view),
+            Prior::Existing(view) => return Ok(*view),
             Prior::New(found) => *found,
         };
     // 4. Address.
@@ -773,7 +792,6 @@ async fn prepare(
         network_id: Some(network_id),
         target: r.address.clone(),
         adapter_id: Some(adapter.id.clone()),
-        result_text: None,
     })
 }
 
@@ -913,7 +931,7 @@ async fn create_route(
     State(store): State<Arc<Store>>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<CallView>, Error> {
     let auth = token(&headers);
     // The credential is checked before the body.
     let a = auth.clone();
@@ -934,7 +952,7 @@ async fn status_route(
     Path(id): Path<String>,
     headers: HeaderMap,
     query: Result<Query<OffsetQuery>, axum::extract::rejection::QueryRejection>,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<CallView>, Error> {
     let auth = token(&headers);
     let offset = match query.ok().and_then(|Query(q)| q.offset) {
         None => Some(0),
@@ -957,7 +975,7 @@ async fn cancel_route(
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
-) -> Result<Json<Value>, Error> {
+) -> Result<Json<CallView>, Error> {
     let auth = token(&headers);
     let (a, i) = (auth.clone(), id.clone());
     let (peer, called) = blocking(store.clone(), move |s| s.agent_call_scope(&a, &i)).await?;

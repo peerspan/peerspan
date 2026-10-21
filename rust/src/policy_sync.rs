@@ -102,29 +102,11 @@ pub(crate) fn backoff(attempts: u32, jitter: f64) -> TimeDelta {
 }
 
 /// A stored delivery row: the status fields plus the policy it carries.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct DeliveryRecord {
     #[serde(flatten)]
     delivery: PolicyDelivery,
     policy: Policy,
-}
-/// Read in two passes, because a flattened struct cannot read numbers that
-/// keep their text (`arbitrary_precision`).
-impl<'de> Deserialize<'de> for DeliveryRecord {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        use serde::de::Error as _;
-        #[derive(Deserialize)]
-        struct Carried {
-            policy: Policy,
-        }
-        let value = serde_json::Value::deserialize(d)?;
-        let delivery = PolicyDelivery::deserialize(&value).map_err(D::Error::custom)?;
-        let carried = Carried::deserialize(&value).map_err(D::Error::custom)?;
-        Ok(DeliveryRecord {
-            delivery,
-            policy: carried.policy,
-        })
-    }
 }
 impl DeliveryRecord {
     fn pending(target: &str, policy: &Policy, at: &str) -> Self {

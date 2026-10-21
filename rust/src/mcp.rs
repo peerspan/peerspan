@@ -48,7 +48,9 @@ pub struct Launch {
 /// A server's answer to one request.
 #[derive(Debug)]
 pub enum Reply {
-    Result(Value),
+    /// The result, and its canonical text with numbers as the server wrote
+    /// them.
+    Result(Value, String),
     Error {
         code: i64,
         message: String,
@@ -241,7 +243,11 @@ impl Client {
                             let result = message.get("result").cloned().unwrap_or(Value::Null);
                             match serde_json::to_vec(&result) {
                                 Ok(encoded) if encoded.len() > MAX_RESULT => Reply::TooLarge,
-                                _ => Reply::Result(result),
+                                _ => {
+                                    let text = crate::canonical::member_text(&bytes, "result")
+                                        .unwrap_or_else(|| crate::canonical::value_text(&result));
+                                    Reply::Result(result, text)
+                                }
                             }
                         };
                         (id, reply)
@@ -328,7 +334,7 @@ impl Client {
             "clientInfo": {"name": "peerspan", "version": env!("CARGO_PKG_VERSION")},
         });
         let result = match self.request("initialize", params).await? {
-            Reply::Result(result) => result,
+            Reply::Result(result, _) => result,
             Reply::Error { code, message } => {
                 anyhow::bail!("initialize failed: {code} {message}")
             }
@@ -405,7 +411,7 @@ pub async fn list(
             None => json!({}),
         };
         let result = match client.request(method, params).await? {
-            Reply::Result(result) => result,
+            Reply::Result(result, _) => result,
             Reply::Error { code, message } => anyhow::bail!("{method} failed: {code} {message}"),
             Reply::TooLarge => anyhow::bail!("{method} returned more than 1 MiB"),
         };

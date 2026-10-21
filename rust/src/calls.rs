@@ -186,7 +186,7 @@ pub struct CallStatus {
 }
 /// `received_calls.record`: the status, the result, and what the receiver
 /// keeps for itself.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Stored {
     #[serde(flatten)]
     status: CallStatus,
@@ -200,38 +200,10 @@ struct Stored {
     accepted_ms: i64,
     #[serde(default)]
     finished_ms: Option<i64>,
-}
-/// `Stored` without its status. Records are read in two passes, because a
-/// flattened struct cannot read numbers that keep their text
-/// (`arbitrary_precision`).
-#[derive(Deserialize)]
-struct StoredRest {
-    #[serde(default)]
-    result: Option<Value>,
-    input_sha256: String,
-    #[serde(default)]
-    budget: Option<String>,
-    caller: String,
-    accepted_ms: i64,
-    #[serde(default)]
-    finished_ms: Option<i64>,
-}
-impl<'de> Deserialize<'de> for Stored {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        use serde::de::Error as _;
-        let value = Value::deserialize(d)?;
-        let status = CallStatus::deserialize(&value).map_err(D::Error::custom)?;
-        let rest = StoredRest::deserialize(&value).map_err(D::Error::custom)?;
-        Ok(Stored {
-            status,
-            result: rest.result,
-            input_sha256: rest.input_sha256,
-            budget: rest.budget,
-            caller: rest.caller,
-            accepted_ms: rest.accepted_ms,
-            finished_ms: rest.finished_ms,
-        })
-    }
+    /// The result's canonical text, numbers as the server wrote them; what
+    /// the status route sends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    result_text: Option<String>,
 }
 /// A status record, with its result once final.
 #[derive(Serialize)]
@@ -239,11 +211,19 @@ pub struct CallView {
     #[serde(flatten)]
     pub status: CallStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
+    pub result: Option<Box<serde_json::value::RawValue>>,
 }
 fn view(s: Stored, with_result: bool) -> CallView {
-    let result =
-        (with_result && is_final(&s.status.state)).then(|| s.result.unwrap_or(Value::Null));
+    let result = (with_result && is_final(&s.status.state)).then(|| {
+        let text = match (&s.result_text, &s.result) {
+            (Some(text), Some(_)) => text.clone(),
+            (_, Some(value)) => value.to_string(),
+            (_, None) => "null".to_owned(),
+        };
+        serde_json::value::RawValue::from_string(text).unwrap_or_else(|_| {
+            serde_json::value::RawValue::from_string("null".into()).expect("null is JSON")
+        })
+    });
     CallView {
         status: s.status,
         result,
@@ -278,15 +258,15 @@ fn finish(
     s: &mut Stored,
     state: &str,
     error: Option<&str>,
-    result: Option<Value>,
+    result: Option<Payload>,
 ) -> Result<(), Error> {
     let at = Utc::now();
     s.status.state = state.into();
     s.status.error = error.map(str::to_owned);
-    s.status.result_bytes = result
-        .as_ref()
-        .map(|r| serde_json::to_vec(r).map(|v| v.len() as i64).unwrap_or(0));
-    s.result = result;
+    s.status.result_bytes = result.as_ref().map(|(_, text)| text.len() as i64);
+    let (value, text) = result.unzip();
+    s.result = value;
+    s.result_text = text;
     s.status.finished_at = Some(rfc3339(at));
     s.finished_ms = Some(at.timestamp_millis());
     save(tx, sender, s)?;
@@ -780,6 +760,7 @@ impl Store {
             caller: authorized.caller,
             accepted_ms: at.timestamp_millis(),
             finished_ms: None,
+            result_text: None,
         };
         tx.execute(
             "INSERT INTO received_calls VALUES (?1, ?2, ?3, ?4)",
@@ -1146,7 +1127,7 @@ impl Store {
         id: &str,
         state: &str,
         error: Option<&str>,
-        result: Option<Value>,
+        result: Option<Payload>,
     ) -> Result<bool, Error> {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -1204,6 +1185,7 @@ impl Store {
                 object.remove("input");
             }
             s.result = None;
+            s.result_text = None;
             tx.execute(
                 "UPDATE received_calls SET request = ?1, record = ?2 WHERE sender = ?3 AND call_id = ?4",
                 params![request.to_string(), serde_json::to_string(&s)?, sender, s.status.call_id],
@@ -1342,10 +1324,12 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     })
     .await;
 }
+/// A result and its canonical text.
+type Payload = (Value, String);
 type Outcome = (
     Option<&'static str>,
     Option<&'static str>,
-    Option<Value>,
+    Option<Payload>,
     Option<String>,
 );
 /// Sends the call and waits for whichever comes first: the response, the
@@ -1370,16 +1354,18 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify) -> Outcome {
     let wait = (deadline - Utc::now()).to_std().unwrap_or(Duration::ZERO);
     tokio::select! {
         reply = rx => match reply {
-            Ok(Reply::Result(result)) => {
+            Ok(Reply::Result(result, text)) => {
                 if tool && result.get("isError") == Some(&json!(true)) {
-                    (Some("failed"), Some("tool_error"), Some(result), None)
+                    (Some("failed"), Some("tool_error"), Some((result, text)), None)
                 } else {
-                    (Some("succeeded"), None, Some(result), None)
+                    (Some("succeeded"), None, Some((result, text)), None)
                 }
             }
             Ok(Reply::Error { code, message }) => {
                 let auth = crate::sources::auth_like(&message).then(|| message.clone());
-                (Some("failed"), Some("jsonrpc_error"), Some(json!({"code": code, "message": message})), auth)
+                let error = json!({"code": code, "message": message});
+                let text = crate::canonical::value_text(&error);
+                (Some("failed"), Some("jsonrpc_error"), Some((error, text)), auth)
             }
             Ok(Reply::TooLarge) => (Some("failed"), Some("result_too_large"), None, None),
             Err(_) => (Some("uncertain"), Some("server_exited"), None, None),

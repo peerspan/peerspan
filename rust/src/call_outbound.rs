@@ -28,6 +28,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
@@ -62,7 +63,9 @@ pub struct OutboundCall {
     /// `unknown`, `accepted`, or `rejected`.
     pub submit_state: String,
     pub status: Option<CallStatus>,
-    pub result: Option<Value>,
+    /// The result exactly as the receiver sent it, so numbers keep their
+    /// form.
+    pub result: Option<Box<RawValue>>,
     /// Null, or `unknown` until the receiver confirms, then `sent`.
     pub cancel_state: Option<String>,
     pub attempts: u32,
@@ -76,21 +79,13 @@ pub struct OutboundCall {
     /// The adapter credential that made the call, or null for owner calls.
     #[serde(default)]
     pub adapter_id: Option<String>,
-    /// The result's canonical text, from the received JSON so that numbers
-    /// keep their form. Stored in the record, never shown.
-    #[serde(default, skip_serializing)]
-    pub(crate) result_text: Option<String>,
 }
-/// A received result: the parsed value and its canonical text.
-type Received = Option<(Value, Option<String>)>;
+/// A received result, exactly as sent.
+type Received = Option<Box<RawValue>>;
 
-/// The stored form of an outbound record, with its hidden result text.
+/// The stored form of an outbound record.
 pub(crate) fn encode(out: &OutboundCall) -> Result<String, Error> {
-    let mut value = serde_json::to_value(out)?;
-    if let (Some(object), Some(text)) = (value.as_object_mut(), &out.result_text) {
-        object.insert("result_text".into(), Value::String(text.clone()));
-    }
-    Ok(value.to_string())
+    Ok(serde_json::to_string(out)?)
 }
 impl Attempted for OutboundCall {
     fn uncertain(&self) -> bool {
@@ -320,7 +315,7 @@ impl Store {
     pub fn outbound_call(&self, peer: &str, id: &str) -> Result<OutboundCall, Error> {
         stored(&*self.connection()?, peer, id)
     }
-    pub fn outbound_calls(&self, after: i64, limit: i64) -> Result<Vec<Value>, Error> {
+    pub fn outbound_calls(&self, after: i64, limit: i64) -> Result<Vec<Box<RawValue>>, Error> {
         if after < 0 || !(1..=1000).contains(&limit) {
             return Err(Error::Invalid("invalid page bounds".into()));
         }
@@ -337,8 +332,14 @@ impl Store {
         let mut bytes = 2;
         for (sequence, record) in rows {
             let call: OutboundCall = serde_json::from_str(&record)?;
-            let item = json!({"sequence": sequence, "call": call});
-            let size = item.to_string().len() + 1;
+            // Serialized directly, so the result keeps its numbers.
+            #[derive(Serialize)]
+            struct Item {
+                sequence: i64,
+                call: OutboundCall,
+            }
+            let item = serde_json::value::to_raw_value(&Item { sequence, call })?;
+            let size = item.get().len() + 1;
             if bytes + size > 900_000 {
                 break;
             }
@@ -403,7 +404,6 @@ impl Store {
         }
         if out.result.is_some() {
             current.result = out.result;
-            current.result_text = out.result_text;
         }
         save(&tx, &current)?;
         if changed {
@@ -434,12 +434,7 @@ impl Store {
         };
         let changed = out.status.as_ref().map(|s| &s.state) != Some(&status.state);
         if is_final(&status.state) {
-            let (value, text) = match result {
-                Some((value, text)) if !value.is_null() => (Some(value), text),
-                _ => (None, None),
-            };
-            out.result = value;
-            out.result_text = text;
+            out.result = result;
         }
         out.status = Some(status);
         if cancel_sent {
@@ -1120,7 +1115,6 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         network_id: Some(network_id),
         target: r.target,
         adapter_id: None,
-        result_text: None,
     };
     let out = blocking(store.clone(), move |s| s.prepare_call(out)).await?;
     let status_only = crate::retry::receipt_only(&out, Utc::now());
@@ -1222,13 +1216,21 @@ async fn fetch_status(
     {
         (200, body) => {
             let mut value: Value = serde_json::from_slice(&body)?;
-            let result = value.as_object_mut().and_then(|o| o.remove("result"));
+            if let Some(object) = value.as_object_mut() {
+                object.remove("result");
+            }
             let status: CallStatus = serde_json::from_value(value)?;
             if !valid_status(store, out, &status) {
                 anyhow::bail!("invalid peer call status");
             }
-            let text = crate::canonical::member_text(&body, "result");
-            Ok((status, result.map(|r| (r, text))))
+            // The result exactly as sent; a null result is none.
+            #[derive(Deserialize)]
+            struct WithResult {
+                #[serde(default)]
+                result: Option<Box<RawValue>>,
+            }
+            let result = serde_json::from_slice::<WithResult>(&body)?.result;
+            Ok((status, result))
         }
         (code, _) => anyhow::bail!("peer returned HTTP {code}"),
     }
@@ -1287,10 +1289,9 @@ pub(crate) async fn submit(
             out.submit_state = "accepted".into();
             if !is_final(&status.state) {
                 out.status = Some(status);
-            } else if let Some((result, text)) = result {
+            } else if let Some(result) = result {
                 // From a GET: the final status with its result.
-                out.result_text = text.filter(|_| !result.is_null());
-                out.result = Some(result).filter(|r| !r.is_null());
+                out.result = Some(result);
                 out.status = Some(status);
             }
             // A final status without the GET's result stays unset, so
@@ -1393,7 +1394,7 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
 async fn list_route(
     State(store): State<Arc<Store>>,
     query: Result<Query<Page>, QueryRejection>,
-) -> Result<Json<Vec<Value>>, Error> {
+) -> Result<Json<Vec<Box<RawValue>>>, Error> {
     let Query(p) = query.map_err(|_| Error::Invalid("invalid page bounds".into()))?;
     Ok(Json(
         blocking(store, move |s| {

@@ -245,6 +245,19 @@ pub fn member_text(body: &[u8], key: &str) -> Option<String> {
     Some(out)
 }
 
+/// The canonical text of a JSON text, keeping its numbers as written.
+pub fn text(body: &[u8]) -> Option<String> {
+    let mut parser = Parser { text: body, at: 0 };
+    let value = parser.value(0)?;
+    parser.space();
+    if parser.at != body.len() {
+        return None;
+    }
+    let mut out = String::new();
+    write(&value, &mut out);
+    Some(out)
+}
+
 /// The canonical text of a parsed value, for a result stored without its
 /// received text.
 pub fn value_text(value: &Value) -> String {
