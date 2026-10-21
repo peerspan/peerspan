@@ -590,7 +590,7 @@ The setting belongs to the adapter credential, as `directory` does.
   - `--calls` and `--no-calls` together, `--max-calls-per-hour` with `--no-calls`, or a value outside 1 to 10,000, are refused with exit 1 before anything changes. When the prompt is declined, `--max-calls-per-hour` is not used.
   - Setup sends `calls` and, when enabled, `max_calls_per_hour` (default 100).
   - Its output gains `calls` and `max_calls_per_hour`, as on the adapter record.
-  - **Re-attaching.** When `attach` reuses a never-connected credential (`reused: true`), the stored setting stands. A `--calls`, `--no-calls`, or `--max-calls-per-hour` that differs from it is refused with exit 1 before anything changes, naming the stored `calls` and `max_calls_per_hour`; a matching flag is accepted. When `attach` replaces the credential with a new setup, the old setting is not carried over: the flags or the prompt decide again, as for a first attach. Re-attaching with none of the three flags asks nothing and keeps the stored setting. Without a terminal and without `--calls`, the answer is no and `--max-calls-per-hour` is not used, as when the prompt is declined.
+  - **Re-attaching.** When `attach` reuses a never-connected credential (`reused: true`), the stored setting stands. A `--calls`, `--no-calls`, or `--max-calls-per-hour` that differs from it is refused with exit 1 before anything changes, naming the stored `calls` and `max_calls_per_hour`; a matching flag is accepted. When `attach` replaces the credential with a new setup, the old setting is not carried over: the flags or the prompt decide again, as for a first attach. Re-attaching with none of the three flags asks nothing and keeps the stored setting. These re-attach rules hold with or without a terminal. On a first attach or a replacement, without a terminal and without `--calls` or `--no-calls`, the answer is no and `--max-calls-per-hour` is not used, as when the prompt is declined.
 
 ### Agent origin and agent principals
 
@@ -760,7 +760,7 @@ PRAGMA user_version = 18;
   - a result of exactly 65,536 bytes inline, and one byte more in parts;
   - paging with `offset` until `next_offset` is null, the parts concatenating to the result text, a multi-byte character at a part boundary, and a bad `offset` refused;
   - `result_too_large` as `failed`.
-  - a result with unsorted keys, escapes, control characters, and non-ASCII text giving the same `result_bytes` and parts from Go and Rust daemons;
+  - a result with unsorted keys, escapes, control characters, non-ASCII text, and number spellings a JSON encoder would normally rewrite (`-0`, `1.50`, `1e+00`, `1E2`, `100000000000000000000000`) giving the same `result_bytes` and parts from Go and Rust daemons, with each number spelled as the receiver sent it;
   - a non-zero `offset` before there is a result refused with 400.
 - **Call updates and pending work:**
   - `mark_seen` and `call_status` marking a notification seen;
