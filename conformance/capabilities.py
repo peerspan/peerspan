@@ -3669,7 +3669,7 @@ def main():
     parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1), whose '
                         'state the version 17 to 18 migration opens; without it, version 17 state is simulated')
     args = parser.parse_args()
-    if not args.skip_agents and not args.node:
+    if not args.skip_agents and not args.vector_only and not args.node:
         parser.error('--node is required for the agent tool cases (or pass --skip-agents)')
     if args.skip_agents and args.agents_only:
         parser.error('--skip-agents and --agents-only exclude each other')

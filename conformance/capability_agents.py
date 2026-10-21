@@ -158,6 +158,23 @@ def check_view(view, rule='a call view'):
 CANON_TEXT = 'q"b\\s/\x01\b\t\n\x0c\r\x1f\x7f é€😀 '
 
 
+class RawNumber(str):
+    """A number token, emitted exactly as spelled."""
+
+
+# The spellings the fixture's canon tool sends (contract: numbers exactly as the receiver sent them).
+CANON_NUMBERS = ['-0', '1.50', '1e+00', '1E2', '100000000000000000000000']
+
+
+def canon_expected(repeat):
+    """The canon tool's result (fixtures/mcp/server.py, canon_result), with its number tokens as sent."""
+    n = RawNumber
+    return {'structuredContent': {'zeta': n('1'), 'numbers': [n(x) for x in CANON_NUMBERS], 'Émile': n('1.5'),
+                                  'alpha': {'b': n('-2'), 'a': [n('3'), CANON_TEXT, None, True]},
+                                  'Zed': 'Z', 'beta': '\u2028\u2029'},
+            'content': [{'text': CANON_TEXT * repeat, 'type': 'text'}]}
+
+
 def canonical(value):
     """The contract's result text encoding: no whitespace, keys sorted by UTF-8 bytes (code point order), raw
     UTF-8, escaping only \" and \\, \b \t \n \f \r, and other characters below U+0020 as \\u00xx (lowercase).
@@ -167,6 +184,8 @@ def canonical(value):
         return '{' + ','.join(canonical(k) + ':' + canonical(v) for k, v in items) + '}'
     if isinstance(value, list):
         return '[' + ','.join(canonical(v) for v in value) + ']'
+    if isinstance(value, RawNumber):
+        return str(value)
     if isinstance(value, str):
         out = []
         for ch in value:
@@ -652,7 +671,7 @@ class AgentPairing:
 
         # Sources: srv/fx on p1 (open to p2), srv4/fx on p4, sagent/fx on s1 (open to s2).
         self.register('p1', 'srv', 'pat')
-        self.put_servers('p1', 'srv', {'fx': self.fixture.args('fx')})
+        self.put_servers('p1', 'srv', {'fx': self.fixture.args('fx') + ['canon=1']})
         self.register('p4', 'srv4', 'pat')
         self.put_servers('p4', 'srv4', {'fx': self.fixture.args('fx4')})
         self.register('s1', 'sagent', 'ops/sam')
@@ -1431,18 +1450,20 @@ class AgentPairing:
 
         # The canonical result text: sorted keys, raw UTF-8, the specified escapes; the same result_bytes and parts
         # from Go and Rust daemons, so it is compared with this suite's own encoding of the parsed result.
-        for repeat in (1, 3000):
+        for repeat in (3000, 1):  # in parts first, where the text itself is seen
             view, _ = self.ok_call('qa', 'pat/tools', 'canon', {'repeat': repeat})
             need(view['state'] == 'succeeded', 'the canon call succeeds', {k: view[k] for k in ('state', 'error')})
+            expected = canonical(canon_expected(repeat))
             if view['truncated']:
                 text = self.page('qa', view)
-                expected = canonical(json.loads(text))
-            else:
-                expected = text = canonical(view['result'])
-            need(text == expected and view['result_bytes'] == len(expected.encode()),
-                 'the result text is the canonical encoding (sorted keys, raw UTF-8, only the specified escapes)',
-                 repeat, view['result_bytes'], len(expected.encode()), first_difference(text, expected))
-            need(json.loads(text)['content'][0]['text'] == CANON_TEXT * repeat, 'the result is the server\'s')
+                numbers = re.search(r'"numbers":\[[^\]]*\]', text)
+                need(numbers and numbers.group(0) == '"numbers":[' + ','.join(CANON_NUMBERS) + ']',
+                     'each number is spelled exactly as the receiver sent it',
+                     numbers.group(0).encode() if numbers else text[:300].encode())
+                need(text == expected, 'the result text is the canonical encoding (sorted keys, raw UTF-8, only the '
+                     'specified escapes, numbers as sent)', first_difference(text, expected))
+            need(view['result_bytes'] == len(expected.encode()), 'result_bytes of the canonical encoding', repeat,
+                 view['result_bytes'], len(expected.encode()))
         notes.append('canonical result text matches')
 
         # A non-zero offset before there is a result is 400.

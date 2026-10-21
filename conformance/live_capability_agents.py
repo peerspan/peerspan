@@ -255,6 +255,8 @@ class Run:
             'after_unshare_nothing_executed_on_bob': len(self.received()) == before,
             'after_unshare_answer_says_unreachable': bool(UNREACHABLE.search(answer)),
         })
+        report['checks']['harness_exited_0'] = report['first']['exit'] == 0
+        report['checks']['after_unshare_harness_exited_0'] = code == 0
         report['passed'] = all(v is not False for v in report['checks'].values())
         print(json.dumps({'harness': harness, 'checks': report['checks']}), flush=True)
         return report

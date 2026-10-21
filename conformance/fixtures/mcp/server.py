@@ -15,6 +15,7 @@ Options (each also accepted as NAME=VALUE, such as `log=PATH`):
   --label NAME      adds a read-only tool `from_NAME`, so a snapshot shows which definition ran; repeatable
   --page-size N     paginate tools/list and resources/list with `nextCursor`, N entries per page
   --generate N      adds N generated read-only tools `gen_0000` ... (for pagination)
+  --canon 1         adds the read-only tool `canon` (left out by default, so other suites' tool counts stand)
 
 Control keys (all optional):
   exit_on_start     exit with status 3 before reading anything (a start failure)
@@ -42,7 +43,7 @@ Tools (`readOnlyHint` true unless noted):
   write_note {text}           readOnlyHint false: a write tool
   purge {}                    no annotations at all: not read-only
   read {text?}                a tool literally named `read` (reserved as an operation name by the contract)
-  canon {repeat?}              a result with unsorted keys, escapes, control characters, and non-ASCII text, its
+  canon {repeat?}              (only with --canon 1) a result with unsorted keys, escapes, control characters, and non-ASCII text, its
                               text repeated `repeat` times (for the canonical result text)
   typed {text, count, ratio, flag, obj, list}   returns its arguments as JSON (scalar and non-scalar properties)
   flags {input, deadline, wait, network, text}  returns its arguments as JSON (properties named like call's flags)
@@ -68,13 +69,15 @@ RESOURCES = [
 
 
 def parse(argv):
-    options = {'log': os.environ.get('FIXTURE_LOG'), 'control': None, 'labels': [], 'page_size': 0, 'generate': 0}
+    options = {'log': os.environ.get('FIXTURE_LOG'), 'control': None, 'labels': [], 'page_size': 0, 'generate': 0,
+               'canon': False}
     # Each option is also accepted as NAME=VALUE (log=PATH, label=NAME, ...), so that a profile's `--arg`
     # values never have to start with a hyphen.
     expanded = []
     for item in argv:
         name, equals, value = item.partition('=')
-        if equals and not item.startswith('-') and name in ('log', 'control', 'label', 'page-size', 'generate'):
+        if equals and not item.startswith('-') and name in ('log', 'control', 'label', 'page-size', 'generate',
+                                                                'canon'):
             expanded += ['--' + name, value]
         else:
             expanded.append(item)
@@ -93,6 +96,8 @@ def parse(argv):
             options['page_size'] = int(value)
         elif flag == '--generate':
             options['generate'] = int(value)
+        elif flag == '--canon':
+            options['canon'] = value not in ('0', '', None)
         else:
             sys.stderr.write(f'fixture: unknown argument {flag!r}\n')
             i += 1
@@ -175,8 +180,6 @@ def tools():
         tool('purge', 'Deletes every note; no annotations' + padding, annotate=False),
         # A tool literally named `read`, which the capabilities contract reserves as an operation name.
         tool('read', 'A tool named read' + padding, {'text': {'type': 'string'}}),
-        tool('canon', 'Returns a result with unsorted keys, escapes, and non-ASCII text' + padding,
-             {'repeat': {'type': 'integer'}}),
         tool('typed', 'Returns its arguments; scalar and object properties' + padding,
              {'text': {'type': 'string'}, 'count': {'type': 'integer'}, 'ratio': {'type': 'number'},
               'flag': {'type': 'boolean'}, 'obj': {'type': 'object'}, 'list': {'type': 'array'}}),
@@ -184,6 +187,9 @@ def tools():
              {'input': {'type': 'string'}, 'deadline': {'type': 'string'}, 'wait': {'type': 'string'},
               'network': {'type': 'string'}, 'text': {'type': 'string'}}),
     ]
+    if OPTIONS['canon']:
+        entries.append(tool('canon', 'Returns a result with unsorted keys, escapes, and non-ASCII text' + padding,
+                            {'repeat': {'type': 'integer'}}))
     entries += [tool(f'from_{label}', f'Present when started with --label {label}' + padding)
                 for label in OPTIONS['labels']]
     entries += [tool(f'gen_{n:04d}', f'Generated tool {n}' + padding) for n in range(c.get('generate') or OPTIONS['generate'])]
@@ -220,10 +226,21 @@ def text_result(text, is_error=False):
 CANON_TEXT = 'q"b\\s/\x01\b\t\n\x0c\r\x1f\x7f é€😀 '
 
 
+# Number spellings a JSON encoder would normally rewrite; sent exactly so (contract: numbers exactly as sent).
+CANON_NUMBERS = '[-0,1.50,1e+00,1E2,100000000000000000000000]'
+NUMBERS_SENTINEL = '__canon_numbers__'
+
+
+def send_raw(text):
+    with WRITE:
+        sys.stdout.buffer.write((text + '\n').encode('utf-8'))
+        sys.stdout.flush()
+
+
 def canon_result(repeat):
     """Keys deliberately out of order (insertion order is kept on the wire), strings needing every escape class,
-    U+007F (not escaped), and 2-, 3-, and 4-byte characters; integers and a short decimal only."""
-    return {'structuredContent': {'zeta': 1, 'Émile': 1.5, 'alpha': {'b': -2, 'a': [3, CANON_TEXT, None, True]},
+    U+007F (not escaped), 2-, 3-, and 4-byte characters, and `numbers`, the spellings in CANON_NUMBERS."""
+    return {'structuredContent': {'zeta': 1, 'numbers': NUMBERS_SENTINEL, 'Émile': 1.5, 'alpha': {'b': -2, 'a': [3, CANON_TEXT, None, True]},
                                   'Zed': 'Z', 'beta': '\u2028\u2029'},
             'content': [{'text': CANON_TEXT * repeat, 'type': 'text'}]}
 
@@ -268,8 +285,13 @@ def execute(request_id, name, arguments, cancelled):
             os._exit(7)
         elif name == 'write_note':
             reply = text_result('noted ' + str(arguments.get('text', '')))
-        elif name == 'canon':
-            reply = canon_result(int(arguments.get('repeat', 1)))
+        elif name == 'canon' and OPTIONS['canon']:
+            # Sent as raw text, so that the number spellings reach the daemon unchanged.
+            log('done', id=request_id, name=name, outcome='result')
+            response = {'jsonrpc': '2.0', 'id': request_id, 'result': canon_result(int(arguments.get('repeat', 1)))}
+            text = json.dumps(response, separators=(',', ':'), ensure_ascii=False)
+            send_raw(text.replace(json.dumps(NUMBERS_SENTINEL), CANON_NUMBERS))
+            return
         elif name in ('typed', 'flags'):
             reply = text_result(json.dumps(arguments, sort_keys=True))
         elif name == 'read':

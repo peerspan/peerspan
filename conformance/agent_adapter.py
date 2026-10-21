@@ -294,7 +294,12 @@ def check(sender_binary, receiver_binary, node, script, label):
             assert sender.cli('message', 'reply', '--peer', b['id'], rid)['state'] == 'pending'
             channel = Channel(node, script, receiver, secret, root)
             tools = channel.call('tools/list', {})['tools']
-            assert [tool['name'] for tool in tools] == ['peerspan_ready', 'mark_seen', 'pending_work', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save']
+            # The four capability tools (capabilities contract, Agent tools: MCP tools) are always listed. The contract
+            # gives no position among the others, so they are checked in their own (table) order.
+            names = [tool['name'] for tool in tools]
+            capability_tools = ['list_capabilities', 'call_capability', 'call_status', 'call_cancel']
+            assert [n for n in names if n not in capability_tools] == ['peerspan_ready', 'mark_seen', 'pending_work', 'list_destinations', 'list_agents', 'send', 'send_status', 'reply', 'task_accept', 'task_reject', 'task_progress', 'task_complete', 'task_cancelled', 'delegate_task', 'task_status', 'artifact_save'], names
+            assert [n for n in names if n in capability_tools] == capability_tools, names
             event = channel.notification()
             assert event['content'] == first['request']['content']
             assert event['meta']['request_id'] == rid
