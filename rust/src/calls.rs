@@ -186,7 +186,7 @@ pub struct CallStatus {
 }
 /// `received_calls.record`: the status, the result, and what the receiver
 /// keeps for itself.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 struct Stored {
     #[serde(flatten)]
     status: CallStatus,
@@ -200,6 +200,38 @@ struct Stored {
     accepted_ms: i64,
     #[serde(default)]
     finished_ms: Option<i64>,
+}
+/// `Stored` without its status. Records are read in two passes, because a
+/// flattened struct cannot read numbers that keep their text
+/// (`arbitrary_precision`).
+#[derive(Deserialize)]
+struct StoredRest {
+    #[serde(default)]
+    result: Option<Value>,
+    input_sha256: String,
+    #[serde(default)]
+    budget: Option<String>,
+    caller: String,
+    accepted_ms: i64,
+    #[serde(default)]
+    finished_ms: Option<i64>,
+}
+impl<'de> Deserialize<'de> for Stored {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        let value = Value::deserialize(d)?;
+        let status = CallStatus::deserialize(&value).map_err(D::Error::custom)?;
+        let rest = StoredRest::deserialize(&value).map_err(D::Error::custom)?;
+        Ok(Stored {
+            status,
+            result: rest.result,
+            input_sha256: rest.input_sha256,
+            budget: rest.budget,
+            caller: rest.caller,
+            accepted_ms: rest.accepted_ms,
+            finished_ms: rest.finished_ms,
+        })
+    }
 }
 /// A status record, with its result once final.
 #[derive(Serialize)]

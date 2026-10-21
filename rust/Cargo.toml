@@ -29,7 +29,7 @@ x509-parser = "0.18"
 time = "0.3"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha2 = "0.10"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "time", "sync", "process"] }
