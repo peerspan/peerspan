@@ -141,9 +141,9 @@ export async function proxyTool(socket, callerSession, name, args) {
       : name === 'call_capability' && objectArgs
         ? { ...args, call_id: callId }
         : args;
-  // call_capability may wait for submission (30 s), then up to 60 s for the
-  // result; list_capabilities may return up to 16 MiB.
-  const timeout = name === 'call_capability' ? 120000 : 40000;
+  // The host may hold call_capability for up to 50 s; list_capabilities may
+  // return up to 16 MiB.
+  const timeout = name === 'call_capability' ? 60000 : 40000;
   const limit = name === 'list_capabilities' ? 67108864 : 1048576;
   try {
     return await new Promise((resolve, reject) => {
