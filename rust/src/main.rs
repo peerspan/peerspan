@@ -6,6 +6,7 @@ mod cli;
 mod discovery;
 mod integration;
 mod service;
+mod up;
 
 use anyhow::{Context, bail};
 use bytes::Bytes;
@@ -69,6 +70,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     };
     if let cli::Command::Help { topic } = &command {
         return help(topic);
+    }
+    if let cli::Command::Up(args) = command {
+        return up::run(args, cli.state).await;
     }
     // The top-level invite and join are network invite and network join.
     let mut top_invite = false;

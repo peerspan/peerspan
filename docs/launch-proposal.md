@@ -2,7 +2,7 @@
 
 Status: implemented; decisions settled with the owner on 2026-10-08 (see [Decisions](#decisions)). This is roadmap milestone 7. It builds on person identity and owner policy (milestone 2b), direct policy propagation (2c), tasks (milestone 6), and the release bundle and [quick start](quick-start.md), which it replaced as the user path in slice 5.
 
-The next setup milestone is proposed in [Guided setup: `peerspan up`](guided-setup-proposal.md), with a [baseline of the current installed-bundle path](setup-baseline.md). The guided command and approved machine linking are not implemented yet.
+The next setup milestone is implemented in [Guided setup: `peerspan up`](guided-setup-proposal.md), with a [baseline of the previous installed-bundle path](setup-baseline.md). Approved machine linking remains a later milestone.
 
 ## Problem
 

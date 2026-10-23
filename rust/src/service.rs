@@ -394,6 +394,65 @@ pub(crate) async fn install(
     }))
 }
 
+/// Guided setup preserves an installed unit and its executable, including when
+/// the CLI and daemon implementations differ. Only a new service is installed.
+pub(crate) async fn ensure_up(directory: &Path) -> anyhow::Result<(Value, bool)> {
+    let manager = Manager::find().context("no supported service manager")?;
+    let unit = manager.unit()?;
+    let state = absolute(directory)?;
+    let text = match fs::read_to_string(&unit) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let value = install(&state, None, false).await?;
+            if value["started"] != true {
+                bail!("service did not start; run peerspan status and inspect the user service")
+            }
+            return Ok((value, false));
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let args = unit_arguments(manager, &text);
+    let installed = args
+        .iter()
+        .position(|a| a == "--state")
+        .and_then(|i| args.get(i + 1));
+    if installed
+        .map(Path::new)
+        .map(absolute)
+        .transpose()?
+        .as_deref()
+        != Some(&state)
+    {
+        bail!(
+            "service {} uses different state; use its --state or manage it with peerspan install before up",
+            unit.display()
+        )
+    }
+    let running = active(manager);
+    if listening(&state).await && !running {
+        bail!("a daemon is running outside the service; stop it first")
+    }
+    if !running {
+        systemctl(&["start", SYSTEMD_UNIT])?;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !listening(&state).await {
+        if Instant::now() >= deadline {
+            bail!("service did not start; run peerspan status and inspect the user service")
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let listen = args
+        .iter()
+        .position(|a| a == "--peer-listen")
+        .and_then(|i| args.get(i + 1));
+    let service = status();
+    Ok((
+        json!({"service": manager.name(), "unit": unit, "state": state, "peer_listen": listen, "linger": service["linger"], "started": true}),
+        running,
+    ))
+}
+
 /// `uninstall`: stops and disables the service and removes its unit. The
 /// state directory and lingering stay.
 pub(crate) fn uninstall() -> anyhow::Result<Value> {

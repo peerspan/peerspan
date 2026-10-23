@@ -26,6 +26,10 @@ import (
 // identity in ssh-agent, or else a newly generated key, which is saved only
 // once the network request has succeeded.
 func networkCreateOrJoin(ctx context.Context, client host.Client, command string, positional []string, fs *pflag.FlagSet, state string, out, errOut io.Writer) error {
+	return onboard(ctx, client, command, positional, fs, state, errOut, func(result map[string]any) error { return printJSON(out, result) })
+}
+
+func onboard(ctx context.Context, client host.Client, command string, positional []string, fs *pflag.FlagSet, state string, errOut io.Writer, complete func(map[string]any) error) error {
 	var create host.CreateNetwork
 	var join host.JoinNetwork
 	var noPerson bool
@@ -150,9 +154,7 @@ func networkCreateOrJoin(ctx context.Context, client host.Client, command string
 	}
 	joinTrust(ctx, client, fs, signer, result, errOut)
 	withState(result, state)
-	encoder := json.NewEncoder(out)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+	return complete(result)
 }
 
 // describeKey adds person.key, {source, public_key, path}, and the follow-up

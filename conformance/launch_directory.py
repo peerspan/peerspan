@@ -89,7 +89,7 @@ from persons import Agent, person_id, ssh_key
 from tasks import task_id, tool
 
 ROOT_COMMANDS = [
-    'status', 'install', 'run',
+    'status', 'up', 'install', 'run',
     'network create', 'join', 'invite',
     'attach', 'agents', 'send', 'task',
     'allow', 'deny', 'block', 'unblock',
@@ -625,7 +625,7 @@ class Pairing:
                 paths.append(re.split(r' {2,}', line.strip())[0])
             return paths
         root = commands(help_of('--help'))
-        need(root == ROOT_COMMANDS, 'Root help now lists, in order: status, install, run, network create, join, '
+        need(root == ROOT_COMMANDS, 'Root help now lists, in order: status, up, install, run, network create, join, '
              'invite, attach, agents, send, task, allow, deny, block, unblock, network list, network members, '
              'access show, session start, session doctor', root)
         advanced = commands(help_of('help', 'advanced'))

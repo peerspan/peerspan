@@ -132,6 +132,10 @@ async function main(request) {
   const response = {version: 1, checks};
   if (request.version !== 1 || !['prepare', 'check', 'launch'].includes(request.operation) || !context) throw new Error('Invalid integration request.');
   if (Object.keys(context.options ?? {}).some(key => key !== 'executable')) throw new Error('Claude integration supports only --option executable=PROGRAM.');
+  const extra = context.arguments ?? [];
+  if (!Array.isArray(extra) || extra.some(arg => typeof arg !== 'string' || arg.includes('\0')) || extra.some(arg => /^--(?:mcp-config|settings|channels|dangerously-load-development-channels)(?:=|$)/.test(arg))) {
+    throw new Error('Claude arguments cannot override the prepared MCP configuration, session settings, or channel selection.');
+  }
   if (request.operation === 'prepare') {
     const state = {channel, node: await realpath(process.execPath), executable: await executable(context.options?.executable ?? 'claude')};
     await prerequisites(state, checks);
@@ -145,10 +149,6 @@ async function main(request) {
     await prerequisites(state, checks);
     await configurationCheck(context, state, checks);
     return response;
-  }
-  const extra = context.arguments;
-  if (!Array.isArray(extra) || extra.some(arg => typeof arg !== 'string' || arg.includes('\0')) || extra.some(arg => /^--(?:mcp-config|settings|channels|dangerously-load-development-channels)(?:=|$)/.test(arg))) {
-    throw new Error('Claude arguments cannot override the prepared MCP configuration, session settings, or channel selection.');
   }
   await configurationCheck(context, state, checks);
   const launcher = await launchProgram(state.executable);

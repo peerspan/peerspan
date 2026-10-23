@@ -48,7 +48,7 @@ from persons import Agent, person_id, ssh_key, use_agent
 from policy import PolicyHost, crafted
 
 ROOT_COMMANDS = [
-    'status', 'install', 'run',
+    'status', 'up', 'install', 'run',
     'network create', 'join', 'invite',
     'attach', 'agents', 'send', 'task',
     'allow', 'deny', 'block', 'unblock',

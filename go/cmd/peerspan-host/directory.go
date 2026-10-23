@@ -155,6 +155,25 @@ type attachAgent struct {
 // supports launch it then starts the session as session start does, unless
 // --no-start is given, printing its output on errOut first.
 func runAttach(ctx context.Context, client host.Client, harness string, harnessArgs []string, fs *pflag.FlagSet, state string, out, errOut io.Writer) error {
+	return attachPrepared(ctx, client, harness, harnessArgs, fs, state, errOut, func(p *integration.Profile, result map[string]any) error {
+		noStart, _ := fs.GetBool("no-start")
+		if !p.Launchable() || noStart {
+			if err := printJSON(out, result); err != nil {
+				return err
+			}
+			if len(harnessArgs) > 0 {
+				return errors.New("this integration does not support launch; harness arguments were not used")
+			}
+			return nil
+		}
+		if err := printJSON(errOut, result); err != nil {
+			return err
+		}
+		return integration.Run(ctx, integration.Options{Action: "start", Directory: p.Directory, State: state, Workspace: p.Workspace, Args: harnessArgs, Program: programName}, out)
+	})
+}
+
+func attachPrepared(ctx context.Context, client host.Client, harness string, harnessArgs []string, fs *pflag.FlagSet, state string, errOut io.Writer, complete func(*integration.Profile, map[string]any) error) error {
 	noStart, _ := fs.GetBool("no-start")
 	if noStart && len(harnessArgs) > 0 {
 		return errors.New("harness arguments require a launch; omit --no-start")
@@ -306,20 +325,7 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 		}
 		// Discovery follows a successful setup.
 		result["sources"] = attachSources(ctx, client, agent.ID, p.Harness.ID, workspace, errOut)
-		if !p.Launchable() || noStart {
-			if err := printJSON(out, result); err != nil {
-				return err
-			}
-			if len(harnessArgs) > 0 {
-				return errors.New("this integration does not support launch; harness arguments were not used")
-			}
-			return nil
-		}
-		// The output goes to errOut, so that stdout belongs to the harness.
-		if err := printJSON(errOut, result); err != nil {
-			return err
-		}
-		return integration.Run(ctx, integration.Options{Action: "start", Directory: p.Directory, State: state, Workspace: workspace, Args: harnessArgs, Program: programName}, out)
+		return complete(p, result)
 	}
 	if reusedProfile != nil && reusedProfile.Phase == "configured" {
 		// A valid credential that never connected is reused unchanged; one
@@ -505,18 +511,18 @@ func singleNetwork(ctx context.Context, client host.Client, network string) (str
 }
 
 type reachableAgent struct {
-	Address   string   `json:"address"`
-	HostID    string   `json:"host_id"`
-	AgentID   string   `json:"agent_id"`
-	Connected bool     `json:"connected"`
+	Address   string        `json:"address"`
+	HostID    string        `json:"host_id"`
+	AgentID   string        `json:"agent_id"`
+	Connected bool          `json:"connected"`
 	HostState string        `json:"host_state"`
 	Actions   []string      `json:"actions"`
 	Endpoint  host.Endpoint `json:"endpoint"`
 }
 
 type mineAgent struct {
-	Address   string `json:"address"`
-	HostID    string `json:"host_id"`
+	Address   string        `json:"address"`
+	HostID    string        `json:"host_id"`
 	AgentID   string        `json:"agent_id"`
 	Connected bool          `json:"connected"`
 	Endpoint  host.Endpoint `json:"endpoint"`

@@ -1056,6 +1056,9 @@ impl PersonInviteToken {
     /// Decodes and checks a token without network contact. Its root is the
     /// one that signed the invite: the current root at issue time.
     pub fn decode(text: &str) -> Result<Self, Error> {
+        Self::decode_at(text, chrono::Utc::now())
+    }
+    pub fn decode_at(text: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Self, Error> {
         let t: Self = decode_prefixed(PERSON_TOKEN_PREFIX, text, "person invite token")?;
         label(&t.member)?;
         label(&t.network_name)?;
@@ -1077,7 +1080,7 @@ impl PersonInviteToken {
         {
             return Err(invalid("invite seed does not match invite key"));
         }
-        if time(&t.invite_expires_at)? <= chrono::Utc::now() {
+        if time(&t.invite_expires_at)? <= now {
             return Err(invalid("invite has expired"));
         }
         public_key(&t.coordinator_public_key)?;
@@ -1199,9 +1202,12 @@ impl MemberInviteToken {
     /// Decodes and checks both parts without network contact, with the same
     /// checks as a host invite token and a person invite token.
     pub fn decode(text: &str) -> Result<Self, Error> {
+        Self::decode_at(text, chrono::Utc::now())
+    }
+    pub fn decode_at(text: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Self, Error> {
         let t: Self = decode_prefixed(MEMBER_TOKEN_PREFIX, text, "member invite token")?;
-        membership::InviteToken::decode(&t.host().encode())?;
-        PersonInviteToken::decode(&t.person().encode())?;
+        membership::InviteToken::decode_at(&t.host().encode(), now)?;
+        PersonInviteToken::decode_at(&t.person().encode(), now)?;
         Ok(t)
     }
     /// The host part, as a host invite token.

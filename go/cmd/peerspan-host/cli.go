@@ -101,6 +101,28 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 		return cmd
 	}
 	add("status", "status", "Show this host and what needs attention", 0)
+	up := add("up", "up [HARNESS] [-- HARNESS_ARGS...]", "Guide service, network, and project setup", 0)
+	up.Args = func(cmd *cobra.Command, args []string) error {
+		n := cmd.Flags().ArgsLenAtDash()
+		if n < 0 {
+			n = len(args)
+		}
+		if n > 1 {
+			return errors.New("up takes at most one HARNESS before --")
+		}
+		return nil
+	}
+	up.RunE = func(cmd *cobra.Command, args []string) error {
+		n := cmd.Flags().ArgsLenAtDash()
+		if n < 0 {
+			n = len(args)
+		}
+		harness := ""
+		if n == 1 {
+			harness = args[0]
+		}
+		return runUp(cmd.Context(), harness, args[n:], cmd.Flags(), state, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	}
 	add("run", "run", "Run the host daemon in the foreground", 0).Aliases = []string{"serve"}
 	add("install", "install", "Install and start the daemon as a user service", 0)
 	add("uninstall", "uninstall", "Stop and remove the daemon's user service", 0)
@@ -259,7 +281,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 // rootCommands are the commands the root help lists, in order; the others
 // are hidden and listed by help advanced.
 var rootCommands = []string{
-	"status", "install", "run",
+	"status", "up", "install", "run",
 	"network create", "join", "invite",
 	"attach", "agents", "send", "task",
 	"allow", "deny", "block", "unblock",
@@ -454,7 +476,17 @@ func configureFlags(cmd *cobra.Command, args []string) {
 			fs.Bool("delegate", false, "also allow task.delegate, so your agent may pass tasks on")
 		}
 	case "block", "unblock":
-	case "attach":
+	case "attach", "up":
+		if command == "up" {
+			fs.String("create", "", "create or resume a network by name")
+			fs.String("join", "", "join or resume the network in an invite")
+			fs.String("as", "", "person label for a new network; defaults to your login")
+			fs.String("person-key", "", "person signing key")
+			fs.String("coordinator", "", "explicit coordinator HOST:PORT for creation")
+			fs.String("coordinator-key", "", "pinned coordinator public key")
+			fs.Bool("trusted", false, "trust this machine for capability calls")
+			fs.Bool("untrusted", false, "keep this machine untrusted for capability calls")
+		}
 		fs.String("name", "", "agent name; by default the harness name, suffixed when taken")
 		fs.String("directory", "", "project directory; defaults to the current directory")
 		fs.String("expires-at", "", "credential expiration; by default the credential is renewable")

@@ -288,6 +288,10 @@ impl InviteToken {
     }
     /// Decodes and fully checks a token without any network contact.
     pub fn decode(token: &str) -> Result<Self, Error> {
+        Self::decode_at(token, chrono::Utc::now())
+    }
+    /// Signature-checked parsing at a supplied time, also used to resume an already joined invite.
+    pub fn decode_at(token: &str, now: chrono::DateTime<chrono::Utc>) -> Result<Self, Error> {
         let body = token
             .strip_prefix(TOKEN_PREFIX)
             .ok_or_else(|| invalid("not a peerspan invite token"))?;
@@ -321,7 +325,7 @@ impl InviteToken {
         {
             return Err(invalid("invite seed does not match invite key"));
         }
-        if time(&token.invite_expires_at)? <= chrono::Utc::now() {
+        if time(&token.invite_expires_at)? <= now {
             return Err(invalid("invite has expired"));
         }
         public_key(&token.coordinator_public_key)?;

@@ -1,7 +1,7 @@
 # Guided setup: `peerspan up`
 
-Status: proposed first implementation milestone. Neither `up` nor `link` is
-implemented. The owner chose to prioritize guided setup on 2026-10-23 and defer
+Status: first Linux implementation of `up`, following the proposal accepted in
+PR #38. Approved machine linking (`link`) is a subsequent milestone. The owner chose to prioritize guided setup on 2026-10-23 and defer
 release repository variables. Both host implementations ship; Rust is the
 recommended installation and Go remains supported.
 
@@ -13,7 +13,7 @@ and attaches the selected coding agent. Running it again continues the existing
 setup. It explains a partial result instead of treating a successful host join as
 proof that identity and agent delivery also work.
 
-The first implementation uses today's person keys and invites. Approved linking
+This implementation uses today's person keys and invites. Approved linking
 of another machine is a subsequent milestone with a separate identity proposal.
 The [current setup baseline](setup-baseline.md) records the work this flow should
 remove and the measurements that still require a person on separate machines.
@@ -68,9 +68,9 @@ executable alone does not select a particular existing conversation.
 | Global `--state DIR` | Use the same daemon state selection as the explicit commands; retain the installer's refusal to replace a service using unrelated state. |
 | Arguments after `--` | Passed to the integration's launch, following `attach`. They conflict with `--no-start`. |
 
-The implementation should reuse onboarding, service, attachment, and diagnostic
-operations through structured results. It must not scrape human status text or
-reimplement identity selection and authorization inside the setup command.
+The implementation reuses onboarding, service, attachment, and provider
+operations through structured results. The setup command tracks their outcomes
+and keeps identity selection and authorization in the existing operations.
 
 ## Flow
 
@@ -133,6 +133,11 @@ explicitly supplied coordinator and person identity; the name alone is not
 evidence of identity. A missing original person key is a recovery case, not a
 reason to generate another. Ambiguous local state requires an explicit recovery
 command.
+
+When reusing a membership, sync through its recorded pinned coordinator and
+inspect the structured `last_sync_error` as well as the HTTP result. Recheck the
+person binding after that sync. An unavailable coordinator produces incomplete
+setup and leaves the existing membership and attachment available for recovery.
 
 Inspect the onboarding result and refreshed status. Both person admission and
 this host's binding must succeed before attachment proceeds. Today's create and
@@ -197,7 +202,7 @@ preparation completed, not that a live model has handled a message. Incomplete
 preparation and missing input exit nonzero. Once the integration takes over,
 its exit behavior follows the current launch operation.
 
-The proposed result envelope has `setup.state` (`prepared` or `incomplete`),
+The result envelope has `setup.state` (`prepared` or `incomplete`),
 `setup.stages` (ordered `{stage, state}` entries, where state is `reused`,
 `completed`, `failed`, or `pending`), `service`, `network`, `attachment`,
 `attention`, and `next`. `service` and `attachment` retain their existing
@@ -227,14 +232,15 @@ Illustrative teammate invocation after receiving an invite:
 peerspan up claude --join "$invite"
 ```
 
-These are proposed commands. The [quick start](quick-start.md) remains the
-implemented path until the new flow passes acceptance.
+The [quick start](quick-start.md) uses this flow. The previous explicit commands
+remain available and are checked with `launch_acceptance.py --explicit`.
 
 ## Verification for the implementation milestone
 
-The shared behavior must hold across Go and Rust CLIs and daemons. Define cases
-from this proposal when it is accepted, with a separate author for any new
-conformance suite as required by [AGENTS.md](../AGENTS.md).
+The shared behavior is checked across Go and Rust CLIs and daemons. The
+installed-bundle end-to-end checks are `conformance/launch_acceptance.py` and
+`conformance/up_acceptance.py`. New conformance suites continue to require a
+separate author under [AGENTS.md](../AGENTS.md).
 
 1. Fresh create, teammate join, and same-person second machine with an already
    available key, including explicit coordinator flags and a bundled default.
@@ -269,15 +275,14 @@ should name the precise checks run and any remaining platform or live-test gap.
 | Task | Deliverable | Depends on | State |
 | --- | --- | --- | --- |
 | UP-01 | Current setup baseline: scripted counts and timing, plus observed fresh-machine friction | Existing bundles and acceptance harness | Scripted baseline recorded; separate-machine user observation remains |
-| UP-02 | Exact `up` behavior, scope, recovery, and verification cases | UP-01 | Proposed in this document |
-| UP-03 | Guided orchestration in Rust and Go, reusing existing operations | UP-02 review | Pending |
-| UP-04 | Prerequisite, partial-identity, repeat/resume, and readiness handling | UP-02; ships with UP-03 | Pending |
+| UP-02 | Exact `up` behavior, scope, recovery, and verification cases | UP-01 | Accepted in PR #38 |
+| UP-03 | Guided orchestration in Rust and Go, reusing existing operations | UP-02 | Implemented; validation in progress |
+| UP-04 | Prerequisite, partial-identity, repeat/resume, and readiness handling | UP-02; ships with UP-03 | Implemented; validation in progress |
 | UP-05 | Approved machine-link identity and recovery design | Current identity and trust model | Pending |
 | UP-06 | One-time approved linking in both hosts and the guided flow | UP-05 review; UP-03 | Pending |
 | UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06 | Pending |
 | UP-08 | Clean macOS bundle, service, and guided-setup validation | Linux guided flow | Pending |
 
-The first code milestone is UP-03 and UP-04. It can ship with the current invite
-path. UP-05 and UP-06 then remove the same-person private-key copy and invite
+UP-03 and UP-04 provide the first guided flow with the current invite path. UP-05 and UP-06 then remove the same-person private-key copy and invite
 handoff. Private preview release configuration resumes after the setup flow is
 ready for that validation.

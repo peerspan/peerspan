@@ -21,8 +21,8 @@ Preparation, not counted:
 Every counted step then runs as that machine's user through `runuser`, with a
 clean environment (HOME, USER, PATH, XDG_RUNTIME_DIR; no ssh-agent), exactly as
 the documented path gives it, in the contract's order. TOKEN and LABEL come
-from the previous commands' output. Each `attach claude` runs in the
-background in `~/src/project`, as a terminal would keep it; `attach` must
+from the previous commands' output. Each `up claude` runs in the
+background in `~/src/project`, as a terminal would keep it; `up` must
 replace itself with the fixture `claude`, which runs the MCP adapter from the
 generated configuration (no model is called) and logs what the adapter sends.
 
@@ -32,7 +32,7 @@ setting, process, user, and home is removed afterwards, also after a failure
 or a signal, unless --keep. `--cleanup` removes leftovers of an earlier --keep.
 
 Results go to docs/results/launch-acceptance.json (--output). `--run NAME`
-selects runs. `--pace SECONDS` waits at each hand-over between machines,
+selects runs. `--explicit` checks the previous create/join/attach path. `--pace SECONDS` waits at each hand-over between machines,
 before each attach, and before the checks; it is a diagnostic for
 coordination latency, recorded in the results, and acceptance uses none.
 
@@ -85,6 +85,9 @@ RUNS = {
     'team-rust': ('team', ['rust', 'rust', 'rust']),
     'team-mixed': ('team', ['go', 'rust', 'go']),
 }
+GUIDED_COUNTS = {'solo': {'install': 2, 'peerspan': 3, 'copy': 1},
+                 'pair': {'install': 2, 'peerspan': 5},
+                 'team': {'install': 3, 'peerspan': 8}}
 EXPECTED_COUNTS = {'solo': {'install': 2, 'peerspan': 5, 'copy': 1},
                    'pair': {'install': 2, 'peerspan': 7},
                    'team': {'install': 3, 'peerspan': 11}}
@@ -629,18 +632,23 @@ class Run:
         if exit_code:
             raise Failure(f'{source.label} has no ~/.config/peerspan/person_ed25519 to copy')
 
-    def attach(self, machine):
-        """`peerspan attach claude` in the project, kept running in the background."""
+    def attach(self, machine, setup=None, substitutions=None):
+        """Launch the documented project command and keep its fixture running."""
+        guided = getattr(self.h.args, 'guided', False)
+        argv = ['peerspan', 'up', 'claude', *(setup or [])] if guided else ['peerspan', 'attach', 'claude']
+        shown = ' '.join(argv)
+        for value, placeholder in (substitutions or {}).items():
+            shown = shown.replace(value, placeholder)
         out = open(self.h.work / f'{self.name}-{machine.label}-attach.out', 'w+')
         err = open(self.h.work / f'{self.name}-{machine.label}-attach.err', 'w+')
         waited = self.handoff(machine, attach=True)
         before = len(machine.fixture_log())
-        process = subprocess.Popen(machine.argv(['peerspan', 'attach', 'claude']), cwd=machine.project,
+        process = subprocess.Popen(machine.argv(argv), cwd=machine.project,
                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err, start_new_session=True)
         machine.attach_process = process
         self.h.processes.append(process)
         record = {'machine': machine.label, 'user': machine.user, 'implementation': machine.impl,
-                  'command': 'peerspan attach claude', 'kind': 'peerspan', 'cwd': '~/src/project',
+                  'command': shown, 'kind': 'peerspan', 'cwd': '~/src/project',
                   'background': True, 'exit': None}
         if waited:
             record['paced_seconds'] = waited
@@ -670,20 +678,27 @@ class Run:
         stderr, stdout = err.read(), out.read()
         if log is None:
             record['exit'] = process.poll()
-            print(f'  {machine.label}$ peerspan attach claude -> exit {record["exit"]} (no launch)', flush=True)
+            print(f'  {machine.label}$ {shown} -> exit {record["exit"]} (no launch)', flush=True)
             raise Failure(
-                f'{machine.label} ({machine.user}, {machine.impl}): `peerspan attach claude` '
+                f'{machine.label} ({machine.user}, {machine.impl}): `{shown}` '
                 + (f'exited {record["exit"]} without launching Claude Code' if record['exit'] is not None
                    else f'did not start the fixture claude within {LAUNCH_SECONDS}s')
                 + f'\nstdout: {tail(stdout)}\nstderr: {tail(stderr)}\nfixture log: {machine.fixture_log()[before:]}')
         output = first_json(stderr)
+        setup_result = output if guided else None
+        if guided:
+            if not output or output.get('setup', {}).get('state') != 'prepared':
+                raise Failure(f'{machine.label}: up did not report prepared setup: {tail(stderr)}')
+            output = output.get('attachment')
         record['launched'] = True
-        print(f'  {machine.label}$ peerspan attach claude -> launched (running)', flush=True)
+        print(f'  {machine.label}$ {shown} -> launched (running)', flush=True)
         if not output or not (output.get('agent') or {}).get('address'):
             raise Failure(f'{machine.label}: attach printed no output object with the address on stderr before '
                           f'launching\nstderr: {tail(stderr)}')
         launch = next(e for e in log if e.get('event') == 'launched')
         record['output'] = {key: output.get(key) for key in ('agent', 'reused', 'unchecked_hosts', 'next')}
+        if setup_result is not None:
+            output['_setup'] = setup_result
         output['_launch'] = {'arguments': launch.get('arguments'), 'cwd': launch.get('cwd')}
         self.attached[machine.label] = output
         return output
@@ -697,7 +712,8 @@ class Run:
             self.machines.append(h.new_machine(label, impl))
         print(f'{self.name}: machines ' + ', '.join(f'{m.label}={m.user} ({m.impl})' for m in self.machines), flush=True)
         self.sources = {}
-        getattr(self, 'path_' + self.path)(*self.machines)
+        prefix = 'guided_' if getattr(h.args, 'guided', False) else 'path_'
+        getattr(self, prefix + self.path)(*self.machines)
 
     def token(self, machine, result, who):
         match = re.search(r'peerspan join ([^\s"\']+)', result.stdout)
@@ -765,6 +781,44 @@ class Run:
             self.attach(machine)
         self.person_labels = {m1.label: alice, m2.label: 'bob', m3.label: 'carol'}
 
+    def guided_solo(self, m1, m2):
+        self.install(m1)
+        output = self.attach(m1, ['--create', 'acme'])
+        label = output['_setup']['network']['person']['label']
+        self.sources['LABEL'] = 'the person label printed by M1 peerspan up'
+        token = self.token(m1, self.step(m1, ['peerspan', 'invite', label]), label)
+        self.sources['TOKEN'] = 'the join line printed by M1 invite'
+        self.copy_key(m1, m2)
+        self.install(m2)
+        self.attach(m2, ['--join', token], {token: 'TOKEN'})
+        self.person_labels = {m1.label: label, m2.label: label}
+
+    def guided_pair(self, m1, m2):
+        self.install(m1)
+        output = self.attach(m1, ['--create', 'acme'])
+        alice = output['_setup']['network']['person']['label']
+        token = self.token(m1, self.step(m1, 'peerspan invite bob'), 'bob')
+        self.sources['TOKEN'] = 'the join line printed by M1 invite bob'
+        self.install(m2)
+        self.attach(m2, ['--join', token], {token: 'TOKEN'})
+        self.step(m2, ['peerspan', 'allow', alice])
+        self.step(m1, 'peerspan allow bob')
+        self.person_labels = {m1.label: alice, m2.label: 'bob'}
+
+    def guided_team(self, m1, m2, m3):
+        self.install(m1)
+        output = self.attach(m1, ['--create', 'acme'])
+        alice = output['_setup']['network']['person']['label']
+        tokens = {}
+        for who in ['bob', 'carol']:
+            tokens[who] = self.token(m1, self.step(m1, ['peerspan', 'invite', who]), who)
+        self.step(m1, 'peerspan allow everyone')
+        for machine, who in [(m2, 'bob'), (m3, 'carol')]:
+            self.install(machine)
+            self.attach(machine, ['--join', tokens[who]], {tokens[who]: f'TOKEN_{who.upper()}'})
+            self.step(machine, 'peerspan allow everyone')
+        self.person_labels = {m1.label: alice, m2.label: 'bob', m3.label: 'carol'}
+
     # Uncounted checks.
 
     def check(self, name, machine, function):
@@ -788,7 +842,7 @@ class Run:
         return counts
 
     def run_checks(self):
-        expected = EXPECTED_COUNTS[self.path]
+        expected = (GUIDED_COUNTS if getattr(self.h.args, 'guided', False) else EXPECTED_COUNTS)[self.path]
 
         def counted():
             if self.counts() != expected:
@@ -959,7 +1013,7 @@ class Run:
             'users': {m.label: m.user for m in self.machines},
             'commands': self.commands,
             'counts': self.counts(),
-            'expected_counts': EXPECTED_COUNTS[self.path],
+            'expected_counts': (GUIDED_COUNTS if getattr(self.h.args, 'guided', False) else EXPECTED_COUNTS)[self.path],
             'addresses': {label: out['agent']['address'] for label, out in self.attached.items()},
             'checks': self.checks,
             'notes': self.notes,
@@ -997,6 +1051,8 @@ def execute(harness, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--node', type=Path, default=Path('node'), help='Node 22 executable to give the machines')
+    parser.add_argument('--explicit', dest='guided', action='store_false', default=True,
+                        help='regression-check the previous create/join/attach path instead of up')
     parser.add_argument('--run', action='append', choices=sorted(RUNS), help='run only these (repeatable)')
     parser.add_argument('--repo', type=Path, default=REPO, help='checkout to package and build the coordinator from')
     parser.add_argument('--output', type=Path,
@@ -1060,6 +1116,7 @@ def main():
                         'python': platform.python_version(), 'kernel': platform.release(),
                         'architecture': platform.machine()},
         'pace_seconds': args.pace,
+        'setup_flow': 'up' if args.guided else 'explicit',
         'coordinator': ({'address': args.coordinator, 'public_key': args.coordinator_key,
                          'description': 'deployed coordinator, built into the bundles as the default'}
                         if args.coordinator else

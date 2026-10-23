@@ -71,6 +71,7 @@ await provider(async ({ operation, context }) => {
       'Select --option thread=EXISTING_UUID and --option socket=/absolute/Codex.sock; optional executable.'
     );
   let state = context.provider_state;
+  parseArgs({ args: context.arguments, options: { json: { type: 'boolean' } }, strict: true });
   if (operation === 'prepare') {
     state = {
       executable: await executable(context.options.executable ?? 'codex'),
@@ -94,7 +95,6 @@ await provider(async ({ operation, context }) => {
   if (operation === 'check') await prerequisites(context, state, checks);
   await configCheck(context, configuration(context, state), checks);
   if (operation === 'launch') {
-    parseArgs({ args: context.arguments, options: { json: { type: 'boolean' } }, strict: true });
     response.launch = {
       program: state.node,
       args: [bridge, '--config', join(context.directory, 'harness.json'), ...context.arguments]

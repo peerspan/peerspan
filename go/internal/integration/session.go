@@ -597,6 +597,34 @@ func Setup(ctx context.Context, o Options) (*Profile, error) {
 	return p, err
 }
 
+// Preflight asks the installed provider to prepare its configuration in memory.
+// Providers return artifacts; this operation writes none and issues no daemon
+// requests or credentials. An existing profile keeps its provider installation.
+func Preflight(ctx context.Context, o Options) error {
+	var m Manifest
+	if stored, err := ReadProfile(o.Directory); err == nil && o.Integrations == "" && o.Runner == "" {
+		m = stored.Harness
+	} else {
+		var err error
+		m, err = loadManifest(o.Integrations, o.Harness, o.Runner)
+		if err != nil {
+			return err
+		}
+	}
+	p := &Profile{Directory: o.Directory, State: o.State, AgentID: "agent_00000000000000000000000000000000", SessionID: "session_00000000000000000000000000000000", Harness: m, Options: o.ProviderOptions, ProviderState: json.RawMessage(`{}`)}
+	if p.Options == nil {
+		p.Options = map[string]string{}
+	}
+	result, err := provider(ctx, p, "prepare", o.Workspace, o.Args)
+	if err != nil {
+		return err
+	}
+	if failed(result.Checks) {
+		return errors.New(checkErrors(result.Checks))
+	}
+	return nil
+}
+
 // Launchable reports whether the profile's integration supports launch.
 func (p *Profile) Launchable() bool { return p.Harness.supports("launch") }
 

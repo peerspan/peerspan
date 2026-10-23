@@ -26,6 +26,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Guide service, network, and project setup
+    Up(UpArgs),
     /// Show this host's networks, sessions, and what needs attention
     Status {
         /// Print the daemon's status object
@@ -1254,6 +1256,71 @@ pub enum DeliveryCommand {
     },
 }
 
+#[derive(Debug, clap::Args)]
+pub struct UpArgs {
+    /// Integration ID, or claude for claude-code
+    #[arg(value_name = "HARNESS")]
+    pub harness: Option<String>,
+    /// Agent name; default claude (for claude-code) or the integration ID,
+    /// suffixed when taken
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+    /// Project directory; default the current directory
+    #[arg(long, value_name = "DIR")]
+    pub directory: Option<PathBuf>,
+    /// Authorization expiry; without it or --expires-in, renewable
+    #[arg(long, value_name = "TIME")]
+    pub expires_at: Option<String>,
+    /// Relative authorization lifetime, from 1m to 720h
+    #[arg(long, value_name = "DURATION")]
+    pub expires_in: Option<String>,
+    /// Cap on the session's sends and delegations by address per hour
+    #[arg(long, value_name = "N", default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
+    pub max_sends_per_hour: i64,
+    /// Let the agent call capabilities shared with you, and yours on your
+    /// other trusted machines, without asking
+    #[arg(long)]
+    pub calls: bool,
+    /// Do not let the agent call capabilities, without asking
+    #[arg(long)]
+    pub no_calls: bool,
+    /// Cap on the agent's capability calls per hour, 1 to 10000; default 100
+    #[arg(long, value_name = "N")]
+    pub max_calls_per_hour: Option<String>,
+    #[arg(long = "option", value_name = "KEY=VALUE")]
+    pub options: Vec<String>,
+    #[arg(long, value_name = "DIR")]
+    pub integrations: Option<PathBuf>,
+    #[arg(long, value_name = "PATH")]
+    pub runner: Option<PathBuf>,
+    /// Stop after setup and print the result instead of launching the harness
+    #[arg(long)]
+    pub no_start: bool,
+    /// Arguments passed to the harness at launch
+    #[arg(last = true, allow_hyphen_values = true, value_name = "HARNESS_ARGS")]
+    pub harness_args: Vec<String>,
+
+    /// Create or resume a network by name
+    #[arg(long, conflicts_with = "join")]
+    pub create: Option<String>,
+    /// Join or resume the network named by an invite
+    #[arg(long, conflicts_with = "create")]
+    pub join: Option<String>,
+    /// Person label when creating a network
+    #[arg(long = "as")]
+    pub person: Option<String>,
+    #[arg(long)]
+    pub person_key: Option<PathBuf>,
+    #[arg(long, requires = "coordinator_key")]
+    pub coordinator: Option<String>,
+    #[arg(long, requires = "coordinator")]
+    pub coordinator_key: Option<String>,
+    #[arg(long, conflicts_with = "untrusted")]
+    pub trusted: bool,
+    #[arg(long, conflicts_with = "trusted")]
+    pub untrusted: bool,
+}
+
 pub struct AdminRequest {
     pub method: Method,
     pub path: String,
@@ -1261,8 +1328,9 @@ pub struct AdminRequest {
 }
 
 /// The commands the root help lists, in order; `help advanced` lists all.
-pub const MAIN_COMMANDS: [&str; 19] = [
+pub const MAIN_COMMANDS: [&str; 20] = [
     "status",
+    "up",
     "install",
     "run",
     "network create",
@@ -1480,7 +1548,8 @@ impl Command {
     /// Run starts the daemon; every other command uses its local control socket.
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
-            Self::Run { .. }
+            Self::Up(_)
+            | Self::Run { .. }
             | Self::Status { .. }
             | Self::Install { .. }
             | Self::Uninstall

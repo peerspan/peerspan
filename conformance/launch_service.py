@@ -1634,7 +1634,7 @@ def check_root_help(cli_binary, root):
         if not line.strip():
             break
         paths.append(line.strip().split('  ')[0])
-    assert paths[:2] == ['status', 'install'], rule('install appears in root help after status', paths)
+    assert paths[:3] == ['status', 'up', 'install'], rule('guided up appears after status, then install', paths)
 
 
 # Default coordinator.

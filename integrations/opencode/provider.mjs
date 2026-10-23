@@ -68,6 +68,7 @@ await provider(async ({ operation, context }) => {
       'Select server, existing session, absolute directory and bindings; optional auth-file.'
     );
   const config = configuration(context);
+  parseArgs({ args: context.arguments, options: { json: { type: 'boolean' } }, strict: true });
   if (operation === 'prepare') {
     await prerequisites(config, checks);
     try {
@@ -108,7 +109,6 @@ await provider(async ({ operation, context }) => {
   }
   await configCheck(context, config, checks);
   if (operation === 'launch') {
-    parseArgs({ args: context.arguments, options: { json: { type: 'boolean' } }, strict: true });
     response.launch = {
       program: state.node,
       args: [bridge, '--config', join(context.directory, 'harness.json'), ...context.arguments]

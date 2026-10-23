@@ -81,3 +81,5 @@ Both native CLIs provide `session setup --harness ID`, `session start`, and `ses
 Task delegation between hosts, roadmap milestone 6, is specified in the [task delegation contract](task-contract.md).
 
 The `peerspan` name, the reduced root help, network defaulting, expiry defaults with renewable session credentials, and `status` (`GET /v1/status`), roadmap milestone 7, are specified in the [launch contract](launch-contract.md), together with the service installer and coordinator limits, team onboarding, the directory and addressing, and two relay protocol versions: version 2's `changed` notifications (slice 5) and version 3's `presence` notifications (slice 6).
+
+The guided `up` command composes installation, onboarding, and attachment as specified in the [guided setup contract](guided-setup-proposal.md), with installed-bundle recovery checks in `conformance/up_acceptance.py`.

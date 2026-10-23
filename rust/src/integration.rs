@@ -726,7 +726,7 @@ async fn recover(p: &mut Profile) -> anyhow::Result<()> {
     };
     finish(p, json!({"session":session,"credential":secret}))
 }
-fn parse_options(values: Vec<String>) -> anyhow::Result<BTreeMap<String, String>> {
+pub(crate) fn parse_options(values: Vec<String>) -> anyhow::Result<BTreeMap<String, String>> {
     let mut result = BTreeMap::new();
     for value in values {
         let (key, text) = value
@@ -1067,7 +1067,7 @@ pub async fn run(command: SessionCommand, state: Option<PathBuf>) -> anyhow::Res
 
 /// `session start`: recovers a preparing session if needed, then replaces
 /// this process with the harness in the workspace. It returns only on error.
-async fn start(
+pub(crate) async fn start(
     directory: &Path,
     state: &Option<PathBuf>,
     workspace: Option<PathBuf>,
@@ -1177,6 +1177,79 @@ pub(crate) fn attach_agents(host: &str) -> anyhow::Result<Vec<(String, String, P
         .into_iter()
         .map(|(_, p)| (p.agent_id, p.harness.id, PathBuf::from(p.workspace)))
         .collect())
+}
+
+pub(crate) fn up_profile(state: &Path, workspace: &Path) -> anyhow::Result<Option<Value>> {
+    let found: Vec<_> = attach_profiles(&sessions_root()?, None)
+        .into_iter()
+        .filter(|(_, p)| Path::new(&p.state) == state && Path::new(&p.workspace) == workspace)
+        .collect();
+    if found.len() > 1 {
+        bail!(
+            "several attach profiles record this project; use peerspan session doctor --directory PROFILE"
+        )
+    }
+    found
+        .into_iter()
+        .next()
+        .map(|(_, p)| serde_json::to_value(p).map_err(Into::into))
+        .transpose()
+}
+
+/// Run the provider's read-only prepare operation without saving its returned
+/// artifacts or issuing any daemon request or credential.
+pub(crate) struct UpPreflight<'a> {
+    pub state: &'a Path,
+    pub workspace: &'a Path,
+    pub harness: &'a str,
+    pub profile: Option<&'a Value>,
+    pub integrations: Option<PathBuf>,
+    pub runner: Option<PathBuf>,
+    pub options: BTreeMap<String, String>,
+    pub arguments: &'a [String],
+}
+
+pub(crate) async fn up_preflight(input: UpPreflight<'_>) -> anyhow::Result<()> {
+    let UpPreflight {
+        state,
+        workspace,
+        harness,
+        profile,
+        integrations,
+        runner,
+        options,
+        arguments,
+    } = input;
+    let manifest = if let Some(p) = profile.filter(|_| integrations.is_none() && runner.is_none()) {
+        serde_json::from_value(p["harness"].clone())?
+    } else {
+        load_manifest(integrations, harness, runner)?
+    };
+    let directory = profile
+        .and_then(|p| p["directory"].as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.join("up-preflight"));
+    let p = Profile {
+        version: 2,
+        phase: "preparing".into(),
+        directory: directory.to_string_lossy().into_owned(),
+        state: state.to_string_lossy().into_owned(),
+        host_id: String::new(),
+        agent_id: "agent_00000000000000000000000000000000".into(),
+        session_id: "session_00000000000000000000000000000000".into(),
+        adapter_id: String::new(),
+        harness: manifest,
+        options,
+        provider_state: json!({}),
+        files: BTreeMap::new(),
+        request: json!({}),
+        workspace: workspace.to_string_lossy().into_owned(),
+    };
+    let result = provider(&p, "prepare", &workspace.to_string_lossy(), arguments).await?;
+    if failed(&result.checks) {
+        bail!("{}", check_errors(&result.checks))
+    }
+    Ok(())
 }
 /// The `attach` profiles whose workspace is the current directory.
 fn attached_profiles(state: &Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
@@ -1466,7 +1539,40 @@ async fn wait_for_lease(
 
 /// `attach HARNESS`: registers the agent if needed and sets up a directory
 /// session for the project, recorded in an attach profile.
+pub(crate) struct PreparedAttachment {
+    pub value: Value,
+    pub directory: PathBuf,
+    pub launchable: bool,
+}
+
 pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> anyhow::Result<()> {
+    let (no_start, args) = match &command {
+        crate::cli::Command::Attach {
+            no_start,
+            harness_args,
+            ..
+        } => (*no_start, harness_args.clone()),
+        _ => bail!("not an attach command"),
+    };
+    let prepared = prepare_attach(command, state.clone()).await?;
+    let text = serde_json::to_string_pretty(&prepared.value)?;
+    if !no_start && prepared.launchable {
+        eprintln!("{text}");
+        let workspace = prepared.value["workspace"].as_str().map(PathBuf::from);
+        start(&prepared.directory, &state, workspace, args).await
+    } else {
+        println!("{text}");
+        if !args.is_empty() {
+            bail!("this integration does not support launch")
+        }
+        Ok(())
+    }
+}
+
+pub(crate) async fn prepare_attach(
+    command: crate::cli::Command,
+    state: Option<PathBuf>,
+) -> anyhow::Result<PreparedAttachment> {
     let crate::cli::Command::Attach {
         harness,
         name: wanted,
@@ -1595,9 +1701,6 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
         None => format!("{host}/{name}"),
     };
     let unchecked: Vec<String> = unchecked.into_iter().collect();
-    // A launch-capable integration launches unless --no-start; then the
-    // output goes to stderr, because stdout belongs to the harness.
-    let launching = |p: &Profile| !no_start && p.harness.supports("launch");
     let socket = state.join("admin.sock");
     let discovered = |agent_id: String| {
         let (socket, integration, workspace) =
@@ -1609,7 +1712,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             }
         }
     };
-    let print = |agent_id: &str,
+    let build = |agent_id: &str,
                  agent_name: &str,
                  p: &Profile,
                  profile: &Path,
@@ -1634,27 +1737,11 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             "max_calls_per_hour": adapter["max_calls_per_hour"],
             "sources": tools,
         });
-        let text = serde_json::to_string_pretty(&value).unwrap_or_default();
-        if launching(p) {
-            eprintln!("{text}");
-        } else {
-            println!("{text}");
-        }
         eprintln!("{}", crate::discovery::summary_line(&value["sources"]));
-    };
-    let launch = |p: &Profile, profile: PathBuf| {
-        let start_now = launching(p);
-        let state = Some(state.clone());
-        let workspace = workspace.clone();
-        let args = harness_args.clone();
-        async move {
-            if start_now {
-                start(&profile, &state, Some(workspace), args).await
-            } else if !no_start && !args.is_empty() {
-                bail!("this integration does not support launch")
-            } else {
-                Ok(())
-            }
+        PreparedAttachment {
+            value,
+            directory: profile.to_owned(),
+            launchable: p.harness.supports("launch"),
         }
     };
     let existing = profiles
@@ -1707,7 +1794,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     let tools = discovered(p.agent_id.clone()).await;
-                    print(
+                    return Ok(build(
                         &p.agent_id,
                         &agent_name,
                         p,
@@ -1715,8 +1802,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                         true,
                         &adapter,
                         tools,
-                    );
-                    return launch(p, directory.clone()).await;
+                    ));
                 }
             }
             let agent = admin(
@@ -1853,7 +1939,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
             )
             .await?;
             let tools = discovered(agent_id.clone()).await;
-            print(
+            Ok(build(
                 &agent_id,
                 &agent_name,
                 &p,
@@ -1861,8 +1947,7 @@ pub async fn attach(command: crate::cli::Command, state: Option<PathBuf>) -> any
                 false,
                 &adapter,
                 tools,
-            );
-            launch(&p, directory).await
+            ))
         }
         Err(error) => {
             if moved && fs::symlink_metadata(&directory).is_err() {

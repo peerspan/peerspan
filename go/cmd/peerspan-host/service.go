@@ -212,7 +212,7 @@ func (m *serviceManager) render(args []string, agentSocket string) string {
 }
 
 // installedPeerListen is the --peer-listen address in an installed unit.
-func (m *serviceManager) installedPeerListen(unit string) string {
+func (m *serviceManager) installedArguments(unit string) []string {
 	var words []string
 	if m.name == "systemd" {
 		for _, line := range strings.Split(unit, "\n") {
@@ -231,6 +231,11 @@ func (m *serviceManager) installedPeerListen(unit string) string {
 			}
 		}
 	}
+	return words
+}
+
+func (m *serviceManager) installedPeerListen(unit string) string {
+	words := m.installedArguments(unit)
 	for i, word := range words {
 		if word == "--peer-listen" && i+1 < len(words) {
 			return words[i+1]
@@ -262,6 +267,10 @@ func printJSON(out io.Writer, value any) error {
 // runInstall installs the daemon as a user service and, unless --no-start,
 // starts it and waits for its admin socket.
 func runInstall(ctx context.Context, fs *pflag.FlagSet, state string, out io.Writer) error {
+	return installService(ctx, fs, state, func(result map[string]any) error { return printJSON(out, result) })
+}
+
+func installService(ctx context.Context, fs *pflag.FlagSet, state string, complete func(map[string]any) error) error {
 	peerListen, _ := fs.GetString("peer-listen")
 	noStart, _ := fs.GetBool("no-start")
 	m, err := findServiceManager()
@@ -363,7 +372,7 @@ func runInstall(ctx context.Context, fs *pflag.FlagSet, state string, out io.Wri
 			}
 		}
 	}
-	return printJSON(out, result)
+	return complete(result)
 }
 
 // runUninstall stops, disables, and removes the service, keeping the state

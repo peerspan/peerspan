@@ -58,9 +58,11 @@ Every response has `version: 1` and a `checks` array. Checks have `name` (letter
 
 | Operation | Additional response fields | Behavior |
 | --- | --- | --- |
-| `prepare` | `state`: opaque JSON; `files`: filename → UTF-8 content | Check prerequisites and describe configuration before the core creates an attachment. |
+| `prepare` | `state`: opaque JSON; `files`: filename → UTF-8 content | Check prerequisites and owner-supplied launch arguments, and describe configuration before the core creates an attachment. |
 | `check` | None | Read-only prerequisite/configuration checks; do not connect or consume messages. |
 | `launch` | `launch: {program, args}` | Validate owner-supplied arguments and describe the foreground command. `program` must be absolute; the core validates access and replaces itself with that process in the chosen workspace. |
+
+Guided `up` also runs the shipped providers' `prepare` operation in memory before enrollment. It passes the selected launch arguments, saves none of the returned artifacts, and issues no credentials. Providers retain the same prerequisite and argument checks when the actual attachment is prepared.
 
 Artifact names are single filenames of at most 128 letters/digits/dot/underscore/hyphen characters, starting with a letter or digit. `profile.json` and `credential.json` are reserved. The core writes artifacts into the private setup directory; path traversal is rejected. `state` and `files` default to empty objects when omitted from a successful `prepare`.
 

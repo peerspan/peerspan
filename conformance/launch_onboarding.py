@@ -67,7 +67,7 @@ from tasks import HANDOFF_KEYS, act, claim, task_id
 from delegation import link_hash, sign, submit_raw
 
 ROOT_COMMANDS = [
-    'status', 'install', 'run',
+    'status', 'up', 'install', 'run',
     'network create', 'join', 'invite',
     'attach', 'agents', 'send', 'task',
     'allow', 'deny', 'block', 'unblock',
@@ -292,7 +292,7 @@ class Pairing:
                 paths.append(re.split(r' {2,}', line.strip())[0])
             return paths
         root = commands(help_of('--help'))
-        need(root == ROOT_COMMANDS, 'Root help now lists, in order: status, install, run, network create, join, '
+        need(root == ROOT_COMMANDS, 'Root help now lists, in order: status, up, install, run, network create, join, '
              'invite, allow, deny, block, unblock, network list, network members, access show, session setup/start/'
              'doctor, message send, task submit', root)
         advanced = commands(help_of('help', 'advanced'))
