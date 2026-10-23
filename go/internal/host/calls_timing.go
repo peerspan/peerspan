@@ -187,13 +187,19 @@ func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.T
 	}
 }
 
-// HeldSubmitterCall is SubmitterCall held until the call is final or wait
-// seconds pass; a call already final, or wait 0, answers at once.
+// HeldSubmitterCall is SubmitterCall held until the call's state differs
+// from its state when the request arrived (queued to running, or to a final
+// state), or wait seconds pass; a call already final, or wait 0, answers at
+// once.
 func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait int) (CallStatus, error) {
 	until := time.Now().Add(time.Duration(wait) * time.Second)
+	arrived := ""
 	for {
 		st, err := s.SubmitterCall(ctx, sender, id)
-		if err != nil || callFinal(st.State) || !time.Now().Before(until) {
+		if arrived == "" {
+			arrived = st.State
+		}
+		if err != nil || callFinal(st.State) || st.State != arrived || !time.Now().Before(until) {
 			return st, err
 		}
 		select {
