@@ -14,13 +14,15 @@ scripts/install-release.sh VERSION --from dist
 
 Rust is the recommended default. Add `--implementation go` to install the supported Go host instead. The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing host between Go and Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
 
+When a release is available at a trusted HTTPS download directory, the installer can fetch the matching archive and checksum itself: `scripts/install-release.sh VERSION --from-url RELEASE_URL`. `RELEASE_URL` is the directory containing `peerspan-VERSION-linux-ARCH-IMPLEMENTATION.tar.gz` and its `.sha256` file. This option requires `curl`; the local `--from` path remains available for private previews.
+
 If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. Public download and macOS installer paths still need validation.
+The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes private draft bundles; a public release destination and macOS installer path still need validation.
 
 ## Create a network
 

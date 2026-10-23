@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 VERSION [--implementation rust|go] [--from DIRECTORY] [--no-service]" >&2
+  echo "usage: $0 VERSION [--implementation rust|go] [--from DIRECTORY | --from-url HTTPS_URL] [--no-service]" >&2
   exit 2
 }
 
@@ -13,6 +13,9 @@ shift
 
 implementation=rust
 source_dir=.
+source_url=
+source_given=false
+source_kind=local
 install_service=true
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -23,7 +26,17 @@ while [[ $# -gt 0 ]]; do
       ;;
     --from)
       [[ $# -ge 2 ]] || usage
+      $source_given && usage
       source_dir=$2
+      source_given=true
+      shift 2
+      ;;
+    --from-url)
+      [[ $# -ge 2 ]] || usage
+      $source_given && usage
+      source_url=$2
+      source_kind=remote
+      source_given=true
       shift 2
       ;;
     --no-service)
@@ -51,10 +64,37 @@ node_major=$(node -p "process.versions.node.split('.')[0]")
 command -v tar >/dev/null || { echo "tar is required" >&2; exit 1; }
 command -v flock >/dev/null || { echo "flock is required" >&2; exit 1; }
 
-source_dir=$(CDPATH= cd -- "$source_dir" && pwd)
+download_dir=
+stage=
+temporary_link=
+cleanup() {
+  if [[ -n $stage ]]; then rm -rf -- "$stage"; fi
+  if [[ -n $download_dir ]]; then rm -rf -- "$download_dir"; fi
+  if [[ -n $temporary_link ]]; then rm -f -- "$temporary_link"; fi
+}
+trap cleanup EXIT
+
+if [[ $source_kind == remote ]]; then
+  [[ $source_url =~ ^https://[^/@?#[:space:]]+(/[^?#[:space:]]*)?$ ]] || {
+    echo "--from-url requires an HTTPS release directory URL" >&2
+    exit 2
+  }
+  command -v curl >/dev/null || { echo "curl is required for --from-url" >&2; exit 1; }
+  download_dir=$(mktemp -d "${TMPDIR:-/tmp}/peerspan-download.XXXXXX")
+  source_dir=$download_dir
+else
+  source_dir=$(CDPATH= cd -- "$source_dir" && pwd)
+fi
 name="peerspan-${version}-linux-${arch}-${implementation}"
 archive="$source_dir/$name.tar.gz"
 checksum="$archive.sha256"
+if [[ $source_kind == remote ]]; then
+  for asset in "$name.tar.gz" "$name.tar.gz.sha256"; do
+    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+      --connect-timeout 15 --max-time 900 --max-filesize 536870912 --retry 3 \
+      --output "$download_dir/$asset" --url "${source_url%/}/$asset"
+  done
+fi
 [[ -f $archive && -f $checksum ]] || {
   echo "missing $archive or its .sha256 file" >&2
   exit 1
@@ -125,7 +165,6 @@ fi
 
 stage=$(mktemp -d "$release_base/.install.XXXXXX")
 temporary_link="$bin_dir/.peerspan-link.$$"
-trap 'rm -rf -- "$stage"; rm -f -- "$temporary_link"' EXIT
 
 # The packager emits one named root. Reject unexpected paths before extraction.
 tar -tzf "$archive" > "$stage/members"

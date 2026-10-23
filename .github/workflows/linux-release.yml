@@ -1,0 +1,146 @@
+name: Draft Linux release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix (for example 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check release inputs
+        env:
+          VERSION: ${{ inputs.version }}
+          COORDINATOR: ${{ vars.PEERSPAN_COORDINATOR }}
+          COORDINATOR_KEY: ${{ vars.PEERSPAN_COORDINATOR_KEY }}
+        run: |
+          set -euo pipefail
+          [[ $GITHUB_REF == refs/heads/main ]] || { echo 'Run from main only' >&2; exit 1; }
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || {
+            echo 'Version must be a numeric release version, optionally with a suffix' >&2
+            exit 1
+          }
+          [[ -n $COORDINATOR && -n $COORDINATOR_KEY ]] || {
+            echo 'Set PEERSPAN_COORDINATOR and PEERSPAN_COORDINATOR_KEY repository variables' >&2
+            exit 1
+          }
+          crate_version=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p;}' rust/Cargo.toml | head -n 1)
+          [[ $VERSION == "$crate_version" ]] || {
+            echo "Release version $VERSION differs from Rust crate version $crate_version" >&2
+            exit 1
+          }
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: amd64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build and check both host bundles
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+          PEERSPAN_COORDINATOR: ${{ vars.PEERSPAN_COORDINATOR }}
+          PEERSPAN_COORDINATOR_KEY: ${{ vars.PEERSPAN_COORDINATOR_KEY }}
+        run: |
+          set -euo pipefail
+          for implementation in rust go; do
+            scripts/package-release.sh "$implementation" "$VERSION" dist
+            name="peerspan-${VERSION}-linux-${ARCH}-${implementation}"
+            (cd dist && sha256sum -c "$name.tar.gz.sha256")
+            python conformance/installed_bundle.py \
+              --archive "dist/$name.tar.gz" --node "$(command -v node)"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-*
+          path: assets
+          merge-multiple: true
+      - name: Verify release assets
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            for implementation in rust go; do
+              name="peerspan-${VERSION}-linux-${arch}-${implementation}"
+              test -s "assets/$name.tar.gz"
+              test -s "assets/$name.tar.gz.sha256"
+              (cd assets && sha256sum -c "$name.tar.gz.sha256")
+              tar -xOzf "assets/$name.tar.gz" "$name/RELEASE.json" |
+                python3 -c 'import json,sys; r=json.load(sys.stdin); assert (r["version"],r["os"],r["architecture"],r["implementation"],r["source_revision"],r["source_dirty"]) == (sys.argv[1],"linux",sys.argv[2],sys.argv[3],sys.argv[4],False)' \
+                  "$VERSION" "$arch" "$implementation" "$GITHUB_SHA"
+            done
+          done
+          cp scripts/install-release.sh assets/install-release.sh
+          (cd assets && sha256sum install-release.sh > install-release.sh.sha256)
+      - name: Create private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists" >&2
+            exit 1
+          fi
+          gh release create "v$VERSION" assets/* \
+            --target "$GITHUB_SHA" --draft --prerelease \
+            --title "Peerspan v$VERSION" \
+            --notes 'Linux preview. Rust is the recommended default; Go is supported. Verify the matching SHA-256 file before installation.'
