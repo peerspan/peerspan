@@ -42,8 +42,6 @@ const DEFAULT_DEADLINE: TimeDelta = TimeDelta::hours(1);
 /// Event polls back off from 1 second to 60 seconds.
 const POLL_FIRST: Duration = Duration::from_secs(1);
 const POLL_MAX: Duration = Duration::from_secs(60);
-/// How long after acceptance an agent's call is polled every second.
-const FAST_POLLS: Duration = Duration::from_secs(60);
 /// Events fetched per request while catching up.
 const EVENT_PAGE: i64 = 1000;
 /// Peer requests are bounded like message sends.
@@ -1641,9 +1639,6 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
     let schedule: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
     // The same for outbound calls (tools contract), which share the slots.
     let call_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
-    // Agent calls are polled every second for their first 60 seconds after
-    // acceptance (capabilities slice 2): when each was first seen accepted.
-    let fast_until: Arc<std::sync::Mutex<HashMap<(String, String), Instant>>> = Arc::default();
     // In-memory fetch backoff per artifact row, from 1 second to 60 seconds;
     // a restart retries at once.
     let fetch_plan: Arc<std::sync::Mutex<PollPlan>> = Arc::default();
@@ -1670,7 +1665,7 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
         }
         // Outbound calls: retries of uncertain submissions, and status polls.
         let mut calls: HashMap<(String, String), bool> = HashMap::new();
-        if let Ok((due, pollable)) = blocking(store.clone(), |s| {
+        if let Ok((due, pollable, followed)) = blocking(store.clone(), |s| {
             Ok(crate::call_outbound::jobs(s, Utc::now()))
         })
         .await
@@ -1680,16 +1675,12 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                 calls.insert(key, false);
             }
             let now = Instant::now();
-            if let Ok(mut fast) = fast_until.lock() {
-                fast.retain(|k, _| pollable.iter().any(|(p, _)| p == k));
-                for (key, agent) in &pollable {
-                    if *agent {
-                        fast.entry(key.clone()).or_insert(now + FAST_POLLS);
-                    }
-                }
+            plan.retain(|k, _| pollable.contains(k) || followed.contains(k));
+            // A call followed with held status requests is polled a second
+            // after its held window ends, then backs off.
+            for key in followed {
+                plan.insert(key, (now + POLL_FIRST, POLL_FIRST));
             }
-            let pollable: Vec<(String, String)> = pollable.into_iter().map(|(k, _)| k).collect();
-            plan.retain(|k, _| pollable.contains(k));
             for key in pollable {
                 let (due, _) = *plan.entry(key.clone()).or_insert((now, POLL_FIRST));
                 if due <= now {
@@ -1724,7 +1715,6 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
             let fetch = fetches.remove(&key);
             let schedule = schedule.clone();
             let call_plan = call_plan.clone();
-            let fast_until = fast_until.clone();
             let fetch_plan = fetch_plan.clone();
             tokio::spawn(async move {
                 let (peer, id) = key.clone();
@@ -1733,14 +1723,9 @@ pub async fn task_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>)
                         let progressed = crate::call_outbound::poll(store, peer, id)
                             .await
                             .unwrap_or(false);
-                        let fast = fast_until
-                            .lock()
-                            .ok()
-                            .and_then(|f| f.get(&key).copied())
-                            .is_some_and(|until| Instant::now() < until);
                         if let Ok(mut plan) = call_plan.lock() {
                             let interval = match plan.get(&key) {
-                                _ if progressed || fast => POLL_FIRST,
+                                _ if progressed => POLL_FIRST,
                                 Some((_, last)) => (*last * 2).min(POLL_MAX),
                                 None => POLL_FIRST,
                             };

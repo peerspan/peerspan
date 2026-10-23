@@ -1080,9 +1080,12 @@ async fn run_daemon(
         let _ = adapter_shutdown.changed().await;
     })
     .into_future();
+    let closing = store.clone();
     let admin = axum::serve(listener, api::router(store.clone()))
         .with_graceful_shutdown(async move {
             tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} }
+            // Held requests answer at once, so the servers drain promptly.
+            closing.close_held_requests();
             let _ = shutdown.send(true);
         })
         .into_future();

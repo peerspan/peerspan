@@ -106,6 +106,15 @@ pub struct Store {
     pub(crate) tool_pool: crate::mcp::Pool,
     /// Received calls being dispatched and run.
     pub(crate) call_runner: crate::calls::Runner,
+    /// Held call requests and held status requests (owner decision 15).
+    pub(crate) call_timing: crate::call_timing::Timing,
+}
+
+impl Store {
+    /// Answers the held call and status requests at once, for shutdown.
+    pub fn close_held_requests(&self) {
+        self.call_timing.close();
+    }
 }
 
 impl Store {
@@ -285,6 +294,7 @@ impl Store {
             agent_directory: Mutex::new(Default::default()),
             tool_pool: Default::default(),
             call_runner: Default::default(),
+            call_timing: Default::default(),
         };
         store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
         Ok(store)

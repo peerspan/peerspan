@@ -7,6 +7,7 @@ pub mod agent_calls;
 pub mod api;
 pub mod artifact;
 pub mod call_outbound;
+pub(crate) mod call_timing;
 pub mod calls;
 pub mod canonical;
 pub mod capabilities;

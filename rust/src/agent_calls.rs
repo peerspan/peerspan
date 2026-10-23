@@ -9,6 +9,7 @@ use crate::{
     adapter_connection::AdapterAuth,
     api::{blocking, decode},
     call_outbound::{self, OutboundCall, Viewer},
+    call_timing::WAIT_LIMIT,
     calls::{CallRequest, call_id_shape},
     model::{Error, Session},
     peer_store::Origin,
@@ -44,10 +45,6 @@ pub const DEFAULT_CALLS_PER_HOUR: i64 = 100;
 const HOUR_MS: i64 = 3_600_000;
 /// The largest result text returned inline, and the largest part.
 const PART: usize = 65_536;
-/// Resolution and persistence must finish within this long of receipt.
-const PERSIST_BOUND: Duration = Duration::from_secs(20);
-/// The route returns by this long after receipt, whatever the submission.
-const SUBMIT_BOUND: Duration = Duration::from_secs(25);
 
 const NOTE_PENDING: &str = "The call has not finished. Its result arrives as a kind=call_update event; call_status reports it at any time.";
 const NOTE_UNCERTAIN: &str = "The call was running when it ended without a result, so it may or may not have taken effect. Do not call it again on your own: check whether it took effect, or ask the person.";
@@ -393,6 +390,14 @@ struct AgentCall {
     address: String,
     operation: String,
     input: Value,
+    /// Seconds to hold the response for a final state: an integer of at
+    /// least 0, capped at the wait limit, which is also the default.
+    #[serde(default, deserialize_with = "present")]
+    wait: Option<Value>,
+}
+/// A field that is present, even as null.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
 }
 
 /// What a submission found before resolving: an existing call, or the
@@ -461,7 +466,7 @@ impl Store {
             ],
         )?;
         append_event(&tx, "call.submitted", &call_outbound::subject(out), &now())?;
-        // Past the 20-second bound nothing is persisted: dropping the
+        // Past the wait limit nothing is persisted: dropping the
         // transaction rolls it back.
         if Instant::now() >= deadline {
             return Err(timeout());
@@ -469,8 +474,8 @@ impl Store {
         tx.commit()?;
         Ok(Ok(out.clone()))
     }
-    /// The view of one of this agent's calls after its submission's first
-    /// attempt, marking the session's notification seen when final.
+    /// The view of one of this agent's calls while its request is held,
+    /// marking the session's notification seen when final.
     fn agent_call_view(
         &self,
         auth: &AdapterAuth,
@@ -522,13 +527,21 @@ impl Store {
         crate::adapter_connection::verified_authority(&tx, auth)?;
         crate::live_delivery::return_items(&tx, &ss.agent_id)?;
         let at = now();
-        let returned: Option<String> = tx
-            .query_row(
-                "SELECT n.record FROM call_update_notifications n JOIN sessions s ON s.id = n.session_id WHERE s.agent_id = ?1 AND n.returned_at IS NOT NULL AND n.seen_at IS NULL ORDER BY n.rowid LIMIT 1",
-                [&ss.agent_id],
-                |r| r.get(0),
-            )
-            .optional()?;
+        // A call that an agent's POST is holding is answered there, so its
+        // notification is not claimed meanwhile.
+        let held = |record: &str| {
+            serde_json::from_str::<StoredNotification>(record).is_ok_and(|n| {
+                self.call_timing
+                    .held(&n.notification.peer_host_id, &n.notification.call_id)
+            })
+        };
+        let returned: Option<String> = {
+            let mut stmt = tx.prepare("SELECT n.record FROM call_update_notifications n JOIN sessions s ON s.id = n.session_id WHERE s.agent_id = ?1 AND n.returned_at IS NOT NULL AND n.seen_at IS NULL ORDER BY n.rowid")?;
+            let rows: Vec<String> = stmt
+                .query_map([&ss.agent_id], |r| r.get(0))?
+                .collect::<Result<_, _>>()?;
+            rows.into_iter().find(|record| !held(record))
+        };
         let (record, redelivered) = match returned {
             Some(record) => (record, true),
             None => {
@@ -539,7 +552,7 @@ impl Store {
                 };
                 let mut ended = crate::live_delivery::Ended::default();
                 let mut found = None;
-                for record in rows {
+                for record in rows.into_iter().filter(|record| !held(record)) {
                     let n: StoredNotification = serde_json::from_str(&record)?;
                     let own =
                         n.notification.adapter_id == a.id && n.notification.session_id == ss.id;
@@ -687,6 +700,15 @@ fn timeout() -> Error {
 async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<CallView, Error> {
     let received = Instant::now();
     // 1. Shape.
+    let wait = match &r.wait {
+        None => Some(WAIT_LIMIT),
+        Some(value) => value
+            .as_u64()
+            .map(|n| Duration::from_secs(n).min(WAIT_LIMIT)),
+    };
+    let Some(wait) = wait else {
+        return Err(Error::Invalid("wait is an integer of at least 0".into()));
+    };
     if !call_id_shape(&r.call_id)
         || r.address.len() > 256
         || r.operation.is_empty()
@@ -697,12 +719,15 @@ async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Ca
             "call_id is call_ and 32 lowercase hex digits, address at most 256 bytes, operation 1 to 128 bytes, and input an object".into(),
         ));
     }
+    // 9. The response is held until the call is final or `wait` after
+    // receipt.
+    let until = received + wait;
     let r = Arc::new(r);
-    // 2 and 3. Repeat, then the rate limit.
+    // 2 and 3. Repeat, then the rate limit. A repeat holds as well.
     let (request, a) = (r.clone(), auth.clone());
     let (adapter, session) =
         match blocking(store.clone(), move |s| s.agent_call_prior(&a, &request)).await? {
-            Prior::Existing(view) => return Ok(*view),
+            Prior::Existing(view) => return hold(&store, auth, *view, until).await,
             Prior::New(found) => *found,
         };
     // 4. Address.
@@ -715,37 +740,59 @@ async fn create(store: Arc<Store>, auth: AdapterAuth, r: AgentCall) -> Result<Ca
         ));
     }
     let resolved = tokio::time::timeout_at(
-        (received + PERSIST_BOUND).into(),
+        (received + WAIT_LIMIT).into(),
         prepare(&store, &adapter, &session, &r),
     )
     .await
     .map_err(|_| timeout())??;
-    if received.elapsed() >= PERSIST_BOUND {
+    if received.elapsed() >= WAIT_LIMIT {
         return Err(timeout());
     }
     // 7. Persist.
     let (request, a, ss) = (r.clone(), adapter.clone(), session.clone());
     let out = match blocking(store.clone(), move |s| {
-        s.persist_agent_call(&a, &ss, &request, &resolved, received + PERSIST_BOUND)
+        s.persist_agent_call(&a, &ss, &request, &resolved, received + WAIT_LIMIT)
     })
     .await?
     {
         Ok(out) => out,
-        Err(existing) => return Ok(existing),
+        Err(existing) => return hold(&store, auth, existing, until).await,
     };
-    // 8. Submit: return once the first attempt ends, or 25 seconds after
-    // receipt; later attempts continue in the background.
+    // 8. Submit; attempts after the first continue in the background.
     let status_only = crate::retry::receipt_only(&out, Utc::now());
-    let attempt = tokio::spawn(call_outbound::submit(
+    tokio::spawn(call_outbound::submit(
         store.clone(),
         out.clone(),
         status_only,
     ));
-    let _ = tokio::time::timeout_at((received + SUBMIT_BOUND).into(), attempt).await;
     let (peer, id) = (out.peer_host_id.clone(), out.request.call_id.clone());
-    blocking(store, move |s| {
-        s.agent_call_view(&auth, &session, &peer, &id)
-    })
+    crate::call_timing::hold(
+        &store,
+        (peer.clone(), id.clone()),
+        until,
+        |v: &CallView| &v.state,
+        move |s| s.agent_call_view(&auth, &session, &peer, &id),
+    )
+    .await
+}
+/// Holds a repeat's response as a new call's is held.
+async fn hold(
+    store: &Arc<Store>,
+    auth: AdapterAuth,
+    view: CallView,
+    until: Instant,
+) -> Result<CallView, Error> {
+    if crate::calls::is_final(&view.state) || Instant::now() >= until {
+        return Ok(view);
+    }
+    let id = view.call_id.clone();
+    crate::call_timing::hold(
+        store,
+        (view.peer_host_id, view.call_id),
+        until,
+        |v: &CallView| &v.state,
+        move |s| s.agent_call_status(&auth, &id, 0),
+    )
     .await
 }
 

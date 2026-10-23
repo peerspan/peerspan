@@ -410,9 +410,15 @@ impl Store {
             append_event(&tx, "call.updated", &subject(&current), &now())?;
         }
         tx.commit()?;
+        if current.finished() {
+            self.call_timing.signal_final();
+        }
         Ok(current)
     }
-    /// Stores a polled status, and its result once final.
+    /// Stores a polled status, and its result once final. A stored final
+    /// status is never replaced, and a state earlier than the stored one
+    /// (`queued` after `running`) is not stored: a held answer may arrive
+    /// after a cancel or a later answer.
     fn store_call_status(
         &self,
         peer: &str,
@@ -424,7 +430,17 @@ impl Store {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let mut out = stored(&tx, peer, id)?;
-        let Some(status) = status.filter(|_| !out.final_state()) else {
+        let stage = |state: &str| match state {
+            "queued" => 0,
+            "running" => 1,
+            _ => 2,
+        };
+        let earlier = |s: &CallStatus| {
+            out.status
+                .as_ref()
+                .is_some_and(|stored| stage(&s.state) < stage(&stored.state))
+        };
+        let Some(status) = status.filter(|s| !out.final_state() && !earlier(s)) else {
             if cancel_sent {
                 out.cancel_state = Some("sent".into());
                 save(&tx, &out)?;
@@ -445,6 +461,9 @@ impl Store {
             append_event(&tx, "call.updated", &subject(&out), &now())?;
         }
         tx.commit()?;
+        if out.final_state() {
+            self.call_timing.signal_final();
+        }
         Ok(out)
     }
     /// Marks a cancellation to send, unless the call was refused or is
@@ -479,7 +498,7 @@ impl Store {
         due.sort();
         Ok(due.into_iter().map(|(_, p, i)| (p, i)).collect())
     }
-    pub(crate) fn pollable_calls(&self) -> Result<Vec<(String, String, bool)>, Error> {
+    pub(crate) fn pollable_calls(&self) -> Result<Vec<CallKey>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT record FROM outbound_calls WHERE json_extract(record, '$.submit_state') = 'accepted' ORDER BY rowid",
@@ -488,8 +507,7 @@ impl Store {
         for record in statement.query_map([], |r| r.get::<_, String>(0))? {
             let call: OutboundCall = serde_json::from_str(&record?)?;
             if call.pollable() {
-                let agent = call.adapter_id.is_some();
-                out.push((call.peer_host_id, call.request.call_id, agent));
+                out.push((call.peer_host_id, call.request.call_id));
             }
         }
         Ok(out)
@@ -610,6 +628,16 @@ impl Viewer {
             .flatten()
             .filter(|v| applies(v))
             .cloned()
+            .map(|mut v| {
+                // A policy entry from a host that predates `from_agent`
+                // reads as null, and is listed with it.
+                if v["kind"] == "policy"
+                    && let Some(v) = v.as_object_mut()
+                {
+                    v.entry("from_agent").or_insert(Value::Null);
+                }
+                v
+            })
             .collect();
         if via.is_empty() {
             return None;
@@ -1198,22 +1226,25 @@ pub(crate) async fn default_deadline(
     Ok(end)
 }
 
-/// Fetches the remote status, with the result once final.
+/// Fetches the remote status, with the result once final. With `held`,
+/// the receiver holds the request for up to 10 seconds until the state
+/// differs from the one stored here.
 async fn fetch_status(
     store: &Arc<Store>,
     out: &OutboundCall,
+    held: bool,
 ) -> anyhow::Result<(CallStatus, Received)> {
-    let path = format!("/peer/v1/calls/{}", out.request.call_id);
-    match peer_request(
-        store,
-        &out.peer_host_id,
-        "GET",
-        path,
-        Vec::new(),
-        REQUEST_BOUND,
-    )
-    .await?
-    {
+    let mut path = format!("/peer/v1/calls/{}", out.request.call_id);
+    let mut bound = REQUEST_BOUND;
+    if held {
+        let wait = crate::call_timing::PEER_WAIT_MAX;
+        path.push_str(&format!("?wait={wait}"));
+        if let Some(status) = &out.status {
+            path.push_str(&format!("&state={}", status.state));
+        }
+        bound += Duration::from_secs(wait);
+    }
+    match peer_request(store, &out.peer_host_id, "GET", path, Vec::new(), bound).await? {
         (200, body) => {
             let mut value: Value = serde_json::from_slice(&body)?;
             if let Some(object) = value.as_object_mut() {
@@ -1246,7 +1277,7 @@ pub(crate) async fn submit(
         return Ok(out);
     }
     let result: anyhow::Result<(CallStatus, Received)> = if status_only {
-        fetch_status(&store, &out).await
+        fetch_status(&store, &out, false).await
     } else {
         let body = serde_json::to_vec(&out.request).map_err(Error::from)?;
         match peer_request(
@@ -1263,7 +1294,9 @@ pub(crate) async fn submit(
                 // An idempotent repeat may already be final; its result
                 // comes only from `GET /peer/v1/calls/{id}`.
                 Ok(status) if valid_status(&store, &out, &status) && is_final(&status.state) => {
-                    Ok(fetch_status(&store, &out).await.unwrap_or((status, None)))
+                    Ok(fetch_status(&store, &out, false)
+                        .await
+                        .unwrap_or((status, None)))
                 }
                 Ok(status) if valid_status(&store, &out, &status) => Ok((status, None)),
                 _ => Err(anyhow::anyhow!("invalid peer call status")),
@@ -1300,7 +1333,13 @@ pub(crate) async fn submit(
         Err(e) => out.error = Some(format!("{e:#}")),
     }
     crate::retry::schedule(&mut out, status_only, Utc::now(), crate::retry::jitter());
-    blocking(store, move |s| s.finish_call_submit(out)).await
+    let out = blocking(store.clone(), move |s| s.finish_call_submit(out)).await?;
+    // An accepted call's status is followed with held requests.
+    if out.pollable() {
+        let key = (out.peer_host_id.clone(), out.request.call_id.clone());
+        crate::call_timing::accepted(&store, key);
+    }
+    Ok(out)
 }
 
 /// Sends a pending cancellation; an uncertain result is resent by polling.
@@ -1338,25 +1377,47 @@ pub(crate) async fn send_cancel(
 /// One poll: resends a pending cancellation, then fetches the status.
 /// Returns whether anything changed.
 pub(crate) async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<bool> {
-    let (p, i) = (peer.clone(), id.clone());
+    Ok(poll_once(store, &peer, &id, false).await?.unwrap_or(false))
+}
+/// A poll with a held status request. Returns whether the stored state
+/// changed, or None once the call is final or not accepted.
+pub(crate) async fn poll_held(
+    store: Arc<Store>,
+    peer: &str,
+    id: &str,
+) -> anyhow::Result<Option<bool>> {
+    poll_once(store, peer, id, true).await
+}
+async fn poll_once(
+    store: Arc<Store>,
+    peer: &str,
+    id: &str,
+    held: bool,
+) -> anyhow::Result<Option<bool>> {
+    let (p, i) = (peer.to_owned(), id.to_owned());
     let mut out = blocking(store.clone(), move |s| s.outbound_call(&p, &i)).await?;
     if out.submit_state != "accepted" {
-        return Ok(false);
+        return Ok(None);
     }
     if out.cancel_state.as_deref() == Some("unknown") {
         out = send_cancel(&store, out).await?;
     }
     if out.final_state() {
-        return Ok(false);
+        return Ok(None);
     }
     let before = out.status.as_ref().map(|s| s.state.clone());
-    let (status, result) = fetch_status(&store, &out).await?;
-    let changed = before.as_deref() != Some(status.state.as_str());
-    blocking(store, move |s| {
-        s.store_call_status(&peer, &id, Some(status), result, false)
+    let (status, result) = fetch_status(&store, &out, held).await?;
+    let (p, i) = (peer.to_owned(), id.to_owned());
+    let out = blocking(store, move |s| {
+        s.store_call_status(&p, &i, Some(status), result, false)
     })
     .await?;
-    Ok(changed)
+    if out.final_state() {
+        return Ok(None);
+    }
+    Ok(Some(
+        before.as_deref() != out.status.as_ref().map(|s| s.state.as_str()),
+    ))
 }
 /// A retry of an uncertain submission, when due.
 pub(crate) async fn retry(store: Arc<Store>, peer: String, id: String) {
@@ -1438,16 +1499,19 @@ async fn discover_route(
 
 /// A peer host ID and call ID.
 pub(crate) type CallKey = (String, String);
-/// Uncertain call submissions due now, and accepted calls to poll, each
-/// with whether an agent made it, for the task worker, which shares its 4
-/// slots with them.
-pub(crate) fn jobs(store: &Store, now: DateTime<Utc>) -> (Vec<CallKey>, Vec<(CallKey, bool)>) {
+/// Uncertain call submissions due now, accepted calls to poll, and the
+/// accepted calls followed with held status requests, which are polled
+/// only after their held window, for the task worker, which shares its 4
+/// slots with the polls.
+pub(crate) fn jobs(
+    store: &Store,
+    now: DateTime<Utc>,
+) -> (Vec<CallKey>, Vec<CallKey>, Vec<CallKey>) {
     let due = store.due_call_retries(now).unwrap_or_default();
-    let polls = store
+    let (followed, polls) = store
         .pollable_calls()
         .unwrap_or_default()
         .into_iter()
-        .map(|(p, i, agent)| ((p, i), agent))
-        .collect();
-    (due, polls)
+        .partition(|key| store.call_timing.following(key));
+    (due, polls, followed)
 }

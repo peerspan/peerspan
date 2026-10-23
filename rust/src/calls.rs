@@ -1462,13 +1462,25 @@ async fn submit_route(
         blocking(store, move |s| s.accept_call(&sender, request)).await?,
     ))
 }
+#[derive(Deserialize)]
+struct StatusQuery {
+    #[serde(default)]
+    wait: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+}
+/// `GET /peer/v1/calls/{id}?wait=N&state=S`: held until the call's state
+/// differs from `S`, it is final, or `N` seconds pass.
 async fn status_route(
     State(store): State<Arc<Store>>,
     Extension(sender): Extension<String>,
     Path(id): Path<String>,
+    query: Result<Query<StatusQuery>, QueryRejection>,
 ) -> Result<Json<CallView>, Error> {
+    let Query(q) = query.map_err(|_| Error::Invalid("invalid query".into()))?;
+    let (wait, known) = crate::call_timing::peer_wait(q.wait, q.state)?;
     Ok(Json(
-        blocking(store, move |s| s.call_status(&sender, &id)).await?,
+        crate::call_timing::held_status(store, sender, id, wait, known).await?,
     ))
 }
 #[derive(Deserialize)]

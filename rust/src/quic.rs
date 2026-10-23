@@ -55,8 +55,9 @@ const RELAY_REFRESH: Duration = Duration::from_secs(5);
 /// Connection setup (direct attempt, relay readiness, and handshake) fits in
 /// the 8-second request bound.
 const REQUEST_BOUND: Duration = Duration::from_secs(8);
-/// Peer requests are served within 15 seconds, except artifact transfers,
-/// whose stalls the connection's idle timeout bounds instead.
+/// Peer requests are served within 15 seconds, which covers a status
+/// request held for up to 10 seconds, except artifact transfers, whose
+/// stalls the connection's idle timeout bounds instead.
 const SERVE_BOUND: Duration = Duration::from_secs(15);
 const TRANSFER_BOUND: Duration = Duration::from_secs(3600);
 
@@ -1011,6 +1012,16 @@ mod tests {
     use super::*;
     use crate::peer::pinned_client_config;
     use base64::Engine;
+
+    #[test]
+    fn held_call_status_is_a_large_response() {
+        let held = "/peer/v1/calls/call_0123?wait=10&state=queued";
+        assert_eq!(response_limit("GET", held), MAX_LARGE_RESPONSE);
+        assert_eq!(
+            response_limit("POST", "/peer/v1/calls/call_0123/cancel"),
+            MAX_BODY
+        );
+    }
 
     struct Host {
         _directory: tempfile::TempDir,
