@@ -2,6 +2,10 @@
 
 Status: specification for roadmap milestone 1 ([roadmap](production-roadmap.md)). The Go and Rust host daemons implement the host side, and a Go-only `peerspan-coord` binary implements coordination. This builds on the [known-host messaging contract](peer-messaging-contract.md). Manual `peer add` remains supported, and nothing here changes the peer router.
 
+Approved machine linking and delegated person signing are a subsequent milestone.
+The [signing and pairing proposal](machine-linking-contract.md) defines primitive
+bytes and review gates; it does not enable new coordinator routes or writers.
+
 ## Trust model
 
 A network is identified by its **root key**, an Ed25519 key generated on the creator's host and stored only in that host's database. Membership is a signed chain that every host verifies itself:
