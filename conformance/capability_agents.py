@@ -1205,6 +1205,16 @@ class AgentPairing:
             time.sleep(0.05)
         raise Failure(f'outbound call {call_id} final on {host}: {self.outbound(host, call_id)}')
 
+    def watch_state(self, host, call_id, states, timeout=30):
+        """Read the caller's outbound record every 50 ms until its status state is in `states`; (record, time)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            record = self.outbound(host, call_id)
+            if record and (record.get('status') or {}).get('state') in states:
+                return record, time.time()
+            time.sleep(0.05)
+        raise Failure(f'outbound call {call_id} in {sorted(states)} on {host}: {self.outbound(host, call_id)}')
+
     def check_timing(self):
         notes = []
         q1, p1 = self.hosts['q1'], self.hosts['p1']
@@ -1220,7 +1230,7 @@ class AgentPairing:
             notes.append(f'{address} 2-second call in {elapsed:.2f}s')
 
         # A wait above the limit answers no later than the wait limit (15 seconds), not before it.
-        text = marker('w60')
+        text = w60_text = marker('w60')
         view, elapsed = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 25, 'text': text}, wait=60)
         need(view['state'] in PENDING_STATES and view['note'] == PENDING_NOTE and 14.5 <= elapsed <= 16.5,
              'a wait above the limit answers at the 15-second wait limit, unfinished', view['state'], elapsed)
@@ -1240,9 +1250,16 @@ class AgentPairing:
 
         long_text = marker('held')
         long_call = submit(14, long_text)
-        for wait in (11, -1):
-            status, value = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?wait={wait}')
-            need(status == 400, 'GET /peer/v1/calls/{id} with a wait outside 0 to 10 is 400', wait, status, value)
+        for query in ('wait=11', 'wait=-1', 'wait=5&state=bogus', 'wait=5&state=RUNNING'):
+            status, value = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?{query}')
+            need(status == 400, 'GET /peer/v1/calls/{id} with a wait outside 0 to 10, or a state that is not a call '
+                 'state, is 400', query, status, value)
+        wait_for(lambda: self.fixture.calls('fx', marker=long_text), timeout=10, message='the long call running')
+        started = time.monotonic()
+        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?wait=10&state=queued')
+        need(status == 200 and record['state'] == 'running' and time.monotonic() - started < 1.5,
+             'a state that already differs answers at once', status, record.get('state'),
+             time.monotonic() - started)
         started = time.monotonic()
         status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?wait=0')
         need(status == 200 and record['state'] not in FINAL and time.monotonic() - started < 1.5,
@@ -1254,12 +1271,38 @@ class AgentPairing:
              'a held GET answers after its wait when the call has not finished', status, record.get('state'), held)
         text = marker('short')
         short_call = submit(3, text)
-        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{short_call}?wait=10')
+        wait_for(lambda: self.fixture.calls('fx', marker=text), timeout=10, message='the short call running')
+        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{short_call}?wait=10&state=running')
         answered = time.time()
         done = self.done_time('fx', text)
         need(status == 200 and record['state'] == 'succeeded' and record.get('result') is not None and done and
-             answered - done <= 1.3, 'a held GET answers within 1 second of the call finishing, with the result',
-             status, record.get('state'), answered - (done or 0))
+             answered - done <= 1.3, 'a held GET (state running) answers within 1 second of the call finishing, with '
+             'the result', status, record.get('state'), answered - (done or 0))
+
+        # The instance's earlier sleeps (wait 60 and the long peer call) finish first, so the slots can be filled.
+        wait_for(lambda: self.done_time('fx', w60_text) and self.done_time('fx', long_text), timeout=40,
+                 message='the earlier sleeps finished')
+        # queued to running: with the instance's 4 slots busy for 4 seconds, a queued call's held GET (state queued)
+        # answers within 1 second of the call starting to run, at the receiver and at the caller daemon.
+        self.fill_slots(4)
+        text = marker('startsoon')
+        queued_call = submit(2, text)
+        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{queued_call}?wait=10&state=queued')
+        answered = time.time()
+        calls = self.fixture.calls('fx', marker=text)
+        need(status == 200 and record['state'] in ('running', 'succeeded') and calls and
+             answered - calls[0]['time'] <= 1.3, 'a held GET (state queued) answers within 1 second of the call '
+             'starting to run', status, record.get('state'), answered - (calls[0]['time'] if calls else 0))
+        self.fill_slots(4)
+        text = marker('callerstart')
+        view, _ = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 3, 'text': text}, wait=0)
+        record, seen = self.watch_state('q1', view['call_id'], {'running'} | FINAL)
+        calls = self.fixture.calls('fx', marker=text)
+        need(record['status']['state'] == 'running' and calls and seen - calls[0]['time'] <= 1.3,
+             'the caller daemon stores running within 1 second of the call starting to run', record['status'],
+             seen - (calls[0]['time'] if calls else 0))
+        notes.append(f"running seen {seen - calls[0]['time']:.2f}s after start")
+        self.watch_final('q1', view['call_id'])
 
         # The caller daemon's held status requests: a 12-second call from qa is seen final within 1 second of
         # finishing, with few status requests (one held request at a time, each up to 10 seconds).
@@ -1271,13 +1314,20 @@ class AgentPairing:
         done = self.done_time('fx', text)
         need(done and seen - done <= 1.3, 'the caller daemon has the result within 1 second of the call finishing',
              seen - (done or 0))
-        need(isinstance(record.get('status_queries'), int) and 1 <= record['status_queries'] <= 4,
+        # Q: whether held requests count in status_queries is not said; 0 means they are not counted, and then the
+        # number of requests cannot be observed here.
+        need(isinstance(record.get('status_queries'), int) and record['status_queries'] <= 4,
              'one held status request at a time (a 12-second call takes at most a few)', record.get('status_queries'))
-        notes.append(f"held: final {seen - done:.2f}s after finishing, {record['status_queries']} status requests")
+        notes.append(f"held: final {seen - done:.2f}s after finishing, {record['status_queries']} status requests "
+                     'counted')
 
         # A receiver that predates wait (version 17) answers at once: asked again no sooner than 1 second after each
         # answer, and the call still returns final.
-        need('o1' in self.hosts, 'setup: a version 17 serving host (capabilities.py --baseline17)')
+        if 'o1' not in self.hosts:
+            print(f'SKIP {self.label} [agent tools: call timing]: the version 17 receiver case needs --baseline17',
+                  flush=True)
+            notes.append('SKIPPED the version 17 receiver case (no --baseline17)')
+            return '; '.join(notes)
         text = marker('old')
         started = time.time()
         view, _ = self.ok_call('qa', 'pat/oldtools', 'sleep', {'seconds': 6, 'text': text}, wait=0)
@@ -1287,13 +1337,13 @@ class AgentPairing:
              record['status'])
         need(isinstance(record.get('status_queries'), int) and record['status_queries'] <= span + 2,
              'asked again no sooner than 1 second after each answer', record.get('status_queries'), span)
+        self.soft(record['status_queries'] > 0, 'status requests to a version 17 receiver are counted in '
+                  'status_queries (otherwise the 1-second spacing cannot be observed)', record['status_queries'])
         done = self.done_time('fx-o1', text)
         need(done and seen - done <= 2.3, 'seen final within about a second of finishing', seen - (done or 0))
         final = self.final_view('qa', view['call_id'])
         need(final['state'] == 'succeeded', 'call_status returns it final', final)
         notes.append(f"version 17 receiver: {record['status_queries']} status requests over {span:.1f}s")
-        wait_for(lambda: wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}')[1].get('state') in FINAL,
-                 timeout=30, message='the long peer call final')
         return '; '.join(notes)
 
     # --- agent rules and repeats ---------------------------------------------------------------------------
@@ -1399,6 +1449,7 @@ class AgentPairing:
         view = self.final_view('qa', queued['call_id'], timeout=30)
         need(view['state'] == 'cancelled' and view['note'] == NEVER_RAN_NOTE,
              'call_cancel while queued: cancelled, with the never-ran note', view)
+        cancelled_id, cancelled_at = queued['call_id'], time.monotonic()
 
         rechecked, _ = self.ok_call('qa', 'pat/recheck', 'echo', {'text': texts['rc']}, wait=0)
         rechecked = self.until_state('qa', rechecked, 'queued')
@@ -1421,6 +1472,11 @@ class AgentPairing:
              expiring_view['deadline'])
         self.unshare('p1', 'recheck', 'quinn')
 
+        # The queued call's held status request (state queued) was in flight when it was cancelled; it stays
+        # cancelled (checked now, more than 10 seconds later).
+        time.sleep(max(0.0, 11 - (time.monotonic() - cancelled_at)))
+        view = self.final_view('qa', cancelled_id)
+        need(view['state'] == 'cancelled', 'a held answer never moves a stored state backwards', view)
         view = self.final_view('qa', rechecked['call_id'], timeout=120)
         need(view['state'] == 'rejected' and view['error'] == LAPSED and view['note'] == NEVER_RAN_NOTE,
              'rejected at the recheck before start, with the never-ran note', view)
@@ -1483,22 +1539,34 @@ class AgentPairing:
 
     # --- running calls -------------------------------------------------------------------------------------
 
+    def running_at_receiver(self, view, text, key='fx'):
+        """A call the fixture is executing. The caller's view may still say queued: with held status requests, it
+        learns of `running` only when a held request answers (decision 15)."""
+        need(view['state'] in PENDING_STATES and view['note'] == PENDING_NOTE, 'an unfinished call', view)
+        wait_for(lambda: self.fixture.calls(key, marker=text), timeout=10, message='the fixture runs the call')
+
     def check_running(self):
         f = self.fixture
         text = marker('cr')
         view, _ = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 30, 'text': text}, wait=2)
-        need(view['state'] == 'running', 'a running call', view)
+        self.running_at_receiver(view, text)
         failed, cancelled = self.tool(self.s('qa')['consumer'], 'call_cancel', {'call_id': view['call_id']})
         need(not failed, 'call_cancel returns the call view', cancelled)
         check_view(cancelled, 'call_cancel')
         final = self.final_view('qa', view['call_id'], timeout=60)
         need(final['state'] == 'uncertain' and final['error'] == 'cancel_requested' and
              final['note'] == UNCERTAIN_NOTE, 'call_cancel while running: uncertain with the uncertain note', final)
+        # A held status request (state running) was in flight when the call was cancelled; its answer never moves
+        # the stored state backwards, and a final state is never replaced (held requests last up to 10 seconds).
+        time.sleep(11)
+        later = self.final_view('qa', view['call_id'])
+        need(later['state'] == 'uncertain' and later['error'] == 'cancel_requested',
+             'a final state is never replaced by a held answer', later)
         need(len(f.calls('fx', marker=text)) == 1, 'executed exactly once')
 
         text = marker('rs')
         view, _ = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 20, 'text': text}, wait=2)
-        need(view['state'] == 'running', 'a running call', view)
+        self.running_at_receiver(view, text)
         self.restart('p1')
         final = self.final_view('qa', view['call_id'], timeout=90)
         need(final['state'] == 'uncertain' and final['error'] == 'daemon_restarted' and
@@ -1804,7 +1872,7 @@ class AgentPairing:
     def check_revocation(self):
         text = marker('rv')
         view, _ = self.ok_call('qa', 'pat/revoke', 'sleep', {'seconds': 8, 'text': text}, wait=2)
-        need(view['state'] == 'running', 'a running call', view)
+        self.running_at_receiver(view, text)
         self.unshare('p1', 'revoke', 'quinn')
         failed, value, _ = self.cc('qa', 'pat/revoke', 'echo', {'text': marker('rv2')})
         need(failed, 'after unshare, call_capability is a tool error', value)

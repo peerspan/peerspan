@@ -3672,6 +3672,13 @@ def main():
     args = parser.parse_args()
     if not args.skip_agents and not args.vector_only and not args.node:
         parser.error('--node is required for the agent tool cases (or pass --skip-agents)')
+    timing = not args.skip_agents and (not args.agent_section or 'call timing' in args.agent_section)
+    if timing and not args.vector_only and not args.rust:
+        parser.error('the agent tools "call timing" section needs both implementations (--go and --rust): it calls a '
+                     'host of the other implementation; pass --rust, or --skip-agents, or other --agent-section names')
+    if timing and not args.vector_only and not args.baseline17:
+        print('SKIP [agent tools: call timing]: no --baseline17, so the version 17 receiver case will be skipped',
+              flush=True)
     if args.skip_agents and args.agents_only:
         parser.error('--skip-agents and --agents-only exclude each other')
     for tool in ('ssh-agent', 'ssh-add', 'ssh-keygen', 'openssl'):
