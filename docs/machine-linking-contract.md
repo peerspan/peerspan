@@ -1,6 +1,7 @@
 # Machine linking: delegated signing and pairing primitives
 
-Status: **UP-06a proposal for review**, 2026-10-23; no runtime implementation.
+Status: **UP-06a accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41)**,
+2026-10-23; no runtime implementation.
 This refines the [UP-05 design](https://github.com/peerspan/docs-internal/blob/main/docs/machine-linking.md),
 accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9).
 Both Go and Rust must implement the eventual shared behavior. Rust remains the
@@ -8,9 +9,9 @@ recommended install. Release configuration is deferred.
 
 This slice specifies signed bytes, authority evaluation, and encryption
 primitives. The transaction schemas, routes, durable storage migration, and CLI
-are the next slice, UP-06b. **Do not enable delegated writers or advertise
-`peerspan link` from this document alone.** UP-06b must settle the remaining
-transaction details listed below before either implementation starts writing.
+are defined in the proposed [UP-06b transaction contract](machine-linking-transactions.md).
+**Do not enable delegated writers or advertise `peerspan link` from this document
+alone.** The transaction contract must be reviewed before implementation writers.
 
 ## Required result
 
@@ -256,7 +257,8 @@ Before an issuer path becomes unusable, retain exact public record IDs in a
 checkpoint signed by the original person key or an unaffected active strict
 ancestor. A checkpoint has exactly `format` (1), `network_id`,
 `person_public_key`, `issuer_certificate_id`, `issued_at`, `records` (sorted,
-unique `ar_...` IDs or `dr_...` revocation IDs), and `signature`. Its message is:
+unique `ar_...` IDs or `dr_...` revocation IDs; the transaction proposal adds
+completed-redemption `pf_` IDs), and `signature`. Its message is:
 
 ```text
 L("peerspan-person-checkpoint-v1", network_id, person_public_key,
@@ -273,7 +275,9 @@ anchor; periodic root access can create one directly, including for an expired
 path whose exact records the person chooses to endorse.
 
 Retention covers admissions, bindings, unbindings, restrictive revocations and
-person removals. It does not retain policies, invites, groups, certificates,
+person removals. The [transaction proposal](machine-linking-transactions.md#invites-from-delegated-administrators)
+adds exact completed invitation/redemption history, without preserving a live
+invite. Retention does not cover policies, live invites, groups, certificates,
 activation authority, or a person's administrator role. No checkpoint extends
 policy validity, resets version high-water marks, revives a device, overrides
 network-root revocations/removals/epoch rules, or authorizes a new operation.
@@ -352,9 +356,12 @@ Frame plaintext is strict UTF-8 JSON, at most 64 KiB; it repeats the request ID,
 role and writer key, which must match the authenticated header. All identity and
 authority claims additionally require the appropriate signatures. A code holder
 can produce a valid frame; AEAD authentication does not prove person authority.
-The coordinator never receives `S`, `PRK`, `K`, or plaintext through a separate
-route, URL, log, error or metric. Private pending state is owner-only and secrets
-are deleted at terminal completion. Public keys and outcomes remain auditable.
+The coordinator never receives `S`, `PRK` or `K`. Pending ceremony plaintext stays
+encrypted; the proposed finalization route discloses the public signed activation
+proofs for validation, without the code or private keys. Logs, errors and metrics
+never include the private code or plaintext ceremony payloads. Private pending
+state is owner-only and secrets are deleted at terminal completion. Public keys
+and outcomes remain auditable.
 
 ## 6. Linking transaction requirements for UP-06b
 

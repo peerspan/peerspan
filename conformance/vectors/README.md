@@ -1,6 +1,6 @@
 # Machine-linking primitive vectors
 
-[machine-linking-v1.json](machine-linking-v1.json) accompanies the proposed
+[machine-linking-v1.json](machine-linking-v1.json) accompanies the accepted
 [shared signing contract](../../docs/machine-linking-contract.md). All seeds and
 the pairing secret are public deterministic fixtures. Never use them in a real
 network. Certificate objects are signature examples, without activation proofs;
@@ -47,3 +47,38 @@ These one-off primitive checks are not a new conformance suite, protocol securit
 review, or runtime acceptance result. The separately authored protocol suite
 follows the completed transaction contract, as required by
 [AGENTS.md](../../AGENTS.md). Existing runtime behavior is unchanged.
+
+## Transaction fixtures (UP-06b)
+
+[machine-linking-transactions-v1.json](machine-linking-transactions-v1.json)
+accompanies the proposed [transaction contract](../../docs/machine-linking-transactions.md).
+It adds public bootstrap person/host/admin proofs and a fully acknowledged feature,
+then 15 isolated inputs: six expected successful transactions and nine expected
+rejections. Each case starts from exactly its own catalog and no committed
+operation; do not combine cases. Multiple cases deliberately reuse a request ID
+with different authorization in independent starting states.
+
+The successful examples cover original-person linking, delegated B → C, separate
+nonadministrator owner and administrator, network-root admission, and same-key
+renewal both before and after old-certificate expiry. Rejected examples have
+missing or insufficient administrator authority, wrong network or selection,
+an expired first commit, child scope/expiry expansion, a pending parent, or a
+revoked device key. Their expected semantic outcomes are specification data;
+no running verifier has established those results yet.
+
+Go 1.27.1 standard-library generation was repeated byte for byte. A temporary
+Rust `ring` 0.17.14 program independently reproduced all 107 SSHSIGs/preimages
+and verified all 78 raw signatures. OpenSSH 9.2p1 accepted all 107 SSHSIGs and
+rejected each after its message bytes changed. A separate Python standard-library
+artifact check reconstructed packet, certificate, record, feature and catalog
+IDs, checked the signed-preimage references, and confirmed each operation input
+fits 512 KiB (largest 38,507 bytes). These checks cover fixture integrity and
+cryptographic bytes, not the proposed semantic outcomes or running recovery.
+The original primitive fixture is unchanged.
+
+Transaction fixture SHA-256:
+`a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64`.
+
+The documented host migration SQL was parsed with Python SQLite, checked to
+preserve an existing identity row, and rolled back after an injected SQL failure.
+This checks the proposed DDL/transaction boundary, not either host migration runner.

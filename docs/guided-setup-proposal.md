@@ -306,8 +306,8 @@ removed.
 | UP-03 | Guided orchestration in Rust and Go, reusing existing operations | UP-02 | Implemented; scripted Linux checks passed |
 | UP-04 | Prerequisite, partial-identity, repeat/resume, and readiness handling | UP-02; ships with UP-03 | Implemented; scripted Linux checks passed |
 | UP-05 | Approved machine-link identity and recovery design | Current identity and trust model | Accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9) |
-| UP-06a | [Delegated signing contract, pairing primitives and fixed vectors](machine-linking-contract.md) | UP-05; existing person/admin rules | Proposed for review; no runtime changes |
-| UP-06b | Complete transaction schemas, routes, persistence, activation/upgrade and recovery contract | UP-06a review | Pending; required before runtime writers |
+| UP-06a | [Delegated signing contract, pairing primitives and fixed vectors](machine-linking-contract.md) | UP-05; existing person/admin rules | Accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41); no runtime changes |
+| UP-06b | [Complete transaction schemas, routes, persistence, activation/upgrade and recovery contract](machine-linking-transactions.md) | UP-06a review | Proposed for review; required before runtime writers |
 | UP-06c | Shared verification and signed-state propagation in Go, Rust and coordinator; separately authored conformance | UP-06b review | Pending |
 | UP-06d | Linking ceremony, signer discovery/renewal and integration with `up` in both hosts | UP-06c | Pending |
 | UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06d | Scripted Linux checks passed; live-agent and fresh-machine validation pending |
