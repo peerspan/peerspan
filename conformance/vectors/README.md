@@ -82,3 +82,33 @@ Transaction fixture SHA-256:
 The documented host migration SQL was parsed with Python SQLite, checked to
 preserve an existing identity row, and rolled back after an injected SQL failure.
 This checks the proposed DDL/transaction boundary, not either host migration runner.
+
+## Invite-redemption review fixtures
+
+[machine-linking-invite-redemptions-v1.json](machine-linking-invite-redemptions-v1.json)
+fixes the caller and explicit `person_action` rules raised in PR #43's review.
+It references the unchanged transaction fixture's `delegated_b_links_c` catalog
+by file hash. Each case starts independently, before any use of its invitation.
+Combine a case's redemption, address, candidates and acknowledgment with that
+catalog to form the exact route body; fixture metadata is not sent to the API.
+
+Four intended successes cover host-only, person-only from a current member,
+member with new person admission, and member explicitly skipping an already
+admitted person. Six intended rejections cover an outsider redeeming person-only,
+the wrong joining TLS host, skip without a person admission, an incomplete admit
+that must not imply skip, an invalid mode/action pair, and a skipped person's
+label mismatch. Counts in `expected` specify intended mutations; `person_result`
+describes the requested outcome and is not an extra v2 map response field.
+An explicit skip retains the person key, omits the person invite/signature,
+consumes no person invite and creates no host binding.
+
+Go standard-library generation repeated byte for byte. Rust `ring` independently
+reproduced four new SSHSIGs/preimages and verified four raw signatures; OpenSSH
+accepted all four SSHSIGs and rejected altered messages. A Python artifact check
+matched authorization/member/acknowledgment inputs to those signatures, checked
+the authority catalog reference and required field combinations, and confirmed
+both earlier fixture hashes are unchanged. These are fixture integrity checks;
+the separately authored runtime suite must still establish the semantic results.
+
+Invite-redemption fixture SHA-256:
+`5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5`.

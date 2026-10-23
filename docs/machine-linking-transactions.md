@@ -351,7 +351,7 @@ arguments. The locator is the primitive hash, not the private code.
 | `POST /networks/{id}/link-operations` | `{activation, catalog, address, candidates}`; TLS caller must be the new/renewing host. 201 result packet; identical committed retry 200. |
 | `GET /networks/{id}/link-operations/{request_id}` | No body; joining host or current network member; 200 stored result packet, 404 unknown. |
 | `POST /networks/{id}/statements` | `{catalog}`; current member; validate each new statement and its operation/feature constraints, atomically store, 200 v2 map. |
-| `POST /networks/{id}/invite-redemptions` | `{redemption, catalog, address, candidates, join_ack}`; joining TLS host; 201 v2 map, identical retry 200. |
+| `POST /networks/{id}/invite-redemptions` | `{redemption, catalog, address, candidates, join_ack}`; `host`/`member` requires TLS caller key equal to `redemption.host_public_key` and a matching feature acknowledgment; `person` requires an existing current member, `join_ack: "-"`, `address: ""` and `candidates: []`, with no transport admission. 201 v2 map, identical retry 200. |
 
 A mailbox view is exactly `{request_id, locator, created_at, expires_at,
 next_sequence, state, frames}`, state `open|expired|deleted`, and frames
@@ -468,17 +468,45 @@ original signature value from the token's corresponding invite-signature field.
 Validate the existing signed-line format under its actual root/person-admin key;
 never reinterpret a device signature as a legacy person signature.
 
-A public redemption has exactly `{format: 1, mode, host_public_key,
+A public redemption has exactly `{format: 1, mode, person_action, host_public_key,
 person_public_key, joined_at, host_invite, person_invite,
-host_member_signature, person_member_signature}`. Absent mode-specific keys,
-records and signatures are `"-"`. Host/member uses an invite-key raw signature
-on the existing host-member statement; person/member uses the existing
-person-member statement. Public records contain no seed. Host joining must prove
-its own TLS key, and later same-person binding still needs owner + host consent.
-Person-only redemption is submitted by an existing member and uses `join_ack: "-"`;
-it does not admit a new transport host.
-An already-admitted person's member-invite person part follows today's explicit
-`skipped` result; it does not replace identity or binding.
+host_member_signature, person_member_signature}`. `person_action` is exactly
+`none`, `admit` or `skip`, with these required combinations:
+
+| Mode / person action | Host fields | Person fields and required state |
+| --- | --- | --- |
+| `host` / `none` | Host key, host invite and host-member signature required. | `person_public_key`, `person_invite` and `person_member_signature` are all `"-"`. |
+| `person` / `admit` | `host_public_key`, `host_invite` and `host_member_signature` are all `"-"`; caller is an existing current member. | New person key, person invite and person-member signature required. |
+| `member` / `admit` | Host key, host invite and host-member signature required. | New person key, person invite and person-member signature required; both invite halves must agree as specified above. |
+| `member` / `skip` | Host key, host invite and host-member signature required. | Keep the exact **already-admitted** `person_public_key`; set `person_invite` and `person_member_signature` to `"-"`. Verify that key's current person admission from durable state/catalog and that its admitted label matches the signed host-invite member label. |
+
+Other combinations, a missing `person_action`, or fields inconsistent with the
+selected action return 400 `invalid`. Never infer `skip` from missing fields.
+An unknown or removed person cannot satisfy `skip`; a label alone cannot select
+that identity. Missing required admission proof returns `proof_required`; a
+known removed person returns `forbidden`. A known label mismatch is
+`invalid`. Token mode `member` still requires both invite halves when decoding
+the private token; only the **public skip redemption** omits its unused person
+half. The skipped person-invite half is not consumed or retained as a redeemed
+grant, and the operation's person result is `skipped`.
+
+Host/member uses an invite-key raw signature on the existing host-member
+statement. Person/member with `person_action: admit` uses the existing
+person-member statement. Public records contain no seed. For host/member, the
+TLS caller must prove the named host key and `join_ack` must name that key and
+the active feature. For person-only, `host_public_key` remains `"-"`; authorize
+the actual TLS caller from current membership, not by comparing it with that
+absent field. Its empty address/candidates and absent acknowledgment leave
+transport membership and reachability unchanged.
+
+Choose the person action explicitly before mutation. A first `admit` for an
+already-admitted key returns 409 `state_conflict`; rebuild an explicit `member`
+skip against current verified state when appropriate. Check action/state
+preconditions before consuming either invite half or admitting a host. An exact
+completed retry still returns its stored outcome before these first-use checks.
+No skip action admits/removes/replaces a person, binds the joining host to that
+person, or grants owner access. Same-person binding still needs owner + host
+consent, even when the existing person and label match.
 
 An invite is a live grant: first redemption requires current issuer authority,
 current administrator role, feature acknowledgment, expiry and single-use checks.
@@ -709,6 +737,10 @@ provide deterministic bootstrap authority, feature activation, root-person → B
 B → C, and same-key renewal transcripts. Signed negative inputs distinguish
 valid cryptographic signatures from missing or wrong semantic authority. They
 are specification fixtures, not runtime acceptance or a security review.
+[Invite-redemption vectors](../conformance/vectors/machine-linking-invite-redemptions-v1.json)
+fix all four valid mode/action combinations and the corresponding caller and
+missing/skipped-field rejection cases, using the transaction fixture's verified
+authority catalog as their starting state.
 
 The separately authored conformance suite must check all four Go/Rust
 creator/joiner pairings, both owner/admin role arrangements, and at least:
@@ -739,6 +771,13 @@ creator/joiner pairings, both owner/admin role arrangements, and at least:
    seed, secret in logs/status/process arguments, or changed service/attachment.
 9. Rate/count/byte boundaries, terminal ciphertext cleanup, durable-state capacity
    refusal, coordinator backup/restore and existing explicit invite regression.
+10. Person-only redemption by a current member succeeds without a new host or
+    address update; an outsider fails. Host/member redemption requires the exact
+    joining TLS key and feature acknowledgment. Explicit member skip preserves
+    the existing person and leaves the joining host unbound, consumes no person
+    invite, and has an idempotent retry. Unknown/removed or label-mismatched skip
+    subjects, missing admit fields, inferred skip, invalid mode/action pairs and
+    admission races fail before any invite consumption or host mutation.
 
 After verifier/state propagation passes, implement the ceremony and `up` handoff
 in both hosts, run installed-bundle recovery checks, and update the quick start
