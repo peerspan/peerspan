@@ -796,6 +796,10 @@ func (s *Store) retryTask(ctx context.Context, out OutboundTask) {
 // RunTaskWorkers retries uncertain submissions and polls accepted tasks
 // until they are final, with at most four jobs in flight.
 func (s *Store) RunTaskWorkers(ctx context.Context) {
+	// Held call requests answer at once when the daemon stops.
+	s.tasks.mu.Lock()
+	s.tasks.timing.stop = ctx.Done()
+	s.tasks.mu.Unlock()
 	if err := s.spreadOverdueTasks(ctx); err != nil && ctx.Err() != nil {
 		return
 	}

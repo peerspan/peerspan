@@ -41,6 +41,16 @@ type callTiming struct {
 	accepted  map[string]time.Time
 	following map[string]bool
 	held      map[string]int
+	// stop is closed when the daemon stops, so held requests answer at
+	// once and the servers can drain.
+	stop <-chan struct{}
+}
+
+// holdsStopped is closed when the daemon stops.
+func (s *Store) holdsStopped() <-chan struct{} {
+	s.tasks.mu.Lock()
+	defer s.tasks.mu.Unlock()
+	return s.tasks.timing.stop
 }
 
 // finalSignal is closed when the outbound call's final status is stored.
@@ -214,6 +224,8 @@ func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait i
 		select {
 		case <-ctx.Done():
 			return st, nil
+		case <-s.holdsStopped():
+			return st, nil
 		case <-time.After(min(receiverHoldCheck, time.Until(until))):
 		}
 	}
@@ -257,6 +269,8 @@ func (s *Store) holdAgentCall(ctx context.Context, auth AdapterAuth, peer, id st
 		select {
 		case <-ctx.Done():
 			return v, ctx.Err()
+		case <-s.holdsStopped():
+			return v, nil
 		case <-signal:
 		case <-time.After(time.Until(until)):
 		}
