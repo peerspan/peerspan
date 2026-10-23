@@ -1711,5 +1711,22 @@
     "UP-07 live agent task completion and fresh-machine observations",
     "UP-08 macOS validation",
     "Deferred private preview release variables"
-  ]
+  ],
+  "directory_check_note": {
+    "issue": "The text endpoint assertion compared a current agents query with a direct endpoint captured several queries earlier. The fixture now brackets the text read with matching peer-path snapshots, as its JSON check already does; the exact endpoint assertion remains.",
+    "reruns": [
+      {
+        "pairing": "Rust/Go",
+        "scope": "Full launch_directory.py suite",
+        "passed": true,
+        "log_sha256": "d04d9c8fa05996051ca3b3b20fe167e9bb156dbe3240261a6032f99c2f47b769"
+      },
+      {
+        "pairing": "Rust/Rust",
+        "scope": "Existing endpoints case with the suite normal fixture setup; all other sections passed in the preceding full run",
+        "passed": true,
+        "log_sha256": "7f9575c805b1ca7034906ceda325a90421d053de0e76aada2256bb8b259e5aac"
+      }
+    ]
+  }
 }

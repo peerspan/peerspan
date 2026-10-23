@@ -1756,8 +1756,17 @@ class Pairing:
         line = readable_line(d1, 'pat/gamma')
         need(f"{member(d1, 'p1')['address']} ({paths['p1']['path']})" in line or paths['p1']['path'] == 'direct',
              'agents: the address, then the path in parentheses when it is not direct or local', line)
-        line = readable_line(d1, 'dana/dpeer')
-        need(paths['d2']['endpoint'] in line and '(direct)' not in line,
+        def readable_direct():
+            # Path discovery may select another endpoint while the preceding
+            # adapter checks run. As above for JSON, compare one CLI read with
+            # the path immediately before and after it.
+            before = path(d1, 'd2')
+            line = readable_line(d1, 'dana/dpeer')
+            after = path(d1, 'd2')
+            return (line, after) if before == after and after['path'] == 'direct' else None
+
+        line, current = wait_for(readable_direct, timeout=30, message='a stable direct endpoint in agents text')
+        need(current['endpoint'] in line and '(direct)' not in line,
              'agents: a direct endpoint prints its address alone', line)
         if relayed:
             line = readable_line(d1, 'dana/zed')
