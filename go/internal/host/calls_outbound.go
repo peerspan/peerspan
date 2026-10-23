@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -868,7 +869,8 @@ func (s *Store) updateOutboundCall(ctx context.Context, peer, id string, change 
 	at := timestamp(time.Now())
 	// An agent's call that becomes final gets its call-update notification
 	// in the same transaction.
-	if !wasFinal && outboundCallFinal(out) && out.AdapterID != nil {
+	becameFinal := !wasFinal && outboundCallFinal(out)
+	if becameFinal && out.AdapterID != nil {
 		if err = createCallUpdate(ctx, tx, out, at); err != nil {
 			return out, err
 		}
@@ -878,7 +880,15 @@ func (s *Store) updateOutboundCall(ctx context.Context, peer, id string, change 
 			return out, err
 		}
 	}
-	return out, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return out, err
+	}
+	// Requests held on the call answer as soon as its final status is
+	// stored.
+	if becameFinal {
+		s.signalFinal(callKey(peer, id))
+	}
+	return out, nil
 }
 
 // validCallStatus checks a receiver's status record for our call.
@@ -963,9 +973,7 @@ func (s *Store) exchangeCall(ctx context.Context, peerID, id string, statusOnly 
 		}
 		if err == nil {
 			state, status = submitAccepted, &st
-			if out.AdapterID != nil {
-				s.noteCallAccepted(callKey(peerID, id), time.Now())
-			}
+			s.noteCallAccepted(callKey(peerID, id), time.Now())
 		}
 	case statusOnly && code == 404:
 		err = errors.New("the receiver has no record of this call")
@@ -1018,11 +1026,23 @@ func peerRefusal(data []byte) string {
 // pollCall sends a pending cancellation, then fetches the status, storing
 // the result once final. It reports whether anything changed.
 func (s *Store) pollCall(ctx context.Context, peerID, id string) (bool, error) {
+	return s.pollCallWait(ctx, peerID, id, 0)
+}
+
+// pollCallWait is pollCall with a held status request: with wait above 0,
+// the receiver holds the GET until the call is final or wait seconds pass,
+// and the record's lock is released while it is held.
+func (s *Store) pollCallWait(ctx context.Context, peerID, id string, wait int) (bool, error) {
 	unlock, err := s.lockOutbound(ctx, callKey(peerID, id))
 	if err != nil {
 		return false, err
 	}
-	defer unlock()
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
 	out, err := s.OutboundCall(ctx, peerID, id)
 	if err != nil || out.SubmitState != submitAccepted {
 		return false, err
@@ -1041,7 +1061,14 @@ func (s *Store) pollCall(ctx context.Context, peerID, id string) (bool, error) {
 	if out, err = s.OutboundCall(ctx, peerID, id); err != nil || !out.needsPoll() {
 		return progressed, err
 	}
-	code, data, err := s.peerRequestLimit(ctx, peer, http.MethodGet, "/peer/v1/calls/"+id, nil, peerToolsMaxBody)
+	path, timeout := "/peer/v1/calls/"+id, time.Duration(0)
+	if wait > 0 {
+		path += "?wait=" + strconv.Itoa(wait)
+		timeout = time.Duration(wait) * time.Second
+		unlock()
+		locked = false
+	}
+	code, data, err := s.peerRequestTimed(ctx, peer, http.MethodGet, path, nil, peerToolsMaxBody, timeout)
 	if err != nil {
 		return progressed, err
 	}
@@ -1176,7 +1203,7 @@ func (s *Store) callJobs(ctx context.Context, now time.Time) []OutboundCall {
 	for _, out := range items {
 		key := callKey(out.PeerHostID, out.Request.CallID)
 		submit := out.SubmitState == submitUnknown
-		if s.inflightOutbound(key) || (submit && !attemptDue(out.SubmitState, out.NextAttemptAt, out.Attempts, s.retryNow())) || (!submit && !s.pollDue(key, now)) {
+		if s.inflightOutbound(key) || (submit && !attemptDue(out.SubmitState, out.NextAttemptAt, out.Attempts, s.retryNow())) || (!submit && (!s.pollDue(key, now) || s.inHeldWindow(key, now) || s.following(key))) {
 			continue
 		}
 		due = append(due, out)
@@ -1192,7 +1219,7 @@ func (s *Store) runCallJob(ctx context.Context, out OutboundCall) {
 	}
 	key := callKey(out.PeerHostID, out.Request.CallID)
 	progressed, _ := s.pollCall(ctx, out.PeerHostID, out.Request.CallID)
-	s.scheduleCallPoll(key, progressed)
+	s.schedulePoll(key, progressed)
 }
 
 // SubmitOwnerCall prepares and submits an owner call.

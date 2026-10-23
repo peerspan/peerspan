@@ -513,10 +513,17 @@ func (s *Store) peerRequest(ctx context.Context, peer Peer, method, path string,
 
 // peerRequestLimit is peerRequest reading a response of at most limit bytes.
 func (s *Store) peerRequestLimit(ctx context.Context, peer Peer, method, path string, body []byte, limit int) (int, []byte, error) {
+	return s.peerRequestTimed(ctx, peer, method, path, body, limit, 0)
+}
+
+// peerRequestTimed is peerRequestLimit for a request the peer may hold for
+// up to held before answering.
+func (s *Store) peerRequestTimed(ctx context.Context, peer Peer, method, path string, body []byte, limit int, held time.Duration) (int, []byte, error) {
 	timeout := s.peer.timeout
 	if timeout == 0 {
 		timeout = peerRequestTimeout
 	}
+	timeout += held
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for attempt := 0; ; attempt++ {

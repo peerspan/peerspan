@@ -1154,7 +1154,12 @@ func callPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 		if !ok {
 			return
 		}
-		st, err := store.SubmitterCall(r.Context(), id, r.PathValue("id"))
+		wait, err := peerWait(r)
+		if err != nil {
+			respond(w, 0, nil, err)
+			return
+		}
+		st, err := store.HeldSubmitterCall(r.Context(), id, r.PathValue("id"), wait)
 		respond(w, http.StatusOK, st, err)
 	})
 	mux.HandleFunc("POST /peer/v1/calls/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {

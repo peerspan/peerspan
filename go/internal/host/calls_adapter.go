@@ -35,13 +35,6 @@ const (
 	defaultMaxCallsPerHour = 100
 	// callPartBytes bounds a result returned inline, and each part.
 	callPartBytes = 65536
-	// adapterCallResolve bounds resolving, citing, and persisting an agent's
-	// call; adapterCallSubmit bounds the route's wait for the first attempt.
-	adapterCallResolve = 20 * time.Second
-	adapterCallSubmit  = 25 * time.Second
-	// callFastPolls is how long after acceptance an agent's call is polled
-	// every second.
-	callFastPolls = 60 * time.Second
 )
 
 // Call view notes.
@@ -137,6 +130,9 @@ type AdapterCall struct {
 	Address   string          `json:"address"`
 	Operation string          `json:"operation"`
 	Input     json.RawMessage `json:"input"`
+	// Wait is how long to hold the response for a final state, capped at
+	// the wait limit, which is also the default.
+	Wait time.Duration `json:"-"`
 }
 
 // CallView is how an agent sees one of its calls, with the result inline
@@ -431,7 +427,7 @@ func checkCallRate(ctx context.Context, tx *sql.Tx, a Adapter, now time.Time) er
 	return &codedError{status: http.StatusTooManyRequests, code: "rate_limited", message: fmt.Sprintf("this session may call capabilities at most %d times in 60 minutes", limit), retryAfter: max(wait, 1)}
 }
 
-var errCallTimeout = &codedError{status: http.StatusServiceUnavailable, code: "timeout", message: "the call could not be resolved and recorded within 20 seconds; nothing was recorded"}
+var errCallTimeout = &codedError{status: http.StatusServiceUnavailable, code: "timeout", message: "the call could not be resolved and recorded within the wait limit; nothing was recorded"}
 
 // repeatAgentCall returns the view of a call ID this agent already used:
 // the existing call when address, operation, and input are identical, and
@@ -472,17 +468,22 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 	r.Input = compact.Bytes()
 	// 2 and 3. A repeat returns the existing call; otherwise the rate limit
 	// applies. Neither counts a repeat.
+	until := received.Add(r.Wait)
 	if v, done, err := s.agentCallChecks(ctx, auth, r, received); done || err != nil {
+		if err == nil {
+			// A repeat holds as well.
+			v, err = s.holdAgentCall(ctx, auth, v.PeerHostID, v.CallID, until)
+		}
 		return v, err
 	}
 	// 4. The address, resolved over the entries list_capabilities would list.
 	if strings.Count(r.Address, "/") == 2 {
 		return CallView{}, &codedError{status: http.StatusBadRequest, code: "source", message: "sources can be called only from the peerspan CLI"}
 	}
-	resolveCtx, cancel := context.WithDeadline(ctx, received.Add(adapterCallResolve))
+	resolveCtx, cancel := context.WithDeadline(ctx, received.Add(callWaitLimit))
 	defer cancel()
 	peer, entry, err := s.resolveCapabilityAddress(resolveCtx, r.Address, "", listingView{agent: ss.AgentID, capabilitiesOnly: true})
-	if time.Since(received) > adapterCallResolve || errors.Is(err, context.DeadlineExceeded) {
+	if time.Since(received) > callWaitLimit || errors.Is(err, context.DeadlineExceeded) {
 		return CallView{}, errCallTimeout
 	}
 	if err != nil {
@@ -535,13 +536,16 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 		if err == nil {
 			err = tx.Commit()
 		}
+		if err == nil {
+			v, err = s.holdAgentCall(ctx, auth, v.PeerHostID, v.CallID, until)
+		}
 		return v, err
 	}
 	now := time.Now()
 	if err = checkCallRate(ctx, tx, a, now); err != nil {
 		return CallView{}, err
 	}
-	if now.Sub(received) > adapterCallResolve {
+	if now.Sub(received) > callWaitLimit {
 		return CallView{}, errCallTimeout
 	}
 	adapterID := a.ID
@@ -562,9 +566,9 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 	if err = appendEvent(ctx, tx, "call.submitted", callSubject(peer, request.CallID), timestamp(now)); err != nil {
 		return CallView{}, err
 	}
-	// Steps 4 to 7 finish within 20 seconds of receipt or persist nothing:
-	// a deadline passed while writing rolls the transaction back.
-	if time.Since(received) > adapterCallResolve {
+	// Steps 4 to 7 finish within the wait limit of receipt or persist
+	// nothing: a deadline passed while writing rolls the transaction back.
+	if time.Since(received) > callWaitLimit {
 		return CallView{}, errCallTimeout
 	}
 	if err = tx.Commit(); err != nil {
@@ -572,10 +576,10 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 	}
 	// 8. The first attempt, waited on until 25 seconds after receipt; later
 	// attempts continue in the background.
-	submitCtx, cancelSubmit := context.WithDeadline(context.WithoutCancel(ctx), received.Add(adapterCallSubmit))
-	_, _ = s.ExchangeCall(submitCtx, peer, request.CallID, false)
-	cancelSubmit()
-	return s.AgentCallView(ctx, auth, request.CallID, 0)
+	// The first attempt runs in the background, and later attempts as for
+	// tasks; the response is held until the call is final or the wait ends.
+	go func() { _, _ = s.ExchangeCall(context.WithoutCancel(ctx), peer, request.CallID, false) }()
+	return s.holdAgentCall(ctx, auth, peer, request.CallID, until)
 }
 
 // agentCallChecks answers a repeated call ID, and otherwise applies the rate
@@ -731,7 +735,7 @@ func (s *Store) NextCallUpdate(ctx context.Context, auth AdapterAuth) (*CallUpda
 	}
 	var record string
 	var returned bool
-	err = tx.QueryRowContext(ctx, `SELECT n.record, n.returned_at IS NOT NULL FROM call_update_notifications n JOIN sessions s ON s.id = n.session_id WHERE n.seen_at IS NULL AND ((n.returned_at IS NOT NULL AND s.agent_id = ?) OR (n.returned_at IS NULL AND `+callUpdateUnclaimed+` AND ((n.session_id = ? AND json_extract(n.record, '$.adapter_id') = ?) OR json_extract(n.record, '$.adapter_id') IN (SELECT value FROM json_each(?))))) ORDER BY n.rowid LIMIT 1`, ss.AgentID, ss.ID, a.ID, jsonList(ended)).Scan(&record, &returned)
+	err = tx.QueryRowContext(ctx, `SELECT n.record, n.returned_at IS NOT NULL FROM call_update_notifications n JOIN sessions s ON s.id = n.session_id WHERE n.seen_at IS NULL AND ((n.returned_at IS NOT NULL AND s.agent_id = ?) OR (n.returned_at IS NULL AND `+callUpdateUnclaimed+` AND ((n.session_id = ? AND json_extract(n.record, '$.adapter_id') = ?) OR json_extract(n.record, '$.adapter_id') IN (SELECT value FROM json_each(?))))) AND n.peer || '/' || n.call_id NOT IN (SELECT value FROM json_each(?)) ORDER BY n.rowid LIMIT 1`, ss.AgentID, ss.ID, a.ID, jsonList(ended), jsonList(s.heldCalls())).Scan(&record, &returned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, tx.Commit()
 	}
@@ -899,44 +903,6 @@ func pendingAgentCalls(ctx context.Context, q queryer, session string) ([]Pendin
 	return out, nil
 }
 
-// noteCallAccepted starts an agent call's fast status checks.
-func (s *Store) noteCallAccepted(key string, now time.Time) {
-	s.tasks.mu.Lock()
-	defer s.tasks.mu.Unlock()
-	if s.tasks.accepted == nil {
-		s.tasks.accepted = map[string]time.Time{}
-	}
-	for k, at := range s.tasks.accepted {
-		if now.Sub(at) > callFastPolls {
-			delete(s.tasks.accepted, k)
-		}
-	}
-	if _, ok := s.tasks.accepted[key]; !ok {
-		s.tasks.accepted[key] = now
-	}
-}
-
-// scheduleCallPoll schedules an outbound call's next status query: every
-// second for an agent's call in its first 60 seconds after acceptance, and
-// otherwise as for tasks.
-func (s *Store) scheduleCallPoll(key string, progressed bool) {
-	s.tasks.mu.Lock()
-	at, fast := s.tasks.accepted[key]
-	if fast && time.Since(at) < callFastPolls {
-		if s.tasks.poll == nil {
-			s.tasks.poll = map[string]taskPoll{}
-		}
-		s.tasks.poll[key] = taskPoll{at: time.Now().Add(taskPollFirst), delay: taskPollFirst}
-		s.tasks.mu.Unlock()
-		return
-	}
-	if fast {
-		delete(s.tasks.accepted, key)
-	}
-	s.tasks.mu.Unlock()
-	s.schedulePoll(key, progressed)
-}
-
 // respondView answers with a call view, or an object holding one, without
 // HTML escaping, so an inline result reads as its result text does.
 func respondView(w http.ResponseWriter, value any, err error) {
@@ -958,11 +924,22 @@ func adapterCallRoutes(mux *http.ServeMux, s *Store, auth func(*http.Request) Ad
 	})
 	mux.HandleFunc("POST /adapter/v1/calls", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]json.RawMessage
-		if !decode(w, r, &body, "call_id", "address", "operation", "input") {
+		if !decode(w, r, &body, "call_id", "address", "operation", "input", "wait") {
 			return
 		}
 		var req AdapterCall
-		valid := len(body) == 4
+		_, hasWait := body["wait"]
+		valid := len(body) == 4 || (len(body) == 5 && hasWait)
+		for _, field := range []string{"call_id", "address", "operation", "input"} {
+			if _, ok := body[field]; !ok {
+				valid = false
+			}
+		}
+		wait, err := requestWait(body["wait"])
+		if err != nil {
+			valid = false
+		}
+		req.Wait = wait
 		for field, target := range map[string]any{"call_id": &req.CallID, "address": &req.Address, "operation": &req.Operation} {
 			if valid && json.Unmarshal(body[field], target) != nil {
 				valid = false
@@ -970,7 +947,7 @@ func adapterCallRoutes(mux *http.ServeMux, s *Store, auth func(*http.Request) Ad
 		}
 		req.Input = body["input"]
 		if !valid {
-			respond(w, 0, nil, fmt.Errorf("%w: a call is exactly call_id, address, operation, and input", ErrInvalid))
+			respond(w, 0, nil, fmt.Errorf("%w: a call is exactly call_id, address, operation, and input, with an optional wait, an integer of at least 0", ErrInvalid))
 			return
 		}
 		v, err := s.SubmitAgentCall(r.Context(), auth(r), req)

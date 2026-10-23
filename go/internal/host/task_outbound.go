@@ -179,9 +179,8 @@ type taskWork struct {
 	poll map[string]taskPoll
 	// fetching holds the digests being downloaded.
 	fetching map[string]bool
-	// accepted holds when each agent's call was accepted by its receiver,
-	// for its fast status checks.
-	accepted map[string]time.Time
+	// timing is the state of held call requests.
+	timing callTiming
 }
 type taskPoll struct {
 	at    time.Time
@@ -839,7 +838,12 @@ func (s *Store) RunTaskWorkers(ctx context.Context) {
 				s.schedulePoll(key, progressed)
 			}(out)
 		}
-		// Outbound calls share the slots: retries, polls, and cancel resends.
+		// Calls in their held window get held status requests outside the
+		// slots; the others share the slots: retries, polls, and cancel
+		// resends.
+		if items, err := s.pendingCalls(ctx); err == nil {
+			s.startHeldRequests(ctx, items)
+		}
 		for _, out := range s.callJobs(ctx, time.Now()) {
 			select {
 			case slots <- struct{}{}:
