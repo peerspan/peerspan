@@ -2,7 +2,9 @@
 
 Status: **UP-06a accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41)**,
 2026-10-23. The first [UP-06c signed-object readers](linking-reader-checks.md)
-verify cryptographic bytes; live delegated authority remains pending.
+verify cryptographic bytes. The [certificate-path evaluator](linking-path-checks.md)
+checks chains against independently verified current state; complete catalog and
+activation verification and live delegated writes remain pending.
 This refines the [UP-05 design](https://github.com/peerspan/docs-internal/blob/main/docs/machine-linking.md),
 accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9).
 Both Go and Rust must implement the eventual shared behavior. Rust remains the

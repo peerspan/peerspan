@@ -1,0 +1,73 @@
+{
+  "checked_on": "2026-10-24",
+  "base_commit": "190b1600aacef5be850140284a7e55a1a0a052cc",
+  "scope": "UP-06c.2a: exact certificate paths evaluated over independently verified injected state; no complete catalog, activation, retention, freshness or transaction verification claim",
+  "suite": "conformance/linking_paths.py",
+  "suite_authorship": "A separate author used the contracts, public vectors and its independently authored Python signing oracle, without reading either implementation.",
+  "path_conformance": {
+    "passed": true,
+    "implementations": ["go", "rust"],
+    "requests": 330,
+    "successes": 73,
+    "rejections": 257,
+    "final_stream_recovery_check": 1,
+    "checks_per_implementation": 331,
+    "public_signatures_independently_reproduced": 199,
+    "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-path-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+  },
+  "reader_regression": {
+    "passed": true,
+    "suite": "conformance/linking_readers.py",
+    "checks_per_implementation": 1093,
+    "implementations": ["go", "rust"],
+    "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-path-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+  },
+  "language_checks": {
+    "go_vet": "passed: GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/...",
+    "rust_fmt": "passed: cargo fmt --check --manifest-path rust/Cargo.toml",
+    "rust_clippy": "passed: CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings",
+    "go_race": {
+      "passed": false,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-path-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "failure": "TestPathDiscoveryChecks: own pong did not validate (peer_path_test.go:150)",
+      "other_tests": "All other tests and packages passed.",
+      "prior_baseline_evidence": "docs/results/linking-readers.json records the same test failing in 4/5 runs on unmodified merged main 64d8cdc. Discovery implementation and test files are unchanged in this slice."
+    },
+    "rust_full_tests": {
+      "passed": false,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-path-rust-config TOKIO_WORKER_THREADS=2 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "initial_run": {"library_passed": 133, "library_failed": 5, "ignored": 2},
+      "initial_failure": "Unavailable(adapter connection is not ready) in four artifact tests and chain::tests::forwarding_is_refused_unless_every_rule_holds while Go's race suite was running.",
+      "sequential_rerun": {
+        "extra_environment": "RUST_TEST_THREADS=1; run after Go finished",
+        "library_passed": 137,
+        "library_failed": 1,
+        "ignored": 2,
+        "failure": "artifact::tests::receivers_fetch_inputs_over_quic_and_reject_corruption: Unavailable(adapter connection is not ready) at artifact/tests.rs:918"
+      },
+      "isolated_remaining_test": {
+        "passed": true,
+        "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-path-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml --lib artifact::tests::receivers_fetch_inputs_over_quic_and_reject_corruption -- --exact",
+        "result": "1 passed, 139 filtered out; 1.58 seconds"
+      },
+      "remaining_targets": {
+        "passed": true,
+        "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-path-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml --bins --test cli --test store",
+        "main_tests_passed": 10,
+        "integration_tests_passed": 6
+      },
+      "note": "The complete Rust gate did not pass in one run. Every individual test passed across the sequential and isolated runs. Adapter, artifact and task implementations/tests are unchanged by this slice."
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-path-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-path-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml"
+  ],
+  "unchanged_fixtures": "All three machine-linking public vector hashes match docs/results/linking-readers.json.",
+  "remaining": [
+    "UP-06c.2b: verify root/person/admin/member catalog evidence, complete activation transcripts, checkpoints and retained history, current feature and high-water rules",
+    "UP-06c.3: durable storage, coordinator/peer propagation, v2 maps and recovery",
+    "UP-06d: linking ceremony, signer discovery/renewal and integration with up"
+  ]
+}

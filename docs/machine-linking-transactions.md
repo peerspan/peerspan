@@ -2,8 +2,11 @@
 
 Status: **UP-06b accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43)**,
 2026-10-23. The first [UP-06c signed-object readers](linking-reader-checks.md)
-verify cryptographic bytes in both languages. Live authority, propagation,
-transaction execution and recovery remain pending.
+verify cryptographic bytes in both languages. The
+[certificate-path evaluator](linking-path-checks.md) checks exact signing paths
+against independently verified current state. Building that state from catalogs
+and activation transcripts, propagation, transaction execution and recovery
+remain pending.
 The [signing primitives](machine-linking-contract.md) were accepted in
 [PR #41](https://github.com/peerspan/peerspan-internal/pull/41). This document
 completes their transaction containers and implementation gates. Both hosts and

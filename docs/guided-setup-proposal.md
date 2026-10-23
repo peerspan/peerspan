@@ -309,8 +309,10 @@ removed.
 | UP-06a | [Delegated signing contract, pairing primitives and fixed vectors](machine-linking-contract.md) | UP-05; existing person/admin rules | Accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41); no runtime changes |
 | UP-06b | [Complete transaction schemas, routes, persistence, activation/upgrade and recovery contract](machine-linking-transactions.md) | UP-06a review | Accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43) |
 | UP-06c | Shared verification and signed-state propagation in Go, Rust and coordinator; separately authored conformance | UP-06b review | In progress; signed-object readers implemented, live authority and propagation pending |
-| UP-06c.1 | [Strict signed-object readers and independent byte/signature checks](linking-reader-checks.md) in Go and Rust | UP-06b | Implemented; cryptographic evidence only |
-| UP-06c.2 | Catalog resolution, current chain/role/feature checks, activation and retained-history authority | UP-06c.1 | Pending |
+| UP-06c.1 | [Strict signed-object readers and independent byte/signature checks](linking-reader-checks.md) in Go and Rust | UP-06b | Accepted in [PR #44](https://github.com/peerspan/peerspan-internal/pull/44); cryptographic evidence only |
+| UP-06c.2 | Catalog resolution, current chain/role/feature checks, activation and retained-history authority | UP-06c.1 | In progress; certificate-path evaluator implemented against verified state; catalog/activation/retention verification pending |
+| UP-06c.2a | [Exact certificate-path evaluation](linking-path-checks.md), using a verified current-state snapshot | UP-06c.1 | Implemented in both languages; independent conformance |
+| UP-06c.2b | Build verified state from catalogs: root/person/admin/member evidence, complete activation transcripts, revocation/checkpoint history, feature and high-water rules | UP-06c.2a | Pending; required before delegated writers |
 | UP-06c.3 | Durable signed-state storage, v2 maps, coordinator/peer propagation and recovery conformance | UP-06c.2 | Pending |
 | UP-06d | Linking ceremony, signer discovery/renewal and integration with `up` in both hosts | UP-06c | Pending |
 | UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06d | Scripted Linux checks passed; live-agent and fresh-machine validation pending |

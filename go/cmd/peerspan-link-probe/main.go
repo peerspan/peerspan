@@ -1,5 +1,5 @@
-// peerspan-link-probe is a state-free conformance adapter for signed readers.
-// It is not included in installed bundles and makes no authority decisions.
+// peerspan-link-probe is a state-free signed-object and certificate-path adapter.
+// It is not included in installed bundles and never authorizes a mutation.
 package main
 
 import (

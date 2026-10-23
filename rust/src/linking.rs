@@ -1,5 +1,6 @@
-//! Signed-object readers for machine linking. A valid signature does not prove
-//! activation, membership, a live chain, a role, or permission to mutate state.
+//! Signed-object readers and exact certificate-path evaluation for machine linking.
+//! A signature alone does not prove activation, membership, a live chain, a role,
+//! or permission to mutate state. Path evaluation requires verified current state.
 use anyhow::{Result, anyhow, bail, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ed25519_dalek::Signature;
@@ -7,6 +8,9 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt};
+
+mod path;
+pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evaluate_path};
 
 pub const MAX_OBJECT: usize = 1 << 20;
 pub const MAX_PAYLOAD: usize = 256 << 10;
@@ -875,6 +879,9 @@ pub fn probe(data: &[u8]) -> Value {
     let run = || -> Result<Value> {
         let v = parse_limit(data, 2 << 20)?;
         let o = object(&v)?;
+        if text(o, "kind")? == "path" {
+            return Ok(path::probe_path(o));
+        }
         fields(
             o,
             "kind object_base64 signer_public_key device_public_key",

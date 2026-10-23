@@ -1,6 +1,6 @@
-// Package linking reads the signed objects in the machine-linking contracts.
-// Signature verification is deliberately separate from live authority: none of
-// these results establishes membership, activation, a role, or a usable path.
+// Package linking reads signed objects and evaluates exact certificate paths.
+// Signature verification alone does not establish live authority. Path evaluation
+// requires independently verified state and does not authorize a mutation.
 package linking
 
 import (
@@ -1032,7 +1032,13 @@ func adminRemoval(o Object, signer string) (SignedObject, error) {
 func Probe(data []byte) any {
 	fail := map[string]any{"ok": false, "code": "invalid"}
 	o, e := parseLimit(data, 2<<20)
-	if e != nil || fields(o, "kind object_base64 signer_public_key device_public_key") != nil {
+	if e != nil {
+		return fail
+	}
+	if kind, _ := text(o, "kind"); kind == "path" {
+		return pathProbe(o)
+	}
+	if fields(o, "kind object_base64 signer_public_key device_public_key") != nil {
 		return fail
 	}
 	a, e := texts(o, "kind", "object_base64", "signer_public_key", "device_public_key")

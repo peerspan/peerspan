@@ -11,6 +11,10 @@ The existing policy and group payloads also follow the referenced
 The [recorded run](results/linking-readers.json) contains the implementation
 results and the existing Go discovery-test failure reproduced on merged main.
 
+The same conformance executables also support the separately specified
+[certificate-path checks](linking-path-checks.md). Their injected state is a
+test adapter; it is not a daemon or coordinator input format.
+
 ## Conformance-only probe
 
 From the repository root, build each implementation's reader probe and pass both
