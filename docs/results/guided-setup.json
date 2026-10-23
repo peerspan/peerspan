@@ -1,0 +1,1715 @@
+{
+  "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+  "summary_note": "Compact summaries of installed-bundle reports. Retains checks, counted steps, clean bundle provenance, report hashes and cleanup. Verbose fixture payloads and temporary paths omitted. No total setup-time measurement is claimed.",
+  "scope": "Fresh Linux users on one host, with independent homes, projects and real systemd user services. Local coordinator; fixture Claude executable with real adapter handshake and readiness. No live model, external release download, macOS or separate-machine validation.",
+  "recovery_coverage": [
+    "Prerequisites and malformed launch options fail before network enrollment or agent registration",
+    "New/stopped services and existing units preserve the installed implementation and state",
+    "Stable network, person, agent and profile identities on rerun",
+    "Trust/untrust opt-ins, default calls off, and profile choice conflicts",
+    "Missing original person key is not replaced",
+    "Consumed invites resume an existing membership; invalid signatures are refused",
+    "Partial same-person binding stops before attachment and remains incomplete on retry",
+    "Real terminal hidden invite entry and cancellation restore echo without exposing the invite",
+    "Several network memberships are refused without changing the attachment",
+    "Coordinator outage stops a rerun; recovery retains identities (Rust CLI/Rust daemon)"
+  ],
+  "reports": {
+    "recovery": {
+      "checked_at": "2026-10-23T13:54:43.900284+00:00",
+      "release": {
+        "go": {
+          "archive": "peerspan-0.0.0-acceptance-linux-amd64-go.tar.gz",
+          "sha256": "282e8fc8ca25969a1a511143189d9200a5b932a3ff576dbfba3a6ef5e3155a7c",
+          "checksum_verified": true,
+          "release": {
+            "version": "0.0.0-acceptance",
+            "implementation": "go",
+            "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+            "source_dirty": false,
+            "os": "linux",
+            "architecture": "amd64",
+            "node_requirement": ">=22",
+            "rust_libc": "glibc (builder baseline; rust bundles only)"
+          }
+        },
+        "rust": {
+          "archive": "peerspan-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+          "sha256": "e9c1b4633f414c3b7df3cb72b44cbac48f92207e643e346a6a504f7d2ef11406",
+          "checksum_verified": true,
+          "release": {
+            "version": "0.0.0-acceptance",
+            "implementation": "rust",
+            "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+            "source_dirty": false,
+            "os": "linux",
+            "architecture": "amd64",
+            "node_requirement": ">=22",
+            "rust_libc": "glibc (builder baseline; rust bundles only)"
+          }
+        }
+      },
+      "passed": true,
+      "cleanup": {
+        "errors": [],
+        "leftovers": {
+          "users": [],
+          "homes": [],
+          "linger": [],
+          "processes": []
+        }
+      },
+      "runner": "conformance/up_acceptance.py",
+      "arguments": "",
+      "raw_report_sha256": "5b93c49d7832f3ee0b14550052608fa43d1c857e39f34d838e81b094ea809141",
+      "runs": [
+        {
+          "cli": "go",
+          "daemon": "go",
+          "passed": true,
+          "recorded_commands": 42
+        },
+        {
+          "cli": "go",
+          "daemon": "rust",
+          "passed": true,
+          "recorded_commands": 38
+        },
+        {
+          "cli": "rust",
+          "daemon": "go",
+          "passed": true,
+          "recorded_commands": 38
+        },
+        {
+          "cli": "rust",
+          "daemon": "rust",
+          "passed": true,
+          "recorded_commands": 46
+        }
+      ]
+    },
+    "guided": {
+      "checked_at": "2026-10-23T14:01:31.365434+00:00",
+      "release": {
+        "go": {
+          "archive": "peerspan-0.0.0-acceptance-linux-amd64-go.tar.gz",
+          "sha256": "6a1f5d255bdaf61835415f405cc24844cd087cad9acebea9fce8c7156291d711",
+          "checksum_verified": true,
+          "release": {
+            "version": "0.0.0-acceptance",
+            "implementation": "go",
+            "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+            "source_dirty": false,
+            "os": "linux",
+            "architecture": "amd64",
+            "node_requirement": ">=22",
+            "rust_libc": "glibc (builder baseline; rust bundles only)"
+          }
+        },
+        "rust": {
+          "archive": "peerspan-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+          "sha256": "b22ae65595e67f660b733dedb2c46928859c1551cb26f3ca723418a58ab4954e",
+          "checksum_verified": true,
+          "release": {
+            "version": "0.0.0-acceptance",
+            "implementation": "rust",
+            "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+            "source_dirty": false,
+            "os": "linux",
+            "architecture": "amd64",
+            "node_requirement": ">=22",
+            "rust_libc": "glibc (builder baseline; rust bundles only)"
+          }
+        }
+      },
+      "passed": true,
+      "cleanup": {
+        "errors": [],
+        "leftovers": {
+          "users": [],
+          "homes": [],
+          "linger": [],
+          "processes": []
+        }
+      },
+      "runner": "conformance/launch_acceptance.py",
+      "arguments": "",
+      "raw_report_sha256": "70a062bb04c751a6e6dfa921a6a45a1dd6fd6e00b50cd8f924642803cad7401f",
+      "environment": {
+        "systemd": "systemd 252",
+        "node": "v22.23.3",
+        "python": "3.12.13",
+        "kernel": "6.1.0-53-amd64",
+        "architecture": "x86_64"
+      },
+      "pace_seconds": 0,
+      "coordinator": "peerspan-coord from the checkout on loopback, built into the bundles as the default",
+      "setup_flow": "up",
+      "runs": [
+        {
+          "run": "solo-go",
+          "path": "solo",
+          "implementations": {
+            "M1": "go",
+            "M2": "go"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 3,
+            "copy": 1
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 3,
+            "copy": 1
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 6,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-1/claude-cerebral-work-1-0b27 ends accepted, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-1/claude-cerebral-work-1-0b27 reaches the receiver, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-1/claude-cerebral-work-1 ends accepted, citing self",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-1/claude-cerebral-work-1 reaches the receiver, citing self",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "solo-rust",
+          "path": "solo",
+          "implementations": {
+            "M1": "rust",
+            "M2": "rust"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 3,
+            "copy": 1
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 3,
+            "copy": 1
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 6,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-3/claude-cerebral-work-1-06e0 ends accepted, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-3/claude-cerebral-work-1-06e0 reaches the receiver, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-3/claude-cerebral-work-1 ends accepted, citing self",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-3/claude-cerebral-work-1 reaches the receiver, citing self",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "pair-go",
+          "path": "pair",
+          "implementations": {
+            "M1": "go",
+            "M2": "go"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 5
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 5
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 7,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-5/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-5/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "pair-rust",
+          "path": "pair",
+          "implementations": {
+            "M1": "rust",
+            "M2": "rust"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 5
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 5
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 7,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-7/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-7/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "team-go",
+          "path": "team",
+          "implementations": {
+            "M1": "go",
+            "M2": "go",
+            "M3": "go"
+          },
+          "counts": {
+            "install": 3,
+            "peerspan": 8
+          },
+          "expected_counts": {
+            "install": 3,
+            "peerspan": 8
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 11,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-9/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-9/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-9/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-9/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "team-rust",
+          "path": "team",
+          "implementations": {
+            "M1": "rust",
+            "M2": "rust",
+            "M3": "rust"
+          },
+          "counts": {
+            "install": 3,
+            "peerspan": 8
+          },
+          "expected_counts": {
+            "install": 3,
+            "peerspan": 8
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 11,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-12/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-12/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-12/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-12/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "team-mixed",
+          "path": "team",
+          "implementations": {
+            "M1": "go",
+            "M2": "rust",
+            "M3": "go"
+          },
+          "counts": {
+            "install": 3,
+            "peerspan": 8
+          },
+          "expected_counts": {
+            "install": 3,
+            "peerspan": 8
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 11,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-15/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-15/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-15/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-15/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    "explicit": {
+      "checked_at": "2026-10-23T14:07:54.062660+00:00",
+      "release": {
+        "go": {
+          "archive": "peerspan-0.0.0-acceptance-linux-amd64-go.tar.gz",
+          "sha256": "b9353223d14d36ab9f848981a96a5d301c63b1289c978a212f4ecab4c17984c4",
+          "checksum_verified": true,
+          "release": {
+            "version": "0.0.0-acceptance",
+            "implementation": "go",
+            "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+            "source_dirty": false,
+            "os": "linux",
+            "architecture": "amd64",
+            "node_requirement": ">=22",
+            "rust_libc": "glibc (builder baseline; rust bundles only)"
+          }
+        },
+        "rust": {
+          "archive": "peerspan-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+          "sha256": "d74397c9a01adda09223a7fd7992fd9ebdacfa0b6fce8b50526ab43bb1b68cfa",
+          "checksum_verified": true,
+          "release": {
+            "version": "0.0.0-acceptance",
+            "implementation": "rust",
+            "source_revision": "c0a00243c644779dd86ed50d97ac4ea28e0449dc",
+            "source_dirty": false,
+            "os": "linux",
+            "architecture": "amd64",
+            "node_requirement": ">=22",
+            "rust_libc": "glibc (builder baseline; rust bundles only)"
+          }
+        }
+      },
+      "passed": true,
+      "cleanup": {
+        "errors": [],
+        "leftovers": {
+          "users": [],
+          "homes": [],
+          "linger": [],
+          "processes": []
+        }
+      },
+      "runner": "conformance/launch_acceptance.py",
+      "arguments": "--explicit",
+      "raw_report_sha256": "00f892fab37a2106a8f1bc2610068164dff7309e202e96ad312367339ab16f35",
+      "environment": {
+        "systemd": "systemd 252",
+        "node": "v22.23.3",
+        "python": "3.12.13",
+        "kernel": "6.1.0-53-amd64",
+        "architecture": "x86_64"
+      },
+      "pace_seconds": 0,
+      "coordinator": "peerspan-coord from the checkout on loopback, built into the bundles as the default",
+      "setup_flow": "explicit",
+      "runs": [
+        {
+          "run": "solo-go",
+          "path": "solo",
+          "implementations": {
+            "M1": "go",
+            "M2": "go"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 5,
+            "copy": 1
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 5,
+            "copy": 1
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 8,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-1/claude-cerebral-work-1-5e87 ends accepted, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-1/claude-cerebral-work-1-5e87 reaches the receiver, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-1/claude-cerebral-work-1 ends accepted, citing self",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-1/claude-cerebral-work-1 reaches the receiver, citing self",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "solo-rust",
+          "path": "solo",
+          "implementations": {
+            "M1": "rust",
+            "M2": "rust"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 5,
+            "copy": 1
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 5,
+            "copy": 1
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 8,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-3/claude-cerebral-work-1-a25d ends accepted, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-3/claude-cerebral-work-1-a25d reaches the receiver, citing self",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-3/claude-cerebral-work-1 ends accepted, citing self",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-3/claude-cerebral-work-1 reaches the receiver, citing self",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "pair-go",
+          "path": "pair",
+          "implementations": {
+            "M1": "go",
+            "M2": "go"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 7
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 7
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 9,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-5/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-5/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "pair-rust",
+          "path": "pair",
+          "implementations": {
+            "M1": "rust",
+            "M2": "rust"
+          },
+          "counts": {
+            "install": 2,
+            "peerspan": 7
+          },
+          "expected_counts": {
+            "install": 2,
+            "peerspan": 7
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 9,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-7/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-7/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "team-go",
+          "path": "team",
+          "implementations": {
+            "M1": "go",
+            "M2": "go",
+            "M3": "go"
+          },
+          "counts": {
+            "install": 3,
+            "peerspan": 11
+          },
+          "expected_counts": {
+            "install": 3,
+            "peerspan": 11
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 14,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-9/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-9/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-9/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-9/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "team-rust",
+          "path": "team",
+          "implementations": {
+            "M1": "rust",
+            "M2": "rust",
+            "M3": "rust"
+          },
+          "counts": {
+            "install": 3,
+            "peerspan": 11
+          },
+          "expected_counts": {
+            "install": 3,
+            "peerspan": 11
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 14,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-12/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-12/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-12/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-12/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "run": "team-mixed",
+          "path": "team",
+          "implementations": {
+            "M1": "go",
+            "M2": "rust",
+            "M3": "go"
+          },
+          "counts": {
+            "install": 3,
+            "peerspan": 11
+          },
+          "expected_counts": {
+            "install": 3,
+            "peerspan": 11
+          },
+          "passed": true,
+          "error": null,
+          "total_steps": 14,
+          "checks": [
+            {
+              "check": "counts match the documented path",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "attach names and addresses (claude-HOSTNAME)",
+              "machine": null,
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "adapter connected through the fixture launched by attach",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "status --json exits 0; service installed, active, linger",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "agents --json lists every other agent with message.append and task.submit",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M1",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-15/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-15/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M2",
+              "passed": true
+            },
+            {
+              "check": "send peerspan-acc-15/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task peerspan-acc-15/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+              "machine": "M3",
+              "passed": true
+            },
+            {
+              "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+              "machine": "M3",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "language_checks": [
+    "go -C go test -race ./internal/... ./cmd/...",
+    "go -C go vet ./internal/... ./cmd/...",
+    "cargo fmt --check --manifest-path rust/Cargo.toml",
+    "cargo test --locked --manifest-path rust/Cargo.toml",
+    "cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+  ],
+  "regression_checks": [
+    "launch_cli.py",
+    "launch_service.py",
+    "launch_onboarding.py",
+    "launch_directory.py",
+    "claude_setup.py",
+    "harness_setup.py",
+    "codex_integration.py",
+    "opencode_integration.py"
+  ],
+  "regression_scope": "All four Go/Rust CLI/daemon pairings, using plain source builds. Affected timing checks were rerun sequentially with TOKIO_WORKER_THREADS=2 and GOMAXPROCS=4; service default-coordinator output was isolated from plain builds.",
+  "followups": [
+    "UP-05/UP-06 approved machine linking",
+    "UP-07 live agent task completion and fresh-machine observations",
+    "UP-08 macOS validation",
+    "Deferred private preview release variables"
+  ]
+}

@@ -270,17 +270,44 @@ Run the existing CLI, service, onboarding, directory, integration-setup, and
 launch-acceptance checks covering the reused behavior. The implementation PR
 should name the precise checks run and any remaining platform or live-test gap.
 
+### Recorded Linux checks
+
+The [implementation results](results/guided-setup.json) record clean bundles from
+`c0a00243c644779dd86ed50d97ac4ea28e0449dc`: all four CLI/daemon recovery pairings,
+seven guided quick-start runs, and seven explicit-command regression runs passed.
+Each simulated machine used a fresh Linux user, independent state, and a real
+systemd user service. Cleanup left no temporary users, homes, linger entries, or
+processes.
+
+| Path | Before `up` | With `up` |
+| --- | --- | --- |
+| One person, two machines | 8 | 6 |
+| Two people | 9 | 7 |
+| Three people | 14 | 11 |
+
+Counts include installers, CLI commands and the same-person key copy. Both
+implementations and the mixed team have the same counts. Preparation, downloads,
+prerequisite installation, shell configuration and human handoff time remain
+outside the count, as in the [baseline](setup-baseline.md#counted-steps).
+
+The fixture agent completes the real adapter handshake and readiness response;
+the runs verify discovery, message acceptance, and task delivery. They do not
+establish model task completion or fresh-machine user experience. Live agents,
+separate machines and macOS remain validation tasks. Approved linking still
+needs its own design and implementation before the same-person key copy can be
+removed.
+
 ## Task queue
 
 | Task | Deliverable | Depends on | State |
 | --- | --- | --- | --- |
 | UP-01 | Current setup baseline: scripted counts and timing, plus observed fresh-machine friction | Existing bundles and acceptance harness | Scripted baseline recorded; separate-machine user observation remains |
 | UP-02 | Exact `up` behavior, scope, recovery, and verification cases | UP-01 | Accepted in PR #38 |
-| UP-03 | Guided orchestration in Rust and Go, reusing existing operations | UP-02 | Implemented; validation in progress |
-| UP-04 | Prerequisite, partial-identity, repeat/resume, and readiness handling | UP-02; ships with UP-03 | Implemented; validation in progress |
+| UP-03 | Guided orchestration in Rust and Go, reusing existing operations | UP-02 | Implemented; scripted Linux checks passed |
+| UP-04 | Prerequisite, partial-identity, repeat/resume, and readiness handling | UP-02; ships with UP-03 | Implemented; scripted Linux checks passed |
 | UP-05 | Approved machine-link identity and recovery design | Current identity and trust model | Pending |
 | UP-06 | One-time approved linking in both hosts and the guided flow | UP-05 review; UP-03 | Pending |
-| UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06 | Pending |
+| UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06 | Scripted Linux checks passed; live-agent and fresh-machine validation pending |
 | UP-08 | Clean macOS bundle, service, and guided-setup validation | Linux guided flow | Pending |
 
 UP-03 and UP-04 provide the first guided flow with the current invite path. UP-05 and UP-06 then remove the same-person private-key copy and invite
