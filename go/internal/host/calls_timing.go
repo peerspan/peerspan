@@ -172,10 +172,20 @@ func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.T
 		if err != nil || !out.needsPoll() {
 			return
 		}
+		sent := ""
+		if out.Status != nil {
+			sent = out.Status.State
+		}
 		started := time.Now()
 		_, _ = s.pollCallWait(ctx, peer, id, peerWaitMax)
 		if out, err = s.OutboundCall(ctx, peer, id); err != nil || !out.needsPoll() {
 			return
+		}
+		// An answer with a new state is followed at once; one under a
+		// second with the state that was sent, as from a host that predates
+		// wait, a second later.
+		if out.Status != nil && out.Status.State != sent {
+			continue
 		}
 		if wait := time.Second - time.Since(started); wait > 0 {
 			select {
@@ -188,18 +198,17 @@ func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.T
 }
 
 // HeldSubmitterCall is SubmitterCall held until the call's state differs
-// from its state when the request arrived (queued to running, or to a final
-// state), or wait seconds pass; a call already final, or wait 0, answers at
-// once.
-func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait int) (CallStatus, error) {
+// from known, the state the caller last stored (or, when it names none, the
+// state on arrival), or wait seconds pass. A call already final, a state
+// that already differs, or wait 0 answers at once.
+func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait int, known string) (CallStatus, error) {
 	until := time.Now().Add(time.Duration(wait) * time.Second)
-	arrived := ""
 	for {
 		st, err := s.SubmitterCall(ctx, sender, id)
-		if arrived == "" {
-			arrived = st.State
+		if known == "" {
+			known = st.State
 		}
-		if err != nil || callFinal(st.State) || st.State != arrived || !time.Now().Before(until) {
+		if err != nil || callFinal(st.State) || st.State != known || !time.Now().Before(until) {
 			return st, err
 		}
 		select {
@@ -210,18 +219,26 @@ func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait i
 	}
 }
 
-// peerWait parses GET /peer/v1/calls/{id}?wait=N: absent is 0, and N is an
-// integer from 0 to 10.
-func peerWait(r *http.Request) (int, error) {
-	given, ok := r.URL.Query()["wait"]
+// peerWait parses GET /peer/v1/calls/{id}?wait=N&state=S: an absent wait is
+// 0, and N is an integer from 0 to 10; S, when given, is a call state.
+func peerWait(r *http.Request) (int, string, error) {
+	query := r.URL.Query()
+	known := ""
+	if states, ok := query["state"]; ok {
+		if len(states) != 1 || !validCallState(states[0]) {
+			return 0, "", fmt.Errorf("%w: state is a call state", ErrInvalid)
+		}
+		known = states[0]
+	}
+	given, ok := query["wait"]
 	if !ok {
-		return 0, nil
+		return 0, known, nil
 	}
 	n, err := strconv.Atoi(given[0])
 	if len(given) != 1 || err != nil || n < 0 || n > peerWaitMax {
-		return 0, fmt.Errorf("%w: wait is an integer from 0 to %d", ErrInvalid, peerWaitMax)
+		return 0, "", fmt.Errorf("%w: wait is an integer from 0 to %d", ErrInvalid, peerWaitMax)
 	}
-	return n, nil
+	return n, known, nil
 }
 
 // holdAgentCall answers an agent's held POST: the call view once the call

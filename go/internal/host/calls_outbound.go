@@ -1063,7 +1063,12 @@ func (s *Store) pollCallWait(ctx context.Context, peerID, id string, wait int) (
 	}
 	path, timeout := "/peer/v1/calls/"+id, time.Duration(0)
 	if wait > 0 {
+		// The receiver holds the request until the state differs from the
+		// one stored here.
 		path += "?wait=" + strconv.Itoa(wait)
+		if out.Status != nil {
+			path += "&state=" + url.QueryEscape(out.Status.State)
+		}
 		timeout = time.Duration(wait) * time.Second
 		unlock()
 		locked = false
