@@ -326,7 +326,7 @@ The list starts empty. Calls already running when a host is closed finish, and q
 | --- | --- | --- |
 | `GET /peer/v1/capabilities?network=ID` | none | The capabilities on this host that the authenticated sender may use. Each entry is `{kind, capability, operations: [{name, description, input_schema, read_only}], resources, state, unavailable, via}`, sorted by `capability`. `kind` is `capability`, or `source` for a source opened to the sender, whose `capability` is `AGENT/SERVER` and whose `via` lists only self entries. Unauthorized capabilities and unopened sources never appear. For a tool operation, `description` and `input_schema` come from the snapshot. For `read`, the input schema is `{"type": "object", "properties": {"uri": {"type": "string", "enum": [URIS]}}, "required": ["uri"]}`, and `resources` lists `{uri, name, description, mime_type}`; for a capability without resources it is `[]`. `via` lists what authorizes the capability, as `{kind: "self", network_id}` or `{kind: "policy", network_id, person_id, version}`, self before policy, then by network ID. With `network`, only that network is evaluated. |
 | `POST /peer/v1/calls` | exactly `call_id`, `capability` (a capability name, or `AGENT/SERVER` for a source), `operation`, `input` (an object), `deadline`, optional `origin`, and one citation | Authorizes as above, then persists the call as `queued` with a `call.received` activity, and returns 200 with the status record. It is idempotent by `(sender, call_id)`: an identical repeat returns the existing record, and a changed one returns 409. |
-| `GET /peer/v1/calls/{call_id}` | none | The status record, with its `result` once final. Submitter only; anyone else gets 404. It remains available after revocation. |
+| `GET /peer/v1/calls/{call_id}?wait=N` | none | The status record, with its `result` once final. Submitter only; anyone else gets 404. It remains available after revocation. With `wait`, an integer from 1 to 10, the receiver holds the request until the call is final or `N` seconds have passed, and then answers; a call already final, or a `wait` of 0 or absent, answers at once. A `wait` outside 0 to 10 is 400. A host that predates `wait` ignores it and answers at once. |
 | `POST /peer/v1/calls/{call_id}/cancel` | `{}` | Sets `cancel_requested`. A `queued` call becomes `cancelled` at once. A `running` call is sent MCP `notifications/cancelled`, and becomes `uncertain` with the error `cancel_requested` unless its result was already received. Submitter only. A repeat, or a cancel of a final call, returns the record unchanged. |
 
 **The status record** is `{call_id, sender_host_id, receiver_host_id, capability, operation, state, cancel_requested, error, result_bytes, created_at, started_at, finished_at}`, plus `result` on `GET` once the call is final. `result_bytes` is null until there is a result.
@@ -411,7 +411,7 @@ The receiver stores the request, the status record, and the result. Seven days a
 
 **The outbound record** is `{peer_host_id, target, network_id, request, submit_state, status, result, cancel_state, attempts, next_attempt_at, error, status_queries}`.
 - **Submission outcomes.** 400, 403, 404, 409, 413, and 429 are final `rejected`. Anything else stays `unknown` and is retried.
-- **Polling.** The daemon polls `GET /peer/v1/calls/{id}` for each accepted call that is not final. It backs off from 1 to 60 seconds, shares the task polling slots, and stores the final status and result.
+- **Polling.** The daemon polls `GET /peer/v1/calls/{id}` for each accepted call that is not final. It backs off from 1 to 60 seconds, shares the task polling slots, and stores the final status and result. For a call's first 60 seconds after acceptance it holds a status request open instead, as under [Results without polling](#adapter-routes).
 - **Final only with the result.** The outbound record's status becomes final only from a `GET /peer/v1/calls/{id}` response, stored together with its `result`. When a submit or cancel response is already final, the daemon fetches the call with GET at once. Until a GET succeeds, the record stays non-final and is polled as usual.
 
 ### Status
@@ -608,7 +608,7 @@ All of them require the adapter's credential and lease, as `/adapter/v1/next` do
 | Adapter request | Behavior |
 | --- | --- |
 | `GET /adapter/v1/capabilities` | `{capabilities: [ENTRY], unanswered: [{host_id, error}]}`. It queries hosts as `GET /v1/discover` does, in every network of this host, and keeps the entries of kind `capability` that have a `via` entry of kind `self`, or of kind `policy` with `from_agent` null or this session's agent. `ENTRY` is `{address, host_id, capability, operations, resources, state, unavailable}`, with `address` and the other fields as in `discover`. Sorted by address, then host ID. Sources never appear. |
-| `POST /adapter/v1/calls` | Exactly `{call_id, address, operation, input}`. Persists and submits one call (below), and returns 200 with the call view. |
+| `POST /adapter/v1/calls` | `{call_id, address, operation, input}` and optional `wait`, an integer of at least 0. Persists and submits one call, then holds the response until the call is final or the wait ends (below), and returns 200 with the call view. |
 | `GET /adapter/v1/calls/{call_id}?offset=N` | The call view from byte `offset` of the result (default 0). Answers for calls made through any credential of this session's agent on this host; any other call ID is 404. An `offset` greater than `result_bytes`, or inside a UTF-8 character of the result text, is 400; before there is a result, any `offset` other than 0 is 400. |
 | `POST /adapter/v1/calls/{call_id}/cancel` with `{}` | As `calls cancel`: sends cancellation, resent while uncertain. Returns the call view. Same scope and 404 as the `GET`. |
 | `POST /adapter/v1/call-updates/next` with `{}` | Claims the oldest unseen call-update notification this session may claim, and returns `{delivery, call, redelivered}`, where `delivery` is the notification record and `call` the call view at offset 0; or `null`. Before the channel is verified, it answers 409 `{code: "conflict", error: "channel not verified"}`, as the other work routes do. |
@@ -621,9 +621,13 @@ All of them require the adapter's credential and lease, as `/adapter/v1/next` do
 4. **Address.** An address with two `/` names a source, and returns 400 `{code: "source", error}`. Otherwise it resolves as `call` does, over the entries `GET /adapter/v1/capabilities` would list: 409 `{code: "ambiguous", error, candidates}` and 404 `{code: "not_found", error, unanswered}` as for `call`. The operation is not checked against the entry's `operations`: the receiver refuses one it does not serve, and the call becomes `rejected`.
 5. **Citation.** The first `via` entry of the resolved entry that applies to this agent: self, then policy entries in listed order.
 6. **Deadline.** 15 minutes, capped by the cited policy's `valid_until` and the credential's `expires_at`.
-7. **Persist.** In one transaction: the outbound record, with `origin` and `adapter_id`; the `adapter_calls` row, which is what the rate limit counts; and the `call.submitted` activity. If steps 4 to 7 cannot finish within 20 seconds of receipt, the route returns 503 `{code: "timeout", error}` and persists nothing.
-8. **Submit.** It submits as `call` does, with retries as for tasks, and returns once the first attempt ends or 25 seconds after receipt, whichever comes first. Later attempts continue in the background.
-9. **Fast status checks.** For the first 60 seconds after the call is accepted by its receiver, the daemon polls `GET /peer/v1/calls/{id}` every second instead of backing off, so a result is seen while `call_capability` can still be waiting. After that it backs off from 1 to 60 seconds as for owner calls. The window is kept in memory: after a daemon restart, a call still in it is polled with the usual backoff.
+7. **Persist.** In one transaction: the outbound record, with `origin` and `adapter_id`; the `adapter_calls` row, which is what the rate limit counts; and the `call.submitted` activity. If steps 4 to 7 cannot finish within the [wait limit](#the-wait-limit) of receipt, the route returns 503 `{code: "timeout", error}` and persists nothing.
+8. **Submit.** It submits as `call` does, with retries as for tasks. Attempts after the first continue in the background.
+9. **Hold.** The response is held until the call is final, or until `wait` seconds after receipt, where `wait` is the request's value capped at the wait limit, or the wait limit when absent; it is sent no earlier than step 7 completes. It answers within 100 milliseconds of the call becoming final: the daemon signals the held request when it stores the final status, and does not wait for a timer. A held request answers for the call that made it only: a repeat (step 2) holds as well.
+
+**Results without polling.** For the first 60 seconds after any call, owner or agent, is accepted by its receiver, the daemon asks for its status with `GET /peer/v1/calls/{id}?wait=10`, one request at a time, each sent as soon as the previous answers. Held requests do not use the task polling slots. So a result reaches the daemon as soon as the receiver has it. An answer that comes back in under 1 second without a final state, as from a host that predates `wait`, is followed by the next request 1 second later, not sooner. After the 60 seconds it polls without `wait`, backing off from 1 to 60 seconds as for owner calls. The window is kept in memory: after a daemon restart, a call still in it is polled with the usual backoff.
+
+<a id="the-wait-limit"></a>**The wait limit** is 15 seconds. It is one constant in each daemon, and the adapter never states it: the adapter passes `wait` through and the daemon caps it. It must stay at or below 45 seconds, so that a held `POST /adapter/v1/calls` fits the adapter's 50-second request timeout and the tool answers within Codex's default 60-second tool timeout.
 
 **The outbound record** gains `adapter_id`, the credential that made the call, or null for owner calls. `calls list` and `calls inspect` show agent calls with the owner's.
 
@@ -649,7 +653,7 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 | Tool | Input | Behavior |
 | --- | --- | --- |
 | `list_capabilities` | `{}` | `GET /adapter/v1/capabilities`. Returns its object. Remote descriptions and input schemas appear only here, inside the result. |
-| `call_capability` | `{address, operation, input, wait, call_id}` | Uses the given `call_id`, or generates one when it is absent, posts `POST /adapter/v1/calls`, then polls `GET /adapter/v1/calls/{call_id}` every second until the state is final or `wait` seconds have passed since the post returned. Returns the latest call view. |
+| `call_capability` | `{address, operation, input, wait, call_id}` | Uses the given `call_id`, or generates one when it is absent, and posts `POST /adapter/v1/calls` with `wait` when the agent gave one. The daemon holds the response until the call is final or the wait ends, so the tool returns within the wait limit of being called. Returns the call view. |
 | `call_status` | `{call_id, offset}` | `GET /adapter/v1/calls/{call_id}?offset=offset`. Returns the call view. |
 | `call_cancel` | `{call_id}` | `POST /adapter/v1/calls/{call_id}/cancel`. Returns the call view. |
 
@@ -657,7 +661,7 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 - `address`: string, pattern `^[^/]+/[^/]+(/[^/]+)?$`, at most 256 characters: `PERSON/CAPABILITY` or `HOST_ID/CAPABILITY` from `list_capabilities`. A source address, with a second `/`, passes the schema so that the daemon's `source` refusal and its text reach the agent.
 - `operation`: string, 1 to 128 characters.
 - `input`: object, default `{}`.
-- `wait`: integer, 0 to 60, default 30.
+- `wait`: integer, at least 0, optional. Seconds to wait for a final state. Peerspan caps it at its wait limit, 15 seconds, which is also the default; the description says so.
 - `call_id`: string, pattern `^call_[0-9a-f]{32}$`; optional for `call_capability`, required for `call_status` and `call_cancel`. An agent that lost a `call_capability` response calls it again with the same `call_id`, which returns the existing call (step 2 of Submitting) instead of making a second one.
 - `offset`: integer, at least 0, default 0.
 - Each schema has `additionalProperties: false`. Invalid arguments return a tool error naming the tool, and call nothing.
@@ -673,7 +677,7 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 - **`call_status` and `call_cancel` on a 404** return, without an error, `{call_id, state: "not_recorded", note: "The host has no record of this call for this agent; it never ran."}`.
 
 **Adapter details.**
-- **Timeouts.** The adapter's request timeout is 30 seconds for `GET /adapter/v1/capabilities` and `POST /adapter/v1/calls`, as for sends by address, and 5 seconds for the other call routes. The response limit is 16 MiB for `GET /adapter/v1/capabilities`, and 1 MiB as before for the others.
+- **Timeouts.** The adapter's request timeout is 30 seconds for `GET /adapter/v1/capabilities`, as for sends by address, 50 seconds for `POST /adapter/v1/calls`, and 5 seconds for the other call routes. The response limit is 16 MiB for `GET /adapter/v1/capabilities`, and 1 MiB as before for the others.
 - **Instructions.** The MCP server instructions are unchanged, and stay within 2,048 characters. The guidance in this section lives in the four tools' descriptions and in `call_update` event content. The descriptions say what the tool does, that remote descriptions and schemas come from `list_capabilities`, that `call_capability` returns a `call_id` when the call has not finished and a `kind=call_update` event follows, how `truncated` and `next_offset` work, and the `uncertain` rule as in its `note`.
 
 ### Call updates
@@ -681,7 +685,7 @@ The shared adapter adds four tools. Calls through them are refused unless the cr
 When a call made through an adapter becomes final (its outbound status becomes final with its result, or its submission is refused), the daemon creates, in the same transaction, a **call-update notification** `{id, peer_host_id, call_id, adapter_id, session_id, state, created_at, updated_at}`, with an ID of `notification_` and 32 hex digits, and `state` `unknown` or `forwarded`, following the task-update notification rules. It is bound to the session that made the call.
 
 - **Seen.** A notification is seen, under the [Seen](live-delivery-contract.md#seen) rules of live delivery, when the session that holds it gets a call view in a final state for that call through `POST /adapter/v1/calls` (including a repeat) or `GET /adapter/v1/calls/{call_id}` (so `call_capability` and `call_status` both count), or calls `mark_seen` with the call ID. `mark_seen` accepts call IDs, `call_` and 32 hex digits, beside delivery, request, and task IDs. A notification already seen is never claimed. Only the session that holds the notification marks it seen this way. A late notification that no session holds yet is bound to a verified session of its agent that gets a final call view for its call, and is seen at once, so it is never claimed afterwards.
-- **No event for a call already answered.** When `call-updates/next` returns a notification for a call that a `call_capability` of this adapter is still waiting on, the adapter does not emit it yet. It ends that wait at once: the waiting tool makes one more `GET /adapter/v1/calls/{call_id}`, which marks the notification seen, and returns that view. Only then does the adapter acknowledge the notification through `forwarded`. If that `GET` fails, the tool returns its last view and the adapter emits the event as below.
+- **No event for a call already answered.** While a `POST /adapter/v1/calls` for a call is held, `call-updates/next` never claims that call's notification. When the call becomes final, the held request answers with the final view, which marks the notification seen, so no event follows. If the adapter loses that response, the notification is unseen and is claimed as usual.
 - **The event.** Otherwise the adapter emits a channel event with `meta.kind` `call_update`, and `meta` `{call_id, notification_id, address, operation, state, error, result_bytes, truncated, session_id, redelivered}`, then acknowledges it through `forwarded`. Its content is the call view at offset 0, as JSON text, so the result or its first part and the `note` come with it. `meta.session_id` is the session that holds the notification, which may differ from the session that made the call. A channel that cannot carry null meta values, as the Claude Code channel cannot, omits those keys, and a missing key reads as null.
 - **Redelivery and late arrivals** follow live delivery slice 2, as for task updates: a notification forwarded but unseen when its authorization ends returns to the agent's queue and is claimed again by the agent's next verified session with `redelivered` true, at most 3 times. One created after its session's authorization ended goes to the agent's next verified session with `redelivered` false.
 
@@ -739,7 +743,11 @@ PRAGMA user_version = 18;
   - a call taking 10 seconds returned final by `call_capability` with the default `wait`;
   - a call outlasting `wait`, returning `queued` or `running` with the pending note, then one `call_update` event, and `call_status` returning the result;
   - no `call_update` event for a call `call_capability` already returned final;
-  - `wait` 0 and 60, and 61 refused;
+  - `wait` 0 answering once the call is persisted, and a `wait` above the limit answering no later than the wait limit;
+  - a call whose tool takes 2 seconds returned final by `call_capability` within 3 seconds of the tool call, between Go and Rust hosts in every pairing;
+  - the daemon's held `GET /peer/v1/calls/{id}?wait=10`, observed at the receiver: at most one open at a time per call, and answered within 1 second of the call finishing;
+  - a receiver that predates `wait` (a version 17 host) asked again no sooner than 1 second after each answer, and the call still returned final;
+  - `wait` 11 on the peer route refused with 400;
   - a source address refused with `source`;
   - the same source address through `call_capability` returning the `source` text;
   - an operation the capability does not list submitted and `rejected` by the receiver;
@@ -806,7 +814,7 @@ Settled with the owner on 2026-10-19:
     - **Opt-in per agent.** `attach` asks at a terminal whether the agent may call capabilities shared with the person; `--calls` and `--no-calls` answer without a prompt. The setting is stored on the adapter credential, as `directory` is.
     - **Rate limit.** `max_calls_per_hour` on the adapter credential, default 100, set at `attach`. Each call counts once when first persisted, never on retries, and a call over the limit is refused with 429 `rate_limited` and `retry_after`, as `max_sends_per_hour` is.
     - **The person's own machines.** Self access covers the person's capabilities on their other machines. Raw sources stay CLI-only.
-    - **Waiting.** `call_capability` waits up to `wait` seconds, default 30 and at most 60, for a final state, then returns the call ID and state. A call that ends later produces a `call_update` event through live delivery, listed in `pending_work`, and `call_status` always answers.
+    - **Waiting.** `call_capability` waits up to `wait` seconds, default 30 and at most 60 (now 15 in total, by decision 15), for a final state, then returns the call ID and state. A call that ends later produces a `call_update` event through live delivery, listed in `pending_work`, and `call_status` always answers.
     - **Large results.** At most 64 KiB of a result is returned inline, with `truncated: true` and `result_bytes`; `call_status {call_id, offset}` returns the next part.
     - **Uncertain calls.** An `uncertain` result tells the agent the call may or may not have taken effect, that it must not call again on its own, and that it should check the effect or ask the person. `rejected`, `expired`, and `cancelled` say the call never ran. Nothing is retried automatically.
     - **Out of scope:** approving each call, remote OAuth servers, capabilities inside delegation chains, tools provided by sessions, and streaming results.
@@ -816,8 +824,14 @@ Settled with the owner on 2026-10-20:
 14. **Slice 2 details.**
     - **Re-attaching.** Reusing a credential with different call settings is refused and names the stored ones; replacing a credential asks again.
     - **Lost responses.** `call_capability` takes an optional `call_id`; repeating it returns the existing call.
-    - **Waiting.** The daemon checks the serving host every second for the call's first 60 seconds, then backs off as usual.
+    - **Waiting.** Superseded by decision 15.
     - **Visibility.** The four tools are always listed; without opt-in they refuse with `no_calls`.
     - **Across sessions.** Any session of the same agent can follow its calls, and `pending_work` lists unfinished calls from the agent's ended sessions.
     - **Status.** Nothing new this slice.
     - **Later, not in slice 2:** sharing with one agent as `PERSON/AGENT`, converted to the `agent:` form, and `call --from-agent`.
+
+Settled with the owner on 2026-10-23:
+
+15. **Call timing.**
+    - **Wait limit.** `call_capability` returns within 15 seconds of being called, everything included, and answers `queued` or `running` when the call has not finished; the result then arrives as a `call_update` event. An agent may ask for less, never more. The limit is one constant in the daemon, changed in a release; the adapter and the tool description do not repeat it. An owner setting for it may be added later.
+    - **Results without polling.** The caller's daemon holds a status request open at the serving host (`GET /peer/v1/calls/{id}?wait=10`), and the adapter's call request is held open at the daemon, so a result arrives as soon as it exists instead of on a once-a-second check. A push from the serving host to the caller may be added later; hosts that predate the held request are polled every second as before.
