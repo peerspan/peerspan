@@ -912,6 +912,12 @@ func storeCallStatus(out *OutboundCall, st CallStatus, fromGet bool) int {
 	if hasResult(st) && !fromGet && out.Result == nil {
 		return 0
 	}
+	// A stored state never moves backwards: a final status is never
+	// replaced, and an answer earlier than the stored state (queued after
+	// running), such as a held answer overtaken by a cancel, is discarded.
+	if out.Status != nil && (callFinal(out.Status.State) || stateRank(st.State) < stateRank(out.Status.State)) {
+		return 0
+	}
 	changed := out.Status == nil || out.Status.State != st.State || out.Status.CancelRequested != st.CancelRequested
 	result := st.Result
 	st.Result = nil
@@ -1086,6 +1092,14 @@ func (s *Store) pollCallWait(ctx context.Context, peerID, id string, wait int) (
 	}
 	storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	if !locked {
+		// The lock was released while the request was held: take it again
+		// before storing, which rechecks the stored state.
+		if unlock, err = s.lockOutbound(storeCtx, callKey(peerID, id)); err != nil {
+			return progressed, err
+		}
+		locked = true
+	}
 	changed := 0
 	_, err = s.updateOutboundCall(storeCtx, peerID, id, func(out *OutboundCall) int {
 		changed = storeCallStatus(out, st, true)
@@ -1279,3 +1293,14 @@ func localCallRoutes(mux *http.ServeMux, store *Store) {
 
 // callsRunning counts received calls running, for status.
 func callsRunning(ctx context.Context, tx *sql.Tx) (int64, error) { return runningCalls(ctx, tx) }
+
+// stateRank orders call states: queued, then running, then final.
+func stateRank(state string) int {
+	switch {
+	case state == CallQueued:
+		return 0
+	case state == CallRunning:
+		return 1
+	}
+	return 2
+}
