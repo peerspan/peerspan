@@ -3666,8 +3666,9 @@ def main():
                         'migration')
     parser.add_argument('--agent-section', action='append', help='run only this agent tool section (by name, such '
                         'as "results"); repeatable')
-    parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1), whose '
-                        'state the version 17 to 18 migration opens; without it, version 17 state is simulated')
+    parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1): the '
+                        'version 17 to 18 migration opens its state, and the agent tool cases use it as a serving '
+                        'host that predates wait (required for them)')
     args = parser.parse_args()
     if not args.skip_agents and not args.vector_only and not args.node:
         parser.error('--node is required for the agent tool cases (or pass --skip-agents)')
@@ -3716,7 +3717,9 @@ def main():
             results += capability_agents.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
                                                      args.node.resolve(), label,
                                                      args.integrations.resolve() if args.integrations else None,
-                                                     args.agent_section)
+                                                     args.agent_section,
+                                                     binaries['Rust' if daemon == 'Go' else 'Go'],
+                                                     args.baseline17.resolve() if args.baseline17 else None)
         for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')

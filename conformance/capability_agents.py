@@ -8,7 +8,9 @@ as a black box (`attach claude --runner NODE`, with a fixture `claude` executabl
 
 Each CLI/daemon pairing gets its own topology, separate from the slice 1 pairing in capabilities.py:
 - pat (label `pat`): p1 serves the capabilities (agent `srv`, source `srv/fx`, the fixture MCP server) and opens
-  its sources to p2; p2 is trusted (agent `pa`); p3 is untrusted (agent `pu`); p4 serves a second copy of `dup`.
+  its sources to p2; p2 is trusted (agent `pa`); p3 is untrusted (agent `pu`); p4 serves a second copy of `dup`;
+  x1 runs the other implementation and serves `xtools`; o1 runs a version 17 host (--baseline17, which predates
+  `wait`) and serves `oldtools` (both shared with quinn).
 - quinn: q1, with MCP agents `qa`, `qb`, `qno` (--no-calls), `qlim` (--max-calls-per-hour 2), `qred`, and `qend`,
   plus raw adapter sessions for the routes.
 - `ops/sam` (a label containing `/`): s1 serves `sx` (shared with quinn) and opens its sources to s2 (trusted).
@@ -22,8 +24,13 @@ also on p4 with neither copy claimed (so `pat/dup` is ambiguous for pat's truste
 Sections, per pairing (contract Verification bullets in brackets):
 - opt-in [Opt-in];
 - listing [Listing], except `unanswered`, which runs last (it stops p4);
-- calls [Calls: within wait with origin and citation, 10 seconds, outlasting wait, no event when answered, the
-  claim-while-waiting path, wait 0/60/61, source, ambiguous, not_found, the receiver's 429];
+- calls [Calls: within wait with origin and citation, 10 seconds, outlasting wait, no event while held (the
+  notification seen, never claimed), wait 0, source (route and tool), unlisted operation, ambiguous, not_found,
+  the receiver's 429];
+- call timing [Calls: a 2-second tool returned final within 3 seconds, to this pairing's daemon and to the other
+  implementation; a wait above the limit answering at 15 seconds; the peer route's wait (11 refused, 0 at once,
+  held, answered within 1 second of finishing, at the receiver through the probe); the caller daemon's held status
+  requests; a version 17 receiver asked again no sooner than 1 second after each answer];
 - agent rules and repeats [Calls: agent: rule, repeated call_id through the route and the tool];
 - queued window [Calls: call_cancel while queued, expired, rejected at the recheck; rejected at submission];
 - running calls [Calls: call_cancel while running, uncertain after the receiver restarts];
@@ -259,9 +266,12 @@ class Raw:
 
 
 class AgentPairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None):
+    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None, other=None,
+                 baseline17=None):
         self.label, self.cli_binary, self.daemon, self.node, self.root = label, cli_binary, daemon_binary, node, root
         self.only = only
+        self.other_daemon = other        # the other implementation's peerspan-host, serving from x1
+        self.baseline17 = baseline17     # a version 17 peerspan-host (predates wait), serving from o1
         self.coord = Coordinator(coord_binary, root / 'coord')
         self.results, self.notes, self.setup_notes = [], [], []
         self.hosts, self.ids, self.keys, self.agents = {}, {}, {}, {}
@@ -271,8 +281,8 @@ class AgentPairing:
 
     # --- infrastructure ----------------------------------------------------------------------------------------
 
-    def host(self, name, person):
-        h = CapHost(self.daemon, self.cli_binary, self.root / name, self.root / f'user-{name}')
+    def host(self, name, person, daemon=None, cli=None):
+        h = CapHost(daemon or self.daemon, cli or self.cli_binary, self.root / name, self.root / f'user-{name}')
         h.sock = self.agents[person].socket if person else None
         self.hosts[name] = h
         return h
@@ -336,7 +346,7 @@ class AgentPairing:
 
     def sync_pat(self):
         """Every member stores pat's newest policy in team (and q1 in other)."""
-        self.synced(self.version('p1'), 'p2', 'p3', 'p4', 'q1', 's1', 's2')
+        self.synced(self.version('p1'), 'p2', 'p3', 'p4', 'q1', 's1', 's2', *self.extra)
         self.synced(self.version('p1', self.other), 'q1', net=self.other)
 
     def register(self, host, name, owner):
@@ -509,6 +519,19 @@ class AgentPairing:
         view = wait_for(done, timeout=timeout, message=f'call {call_id} final through call_status')
         return check_view(view, 'call_status')
 
+    def until_state(self, name, view, state, timeout=20):
+        """With wait 0 the view may come before the submission ends (submitting); follow it to `state`."""
+        need(view['state'] in ('submitting', state), f'a call {state} (or still submitting)', view)
+        if view['state'] == state:
+            return view
+
+        def reached():
+            failed, current = self.status(name, view['call_id'])
+            return current if not failed and current.get('state') == state else None
+        view = wait_for(reached, timeout=timeout, message=f'call {state}')
+        need(view['note'] == PENDING_NOTE, f'a {state} call has the pending note', view)
+        return view
+
     def listing(self, name):
         failed, value = self.tool(self.s(name)['consumer'], 'list_capabilities', {})
         need(not failed and isinstance(value, dict) and set(value) == LISTING_KEYS,
@@ -646,6 +669,17 @@ class AgentPairing:
         persons = {'p1': 'pat', 'p2': 'pat', 'p3': 'pat', 'p4': 'pat', 'q1': 'quinn', 's1': 'sam', 's2': 'sam'}
         for name, person in persons.items():
             self.host(name, person)
+        # x1 runs the other implementation (and its CLI), o1 a version 17 host that predates `wait`; both serve
+        # capabilities of pat's shared with quinn.
+        self.extra = []
+        if self.other_daemon:
+            self.host('x1', 'pat', self.other_daemon, self.other_daemon)
+            self.extra.append('x1')
+        if self.baseline17:
+            self.host('o1', 'pat', self.baseline17, self.baseline17)
+            self.extra.append('o1')
+        for name in self.extra:
+            persons[name] = 'pat'
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         ids, h = self.ids, self.hosts
 
@@ -653,7 +687,8 @@ class AgentPairing:
                                 *self.coordinator_flags())['id']
         for name, label, flags in (('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)),
                                    ('p4', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--untrusted',)),
-                                   ('s1', 'ops/sam', ('--trusted',)), ('s2', 'ops/sam', ('--trusted',))):
+                                   ('s1', 'ops/sam', ('--trusted',)), ('s2', 'ops/sam', ('--trusted',)),
+                                   *[(n, 'pat', ('--untrusted',)) for n in self.extra]):
             h[name].cli('join', self.invite(label, self.team), *flags)
         self.other = h['p1'].cli('network', 'create', 'other', '--as', 'pat', '--untrusted',
                                  *self.coordinator_flags())['id']
@@ -679,6 +714,17 @@ class AgentPairing:
         for host, target in (('p1', 'p2'), ('s1', 's2')):
             status, body = h[host].call('POST', '/v1/sources/open-to', {'host_id': ids[target]})
             need(status in (200, 201), 'setup: sources open-to', host, target, status, body)
+
+        # The capabilities of x1 and o1, created and shared first; p1 then stores their claims before its own edits.
+        for name, agent, capability in (('x1', 'srvx', 'xtools'), ('o1', 'srvo', 'oldtools')):
+            if name not in self.hosts:
+                continue
+            self.synced(self.version('p1'), name)
+            self.register(name, agent, 'pat')
+            self.put_servers(name, agent, {'fx': self.fixture.args(f'fx-{name}')})
+            self.create(name, capability, f'{agent}/fx', ['echo', 'sleep'])
+            self.share(name, capability, 'quinn', per_hour=1000)
+            self.synced(self.version(name), 'p1')
 
         for name, operations in (('tools', ['echo', 'sleep', 'big', 'canon', 'fail', 'tool_error', 'write_note']),
                                  ('limited', ['echo']), ('agentonly', ['echo']), ('mixed', ['echo']),
@@ -713,6 +759,7 @@ class AgentPairing:
         self.section('opt-in', self.check_opt_in)
         self.section('listing', self.check_listing)
         self.section('calls', self.check_calls)
+        self.section('call timing', self.check_timing)
         self.section('agent rules and repeats', self.check_agent_rules)
         self.section('queued window', self.check_queued)
         self.section('running calls', self.check_running)
@@ -1006,27 +1053,26 @@ class AgentPairing:
         need(not self.events_for('qa', call), 'no call_update event for a call call_capability returned final')
         n = self.notification('q1', call)
         need(n and n[0], 'its call-update notification is seen', n)
-        notes.append(f"first call's notification {n[2].get('state') if isinstance(n[2], dict) else n[2]}")
         if isinstance(n[2], dict):
+            # While the POST is held, call-updates/next never claims the call's notification.
+            need(n[2].get('state') != 'forwarded', 'a notification of a call answered by the held POST is never '
+                 'claimed (not forwarded)', n[2])
             # The stored record may hold more; the route's `delivery` object is checked exactly (queued window).
             need(NOTIFICATION_KEYS <= set(n[2]), 'the stored notification record has the notification\'s fields',
                  n[2])
-            # Q: the claim-while-waiting path (forwarded) and the GET-first path (unknown) are not distinguishable by
-            # the caller; both are allowed here, and which ran is noted.
 
         # 2. A call taking 10 seconds, default wait.
         text = marker('ten')
         view, elapsed = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 10, 'text': text})
-        need(view['state'] == 'succeeded' and 10 <= elapsed < 30, 'a 10-second call is returned final with the '
-             'default wait', view['state'], elapsed)
-        self.soft(elapsed < 14, 'fast status checks: a 10-second call returned within about 2 seconds of finishing',
-                  elapsed)
+        need(view['state'] == 'succeeded' and 10 <= elapsed < 12.5, 'a 10-second call is returned final with the '
+             'default wait (the 15-second wait limit), soon after it finishes', view['state'], elapsed)
         notes.append(f'10-second call returned in {elapsed:.1f}s')
         time.sleep(3)
         need(not self.events_for('qa', view['call_id']), 'no call_update event for the 10-second call')
         n = self.notification('q1', view['call_id'])
-        need(n and n[0], 'the notification of a call returned final while waiting is seen', n)
-        notes.append(f"10-second call's notification {n[2].get('state') if isinstance(n[2], dict) else n[2]}")
+        need(n and n[0] and (not isinstance(n[2], dict) or n[2].get('state') != 'forwarded'),
+             'while call_capability is held no event is emitted, and the notification ends up seen (never claimed)',
+             n)
 
         # 3. Outlasting wait: pending note, one event, call_status with the result.
         text = marker('outlast')
@@ -1057,17 +1103,17 @@ class AgentPairing:
         need(not [c for c in self.pending('qa')['calls'] if c['call_id'] == call],
              'a seen call is no longer pending')
 
-        # 4. wait 0, 60, and 61.
+        # 4. wait 0 answers once the call is persisted; a negative wait is invalid. (A wait above the limit is in
+        # the call timing section.)
         text = marker('w0')
-        view, elapsed = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 3, 'text': text}, wait=0)
-        need(view['state'] in PENDING_STATES and elapsed < 3, 'wait 0 returns at once', view['state'], elapsed)
-        text = marker('w60')
-        view, elapsed = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 3, 'text': text}, wait=60)
-        need(view['state'] == 'succeeded' and elapsed < 20, 'wait 60 returns once final', view['state'], elapsed)
-        text = marker('w61')
         before = self.count('q1', 'outbound_calls')
-        failed, value, _ = self.cc('qa', 'pat/tools', 'echo', {'text': text}, wait=61)
-        need(failed and 'call_capability' in json.dumps(value), 'wait 61 is invalid: a tool error naming the tool',
+        view, elapsed = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 3, 'text': text}, wait=0)
+        need(view['state'] in PENDING_STATES and elapsed < 2 and self.count('q1', 'outbound_calls') == before + 1,
+             'wait 0 answers once the call is persisted', view['state'], elapsed)
+        text = marker('wneg')
+        before = self.count('q1', 'outbound_calls')
+        failed, value, _ = self.cc('qa', 'pat/tools', 'echo', {'text': text}, wait=-1)
+        need(failed and 'call_capability' in json.dumps(value), 'wait -1 is invalid: a tool error naming the tool',
              failed, value)
         need(self.count('q1', 'outbound_calls') == before and not self.executions('fx', text),
              'invalid arguments call nothing')
@@ -1130,6 +1176,124 @@ class AgentPairing:
         time.sleep(4)
         need(not self.events_for('qa', view['call_id']), 'no call_update event for a call refused at its first '
              'attempt')
+        return '; '.join(notes)
+
+    # --- call timing (decision 15) -------------------------------------------------------------------------
+
+    def done_time(self, key, text):
+        """When the fixture finished the execution whose arguments carry `text` (its own clock, this machine's)."""
+        calls = self.fixture.calls(key, marker=text)
+        need(len(calls) == 1, 'executed once', key, text, calls)
+        start = calls[0]
+        for e in self.fixture.entries(key):
+            if e['event'] == 'done' and e.get('id') == start['id'] and e['pid'] == start['pid'] and \
+                    e['time'] >= start['time']:
+                return e['time']
+        return None
+
+    def outbound(self, host, call_id):
+        rows = db_rows(self.hosts[host], 'SELECT record FROM outbound_calls WHERE call_id = ?', (call_id,))
+        return json.loads(rows[0][0]) if rows else None
+
+    def watch_final(self, host, call_id, timeout=60):
+        """Read the caller's outbound record every 50 ms until its status is final; (record, time.time() then)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            record = self.outbound(host, call_id)
+            if record and (record.get('status') or {}).get('state') in FINAL:
+                return record, time.time()
+            time.sleep(0.05)
+        raise Failure(f'outbound call {call_id} final on {host}: {self.outbound(host, call_id)}')
+
+    def check_timing(self):
+        notes = []
+        q1, p1 = self.hosts['q1'], self.hosts['p1']
+
+        # A tool taking 2 seconds is returned final within 3 seconds of the tool call: to a host of this pairing's
+        # daemon (p1), and to one of the other implementation (x1).
+        need('x1' in self.hosts, 'setup: a serving host of the other implementation (capabilities.py --rust and --go)')
+        for address, key in (('pat/tools', 'fx'), ('pat/xtools', 'fx-x1')):
+            text = marker('two')
+            view, elapsed = self.ok_call('qa', address, 'sleep', {'seconds': 2, 'text': text})
+            need(view['state'] == 'succeeded' and elapsed <= 3.0, 'a call whose tool takes 2 seconds is returned '
+                 'final by call_capability within 3 seconds of the tool call', address, view['state'], elapsed)
+            notes.append(f'{address} 2-second call in {elapsed:.2f}s')
+
+        # A wait above the limit answers no later than the wait limit (15 seconds), not before it.
+        text = marker('w60')
+        view, elapsed = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 25, 'text': text}, wait=60)
+        need(view['state'] in PENDING_STATES and view['note'] == PENDING_NOTE and 14.5 <= elapsed <= 16.5,
+             'a wait above the limit answers at the 15-second wait limit, unfinished', view['state'], elapsed)
+        notes.append(f'wait 60 answered after {elapsed:.1f}s')
+
+        # The peer route, at the receiver through the probe (as q1): wait 11 refused, wait 0 at once, wait 10
+        # held for its full time when the call does not finish, and answered within 1 second of the call finishing.
+        context = fixture_context(q1)
+        cite = {'policy': {'person_id': self.pat, 'network_id': self.team, 'version': self.version('p1')}}
+
+        def submit(seconds, text):
+            body = {'call_id': cid(), 'capability': 'tools', 'operation': 'sleep',
+                    'input': {'seconds': seconds, 'text': text}, 'deadline': timestamp(300), **cite}
+            status, record = wire(p1, context, 'POST', '/peer/v1/calls', body)
+            need(status == 200, 'a call through the peer route', status, record)
+            return body['call_id']
+
+        long_text = marker('held')
+        long_call = submit(14, long_text)
+        for wait in (11, -1):
+            status, value = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?wait={wait}')
+            need(status == 400, 'GET /peer/v1/calls/{id} with a wait outside 0 to 10 is 400', wait, status, value)
+        started = time.monotonic()
+        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?wait=0')
+        need(status == 200 and record['state'] not in FINAL and time.monotonic() - started < 1.5,
+             'wait 0 answers at once', status, record.get('state'), time.monotonic() - started)
+        started = time.monotonic()
+        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}?wait=2')
+        held = time.monotonic() - started
+        need(status == 200 and record['state'] not in FINAL and 1.8 <= held <= 3.5,
+             'a held GET answers after its wait when the call has not finished', status, record.get('state'), held)
+        text = marker('short')
+        short_call = submit(3, text)
+        status, record = wire(p1, context, 'GET', f'/peer/v1/calls/{short_call}?wait=10')
+        answered = time.time()
+        done = self.done_time('fx', text)
+        need(status == 200 and record['state'] == 'succeeded' and record.get('result') is not None and done and
+             answered - done <= 1.3, 'a held GET answers within 1 second of the call finishing, with the result',
+             status, record.get('state'), answered - (done or 0))
+
+        # The caller daemon's held status requests: a 12-second call from qa is seen final within 1 second of
+        # finishing, with few status requests (one held request at a time, each up to 10 seconds).
+        # Q: requests are counted with the outbound record's status_queries, on the caller: the QUIC stream is
+        # encrypted, so the receiver side is seen only through the probe checks above.
+        text = marker('callerheld')
+        view, _ = self.ok_call('qa', 'pat/tools', 'sleep', {'seconds': 12, 'text': text}, wait=0)
+        record, seen = self.watch_final('q1', view['call_id'])
+        done = self.done_time('fx', text)
+        need(done and seen - done <= 1.3, 'the caller daemon has the result within 1 second of the call finishing',
+             seen - (done or 0))
+        need(isinstance(record.get('status_queries'), int) and 1 <= record['status_queries'] <= 4,
+             'one held status request at a time (a 12-second call takes at most a few)', record.get('status_queries'))
+        notes.append(f"held: final {seen - done:.2f}s after finishing, {record['status_queries']} status requests")
+
+        # A receiver that predates wait (version 17) answers at once: asked again no sooner than 1 second after each
+        # answer, and the call still returns final.
+        need('o1' in self.hosts, 'setup: a version 17 serving host (capabilities.py --baseline17)')
+        text = marker('old')
+        started = time.time()
+        view, _ = self.ok_call('qa', 'pat/oldtools', 'sleep', {'seconds': 6, 'text': text}, wait=0)
+        record, seen = self.watch_final('q1', view['call_id'])
+        span = seen - started
+        need(record['status']['state'] == 'succeeded', 'a call to a host that predates wait still becomes final',
+             record['status'])
+        need(isinstance(record.get('status_queries'), int) and record['status_queries'] <= span + 2,
+             'asked again no sooner than 1 second after each answer', record.get('status_queries'), span)
+        done = self.done_time('fx-o1', text)
+        need(done and seen - done <= 2.3, 'seen final within about a second of finishing', seen - (done or 0))
+        final = self.final_view('qa', view['call_id'])
+        need(final['state'] == 'succeeded', 'call_status returns it final', final)
+        notes.append(f"version 17 receiver: {record['status_queries']} status requests over {span:.1f}s")
+        wait_for(lambda: wire(p1, context, 'GET', f'/peer/v1/calls/{long_call}')[1].get('state') in FINAL,
+                 timeout=30, message='the long peer call final')
         return '; '.join(notes)
 
     # --- agent rules and repeats ---------------------------------------------------------------------------
@@ -1228,8 +1392,7 @@ class AgentPairing:
         started = self.fill_slots(60)
         texts = {k: marker(k) for k in ('cq', 'rc', 'ex')}
         queued, _ = self.ok_call('qa', 'pat/tools', 'echo', {'text': texts['cq']}, wait=0)
-        need(queued['state'] == 'queued' and queued['note'] == PENDING_NOTE, 'queued behind 4 running calls',
-             queued)
+        queued = self.until_state('qa', queued, 'queued')
         failed, cancelled = self.tool(self.s('qa')['consumer'], 'call_cancel', {'call_id': queued['call_id']})
         need(not failed, 'call_cancel returns the call view, not a tool error', cancelled)
         check_view(cancelled, 'call_cancel')
@@ -1238,16 +1401,21 @@ class AgentPairing:
              'call_cancel while queued: cancelled, with the never-ran note', view)
 
         rechecked, _ = self.ok_call('qa', 'pat/recheck', 'echo', {'text': texts['rc']}, wait=0)
-        need(rechecked['state'] == 'queued', 'queued behind 4 running calls', rechecked)
-        body = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'echo', 'input': {'text': texts['ex']}}
+        rechecked = self.until_state('qa', rechecked, 'queued')
+        body = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'echo', 'input': {'text': texts['ex']},
+                'wait': 0}
         status, expiring_view = expiring.call('POST', '/adapter/v1/calls', body)
-        need(status == 200 and expiring_view.get('state') == 'queued', 'a call queued until its deadline (capped by '
-             'the credential\'s expiry, 45 seconds)', status, expiring_view)
+        need(status == 200 and expiring_view.get('state') in ('submitting', 'queued'), 'a call queued until its '
+             'deadline (capped by the credential\'s expiry, 45 seconds)', status, expiring_view)
         texts['ex2'] = marker('ex2')
-        body2 = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'echo', 'input': {'text': texts['ex2']}}
+        body2 = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'echo', 'input': {'text': texts['ex2']},
+                 'wait': 0}
         status, second_view = expiring.call('POST', '/adapter/v1/calls', body2)
-        need(status == 200 and second_view.get('state') == 'queued', 'a second call queued until its deadline',
-             status, second_view)
+        need(status == 200 and second_view.get('state') in ('submitting', 'queued'), 'a second call queued until '
+             'its deadline', status, second_view)
+        for b in (body, body2):
+            wait_for(lambda b=b: expiring.call('GET', f"/adapter/v1/calls/{b['call_id']}")[1].get('state') ==
+                     'queued', timeout=20, message='the expiring call queued')
         deadline = caps.parse_time(expiring_view['deadline'])
         need(deadline.timestamp() <= time.time() + 50, 'the deadline is capped by the credential\'s expires_at',
              expiring_view['deadline'])
@@ -1474,7 +1642,7 @@ class AgentPairing:
         failed, value = self.status('qa', view['call_id'], 0)
         need(not failed and check_view(value)['offset'] == 0, 'offset 0 before there is a result', value)
         body = {'call_id': cid(), 'address': 'pat/tools', 'operation': 'sleep',
-                'input': {'seconds': 4, 'text': marker('pre2')}}
+                'input': {'seconds': 4, 'text': marker('pre2')}, 'wait': 0}
         status, value = raw.call('POST', '/adapter/v1/calls', body)
         need(status == 200 and value.get('result_bytes') is None, 'a call without a result yet', status, value)
         status, value = raw.call('GET', f"/adapter/v1/calls/{body['call_id']}?offset=1")
@@ -1710,12 +1878,14 @@ class AgentPairing:
                 agent.stop()
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None, only=None):
+def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None, only=None, other=None,
+                baseline17=None):
     global INTEGRATIONS
     if integrations:
         INTEGRATIONS = Path(integrations)
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-') as temporary:
-        pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only)
+        pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only, other,
+                               baseline17)
         started = time.monotonic()
         try:
             pairing.run()
