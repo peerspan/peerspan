@@ -1,0 +1,1536 @@
+{
+  "checked_at": "2026-10-23T04:09:56.328196+00:00",
+  "source_revision": "3c774c0402fd1eb43cb905d4cb03ee9655cbc3da",
+  "runner": "conformance/launch_acceptance.py",
+  "command": "python3.12 conformance/launch_acceptance.py --output /tmp/setup-baseline.json",
+  "raw_report_sha256": "fd6b8c7551662667abad941ce807d1b7546c296112e62126dc2bfcc97d91337e",
+  "summary_note": "Derived from the runner output. Retains counted commands and timings, check names and pass/fail, environment, release provenance, and cleanup. Verbose command outputs and check detail payloads are omitted.",
+  "measurement_scope": {
+    "machines": "Fresh Linux users on one host, each with its own home, project, daemon state, and systemd user service.",
+    "agent": "Claude executable fixture; real adapter handshake and readiness response; no live model.",
+    "timings": "Sum of recorded synchronous command durations only. Background attach and private-key copy have no recorded duration. Preparation, packaging, handoff time, checks, and cleanup are excluded.",
+    "preparation": "Local archives and checksums, installer, Node, fixture agent, PATH, project directories, and systemd user managers are supplied by the harness."
+  },
+  "environment": {
+    "systemd": "systemd 252",
+    "node": "v22.23.3",
+    "python": "3.12.13",
+    "kernel": "6.1.0-53-amd64",
+    "architecture": "x86_64"
+  },
+  "pace_seconds": 0,
+  "coordinator": "peerspan-coord from the checkout on loopback, built into the bundles as the default",
+  "release": {
+    "go": {
+      "archive": "peerspan-0.0.0-acceptance-linux-amd64-go.tar.gz",
+      "sha256": "449157b92adc6c501ca1375be7882c6b64d00f215c5b35b9405711424abe060c",
+      "checksum_verified": true,
+      "release": {
+        "version": "0.0.0-acceptance",
+        "implementation": "go",
+        "source_revision": "3c774c0402fd1eb43cb905d4cb03ee9655cbc3da",
+        "source_dirty": false,
+        "os": "linux",
+        "architecture": "amd64",
+        "node_requirement": ">=22",
+        "rust_libc": "glibc (builder baseline; rust bundles only)"
+      }
+    },
+    "rust": {
+      "archive": "peerspan-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+      "sha256": "61ffbf75f38f1a27e795ece8ee13926bf523eaa1640ae1a6693fbe9333170c2f",
+      "checksum_verified": true,
+      "release": {
+        "version": "0.0.0-acceptance",
+        "implementation": "rust",
+        "source_revision": "3c774c0402fd1eb43cb905d4cb03ee9655cbc3da",
+        "source_dirty": false,
+        "os": "linux",
+        "architecture": "amd64",
+        "node_requirement": ">=22",
+        "rust_libc": "glibc (builder baseline; rust bundles only)"
+      }
+    }
+  },
+  "runs": [
+    {
+      "run": "solo-go",
+      "path": "solo",
+      "implementations": {
+        "M1": "go",
+        "M2": "go"
+      },
+      "counts": {
+        "install": 2,
+        "peerspan": 5,
+        "copy": 1
+      },
+      "expected_counts": {
+        "install": 2,
+        "peerspan": 5,
+        "copy": 1
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 8,
+      "timed_commands": 5,
+      "synchronous_seconds": 5.32,
+      "steps_without_duration": 3,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.43
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.17
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan invite peerspan-acc-1",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M1\u2192M2",
+          "command": "copy ~/.config/peerspan/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
+          "kind": "copy",
+          "exit": 0
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.54
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.16
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-1/claude-cerebral-work-1-c715 ends accepted, citing self",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-1/claude-cerebral-work-1-c715 reaches the receiver, citing self",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-1/claude-cerebral-work-1 ends accepted, citing self",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-1/claude-cerebral-work-1 reaches the receiver, citing self",
+          "machine": "M2",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "run": "solo-rust",
+      "path": "solo",
+      "implementations": {
+        "M1": "rust",
+        "M2": "rust"
+      },
+      "counts": {
+        "install": 2,
+        "peerspan": 5,
+        "copy": 1
+      },
+      "expected_counts": {
+        "install": 2,
+        "peerspan": 5,
+        "copy": 1
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 8,
+      "timed_commands": 5,
+      "synchronous_seconds": 5.18,
+      "steps_without_duration": 3,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.49
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.08
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan invite peerspan-acc-3",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M1\u2192M2",
+          "command": "copy ~/.config/peerspan/person_ed25519 and person_ed25519.pub from M1 to the same place on M2",
+          "kind": "copy",
+          "exit": 0
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.49
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.1
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME, M2 claude-HOSTNAME-HHHH)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-3/claude-cerebral-work-1-eeff ends accepted, citing self",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-3/claude-cerebral-work-1-eeff reaches the receiver, citing self",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-3/claude-cerebral-work-1 ends accepted, citing self",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-3/claude-cerebral-work-1 reaches the receiver, citing self",
+          "machine": "M2",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "run": "pair-go",
+      "path": "pair",
+      "implementations": {
+        "M1": "go",
+        "M2": "go"
+      },
+      "counts": {
+        "install": 2,
+        "peerspan": 7
+      },
+      "expected_counts": {
+        "install": 2,
+        "peerspan": 7
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 9,
+      "timed_commands": 7,
+      "synchronous_seconds": 5.35,
+      "steps_without_duration": 2,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.42
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.14
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.48
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.12
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan allow peerspan-acc-5",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.06
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan allow bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.11
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-5/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-5/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "run": "pair-rust",
+      "path": "pair",
+      "implementations": {
+        "M1": "rust",
+        "M2": "rust"
+      },
+      "counts": {
+        "install": 2,
+        "peerspan": 7
+      },
+      "expected_counts": {
+        "install": 2,
+        "peerspan": 7
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 9,
+      "timed_commands": 7,
+      "synchronous_seconds": 5.4,
+      "steps_without_duration": 2,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.53
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.11
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.48
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan join TOKEN",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.1
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan allow peerspan-acc-7",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.09
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan allow bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.07
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-7/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-7/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "run": "team-go",
+      "path": "team",
+      "implementations": {
+        "M1": "go",
+        "M2": "go",
+        "M3": "go"
+      },
+      "counts": {
+        "install": 3,
+        "peerspan": 11
+      },
+      "expected_counts": {
+        "install": 3,
+        "peerspan": 11
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 14,
+      "timed_commands": 11,
+      "synchronous_seconds": 8.16,
+      "steps_without_duration": 3,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.44
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.23
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.03
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan invite carol",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.03
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.13
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.48
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan join TOKEN_BOB",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.12
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.07
+        },
+        {
+          "machine": "M2",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.42
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "peerspan join TOKEN_CAROL",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.13
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.08
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-9/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-9/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-9/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-9/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "run": "team-rust",
+      "path": "team",
+      "implementations": {
+        "M1": "rust",
+        "M2": "rust",
+        "M3": "rust"
+      },
+      "counts": {
+        "install": 3,
+        "peerspan": 11
+      },
+      "expected_counts": {
+        "install": 3,
+        "peerspan": 11
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 14,
+      "timed_commands": 11,
+      "synchronous_seconds": 8.39,
+      "steps_without_duration": 3,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.61
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.11
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.02
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan invite carol",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.03
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.08
+        },
+        {
+          "machine": "M1",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.56
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan join TOKEN_BOB",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.09
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.06
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M3",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.6
+        },
+        {
+          "machine": "M3",
+          "implementation": "rust",
+          "command": "peerspan join TOKEN_CAROL",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.13
+        },
+        {
+          "machine": "M3",
+          "implementation": "rust",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.1
+        },
+        {
+          "machine": "M3",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-12/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-12/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-12/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-12/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "run": "team-mixed",
+      "path": "team",
+      "implementations": {
+        "M1": "go",
+        "M2": "rust",
+        "M3": "go"
+      },
+      "counts": {
+        "install": 3,
+        "peerspan": 11
+      },
+      "expected_counts": {
+        "install": 3,
+        "peerspan": 11
+      },
+      "passed": true,
+      "error": null,
+      "total_steps": 14,
+      "timed_commands": 11,
+      "synchronous_seconds": 8.9,
+      "steps_without_duration": 3,
+      "commands": [
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.45
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan network create acme",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.31
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan invite bob",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.05
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan invite carol",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.07
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.18
+        },
+        {
+          "machine": "M1",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.52
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan join TOKEN_BOB",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.2
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.22
+        },
+        {
+          "machine": "M2",
+          "implementation": "rust",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "scripts/install-release.sh 0.0.0-acceptance --from dist --implementation go",
+          "kind": "install",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 2.42
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "peerspan join TOKEN_CAROL",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.23
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "peerspan allow everyone",
+          "kind": "peerspan",
+          "cwd": "~",
+          "exit": 0,
+          "seconds": 0.25
+        },
+        {
+          "machine": "M3",
+          "implementation": "go",
+          "command": "peerspan attach claude",
+          "kind": "peerspan",
+          "cwd": "~/src/project",
+          "exit": null,
+          "background": true,
+          "launched": true
+        }
+      ],
+      "checks": [
+        {
+          "check": "counts match the documented path",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "attach names and addresses (claude-HOSTNAME)",
+          "machine": null,
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "adapter connected through the fixture launched by attach",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "status --json exits 0; service installed, active, linger",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "agents --json lists every other agent with message.append and task.submit",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M1",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-15/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-15/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send carol/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "task carol/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M2",
+          "passed": true
+        },
+        {
+          "check": "send peerspan-acc-15/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "task peerspan-acc-15/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "send bob/claude-cerebral-work-1 ends accepted, citing policy",
+          "machine": "M3",
+          "passed": true
+        },
+        {
+          "check": "task bob/claude-cerebral-work-1 reaches the receiver, citing policy",
+          "machine": "M3",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "passed": true,
+  "cleanup": {
+    "errors": [],
+    "leftovers": {
+      "users": [],
+      "homes": [],
+      "linger": [],
+      "processes": []
+    }
+  }
+}
