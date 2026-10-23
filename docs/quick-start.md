@@ -2,7 +2,7 @@
 
 Peerspan lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
-Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm, Go, or Rust. The installer also needs Bash, tar, and `flock`. Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
+Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm, Go, or Rust. The installer also needs Bash, tar, and `flock`. Private release downloads need GitHub CLI (`gh`) authenticated for the repository. Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
 
 ## Install
 
@@ -14,7 +14,17 @@ scripts/install-release.sh VERSION --from dist
 
 Rust is the recommended default. Add `--implementation go` to install the supported Go host instead. The installer verifies the checksum and release metadata, stores the bundle under `~/.local/share/peerspan/releases/` by default, links `~/.local/bin/peerspan`, and runs `peerspan install`. It refuses to replace an unrelated command or switch an existing host between Go and Rust in place. Obtain the archive, checksum, and installer from a trusted source; the checksum detects corruption but does not authenticate its publisher.
 
-When a release is available at a trusted HTTPS download directory, the installer can fetch the matching archive and checksum itself: `scripts/install-release.sh VERSION --from-url RELEASE_URL`. `RELEASE_URL` is the directory containing `peerspan-VERSION-linux-ARCH-IMPLEMENTATION.tar.gz` and its `.sha256` file. This option requires `curl`; the local `--from` path remains available for private previews.
+After a private `peerspan/peerspan-internal` release is published, a collaborator can install without a source checkout. Authenticate once with `gh auth login`, then download and verify the installer from that release:
+
+```sh
+version=VERSION
+gh release download "v$version" --repo peerspan/peerspan-internal \
+  --pattern install-release.sh --pattern install-release.sh.sha256
+sha256sum -c install-release.sh.sha256
+bash install-release.sh "$version" --from-github peerspan/peerspan-internal
+```
+
+The installer fetches only the matching archive and checksum for this machine. Its local `--from` option remains available before the first private release and for offline installs.
 
 If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 
@@ -22,7 +32,7 @@ If `~/.local/bin` is not already on your `PATH`, add it once for this shell:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes private draft bundles; a public release destination and macOS installer path still need validation.
+The service installer writes a systemd user unit, starts it, and enables lingering, so the daemon keeps running while you are logged out. Run the archive installer again for a new release. `peerspan uninstall` removes the service and keeps the state. The [release procedure](releasing.md) describes review and publication of private bundles; macOS installer validation remains pending.
 
 ## Create a network
 

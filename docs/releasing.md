@@ -1,6 +1,6 @@
-# Linux release staging
+# Private Linux releases
 
-The [Draft Linux release workflow](../.github/workflows/linux-release.yml) is run manually from `main`. It builds Rust and Go bundles natively on Linux amd64 and arm64, checks each installed bundle and checksum, and creates a **draft release in the private `peerspan-internal` repository**. It also attaches the installer script and its checksum. A draft here is for review; it is not a public download.
+The [Draft Linux release workflow](../.github/workflows/linux-release.yml) is run manually from `main`. It builds Rust and Go bundles natively on Linux amd64 and arm64, checks each installed bundle and checksum, and creates a **draft release in the private `peerspan-internal` repository**. It also attaches the installer script and its checksum. Publishing that draft makes it available to collaborators with repository access; it does not make the release public.
 
 ## Before running the workflow
 
@@ -10,21 +10,23 @@ The [Draft Linux release workflow](../.github/workflows/linux-release.yml) is ru
 
 Review the draft's ten assets: four archives, four matching `.sha256` files, `install-release.sh`, and `install-release.sh.sha256`. Each archive's `RELEASE.json` must name the workflow commit, the selected implementation and architecture, and `source_dirty: false`. The workflow verifies those fields before creating the draft. The Rust builds use Ubuntu 22.04 as their glibc baseline; Go builds disable cgo. Validate the bundles on the Linux versions intended for launch, then run the quick start on clean machines with the actual hosted coordinator.
 
-## Public download path
+## Publish to collaborators
 
-A public release repository or host is still required. Copy the reviewed assets unchanged to one trusted HTTPS release directory for each version. The private draft URL cannot serve unauthenticated installs. Once the public location is selected, the quick start can give its exact URL and the release workflow can publish to it directly.
+After review and clean-machine checks, publish the draft within the private repository:
 
-The source checkout is unnecessary for installation once the assets are public. For a release whose download directory is `RELEASE_URL`, the bootstrap is:
+```sh
+gh release edit vVERSION --repo peerspan/peerspan-internal --draft=false
+```
+
+Collaborators with access to the repository can then install without a source checkout. In an empty download directory, authenticate GitHub CLI once and download the installer and its checksum:
 
 ```sh
 version=VERSION
-release_url=RELEASE_URL
-curl --fail --location --proto '=https' --proto-redir '=https' \
-  --output install-release.sh "$release_url/install-release.sh"
-curl --fail --location --proto '=https' --proto-redir '=https' \
-  --output install-release.sh.sha256 "$release_url/install-release.sh.sha256"
+gh auth login
+gh release download "v$version" --repo peerspan/peerspan-internal \
+  --pattern install-release.sh --pattern install-release.sh.sha256
 sha256sum -c install-release.sh.sha256
-bash install-release.sh "$version" --from-url "$release_url"
+bash install-release.sh "$version" --from-github peerspan/peerspan-internal
 ```
 
-Rust is the installer default. Add `--implementation go` to select the supported Go host. The installer downloads only the named archive and matching `.sha256` file, rejects non-HTTPS URLs and redirects, checks the digest and `RELEASE.json`, then installs the bundle. These checks detect corruption and mismatches; the HTTPS release location must also be trusted as the publisher.
+Rust is the installer default. Add `--implementation go` to select the supported Go host. The installer downloads only the named archive and matching `.sha256` file from the selected release, checks the digest and `RELEASE.json`, then installs the bundle. These checks detect corruption and mismatches; verify that the release comes from the intended private repository, since a checksum alone does not authenticate its publisher.

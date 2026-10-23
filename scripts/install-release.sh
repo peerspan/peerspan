@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 VERSION [--implementation rust|go] [--from DIRECTORY | --from-url HTTPS_URL] [--no-service]" >&2
+  echo "usage: $0 VERSION [--implementation rust|go] [--from DIRECTORY | --from-github OWNER/REPO] [--no-service]" >&2
   exit 2
 }
 
@@ -13,7 +13,7 @@ shift
 
 implementation=rust
 source_dir=.
-source_url=
+source_repo=
 source_given=false
 source_kind=local
 install_service=true
@@ -31,11 +31,11 @@ while [[ $# -gt 0 ]]; do
       source_given=true
       shift 2
       ;;
-    --from-url)
+    --from-github)
       [[ $# -ge 2 ]] || usage
       $source_given && usage
-      source_url=$2
-      source_kind=remote
+      source_repo=$2
+      source_kind=github
       source_given=true
       shift 2
       ;;
@@ -74,12 +74,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ $source_kind == remote ]]; then
-  [[ $source_url =~ ^https://[^/@?#[:space:]]+(/[^?#[:space:]]*)?$ ]] || {
-    echo "--from-url requires an HTTPS release directory URL" >&2
+if [[ $source_kind == github ]]; then
+  [[ $source_repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    echo "--from-github requires OWNER/REPO" >&2
     exit 2
   }
-  command -v curl >/dev/null || { echo "curl is required for --from-url" >&2; exit 1; }
+  command -v gh >/dev/null || { echo "GitHub CLI is required for --from-github" >&2; exit 1; }
   download_dir=$(mktemp -d "${TMPDIR:-/tmp}/peerspan-download.XXXXXX")
   source_dir=$download_dir
 else
@@ -88,12 +88,10 @@ fi
 name="peerspan-${version}-linux-${arch}-${implementation}"
 archive="$source_dir/$name.tar.gz"
 checksum="$archive.sha256"
-if [[ $source_kind == remote ]]; then
-  for asset in "$name.tar.gz" "$name.tar.gz.sha256"; do
-    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-      --connect-timeout 15 --max-time 900 --max-filesize 536870912 --retry 3 \
-      --output "$download_dir/$asset" --url "${source_url%/}/$asset"
-  done
+if [[ $source_kind == github ]]; then
+  gh release download "v$version" --repo "$source_repo" \
+    --pattern "$name.tar.gz" --pattern "$name.tar.gz.sha256" \
+    --dir "$download_dir"
 fi
 [[ -f $archive && -f $checksum ]] || {
   echo "missing $archive or its .sha256 file" >&2
@@ -101,8 +99,8 @@ fi
 }
 
 # The checksum detects a mismatched or damaged archive. Obtain both files from
-# the release's trusted download location; a checksum beside an untrusted
-# archive does not establish who published it.
+# the trusted release repository; a checksum beside an untrusted archive does
+# not establish who published it.
 digest=$(node - "$archive" "$checksum" "$(basename "$archive")" <<'JS'
 const fs = require('node:fs');
 const crypto = require('node:crypto');
