@@ -496,7 +496,7 @@ impl Policy {
             trusted_hosts: self.trusted_hosts().to_vec(),
         }
     }
-    fn check_shape(&self) -> Result<(), Error> {
+    pub(crate) fn check_shape(&self) -> Result<(), Error> {
         if self.version < 1 {
             return Err(invalid("policy versions start at 1"));
         }

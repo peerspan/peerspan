@@ -44,14 +44,16 @@ Fixture file SHA-256:
 `a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23`.
 
 These one-off primitive checks are not a new conformance suite, protocol security
-review, or runtime acceptance result. The separately authored protocol suite
-follows the completed transaction contract, as required by
-[AGENTS.md](../../AGENTS.md). Existing runtime behavior is unchanged.
+review, or runtime acceptance result. The separately authored
+[signed-object reader suite](../../docs/linking-reader-checks.md) now checks
+these cryptographic bytes against both implementations, as required by
+[AGENTS.md](../../AGENTS.md). It does not establish live authority or a valid
+transaction; existing daemon behavior is unchanged.
 
 ## Transaction fixtures (UP-06b)
 
 [machine-linking-transactions-v1.json](machine-linking-transactions-v1.json)
-accompanies the proposed [transaction contract](../../docs/machine-linking-transactions.md).
+accompanies the accepted [transaction contract](../../docs/machine-linking-transactions.md).
 It adds public bootstrap person/host/admin proofs and a fully acknowledged feature,
 then 15 isolated inputs: six expected successful transactions and nine expected
 rejections. Each case starts from exactly its own catalog and no committed

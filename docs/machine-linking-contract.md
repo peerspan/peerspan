@@ -1,7 +1,8 @@
 # Machine linking: delegated signing and pairing primitives
 
 Status: **UP-06a accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41)**,
-2026-10-23; no runtime implementation.
+2026-10-23. The first [UP-06c signed-object readers](linking-reader-checks.md)
+verify cryptographic bytes; live delegated authority remains pending.
 This refines the [UP-05 design](https://github.com/peerspan/docs-internal/blob/main/docs/machine-linking.md),
 accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9).
 Both Go and Rust must implement the eventual shared behavior. Rust remains the
@@ -9,9 +10,10 @@ recommended install. Release configuration is deferred.
 
 This slice specifies signed bytes, authority evaluation, and encryption
 primitives. The transaction schemas, routes, durable storage migration, and CLI
-are defined in the proposed [UP-06b transaction contract](machine-linking-transactions.md).
+are defined in the [UP-06b transaction contract](machine-linking-transactions.md),
+accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43).
 **Do not enable delegated writers or advertise `peerspan link` from this document
-alone.** The transaction contract must be reviewed before implementation writers.
+alone.** Writers require the complete transaction and live-authority checks.
 
 ## Required result
 
@@ -257,7 +259,7 @@ Before an issuer path becomes unusable, retain exact public record IDs in a
 checkpoint signed by the original person key or an unaffected active strict
 ancestor. A checkpoint has exactly `format` (1), `network_id`,
 `person_public_key`, `issuer_certificate_id`, `issued_at`, `records` (sorted,
-unique `ar_...` IDs or `dr_...` revocation IDs; the transaction proposal adds
+unique `ar_...` IDs or `dr_...` revocation IDs; the transaction contract adds
 completed-redemption `pf_` IDs), and `signature`. Its message is:
 
 ```text
@@ -275,7 +277,7 @@ anchor; periodic root access can create one directly, including for an expired
 path whose exact records the person chooses to endorse.
 
 Retention covers admissions, bindings, unbindings, restrictive revocations and
-person removals. The [transaction proposal](machine-linking-transactions.md#invites-from-delegated-administrators)
+person removals. The [transaction contract](machine-linking-transactions.md#invites-from-delegated-administrators)
 adds exact completed invitation/redemption history, without preserving a live
 invite. Retention does not cover policies, live invites, groups, certificates,
 activation authority, or a person's administrator role. No checkpoint extends

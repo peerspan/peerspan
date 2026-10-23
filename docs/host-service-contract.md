@@ -2,15 +2,17 @@
 
 The Go and Rust implementations develop the same host service in parallel. This document specifies the first working milestone: a durable local identity, agent registry, separate session attachment records, and local activity. It does not finalize the future peer protocol.
 
-Both implementations live in this repository: `go/` contains the Go host service and `rust/` contains the Rust host service. The shared contract and conformance tests live alongside them in `docs/` and `conformance/`. The choice of implementation to release as OSS remains open. Development history can be retained while that decision is pending; a later squash is a separate decision.
+Both implementations live in this repository: `go/` contains the Go host service and `rust/` contains the Rust host service. Both ship for launch, with Rust recommended and Go supported. The shared contract and conformance tests live alongside them in `docs/` and `conformance/`.
 
 The product was called Capsule before 2026-10-15, and Peerspan does not carry anything over from it. Peerspan hosts and coordinators sign and verify only the `peerspan-*` domain strings and tokens. They do not read Capsule state, configuration, environment variables, or service locations. A Capsule network is therefore recreated and its hosts enrolled again. Records under `docs/results/` predate the rename and keep the old names.
 
 ## Local administration boundary
 
-The [machine-linking signing proposal](machine-linking-contract.md) describes a
-future delegated signing provider and its review gates. It adds no available
-`link` command or local administration route in this milestone.
+The accepted [machine-linking signing](machine-linking-contract.md) and
+[transaction](machine-linking-transactions.md) contracts describe delegated
+signing. The first [signed-object reader slice](linking-reader-checks.md) checks
+bytes and signatures with independently supplied expected keys. Live authority
+and state propagation remain pending; `link` and its local routes are not available.
 
 The daemon listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. This is the local control interface for setup, integrations, and diagnostics. It is separate from the authenticated peer interface and from the daemon’s outbound connection to coordination; it does not define the everyday network-facing user workflow. The foundation starts with no TCP listener. An explicit peer listener, configured identities, and grants are specified in the [known-host messaging contract](peer-messaging-contract.md). Network membership and the coordination client are specified in the [coordination contract](coordination-contract.md).
 

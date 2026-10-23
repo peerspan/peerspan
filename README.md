@@ -11,7 +11,8 @@ Go and Rust implement the same host contract and interoperate across machines. *
 - [Architecture and onboarding map](docs/architecture-onboarding.md): a dated map of the source and runtime boundaries.
 - [Access model](docs/access-model.md): how membership, ownership, and access differ.
 - [Machine-linking signing contract](docs/machine-linking-contract.md): accepted delegation and pairing primitives; `link` is not implemented.
-- [Machine-linking transaction proposal](docs/machine-linking-transactions.md): commit, upgrade and recovery behavior for review; `link` is not implemented.
+- [Machine-linking transaction contract](docs/machine-linking-transactions.md): accepted commit, upgrade and recovery behavior; `link` is not implemented.
+- [Machine-linking reader checks](docs/linking-reader-checks.md): Go/Rust signed-object readers and independent conformance; live authority and state propagation remain pending.
 
 The recorded [installed-bundle acceptance](docs/results/launch-acceptance.json) passes solo, pair, team, and mixed Go/Rust paths on Linux. Linux release packaging exists for both implementations. macOS release packaging and the same acceptance path still need validation. Agent integrations require Node.js 22 or later.
 
