@@ -5,6 +5,9 @@ evidence and verifies complete new-machine and same-key renewal transcripts in
 both implementations. It follows the [transaction contract](machine-linking-transactions.md)
 and [signing contract](machine-linking-contract.md). It does not install state,
 commit a transaction, enable a feature, or expose a daemon/coordinator route.
+The initial slice was accepted in [PR #46](https://github.com/peerspan/peerspan-internal/pull/46).
+The [history checks](linking-history-checks.md) extend it with legacy invite
+membership, sticky restrictions, administrator removals and retained records.
 
 ## Supported evidence and trust boundary
 
@@ -24,20 +27,23 @@ This slice supports epoch **0**, and these catalog kinds:
   that person's root-issued delegation. A binding requires both person SSHSIG
   and host raw consent over the legacy binding message.
 - `feature`: complete root-signed feature and every roster acknowledgment.
-  Every legacy admitted host must occur in its frozen roster. Feature creation,
+  Every legacy admitted host must occur in its frozen roster or prove the same
+  feature through `join_ack` or a complete activation. Feature creation,
   the initial 24-hour window, fresh roster observation and durable high-water
   persistence remain separate gates; this checker verifies historical evidence.
 - `certificate`, `activation`, `person_record`, `root_record`: exact candidate
   objects and complete activations. Operation-bound records only become facts
   through their matching activation. Standalone records with operation `-` are
   outside this slice. Certificate candidates alone never activate authority.
-- `device_revocation`: original-person-root-signed sticky revocations. The exact
+- `device_revocation`: original-person-root or strict-ancestor sticky revocations. The exact
   target certificate must verify structurally and identify the same device key.
-  Delegated revocations require the later retention verifier.
+  Delegated revocations follow the history checks, including exact retention
+  when their issuer is no longer usable.
+- Legacy membership, removal, unbinding/leave, `admin_removal`, `join_ack` and
+  `checkpoint` evidence follow the [history checks](linking-history-checks.md).
 
-All other *known* catalog kinds fail closed with `upgrade_required`, including
-rotation, removal, unbinding, leave/revocation, membership by invite, join-ack,
-checkpoint, policy, group and invite redemption. Unsupported epochs and
+The remaining *known* unsupported catalog kinds fail closed with `upgrade_required`:
+rotation, policy, group and invite redemption. Unsupported epochs and
 standalone records also return `upgrade_required`. Unknown kinds are `invalid`.
 This deliberate support boundary means this is not yet a general v1 mutation
 verifier and must not advertise writer readiness or `linking_version: 1`.
@@ -79,14 +85,16 @@ host before a new admission, even outside the issuer path. Renewals supply no
 new admission and are not competing admissions for this purpose. Historical
 verification skips the request deadline and target certificate's *own* present
 expiry/revocation, preserving durable membership/binding for root-authorized
-renewal after expiry. Historical verification still requires currently usable
-issuer authority; history requiring retention fails closed. It never asserts
+renewal after expiry. Historical durable records require currently usable
+authority or the exact endorsements specified by the history checks. Structural
+historical packet verification supplies no present signing authority. It never asserts
 the target can currently sign. Ancestor depth and certificate paths are bounded
 at eight. A revoked target key prevents first verification of a fresh certificate
 with that same key. Existing path evaluator rules remain unchanged.
 
 Missing exact certificate, activation, or renewal proof returns `proof_required`
-with its `dc_`, `link_` or `pf_` ID; unknown person/host/binding/feature evidence
+with its `dc_`, `link_` or `pf_` ID; history endorsements additionally name exact
+`ar_`/`dr_` IDs. Unknown person/host/binding/feature evidence
 uses an empty list. IDs are sorted and distinct. Other codes: `invalid` for
 malformed data/signatures/context/references, `forbidden` for insufficient
 authority or proposed issuer scope/time expansion, `expired` for a request

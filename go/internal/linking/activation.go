@@ -56,6 +56,8 @@ type activationVerifier struct {
 	admins             map[string]bool
 	persons, hosts     map[string]string // verified admission labels
 	activeRecords      map[string]bool   // exact proof IDs authorized by full activations
+	history            historyFacts
+	evidence           map[string]catalogProof // derived ar_/dr_ IDs, never asserted indexes
 }
 
 func scalar(o Object, k string) string { s, _ := text(o, k); return s }
@@ -105,7 +107,7 @@ func VerifyActivation(ctx ActivationContext, catalog, activation []byte) (Activa
 	if e != nil || !key(root) || !key(scalar(n, "coordinator_public_key")) || membership.NetworkID(pub) != net || !membership.ValidLabel(scalar(n, "name")) || !membership.ValidCoordinatorAddress(scalar(n, "coordinator_address")) {
 		return bad("invalid")
 	}
-	v := &activationVerifier{ctx: ctx, network: n, net: net, root: root, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}}
+	v := &activationVerifier{ctx: ctx, network: n, net: net, root: root, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}, evidence: map[string]catalogProof{}}
 	v.state = &PathState{NetworkID: net, Persons: map[string]PersonState{}, Hosts: map[string]bool{}, Bindings: map[string]string{}, Certificates: map[string][]byte{}, ActivatedCertificates: map[string]bool{}, RevokedDevices: map[DeviceKey]bool{}}
 	if e = v.catalog(catalog); e != nil {
 		return ActivationEvidence{}, e
@@ -212,6 +214,41 @@ func (v *activationVerifier) index(kind string, body []byte) (string, error) {
 		if e = v.semantic(rid, o); e != nil {
 			return "", e
 		}
+		v.evidence[rid] = v.proofs[id]
+	case "device_revocation":
+		// Signature authority is resolved later. The derived message identity is
+		// usable only as a lookup key for exact checkpoint references.
+		a, e := texts(o, "network_id", "person_public_key", "target_device_public_key", "target_certificate_id", "issuer_certificate_id", "revoked_at")
+		if e != nil {
+			return "", pathError("invalid")
+		}
+		rid := "dr_" + digest(message(append([]string{"peerspan-device-revoke-v1"}, a...)...))
+		if e = v.semantic(rid, o); e != nil {
+			return "", e
+		}
+		v.evidence[rid] = v.proofs[id]
+	case "checkpoint":
+		if fields(o, "format network_id person_public_key issuer_certificate_id issued_at records signature") != nil || version(o, 1) != nil || !identifier(scalar(o, "network_id"), "net_") || !key(scalar(o, "person_public_key")) || scalar(o, "issuer_certificate_id") != "root" && !identifier(scalar(o, "issuer_certificate_id"), "dc_") {
+			return "", pathError("invalid")
+		}
+		if _, e = stamp(scalar(o, "issued_at")); e != nil {
+			return "", pathError("invalid")
+		}
+		if _, e = text(o, "signature"); e != nil {
+			return "", pathError("invalid")
+		}
+		ids, e := stringsOf(o, "records")
+		if e != nil || !sorted(ids) {
+			return "", pathError("invalid")
+		}
+		for _, rid := range ids {
+			if identifier(rid, "pf_") {
+				return "", pathError("upgrade_required")
+			}
+			if !identifier(rid, "ar_") && !identifier(rid, "dr_") {
+				return "", pathError("invalid")
+			}
+		}
 	case "activation":
 		if _, e = v.indexActivation(body); e != nil {
 			return "", e
@@ -315,8 +352,8 @@ func (v *activationVerifier) catalog(body []byte) error {
 		}
 		last = id
 		switch kind {
-		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation":
-		case "rotation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "group", "policy", "join_ack", "checkpoint", "invite_redemption":
+		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint":
+		case "rotation", "group", "policy", "invite_redemption":
 			return pathError("upgrade_required")
 		default:
 			return pathError("invalid")
@@ -335,150 +372,6 @@ func (v *activationVerifier) orderedProofs() []string {
 	}
 	sort.Strings(ids)
 	return ids
-}
-
-// adminSignature uses an embedded key only as a lookup hint in the root-verified
-// administrator set; it always verifies against that independently pinned key.
-func (v *activationVerifier) adminSignature(m []byte, sig string) error {
-	if rootSignature(v.root, m, sig) == nil {
-		return nil
-	}
-	pub, ok := membership.SSHSIGKey(sig)
-	if !ok || membership.EncodeKey(pub) == v.root {
-		return pathError("invalid")
-	}
-	if !v.admins[membership.EncodeKey(pub)] {
-		return pathError("forbidden")
-	}
-	if personSignature(membership.EncodeKey(pub), m, sig) != nil {
-		return pathError("invalid")
-	}
-	return nil
-}
-
-func (v *activationVerifier) bootstrap() error {
-	ids := v.orderedProofs()
-	for _, id := range ids {
-		p := v.proofs[id]
-		if p.kind != "admin_delegation" {
-			continue
-		}
-		o := p.object
-		if fields(o, "network_id epoch person_public_key delegated_at signature") != nil || scalar(o, "network_id") != v.net || !key(scalar(o, "person_public_key")) {
-			return pathError("invalid")
-		}
-		if e := genesisEpoch(o); e != nil {
-			return e
-		}
-		if _, e := stamp(scalar(o, "delegated_at")); e != nil {
-			return pathError("invalid")
-		}
-		if rootSignature(v.root, message("peerspan-admin-delegate-v1", v.net, "0", scalar(o, "person_public_key"), scalar(o, "delegated_at")), scalar(o, "signature")) != nil {
-			return pathError("invalid")
-		}
-		v.admins[scalar(o, "person_public_key")] = true
-	}
-	for _, id := range ids {
-		p := v.proofs[id]
-		o := p.object
-		switch p.kind {
-		case "person_admission", "host_admission":
-			keyField, domain := "person_public_key", "peerspan-person-admit-v1"
-			if p.kind == "host_admission" {
-				keyField, domain = "host_public_key", "peerspan-host-admit-v1"
-			}
-			if fields(o, "network_id epoch "+keyField+" member admitted_at signature") != nil || scalar(o, "network_id") != v.net || !key(scalar(o, keyField)) || !membership.ValidLabel(scalar(o, "member")) {
-				return pathError("invalid")
-			}
-			if e := genesisEpoch(o); e != nil {
-				return e
-			}
-			if _, e := stamp(scalar(o, "admitted_at")); e != nil {
-				return pathError("invalid")
-			}
-			if e := v.adminSignature(message(domain, v.net, "0", scalar(o, keyField), scalar(o, "member"), scalar(o, "admitted_at")), scalar(o, "signature")); e != nil {
-				return e
-			}
-			k, label := scalar(o, keyField), scalar(o, "member")
-			if p.kind == "person_admission" {
-				if old, ok := v.persons[k]; ok && old != label {
-					return pathError("state_conflict")
-				}
-				v.persons[k] = label
-				v.state.Persons[k] = PersonState{Admitted: true, Administrator: v.admins[k]}
-			} else {
-				if old, ok := v.hosts[k]; ok && old != label {
-					return pathError("state_conflict")
-				}
-				v.hosts[k] = label
-				v.state.Hosts[k] = true
-			}
-		case "feature":
-			r, e := Read("feature", p.body, v.root, "-")
-			if e != nil {
-				return pathError("invalid")
-			}
-			proposal, e := parse(o["proposal"])
-			if e != nil || scalar(proposal, "network_id") != v.net {
-				return pathError("invalid")
-			}
-			if e := genesisEpoch(proposal); e != nil {
-				return e
-			}
-			if v.feature != "" && v.feature != r.ID {
-				return pathError("state_conflict")
-			}
-			if e = v.semantic(r.ID, o); e != nil {
-				return e
-			}
-			v.feature = r.ID
-		}
-	}
-	for _, id := range ids {
-		p := v.proofs[id]
-		o := p.object
-		if p.kind == "host_binding" {
-			person, host, at := scalar(o, "person_public_key"), scalar(o, "host_public_key"), scalar(o, "bound_at")
-			if fields(o, "network_id person_public_key host_public_key bound_at signature host_signature") != nil || scalar(o, "network_id") != v.net || !key(person) || !key(host) {
-				return pathError("invalid")
-			}
-			if _, e := stamp(at); e != nil {
-				return pathError("invalid")
-			}
-			m := message("peerspan-host-bind-v1", v.net, person, host, at)
-			if personSignature(person, m, scalar(o, "signature")) != nil || rawSignature(host, m, scalar(o, "host_signature")) != nil {
-				return pathError("invalid")
-			}
-			if old, ok := v.state.Bindings[host]; ok && old != person {
-				return pathError("state_conflict")
-			}
-			v.state.Bindings[host] = person
-		}
-	}
-	if v.feature == "" {
-		return pathError("proof_required")
-	}
-	if v.ctx.KnownFeatureID != "-" && v.ctx.KnownFeatureID != v.feature {
-		return pathError("state_conflict")
-	}
-	for _, id := range ids {
-		p := v.proofs[id]
-		if p.kind != "feature" {
-			continue
-		}
-		proposal, _ := parse(p.object["proposal"])
-		roster, _ := stringsOf(proposal, "host_public_keys")
-		set := map[string]bool{}
-		for _, h := range roster {
-			set[h] = true
-		}
-		for h := range v.hosts {
-			if !set[h] {
-				return pathError("proof_required")
-			}
-		}
-	}
-	return nil
 }
 
 // structural verifies signatures and the exact certificate chain without live
@@ -531,35 +424,6 @@ func (v *activationVerifier) structural(id, person string) (pathCertificate, err
 		}
 	}
 	return chain[0], nil
-}
-
-func (v *activationVerifier) revocations() error {
-	for _, id := range v.orderedProofs() {
-		p := v.proofs[id]
-		if p.kind != "device_revocation" {
-			continue
-		}
-		o := p.object
-		person := scalar(o, "person_public_key")
-		if scalar(o, "issuer_certificate_id") != "root" {
-			if !identifier(scalar(o, "issuer_certificate_id"), "dc_") {
-				return pathError("invalid")
-			}
-			return pathError("upgrade_required")
-		}
-		if _, e := Read("device_revocation", p.body, person, "-"); e != nil || scalar(o, "network_id") != v.net {
-			return pathError("invalid")
-		}
-		c, e := v.structural(scalar(o, "target_certificate_id"), person)
-		if e != nil {
-			return e
-		}
-		if c.device != scalar(o, "target_device_public_key") {
-			return pathError("invalid")
-		}
-		v.state.RevokedDevices[DeviceKey{PersonPublicKey: person, DevicePublicKey: c.device}] = true
-	}
-	return nil
 }
 
 func (v *activationVerifier) authority(person, cert string, scope uint64, depth int) (SigningPath, error) {
@@ -653,6 +517,23 @@ func (v *activationVerifier) renewalProof(id, kind, person, host string, depth i
 		return nil
 	}
 	if kind == "peerspan-host-admit-v1" && p.kind == "host_admission" && scalar(p.object, "host_public_key") == host && scalar(p.object, "member") == v.persons[person] {
+		valid, e := v.legacyAuthority(message("peerspan-host-admit-v1", v.net, "0", host, scalar(p.object, "member"), scalar(p.object, "admitted_at")), scalar(p.object, "signature"))
+		if e != nil {
+			return e
+		}
+		if !valid {
+			return pathError("forbidden")
+		}
+		return nil
+	}
+	if kind == "peerspan-host-admit-v1" && p.kind == "host_membership" && scalar(p.object, "host_public_key") == host && scalar(p.object, "member") == v.persons[person] {
+		valid, e := v.legacyMembership(p, false)
+		if e != nil {
+			return e
+		}
+		if !valid {
+			return pathError("forbidden")
+		}
 		return nil
 	}
 	return pathError("invalid")
@@ -745,6 +626,9 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		return bad("invalid")
 	}
 	person, issuer := scalar(offer, "person_public_key"), scalar(owner, "certificate_id")
+	if !historical && (v.history.hosts[host] || v.history.persons[person] || v.history.unbound[bindingPair{person, host}]) {
+		return bad("forbidden")
+	}
 	if scalar(owner, "person_public_key") != person || scalar(req, "expected_network_id") != "-" && scalar(req, "expected_network_id") != v.net || scalar(req, "expected_person_public_key") != "-" && scalar(req, "expected_person_public_key") != person {
 		return bad("invalid")
 	}
@@ -762,7 +646,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	if mode == "renew" {
 		required = 4
 	}
-	path, e := v.authority(person, issuer, required, depth)
+	path, e := v.actor(person, issuer, required, historical, depth)
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
@@ -833,7 +717,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 				return bad("invalid")
 			}
 		} else {
-			p, e := v.authority(ap, ac, 8, depth)
+			p, e := v.actor(ap, ac, 8, historical, depth)
 			if e != nil {
 				return ActivationEvidence{}, e
 			}
@@ -854,13 +738,25 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if scalar(p, "host_public_key") != host || scalar(p, "member") != v.persons[person] || scalar(com, "admission_record_id") != ar.ID {
 			return bad("invalid")
 		}
+		if historical {
+			o, _ := parse(admission)
+			if e = v.historicalRecord(ar, o, 8, depth); e != nil {
+				return ActivationEvidence{}, e
+			}
+		}
 		binding = com["binding_record"]
-		_, p, e = v.record(binding, "peerspan-host-bind-v1", id, person, issuer, path.SignerPublicKey)
+		br, p, e := v.record(binding, "peerspan-host-bind-v1", id, person, issuer, path.SignerPublicKey)
 		if e != nil {
 			return ActivationEvidence{}, e
 		}
 		if scalar(p, "host_public_key") != host || scalar(p, "person_public_key") != person {
 			return bad("invalid")
+		}
+		if historical {
+			o, _ := parse(binding)
+			if e = v.historicalRecord(br, o, 2, depth); e != nil {
+				return ActivationEvidence{}, e
+			}
 		}
 		draft, e := parse(offer["binding_record"])
 		if e != nil || scalar(draft, "host_signature") != "-" {
@@ -875,10 +771,10 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if e = v.hostActivations(host, depth); e != nil {
 			return ActivationEvidence{}, e
 		}
-		if _, ok := v.state.Hosts[host]; ok {
+		if admitted := v.state.Hosts[host]; admitted && (!historical || v.hosts[host] != v.persons[person]) {
 			return bad("state_conflict")
 		}
-		if _, ok := v.state.Bindings[host]; ok {
+		if bound, ok := v.state.Bindings[host]; ok && bound != "-" && (!historical || bound != person && !v.history.unbound[bindingPair{person, host}]) {
 			return bad("state_conflict")
 		}
 	} else if mode == "renew" {
@@ -915,7 +811,10 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	if mode == "new" {
 		v.state.Hosts[host] = true
 		v.hosts[host] = v.persons[person]
-		v.state.Bindings[host] = person
+		if e = v.addBinding(host, person); e != nil {
+			return ActivationEvidence{}, e
+		}
+		v.restrictState()
 		for _, raw := range [][]byte{binding, admission} {
 			o, _ := parse(raw)
 			kind := "root_record"

@@ -209,8 +209,12 @@ class Author:
         self.add("time/deadline_historical", now=request["expires_at"], verification="historical")
         self.add("time/expired_target_historical", now="2027-01-22T12:00:00Z", verification="historical")
         delegated = self.fixtures["delegated_b_links_c"]
-        self.add("time/expired_issuer_still_refused_historical", delegated, code="authority_expired",
-                 now="2027-01-22T12:00:00Z", verification="historical")
+        historical = delegated["activation"]
+        affected = [semantic_id("person_record", payload(historical["commit"])["binding_record"]),
+                    semantic_id("person_record", payload(historical["administrator"])["admission_record"])]
+        self.add_request("time/expired_issuer_needs_exact_history_endorsement",
+                         self.request(delegated, now="2027-01-22T12:00:00Z", verification="historical"),
+                         [error("proof_required", [record_id]) for record_id in affected])
         self.add("context/historical_caller_pin", code="invalid", verification="historical", caller_host_public_key=self.other)
 
     def signed_transcripts(self):
@@ -420,8 +424,11 @@ class Author:
             catalog = copy.deepcopy(base)
             catalog["objects"].append(proof(kind, {}))
             sort_catalog(catalog)
+            newly_supported = {"admin_removal", "person_membership", "host_membership", "host_unbinding",
+                               "host_leave", "host_revocation", "invite_revocation", "person_removal",
+                               "join_ack", "checkpoint"}
             self.add("catalog/unsupported/" + kind, catalog=catalog,
-                     code="invalid" if kind == "unknown_kind" else "upgrade_required")
+                     code="invalid" if kind == "unknown_kind" or kind in newly_supported else "upgrade_required")
         for kind in ("person_record", "root_record"):
             fixture = self.base if kind == "person_record" else self.fixtures["network_root_admits"]
             record = copy.deepcopy(payload(fixture["activation"]["administrator"])["admission_record"])
@@ -616,7 +623,7 @@ def main():
     author = Author(vectors)
     fixed = author.oracle.fixture_self_check()
     cases = author.build()
-    positives = sum(case.expected["ok"] for case in cases)
+    positives = sum(isinstance(case.expected, dict) and case.expected["ok"] for case in cases)
     print(f"Independent oracle: {fixed} published signatures reproduced; {len(cases)} activation checks "
           f"({positives} eligible, {len(cases) - positives} rejected), including all 15 fixed transaction cases.", flush=True)
     if not probes:
@@ -630,7 +637,7 @@ def main():
             for case in cases:
                 actual = probe.exchange(case.request)
                 checked += 1
-                if actual != case.expected:
+                if not (actual in case.expected if isinstance(case.expected, list) else actual == case.expected):
                     failures += 1
                     print(f"FAIL {label} {case.name}: expected {case.expected!r}; received {actual!r}", file=sys.stderr)
                     if failures - start >= 25:

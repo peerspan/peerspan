@@ -1,0 +1,95 @@
+{
+  "checked_on": "2026-10-24",
+  "base_commit": "1d051623e2e91721145b2c95e4eb7b1f485621e0",
+  "scope": "Genesis catalog history: legacy invite membership, sticky restrictions, exact root administrator withdrawals, checkpoints retaining completed link records, and delegated device revocation. Stateless eligibility only; no runtime writes, persistence, freshness or general v1 writer-readiness claim.",
+  "contract": "docs/linking-history-checks.md",
+  "suite_authorship": "A separate author used only accepted contracts/public fixtures and independent Python signing helpers. That author created linking_history.py and updated activation expectations, without inspecting either implementation.",
+  "history_conformance": {
+    "passed": true,
+    "suite": "conformance/linking_history.py",
+    "implementations": ["go", "rust"],
+    "checks_per_implementation": 107,
+    "eligible": 27,
+    "rejected": 80,
+    "stream_recovery": "Included in the 107 requests.",
+    "command": "python3 conformance/linking_history.py --go-probe /tmp/peerspan-link-history-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+  },
+  "regressions": {
+    "activation": {
+      "passed": true,
+      "checks_per_implementation": 248,
+      "published_transaction_cases": 15,
+      "updates": "Newly supported kinds reject malformed empty bodies as invalid. Historical device records after expiry require exact ar endorsements; either affected ar ID is accepted only for the existing simultaneous-fault case.",
+      "command": "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-link-history-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "paths": {
+      "passed": true,
+      "checks_per_implementation": 331,
+      "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-history-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "readers": {
+      "passed": true,
+      "checks_per_implementation": 1093,
+      "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-history-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "total_checks_per_implementation": 1779,
+    "public_signatures_independently_reproduced": 199
+  },
+  "language_checks": {
+    "go_race": {
+      "passed": false,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "failure": "TestPathDiscoveryChecks: packet routing at go/internal/host/peer_path_test.go:157, with a public endpoint and the zero host ID. All other tests/packages passed.",
+      "isolated_current_branch": {
+        "passed": true,
+        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=1",
+        "seconds": 2.96
+      },
+      "baseline_reproduction": {
+        "baseline_head": "ab2d32477b0bc64f79367ef63fcf5b6d492ad286",
+        "baseline_tree_matches_merged_main": "Both ab2d324 and base 1d05162 have tree e69009ad4fb85f148f6dad2804ad56e51998da53.",
+        "directory": "/root/capsule/peerspan-link-catalog",
+        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=3",
+        "result": "The same packet-routing assertion at line 157 failed in all 3 runs. Host/discovery implementation and test files are unchanged by this PR."
+      },
+      "note": "The full Go gate did not pass in one run. Its sole failing test passed in isolation on the current branch; the exact failure was reproduced on the unchanged merged baseline."
+    },
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-history-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "note": "Sequential tests and default Tokio workers, after the full Go run. The two ignored tests are opt-in connectivity helpers."
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-history-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-history-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "Root rotation/nonzero epochs and general catalog verification",
+    "Ordinary person envelopes, policies/groups and high-water rules, delegated invite/redemption history",
+    "Feature activation and durable freshness/rollback protection",
+    "Signed-state storage, v2 map and peer/coordinator propagation, recovery and linking ceremony/up integration"
+  ]
+}

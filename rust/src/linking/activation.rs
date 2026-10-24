@@ -4,6 +4,9 @@ use super::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "history.rs"]
+mod history;
+use history::HistoryFacts;
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
@@ -69,6 +72,8 @@ struct Verifier<'a> {
     persons: BTreeMap<String, String>,
     hosts: BTreeMap<String, String>,
     active_records: BTreeSet<String>,
+    history: HistoryFacts,
+    evidence: BTreeMap<String, Proof>,
 }
 
 fn problem(code: &'static str) -> anyhow::Error {
@@ -238,6 +243,8 @@ pub fn verify_activation(
             persons: BTreeMap::new(),
             hosts: BTreeMap::new(),
             active_records: BTreeSet::new(),
+            history: HistoryFacts::default(),
+            evidence: BTreeMap::new(),
         };
         v.catalog(catalog)?;
         let request = v.index_activation(activation)?;
@@ -353,6 +360,48 @@ impl Verifier<'_> {
                     )
                 };
                 self.semantic(&rid, &o)?;
+                self.evidence
+                    .insert(rid, self.proofs.get(&id).expect("indexed proof").clone());
+            }
+            "device_revocation" => {
+                let rid = format!(
+                    "dr_{}",
+                    hash(&lines(&[
+                        "peerspan-device-revoke-v1",
+                        text(&o, "network_id")?,
+                        text(&o, "person_public_key")?,
+                        text(&o, "target_device_public_key")?,
+                        text(&o, "target_certificate_id")?,
+                        text(&o, "issuer_certificate_id")?,
+                        text(&o, "revoked_at")?
+                    ]))
+                );
+                self.semantic(&rid, &o)?;
+                self.evidence
+                    .insert(rid, self.proofs.get(&id).expect("indexed proof").clone());
+            }
+            "checkpoint" => {
+                fields(
+                    &o,
+                    "format network_id person_public_key issuer_certificate_id issued_at records signature",
+                    &[],
+                )?;
+                version(&o, 1)?;
+                check(
+                    ident(s(&o, "network_id"), "net_")
+                        && key(s(&o, "person_public_key"))
+                        && (s(&o, "issuer_certificate_id") == "root"
+                            || ident(s(&o, "issuer_certificate_id"), "dc_")),
+                    "invalid",
+                )?;
+                stamp(text(&o, "issued_at")?)?;
+                text(&o, "signature")?;
+                let ids = string_list(&o, "records")?;
+                check(sorted(&ids), "invalid")?;
+                for rid in ids {
+                    check(!ident(rid, "pf_"), "upgrade_required")?;
+                    check(ident(rid, "ar_") || ident(rid, "dr_"), "invalid")?;
+                }
             }
             "activation" => {
                 self.index_activation(body)?;
@@ -423,177 +472,15 @@ impl Verifier<'_> {
             match kind {
                 "admin_delegation" | "person_admission" | "host_admission" | "host_binding"
                 | "feature" | "certificate" | "activation" | "person_record" | "root_record"
-                | "device_revocation" => {}
-                "rotation" | "admin_removal" | "person_membership" | "host_membership"
-                | "host_unbinding" | "host_leave" | "host_revocation" | "invite_revocation"
-                | "person_removal" | "group" | "policy" | "join_ack" | "checkpoint"
-                | "invite_redemption" => return Err(problem("upgrade_required")),
+                | "device_revocation" | "admin_removal" | "person_membership"
+                | "host_membership" | "host_unbinding" | "host_leave" | "host_revocation"
+                | "invite_revocation" | "person_removal" | "join_ack" | "checkpoint" => {}
+                "rotation" | "group" | "policy" | "invite_redemption" => {
+                    return Err(problem("upgrade_required"));
+                }
                 _ => return Err(problem("invalid")),
             }
             self.index(kind, &b)?;
-        }
-        Ok(())
-    }
-    fn admin_signature(&self, m: &[u8], sig: &str) -> Result<()> {
-        if root(&self.root, m, sig).is_ok() {
-            return Ok(());
-        }
-        // Embedded SSHSIG key is a hint into a root-verified set, never authority.
-        let hint = crate::persons::sshsig_signer(sig).ok_or_else(|| problem("invalid"))?;
-        check(hint != self.root, "invalid")?;
-        check(self.admins.contains(&hint), "forbidden")?;
-        ssh(&hint, m, sig)
-    }
-    fn bootstrap(&mut self) -> Result<()> {
-        let proofs: Vec<_> = self.proofs.values().cloned().collect();
-        for p in &proofs {
-            if p.kind != "admin_delegation" {
-                continue;
-            }
-            let o = &p.object;
-            fields(
-                o,
-                "network_id epoch person_public_key delegated_at signature",
-                &[],
-            )?;
-            check(
-                s(o, "network_id") == self.net && key(s(o, "person_public_key")),
-                "invalid",
-            )?;
-            check(num(o, "epoch")? == 0, "upgrade_required")?;
-            stamp(text(o, "delegated_at")?)?;
-            root(
-                &self.root,
-                &lines(&[
-                    "peerspan-admin-delegate-v1",
-                    &self.net,
-                    "0",
-                    text(o, "person_public_key")?,
-                    text(o, "delegated_at")?,
-                ]),
-                text(o, "signature")?,
-            )?;
-            self.admins.insert(s(o, "person_public_key").into());
-        }
-        for p in &proofs {
-            let o = &p.object;
-            match p.kind.as_str() {
-                "person_admission" | "host_admission" => {
-                    let (field, domain) = if p.kind == "person_admission" {
-                        ("person_public_key", "peerspan-person-admit-v1")
-                    } else {
-                        ("host_public_key", "peerspan-host-admit-v1")
-                    };
-                    fields(
-                        o,
-                        &format!("network_id epoch {field} member admitted_at signature"),
-                        &[],
-                    )?;
-                    check(
-                        s(o, "network_id") == self.net && key(s(o, field)),
-                        "invalid",
-                    )?;
-                    crate::membership::label(text(o, "member")?)?;
-                    check(num(o, "epoch")? == 0, "upgrade_required")?;
-                    stamp(text(o, "admitted_at")?)?;
-                    self.admin_signature(
-                        &lines(&[
-                            domain,
-                            &self.net,
-                            "0",
-                            text(o, field)?,
-                            text(o, "member")?,
-                            text(o, "admitted_at")?,
-                        ]),
-                        text(o, "signature")?,
-                    )?;
-                    let (k, label) = (s(o, field).to_owned(), s(o, "member").to_owned());
-                    if p.kind == "person_admission" {
-                        check(
-                            self.persons.get(&k).is_none_or(|old| old == &label),
-                            "state_conflict",
-                        )?;
-                        self.persons.insert(k.clone(), label);
-                        self.state.persons.insert(
-                            k.clone(),
-                            PersonState {
-                                admitted: true,
-                                administrator: self.admins.contains(&k),
-                            },
-                        );
-                    } else {
-                        check(
-                            self.hosts.get(&k).is_none_or(|old| old == &label),
-                            "state_conflict",
-                        )?;
-                        self.hosts.insert(k.clone(), label);
-                        self.state.hosts.insert(k, true);
-                    }
-                }
-                "feature" => {
-                    let r = read("feature", &p.body, &self.root, "-")?;
-                    let proposal = object(o.get("proposal").ok_or_else(|| problem("invalid"))?)?;
-                    check(s(proposal, "network_id") == self.net, "invalid")?;
-                    check(num(proposal, "epoch")? == 0, "upgrade_required")?;
-                    check(
-                        self.feature.is_empty() || self.feature == r.id,
-                        "state_conflict",
-                    )?;
-                    self.semantic(&r.id, o)?;
-                    self.feature = r.id;
-                }
-                _ => {}
-            }
-        }
-        for p in &proofs {
-            if p.kind != "host_binding" {
-                continue;
-            }
-            let o = &p.object;
-            fields(
-                o,
-                "network_id person_public_key host_public_key bound_at signature host_signature",
-                &[],
-            )?;
-            let (person, host, at) = (
-                text(o, "person_public_key")?,
-                text(o, "host_public_key")?,
-                text(o, "bound_at")?,
-            );
-            check(
-                s(o, "network_id") == self.net && key(person) && key(host),
-                "invalid",
-            )?;
-            stamp(at)?;
-            let m = lines(&["peerspan-host-bind-v1", &self.net, person, host, at]);
-            ssh(person, &m, text(o, "signature")?)?;
-            raw(host, &m, text(o, "host_signature")?)?;
-            check(
-                self.state
-                    .bindings
-                    .get(host)
-                    .is_none_or(|old| old == person),
-                "state_conflict",
-            )?;
-            self.state.bindings.insert(host.into(), person.into());
-        }
-        check(!self.feature.is_empty(), "proof_required")?;
-        check(
-            self.ctx.known_feature_id == "-" || self.ctx.known_feature_id == self.feature,
-            "state_conflict",
-        )?;
-        for p in &proofs {
-            if p.kind != "feature" {
-                continue;
-            }
-            let proposal = object(p.object.get("proposal").ok_or_else(|| problem("invalid"))?)?;
-            let roster: BTreeSet<_> = string_list(proposal, "host_public_keys")?
-                .into_iter()
-                .collect();
-            check(
-                self.hosts.keys().all(|h| roster.contains(h.as_str())),
-                "proof_required",
-            )?;
         }
         Ok(())
     }
@@ -641,33 +528,6 @@ impl Verifier<'_> {
         }
         check(devices.is_disjoint(&hosts), "invalid")?;
         Ok(chain.pop().expect("nonempty chain"))
-    }
-    fn revocations(&mut self) -> Result<()> {
-        let proofs: Vec<_> = self
-            .proofs
-            .values()
-            .filter(|p| p.kind == "device_revocation")
-            .cloned()
-            .collect();
-        for p in proofs {
-            let o = &p.object;
-            check(
-                s(o, "issuer_certificate_id") == "root"
-                    || ident(s(o, "issuer_certificate_id"), "dc_"),
-                "invalid",
-            )?;
-            check(s(o, "issuer_certificate_id") == "root", "upgrade_required")?;
-            let person = text(o, "person_public_key")?;
-            read("device_revocation", &p.body, person, "-")?;
-            check(s(o, "network_id") == self.net, "invalid")?;
-            let c = self.structural(text(o, "target_certificate_id")?, person)?;
-            check(c.device == s(o, "target_device_public_key"), "invalid")?;
-            self.state.revoked_devices.insert(DeviceKey {
-                person_public_key: person.into(),
-                device_public_key: c.device,
-            });
-        }
-        Ok(())
     }
     fn authority(
         &mut self,
@@ -772,6 +632,33 @@ impl Verifier<'_> {
             }
             return Ok(());
         }
+        if kind == "peerspan-host-admit-v1"
+            && p.kind == "host_membership"
+            && s(&p.object, "host_public_key") == host
+            && self
+                .persons
+                .get(person)
+                .is_some_and(|label| label == s(&p.object, "member"))
+        {
+            check(self.legacy_membership(&p, false)?, "forbidden")?;
+            return Ok(());
+        }
+        if kind == "peerspan-host-admit-v1" && p.kind == "host_admission" {
+            check(
+                self.legacy_authority(
+                    &lines(&[
+                        "peerspan-host-admit-v1",
+                        &self.net,
+                        "0",
+                        s(&p.object, "host_public_key"),
+                        s(&p.object, "member"),
+                        s(&p.object, "admitted_at"),
+                    ]),
+                    s(&p.object, "signature"),
+                )?,
+                "forbidden",
+            )?;
+        }
         check(
             (kind == "peerspan-host-bind-v1"
                 && p.kind == "host_binding"
@@ -866,6 +753,17 @@ impl Verifier<'_> {
         let (_, offer) = p_obj(owner)?;
         let person = text(&offer, "person_public_key")?.to_owned();
         let issuer = text(owner, "certificate_id")?.to_owned();
+        if !historical {
+            check(
+                !self.history.hosts.contains(&host)
+                    && !self.history.persons.contains(&person)
+                    && !self
+                        .history
+                        .unbound
+                        .contains(&(person.clone(), host.clone())),
+                "forbidden",
+            )?;
+        }
         check(
             s(owner, "person_public_key") == person
                 && (s(&req, "expected_network_id") == "-"
@@ -884,7 +782,7 @@ impl Verifier<'_> {
             "invalid",
         )?;
         let required = if mode == "renew" { 4 } else { 6 };
-        let path = self.authority(&person, &issuer, required, depth)?;
+        let path = self.actor(&person, &issuer, required, historical, depth)?;
         let (_, offer, oid, offer_raw) = self.packet(
             &raw_field(body, "owner")?,
             "owner",
@@ -983,7 +881,8 @@ impl Verifier<'_> {
                 check(ap == "-", "invalid")?;
                 self.root.clone()
             } else {
-                self.authority(&ap, &ac, 8, depth)?.signer_public_key
+                self.actor(&ap, &ac, 8, historical, depth)?
+                    .signer_public_key
             };
             let (_, adm, aid, adm_raw) = self.packet(
                 &raw_field(body, "administrator")?,
@@ -1010,8 +909,11 @@ impl Verifier<'_> {
                     && s(&com, "admission_record_id") == ar.id,
                 "invalid",
             )?;
+            if historical {
+                self.historical_record(&ar, &obj(&admission)?, 8, depth)?;
+            }
             let binding = raw_field(&commit_raw, "binding_record")?;
-            let (_, p) = self.record(
+            let (br, p) = self.record(
                 &binding,
                 "peerspan-host-bind-v1",
                 id,
@@ -1023,6 +925,9 @@ impl Verifier<'_> {
                 s(&p, "host_public_key") == host && s(&p, "person_public_key") == person,
                 "invalid",
             )?;
+            if historical {
+                self.historical_record(&br, &obj(&binding)?, 2, depth)?;
+            }
             let mut draft = object(
                 offer
                     .get("binding_record")
@@ -1036,7 +941,17 @@ impl Verifier<'_> {
             check(draft == final_record, "invalid")?;
             self.host_activations(&host, depth)?;
             check(
-                !self.state.hosts.contains_key(&host) && !self.state.bindings.contains_key(&host),
+                (self.state.hosts.get(&host) != Some(&true)
+                    || (historical && self.hosts.get(&host) == self.persons.get(&person)))
+                    && self.state.bindings.get(&host).is_none_or(|bound| {
+                        bound == "-"
+                            || (historical
+                                && (bound == &person
+                                    || self
+                                        .history
+                                        .unbound
+                                        .contains(&(person.clone(), host.clone()))))
+                    }),
                 "state_conflict",
             )?;
             completed_records.push(binding);
@@ -1095,7 +1010,8 @@ impl Verifier<'_> {
                     .ok_or_else(|| problem("proof_required"))?
                     .clone(),
             );
-            self.state.bindings.insert(host.clone(), person.clone());
+            self.add_binding(&host, &person)?;
+            self.restrict_state();
             for raw in completed_records {
                 let o = obj(&raw)?;
                 let kind = if o.contains_key("person_public_key") {

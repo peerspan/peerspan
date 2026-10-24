@@ -15,8 +15,10 @@ bytes and signatures with independently supplied expected keys. The
 [certificate-path evaluator](linking-path-checks.md) then checks exact parent
 chains against independently verified current state. The bounded
 [catalog/activation verifier](linking-activation-checks.md) derives that state
-from signed genesis admissions and complete new/renew transcripts. General
-catalogs, rotation/retention, freshness and durable propagation remain pending;
+from signed genesis admissions and complete new/renew transcripts. The
+[history verifier](linking-history-checks.md) adds legacy invite membership,
+sticky removals and exact retained link records. General catalogs, root rotation,
+policy/group high-water handling, freshness and durable propagation remain pending;
 `link` and its local routes are not available.
 
 The daemon listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. This is the local control interface for setup, integrations, and diagnostics. It is separate from the authenticated peer interface and from the daemon’s outbound connection to coordination; it does not define the everyday network-facing user workflow. The foundation starts with no TCP listener. An explicit peer listener, configured identities, and grants are specified in the [known-host messaging contract](peer-messaging-contract.md). Network membership and the coordination client are specified in the [coordination contract](coordination-contract.md).
