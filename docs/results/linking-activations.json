@@ -1,0 +1,76 @@
+{
+  "checked_on": "2026-10-24",
+  "base_commit": "9ba827aabfa88b999e39c1e044f700f6ad506955",
+  "scope": "UP-06c.2b: stateless genesis-epoch catalog and complete new/renew activation eligibility verification in Go and Rust. No commit, persistence, feature activation, freshness, rotation/retention or end-to-end linking claim.",
+  "contract": "docs/linking-activation-checks.md",
+  "suite": "conformance/linking_activations.py",
+  "suite_authorship": "A separate author used only the contracts, public vectors and independently authored Python signing helpers, without inspecting either implementation.",
+  "activation_conformance": {
+    "passed": true,
+    "implementations": ["go", "rust"],
+    "requests": 247,
+    "eligible": 23,
+    "rejections": 224,
+    "final_stream_recovery_check": 1,
+    "checks_per_implementation": 248,
+    "published_transaction_cases": 15,
+    "public_signatures_independently_reproduced": 199,
+    "command": "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-link-catalog-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+  },
+  "regressions": {
+    "readers": {
+      "passed": true,
+      "checks_per_implementation": 1093,
+      "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-catalog-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "paths": {
+      "passed": true,
+      "checks_per_implementation": 331,
+      "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-catalog-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "total_checks_per_implementation": 1672
+  },
+  "language_checks": {
+    "go_race": {
+      "passed": true,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-catalog-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "note": "Full initial run passed, including host/discovery tests; final rerun passed with unchanged runtime suites cached."
+    },
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-catalog-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "note": "Run sequentially with default Tokio worker configuration, after Go finished. The two ignored tests are opt-in connectivity helpers."
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-catalog-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-catalog-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "UP-06c.2c: general invite membership/redemptions, removals, rotation, checkpoints/retained history, feature activation, freshness and durable high-water rules; unsupported evidence currently fails closed",
+    "UP-06c.3: durable signed-state storage, coordinator/peer propagation, v2 maps and recovery",
+    "UP-06d: linking ceremony, signer discovery/renewal and integration with up"
+  ]
+}

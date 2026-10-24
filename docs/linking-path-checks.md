@@ -35,8 +35,10 @@ and the administrator role for bit 8.
 Success describes a usable signing path under this snapshot. It is not approval
 of a mutation or proof that the snapshot was correctly constructed. The caller
 must still check freshness, current root/epoch, feature state, operation payload,
-self-invalidation, retained history and transactional revalidation. Catalog-to-
-state verification and complete activation verification remain pending. No
+self-invalidation, retained history and transactional revalidation. The subsequent
+[catalog/activation slice](linking-activation-checks.md) derives state from
+signed genesis admissions and complete transcripts, with an explicit supported
+proof boundary. General catalog/retention verification remains pending. No
 daemon/coordinator route or `link` command accepts this snapshot format.
 
 ## Conformance probe

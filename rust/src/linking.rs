@@ -11,6 +11,8 @@ use std::{collections::HashSet, fmt};
 
 mod path;
 pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evaluate_path};
+mod activation;
+pub use activation::{ActivationContext, ActivationEvidence, MAX_ACTIVATION, verify_activation};
 
 pub const MAX_OBJECT: usize = 1 << 20;
 pub const MAX_PAYLOAD: usize = 256 << 10;
@@ -881,6 +883,9 @@ pub fn probe(data: &[u8]) -> Value {
         let o = object(&v)?;
         if text(o, "kind")? == "path" {
             return Ok(path::probe_path(o));
+        }
+        if text(o, "kind")? == "activation" {
+            return Ok(activation::probe_activation(o));
         }
         fields(
             o,
