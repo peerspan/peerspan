@@ -12,6 +12,8 @@ loopback (`--coord`):
   --github-arg), whose token is the reference `${GITHUB_PERSONAL_ACCESS_TOKEN}`, captured at `attach` from the
   environment variable named by --token-env (default GITHUB_TOKEN). `attach claude --no-start` discovers it; Bob
   creates `github-issues` from it with `list_issues` selected and shares it with `person:alice`.
+  Attach checks that Claude Code is signed in even with --no-start, so Bob's HOME links the operator's Claude
+  login (`~/.claude/.credentials.json`, where Claude Code keeps it on Linux); Bob never starts Claude Code.
 - Alice (the operator's real HOME, so each harness uses its existing login; a private XDG_CONFIG_HOME for
   Peerspan, with the operator's `opencode` configuration directory linked into it): for each of Claude Code, Codex,
   and OpenCode in turn, `attach HARNESS --calls -- ARGS` launches the harness non-interactively in a project of its
@@ -282,6 +284,11 @@ class Run:
                       'args': args.github_arg or ['-y', '@modelcontextprotocol/server-github'],
                       'env': {'GITHUB_PERSONAL_ACCESS_TOKEN': '${GITHUB_PERSONAL_ACCESS_TOKEN}'}}
             (self.bob.home / '.claude.json').write_text(json.dumps({'mcpServers': {'github': server}}))
+            # Attach's readiness checks need a signed-in Claude Code, also with --no-start.
+            login = Path.home() / '.claude' / '.credentials.json'
+            if login.exists():
+                (self.bob.home / '.claude').mkdir(exist_ok=True)
+                (self.bob.home / '.claude' / '.credentials.json').symlink_to(login)
             workspace = root / 'projects' / 'bob'
             workspace.mkdir(parents=True)
             result = self.bob.run('attach', 'claude', '--name', 'bob-claude', '--directory', str(workspace),
