@@ -45,7 +45,12 @@ network-root admission can instead remain independently valid.
 Historical activation may coexist with current independent membership of the
 same host/label and same-person binding; verifying history does not reapply
 the first-admission precondition. First new admissions still conflict with
-existing live membership. Renewal checks the exact selected proof's remaining
+existing live membership. Historical eligibility cached during roster/join-proof,
+checkpoint or revocation resolution cannot satisfy a first-operation request.
+First verification must always enforce its request interval, present owner/admin
+authority, target validity/revocation and current admission/binding preconditions,
+even when the same complete transcript was already verified as historical data.
+Renewal checks the exact selected proof's remaining
 authority even when another proof establishes the same current membership.
 Missing admission proof is still `proof_required`.
 
@@ -167,3 +172,9 @@ transaction and coordination contracts, without reading either implementation:
   expiry/withdrawal/known root revocation of the issuer and exact `dr_` retention.
 - Strict fields/types/encodings/limits, semantic conflicts, dependency cycles,
   unrelated inert candidate isolation, and stream recovery.
+- A current independent admission of the requested host, with no roster entry or
+  separate `join_ack`, obtains its feature acknowledgment from that same complete
+  activation. Historical evidence can verify, but first verification must still
+  reject existing live membership, an elapsed request interval, or unusable
+  owner/admin authority. Reusing historical work must never return first-operation
+  success; pair historical success controls with first-operation rejections.

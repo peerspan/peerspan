@@ -8,10 +8,10 @@
     "passed": true,
     "suite": "conformance/linking_history.py",
     "implementations": ["go", "rust"],
-    "checks_per_implementation": 107,
-    "eligible": 27,
-    "rejected": 80,
-    "stream_recovery": "Included in the 107 requests.",
+    "checks_per_implementation": 113,
+    "eligible": 30,
+    "rejected": 83,
+    "stream_recovery": "Included in the 113 requests.",
     "command": "python3 conformance/linking_history.py --go-probe /tmp/peerspan-link-history-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
   },
   "regressions": {
@@ -32,27 +32,33 @@
       "checks_per_implementation": 1093,
       "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-history-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
     },
-    "total_checks_per_implementation": 1779,
+    "total_checks_per_implementation": 1785,
     "public_signatures_independently_reproduced": 199
   },
   "language_checks": {
     "go_race": {
-      "passed": false,
+      "passed": true,
       "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
-      "failure": "TestPathDiscoveryChecks: packet routing at go/internal/host/peer_path_test.go:157, with a public endpoint and the zero host ID. All other tests/packages passed.",
-      "isolated_current_branch": {
-        "passed": true,
-        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=1",
-        "seconds": 2.96
-      },
-      "baseline_reproduction": {
-        "baseline_head": "ab2d32477b0bc64f79367ef63fcf5b6d492ad286",
-        "baseline_tree_matches_merged_main": "Both ab2d324 and base 1d05162 have tree e69009ad4fb85f148f6dad2804ad56e51998da53.",
-        "directory": "/root/capsule/peerspan-link-catalog",
-        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=3",
-        "result": "The same packet-routing assertion at line 157 failed in all 3 runs. Host/discovery implementation and test files are unchanged by this PR."
-      },
-      "note": "The full Go gate did not pass in one run. Its sole failing test passed in isolation on the current branch; the exact failure was reproduced on the unchanged merged baseline."
+      "host_seconds": 173.973,
+      "note": "The full race suite passed after the review fix. The original run and its baseline reproduction are retained below.",
+      "initial_run": {
+        "passed": false,
+        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+        "failure": "TestPathDiscoveryChecks: packet routing at go/internal/host/peer_path_test.go:157, with a public endpoint and the zero host ID. All other tests/packages passed.",
+        "isolated_current_branch": {
+          "passed": true,
+          "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=1",
+          "seconds": 2.96
+        },
+        "baseline_reproduction": {
+          "baseline_head": "ab2d32477b0bc64f79367ef63fcf5b6d492ad286",
+          "baseline_tree_matches_merged_main": "Both ab2d324 and base 1d05162 have tree e69009ad4fb85f148f6dad2804ad56e51998da53.",
+          "directory": "/root/capsule/peerspan-link-catalog",
+          "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-history-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=3",
+          "result": "The same packet-routing assertion at line 157 failed in all 3 runs. Host/discovery implementation and test files are unchanged by this PR."
+        },
+        "note": "The full Go gate did not pass in one run. Its sole failing test passed in isolation on the current branch; the exact failure was reproduced on the unchanged merged baseline."
+      }
     },
     "go_vet": {
       "passed": true,
@@ -91,5 +97,23 @@
     "Ordinary person envelopes, policies/groups and high-water rules, delegated invite/redemption history",
     "Feature activation and durable freshness/rollback protection",
     "Signed-state storage, v2 map and peer/coordinator propagation, recovery and linking ceremony/up integration"
-  ]
+  ],
+  "review_fix": {
+    "reviewed_commit": "a69f735ccb88c135554b6e9e1ec129667dd60bde",
+    "comment": "https://github.com/peerspan/peerspan-internal/pull/47#discussion_r4367531172",
+    "finding": "Bootstrap can verify the requested activation historically while deriving a feature acknowledgment for independent host membership. Returning that cached evidence for first verification skips its current preconditions.",
+    "change": "Both implementations reuse completed activation evidence only for historical evaluation. First verification always rechecks the transcript, request interval, live authority, target validity/revocation and current admission/binding preconditions.",
+    "independent_regressions": {
+      "author_boundary": "The separate suite author read the accepted contracts and signing helpers, never either implementation.",
+      "new_requests": 6,
+      "pairs": [
+        "Current independent membership",
+        "Exclusive request deadline",
+        "Current request after issuer expiry with exact root retention checkpoints"
+      ],
+      "before_fix": "Both probes built from the reviewed commit incorrectly accepted all three first requests. All three historical success controls and all 107 existing requests passed.",
+      "after_fix": "Both rebuilt probes reject all three first requests and preserve all historical controls. All 113 history requests pass; all 1785 conformance checks pass per implementation.",
+      "multiple_faults": "Deadline cases allow expired or state_conflict; expired-authority cases allow authority_expired or state_conflict. Existing current membership is also invalid in each first request."
+    }
+  }
 }

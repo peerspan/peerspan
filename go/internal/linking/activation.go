@@ -572,7 +572,10 @@ func (v *activationVerifier) hostActivations(host string, depth int) error {
 
 func (v *activationVerifier) activate(id string, historical bool, depth int) (ActivationEvidence, error) {
 	bad := func(code string) (ActivationEvidence, error) { return ActivationEvidence{}, pathError(code) }
-	if r, ok := v.done[id]; ok {
+	// Roster or other dependency resolution may have verified this same
+	// transcript historically. Its cached evidence cannot skip first-operation
+	// deadline, live-authority or current membership/binding checks.
+	if r, ok := v.done[id]; historical && ok {
 		return r, nil
 	}
 	if v.busy[id] || depth >= 8 {

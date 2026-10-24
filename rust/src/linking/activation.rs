@@ -694,7 +694,10 @@ impl Verifier<'_> {
     }
 
     fn activate(&mut self, id: &str, historical: bool, depth: usize) -> Result<Identity> {
-        if let Some(r) = self.done.get(id) {
+        // A roster/dependency lookup may have verified this very transcript as
+        // history. First operations still require their own deadline, live
+        // authority and current membership/binding checks.
+        if historical && let Some(r) = self.done.get(id) {
             return Ok(r.clone());
         }
         check(depth < 8 && !self.busy.contains(id), "invalid")?;

@@ -532,6 +532,47 @@ class Author(ActivationAuthor):
         self.add_request("framing/oversize_line", b" " * (2 * 1024 * 1024 + 1), error("invalid"))
         self.add_request("framing/valid_after_rejection", request, self.success(self.base["activation"]), keep=True)
 
+    def verification_modes(self):
+        # A legacy admission for this unrostered target needs the same complete
+        # activation as its feature join proof. That historical work must not
+        # bypass the caller's separate first-finalization preconditions.
+        def catalog_for(fixture, activation, additional=()):
+            request = payload(activation["request"])
+            admission = payload(activation["administrator"])["admission_record"]
+            unsigned = json.loads(unb64(admission["payload_base64"]))
+            legacy = {"network_id": self.network, "epoch": 0,
+                      "host_public_key": request["host_public_key"], "member": unsigned["member"],
+                      "admitted_at": request["created_at"]}
+            legacy["signature"] = b64(self.signers[self.root].raw(legacy_message("host_admission", legacy)))
+            return self.with_proofs(fixture["catalog"],
+                                    [("host_admission", legacy), ("activation", activation), *additional])
+
+        fixture = self.base
+        activation = fixture["activation"]
+        catalog = catalog_for(fixture, activation)
+        self.add("mode/live_historical_join_proof_control", fixture, catalog=catalog, verification="historical")
+        self.add("mode/live_first_still_conflicts", fixture, catalog=catalog, code="state_conflict")
+        deadline = payload(activation["request"])["expires_at"]
+        self.add("mode/deadline_historical_join_proof_control", fixture, catalog=catalog,
+                 verification="historical", now=deadline)
+        self.add_request("mode/deadline_first_is_not_historical", self.request(fixture, catalog=catalog, now=deadline),
+                         [error("expired"), error("state_conflict")])
+
+        # Keep this request current while B's path and the proposed C certificate
+        # are expired. Exact root endorsements preserve the two durable C
+        # records for historical evidence, without restoring present authority.
+        fixture = self.c_source
+        transcript = Transcript(self, fixture)
+        transcript.values["request"].update(created_at=LATE, expires_at=shift(LATE, 300))
+        activation = transcript.finish()
+        retained = self.checkpoint(self.ids_c.values(), issued_at=LATE)
+        catalog = catalog_for(fixture, activation, [("checkpoint", retained)])
+        self.add("mode/expired_actor_historical_retained_control", fixture, activation, catalog=catalog,
+                 verification="historical", now=LATE)
+        self.add_request("mode/expired_actor_first_is_not_historical",
+                         self.request(fixture, activation, catalog=catalog, now=LATE),
+                         [error("authority_expired"), error("state_conflict")])
+
     def build(self):
         self.checkpoints()
         self.delegated_checkpoint()
@@ -540,6 +581,7 @@ class Author(ActivationAuthor):
         self.restrictions()
         self.delegated_revocations()
         self.strict_new_facts()
+        self.verification_modes()
         return self.cases
 
 
@@ -562,7 +604,7 @@ def main():
     author = Author(vectors)
     fixed = author.oracle.fixture_self_check()
     cases = author.build()
-    eligible = sum(case.expected["ok"] for case in cases)
+    eligible = sum(isinstance(case.expected, dict) and case.expected["ok"] for case in cases)
     print(f"Independent oracle: {fixed} published signatures reproduced; {len(cases)} history checks "
           f"({eligible} eligible, {len(cases) - eligible} rejected).", flush=True)
     if not probes:
@@ -576,7 +618,7 @@ def main():
             for case in cases:
                 actual = probe.exchange(case.request)
                 checked += 1
-                if actual != case.expected:
+                if not (actual in case.expected if isinstance(case.expected, list) else actual == case.expected):
                     failures += 1
                     print(f"FAIL {label} {case.name}: expected {case.expected!r}; received {actual!r}", file=sys.stderr)
                     if failures - start >= 25:
