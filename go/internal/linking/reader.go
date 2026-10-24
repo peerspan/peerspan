@@ -1044,6 +1044,9 @@ func Probe(data []byte) any {
 	if kind, _ := text(o, "kind"); kind == "feature_activation" {
 		return featureProbe(o)
 	}
+	if kind, _ := text(o, "kind"); kind == "action_authorization" {
+		return actionProbe(o)
+	}
 	if fields(o, "kind object_base64 signer_public_key device_public_key") != nil {
 		return fail
 	}

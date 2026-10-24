@@ -1,0 +1,126 @@
+{
+  "checked_on": "2026-10-24",
+  "base_commit": "5490fda204c86fe9f605f3f6b471a033d2686a41",
+  "scope": "Current authorization for separately supplied ordinary person records and device revocations, under an exact signer selection and independently pinned enabled feature. No mutation, ordinary catalog/history materialization, policy access, freshness, runtime route, persistence or writer-readiness claim.",
+  "contract": "docs/linking-action-checks.md",
+  "suite_authorship": "A separate author used accepted contracts, public fixtures and independent Python signing helpers without inspecting Go or Rust implementations. Only the new linking_actions.py suite was authored; existing suites/vectors are unchanged.",
+  "regressions": {
+    "activation": {
+      "passed": true,
+      "checks_per_implementation": 248,
+      "command": "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-link-actions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "history": {
+      "passed": true,
+      "checks_per_implementation": 113,
+      "command": "python3 conformance/linking_history.py --go-probe /tmp/peerspan-link-actions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "paths": {
+      "passed": true,
+      "checks_per_implementation": 331,
+      "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-actions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "readers": {
+      "passed": true,
+      "checks_per_implementation": 1093,
+      "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-actions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "total_checks_per_implementation": 2270,
+    "public_signatures_independently_reproduced": 199,
+    "features": {
+      "passed": true,
+      "checks_per_implementation": 172,
+      "command": "python3 conformance/linking_features.py --go-probe /tmp/peerspan-link-actions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    }
+  },
+  "language_checks": {
+    "go_race": {
+      "passed": false,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-actions-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "failure": "TestPathDiscoveryChecks: own pong did not validate at go/internal/host/peer_path_test.go:150; all other tests and packages passed.",
+      "isolated_current_branch": {
+        "passed": true,
+        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-actions-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=1",
+        "seconds": 2.775
+      },
+      "isolated_merged_baseline": {
+        "passed": true,
+        "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-actions-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race ./internal/host -run '^TestPathDiscoveryChecks$' -count=3",
+        "directory": "/root/capsule/peerspan-link-feature",
+        "head": "b3d50ee16b37d0eb5df097063792ce454a8266ed",
+        "tree_matches_merged_base": "Both b3d50ee and base 5490fda have tree d36a9be6a64ffa2233fe2f122c6e401b9a6aa2f7.",
+        "passed_runs": 3,
+        "seconds": 6.242
+      },
+      "prior_baseline_evidence": {
+        "record": "docs/results/linking-readers.json",
+        "baseline": "64d8cdc22e5ee32911937190d22495e76d5f50e8",
+        "result": "4/5 isolated runs failed, including three own-pong failures and one packet-routing failure in this same test.",
+        "unchanged_relevant_files": "git diff --quiet 64d8cdc -- go/internal/host/peer_path.go go/internal/host/peer_path_test.go go/internal/disco passed. Other host changes have landed since that earlier baseline."
+      },
+      "note": "The full Go gate remains failed. The failing test passed in isolation on this branch and three times on the current merged baseline; earlier recorded baseline runs demonstrate the same assertion flake. This PR changes no host/discovery/membership implementation or tests."
+    },
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-actions-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_seconds": 38.87,
+      "note": "Sequential tests and default Tokio workers, after the Go full and isolated checks; ignored tests are opt-in connectivity helpers."
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-actions-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-actions-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "Root rotation/nonzero epochs and general signed-catalog authority",
+    "Ordinary record/history materialization and retained checkpoints, delegated invites/redemptions, policy/group high-water handling",
+    "Durable feature activation, snapshot freshness, reader-version mutation/map gates and storage/maps/propagation/recovery",
+    "Atomic operation-specific writer preconditions and committed retry semantics",
+    "Linking ceremony, signer discovery/renewal and up integration"
+  ],
+  "action_conformance": {
+    "passed": true,
+    "suite": "conformance/linking_actions.py",
+    "implementations": [
+      "go",
+      "rust"
+    ],
+    "checks_per_implementation": 313,
+    "authorized": 81,
+    "rejected": 232,
+    "stream_recovery": "Included in the 313 requests.",
+    "command": "python3 conformance/linking_actions.py --go-probe /tmp/peerspan-link-actions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe",
+    "coverage": [
+      "All 12 person-record kinds with original-person and active B/C device paths; device revocation as the thirteenth action kind",
+      "Independent scope-1/2/4/8 activations, exact selected certificate, administrator/owner role separation and strict payload/consent signatures",
+      "Known durable feature required independently of catalog presence; unsupported contexts and authority fail closed",
+      "Policy path expiry cap, invite current-time, 30-day and exact path-expiry endpoints; original-person cap independence",
+      "Pending/expired revocation targets, structural parent proofs, exact ancestry, same-key aliases and ordered full path repair IDs",
+      "Self-invalidating own/ancestor host unbinding/revocation and person removal; unaffected original-person alternatives",
+      "Exact retained historical records cannot revive expired/revoked/unbound selected paths or a withdrawn administrator role",
+      "Strict fields, types, encodings, decoded 512KiB boundary, framing, recovery and candidate isolation"
+    ]
+  }
+}

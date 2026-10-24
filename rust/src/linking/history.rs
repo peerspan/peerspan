@@ -471,7 +471,7 @@ impl Verifier<'_> {
         Ok(valid && !self.history.invites.contains(invite))
     }
 
-    fn ancestor(&self, ancestor: &str, leaf: &str) -> bool {
+    pub(super) fn ancestor(&self, ancestor: &str, leaf: &str) -> bool {
         let mut next = leaf.to_owned();
         for _ in 0..8 {
             if next == "root" {

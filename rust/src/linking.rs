@@ -12,6 +12,7 @@ use std::{collections::HashSet, fmt};
 mod path;
 pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evaluate_path};
 mod activation;
+pub use activation::{ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority};
 pub use activation::{ActivationContext, ActivationEvidence, MAX_ACTIVATION, verify_activation};
 pub use activation::{FeatureContext, FeatureEvidence, verify_feature};
 
@@ -890,6 +891,9 @@ pub fn probe(data: &[u8]) -> Value {
         }
         if text(o, "kind")? == "feature_activation" {
             return Ok(activation::probe_feature(o));
+        }
+        if text(o, "kind")? == "action_authorization" {
+            return Ok(activation::probe_action(o));
         }
         fields(
             o,

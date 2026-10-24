@@ -10,6 +10,9 @@ use history::HistoryFacts;
 #[path = "feature.rs"]
 mod feature;
 pub use feature::{FeatureContext, FeatureEvidence, verify_feature};
+#[path = "action.rs"]
+mod action;
+pub use action::{ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority};
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
@@ -1107,4 +1110,8 @@ pub(super) fn probe_activation(o: &Obj) -> Value {
 
 pub(super) fn probe_feature(o: &Obj) -> Value {
     feature::probe_feature(o)
+}
+
+pub(super) fn probe_action(o: &Obj) -> Value {
+    action::probe_action(o)
 }
