@@ -1,0 +1,380 @@
+{
+  "timestamp": "2026-10-24T23:44:27.848267+00:00",
+  "repository": "peerspan/docs-internal",
+  "mode": "real harnesses and models; Bob and Alice on one machine; local daemons (peerspan-host for Bob, peerspan-host for Alice)",
+  "open_issues": [
+    {
+      "number": 12,
+      "title": "Live test issue 3"
+    },
+    {
+      "number": 11,
+      "title": "Live test issue 2"
+    },
+    {
+      "number": 10,
+      "title": "Live test issue 1"
+    }
+  ],
+  "bob_sources": {
+    "servers": [
+      {
+        "name": "github",
+        "transport": "stdio",
+        "shareable": true,
+        "reason": null,
+        "missing_env": [],
+        "tools": 26,
+        "read_only_tools": 0,
+        "snapshot_error": null
+      }
+    ],
+    "errors": []
+  },
+  "harnesses": [
+    {
+      "harness": "claude",
+      "version": "2.1.303 (Claude Code)",
+      "attachment": {},
+      "first": {
+        "completed": true,
+        "exit": 0,
+        "seconds": 13,
+        "tool_calls": [
+          {
+            "name": "mcp__peerspan__list_capabilities",
+            "arguments": null
+          },
+          {
+            "name": "mcp__peerspan__call_capability",
+            "arguments": {
+              "address": "bob/github-issues",
+              "operation": "list_issues",
+              "input": {
+                "owner": "peerspan",
+                "repo": "docs-internal",
+                "state": "open",
+                "per_page": 100
+              }
+            }
+          }
+        ],
+        "answer": "I used Bob's `bob/github-issues` capability, and peerspan/docs-internal has 3 open issues:\n\n- **#12** \u2014 Live test issue 3\n- **#11** \u2014 Live test issue 2\n- **#10** \u2014 Live test issue 1\n\nAll three are dummy issues from a live test. Each one's description says it is \"Safe to close.\""
+      },
+      "checks": {
+        "model_called_list_capabilities": true,
+        "model_called_call_capability_with_address_and_operation": true,
+        "answer_names_issues": true,
+        "bob_recorded_the_call": true,
+        "alice_recorded_the_call": true,
+        "origin_is_alices_agent": true,
+        "after_unshare_refused_with_not_found_text": true,
+        "after_unshare_nothing_executed_on_bob": true,
+        "after_unshare_answer_says_unreachable": true,
+        "first_turn_completed": true,
+        "after_unshare_turn_completed": true
+      },
+      "received": [
+        {
+          "call_id": "call_f56ab3ba638b0a533ca89716dab8ce7e",
+          "operation": "list_issues",
+          "origin": {
+            "agent_id": "agent_f0265a24a01bd8a3fb84fa8f87a32b61",
+            "session_id": "session_cc241f20560ef5224b4fa0f4ebfb29f1"
+          },
+          "state": "succeeded"
+        }
+      ],
+      "alice_session": {
+        "id": "session_cc241f20560ef5224b4fa0f4ebfb29f1",
+        "agent_id": "agent_f0265a24a01bd8a3fb84fa8f87a32b61",
+        "integration": "claude-code",
+        "state": "attached",
+        "created_at": "2026-10-24T23:37:46.31300013Z",
+        "updated_at": "2026-10-24T23:37:46.31300013Z",
+        "channel": "unverified"
+      },
+      "adapter_connection": {
+        "adapter_id": "adapter_1eaba86b44ce582fbd6edf23b51d9478",
+        "channel": "unverified",
+        "channel_verified_at": null,
+        "last_seen_at": "2026-10-24T23:37:57.676327623Z",
+        "lease_expires_at": "2026-10-24T23:38:12.676Z",
+        "protocol_version": "2025-11-25",
+        "recoverable": true,
+        "session_id": "session_cc241f20560ef5224b4fa0f4ebfb29f1",
+        "state": "ready"
+      },
+      "negotiated_protocol": "2025-11-25",
+      "after_unshare": {
+        "completed": true,
+        "exit": 0,
+        "seconds": 29,
+        "tool_calls": [
+          {
+            "name": "mcp__peerspan__list_capabilities",
+            "arguments": null
+          },
+          {
+            "name": "mcp__peerspan__call_capability",
+            "arguments": {
+              "address": "bob/github-issues",
+              "operation": "list_issues",
+              "input": {
+                "repo": "peerspan/docs-internal",
+                "state": "open"
+              }
+            }
+          }
+        ],
+        "answer": "I couldn't list the issues. The call to `bob/github-issues` failed, so I have no issue data for peerspan/docs-internal.\n\n- **Capability list:** `list_capabilities` returned no capabilities at all. Bob's `github-issues` isn't on it, and no hosts were listed as unanswered.\n- **Direct call:** I called `bob/github-issues` anyway (operation `list_issues`, repo `peerspan/docs-internal`, state `open`). Peerspan rejected it with `not_found`: \"No capability at this address is available to this session now. It may have been unshared, or its host may not have answered.\" It also said nothing was called or recorded, so the request never reached Bob's machine.\n\nBecause no hosts went unanswered, the likeliest cause is that Bob stopped sharing the capability, not that their host is offline. Either way, this session can't reach it right now. If you need the list, ask Bob to share `github-issues` with you again, then I can retry."
+      },
+      "passed": true
+    },
+    {
+      "harness": "codex",
+      "version": "codex-cli 0.160.0",
+      "attachment": {
+        "thread": {
+          "id": "01a17047-aeec-71c1-b9d6-b90d417d0337",
+          "model": "gpt-6-sol",
+          "reasoning_effort": "xhigh"
+        },
+        "baseline": {
+          "completed": true,
+          "answer": "BASELINE_READY"
+        },
+        "ready": {
+          "type": "ready",
+          "thread_id": "01a17047-aeec-71c1-b9d6-b90d417d0337",
+          "model": "gpt-6-sol",
+          "approval_policy": "never",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          }
+        },
+        "peerspan_ready": true
+      },
+      "first": {
+        "completed": true,
+        "turn_status": [
+          "completed"
+        ],
+        "seconds": 9,
+        "tool_calls": [
+          {
+            "name": "list_capabilities",
+            "arguments": null
+          },
+          {
+            "name": "call_capability",
+            "arguments": {
+              "address": "bob/github-issues",
+              "operation": "list_issues",
+              "input": {
+                "owner": "peerspan",
+                "repo": "docs-internal",
+                "state": "open",
+                "per_page": 100,
+                "page": 1
+              }
+            }
+          }
+        ],
+        "answer": "I\u2019ll use the Peerspan capability Bob shared to fetch the repository\u2019s open issues.\nOpen issues in `peerspan/docs-internal`:\n\n- [#12 \u2014 Live test issue 3](https://github.com/peerspan/docs-internal/issues/12)\n- [#11 \u2014 Live test issue 2](https://github.com/peerspan/docs-internal/issues/11)\n- [#10 \u2014 Live test issue 1](https://github.com/peerspan/docs-internal/issues/10)"
+      },
+      "checks": {
+        "model_called_list_capabilities": true,
+        "model_called_call_capability_with_address_and_operation": true,
+        "answer_names_issues": true,
+        "bob_recorded_the_call": true,
+        "alice_recorded_the_call": true,
+        "origin_is_alices_agent": true,
+        "after_unshare_refused_with_not_found_text": true,
+        "after_unshare_nothing_executed_on_bob": true,
+        "after_unshare_answer_says_unreachable": true,
+        "first_turn_completed": true,
+        "after_unshare_turn_completed": true
+      },
+      "received": [
+        {
+          "call_id": "call_35a71def91c0ba2e3a54a6c45b4b821f",
+          "operation": "list_issues",
+          "origin": {
+            "agent_id": "agent_82b0e16fea6f8a4feb3d3ff82664e26d",
+            "session_id": "session_6f9ea6b511ddd082417ba70bb7999cd7"
+          },
+          "state": "succeeded"
+        }
+      ],
+      "alice_session": {
+        "id": "session_6f9ea6b511ddd082417ba70bb7999cd7",
+        "agent_id": "agent_82b0e16fea6f8a4feb3d3ff82664e26d",
+        "integration": "codex",
+        "state": "attached",
+        "created_at": "2026-10-24T23:38:30.905276285Z",
+        "updated_at": "2026-10-24T23:38:30.905276285Z",
+        "channel": "verified"
+      },
+      "adapter_connection": {
+        "adapter_id": "adapter_a9c1445dbf2d3e39c2598b9cd6a05fcd",
+        "channel": "verified",
+        "channel_verified_at": "2026-10-24T23:38:34.492211341Z",
+        "last_seen_at": "2026-10-24T23:38:41.742659638Z",
+        "lease_expires_at": "2026-10-24T23:38:56.742Z",
+        "protocol_version": null,
+        "recoverable": true,
+        "session_id": "session_6f9ea6b511ddd082417ba70bb7999cd7",
+        "state": "ready"
+      },
+      "negotiated_protocol": null,
+      "after_unshare": {
+        "completed": true,
+        "turn_status": [
+          "completed"
+        ],
+        "seconds": 4,
+        "tool_calls": [
+          {
+            "name": "call_capability",
+            "arguments": {
+              "address": "bob/github-issues",
+              "operation": "list_issues",
+              "input": {
+                "owner": "peerspan",
+                "repo": "docs-internal",
+                "state": "open",
+                "per_page": 100,
+                "page": 1
+              }
+            }
+          }
+        ],
+        "answer": "I\u2019ll call `bob/github-issues` directly for the current open issues.\nI called Bob\u2019s `bob/github-issues` capability directly, but the call failed: it is no longer available to this session. I can\u2019t verify the repository\u2019s current open issues."
+      },
+      "passed": true
+    },
+    {
+      "harness": "opencode",
+      "version": "1.18.31",
+      "attachment": {
+        "session": {
+          "id": "ses_e8fb7f5aeffe7DCNrV631Z5aRk",
+          "model": "big-pickle",
+          "provider": "opencode"
+        },
+        "baseline": {
+          "error": null,
+          "answer": "BASELINE_READY"
+        },
+        "version": "1.18.31",
+        "ready": {
+          "type": "ready",
+          "session_id": "ses_e8fb7f5aeffe7DCNrV631Z5aRk"
+        },
+        "peerspan_ready": true
+      },
+      "first": {
+        "completed": true,
+        "errors": [],
+        "seconds": 317,
+        "tool_calls": [
+          {
+            "name": "peerspan_list_capabilities",
+            "arguments": {}
+          },
+          {
+            "name": "peerspan_call_capability",
+            "arguments": {
+              "address": "bob/github-issues",
+              "operation": "list_issues",
+              "input": {
+                "owner": "peerspan",
+                "repo": "docs-internal",
+                "state": "open"
+              }
+            }
+          }
+        ],
+        "answer": "12 Live test issue 3\n11 Live test issue 2\n10 Live test issue 1"
+      },
+      "checks": {
+        "model_called_list_capabilities": true,
+        "model_called_call_capability_with_address_and_operation": true,
+        "answer_names_issues": true,
+        "bob_recorded_the_call": true,
+        "alice_recorded_the_call": true,
+        "origin_is_alices_agent": true,
+        "after_unshare_refused_with_not_found_text": true,
+        "after_unshare_nothing_executed_on_bob": true,
+        "after_unshare_answer_says_unreachable": true,
+        "first_turn_completed": true,
+        "after_unshare_turn_completed": true
+      },
+      "received": [
+        {
+          "call_id": "call_9ba8ade1279c572fe62d8dae8adba2ec",
+          "operation": "list_issues",
+          "origin": {
+            "agent_id": "agent_10770a4af4a0754bb1dcb3a71d718b03",
+            "session_id": "session_0f04a1df25a60d79363c0c33cba372a9"
+          },
+          "state": "succeeded"
+        }
+      ],
+      "alice_session": {
+        "id": "session_0f04a1df25a60d79363c0c33cba372a9",
+        "agent_id": "agent_10770a4af4a0754bb1dcb3a71d718b03",
+        "integration": "opencode",
+        "state": "attached",
+        "created_at": "2026-10-24T23:38:55.786384083Z",
+        "updated_at": "2026-10-24T23:38:55.786384083Z",
+        "channel": "verified"
+      },
+      "adapter_connection": {
+        "adapter_id": "adapter_feb76eba6d25b8957ca3dfaf0864c8ef",
+        "channel": "verified",
+        "channel_verified_at": "2026-10-24T23:38:58.568446089Z",
+        "last_seen_at": "2026-10-24T23:44:14.990048197Z",
+        "lease_expires_at": "2026-10-24T23:44:29.99Z",
+        "protocol_version": null,
+        "recoverable": true,
+        "session_id": "session_0f04a1df25a60d79363c0c33cba372a9",
+        "state": "ready"
+      },
+      "negotiated_protocol": null,
+      "after_unshare": {
+        "completed": true,
+        "errors": [],
+        "seconds": 9,
+        "tool_calls": [
+          {
+            "name": "peerspan_call_capability",
+            "arguments": {
+              "address": "bob/github-issues",
+              "operation": "list_issues",
+              "input": {
+                "owner": "peerspan",
+                "repo": "docs-internal",
+                "state": "open"
+              }
+            }
+          },
+          {
+            "name": "peerspan_list_capabilities",
+            "arguments": {}
+          }
+        ],
+        "answer": "Call failed: No capability at this address is available to this session now. It may have been unshared, or its host may not have answered (see unanswered). Check list_capabilities."
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "limits": [
+    "One machine; cross-host connectivity is not established by this run.",
+    "Tool calls and answers come from Claude Code's JSON output, the Codex thread's turns, and the OpenCode session's messages; the unreachable answer is a keyword check recorded with the answer for review.",
+    "Codex and OpenCode run on private app-server and serve processes this run starts, driven by the run rather than a native frontend."
+  ]
+}
