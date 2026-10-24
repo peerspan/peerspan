@@ -250,7 +250,7 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	if e := v.loadOrdinaryRestrictions(); e != nil {
 		return e
 	}
-	used := map[string]string{}
+	used := v.inviteUses
 	for _, id := range ids {
 		p := v.proofs[id]
 		o := p.object
@@ -366,6 +366,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 		return pathError("state_conflict")
 	}
 	if e := v.ordinaryRecords(); e != nil {
+		return e
+	}
+	if e := v.redemptionRecords(); e != nil {
 		return e
 	}
 	roster := map[string]bool{}
@@ -555,6 +558,23 @@ func (v *activationVerifier) historicalRecord(r SignedObject, o Object, scope ui
 // retentionSubject verifies original signatures and structural authority only.
 // Looking up checkpoint members never marks their records/certificates active.
 func (v *activationVerifier) retentionSubject(id string) (string, string, uint64, error) {
+	if identifier(id, "pf_") {
+		p, ok := v.proofs[id]
+		if !ok {
+			return "", "", 0, pathError("proof_required", id)
+		}
+		if p.kind != "invite_redemption" {
+			return "", "", 0, pathError("upgrade_required")
+		}
+		r, e := v.readRedemption(p)
+		if e != nil {
+			return "", "", 0, e
+		}
+		if !key(r.halves[0].person) {
+			return "", "", 0, pathError("forbidden")
+		}
+		return r.halves[0].person, r.halves[0].cert, 8, nil
+	}
 	p, ok := v.evidence[id]
 	if !ok {
 		return "", "", 0, pathError("proof_required", id)
@@ -565,6 +585,9 @@ func (v *activationVerifier) retentionSubject(id string) (string, string, uint64
 	switch p.kind {
 	case "person_record":
 		scope = ordinaryScope(scalar(o, "kind"))
+		if scope == 0 && v.inlineInvites[id] && inviteKind(scalar(o, "kind")) {
+			scope = 8
+		}
 		if scope == 0 {
 			return "", "", 0, pathError("upgrade_required")
 		}
@@ -624,9 +647,6 @@ func (v *activationVerifier) checkpoint(p catalogProof, id, person, cert string,
 	}
 	var required uint64
 	for _, rid := range records {
-		if identifier(rid, "pf_") {
-			return pathError("upgrade_required")
-		}
 		owner, target, scope, e := v.retentionSubject(rid)
 		if e != nil {
 			return e
@@ -753,6 +773,19 @@ func (v *activationVerifier) revocations() error {
 // Recheck against all known restrictions, including those learned after a
 // dependency was visited. Traversal order cannot preserve withdrawn authority.
 func (v *activationVerifier) settleHistory() error {
+	for _, pf := range v.orderedProofs() {
+		if v.redemptions[pf] {
+			r, e := v.readRedemption(v.proofs[pf])
+			if e != nil {
+				return e
+			}
+			for _, h := range r.halves {
+				if _, e := v.redemptionHalf(pf, h); e != nil {
+					return e
+				}
+			}
+		}
+	}
 	for _, pf := range v.orderedProofs() {
 		p := v.proofs[pf]
 		if !v.activeRecords[pf] || p.kind != "person_record" || scalar(p.object, "operation_id") != "-" {

@@ -75,21 +75,29 @@ impl Verifier<'_> {
             .proofs
             .iter()
             .filter(|(id, p)| {
-                p.kind == "person_record"
+                (p.kind == "person_record"
                     && s(&p.object, "operation_id") == "-"
                     && s(&p.object, "kind") == "peerspan-person-admit-v1"
                     && !self.active_records.contains(*id)
-                    && !self.inert_records.contains(*id)
+                    && !self.inert_records.contains(*id))
+                    || (p.kind == "invite_redemption"
+                        && s(&p.object, "person_action") == "admit"
+                        && s(&p.object, "person_public_key") == person)
             })
             .map(|(id, p)| (id.clone(), p.clone()))
             .collect();
         let mut failure = None;
         for (id, p) in candidates {
-            let (_, target) = p_obj(&p.object)?;
-            if s(&target, "person_public_key") != person {
-                continue;
-            }
-            if let Err(e) = self.ordinary_record(&id)
+            let result = if p.kind == "invite_redemption" {
+                self.redemption_record(&id)
+            } else {
+                let (_, target) = p_obj(&p.object)?;
+                if s(&target, "person_public_key") != person {
+                    continue;
+                }
+                self.ordinary_record(&id)
+            };
+            if let Err(e) = result
                 && failure.is_none()
             {
                 failure = Some(e);

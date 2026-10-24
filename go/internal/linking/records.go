@@ -59,6 +59,15 @@ func (v *activationVerifier) ensurePerson(person string) error {
 	for _, id := range v.orderedProofs() {
 		candidate := v.proofs[id]
 		o := candidate.object
+		if candidate.kind == "invite_redemption" && scalar(o, "person_action") == "admit" && scalar(o, "person_public_key") == person {
+			if e := v.redemptionRecord(id); e != nil && failure == nil {
+				failure = e
+			}
+			if v.state.Persons[person].Admitted {
+				return nil
+			}
+			continue
+		}
 		if candidate.kind != "person_record" || scalar(o, "operation_id") != "-" || scalar(o, "kind") != "peerspan-person-admit-v1" || v.activeRecords[id] || v.inertRecords[id] {
 			continue
 		}

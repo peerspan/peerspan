@@ -206,8 +206,10 @@ class Author(ActivationAuthor):
         self.add("checkpoint/missing_listed_record", self.renew_c,
                  catalog=self.with_proofs(self.renew_c["catalog"], [("checkpoint", cp)]),
                  code="proof_required", required=[missing])
-        cp = self.checkpoint(["pf_" + "0" * 64])
-        self.add("checkpoint/pf_retention_unsupported", self.renew_c,
+        non_redemption = next(entry["id"] for entry in self.renew_c["catalog"]["objects"]
+                              if entry["kind"] == "person_admission")
+        cp = self.checkpoint([*ids.values(), non_redemption])
+        self.add("checkpoint/non_redemption_pf_retention_unsupported", self.renew_c,
                  catalog=self.with_proofs(self.renew_c["catalog"], [("checkpoint", cp)]), code="upgrade_required")
         pending = self.fixtures["signed_pending_parent_cannot_authorize"]
         self.add("checkpoint/cannot_activate_pending_issuer", pending,

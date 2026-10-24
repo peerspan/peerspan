@@ -50,6 +50,7 @@ pub fn verify_feature(
                             | "root_record"
                             | "device_revocation"
                             | "checkpoint"
+                            | "invite_redemption"
                     )
                 }),
                 "forbidden",

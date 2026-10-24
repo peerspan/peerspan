@@ -79,8 +79,9 @@ activation; a checkpoint alone cannot activate a pending certificate or turn an
 offer into an admission. Ordinary host/person admission and binding with
 operation `-` follow the record checks; ordinary unbinding, person removal and
 host/invite revocation follow the [restriction checks](linking-restriction-checks.md).
-Other ordinary kinds, delegated invite
-redemption and `pf_` retention fail closed with `upgrade_required`. Policies, groups, live
+Completed invitation history and paired invite-`ar_`/redemption-`pf_` retention
+follow the [redemption checks](linking-redemption-checks.md). Other ordinary kinds
+and other `pf_` retention fail closed with `upgrade_required`. Policies, groups, live
 invites, certificates, activations and administrator roles are not retainable.
 
 Every retained record's original signature, payload, signer certificate and
@@ -139,7 +140,7 @@ state, including restrictions discovered later in dependency traversal.
 ## Remaining support boundary
 
 Root rotation/nonzero epochs, policies/groups and high-water handling,
-other ordinary person envelopes, delegated invite redemptions and durable feature activation/
+other ordinary person envelopes, standalone live invitation tokens and durable feature activation/
 durable freshness remain required before writers. These known unsupported
 formats return `upgrade_required`; unknown kinds remain `invalid`.
 

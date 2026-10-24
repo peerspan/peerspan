@@ -16,6 +16,8 @@ pub use action::{ActionAuthority, ActionContext, ActionInvalidation, verify_acti
 #[path = "records.rs"]
 mod records;
 pub use records::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
+#[path = "redemptions.rs"]
+mod redemptions;
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
@@ -88,6 +90,9 @@ struct Verifier<'a> {
     inert_records: BTreeSet<String>,
     history: HistoryFacts,
     evidence: BTreeMap<String, Proof>,
+    redemptions: BTreeSet<String>,
+    inline_invites: BTreeSet<String>,
+    invite_uses: BTreeMap<String, String>,
 }
 
 fn problem(code: &'static str) -> anyhow::Error {
@@ -308,6 +313,9 @@ impl<'a> Verifier<'a> {
             inert_records: BTreeSet::new(),
             history: HistoryFacts::default(),
             evidence: BTreeMap::new(),
+            redemptions: BTreeSet::new(),
+            inline_invites: BTreeSet::new(),
+            invite_uses: BTreeMap::new(),
         })
     }
 
@@ -335,6 +343,7 @@ impl<'a> Verifier<'a> {
             },
         );
         match kind {
+            "invite_redemption" => self.index_redemption(&o)?,
             "certificate" => {
                 let cid = certificate_id(&o)?;
                 self.semantic(&cid, &o)?;
@@ -434,8 +443,10 @@ impl<'a> Verifier<'a> {
                 let ids = string_list(&o, "records")?;
                 check(sorted(&ids), "invalid")?;
                 for rid in ids {
-                    check(!ident(rid, "pf_"), "upgrade_required")?;
-                    check(ident(rid, "ar_") || ident(rid, "dr_"), "invalid")?;
+                    check(
+                        ident(rid, "ar_") || ident(rid, "dr_") || ident(rid, "pf_"),
+                        "invalid",
+                    )?;
                 }
             }
             "activation" => {
@@ -509,8 +520,9 @@ impl<'a> Verifier<'a> {
                 | "feature" | "certificate" | "activation" | "person_record" | "root_record"
                 | "device_revocation" | "admin_removal" | "person_membership"
                 | "host_membership" | "host_unbinding" | "host_leave" | "host_revocation"
-                | "invite_revocation" | "person_removal" | "join_ack" | "checkpoint" => {}
-                "rotation" | "group" | "policy" | "invite_redemption" => {
+                | "invite_revocation" | "person_removal" | "join_ack" | "checkpoint"
+                | "invite_redemption" => {}
+                "rotation" | "group" | "policy" => {
                     return Err(problem("upgrade_required"));
                 }
                 _ => return Err(problem("invalid")),
@@ -647,6 +659,21 @@ impl<'a> Verifier<'a> {
         depth: usize,
     ) -> Result<()> {
         let p = self.proofs.get(id).ok_or_else(|| missing(id))?.clone();
+        if p.kind == "invite_redemption" {
+            check(
+                kind == "peerspan-host-admit-v1" && s(&p.object, "host_public_key") == host,
+                "invalid",
+            )?;
+            self.redemption_record(id)?;
+            let r = self.read_redemption(&p)?;
+            let h = r
+                .halves
+                .iter()
+                .find(|h| h.host)
+                .ok_or_else(|| problem("invalid"))?;
+            check(self.redemption_half(id, h)?, "forbidden")?;
+            return check(self.persons.get(person) == Some(&h.label), "invalid");
+        }
         if matches!(p.kind.as_str(), "person_record" | "root_record") {
             if s(&p.object, "operation_id") == "-" {
                 self.ordinary_record(id)?;

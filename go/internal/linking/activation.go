@@ -63,6 +63,9 @@ type activationVerifier struct {
 	inertRecords       map[string]bool   // valid ordinary grants excluded by root withdrawal
 	history            historyFacts
 	evidence           map[string]catalogProof // derived ar_/dr_ IDs, never asserted indexes
+	redemptions        map[string]bool
+	inlineInvites      map[string]bool
+	inviteUses         map[string]string
 }
 
 func scalar(o Object, k string) string { s, _ := text(o, k); return s }
@@ -146,6 +149,7 @@ func newCatalogVerifier(network []byte, epoch uint64, knownFeature string, now t
 	}
 	v := &activationVerifier{ctx: catalogContext{KnownFeatureID: knownFeature, Now: now}, network: n, net: net, root: root, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}, evidence: map[string]catalogProof{}}
 	v.state = &PathState{NetworkID: net, Persons: map[string]PersonState{}, Hosts: map[string]bool{}, Bindings: map[string]string{}, Certificates: map[string][]byte{}, ActivatedCertificates: map[string]bool{}, RevokedDevices: map[DeviceKey]bool{}}
+	v.redemptions, v.inlineInvites, v.inviteUses = map[string]bool{}, map[string]bool{}, map[string]string{}
 	return v, nil
 }
 
@@ -190,6 +194,10 @@ func (v *activationVerifier) index(kind string, body []byte) (string, error) {
 	}
 	v.proofs[id] = catalogProof{kind, body, o}
 	switch kind {
+	case "invite_redemption":
+		if e := v.indexRedemption(id, o); e != nil {
+			return "", e
+		}
 	case "certificate":
 		cid, e := candidateCertificateID(o)
 		if e != nil {
@@ -258,10 +266,7 @@ func (v *activationVerifier) index(kind string, body []byte) (string, error) {
 			return "", pathError("invalid")
 		}
 		for _, rid := range ids {
-			if identifier(rid, "pf_") {
-				return "", pathError("upgrade_required")
-			}
-			if !identifier(rid, "ar_") && !identifier(rid, "dr_") {
+			if !identifier(rid, "ar_") && !identifier(rid, "dr_") && !identifier(rid, "pf_") {
 				return "", pathError("invalid")
 			}
 		}
@@ -368,8 +373,8 @@ func (v *activationVerifier) catalog(body []byte) error {
 		}
 		last = id
 		switch kind {
-		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint":
-		case "rotation", "group", "policy", "invite_redemption":
+		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption":
+		case "rotation", "group", "policy":
 			return pathError("upgrade_required")
 		default:
 			return pathError("invalid")
@@ -508,6 +513,34 @@ func (v *activationVerifier) renewalProof(id, kind, person, host string, depth i
 	p, ok := v.proofs[id]
 	if !ok {
 		return pathError("proof_required", id)
+	}
+	if p.kind == "invite_redemption" {
+		if kind != "peerspan-host-admit-v1" || scalar(p.object, "host_public_key") != host {
+			return pathError("invalid")
+		}
+		if e := v.redemptionRecord(id); e != nil {
+			return e
+		}
+		r, e := v.readRedemption(p)
+		if e != nil {
+			return e
+		}
+		for _, h := range r.halves {
+			if h.host {
+				valid, e := v.redemptionHalf(id, h)
+				if e != nil {
+					return e
+				}
+				if !valid {
+					return pathError("forbidden")
+				}
+				if h.label != v.persons[person] {
+					return pathError("invalid")
+				}
+				return nil
+			}
+		}
+		return pathError("invalid")
 	}
 	if p.kind == "person_record" || p.kind == "root_record" {
 		operation := scalar(p.object, "operation_id")

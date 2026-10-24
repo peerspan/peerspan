@@ -51,7 +51,7 @@ func VerifyFeature(ctx FeatureContext, catalog, feature []byte) (FeatureEvidence
 		// upgrade that must precede that very operation.
 		for _, p := range v.proofs {
 			switch p.kind {
-			case "activation", "certificate", "person_record", "root_record", "device_revocation", "checkpoint":
+			case "activation", "certificate", "person_record", "root_record", "device_revocation", "checkpoint", "invite_redemption":
 				return bad("forbidden")
 			}
 		}

@@ -25,8 +25,9 @@ need no link-operation ID; operation-bound records still require their exact
 complete activation. The network-root companion remains restricted to linking.
 Ordinary unbinding/removal/revocation follows the
 [restriction checks](linking-restriction-checks.md). Other ordinary kinds remain
-`upgrade_required`: policies/groups, invitations and redemptions need subsequent
-catalog work.
+`upgrade_required`: policies/groups and standalone live invitations need
+subsequent catalog work. Completed invitation/redemption history follows the
+[redemption checks](linking-redemption-checks.md).
 Unknown or malformed registry entries are `invalid` under the existing reader.
 This slice remains genesis-only; a supported ordinary grant's epoch/network
 must match the pinned context (`invalid` on mismatch).

@@ -269,7 +269,8 @@ class Author(HistoryAuthor):
         for kind, obj in objects:
             self.add("first/circular_" + kind, catalog=self.with_proofs(self.catalog, [(kind, obj)]), code="forbidden")
         for kind in ("rotation", "policy", "group", "invite_redemption"):
-            self.add("unsupported/" + kind, catalog=self.with_proofs(self.catalog, [(kind, {})]), code="upgrade_required")
+            self.add("unsupported/" + kind, catalog=self.with_proofs(self.catalog, [(kind, {})]),
+                     code="invalid" if kind == "invite_redemption" else "upgrade_required")
         self.add("unsupported/unknown_kind", catalog=self.with_proofs(self.catalog, [("unknown-kind", {})]), code="invalid")
 
     def strict_inputs(self):

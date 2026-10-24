@@ -28,6 +28,8 @@ materializes signed person/host admissions and host bindings, including exact
 retained history and renewal references. The
 [restriction resolver](linking-restriction-checks.md) adds ordinary unbinding,
 person removal and host/invite revocation under the same history rules.
+The [redemption resolver](linking-redemption-checks.md) adds completed invited
+membership with exact invitation/redemption retention pairs.
 These checks expose verified facts;
 they do not apply actions or enable runtime writers. Other ordinary catalog kinds, root rotation,
 policy/group high-water handling, freshness and durable propagation remain pending;

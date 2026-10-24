@@ -46,8 +46,12 @@ This slice supports epoch **0**, and these catalog kinds:
 - Legacy membership, removal, unbinding/leave, `admin_removal`, `join_ack` and
   `checkpoint` evidence follow the [history checks](linking-history-checks.md).
 
+Completed `invite_redemption` evidence follows the
+[invitation-history checks](linking-redemption-checks.md), including exact paired
+retention and host join coverage.
+
 The remaining *known* unsupported catalog kinds fail closed with `upgrade_required`:
-rotation, policy, group and invite redemption. Unsupported epochs and
+rotation, policy and group. Unsupported epochs and
 other ordinary records also return `upgrade_required`. Unknown kinds are `invalid`.
 This deliberate support boundary means this is not yet a general v1 mutation
 verifier and must not advertise writer readiness or `linking_version: 1`.

@@ -91,7 +91,9 @@ host, person or binding row. Invite revocation has no separate projection array;
 its effect is visible in derived membership and authorization. Arrays remain
 sorted, and no state appears on error.
 
-Policies/groups, delegated invitations/redemptions, root rotation/nonzero epochs,
+Completed invitation/redemption evidence follows the
+[redemption checks](linking-redemption-checks.md). Policies/groups, standalone
+live invitation tokens, root rotation/nonzero epochs,
 high-water/freshness rules and durable feature/storage/maps/propagation remain
 pending. Other ordinary kinds still return `upgrade_required`. The network-root
 companion remains restricted to complete linking admissions. These stateless

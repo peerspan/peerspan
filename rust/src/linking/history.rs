@@ -19,6 +19,29 @@ pub(super) struct HistoryFacts {
 }
 
 impl Verifier<'_> {
+    pub(super) fn redemption_admin_kept(
+        &self,
+        person: &str,
+        record: &str,
+        id: &str,
+    ) -> Result<(bool, bool)> {
+        check(self.history.delegated.contains(person), "forbidden")?;
+        Ok(match self.history.withdrawals.get(person) {
+            Some(w) => (
+                !w.revoke
+                    && w.v2
+                    && w.kept.contains(&format!("record:{record}"))
+                    && w.kept.contains(&format!("redemption:{id}")),
+                true,
+            ),
+            None => (true, false),
+        })
+    }
+
+    pub(super) fn invite_revoked(&self, key: &str) -> bool {
+        self.history.invites.contains(key)
+    }
+
     // These facts restrict dependency resolution. Complete issuer activation,
     // retained authority and final history checks still precede publication.
     fn load_ordinary_restrictions(&mut self) -> Result<()> {
@@ -336,7 +359,6 @@ impl Verifier<'_> {
         self.load_withdrawals()?;
         self.load_restrictions()?;
         self.load_ordinary_restrictions()?;
-        let mut used = BTreeMap::<String, String>::new();
         for p in &proofs {
             let o = &p.object;
             match p.kind.as_str() {
@@ -372,10 +394,10 @@ impl Verifier<'_> {
                         let valid = self.legacy_membership(p, person)?;
                         let half = format!("{field}:{}", text(o, "invite_public_key")?);
                         check(
-                            used.get(&half).is_none_or(|old| old == &k),
+                            self.invite_uses.get(&half).is_none_or(|old| old == &k),
                             "state_conflict",
                         )?;
-                        used.insert(half, k.clone());
+                        self.invite_uses.insert(half, k.clone());
                         valid
                     };
                     if person {
@@ -447,6 +469,7 @@ impl Verifier<'_> {
             "state_conflict",
         )?;
         self.ordinary_records()?;
+        self.redemption_records()?;
         let mut roster = BTreeSet::new();
         for p in &proofs {
             if p.kind == "feature" {
@@ -606,7 +629,7 @@ impl Verifier<'_> {
         r.not_after = c.until.format("%Y-%m-%dT%H:%M:%SZ").to_string();
         Ok(r)
     }
-    fn record_path_live(&self, person: &str, cert: &str) -> bool {
+    pub(super) fn record_path_live(&self, person: &str, cert: &str) -> bool {
         if cert == "root" {
             return true;
         }
@@ -678,12 +701,26 @@ impl Verifier<'_> {
         self.retained(&r.id, person, cert, depth + 1)
     }
     fn retention_subject(&self, id: &str) -> Result<(String, String, u64)> {
+        if ident(id, "pf_") {
+            let p = self.proofs.get(id).ok_or_else(|| missing(id))?;
+            check(p.kind == "invite_redemption", "upgrade_required")?;
+            let r = self.read_redemption(p)?;
+            let h = &r.halves[0];
+            check(key(&h.person), "forbidden")?;
+            return Ok((h.person.clone(), h.cert.clone(), 8));
+        }
         let p = self.evidence.get(id).ok_or_else(|| missing(id))?;
         let o = &p.object;
         let person = text(o, "person_public_key")?;
         let (cert, scope) = match p.kind.as_str() {
             "person_record" => {
-                let scope = records::ordinary_scope(text(o, "kind")?);
+                let mut scope = records::ordinary_scope(text(o, "kind")?);
+                if scope == 0
+                    && self.inline_invites.contains(id)
+                    && redemptions::invite_kind(s(o, "kind"))
+                {
+                    scope = 8;
+                }
                 check(scope != 0, "upgrade_required")?;
                 (text(o, "certificate_id")?, scope)
             }
@@ -713,7 +750,13 @@ impl Verifier<'_> {
         }
         Ok((person.into(), cert.into(), scope))
     }
-    fn checkpoint(&mut self, p: &Proof, id: &str, person: &str, depth: usize) -> Result<()> {
+    pub(super) fn checkpoint(
+        &mut self,
+        p: &Proof,
+        id: &str,
+        person: &str,
+        depth: usize,
+    ) -> Result<()> {
         let o = &p.object;
         let issuer = text(o, "issuer_certificate_id")?;
         let signer = if issuer == "root" {
@@ -724,7 +767,6 @@ impl Verifier<'_> {
         read("checkpoint", &p.body, &signer, "-")?;
         let mut required = 0;
         for rid in string_list(o, "records")? {
-            check(!ident(rid, "pf_"), "upgrade_required")?;
             let (owner, target, scope) = self.retention_subject(rid)?;
             check(
                 owner == person && (issuer == "root" || self.ancestor(issuer, &target)),
@@ -826,6 +868,13 @@ impl Verifier<'_> {
     // Dependencies may have been visited before a later issuer revocation.
     // Verify every derived historical fact against the final restrictive view.
     fn settle_history(&mut self) -> Result<()> {
+        let ids: Vec<_> = self.redemptions.iter().cloned().collect();
+        for id in ids {
+            let r = self.read_redemption(self.proofs.get(&id).expect("indexed redemption"))?;
+            for h in r.halves {
+                self.redemption_half(&id, &h)?;
+            }
+        }
         let ordinary: Vec<_> = self
             .active_records
             .iter()

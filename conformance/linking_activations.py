@@ -426,7 +426,7 @@ class Author:
             sort_catalog(catalog)
             newly_supported = {"admin_removal", "person_membership", "host_membership", "host_unbinding",
                                "host_leave", "host_revocation", "invite_revocation", "person_removal",
-                               "join_ack", "checkpoint"}
+                               "join_ack", "checkpoint", "invite_redemption"}
             self.add("catalog/unsupported/" + kind, catalog=catalog,
                      code="invalid" if kind == "unknown_kind" or kind in newly_supported else "upgrade_required")
         for kind in ("person_record", "root_record"):
