@@ -217,7 +217,7 @@ func (v *activationVerifier) addBinding(host, person string) error {
 	return nil
 }
 
-func (v *activationVerifier) bootstrap() error {
+func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	v.history = historyFacts{delegated: map[string]bool{}, withdrawals: map[string]adminWithdrawal{}, persons: map[string]bool{}, hosts: map[string]bool{}, invites: map[string]bool{}, unbound: map[bindingPair]bool{}}
 	ids := v.orderedProofs()
 	for _, id := range ids {
@@ -385,7 +385,7 @@ func (v *activationVerifier) bootstrap() error {
 		roster[host] = true
 	}
 	for host, admitted := range v.state.Hosts {
-		if admitted && !roster[host] {
+		if checkHostFeatures && admitted && !roster[host] {
 			if e := v.hostActivations(host, 0); e != nil {
 				return e
 			}

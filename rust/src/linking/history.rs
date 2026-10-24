@@ -224,7 +224,7 @@ impl Verifier<'_> {
         self.state.bindings.insert(host.into(), person.into());
         Ok(())
     }
-    pub(super) fn bootstrap(&mut self) -> Result<()> {
+    pub(super) fn bootstrap(&mut self, check_host_features: bool) -> Result<()> {
         let proofs: Vec<_> = self.proofs.values().cloned().collect();
         for p in &proofs {
             if p.kind != "admin_delegation" {
@@ -398,7 +398,7 @@ impl Verifier<'_> {
             .map(|(h, _)| h.clone())
             .collect();
         for host in hosts {
-            if !roster.contains(&host) {
+            if check_host_features && !roster.contains(&host) {
                 self.host_activations(&host, 0)?;
                 check(
                     self.done

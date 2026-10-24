@@ -43,8 +43,12 @@ type catalogProof struct {
 	body   []byte
 	object Object
 }
+type catalogContext struct {
+	KnownFeatureID string
+	Now            time.Time
+}
 type activationVerifier struct {
-	ctx                ActivationContext
+	ctx                catalogContext
 	network            Object
 	net, root, feature string
 	state              *PathState
@@ -95,20 +99,10 @@ func VerifyActivation(ctx ActivationContext, catalog, activation []byte) (Activa
 	if len(ctx.Network)+len(catalog)+len(activation) > MaxActivation || !key(ctx.CallerHostPublicKey) || ctx.ExpectedPersonPublicKey != "-" && !key(ctx.ExpectedPersonPublicKey) || ctx.KnownFeatureID != "-" && !identifier(ctx.KnownFeatureID, "lf_") || ctx.Verification != "first" && ctx.Verification != "historical" {
 		return bad("invalid")
 	}
-	if ctx.Epoch != 0 {
-		return bad("upgrade_required")
+	v, e := newCatalogVerifier(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now)
+	if e != nil {
+		return ActivationEvidence{}, e
 	}
-	n, e := parse(ctx.Network)
-	if e != nil || fields(n, "network_id name genesis_root_public_key coordinator_address coordinator_public_key") != nil {
-		return bad("invalid")
-	}
-	root, net := scalar(n, "genesis_root_public_key"), scalar(n, "network_id")
-	pub, e := membership.DecodeKey(root)
-	if e != nil || !key(root) || !key(scalar(n, "coordinator_public_key")) || membership.NetworkID(pub) != net || !membership.ValidLabel(scalar(n, "name")) || !membership.ValidCoordinatorAddress(scalar(n, "coordinator_address")) {
-		return bad("invalid")
-	}
-	v := &activationVerifier{ctx: ctx, network: n, net: net, root: root, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}, evidence: map[string]catalogProof{}}
-	v.state = &PathState{NetworkID: net, Persons: map[string]PersonState{}, Hosts: map[string]bool{}, Bindings: map[string]string{}, Certificates: map[string][]byte{}, ActivatedCertificates: map[string]bool{}, RevokedDevices: map[DeviceKey]bool{}}
 	if e = v.catalog(catalog); e != nil {
 		return ActivationEvidence{}, e
 	}
@@ -116,7 +110,7 @@ func VerifyActivation(ctx ActivationContext, catalog, activation []byte) (Activa
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
-	if e = v.bootstrap(); e != nil {
+	if e = v.bootstrap(true); e != nil {
 		return ActivationEvidence{}, e
 	}
 	if e = v.revocations(); e != nil {
@@ -131,6 +125,27 @@ func VerifyActivation(ctx ActivationContext, catalog, activation []byte) (Activa
 	}
 	r.State = v.state
 	return r, nil
+}
+
+func newCatalogVerifier(network []byte, epoch uint64, knownFeature string, now time.Time) (*activationVerifier, error) {
+	if knownFeature != "-" && !identifier(knownFeature, "lf_") {
+		return nil, pathError("invalid")
+	}
+	if epoch != 0 {
+		return nil, pathError("upgrade_required")
+	}
+	n, e := parse(network)
+	if e != nil || fields(n, "network_id name genesis_root_public_key coordinator_address coordinator_public_key") != nil {
+		return nil, pathError("invalid")
+	}
+	root, net := scalar(n, "genesis_root_public_key"), scalar(n, "network_id")
+	pub, e := membership.DecodeKey(root)
+	if e != nil || !key(root) || !key(scalar(n, "coordinator_public_key")) || membership.NetworkID(pub) != net || !membership.ValidLabel(scalar(n, "name")) || !membership.ValidCoordinatorAddress(scalar(n, "coordinator_address")) {
+		return nil, pathError("invalid")
+	}
+	v := &activationVerifier{ctx: catalogContext{KnownFeatureID: knownFeature, Now: now}, network: n, net: net, root: root, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}, evidence: map[string]catalogProof{}}
+	v.state = &PathState{NetworkID: net, Persons: map[string]PersonState{}, Hosts: map[string]bool{}, Bindings: map[string]string{}, Certificates: map[string][]byte{}, ActivatedCertificates: map[string]bool{}, RevokedDevices: map[DeviceKey]bool{}}
+	return v, nil
 }
 
 func (v *activationVerifier) semantic(id string, o Object) error {

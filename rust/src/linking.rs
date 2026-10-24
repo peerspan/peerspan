@@ -13,6 +13,7 @@ mod path;
 pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evaluate_path};
 mod activation;
 pub use activation::{ActivationContext, ActivationEvidence, MAX_ACTIVATION, verify_activation};
+pub use activation::{FeatureContext, FeatureEvidence, verify_feature};
 
 pub const MAX_OBJECT: usize = 1 << 20;
 pub const MAX_PAYLOAD: usize = 256 << 10;
@@ -886,6 +887,9 @@ pub fn probe(data: &[u8]) -> Value {
         }
         if text(o, "kind")? == "activation" {
             return Ok(activation::probe_activation(o));
+        }
+        if text(o, "kind")? == "feature_activation" {
+            return Ok(activation::probe_feature(o));
         }
         fields(
             o,

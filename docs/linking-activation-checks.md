@@ -28,9 +28,11 @@ This slice supports epoch **0**, and these catalog kinds:
   and host raw consent over the legacy binding message.
 - `feature`: complete root-signed feature and every roster acknowledgment.
   Every legacy admitted host must occur in its frozen roster or prove the same
-  feature through `join_ack` or a complete activation. Feature creation,
-  the initial 24-hour window, fresh roster observation and durable high-water
-  persistence remain separate gates; this checker verifies historical evidence.
+  feature through `join_ack` or a complete activation. First enablement's
+  24-hour window and exact roster are checked separately by the
+  [feature activation checker](linking-feature-checks.md). Fresh roster
+  observation and durable high-water persistence remain transactional gates;
+  this activation checker verifies historical feature evidence.
 - `certificate`, `activation`, `person_record`, `root_record`: exact candidate
   objects and complete activations. Operation-bound records only become facts
   through their matching activation. Standalone records with operation `-` are

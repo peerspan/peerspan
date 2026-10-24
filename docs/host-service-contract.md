@@ -17,7 +17,10 @@ chains against independently verified current state. The bounded
 [catalog/activation verifier](linking-activation-checks.md) derives that state
 from signed genesis admissions and complete new/renew transcripts. The
 [history verifier](linking-history-checks.md) adds legacy invite membership,
-sticky removals and exact retained link records. General catalogs, root rotation,
+sticky removals and exact retained link records. The stateless
+[feature activation checker](linking-feature-checks.md) enforces the first
+proposal's deadline and exact signed roster, and distinguishes a previously
+persisted feature from a proposal merely present in a catalog. General catalogs, root rotation,
 policy/group high-water handling, freshness and durable propagation remain pending;
 `link` and its local routes are not available.
 

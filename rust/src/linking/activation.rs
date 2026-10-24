@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 #[path = "history.rs"]
 mod history;
 use history::HistoryFacts;
+#[path = "feature.rs"]
+mod feature;
+pub use feature::{FeatureContext, FeatureEvidence, verify_feature};
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
@@ -56,8 +59,12 @@ struct Proof {
     body: Vec<u8>,
     object: Obj,
 }
+struct CatalogContext<'a> {
+    known_feature_id: &'a str,
+    now: chrono::DateTime<chrono::Utc>,
+}
 struct Verifier<'a> {
-    ctx: ActivationContext<'a>,
+    ctx: CatalogContext<'a>,
     network: Obj,
     net: String,
     root: String,
@@ -202,59 +209,17 @@ pub fn verify_activation(
                 && matches!(ctx.verification, "first" | "historical"),
             "invalid",
         )?;
-        check(ctx.epoch == 0, "upgrade_required")?;
-        let network = obj(ctx.network)?;
-        fields(
-            &network,
-            "network_id name genesis_root_public_key coordinator_address coordinator_public_key",
-            &[],
-        )?;
-        let root_key = text(&network, "genesis_root_public_key")?.to_owned();
-        let net = text(&network, "network_id")?.to_owned();
-        check(
-            key(&root_key) && key(text(&network, "coordinator_public_key")?),
-            "invalid",
-        )?;
-        check(
-            crate::membership::network_id(crate::membership::public_key(&root_key)?.as_bytes())
-                == net,
-            "invalid",
-        )?;
-        crate::membership::label(text(&network, "name")?)?;
-        crate::membership::split_host_port(text(&network, "coordinator_address")?)?;
-        let state = PathState {
-            network_id: net.clone(),
-            ..PathState::default()
-        };
         let historical = ctx.verification == "historical";
-        let mut v = Verifier {
-            ctx,
-            network,
-            net,
-            root: root_key,
-            feature: String::new(),
-            state,
-            proofs: BTreeMap::new(),
-            semantics: BTreeMap::new(),
-            activations: BTreeMap::new(),
-            busy: BTreeSet::new(),
-            done: BTreeMap::new(),
-            admins: BTreeSet::new(),
-            persons: BTreeMap::new(),
-            hosts: BTreeMap::new(),
-            active_records: BTreeSet::new(),
-            history: HistoryFacts::default(),
-            evidence: BTreeMap::new(),
-        };
+        let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
         v.catalog(catalog)?;
         let request = v.index_activation(activation)?;
-        v.bootstrap()?;
+        v.bootstrap(true)?;
         v.revocations()?;
         let r = v.activate(&request, historical, 0)?;
         check(
-            r.host_public_key == v.ctx.caller_host_public_key
-                && (v.ctx.expected_person_public_key == "-"
-                    || r.person_public_key == v.ctx.expected_person_public_key),
+            r.host_public_key == ctx.caller_host_public_key
+                && (ctx.expected_person_public_key == "-"
+                    || r.person_public_key == ctx.expected_person_public_key),
             "invalid",
         )?;
         Ok(ActivationEvidence {
@@ -279,7 +244,65 @@ pub fn verify_activation(
     })
 }
 
-impl Verifier<'_> {
+impl<'a> Verifier<'a> {
+    fn new(
+        network_bytes: &[u8],
+        epoch: u64,
+        known_feature_id: &'a str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Self> {
+        check(
+            known_feature_id == "-" || ident(known_feature_id, "lf_"),
+            "invalid",
+        )?;
+        check(epoch == 0, "upgrade_required")?;
+        let network = obj(network_bytes)?;
+        fields(
+            &network,
+            "network_id name genesis_root_public_key coordinator_address coordinator_public_key",
+            &[],
+        )?;
+        let root_key = text(&network, "genesis_root_public_key")?.to_owned();
+        let net = text(&network, "network_id")?.to_owned();
+        check(
+            key(&root_key) && key(text(&network, "coordinator_public_key")?),
+            "invalid",
+        )?;
+        check(
+            crate::membership::network_id(crate::membership::public_key(&root_key)?.as_bytes())
+                == net,
+            "invalid",
+        )?;
+        crate::membership::label(text(&network, "name")?)?;
+        crate::membership::split_host_port(text(&network, "coordinator_address")?)?;
+        let state = PathState {
+            network_id: net.clone(),
+            ..PathState::default()
+        };
+        Ok(Self {
+            ctx: CatalogContext {
+                known_feature_id,
+                now,
+            },
+            network,
+            net,
+            root: root_key,
+            feature: String::new(),
+            state,
+            proofs: BTreeMap::new(),
+            semantics: BTreeMap::new(),
+            activations: BTreeMap::new(),
+            busy: BTreeSet::new(),
+            done: BTreeMap::new(),
+            admins: BTreeSet::new(),
+            persons: BTreeMap::new(),
+            hosts: BTreeMap::new(),
+            active_records: BTreeSet::new(),
+            history: HistoryFacts::default(),
+            evidence: BTreeMap::new(),
+        })
+    }
+
     fn semantic(&mut self, id: &str, o: &Obj) -> Result<()> {
         check(
             self.semantics.get(id).is_none_or(|old| old == o),
@@ -1080,4 +1103,8 @@ pub(super) fn probe_activation(o: &Obj) -> Value {
             json!({"ok":false,"code":code,"required_ids":e.downcast_ref::<PathError>().expect("known error").required_ids})
         } else { json!({"ok":false,"code":code}) }
     })
+}
+
+pub(super) fn probe_feature(o: &Obj) -> Value {
+    feature::probe_feature(o)
 }

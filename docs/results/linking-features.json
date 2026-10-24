@@ -1,0 +1,100 @@
+{
+  "checked_on": "2026-10-24",
+  "base_commit": "1036f7fb2fbb859d0c3a036c339d1f1d5fe1a9f3",
+  "scope": "Stateless genesis feature upgrade eligibility: exact signed roster and first 24-hour interval, independently pinned prior feature, monotonic replay and current host join proofs. No durable activation, freshness, writer readiness, daemon routes or CLI integration.",
+  "contract": "docs/linking-feature-checks.md",
+  "suite_authorship": "A separate author used the accepted contracts, public fixtures and independent Python signing helpers, without inspecting either Go or Rust implementation. Only the new linking_features.py suite was authored.",
+  "feature_conformance": {
+    "passed": true,
+    "suite": "conformance/linking_features.py",
+    "implementations": [
+      "go",
+      "rust"
+    ],
+    "checks_per_implementation": 172,
+    "eligible": 32,
+    "rejected": 140,
+    "stream_recovery": "Included in the 172 requests.",
+    "command": "python3 conformance/linking_features.py --go-probe /tmp/peerspan-link-feature-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe",
+    "coverage": [
+      "Raw and SSH root proposals, exact single/multiple-host rosters and signed acknowledgments",
+      "Inclusive issue time, last valid second, exclusive 24-hour deadline and future proposals",
+      "Signed direct/invite membership, unbound hosts, removals, host leave/revocation and exact administrator kept statements",
+      "Catalog presence cannot supply the prior durable pin or bypass first interval/roster checks",
+      "Known matching feature survives expiry and all original host departures; later hosts need exact join proof",
+      "A separately admitted B forces complete root-to-B history to supply its feature acknowledgment; missing activation and pinned descriptor mismatch reject",
+      "Unused activation candidates remain inert; first enablement refuses circular linking evidence",
+      "Strict encodings, shapes, transport IDs, semantic aliases, decoded 512KiB boundary, framing and recovery"
+    ]
+  },
+  "regressions": {
+    "activation": {
+      "passed": true,
+      "checks_per_implementation": 248,
+      "command": "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-link-feature-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "history": {
+      "passed": true,
+      "checks_per_implementation": 113,
+      "command": "python3 conformance/linking_history.py --go-probe /tmp/peerspan-link-feature-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "paths": {
+      "passed": true,
+      "checks_per_implementation": 331,
+      "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-feature-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "readers": {
+      "passed": true,
+      "checks_per_implementation": 1093,
+      "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-feature-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+    },
+    "total_checks_per_implementation": 1957,
+    "public_signatures_independently_reproduced": 199
+  },
+  "language_checks": {
+    "go_race": {
+      "passed": true,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-feature-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "host_seconds": 172.122
+    },
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-feature-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_seconds": 68.96,
+      "note": "Sequential tests and default Tokio workers, after the full Go run; ignored tests are opt-in connectivity helpers."
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-feature-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-feature-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "Root rotation/nonzero epochs and general catalog verification",
+    "Ordinary envelopes, delegated invite/redemption history, policy/group high-water handling",
+    "Durable monotonic feature activation, current snapshot freshness, reader-version mutation/map gates and upgraded acknowledgment writers",
+    "Signed-state storage, v2 maps, coordinator/peer propagation and recovery",
+    "Linking ceremony, signer discovery/renewal and up integration"
+  ]
+}
