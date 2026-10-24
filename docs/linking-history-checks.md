@@ -77,7 +77,9 @@ complete activation or supported [ordinary grants](linking-record-checks.md),
 or `dr_` device revocations. Operation-bound records still require that exact
 activation; a checkpoint alone cannot activate a pending certificate or turn an
 offer into an admission. Ordinary host/person admission and binding with
-operation `-` follow the record checks. Other ordinary kinds, delegated invite
+operation `-` follow the record checks; ordinary unbinding, person removal and
+host/invite revocation follow the [restriction checks](linking-restriction-checks.md).
+Other ordinary kinds, delegated invite
 redemption and `pf_` retention fail closed with `upgrade_required`. Policies, groups, live
 invites, certificates, activations and administrator roles are not retainable.
 
@@ -87,7 +89,8 @@ bytes; retain no other record by resemblance. The checkpoint names the same
 network and original *signer* person. Its signature is by that original person
 or a currently usable, unaffected strict ancestor of the record's signing
 certificate. A delegated checkpoint needs each record's required bits (2 for
-binding, 8 for admission, 4 for revocation), including the current administrator
+binding/unbinding, 8 for administrator admissions/restrictions, 4 for device
+revocation), including the current administrator
 role for bit 8. A sibling, descendant or the record's own signing certificate
 cannot retain it. The root-person checkpoint is durable, may endorse records
 after the original device expired, and does not rely on asserted receipt/signing

@@ -1,0 +1,108 @@
+{
+  "checked_on": "2026-10-24",
+  "base_commit": "cbd004569a18cd0dfc41438fa4207e45caa8f1f6",
+  "scope": "Genesis-only ordinary person-record unbinding, person removal and host/invite revocation in bounded catalog facts. Exact retained authority, final restrictions and self-invalidating history checks. No mutation, persistence, freshness, rollback protection, runtime route or writer-readiness claim.",
+  "contract": "docs/linking-restriction-checks.md",
+  "suite_authorship": "A separate author used accepted contracts, public vectors and independent Python signing helpers without inspecting either implementation. Added linking_restrictions.py. Narrow existing support-boundary changes: records skips only the four newly supported kinds in its unsupported loop; actions now accepts an unrelated original-person unbinding in the catalog. No public vectors changed.",
+  "conformance": {
+    "passed": true,
+    "implementations": [
+      "go",
+      "rust"
+    ],
+    "total_checks_per_implementation": 2631,
+    "public_signatures_independently_reproduced": 199,
+    "suites": {
+      "readers": {
+        "checks_per_implementation": 1093,
+        "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "paths": {
+        "checks_per_implementation": 331,
+        "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "activations": {
+        "checks_per_implementation": 248,
+        "command": "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "history": {
+        "checks_per_implementation": 113,
+        "command": "python3 conformance/linking_history.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "features": {
+        "checks_per_implementation": 172,
+        "command": "python3 conformance/linking_features.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "actions": {
+        "checks_per_implementation": 313,
+        "command": "python3 conformance/linking_actions.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "records": {
+        "checks_per_implementation": 179,
+        "command": "python3 conformance/linking_records.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      },
+      "restrictions": {
+        "checks_per_implementation": 182,
+        "command": "python3 conformance/linking_restrictions.py --go-probe /tmp/peerspan-link-restrictions-go --rust-probe /tmp/peerspan-link-reader-rust-target/debug/peerspan-link-probe"
+      }
+    },
+    "restriction_checks": {
+      "accepted": 77,
+      "rejected": 105,
+      "stream_recovery": "Included in the 182 requests."
+    },
+    "adjusted_records": {
+      "accepted": 67,
+      "rejected": 112
+    },
+    "adjusted_actions": {
+      "authorized": 82,
+      "rejected": 231
+    }
+  },
+  "language_checks": {
+    "go_race": {
+      "passed": true,
+      "command": "XDG_CONFIG_HOME=/tmp/peerspan-link-restrictions-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "host_seconds": 170.202
+    },
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-restrictions-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_seconds": 59.98,
+      "note": "Sequential tests and default Tokio workers, after the full Go race suite. The two ignored tests are opt-in connectivity helpers."
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-restrictions-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-restrictions-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "Policies/groups, delegated invitations/redemptions, root rotation and nonzero epochs",
+    "Durable feature activation, snapshot freshness, high-water state, reader-version mutation/map gates and storage/maps/propagation/recovery",
+    "Atomic operation-specific writer preconditions and committed retry semantics",
+    "Linking ceremony, signer discovery/renewal and up integration"
+  ]
+}

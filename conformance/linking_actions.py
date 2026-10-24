@@ -373,7 +373,7 @@ class Author(HistoryAuthor):
         self.add("gate/missing_complete_feature", unbinding, missing_feature, code="proof_required")
         ordinary = copy.deepcopy(self.b)
         ordinary["catalog"] = self.with_proofs(self.b["catalog"], [("person_record", self.record("host-unbind-v1"))])
-        self.add("catalog/ordinary_history_still_unsupported", unbinding, ordinary, code="upgrade_required")
+        self.add("catalog/ordinary_unbinding_supported", unbinding, ordinary)
         root_record = payload(self.fixtures["network_root_admits"]["activation"]["administrator"])["admission_record"]
         self.add("route/root_companion_record_not_person_action", root_record, action_kind="person_record", code="invalid")
 

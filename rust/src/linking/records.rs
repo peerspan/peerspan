@@ -3,17 +3,31 @@ use super::*;
 
 pub(super) fn ordinary_scope(kind: &str) -> u64 {
     match kind {
-        "peerspan-host-bind-v1" => 2,
-        "peerspan-host-admit-v1" | "peerspan-person-admit-v1" => 8,
+        "peerspan-host-bind-v1" | "peerspan-host-unbind-v1" => 2,
+        "peerspan-host-admit-v1"
+        | "peerspan-person-admit-v1"
+        | "peerspan-person-remove-v1"
+        | "peerspan-revoke-host-v1"
+        | "peerspan-revoke-invite-v1" => 8,
         _ => 0,
     }
 }
 
+pub(super) fn ordinary_restriction(kind: &str) -> bool {
+    matches!(
+        kind,
+        "peerspan-host-unbind-v1"
+            | "peerspan-person-remove-v1"
+            | "peerspan-revoke-host-v1"
+            | "peerspan-revoke-invite-v1"
+    )
+}
+
 pub(super) struct Grant {
     pub(super) record: SignedObject,
-    payload: Obj,
-    person: String,
-    cert: String,
+    pub(super) payload: Obj,
+    pub(super) person: String,
+    pub(super) cert: String,
     pub(super) scope: u64,
 }
 
@@ -110,18 +124,22 @@ impl Verifier<'_> {
         let p = self.proofs.get(id).ok_or_else(|| missing(id))?.clone();
         let g = self.read_ordinary(&p)?;
         if g.scope == 8 && !self.ordinary_admin_kept(&g.person, &g.record.id)? {
-            if s(&p.object, "kind") == "peerspan-person-admit-v1" {
-                let person = text(&g.payload, "person_public_key")?.to_owned();
-                let administrator = self.admins.contains(&person);
-                self.state.persons.entry(person).or_insert(PersonState {
-                    admitted: false,
-                    administrator,
-                });
-            } else {
-                self.state
-                    .hosts
-                    .entry(text(&g.payload, "host_public_key")?.into())
-                    .or_insert(false);
+            match s(&p.object, "kind") {
+                "peerspan-person-admit-v1" => {
+                    let person = text(&g.payload, "person_public_key")?.to_owned();
+                    let administrator = self.admins.contains(&person);
+                    self.state.persons.entry(person).or_insert(PersonState {
+                        admitted: false,
+                        administrator,
+                    });
+                }
+                "peerspan-host-admit-v1" => {
+                    self.state
+                        .hosts
+                        .entry(text(&g.payload, "host_public_key")?.into())
+                        .or_insert(false);
+                }
+                _ => {}
             }
             self.inert_records.insert(id.into());
             return Ok(());
@@ -158,7 +176,7 @@ impl Verifier<'_> {
                     },
                 );
             }
-            _ => return Err(problem("invalid")),
+            kind => self.apply_ordinary_restriction(&g, kind),
         }
         self.restrict_state();
         self.active_records.insert(id.into());

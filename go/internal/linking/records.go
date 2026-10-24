@@ -7,9 +7,9 @@ import (
 
 func ordinaryScope(kind string) uint64 {
 	switch kind {
-	case "peerspan-host-bind-v1":
+	case "peerspan-host-bind-v1", "peerspan-host-unbind-v1":
 		return 2
-	case "peerspan-host-admit-v1", "peerspan-person-admit-v1":
+	case "peerspan-host-admit-v1", "peerspan-person-admit-v1", "peerspan-person-remove-v1", "peerspan-revoke-host-v1", "peerspan-revoke-invite-v1":
 		return 8
 	}
 	return 0
@@ -104,17 +104,19 @@ func (v *activationVerifier) ordinaryRecord(id string) error {
 		return e
 	}
 	if g.scope == 8 {
-		if !v.history.delegated[g.person] {
-			return pathError("forbidden")
+		kept, e := v.ordinaryAdminKept(g)
+		if e != nil {
+			return e
 		}
-		if removed, ok := v.history.withdrawals[g.person]; ok && (removed.revoke || !removed.v2 || !removed.kept["record:"+g.record.ID]) {
+		if !kept {
 			// A valid withdrawn grant cannot hide another independent admission.
-			if scalar(p.object, "kind") == "peerspan-person-admit-v1" {
+			switch scalar(p.object, "kind") {
+			case "peerspan-person-admit-v1":
 				k := scalar(g.payload, "person_public_key")
 				if _, exists := v.state.Persons[k]; !exists {
 					v.state.Persons[k] = PersonState{Administrator: v.admins[k]}
 				}
-			} else {
+			case "peerspan-host-admit-v1":
 				k := scalar(g.payload, "host_public_key")
 				if _, exists := v.state.Hosts[k]; !exists {
 					v.state.Hosts[k] = false
@@ -151,6 +153,8 @@ func (v *activationVerifier) ordinaryRecord(id string) error {
 		}
 		v.persons[person] = label
 		v.state.Persons[person] = PersonState{Admitted: true, Administrator: v.admins[person]}
+	default:
+		v.applyOrdinaryRestriction(g, scalar(p.object, "kind"))
 	}
 	v.restrictState()
 	v.activeRecords[id] = true

@@ -8,7 +8,9 @@ daemon/coordinator route, writer, storage change or CLI command is added.
 
 This gate checks **current signing authority**, rather than applying the action
 or deriving historical state from it. The [ordinary grant resolver](linking-record-checks.md)
-now supplies admission and binding history. Other ordinary catalog kinds,
+now supplies admission and binding history; the
+[restriction resolver](linking-restriction-checks.md) adds ordinary unbinding,
+person removal and host/invite revocation. Other ordinary catalog kinds,
 invite redemptions, policy/group high-water
 handling and durable propagation remain required before writers. The current
 catalog input retains the [activation/history support boundary](linking-activation-checks.md),

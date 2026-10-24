@@ -247,6 +247,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	if e := v.loadRestrictions(); e != nil {
 		return e
 	}
+	if e := v.loadOrdinaryRestrictions(); e != nil {
+		return e
+	}
 	used := map[string]string{}
 	for _, id := range ids {
 		p := v.proofs[id]
@@ -561,12 +564,8 @@ func (v *activationVerifier) retentionSubject(id string) (string, string, uint64
 	scope := uint64(0)
 	switch p.kind {
 	case "person_record":
-		switch scalar(o, "kind") {
-		case "peerspan-host-bind-v1":
-			scope = 2
-		case "peerspan-host-admit-v1", "peerspan-person-admit-v1":
-			scope = 8
-		default:
+		scope = ordinaryScope(scalar(o, "kind"))
+		if scope == 0 {
 			return "", "", 0, pathError("upgrade_required")
 		}
 	case "device_revocation":

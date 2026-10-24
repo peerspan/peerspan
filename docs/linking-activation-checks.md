@@ -36,7 +36,8 @@ This slice supports epoch **0**, and these catalog kinds:
 - `certificate`, `activation`, `person_record`, `root_record`: exact candidate
   objects and complete activations. Operation-bound records only become facts
   through their matching activation. Supported ordinary admission/binding
-  records with operation `-` follow the [record checks](linking-record-checks.md).
+  records with operation `-` follow the [record checks](linking-record-checks.md)
+  and [restrictive-record checks](linking-restriction-checks.md).
   Certificate candidates alone never activate authority.
 - `device_revocation`: original-person-root or strict-ancestor sticky revocations. The exact
   target certificate must verify structurally and identify the same device key.

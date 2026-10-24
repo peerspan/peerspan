@@ -19,6 +19,72 @@ pub(super) struct HistoryFacts {
 }
 
 impl Verifier<'_> {
+    // These facts restrict dependency resolution. Complete issuer activation,
+    // retained authority and final history checks still precede publication.
+    fn load_ordinary_restrictions(&mut self) -> Result<()> {
+        let proofs: Vec<_> = self
+            .proofs
+            .values()
+            .filter(|p| {
+                p.kind == "person_record"
+                    && s(&p.object, "operation_id") == "-"
+                    && records::ordinary_restriction(s(&p.object, "kind"))
+            })
+            .cloned()
+            .collect();
+        for p in proofs {
+            let g = self.read_ordinary(&p)?;
+            if g.scope == 8 && !self.ordinary_admin_kept(&g.person, &g.record.id)? {
+                continue;
+            }
+            let kind = s(&p.object, "kind");
+            if g.cert != "root" {
+                check(
+                    !(kind == "peerspan-person-remove-v1"
+                        && s(&g.payload, "person_public_key") == g.person),
+                    "forbidden",
+                )?;
+                if matches!(kind, "peerspan-host-unbind-v1" | "peerspan-revoke-host-v1") {
+                    let mut cert = g.cert.clone();
+                    while cert != "root" {
+                        // read_ordinary verified the bounded structural chain.
+                        let c = self.structural(&cert, &g.person)?;
+                        check(c.host != s(&g.payload, "host_public_key"), "forbidden")?;
+                        cert = c.parent;
+                    }
+                }
+            }
+            self.apply_ordinary_restriction(&g, kind);
+        }
+        Ok(())
+    }
+
+    pub(super) fn apply_ordinary_restriction(&mut self, g: &records::Grant, kind: &str) {
+        match kind {
+            "peerspan-host-unbind-v1" => {
+                self.history
+                    .unbound
+                    .insert((g.person.clone(), s(&g.payload, "host_public_key").into()));
+            }
+            "peerspan-person-remove-v1" => {
+                self.history
+                    .persons
+                    .insert(s(&g.payload, "person_public_key").into());
+            }
+            "peerspan-revoke-host-v1" => {
+                self.history
+                    .hosts
+                    .insert(s(&g.payload, "host_public_key").into());
+            }
+            "peerspan-revoke-invite-v1" => {
+                self.history
+                    .invites
+                    .insert(s(&g.payload, "invite_public_key").into());
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn ordinary_admin_kept(&self, person: &str, record: &str) -> Result<bool> {
         check(self.history.delegated.contains(person), "forbidden")?;
         Ok(self
@@ -269,6 +335,7 @@ impl Verifier<'_> {
         }
         self.load_withdrawals()?;
         self.load_restrictions()?;
+        self.load_ordinary_restrictions()?;
         let mut used = BTreeMap::<String, String>::new();
         for p in &proofs {
             let o = &p.object;
@@ -616,11 +683,8 @@ impl Verifier<'_> {
         let person = text(o, "person_public_key")?;
         let (cert, scope) = match p.kind.as_str() {
             "person_record" => {
-                let scope = match text(o, "kind")? {
-                    "peerspan-host-bind-v1" => 2,
-                    "peerspan-host-admit-v1" | "peerspan-person-admit-v1" => 8,
-                    _ => return Err(problem("upgrade_required")),
-                };
+                let scope = records::ordinary_scope(text(o, "kind")?);
+                check(scope != 0, "upgrade_required")?;
                 (text(o, "certificate_id")?, scope)
             }
             "device_revocation" => (text(o, "issuer_certificate_id")?, 4),
