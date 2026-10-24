@@ -362,6 +362,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	if v.ctx.KnownFeatureID != "-" && v.ctx.KnownFeatureID != v.feature {
 		return pathError("state_conflict")
 	}
+	if e := v.ordinaryRecords(); e != nil {
+		return e
+	}
 	roster := map[string]bool{}
 	for _, id := range ids {
 		p := v.proofs[id]
@@ -473,8 +476,8 @@ func (v *activationVerifier) actor(person, cert string, scope uint64, historical
 	if !key(person) || cert != "root" && !identifier(cert, "dc_") {
 		return SigningPath{}, pathError("invalid")
 	}
-	if _, known := v.state.Persons[person]; !known {
-		return SigningPath{}, pathError("proof_required")
+	if e := v.ensurePerson(person); e != nil {
+		return SigningPath{}, e
 	}
 	r := SigningPath{CertificateID: cert, PersonPublicKey: person, SignerPublicKey: person, Scopes: 15, NotAfter: "-", CertificateIDs: []string{}, HostPublicKeys: []string{}}
 	if cert == "root" {
@@ -561,7 +564,7 @@ func (v *activationVerifier) retentionSubject(id string) (string, string, uint64
 		switch scalar(o, "kind") {
 		case "peerspan-host-bind-v1":
 			scope = 2
-		case "peerspan-host-admit-v1":
+		case "peerspan-host-admit-v1", "peerspan-person-admit-v1":
 			scope = 8
 		default:
 			return "", "", 0, pathError("upgrade_required")
@@ -751,6 +754,19 @@ func (v *activationVerifier) revocations() error {
 // Recheck against all known restrictions, including those learned after a
 // dependency was visited. Traversal order cannot preserve withdrawn authority.
 func (v *activationVerifier) settleHistory() error {
+	for _, pf := range v.orderedProofs() {
+		p := v.proofs[pf]
+		if !v.activeRecords[pf] || p.kind != "person_record" || scalar(p.object, "operation_id") != "-" {
+			continue
+		}
+		g, e := v.readOrdinary(p)
+		if e != nil {
+			return e
+		}
+		if e = v.historicalRecord(g.record, p.object, g.scope, 0); e != nil {
+			return e
+		}
+	}
 	for id, p := range v.evidence {
 		if p.kind != "device_revocation" || scalar(p.object, "issuer_certificate_id") == "root" {
 			continue

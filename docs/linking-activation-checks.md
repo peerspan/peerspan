@@ -35,8 +35,9 @@ This slice supports epoch **0**, and these catalog kinds:
   this activation checker verifies historical feature evidence.
 - `certificate`, `activation`, `person_record`, `root_record`: exact candidate
   objects and complete activations. Operation-bound records only become facts
-  through their matching activation. Standalone records with operation `-` are
-  outside this slice. Certificate candidates alone never activate authority.
+  through their matching activation. Supported ordinary admission/binding
+  records with operation `-` follow the [record checks](linking-record-checks.md).
+  Certificate candidates alone never activate authority.
 - `device_revocation`: original-person-root or strict-ancestor sticky revocations. The exact
   target certificate must verify structurally and identify the same device key.
   Delegated revocations follow the history checks, including exact retention
@@ -46,7 +47,7 @@ This slice supports epoch **0**, and these catalog kinds:
 
 The remaining *known* unsupported catalog kinds fail closed with `upgrade_required`:
 rotation, policy, group and invite redemption. Unsupported epochs and
-standalone records also return `upgrade_required`. Unknown kinds are `invalid`.
+other ordinary records also return `upgrade_required`. Unknown kinds are `invalid`.
 This deliberate support boundary means this is not yet a general v1 mutation
 verifier and must not advertise writer readiness or `linking_version: 1`.
 An offer or record epoch that differs from the pinned verification epoch is a

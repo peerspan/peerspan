@@ -59,7 +59,8 @@ type activationVerifier struct {
 	done               map[string]ActivationEvidence
 	admins             map[string]bool
 	persons, hosts     map[string]string // verified admission labels
-	activeRecords      map[string]bool   // exact proof IDs authorized by full activations
+	activeRecords      map[string]bool   // exact authorized ordinary/activation proof IDs
+	inertRecords       map[string]bool   // valid ordinary grants excluded by root withdrawal
 	history            historyFacts
 	evidence           map[string]catalogProof // derived ar_/dr_ IDs, never asserted indexes
 }
@@ -206,7 +207,7 @@ func (v *activationVerifier) index(kind string, body []byte) (string, error) {
 		if nestedRecord(body) != nil {
 			return "", pathError("invalid")
 		}
-		if scalar(o, "operation_id") == "-" {
+		if scalar(o, "operation_id") == "-" && (kind != "person_record" || ordinaryScope(scalar(o, "kind")) == 0) {
 			return "", pathError("upgrade_required")
 		}
 		b, _, e := payload(o)
@@ -445,6 +446,9 @@ func (v *activationVerifier) authority(person, cert string, scope uint64, depth 
 	if !key(person) || cert != "root" && !identifier(cert, "dc_") {
 		return SigningPath{}, pathError("invalid")
 	}
+	if e := v.ensurePerson(person); e != nil {
+		return SigningPath{}, e
+	}
 	if cert != "root" {
 		c, e := v.structural(cert, person)
 		if e != nil {
@@ -507,8 +511,24 @@ func (v *activationVerifier) renewalProof(id, kind, person, host string, depth i
 	}
 	if p.kind == "person_record" || p.kind == "root_record" {
 		operation := scalar(p.object, "operation_id")
-		if _, e := v.activate(operation, true, depth+1); e != nil {
-			return e
+		if operation == "-" {
+			if e := v.ordinaryRecord(id); e != nil {
+				return e
+			}
+			g, e := v.readOrdinary(p)
+			if e != nil {
+				return e
+			}
+			if !v.activeRecords[id] {
+				return pathError("forbidden")
+			}
+			if e = v.historicalRecord(g.record, p.object, g.scope, depth); e != nil {
+				return e
+			}
+		} else {
+			if _, e := v.activate(operation, true, depth+1); e != nil {
+				return e
+			}
 		}
 		if !v.activeRecords[id] || scalar(p.object, "kind") != kind {
 			return pathError("invalid")

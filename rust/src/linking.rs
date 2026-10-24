@@ -14,6 +14,7 @@ pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evalua
 mod activation;
 pub use activation::{ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority};
 pub use activation::{ActivationContext, ActivationEvidence, MAX_ACTIVATION, verify_activation};
+pub use activation::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
 pub use activation::{FeatureContext, FeatureEvidence, verify_feature};
 
 pub const MAX_OBJECT: usize = 1 << 20;
@@ -894,6 +895,9 @@ pub fn probe(data: &[u8]) -> Value {
         }
         if text(o, "kind")? == "action_authorization" {
             return Ok(activation::probe_action(o));
+        }
+        if text(o, "kind")? == "catalog_facts" {
+            return Ok(activation::probe_catalog_facts(o));
         }
         fields(
             o,

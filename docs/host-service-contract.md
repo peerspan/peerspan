@@ -23,8 +23,10 @@ proposal's deadline and exact signed roster, and distinguishes a previously
 persisted feature from a proposal merely present in a catalog. The
 [ordinary action authorization gate](linking-action-checks.md) checks current
 signer scopes, role and expiry bounds, and refuses delegated changes that would
-disable their own selected path. It does not apply actions or derive ordinary
-history. General catalogs, root rotation,
+disable their own selected path. The [ordinary grant resolver](linking-record-checks.md)
+materializes signed person/host admissions and host bindings, including exact
+retained history and renewal references. These checks expose verified facts;
+they do not apply actions or enable runtime writers. Other ordinary catalog kinds, root rotation,
 policy/group high-water handling, freshness and durable propagation remain pending;
 `link` and its local routes are not available.
 

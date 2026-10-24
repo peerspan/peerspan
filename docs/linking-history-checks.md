@@ -73,11 +73,12 @@ signatures are `invalid`. New administrator actions always need a current role.
 ## Checkpoints and completed activations
 
 Supported checkpoints retain exact `ar_` binding/admission records from a
-complete activation, or `dr_` device revocations. Operation-bound records still
-require that exact activation; a checkpoint alone cannot activate a pending
-certificate or turn an offer into an admission. Ordinary person records with
-operation `-`, delegated invite redemption, and `pf_` retention remain outside
-this slice and fail closed with `upgrade_required`. Policies, groups, live
+complete activation or supported [ordinary grants](linking-record-checks.md),
+or `dr_` device revocations. Operation-bound records still require that exact
+activation; a checkpoint alone cannot activate a pending certificate or turn an
+offer into an admission. Ordinary host/person admission and binding with
+operation `-` follow the record checks. Other ordinary kinds, delegated invite
+redemption and `pf_` retention fail closed with `upgrade_required`. Policies, groups, live
 invites, certificates, activations and administrator roles are not retainable.
 
 Every retained record's original signature, payload, signer certificate and
@@ -135,7 +136,7 @@ state, including restrictions discovered later in dependency traversal.
 ## Remaining support boundary
 
 Root rotation/nonzero epochs, policies/groups and high-water handling,
-ordinary person envelopes, delegated invite redemptions and feature activation/
+other ordinary person envelopes, delegated invite redemptions and durable feature activation/
 durable freshness remain required before writers. These known unsupported
 formats return `upgrade_required`; unknown kinds remain `invalid`.
 

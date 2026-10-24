@@ -436,8 +436,15 @@ class Author:
             self.oracle.resign(kind, record, fixture["activation"]["administrator"]["writer_public_key"])
             catalog = copy.deepcopy(base)
             catalog["objects"].append(proof(kind, record))
+            if kind == "person_record":
+                host = payload(record)["host_public_key"]
+                ack = {"format": 1, "feature_id": self.data["feature_id"], "host_public_key": host}
+                self.oracle.resign("feature_ack", ack, host)
+                catalog["objects"].append(proof("join_ack", ack))
             sort_catalog(catalog)
-            self.add("catalog/ordinary_operation_unsupported/" + kind, catalog=catalog, code="upgrade_required")
+            self.add("catalog/ordinary_host_admission_conflicts_with_new" if kind == "person_record"
+                     else "catalog/ordinary_operation_unsupported/root_record", catalog=catalog,
+                     code="state_conflict" if kind == "person_record" else "upgrade_required")
 
     def bootstrap(self):
         base = self.base["catalog"]

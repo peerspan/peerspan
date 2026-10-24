@@ -19,6 +19,15 @@ pub(super) struct HistoryFacts {
 }
 
 impl Verifier<'_> {
+    pub(super) fn ordinary_admin_kept(&self, person: &str, record: &str) -> Result<bool> {
+        check(self.history.delegated.contains(person), "forbidden")?;
+        Ok(self
+            .history
+            .withdrawals
+            .get(person)
+            .is_none_or(|r| !r.revoke && r.v2 && r.kept.contains(&format!("record:{record}"))))
+    }
+
     fn load_withdrawals(&mut self) -> Result<()> {
         let mut seen = BTreeMap::new();
         let proofs: Vec<_> = self
@@ -370,6 +379,7 @@ impl Verifier<'_> {
             self.ctx.known_feature_id == "-" || self.ctx.known_feature_id == self.feature,
             "state_conflict",
         )?;
+        self.ordinary_records()?;
         let mut roster = BTreeSet::new();
         for p in &proofs {
             if p.kind == "feature" {
@@ -505,7 +515,7 @@ impl Verifier<'_> {
             key(person) && (cert == "root" || ident(cert, "dc_")),
             "invalid",
         )?;
-        check(self.state.persons.contains_key(person), "proof_required")?;
+        self.ensure_person(person)?;
         let mut r = SigningPath {
             certificate_id: cert.into(),
             person_public_key: person.into(),
@@ -608,7 +618,7 @@ impl Verifier<'_> {
             "person_record" => {
                 let scope = match text(o, "kind")? {
                     "peerspan-host-bind-v1" => 2,
-                    "peerspan-host-admit-v1" => 8,
+                    "peerspan-host-admit-v1" | "peerspan-person-admit-v1" => 8,
                     _ => return Err(problem("upgrade_required")),
                 };
                 (text(o, "certificate_id")?, scope)
@@ -752,6 +762,17 @@ impl Verifier<'_> {
     // Dependencies may have been visited before a later issuer revocation.
     // Verify every derived historical fact against the final restrictive view.
     fn settle_history(&mut self) -> Result<()> {
+        let ordinary: Vec<_> = self
+            .active_records
+            .iter()
+            .filter_map(|id| self.proofs.get(id))
+            .filter(|p| p.kind == "person_record" && s(&p.object, "operation_id") == "-")
+            .cloned()
+            .collect();
+        for p in ordinary {
+            let g = self.read_ordinary(&p)?;
+            self.historical_record(&g.record, &p.object, g.scope, 0)?;
+        }
         let revoked: Vec<_> = self
             .evidence
             .iter()

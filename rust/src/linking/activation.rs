@@ -13,6 +13,9 @@ pub use feature::{FeatureContext, FeatureEvidence, verify_feature};
 #[path = "action.rs"]
 mod action;
 pub use action::{ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority};
+#[path = "records.rs"]
+mod records;
+pub use records::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
@@ -82,6 +85,7 @@ struct Verifier<'a> {
     persons: BTreeMap<String, String>,
     hosts: BTreeMap<String, String>,
     active_records: BTreeSet<String>,
+    inert_records: BTreeSet<String>,
     history: HistoryFacts,
     evidence: BTreeMap<String, Proof>,
 }
@@ -301,6 +305,7 @@ impl<'a> Verifier<'a> {
             persons: BTreeMap::new(),
             hosts: BTreeMap::new(),
             active_records: BTreeSet::new(),
+            inert_records: BTreeSet::new(),
             history: HistoryFacts::default(),
             evidence: BTreeMap::new(),
         })
@@ -344,7 +349,11 @@ impl<'a> Verifier<'a> {
             }
             "person_record" | "root_record" => {
                 nested_record(&Value::Object(o.clone()))?;
-                check(s(&o, "operation_id") != "-", "upgrade_required")?;
+                check(
+                    s(&o, "operation_id") != "-"
+                        || (kind == "person_record" && records::ordinary_scope(s(&o, "kind")) != 0),
+                    "upgrade_required",
+                )?;
                 let (b, _) = p_obj(&o)?;
                 let epoch = num(&o, "epoch")?.to_string();
                 let rid = if kind == "root_record" {
@@ -566,6 +575,7 @@ impl<'a> Verifier<'a> {
             key(person) && (cert == "root" || ident(cert, "dc_")),
             "invalid",
         )?;
+        self.ensure_person(person)?;
         if cert != "root" {
             let c = self.structural(cert, person)?;
             if !self.state.activated_certificates.contains(cert) {
@@ -638,7 +648,14 @@ impl<'a> Verifier<'a> {
     ) -> Result<()> {
         let p = self.proofs.get(id).ok_or_else(|| missing(id))?.clone();
         if matches!(p.kind.as_str(), "person_record" | "root_record") {
-            self.activate(text(&p.object, "operation_id")?, true, depth + 1)?;
+            if s(&p.object, "operation_id") == "-" {
+                self.ordinary_record(id)?;
+                let g = self.read_ordinary(&p)?;
+                check(self.active_records.contains(id), "forbidden")?;
+                self.historical_record(&g.record, &p.object, g.scope, depth)?;
+            } else {
+                self.activate(text(&p.object, "operation_id")?, true, depth + 1)?;
+            }
             check(
                 self.active_records.contains(id) && s(&p.object, "kind") == kind,
                 "invalid",
@@ -1114,4 +1131,8 @@ pub(super) fn probe_feature(o: &Obj) -> Value {
 
 pub(super) fn probe_action(o: &Obj) -> Value {
     action::probe_action(o)
+}
+
+pub(super) fn probe_catalog_facts(o: &Obj) -> Value {
+    records::probe_catalog_facts(o)
 }

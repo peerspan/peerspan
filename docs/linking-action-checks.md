@@ -7,8 +7,9 @@ path evaluator. Both Go and Rust expose a reusable authorization gate; no
 daemon/coordinator route, writer, storage change or CLI command is added.
 
 This gate checks **current signing authority**, rather than applying the action
-or deriving historical state from it. General catalogs containing ordinary
-records, retained ordinary history, invite redemptions, policy/group high-water
+or deriving historical state from it. The [ordinary grant resolver](linking-record-checks.md)
+now supplies admission and binding history. Other ordinary catalog kinds,
+invite redemptions, policy/group high-water
 handling and durable propagation remain required before writers. The current
 catalog input retains the [activation/history support boundary](linking-activation-checks.md),
 including epoch zero. A candidate action is supplied separately and cannot
