@@ -479,7 +479,8 @@ class Relay:
         self.closed_at = None
         self.lock = threading.Lock()
         self.stopping = False
-        threading.Thread(target=self.loop, daemon=True).start()
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+        self.thread.start()
 
     def loop(self):
         framer = Framer()
@@ -532,7 +533,11 @@ class Relay:
             return sorted({k for t, k, _ in self.frames if t >= since})
 
     def close(self):
+        # Join the loop thread before closing: closing the socket while the thread is still inside a TLS
+        # recv frees its file descriptor, which the next open (such as a host.db) can reuse while the old
+        # thread is still reading and writing TLS records on that number.
         self.stopping = True
+        self.thread.join(timeout=3)
         try:
             self.connection.close()
         except OSError:
@@ -1143,19 +1148,32 @@ class Pairing:
         w3.send(presence_to_relay(self.net))
         reached(mark, 'w3', self.net, ['w4', *hosts], 'a member\'s presence')
         time.sleep(0.5)
-        need(not got('w3', mark), 'The coordinator forwards to every other member: not back to the sender',
-             got('w3', mark))
+        # Only w3's frames count here: a1 (in both networks) may legitimately announce its own changes meanwhile.
+        from_w3 = raw_id(self.ids['w3'])
+
+        def echoed(receiver):
+            return [p for p in got(receiver, mark) if p[:32] == from_w3]
+
+        need(not echoed('w3'), 'The coordinator forwards to every other member: not back to the sender',
+             echoed('w3'))
         need(not self.front.delivered('vh', mark), 'not forwarded to a version 2 connection',
              self.front.delivered('vh', mark))
-        need(not got('m', mark) and not got('m2', mark), 'not forwarded to hosts outside the network',
-             got('m', mark), got('m2', mark))
+        need(not echoed('m') and not echoed('m2'), 'not forwarded to hosts outside the network',
+             echoed('m'), echoed('m2'))
         # Frames the coordinator must drop.
         mark = time.monotonic()
         m3.send(presence_to_relay(self.net))  # from a non-member of the team network (m is only in side)
         w3.send(presence_to_relay(self.side))  # for a network the sender is not in (side: m, m2, and a1)
         w3.send(presence_to_relay('net_' + '0' * 64))  # for a network nobody is in
         time.sleep(BOUND + 0.5)
-        stray = {r: got(r, mark) for r in [*raws, 'a1', *OBSERVERS, 'vh'] if got(r, mark)}
+        # Only frames from the two senders of the dropped frames count: a1 and the other hosts are members and
+        # may legitimately announce their own changes meanwhile (such as an adapter lease lapsing).
+        dropped = {raw_id(self.ids['m']), raw_id(self.ids['w3'])}
+
+        def strays(receiver):
+            return [p for p in got(receiver, mark) if p[:32] in dropped]
+
+        stray = {r: strays(r) for r in [*raws, 'a1', *OBSERVERS, 'vh'] if strays(r)}
         need(not stray, 'The coordinator forwards a presence only when the sending host is a current member of that '
              'network, and drops other presence frames: none from a non-member, for a network the sender is not '
              'in, or for an unknown network (receiver: payloads)',
