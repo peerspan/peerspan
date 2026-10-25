@@ -1,6 +1,6 @@
 # Capabilities slice 3: sharing with one agent
 
-Status: **Proposed — owner decisions pending.** Roadmap milestone 10, slice 3, item C. Nothing here is decided or implemented. The choices the owner has to make are listed under [Owner decisions needed](#owner-decisions-needed); everything else is a recommendation that follows from them.
+Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [decision 16](capabilities-contract.md#owner-decisions) in the capabilities contract. The recommended design below is the design for item C; it is not yet implemented, and its contract section is added when it is.
 
 Slice 3 has four items, proposed separately: (A) remote MCP servers and OAuth, (B) per-call approval, (C) sharing with one agent (this document), and (D) optional resource bounds and non-MCP sources such as a `gh` adapter. [Interactions](#interactions-with-a-b-and-d) notes where C touches the others.
 

@@ -1,6 +1,6 @@
 # Per-call approval (capabilities slice 3, item B)
 
-Status: **Proposed — owner decisions pending.** Nothing here is settled until the owner decides the questions in [Owner decisions needed](#owner-decisions-needed). Where this text says "is" or "does", it describes the recommended design.
+Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [decision 16](capabilities-contract.md#owner-decisions) in the capabilities contract. The recommended design below is the design for item B; it is not yet implemented, and its contract section is added when it is.
 
 Roadmap milestone 10, slice 3, item B. The system design (`docs-internal`, `docs/design.md`) asks that owners can "require approval for individual requests or selected actions" instead of only standing permission. The [capabilities contract](capabilities-contract.md) lists "approval of each call" as later work, and [credentials for shared tools](tool-credentials.md) names it option 4: safe for anything outside a known scope, but it does not scale and fails while the owner is away. This proposal builds on the capabilities contract (call states, decision 15 call timing, call updates), the [live delivery contract](live-delivery-contract.md), and status in the [launch contract](launch-contract.md).
 

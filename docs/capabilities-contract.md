@@ -5,11 +5,11 @@ Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; 
 - **Background.** The [remote tools proposal](remote-tools-proposal.md) and [credentials for shared tools](tool-credentials.md) give the background. Their MCP-server sharing model is superseded.
 - **What it builds on.** The [task contract](task-contract.md) for call records, retry, and polling; owner access policy in the [coordination contract](coordination-contract.md); and `attach`, self access, and status in the [launch contract](launch-contract.md).
 
-Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. These come later:
-- other source types, such as a `gh` adapter;
-- optional resource bounds;
-- approval of each call;
-- remote OAuth servers ([proposal](capabilities-slice3-remote-proposal.md)).
+Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)) and is not yet specified here; its designs are in four proposals:
+- remote MCP servers and OAuth ([proposal](capabilities-slice3-remote-proposal.md));
+- approval of each call ([proposal](capabilities-slice3-approval-proposal.md));
+- sharing with one agent, and `call --from-agent` ([proposal](capabilities-slice3-agent-shares-proposal.md));
+- optional resource bounds, and the `gh` source ([proposal](capabilities-slice3-bounds-sources-proposal.md)).
 
 **Decided with the owner on 2026-10-16:**
 - **Discovery.** Sources are discovered from harness configuration, never registered.
@@ -835,3 +835,53 @@ Settled with the owner on 2026-10-23:
 15. **Call timing.**
     - **Wait limit.** `call_capability` returns within 15 seconds of being called, everything included, and answers `queued` or `running` when the call has not finished; the result then arrives as a `call_update` event. An agent may ask for less, never more. The limit is one constant in the daemon, changed in a release; the adapter and the tool description do not repeat it. An owner setting for it may be added later.
     - **Results without polling.** The caller's daemon holds a status request open at the serving host (`GET /peer/v1/calls/{id}?wait=10`), and the adapter's call request is held open at the daemon, so a result arrives as soon as it exists instead of on a once-a-second check. A push from the serving host to the caller may be added later; hosts that predate the held request are polled every second as before.
+
+Settled with the owner on 2026-10-25:
+
+16. **Slice 3.** Slice 3 covers four items, each designed in its own proposal. The owner accepted every recommendation in each proposal's "Owner decisions needed" list, so each proposal's recommended design is the design for its item. Each item's contract section, added when it is implemented, follows its proposal.
+    - **Remote MCP servers and OAuth** ([proposal](capabilities-slice3-remote-proposal.md), decisions 1–12):
+      - remote servers with no sign-in, fixed headers, or OAuth;
+      - registration by dynamic client registration or an owner-supplied client ID, with Client ID Metadata Documents once Peerspan has a public domain;
+      - the client name `Peerspan (HOST_LABEL)`;
+      - no HTTP+SSE;
+      - headless sign-in by a loopback listener or a pasted URL;
+      - an optional sign-in per capability;
+      - tokens stored like captured values;
+      - calls never resent after an HTTP error;
+      - `headersHelper` servers not shareable;
+      - system TLS roots, with proxies ignored;
+      - live acceptance against Linear and GitHub;
+      - a lapsed sign-in marking the capability unavailable (`auth`).
+    - **Approval of each call** ([proposal](capabilities-slice3-approval-proposal.md), decisions 1–12):
+      - the requirement on the capability record, on the serving host;
+      - approval on the serving host only, at a terminal, with no `--yes`;
+      - it covers calls from other people and from the person's own agents;
+      - the call stays `queued` on the wire, with an `approval` object;
+      - one notice to the source agent's session, without the call's input;
+      - each call approved on its own, with no exemptions;
+      - the existing 15-minute call deadline;
+      - no requirement by default, but the guided share asks when write tools are chosen;
+      - at most 20 calls waiting per rule and caller.
+    - **Sharing with one agent** ([proposal](capabilities-slice3-agent-shares-proposal.md), decisions 1–15):
+      - an exact-name agent lookup route, with the directory as fallback;
+      - the existing `agent:HOST_ID/AGENT_ID` principal;
+      - a `--with` value with one `/` read as an agent address;
+      - shares to one's own agents allowed on other hosts;
+      - live labels in `shares`;
+      - `call --from-agent` for any registered agent, accepting an ID or name and `--from-session`, invisible to the agent, refused for raw sources;
+      - agent-only shares listed in the owner's `discover`;
+      - `allow`/`deny` accepting `PERSON/AGENT` in this slice;
+      - principals of agents that are gone kept until removed.
+    - **Resource bounds and the `gh` source** ([proposal](capabilities-slice3-bounds-sources-proposal.md), decisions 1–17):
+      - bounds on the capability, local to the serving host, as generic argument combinations;
+      - create refused when an operation cannot carry a bound;
+      - bounds shown to recipients;
+      - `gh` repository bounds allowing exact names and `OWNER/*`;
+      - a call that omits a bound argument refused;
+      - `gh` as a built-in MCP server subcommand addressed `builtin/gh`, one source per github.com account;
+      - the `gh` token captured at discovery;
+      - the ten proposed operations, with no search, and diffs over 1 MB failing;
+      - bounds changed by recreating the capability;
+      - `gh` 2.81.0 or later, with `gh` telemetry off;
+      - an internal registry of built-in sources;
+      - a warning at create for bound repositories the token cannot see.

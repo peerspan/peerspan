@@ -1,6 +1,6 @@
 # Capabilities slice 3: resource bounds and the `gh` source
 
-Status: **Proposed — owner decisions pending.** Nothing here is settled until the owner decides the items under [Owner decisions needed](#owner-decisions-needed). The design is the recommendation; each open choice is listed there with its alternatives.
+Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [decision 16](capabilities-contract.md#owner-decisions) in the capabilities contract. The recommended design below is the design for item D; it is not yet implemented, and its contract section is added when it is.
 
 This is item D of roadmap milestone 10, slice 3. The other items of the slice are designed separately: (A) remote MCP servers and OAuth, (B) approval of each call, and (C) sharing with one agent. [Interactions](#interactions-with-a-b-and-c) lists where they touch this one.
 

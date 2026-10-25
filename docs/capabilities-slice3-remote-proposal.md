@@ -1,6 +1,6 @@
 # Remote MCP servers and OAuth (capabilities slice 3, item A)
 
-Status: **Proposed — owner decisions pending.** Nothing here is settled until the owner decides the items under [Owner decisions needed](#owner-decisions-needed). Where this document says "proposed" or "recommended", it is a proposal.
+Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [decision 16](capabilities-contract.md#owner-decisions) in the capabilities contract. The recommended design below is the design for item A; it is not yet implemented, and its contract section is added when it is.
 
 Milestone 10, slice 3 has four parts, proposed separately: (A) remote MCP servers and OAuth, this document; (B) approval of each call; (C) sharing with one agent; (D) optional resource bounds and non-MCP sources such as a `gh` adapter. This document builds on the [capabilities contract](capabilities-contract.md) (slices 1 and 2) and the [credentials analysis](tool-credentials.md#remote-servers-with-oauth). It does not change policy v2, the peer routes, or the agent tools.
 
