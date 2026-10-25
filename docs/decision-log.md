@@ -118,7 +118,7 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
 - **Options:** not offered as a choice; the owner added the requirement.
 - **Decision:** keep no-sign-in servers. The share review states plainly that such a server asks for no sign-in and serves anyone who can reach it, and that sharing extends that reach to the recipients through this host. The proposed review line: `Credential: none. AGENT/SERVER (URL_HOST) asks for no sign-in, so it serves anyone who can reach it. Sharing it lets the people you share with use the selected operations through this host, including when the server is only reachable from here (a local, home, VPN, or company network).`
 - **Reason given:** not recorded beyond the line itself: a server reachable only from the owner's network becomes reachable to recipients through the owner's host.
-- **Source:** [PR #81](https://github.com/peerspan/peerspan-internal/pull/81), open on 2026-10-25. It adds the line to the proposal's review section and notes it in decision 16. Until it merges, the proposal and decision 16 on main do not contain it.
+- **Source:** [PR #81](https://github.com/peerspan/peerspan-internal/pull/81), merged on 2026-10-25 as `5d6467a`. It adds the line to the [proposal's review section](capabilities-slice3-remote-proposal.md#capabilities-on-remote-sources) and notes it in decision 16.
 
 #### CAP-16B: approval of each call
 
