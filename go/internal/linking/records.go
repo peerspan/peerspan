@@ -200,10 +200,13 @@ type CatalogFacts struct {
 }
 
 func VerifyCatalogFacts(ctx CatalogFactContext, catalog []byte) (CatalogFacts, error) {
-	if len(ctx.Network)+len(catalog) > MaxActivation {
+	return verifyCatalogFacts(ctx, catalog, false)
+}
+func verifyCatalogFacts(ctx CatalogFactContext, catalog []byte, stored bool) (CatalogFacts, error) {
+	if !verificationBudget(stored, len(ctx.Network), len(catalog), 0) {
 		return CatalogFacts{}, pathError("invalid")
 	}
-	v, e := newCatalogVerifier(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now)
+	v, e := newCatalogVerifierWithBudget(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now, stored)
 	if e != nil {
 		return CatalogFacts{}, e
 	}
@@ -219,7 +222,11 @@ func VerifyCatalogFacts(ctx CatalogFactContext, catalog []byte) (CatalogFacts, e
 	return CatalogFacts{v.net, v.feature, v.state, v.persons, v.hosts}, nil
 }
 
-func catalogFactsProbe(o Object) any {
+func catalogFactsProbe(o Object, stored bool) any {
+	verify := VerifyCatalogFacts
+	if stored {
+		verify = VerifyStoredCatalogFacts
+	}
 	fail := func(e error) any {
 		r := map[string]any{"ok": false, "code": "invalid"}
 		if p, ok := e.(*PathError); ok {
@@ -237,7 +244,7 @@ func catalogFactsProbe(o Object) any {
 	if e != nil {
 		return fail(e)
 	}
-	catalog, e := decode(scalar(o, "catalog_base64"), MaxActivation)
+	catalog, e := decode(scalar(o, "catalog_base64"), catalogProbeLimit("catalog_base64", stored))
 	if e != nil {
 		return fail(e)
 	}
@@ -249,7 +256,7 @@ func catalogFactsProbe(o Object) any {
 	if e != nil {
 		return fail(e)
 	}
-	r, e := VerifyCatalogFacts(CatalogFactContext{network, epoch, scalar(o, "known_feature_id"), now}, catalog)
+	r, e := verify(CatalogFactContext{network, epoch, scalar(o, "known_feature_id"), now}, catalog)
 	if e != nil {
 		return fail(e)
 	}

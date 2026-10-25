@@ -23,12 +23,21 @@ pub fn verify_feature(
     catalog: &[u8],
     feature: &[u8],
 ) -> Result<FeatureEvidence> {
+    verify_feature_budget(ctx, catalog, feature, false)
+}
+pub(super) fn verify_feature_budget(
+    ctx: FeatureContext<'_>,
+    catalog: &[u8],
+    feature: &[u8],
+    stored: bool,
+) -> Result<FeatureEvidence> {
     let run = || -> Result<FeatureEvidence> {
         check(
-            ctx.network.len() + catalog.len() + feature.len() <= MAX_ACTIVATION,
+            verification_budget(stored, ctx.network.len(), catalog.len(), feature.len()),
             "invalid",
         )?;
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
+        v.stored_snapshot = stored;
         v.catalog(catalog)?;
         v.load_roots()?;
         let feature_object = obj(feature)?;
@@ -104,7 +113,12 @@ pub fn verify_feature(
     })
 }
 
-pub(super) fn probe_feature(o: &Obj) -> Value {
+pub(super) fn probe_feature(o: &Obj, stored: bool) -> Value {
+    let verify = if stored {
+        verify_stored_feature
+    } else {
+        verify_feature
+    };
     let run = || -> Result<Value> {
         fields(
             o,
@@ -112,9 +126,9 @@ pub(super) fn probe_feature(o: &Obj) -> Value {
             &[],
         )?;
         let network = decode(text(o, "network_base64")?, MAX_ACTIVATION)?;
-        let catalog = decode(text(o, "catalog_base64")?, MAX_ACTIVATION)?;
+        let catalog = decode(text(o, "catalog_base64")?, catalog_probe_limit(stored))?;
         let feature = decode(text(o, "feature_base64")?, MAX_ACTIVATION)?;
-        let r = verify_feature(
+        let r = verify(
             FeatureContext {
                 network: &network,
                 epoch: num(o, "epoch")?,

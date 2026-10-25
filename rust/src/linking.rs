@@ -893,19 +893,19 @@ pub fn probe(data: &[u8]) -> Value {
             return Ok(path::probe_path(o));
         }
         if text(o, "kind")? == "activation" {
-            return Ok(activation::probe_activation(o));
+            return Ok(activation::probe_activation(o, false));
         }
         if text(o, "kind")? == "feature_activation" {
-            return Ok(activation::probe_feature(o));
+            return Ok(activation::probe_feature(o, false));
         }
         if text(o, "kind")? == "action_authorization" {
-            return Ok(activation::probe_action(o));
+            return Ok(activation::probe_action(o, false));
         }
         if text(o, "kind")? == "access_state" {
-            return Ok(activation::probe_access(o));
+            return Ok(activation::probe_access(o, false));
         }
         if text(o, "kind")? == "catalog_facts" {
-            return Ok(activation::probe_catalog_facts(o));
+            return Ok(activation::probe_catalog_facts(o, false));
         }
         fields(
             o,
@@ -925,3 +925,25 @@ pub fn probe(data: &[u8]) -> Value {
     };
     run().unwrap_or_else(|_| json!({"ok":false,"code":"invalid"}))
 }
+
+/// Fixed stored-snapshot conformance mode; never installed as a runtime route.
+pub fn probe_stored_snapshot(data: &[u8]) -> Value {
+    let run = || -> Result<Value> {
+        let v = parse_limit(data, MAX_STORED_PROBE)?;
+        let o = object(&v)?;
+        Ok(match text(o, "kind")? {
+            "catalog_facts" => activation::probe_catalog_facts(o, true),
+            "activation" => activation::probe_activation(o, true),
+            "feature_activation" => activation::probe_feature(o, true),
+            "action_authorization" => activation::probe_action(o, true),
+            "access_state" => activation::probe_access(o, true),
+            _ => json!({"ok":false,"code":"invalid"}),
+        })
+    };
+    run().unwrap_or_else(|_| json!({"ok":false,"code":"invalid"}))
+}
+
+pub use activation::{
+    MAX_STORED_PROBE, verify_stored_access_state, verify_stored_action_authority,
+    verify_stored_activation, verify_stored_catalog_facts, verify_stored_feature,
+};

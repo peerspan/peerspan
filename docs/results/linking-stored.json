@@ -1,0 +1,72 @@
+{
+  "checked_on": "2026-10-25",
+  "base_commit": "4a298c2",
+  "scope": "Fixed complete stored-snapshot verification budgets in Go and Rust; no persistence, runtime writer, freshness, or completed-link claim.",
+  "contract": "docs/linking-stored-checks.md",
+  "suite_authorship": "Separate author used the contract and public independent signers without implementation-source access. No frozen fixture changes.",
+  "conformance": {
+    "focused_checks_per_implementation": 35,
+    "focused_passed": true,
+    "regression_checks_per_implementation": 3097,
+    "regression_passed": true,
+    "fixture_signatures_reproduced": 199,
+    "command": "python3 conformance/linking_stored.py --go-probe /tmp/peerspan-coordinator-evidence-go --rust-probe /tmp/peerspan-coordinator-evidence-rust",
+    "regression_note": "The composed final reader-stack14 run includes all12 suites through stored budgets plus historical descriptors and inert coordinator transport evidence; required final full integration gates are recorded separately below."
+  },
+  "language_checks": {
+    "go_vet": {
+      "passed": true
+    },
+    "rust_fmt": {
+      "passed": true
+    },
+    "rust_clippy": {
+      "passed": true,
+      "log": "/tmp/peerspan-link-stored-clippy.log"
+    }
+  },
+  "isolated_full_language_checks": {
+    "source_commit": "c97a65a",
+    "go_race": {
+      "passed": true,
+      "host_package_seconds": 187.35,
+      "log": "/tmp/peerspan-link-stored-go-race.log"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "library_passed": 138,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_ignored": 2,
+      "library_seconds": 251.74,
+      "log": "/tmp/peerspan-link-stored-rust-tests.log"
+    },
+    "note": "These completed before the second root attestation fix; that fix has focused roots73 and all14 final-stack regression coverage. Final composed stack full gates remain queued, as stated below."
+  },
+  "shared_final_integration_gate": {
+    "source_branch": "codex/linking-coordinator-evidence",
+    "probe_checks_per_implementation": 3245,
+    "full_go_race_passed": null,
+    "full_rust_tests_passed": null,
+    "status": "Final composed reader-stack gates complete. Full Rust passed; full Go failed only the documented unchanged discovery assertion. No runtime readiness claim.",
+    "go_log": "/tmp/peerspan-coordinator-evidence-go-race.log",
+    "rust_log": "/tmp/peerspan-coordinator-evidence-rust-tests.log",
+    "go_race_passed": false,
+    "rust_full_tests_passed": true,
+    "go_failure": "Only unchanged TestPathDiscoveryChecks packet routing at go/internal/host/peer_path_test.go:157; host 358.972 seconds. All other tests/packages passed. Existing baseline evidence: docs/results/linking-readers.json. No host/disco source changes.",
+    "rust_library_passed": 138,
+    "rust_library_ignored": 2,
+    "rust_library_seconds": 169.3,
+    "rust_main_passed": 10,
+    "rust_integration_passed": 6
+  },
+  "builds": {
+    "go_probe_and_host": true,
+    "rust_probe_and_host": true
+  },
+  "remaining": [
+    "Durable state, v2 maps/propagation, current atomic writers and recovery",
+    "Link ceremony, device providers, CLI and up integration",
+    "Installed bundle acceptance for completed runtime"
+  ]
+}

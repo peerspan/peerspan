@@ -48,11 +48,14 @@ func actionScope(kind string) uint64 {
 }
 
 func VerifyActionAuthority(ctx ActionContext, actionKind string, catalog, action []byte) (ActionAuthority, error) {
+	return verifyActionAuthority(ctx, actionKind, catalog, action, false)
+}
+func verifyActionAuthority(ctx ActionContext, actionKind string, catalog, action []byte, stored bool) (ActionAuthority, error) {
 	bad := func(code string) (ActionAuthority, error) { return ActionAuthority{}, pathError(code) }
-	if len(ctx.Network)+len(catalog)+len(action) > MaxActivation || !key(ctx.PersonPublicKey) || ctx.CertificateID != "root" && !identifier(ctx.CertificateID, "dc_") || actionKind != "person_record" && actionKind != "device_revocation" {
+	if !verificationBudget(stored, len(ctx.Network), len(catalog), len(action)) || !key(ctx.PersonPublicKey) || ctx.CertificateID != "root" && !identifier(ctx.CertificateID, "dc_") || actionKind != "person_record" && actionKind != "device_revocation" {
 		return bad("invalid")
 	}
-	v, e := newCatalogVerifier(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now)
+	v, e := newCatalogVerifierWithBudget(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now, stored)
 	if e != nil {
 		return ActionAuthority{}, e
 	}
@@ -155,7 +158,11 @@ func VerifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 	return ActionAuthority{actionKind, r.ID, v.net, v.feature, ctx.PersonPublicKey, ctx.CertificateID, required, path.NotAfter}, nil
 }
 
-func actionProbe(o Object) any {
+func actionProbe(o Object, stored bool) any {
+	verify := VerifyActionAuthority
+	if stored {
+		verify = VerifyStoredActionAuthority
+	}
 	fail := func(e error) any {
 		if p, ok := e.(*ActionInvalidation); ok {
 			return map[string]any{"ok": false, "code": "authority_would_be_invalidated", "certificate_ids": p.CertificateIDs}
@@ -174,7 +181,7 @@ func actionProbe(o Object) any {
 	}
 	b := [][]byte{}
 	for _, name := range []string{"network_base64", "catalog_base64", "action_base64"} {
-		raw, e := decode(scalar(o, name), MaxActivation)
+		raw, e := decode(scalar(o, name), catalogProbeLimit(name, stored))
 		if e != nil {
 			return fail(e)
 		}
@@ -188,7 +195,7 @@ func actionProbe(o Object) any {
 	if e != nil {
 		return fail(e)
 	}
-	r, e := VerifyActionAuthority(ActionContext{b[0], epoch, scalar(o, "known_feature_id"), scalar(o, "person_public_key"), scalar(o, "certificate_id"), now}, scalar(o, "action_kind"), b[1], b[2])
+	r, e := verify(ActionContext{b[0], epoch, scalar(o, "known_feature_id"), scalar(o, "person_public_key"), scalar(o, "certificate_id"), now}, scalar(o, "action_kind"), b[1], b[2])
 	if e != nil {
 		return fail(e)
 	}

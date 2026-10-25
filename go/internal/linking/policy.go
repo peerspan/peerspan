@@ -277,8 +277,11 @@ func validWater(w AccessHighWater) bool { return w.Version > 0 && identifier(w.M
 // VerifyAccessState selects exact signed statements and preserves pinned maxima.
 // It does not decide permission or durably commit the returned high-water marks.
 func VerifyAccessState(ctx AccessContext, catalog []byte) (AccessState, error) {
+	return verifyAccessState(ctx, catalog, false)
+}
+func verifyAccessState(ctx AccessContext, catalog []byte, stored bool) (AccessState, error) {
 	fail := func(e error) (AccessState, error) { return AccessState{}, e }
-	if len(ctx.Network)+len(catalog) > MaxActivation || len(ctx.PriorPolicies)+len(ctx.PriorGroups) > 16384 {
+	if !verificationBudget(stored, len(ctx.Network), len(catalog), 0) || len(ctx.PriorPolicies)+len(ctx.PriorGroups) > 16384 {
 		return fail(pathError("invalid"))
 	}
 	policies, groups := map[string]AccessSelection{}, map[string]AccessSelection{}
@@ -298,7 +301,7 @@ func VerifyAccessState(ctx AccessContext, catalog []byte) (AccessState, error) {
 		last = g.Name
 		groups[last] = missingSelection(g.AccessHighWater)
 	}
-	v, e := newCatalogVerifier(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now)
+	v, e := newCatalogVerifierWithBudget(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now, stored)
 	if e != nil {
 		return fail(e)
 	}
@@ -372,7 +375,11 @@ func VerifyAccessState(ctx AccessContext, catalog []byte) (AccessState, error) {
 	}
 	return r, nil
 }
-func accessStateProbe(o Object) any {
+func accessStateProbe(o Object, stored bool) any {
+	verify := VerifyAccessState
+	if stored {
+		verify = VerifyStoredAccessState
+	}
 	fail := func(e error) any {
 		r := map[string]any{"ok": false, "code": "invalid"}
 		if p, ok := e.(*PathError); ok {
@@ -390,7 +397,7 @@ func accessStateProbe(o Object) any {
 	if e != nil {
 		return fail(e)
 	}
-	catalog, e := decode(scalar(o, "catalog_base64"), MaxActivation)
+	catalog, e := decode(scalar(o, "catalog_base64"), catalogProbeLimit("catalog_base64", stored))
 	if e != nil {
 		return fail(e)
 	}
@@ -432,7 +439,7 @@ func accessStateProbe(o Object) any {
 			}
 		}
 	}
-	r, e := VerifyAccessState(ctx, catalog)
+	r, e := verify(ctx, catalog)
 	if e != nil {
 		return fail(e)
 	}

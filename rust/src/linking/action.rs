@@ -58,15 +58,25 @@ pub fn verify_action_authority(
     catalog: &[u8],
     action: &[u8],
 ) -> Result<ActionAuthority> {
+    verify_action_authority_budget(ctx, action_kind, catalog, action, false)
+}
+pub(super) fn verify_action_authority_budget(
+    ctx: ActionContext<'_>,
+    action_kind: &str,
+    catalog: &[u8],
+    action: &[u8],
+    stored: bool,
+) -> Result<ActionAuthority> {
     let run = || -> Result<ActionAuthority> {
         check(
-            ctx.network.len() + catalog.len() + action.len() <= MAX_ACTIVATION
+            verification_budget(stored, ctx.network.len(), catalog.len(), action.len())
                 && key(ctx.person_public_key)
                 && (ctx.certificate_id == "root" || ident(ctx.certificate_id, "dc_"))
                 && matches!(action_kind, "person_record" | "device_revocation"),
             "invalid",
         )?;
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
+        v.stored_snapshot = stored;
         check(ctx.known_feature_id != "-", "upgrade_required")?;
         v.catalog(catalog)?;
         v.load_roots()?;
@@ -174,7 +184,12 @@ pub fn verify_action_authority(
     })
 }
 
-pub(super) fn probe_action(o: &Obj) -> Value {
+pub(super) fn probe_action(o: &Obj, stored: bool) -> Value {
+    let verify = if stored {
+        verify_stored_action_authority
+    } else {
+        verify_action_authority
+    };
     let run = || -> Result<Value> {
         fields(
             o,
@@ -182,9 +197,9 @@ pub(super) fn probe_action(o: &Obj) -> Value {
             &[],
         )?;
         let network = decode(text(o, "network_base64")?, MAX_ACTIVATION)?;
-        let catalog = decode(text(o, "catalog_base64")?, MAX_ACTIVATION)?;
+        let catalog = decode(text(o, "catalog_base64")?, catalog_probe_limit(stored))?;
         let action = decode(text(o, "action_base64")?, MAX_ACTIVATION)?;
-        let r = verify_action_authority(
+        let r = verify(
             ActionContext {
                 network: &network,
                 epoch: num(o, "epoch")?,

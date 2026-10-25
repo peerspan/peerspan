@@ -48,6 +48,7 @@ type catalogContext struct {
 	Now            time.Time
 }
 type activationVerifier struct {
+	storedSnapshot     bool
 	ctx                catalogContext
 	network            Object
 	net, root, feature string
@@ -92,11 +93,14 @@ func proofID(kind string, body []byte) string {
 // No state is exposed on failure. The caller must still transactionally enforce
 // freshness, feature high-water, current epoch and durable operation semantics.
 func VerifyActivation(ctx ActivationContext, catalog, activation []byte) (ActivationEvidence, error) {
+	return verifyActivation(ctx, catalog, activation, false)
+}
+func verifyActivation(ctx ActivationContext, catalog, activation []byte, stored bool) (ActivationEvidence, error) {
 	bad := func(code string) (ActivationEvidence, error) { return ActivationEvidence{}, pathError(code) }
-	if len(ctx.Network)+len(catalog)+len(activation) > MaxActivation || !key(ctx.CallerHostPublicKey) || ctx.ExpectedPersonPublicKey != "-" && !key(ctx.ExpectedPersonPublicKey) || ctx.KnownFeatureID != "-" && !identifier(ctx.KnownFeatureID, "lf_") || ctx.Verification != "first" && ctx.Verification != "historical" {
+	if !verificationBudget(stored, len(ctx.Network), len(catalog), len(activation)) || !key(ctx.CallerHostPublicKey) || ctx.ExpectedPersonPublicKey != "-" && !key(ctx.ExpectedPersonPublicKey) || ctx.KnownFeatureID != "-" && !identifier(ctx.KnownFeatureID, "lf_") || ctx.Verification != "first" && ctx.Verification != "historical" {
 		return bad("invalid")
 	}
-	v, e := newCatalogVerifier(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now)
+	v, e := newCatalogVerifierWithBudget(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now, stored)
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
@@ -343,15 +347,16 @@ func (v *activationVerifier) indexActivation(body []byte) (string, error) {
 }
 
 func (v *activationVerifier) catalog(body []byte) error {
-	c, e := parse(body)
+	c, e := parseCatalog(body, v.storedSnapshot)
 	if e != nil || fields(c, "format network_id objects") != nil || version(c, 1) != nil || scalar(c, "network_id") != v.net {
 		return pathError("invalid")
 	}
-	entries, e := pathEntries(c, "objects")
+	entries, e := catalogEntries(c, v.storedSnapshot)
 	if e != nil {
 		return pathError("invalid")
 	}
 	last := ""
+	decodedBodies := 0
 	for _, entry := range entries {
 		if fields(entry, "id kind body_base64") != nil {
 			return pathError("invalid")
@@ -359,6 +364,10 @@ func (v *activationVerifier) catalog(body []byte) error {
 		id, kind := scalar(entry, "id"), scalar(entry, "kind")
 		b, e := decode(scalar(entry, "body_base64"), MaxObject)
 		if e != nil || id <= last || !identifier(id, "pf_") || id != proofID(kind, b) {
+			return pathError("invalid")
+		}
+		decodedBodies += len(b)
+		if v.storedSnapshot && decodedBodies > MaxStoredBodies {
 			return pathError("invalid")
 		}
 		last = id
@@ -925,7 +934,11 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	return r, nil
 }
 
-func activationProbe(o Object) any {
+func activationProbe(o Object, stored bool) any {
+	verify := VerifyActivation
+	if stored {
+		verify = VerifyStoredActivation
+	}
 	fail := func(e error) any {
 		if p, ok := e.(*PathError); ok {
 			r := map[string]any{"ok": false, "code": p.Code}
@@ -941,7 +954,7 @@ func activationProbe(o Object) any {
 	}
 	b := [][]byte{}
 	for _, k := range []string{"network_base64", "catalog_base64", "activation_base64"} {
-		raw, e := decode(scalar(o, k), MaxActivation)
+		raw, e := decode(scalar(o, k), catalogProbeLimit(k, stored))
 		if e != nil {
 			return fail(e)
 		}
@@ -955,7 +968,7 @@ func activationProbe(o Object) any {
 	if e != nil {
 		return fail(e)
 	}
-	r, e := VerifyActivation(ActivationContext{Network: b[0], Epoch: epoch, KnownFeatureID: scalar(o, "known_feature_id"), CallerHostPublicKey: scalar(o, "caller_host_public_key"), ExpectedPersonPublicKey: scalar(o, "expected_person_public_key"), Now: now, Verification: scalar(o, "verification")}, b[1], b[2])
+	r, e := verify(ActivationContext{Network: b[0], Epoch: epoch, KnownFeatureID: scalar(o, "known_feature_id"), CallerHostPublicKey: scalar(o, "caller_host_public_key"), ExpectedPersonPublicKey: scalar(o, "expected_person_public_key"), Now: now, Verification: scalar(o, "verification")}, b[1], b[2])
 	if e != nil {
 		return fail(e)
 	}

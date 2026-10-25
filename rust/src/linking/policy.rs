@@ -279,9 +279,16 @@ fn valid_water(w: &AccessHighWater) -> bool {
 
 /// Select exact candidates without granting permission or committing the marks.
 pub fn verify_access_state(ctx: AccessContext<'_>, catalog: &[u8]) -> Result<AccessState> {
+    verify_access_state_budget(ctx, catalog, false)
+}
+pub(super) fn verify_access_state_budget(
+    ctx: AccessContext<'_>,
+    catalog: &[u8],
+    stored: bool,
+) -> Result<AccessState> {
     let run = || -> Result<AccessState> {
         check(
-            ctx.network.len() + catalog.len() <= MAX_ACTIVATION
+            verification_budget(stored, ctx.network.len(), catalog.len(), 0)
                 && ctx.prior_policies.len() + ctx.prior_groups.len() <= 16384,
             "invalid",
         )?;
@@ -308,6 +315,7 @@ pub fn verify_access_state(ctx: AccessContext<'_>, catalog: &[u8]) -> Result<Acc
             groups.insert(last.to_owned(), missing_selection(g.high_water.clone()));
         }
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
+        v.stored_snapshot = stored;
         check(ctx.known_feature_id != "-", "upgrade_required")?;
         v.catalog(catalog)?;
         v.bootstrap(true)?;
@@ -390,7 +398,12 @@ pub fn verify_access_state(ctx: AccessContext<'_>, catalog: &[u8]) -> Result<Acc
         }
     })
 }
-pub(super) fn probe_access(o: &Obj) -> Value {
+pub(super) fn probe_access(o: &Obj, stored: bool) -> Value {
+    let verify = if stored {
+        verify_stored_access_state
+    } else {
+        verify_access_state
+    };
     let run = || -> Result<Value> {
         fields(
             o,
@@ -398,7 +411,7 @@ pub(super) fn probe_access(o: &Obj) -> Value {
             &[],
         )?;
         let network = decode(text(o, "network_base64")?, MAX_ACTIVATION)?;
-        let catalog = decode(text(o, "catalog_base64")?, MAX_ACTIVATION)?;
+        let catalog = decode(text(o, "catalog_base64")?, catalog_probe_limit(stored))?;
         let mut policies = Vec::new();
         let mut groups = Vec::new();
         for field in ["prior_policies", "prior_groups"] {
@@ -439,7 +452,7 @@ pub(super) fn probe_access(o: &Obj) -> Value {
             prior_policies: &policies,
             prior_groups: &groups,
         };
-        let mut result = serde_json::to_value(verify_access_state(ctx, &catalog)?)?;
+        let mut result = serde_json::to_value(verify(ctx, &catalog)?)?;
         result["ok"] = json!(true);
         Ok(result)
     };

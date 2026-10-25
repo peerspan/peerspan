@@ -37,6 +37,8 @@ access grants.
 [root-chain verifier](linking-root-checks.md) resolves contiguous signed rotations,
 current-epoch authority and attestations while preserving historical transcripts
 and the exact activated feature.
+The [fixed stored-catalog entry points](linking-stored-checks.md) accept complete
+bounded public snapshots while preserving the original state-free API budgets.
 These checks expose verified facts;
 they do not apply actions or enable runtime writers. Standalone invitations,
 durable high-water persistence, freshness and propagation remain pending;

@@ -26,6 +26,13 @@ pub use policy::{
 mod redemptions;
 #[path = "roots.rs"]
 mod roots;
+#[path = "stored.rs"]
+mod stored;
+use stored::{MAX_STORED_BODIES, MAX_STORED_CATALOG, catalog_probe_limit, verification_budget};
+pub use stored::{
+    MAX_STORED_PROBE, verify_stored_access_state, verify_stored_action_authority,
+    verify_stored_activation, verify_stored_catalog_facts, verify_stored_feature,
+};
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
@@ -80,6 +87,7 @@ struct CatalogContext<'a> {
     now: chrono::DateTime<chrono::Utc>,
 }
 struct Verifier<'a> {
+    stored_snapshot: bool,
     ctx: CatalogContext<'a>,
     network: Obj,
     net: String,
@@ -221,9 +229,17 @@ pub fn verify_activation(
     catalog: &[u8],
     activation: &[u8],
 ) -> Result<ActivationEvidence> {
+    verify_activation_budget(ctx, catalog, activation, false)
+}
+pub(super) fn verify_activation_budget(
+    ctx: ActivationContext<'_>,
+    catalog: &[u8],
+    activation: &[u8],
+    stored: bool,
+) -> Result<ActivationEvidence> {
     let run = || -> Result<ActivationEvidence> {
         check(
-            ctx.network.len() + catalog.len() + activation.len() <= MAX_ACTIVATION
+            verification_budget(stored, ctx.network.len(), catalog.len(), activation.len())
                 && key(ctx.caller_host_public_key)
                 && (ctx.expected_person_public_key == "-" || key(ctx.expected_person_public_key))
                 && (ctx.known_feature_id == "-" || ident(ctx.known_feature_id, "lf_"))
@@ -232,6 +248,7 @@ pub fn verify_activation(
         )?;
         let historical = ctx.verification == "historical";
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
+        v.stored_snapshot = stored;
         v.catalog(catalog)?;
         let request = v.index_activation(activation)?;
         v.bootstrap(true)?;
@@ -300,6 +317,7 @@ impl<'a> Verifier<'a> {
             ..PathState::default()
         };
         Ok(Self {
+            stored_snapshot: false,
             ctx: CatalogContext {
                 known_feature_id,
                 now,
@@ -508,7 +526,15 @@ impl<'a> Verifier<'a> {
         Ok(id)
     }
     fn catalog(&mut self, body: &[u8]) -> Result<()> {
-        let c = obj(body)?;
+        let parsed = parse_limit(
+            body,
+            if self.stored_snapshot {
+                MAX_STORED_CATALOG
+            } else {
+                MAX_OBJECT
+            },
+        )?;
+        let c = object(&parsed)?.clone();
         fields(&c, "format network_id objects", &[])?;
         version(&c, 1)?;
         check(text(&c, "network_id")? == self.net, "invalid")?;
@@ -518,6 +544,7 @@ impl<'a> Verifier<'a> {
             .ok_or_else(|| problem("invalid"))?;
         check(entries.len() <= 4096, "invalid")?;
         let mut last = "";
+        let mut decoded_bodies = 0usize;
         for entry in entries {
             let o = object(entry)?;
             fields(o, "id kind body_base64", &[])?;
@@ -526,6 +553,11 @@ impl<'a> Verifier<'a> {
             let b = decode(text(o, "body_base64")?, MAX_OBJECT)?;
             check(
                 ident(id, "pf_") && id > last && id == proof_id(kind, &b),
+                "invalid",
+            )?;
+            decoded_bodies += b.len();
+            check(
+                !self.stored_snapshot || decoded_bodies <= MAX_STORED_BODIES,
                 "invalid",
             )?;
             last = id;
@@ -1157,7 +1189,12 @@ impl<'a> Verifier<'a> {
     }
 }
 
-pub(super) fn probe_activation(o: &Obj) -> Value {
+pub(super) fn probe_activation(o: &Obj, stored: bool) -> Value {
+    let verify = if stored {
+        verify_stored_activation
+    } else {
+        verify_activation
+    };
     let run = || -> Result<Value> {
         fields(
             o,
@@ -1165,9 +1202,9 @@ pub(super) fn probe_activation(o: &Obj) -> Value {
             &[],
         )?;
         let network = decode(text(o, "network_base64")?, MAX_ACTIVATION)?;
-        let catalog = decode(text(o, "catalog_base64")?, MAX_ACTIVATION)?;
+        let catalog = decode(text(o, "catalog_base64")?, catalog_probe_limit(stored))?;
         let activation = decode(text(o, "activation_base64")?, MAX_ACTIVATION)?;
-        let r = verify_activation(
+        let r = verify(
             ActivationContext {
                 network: &network,
                 epoch: num(o, "epoch")?,
@@ -1195,18 +1232,18 @@ pub(super) fn probe_activation(o: &Obj) -> Value {
     })
 }
 
-pub(super) fn probe_feature(o: &Obj) -> Value {
-    feature::probe_feature(o)
+pub(super) fn probe_feature(o: &Obj, stored: bool) -> Value {
+    feature::probe_feature(o, stored)
 }
 
-pub(super) fn probe_action(o: &Obj) -> Value {
-    action::probe_action(o)
+pub(super) fn probe_action(o: &Obj, stored: bool) -> Value {
+    action::probe_action(o, stored)
 }
 
-pub(super) fn probe_catalog_facts(o: &Obj) -> Value {
-    records::probe_catalog_facts(o)
+pub(super) fn probe_catalog_facts(o: &Obj, stored: bool) -> Value {
+    records::probe_catalog_facts(o, stored)
 }
 
-pub(super) fn probe_access(o: &Obj) -> Value {
-    policy::probe_access(o)
+pub(super) fn probe_access(o: &Obj, stored: bool) -> Value {
+    policy::probe_access(o, stored)
 }

@@ -231,12 +231,20 @@ pub struct CatalogFacts {
 }
 
 pub fn verify_catalog_facts(ctx: CatalogFactContext<'_>, catalog: &[u8]) -> Result<CatalogFacts> {
+    verify_catalog_facts_budget(ctx, catalog, false)
+}
+pub(super) fn verify_catalog_facts_budget(
+    ctx: CatalogFactContext<'_>,
+    catalog: &[u8],
+    stored: bool,
+) -> Result<CatalogFacts> {
     let run = || -> Result<CatalogFacts> {
         check(
-            ctx.network.len() + catalog.len() <= MAX_ACTIVATION,
+            verification_budget(stored, ctx.network.len(), catalog.len(), 0),
             "invalid",
         )?;
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
+        v.stored_snapshot = stored;
         v.catalog(catalog)?;
         v.bootstrap(true)?;
         v.revocations()?;
@@ -257,7 +265,12 @@ pub fn verify_catalog_facts(ctx: CatalogFactContext<'_>, catalog: &[u8]) -> Resu
     })
 }
 
-pub(super) fn probe_catalog_facts(o: &Obj) -> Value {
+pub(super) fn probe_catalog_facts(o: &Obj, stored: bool) -> Value {
+    let verify = if stored {
+        verify_stored_catalog_facts
+    } else {
+        verify_catalog_facts
+    };
     let run = || -> Result<Value> {
         fields(
             o,
@@ -265,8 +278,8 @@ pub(super) fn probe_catalog_facts(o: &Obj) -> Value {
             &[],
         )?;
         let network = decode(text(o, "network_base64")?, MAX_ACTIVATION)?;
-        let catalog = decode(text(o, "catalog_base64")?, MAX_ACTIVATION)?;
-        let r = verify_catalog_facts(
+        let catalog = decode(text(o, "catalog_base64")?, catalog_probe_limit(stored))?;
+        let r = verify(
             CatalogFactContext {
                 network: &network,
                 epoch: num(o, "epoch")?,

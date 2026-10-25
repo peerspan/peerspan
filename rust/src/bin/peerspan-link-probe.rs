@@ -2,9 +2,17 @@
 use clap::Parser;
 use std::io::{self, BufRead, Write};
 #[derive(Parser)]
-struct Args {}
+struct Args {
+    #[arg(long)]
+    stored_snapshot: bool,
+}
 fn main() -> io::Result<()> {
-    Args::parse();
+    let args = Args::parse();
+    let limit = if args.stored_snapshot {
+        peerspan_host::linking::MAX_STORED_PROBE
+    } else {
+        2 << 20
+    };
     let mut input = io::stdin().lock();
     let mut output = io::BufWriter::new(io::stdout().lock());
     let mut line = Vec::new();
@@ -13,13 +21,13 @@ fn main() -> io::Result<()> {
         let bytes = input.fill_buf()?;
         if bytes.is_empty() {
             if !line.is_empty() || overflow {
-                emit(&mut output, &line, overflow)?;
+                emit(&mut output, &line, overflow, args.stored_snapshot)?;
             }
             return Ok(());
         }
         let end = bytes.iter().position(|b| *b == b'\n').map(|i| i + 1);
         let n = end.unwrap_or(bytes.len());
-        if line.len() + n > 2 << 20 {
+        if line.len() + n > limit {
             overflow = true;
             line.clear();
         } else if !overflow {
@@ -27,15 +35,17 @@ fn main() -> io::Result<()> {
         }
         input.consume(n);
         if end.is_some() {
-            emit(&mut output, &line, overflow)?;
+            emit(&mut output, &line, overflow, args.stored_snapshot)?;
             line.clear();
             overflow = false;
         }
     }
 }
-fn emit(out: &mut impl Write, data: &[u8], overflow: bool) -> io::Result<()> {
+fn emit(out: &mut impl Write, data: &[u8], overflow: bool, stored: bool) -> io::Result<()> {
     let response = if overflow {
         serde_json::json!({"ok":false,"code":"invalid"})
+    } else if stored {
+        peerspan_host::linking::probe_stored_snapshot(data)
     } else {
         peerspan_host::linking::probe(data)
     };

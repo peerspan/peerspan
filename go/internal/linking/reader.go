@@ -1039,19 +1039,19 @@ func Probe(data []byte) any {
 		return pathProbe(o)
 	}
 	if kind, _ := text(o, "kind"); kind == "activation" {
-		return activationProbe(o)
+		return activationProbe(o, false)
 	}
 	if kind, _ := text(o, "kind"); kind == "feature_activation" {
-		return featureProbe(o)
+		return featureProbe(o, false)
 	}
 	if kind, _ := text(o, "kind"); kind == "action_authorization" {
-		return actionProbe(o)
+		return actionProbe(o, false)
 	}
 	if kind, _ := text(o, "kind"); kind == "access_state" {
-		return accessStateProbe(o)
+		return accessStateProbe(o, false)
 	}
 	if kind, _ := text(o, "kind"); kind == "catalog_facts" {
-		return catalogFactsProbe(o)
+		return catalogFactsProbe(o, false)
 	}
 	if fields(o, "kind object_base64 signer_public_key device_public_key") != nil {
 		return fail

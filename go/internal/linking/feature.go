@@ -24,11 +24,14 @@ type FeatureEvidence struct {
 }
 
 func VerifyFeature(ctx FeatureContext, catalog, feature []byte) (FeatureEvidence, error) {
+	return verifyFeature(ctx, catalog, feature, false)
+}
+func verifyFeature(ctx FeatureContext, catalog, feature []byte, stored bool) (FeatureEvidence, error) {
 	bad := func(code string) (FeatureEvidence, error) { return FeatureEvidence{}, pathError(code) }
-	if len(ctx.Network)+len(catalog)+len(feature) > MaxActivation {
+	if !verificationBudget(stored, len(ctx.Network), len(catalog), len(feature)) {
 		return bad("invalid")
 	}
-	v, e := newCatalogVerifier(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now)
+	v, e := newCatalogVerifierWithBudget(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now, stored)
 	if e != nil {
 		return FeatureEvidence{}, e
 	}
@@ -106,7 +109,11 @@ func VerifyFeature(ctx FeatureContext, catalog, feature []byte) (FeatureEvidence
 	return FeatureEvidence{v.net, r.ID, ctx.Epoch, "activate"}, nil
 }
 
-func featureProbe(o Object) any {
+func featureProbe(o Object, stored bool) any {
+	verify := VerifyFeature
+	if stored {
+		verify = VerifyStoredFeature
+	}
 	fail := func(e error) any {
 		r := map[string]any{"ok": false, "code": "invalid"}
 		if p, ok := e.(*PathError); ok {
@@ -122,7 +129,7 @@ func featureProbe(o Object) any {
 	}
 	b := [][]byte{}
 	for _, name := range []string{"network_base64", "catalog_base64", "feature_base64"} {
-		raw, e := decode(scalar(o, name), MaxActivation)
+		raw, e := decode(scalar(o, name), catalogProbeLimit(name, stored))
 		if e != nil {
 			return fail(e)
 		}
@@ -136,7 +143,7 @@ func featureProbe(o Object) any {
 	if e != nil {
 		return fail(e)
 	}
-	r, e := VerifyFeature(FeatureContext{b[0], epoch, scalar(o, "known_feature_id"), now}, b[1], b[2])
+	r, e := verify(FeatureContext{b[0], epoch, scalar(o, "known_feature_id"), now}, b[1], b[2])
 	if e != nil {
 		return fail(e)
 	}
