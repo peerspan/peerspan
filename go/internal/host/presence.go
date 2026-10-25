@@ -179,7 +179,9 @@ func (s *Store) runPresence(ctx context.Context) {
 
 // sendPresence announces this host's presence in a network now, or, within
 // presenceGap of the previous announcement, once when the gap ends, so the
-// last change is always announced.
+// last change is always announced. The relay connection is looked up before
+// the send time is taken, so a slow lookup cannot bring two frames closer
+// than presenceGap.
 func (s *Store) sendPresence(network string) {
 	p := &s.presence
 	p.mu.Lock()
@@ -188,6 +190,13 @@ func (s *Store) sendPresence(network string) {
 		state = &presenceSend{}
 		p.sent[network] = state
 	}
+	pending := state.pending
+	p.mu.Unlock()
+	if pending {
+		return
+	}
+	client := s.presenceRelay(network)
+	p.mu.Lock()
 	if state.pending {
 		p.mu.Unlock()
 		return
@@ -197,35 +206,36 @@ func (s *Store) sendPresence(network string) {
 	if state.last.IsZero() || wait <= 0 {
 		state.last = now
 		p.mu.Unlock()
-		s.writePresence(network)
+		if client != nil {
+			client.presence(network)
+		}
 		return
 	}
 	state.pending = true
 	p.mu.Unlock()
 	time.AfterFunc(wait, func() {
+		client := s.presenceRelay(network)
 		p.mu.Lock()
 		state.pending, state.last = false, time.Now()
 		p.mu.Unlock()
-		s.writePresence(network)
+		if client != nil {
+			client.presence(network)
+		}
 	})
 }
 
-// writePresence queues a presence frame on the current relay connection to
-// the network's coordinator, when that connection is up at version 3. A
-// connection established later announces presence itself.
-func (s *Store) writePresence(network string) {
+// presenceRelay returns the relay client for the network's coordinator, if
+// one is running. A connection established later announces presence itself.
+func (s *Store) presenceRelay(network string) *relayClient {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	n, err := s.Network(ctx, network)
 	if err != nil {
-		return
+		return nil
 	}
 	s.peer.mu.Lock()
-	client := s.peer.relays[relayKey(n)]
-	s.peer.mu.Unlock()
-	if client != nil {
-		client.presence(network)
-	}
+	defer s.peer.mu.Unlock()
+	return s.peer.relays[relayKey(n)]
 }
 
 // relayConnected announces presence in each of this host's networks on a
