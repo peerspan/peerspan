@@ -1,11 +1,12 @@
 # Guided setup: `peerspan up`
 
-Status: first Linux implementation of `up`, following the proposal accepted in
-PR #38. Approved machine linking (`link`) is a subsequent milestone. The owner chose to prioritize guided setup on 2026-10-23 and defer
-release repository variables. Both host implementations ship; Rust is the
-recommended installation and Go remains supported.
+Status: guided setup from PR #38 now includes approved machine linking in both
+Go and Rust, with [independent runtime and installed Linux validation](results/linking-launch-validation.json).
+Rust is the recommended installation and Go remains supported. Release
+repository/coordinator variables remain deferred. Historical invite-based
+measurements below retain their original scope.
 
-## Result to build
+## Intended result
 
 After installing Peerspan, a person runs `peerspan up` in a project. It checks the
 prerequisites, starts the local service, creates or joins a network when needed,
@@ -13,8 +14,11 @@ and attaches the selected coding agent. Running it again continues the existing
 setup. It explains a partial result instead of treating a successful host join as
 proof that identity and agent delivery also work.
 
-This implementation uses today's person keys and invites. Approved linking
-of another machine is a subsequent milestone with a separate identity proposal.
+A first machine creates its original person identity. Another machine belonging
+to that person uses approved linking with its own device signing key, without
+copying the original private key. A teammate joins with their own person identity
+and a private invite. The [linking handoff](linking-up-checks.md) fixes the exact
+interactive choices and consent boundaries.
 The [current setup baseline](setup-baseline.md) records the work this flow should
 remove and the measurements that still require a person on separate machines.
 
@@ -55,10 +59,10 @@ executable alone does not select a particular existing conversation.
 | --- | --- |
 | `--create NAME` | Create a network, or resume the single existing network with that name under the checks below. |
 | `--join TOKEN` | Join the network named by the invite, or resume it if this host already joined it. |
-| Neither | Reuse the host's single network. With none, ask whether to create or join at a terminal; otherwise stop with the missing inputs. |
+| Neither | Resume an existing pending link or reuse the host's single network. With neither, offer create/link/join at a terminal; otherwise stop with the missing inputs. |
 | `--as LABEL` | Person label when creating a network; same default as `network create`. A join uses the label in the invite. |
 | `--person-key PATH` | Select the person key using the existing onboarding behavior. |
-| `--coordinator HOST:PORT --coordinator-key KEY` | Explicit coordinator for creation. Otherwise use the daemon's built-in default; joining uses the invite. |
+| `--coordinator HOST:PORT --coordinator-key KEY` | Explicit coordinator for creation or a fresh interactive link. Otherwise use the daemon's built-in default; joining uses the signed invite and pending-link resume keeps its exact pin. |
 | `--trusted` / `--untrusted` | Existing machine-trust choice for direct capability calls. The review explains its reach. |
 | `--directory DIR` | Existing project directory, default the current directory, with the same canonicalization as `attach`. |
 | `--name NAME` | Explicit agent name, with the same reuse and collision checks as `attach`. |
@@ -108,10 +112,15 @@ The normal service installer continues to own port selection and lingering.
 
 Read the daemon's current memberships before submitting an enrollment request.
 
-- With no memberships, ask **Create a network** or **Join with an invite**, unless
-  the flags already choose. Ask for the network name or invite, then show the
-  proposed coordinator, person label, and key source. Never echo or persist the
-  invite in a setup transcript or resume file.
+- First resume an existing pending machine link, preserving its request,
+  host/device identity and coordinator pins. An incomplete or declined link
+  stops before ordinary enrollment and attachment.
+- With no memberships or pending request, offer **create/link/join**, unless the
+  flags already choose. A fresh link creates its own device key, displays its
+  private pairing code once at the terminal and waits for existing-machine
+  approval. It does not generate an original-person key. Create and invite join
+  keep their existing network/person review. Never echo an invite in a setup
+  transcript or persist its private seed in a daemon resume record.
 - With one membership, reuse it by default and show its network name, bound
   person, and coordinator. Explicit create or join inputs must identify that
   same network to resume; conflicting inputs stop with instructions to use the
@@ -119,11 +128,28 @@ Read the daemon's current memberships before submitting an enrollment request.
 - With several memberships, list them and stop the guided path before making
   network or attachment changes.
 
-Use the existing person-key selection order. A generated key is never replaced
-to make a setup retry work. New-key output includes the existing backup advice.
-On a second machine, explain the current same-person prerequisite: the same key
-must be available through the SSH agent or the documented key-file copy. The
-first milestone does not present an approval code that has no protocol behind it.
+Creating the original person or joining as a teammate uses the existing
+person-key selection order and backup advice. A generated key is never replaced
+to make a setup retry work. Same-person machine linking uses the reviewed device
+signing path instead of copying an original key. Before linking, upgrade the
+coordinator and every current host, then run `network enable-linking --network
+ID` on the root holder. Every admitted host must acknowledge the exact proposal;
+`network sync ID` on upgraded hosts collects acknowledgments. Continue only after
+feature state is `active`. There is no automatic removal of offline hosts.
+
+The requester separately reviews and selects an exact owner offer and then
+reviews the final administrator admission and commits. Both prompts default to
+no. Same-path current owner/admin authority can approve both roles in one review;
+an owner lacking that authority requires a separate administrator. Original SSH
+signing requests stay on their existing machine. A linked device can approve
+another machine while its current scope and role allow it. Renewal preserves the
+host/device identity and requires the same two requester confirmations.
+
+A pending request in `up` never redisplays the code; explicit `link resume ID`
+is the code-redisplay operation. A fresh explicit interactive link may display
+it once. Only verified state `linked` permits attachment. Decline, EOF or
+incomplete linking returns the final incomplete setup result and exact resume
+command, preserving the service and keys without create/join fallthrough.
 
 Validate an invite's format and signature before using its network ID to
 determine whether a join already happened. A consumed or expired invite is not
@@ -140,7 +166,7 @@ person binding after that sync. An unavailable coordinator produces incomplete
 setup and leaves the existing membership and attachment available for recovery.
 
 Inspect the onboarding result and refreshed status. Both person admission and
-this host's binding must succeed before attachment proceeds. Today's create and
+this host's binding must succeed before attachment proceeds. Existing create and
 join can return exit 0 with `person.bound: false`; `up` must report that as
 incomplete setup, preserve the membership, and show the relevant recovery action.
 It must not create another network, generate a replacement key, or report the
@@ -150,9 +176,9 @@ Keep the existing trust choice visible: trusting this machine enables its use of
 the owner's capabilities, including selected write operations, and direct source
 tools on hosts that explicitly allow it. Same-person message and task access
 already exists under the current self-access rule. A machine holding the person
-private key can sign a policy that marks itself trusted; the prompt must retain
-that limitation. A teammate's join does not grant teammate access to agents or
-capabilities. At a terminal, keep the existing trust question with an untrusted
+private key, or a device with access-management authority, can sign a policy
+that marks itself trusted; the prompt must retain that limitation. A teammate's
+join does not grant teammate access to agents or capabilities. At a terminal, keep the existing trust question with an untrusted
 default. Without a terminal, a new enrollment is untrusted unless `--trusted` is
 explicit. `--untrusted` records that choice without prompting.
 
@@ -188,6 +214,8 @@ readiness after launch. The setup summary does not print an unconditional
 | Run again in the same project | Reuse membership, person, agent, and profile; recover credentials using existing attachment rules. |
 | Service exists but is stopped | Start it, then continue from recorded host state. |
 | Host joined but its person is unbound | Stop before attachment with the identity repair step; preserve the existing membership. |
+| Machine link is pending or consent is declined | Preserve its request/keys and return incomplete with `link resume ID`; no new person, create/join or attachment. |
+| Linked device is expired, revoked or lacks a required proof | Repair the same person/path; never fall back to another original key or a generated identity. |
 | Enrollment succeeded but attachment failed | Rerun resumes membership and retries only attachment. |
 | New create or join input conflicts with existing state | Explain the conflict; do not enroll in another network or replace identity. |
 | Missing or stale conversation selection | Explain which existing conversation input to fix; do not launch a replacement conversation. |
@@ -214,7 +242,8 @@ terminal, with preparation state still distinct from live connection state.
 
 Without a terminal, `up` never waits for a prompt. Inputs must select an
 integration or reusable profile, create/join or a reusable single membership,
-and required integration options. New attachments default to capability calls
+and required integration options. A pending link returns its exact next consent
+step without supplying approval. New attachments default to capability calls
 disabled unless `--calls` is given; existing profiles retain their choice.
 Missing inputs are listed before remote enrollment or registration; supplying
 flags does not authorize unrelated sharing or configuration changes.
@@ -242,12 +271,18 @@ installed-bundle end-to-end checks are `conformance/launch_acceptance.py` and
 `conformance/up_acceptance.py`. New conformance suites continue to require a
 separate author under [AGENTS.md](../AGENTS.md).
 
-1. Fresh create, teammate join, and same-person second machine with an already
-   available key, including explicit coordinator flags and a bundled default.
-2. Interactive choices and explicit noninteractive inputs. Missing inputs, EOF,
+1. Fresh create, teammate invite join, and approved same-person machine linking,
+   including explicit coordinator flags and a bundled default. Enablement requires
+   every upgraded roster host's acknowledgment. Verify device-based approval of a
+   third machine while the original machine is offline, without its private key.
+2. Interactive create/link/join, separate default-no selection and final commit,
+   exact noninteractive approval pins, and pending-link resume. Declining either
+   linking consent preserves the request and exits incomplete before enrollment.
+   Missing inputs, EOF,
    cancellation, invalid options, absent prerequisites and invalid project paths
-   do not cause unintended enrollment or registration. Prompts never expose the
-   invite or private credentials in captured output.
+   do not cause unintended enrollment or registration. Structured output, normal
+   status, events and logs omit pairing codes, tokens and private credentials;
+   a fresh explicit terminal link alone displays its pairing code once.
 3. Repetition after each completed stage, stopped service, a failed attachment,
    already consumed invite, and network/person conflicts. Assert stable network,
    person, agent, and profile identities rather than just exit codes.
@@ -270,7 +305,19 @@ Run the existing CLI, service, onboarding, directory, integration-setup, and
 launch-acceptance checks covering the reused behavior. The implementation PR
 should name the precise checks run and any remaining platform or live-test gap.
 
-### Recorded Linux checks
+### Historical Linux checks and current validation
+
+The [approved-link validation record](results/linking-launch-validation.json)
+records independent runtime checks, normal Linux release packages, all four
+installed linking and `up` CLI/daemon pairings, and required existing setup
+regressions. Each run retains its actual source, binary hashes and outcome,
+including first failures, bounded follow-ups and known validation limits.
+Fixture agents complete the actual adapter handshake and readiness response.
+Live model task completion remains separate validation work.
+
+The following are historical first-`up` measurements, before approved linking.
+They retain their original same-person key-copy step and are not counts for the
+current link flow.
 
 The [implementation results](results/guided-setup.json) record clean bundles from
 `c0a00243c644779dd86ed50d97ac4ea28e0449dc`: all four CLI/daemon recovery pairings,
@@ -293,9 +340,10 @@ outside the count, as in the [baseline](setup-baseline.md#counted-steps).
 The fixture agent completes the real adapter handshake and readiness response;
 the runs verify discovery, message acceptance, and task delivery. They do not
 establish model task completion or fresh-machine user experience. Live agents,
-separate machines and macOS remain validation tasks. Approved linking still
-needs its own design and implementation before the same-person key copy can be
-removed.
+separate-machine user observation and macOS remain separate validation tasks.
+The approved-link implementation removes the same-person key-copy step. Its
+runtime and installed evidence is recorded separately in the
+[current validation results](results/linking-launch-validation.json).
 
 ## Task queue
 
@@ -306,26 +354,29 @@ removed.
 | UP-03 | Guided orchestration in Rust and Go, reusing existing operations | UP-02 | Implemented; scripted Linux checks passed |
 | UP-04 | Prerequisite, partial-identity, repeat/resume, and readiness handling | UP-02; ships with UP-03 | Implemented; scripted Linux checks passed |
 | UP-05 | Approved machine-link identity and recovery design | Current identity and trust model | Accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9) |
-| UP-06a | [Delegated signing contract, pairing primitives and fixed vectors](machine-linking-contract.md) | UP-05; existing person/admin rules | Accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41); no runtime changes |
+| UP-06a | [Delegated signing contract, pairing primitives and fixed vectors](machine-linking-contract.md) | UP-05; existing person/admin rules | Primitives accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41); complete runtime also requires UP-06b through UP-06d |
 | UP-06b | [Complete transaction schemas, routes, persistence, activation/upgrade and recovery contract](machine-linking-transactions.md) | UP-06a review | Accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43) |
-| UP-06c | Shared verification and signed-state propagation in Go, Rust and coordinator; separately authored conformance | UP-06b review | In progress; genesis verification, stateless feature eligibility, current action authorization and ordinary admission/binding facts implemented; other catalog kinds and propagation pending |
+| UP-06c | Shared verification and signed-state propagation in Go, Rust and coordinator; separately authored conformance | UP-06b review | Implemented and independently verified; [runtime and installed results](results/linking-launch-validation.json) |
 | UP-06c.1 | [Strict signed-object readers and independent byte/signature checks](linking-reader-checks.md) in Go and Rust | UP-06b | Accepted in [PR #44](https://github.com/peerspan/peerspan-internal/pull/44); cryptographic evidence only |
-| UP-06c.2 | Catalog resolution, current chain/role/feature checks, activation and retained-history authority | UP-06c.1 | In progress; genesis membership, activations, ordinary admission/binding facts and their retained history verified; other catalog kinds, high-water and freshness remain |
+| UP-06c.2 | Catalog resolution, current chain/role/feature checks, activation and retained-history authority | UP-06c.1 | Verified catalog, chain, restrictions, feature and access high-water projections implemented in both languages |
 | UP-06c.2a | [Exact certificate-path evaluation](linking-path-checks.md), using a verified current-state snapshot | UP-06c.1 | Accepted in [PR #45](https://github.com/peerspan/peerspan-internal/pull/45) |
 | UP-06c.2b | [Build verified state from signed catalogs and complete activation transcripts](linking-activation-checks.md) | UP-06c.2a | Accepted in [PR #46](https://github.com/peerspan/peerspan-internal/pull/46) |
-| UP-06c.2c | General catalog evidence: invite membership/redemptions, removals, root rotation, checkpoints/retained history, feature activation and high-water/freshness rules | UP-06c.2b | [Genesis membership, removals and retained link history](linking-history-checks.md) accepted in [PR #47](https://github.com/peerspan/peerspan-internal/pull/47); [stateless feature activation checks](linking-feature-checks.md) accepted in [PR #48](https://github.com/peerspan/peerspan-internal/pull/48); remaining ordinary catalog kinds, policy/group high-water and durable feature/freshness rules remain before writers |
-| UP-06c.2d | [Current authorization for new ordinary management actions](linking-action-checks.md), including exact signer, expiry bounds and self-invalidation refusal | UP-06c.2b and genesis history/feature checks | Accepted in [PR #49](https://github.com/peerspan/peerspan-internal/pull/49) as a stateless gate; operation-specific state checks and runtime writers remain pending |
+| UP-06c.2c | General catalog evidence: invite membership/redemptions, removals, root rotation, checkpoints/retained history, feature activation and high-water/freshness rules | UP-06c.2b | [Genesis membership, removals and retained link history](linking-history-checks.md) accepted in [PR #47](https://github.com/peerspan/peerspan-internal/pull/47); [stateless feature activation checks](linking-feature-checks.md) accepted in [PR #48](https://github.com/peerspan/peerspan-internal/pull/48); completed catalog, high-water and durable runtime behavior are now integrated |
+| UP-06c.2d | [Current authorization for new ordinary management actions](linking-action-checks.md), including exact signer, expiry bounds and self-invalidation refusal | UP-06c.2b and genesis history/feature checks | Accepted in [PR #49](https://github.com/peerspan/peerspan-internal/pull/49) as a stateless gate; live typed writers and operation-specific gates are now integrated |
 | UP-06c.2e | [Ordinary person/host admissions and host bindings](linking-record-checks.md), dependency resolution, exact retained history and renewal proof references | UP-06c.2c and UP-06c.2d | Accepted in [PR #50](https://github.com/peerspan/peerspan-internal/pull/50) as verified catalog facts |
 | UP-06c.2f | [Ordinary unbinding, person removal and host/invite revocation](linking-restriction-checks.md), final restrictive state and exact retained authority | UP-06c.2e | Accepted in [PR #52](https://github.com/peerspan/peerspan-internal/pull/52) as stateless catalog checks |
-| UP-06c.2g | [Completed invitation/redemption history](linking-redemption-checks.md), exact paired retention, skip-person proofs and selected renewal membership | UP-06c.2f | Accepted in [PR #53](https://github.com/peerspan/peerspan-internal/pull/53) as historical catalog checks; first-redemption writers/private tokens, durable state remain pending |
-| UP-06c.2h | [Policy/group selection and monotonic version high-water](linking-policy-checks.md), exact signed candidates and current authority with no permissive fallback | UP-06c.2g | Accepted in [PR #55](https://github.com/peerspan/peerspan-internal/pull/55) as a stateless access-state projection; durable high-water persistence and runtime application remain pending |
-| UP-06c.2i | [Root-chain and current-epoch verification](linking-root-checks.md), attestations, retained transcripts and monotonic feature identity | UP-06c.2g | Implemented in Go and Rust as stateless catalog checks; durable chain prefix/freshness and runtime writers remain pending |
-| UP-06c.2j | [Fixed complete stored-catalog verification budgets](linking-stored-checks.md), preserving existing state-free limits | UP-06c.2h and UP-06c.2i | Implemented in Go and Rust; runtime persistence and writers remain pending |
-| UP-06c.3 | Durable signed-state storage, v2 maps, coordinator/peer propagation and recovery conformance | UP-06c.2 | Pending |
-| UP-06d | Linking ceremony, signer discovery/renewal and integration with `up` in both hosts | UP-06c | Pending |
-| UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06d | Scripted Linux checks passed; live-agent and fresh-machine validation pending |
-| UP-08 | Clean macOS bundle, service, and guided-setup validation | Linux guided flow | Pending |
+| UP-06c.2g | [Completed invitation/redemption history](linking-redemption-checks.md), exact paired retention, skip-person proofs and selected renewal membership | UP-06c.2f | Accepted in [PR #53](https://github.com/peerspan/peerspan-internal/pull/53) as historical catalog checks; signed feature-bound invites, first-use writers and durable outcomes are now integrated |
+| UP-06c.2h | [Policy/group selection and monotonic version high-water](linking-policy-checks.md), exact signed candidates and current authority with no permissive fallback | UP-06c.2g | Accepted in [PR #55](https://github.com/peerspan/peerspan-internal/pull/55) as a stateless access-state projection; full-u64 durable high-water and runtime application are now integrated |
+| UP-06c.2i | [Root-chain and current-epoch verification](linking-root-checks.md), attestations, retained transcripts and monotonic feature identity | UP-06c.2g | Implemented and independently verified in both verifiers and the durable runtime |
+| UP-06c.2j | [Fixed complete stored-catalog verification budgets](linking-stored-checks.md), preserving existing state-free limits | UP-06c.2h and UP-06c.2i | Implemented in Go and Rust and used by durable runtime writers |
+| UP-06c.3 | Durable signed-state storage, v2 maps, coordinator/peer propagation and recovery conformance | UP-06c.2 | Implemented and independently verified; exact per-run evidence recorded |
+| UP-06d | Linking ceremony, signer discovery/renewal and integration with `up` in both hosts | UP-06c | Implemented; all four normal installed linking and `up` pairings passed |
+| UP-07 | Installed-bundle and live checks; verified quick start and installer handoff | UP-03 and UP-04; repeat after UP-06d | Linux scripted checks complete; live model and separate-machine observations deferred |
+| UP-08 | Clean macOS bundle, service, and guided-setup validation | Linux guided flow | Deferred |
 
-UP-03 and UP-04 provide the first guided flow with the current invite path. UP-05 and UP-06a through UP-06d then remove the same-person private-key copy and invite
-handoff. Private preview release configuration resumes after the setup flow is
-ready for that validation.
+UP-03 and UP-04 established the original invite-based guide. UP-05 and UP-06a
+through UP-06d add approved same-person linking and remove its private-key copy
+and invite handoff. The Linux engineering milestone and scripted portion of
+UP-07 are complete, with the evidence and known limits linked above. Private
+release configuration, macOS, live model execution and separate-machine user
+validation remain deferred.

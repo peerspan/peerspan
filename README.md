@@ -13,9 +13,11 @@ peerspan up claude --create acme
 peerspan status
 ```
 
-On another machine, the owner issues `peerspan invite bob`; Bob joins with `peerspan up claude --join TOKEN`. The owner then runs `peerspan allow bob` to let Bob reach their agents. `peerspan up codex` and `peerspan up opencode` attach to existing conversations. See the quick start for identity keys, consent prompts, and recovery steps.
+For [your own second machine](docs/quick-start.md#add-your-own-second-machine), enable approved linking on the existing network, then run `peerspan up claude` on the new machine and choose **link**. Review its private code on an authorized machine; the requester separately confirms the owner and final admission. Each machine keeps its own device key.
 
-Native Linux bundles exist for both implementations, and [guided installed-bundle checks](docs/results/guided-setup.json) cover solo, pair, team, and mixed Go/Rust paths with fixture agents. These checks establish setup and delivery behavior, not model task completion. macOS packaging and the same installed-bundle path still need validation. Integrations require Node.js 22 or later.
+To invite a teammate, the owner issues `peerspan invite bob`; Bob joins with `peerspan up claude --join TOKEN`. The owner then runs `peerspan allow bob` to let Bob reach their agents. `peerspan up codex` and `peerspan up opencode` attach to existing conversations. See the quick start for consent prompts and recovery steps.
+
+Native Linux bundles for both implementations have [scripted installed validation](docs/results/linking-launch-validation.json), including approved linking and guided `up` across all four CLI/daemon pairings. Fixture agents verify setup, readiness and delivery. Live model task completion, macOS and separate-machine user observation remain separate validation work. Integrations require Node.js 22 or later.
 
 ## What works today
 
@@ -24,7 +26,7 @@ Native Linux bundles exist for both implementations, and [guided installed-bundl
 - **Shared capabilities:** discover MCP sources from attached agents, select operations to share, and call them from the owner CLI. An attached agent may use `list_capabilities`, `call_capability`, `call_status`, and `call_cancel` when the owner enables calls at `attach`; raw sources remain CLI-only. [Capabilities contract](docs/capabilities-contract.md)
 - **Guided setup and diagnostics:** `peerspan up` prepares the service, network, identity, and project attachment; `peerspan status` reports what needs attention. [Quick start](docs/quick-start.md)
 
-Machine linking is under development. Go and Rust have signed-object, certificate-path, catalog, activation, history, and authorization verifiers with [shared checks](docs/linking-record-checks.md), plus [root-chain verification](docs/linking-root-checks.md) and [policy/group selection and version high-water checks](docs/linking-policy-checks.md). They are currently exposed through conformance probes; live linking, durable propagation, and a `peerspan link` command are not implemented. For a second machine belonging to the same person, the [quick start](docs/quick-start.md#add-people-and-machines) still requires the person's existing key. Conversation objects and isolated remote execution are also future work.
+Approved machine linking, durable signed-state propagation, device signing, renewal and recovery are implemented in both hosts and the coordinator under the [linking runtime contract](docs/linking-host-checks.md). `peerspan link` and the guided `up` handoff use independently revocable device authority without copying the original person key. Current scopes and administrator roles determine access management and approval of further machines. The [validation record](docs/results/linking-launch-validation.json) names the tested revisions, outcomes and limits. Conversation objects and isolated remote execution remain future work.
 
 ## Repository map
 

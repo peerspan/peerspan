@@ -2,6 +2,8 @@
 
 Peerspan lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
+**Linux validation:** [scripted installed-bundle checks](results/linking-launch-validation.json) cover approved linking and guided setup across all four Go/Rust CLI/daemon pairings with fixture agents. Private release configuration, macOS, live model task completion and separate-machine user observation remain separate launch work.
+
 Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm, Go, or Rust. The installer also needs Bash, tar, and `flock`. Private release downloads need GitHub CLI (`gh`) authenticated for the repository. Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
 
 ## Install
@@ -53,42 +55,131 @@ You join as a person named after your login name (`--as NAME` picks another).
 Peerspan reuses its existing `~/.config/peerspan/person_ed25519` key, otherwise
 uses the only `ssh-ed25519` key in `ssh-agent`, or generates a key when none is
 available. With several agent keys, select one using `--person-key PATH`.
-Back up a generated key: it is how your other machines prove they are you. The trust and capability
-call prompts default to no. Trusting a machine permits capability calls under
-existing policy; a host holding your person private key can also sign a policy
-that marks itself trusted.
+Back up a generated original person key for recovery. Your other machines use
+approved linking and keep their own device signing keys; they do not need that
+private key. The trust and capability call prompts default to no. Trusting a
+machine permits capability calls under existing policy. A linked machine with
+access-management authority can also mark itself trusted; review the requested
+scopes before approving it.
 
-## Add people and machines
+## Enable approved machine linking
 
+First upgrade the coordinator and **every admitted host** to this release.
 Keep the agent running and open another terminal for network administration.
-Invite each teammate by the name they will use:
+On the machine holding the current network root, find the network ID with
+`peerspan network list`, then propose enabling linking:
+
+```sh
+peerspan network enable-linking --network NETWORK_ID
+```
+
+Each upgraded host must acknowledge that exact proposal. It can do so during its
+normal sync or by running:
+
+```sh
+peerspan network sync NETWORK_ID
+```
+
+If enablement reports `pending_hosts`, upgrade and sync those machines, then
+rerun `network enable-linking`. Continue only when its result says `active`.
+Offline hosts are not removed automatically. A proposal expires after 24 hours;
+roster or root changes require a fresh proposal. If the current root is an
+external SSH key, add `--root-key PATH` on its existing machine. The root key
+stays there. Activation is permanent; old binaries and legacy coordinator
+mutation paths cannot operate on the activated network.
+
+## Add your own second machine
+
+Install Peerspan on the new machine. At a terminal in its project, run:
+
+```sh
+cd ~/src/project
+peerspan up claude
+```
+
+With no membership, choose **link** from `create/link/join`. The new machine
+creates its own host and device keys and displays a private pairing code. If no
+coordinator was built into the release, supply the same independently known
+`--coordinator HOST:PORT --coordinator-key KEY` as the existing machine. You can
+also start the explicit flow with `peerspan link` and run `up` after linking.
+
+On your existing machine:
+
+```sh
+peerspan link approve --network NETWORK_ID
+```
+
+Enter the code at the hidden prompt. Compare the network, person, host key,
+device key, scopes and expiry with the new machine before accepting. The
+standard device profile permits managing your access and trust settings and,
+while you are an administrator, approving further machines. The original person
+private key remains on its existing machine.
+
+Back on the new machine, select the exact reviewed owner offer. Selection and
+final **commit** are separate confirmations and both default to no. When the
+owner is also an administrator using that same signing path, its approval can
+include the required admission. An original-person SSH signer may need to finish
+its already approved signatures on the existing machine:
+
+```sh
+peerspan link resume REQUEST_ID
+```
+
+Use the request ID returned by approval, and the same `--person-key PATH` if one
+was selected explicitly. If the owner is not an administrator, a current
+administrator separately runs `peerspan link admit --network NETWORK_ID` after
+owner selection and reviews that same private code and target. Review the final
+admission on the new machine before committing.
+
+`up` continues to attachment only after the request is `linked`. Once linked,
+this machine can approve a third machine using its live device authority while
+the original machine is offline. It remains the same person, with its own
+revocable, expiring certificate.
+
+For interruption or a declined confirmation:
+
+```sh
+peerspan link status
+peerspan link resume REQUEST_ID
+peerspan up claude
+```
+
+Resume preserves the request and keys. Automatic pending-link resume in `up`
+does not redisplay the code; explicit `link resume` can redisplay a still-pending
+code. Cancelling or declining never creates a replacement person or falls
+through into creating another network. Expired, revoked or missing signing
+proofs produce recovery guidance for the same person. Use
+`peerspan link --renew --network NETWORK_ID` while an authorized machine is
+available to review renewal; renewal keeps the host and device identity and
+still requires both confirmations.
+
+## Invite a teammate
+
+Teammates use their own person identity. On an existing authorized machine:
 
 ```sh
 peerspan invite bob
 ```
 
-The output includes a token and an explicit `peerspan join ...` command. The
-invite is valid for 7 days and works once for a new host. Send it privately. The
-teammate installs Peerspan, changes into their project, then gives that token to
-`up`:
+The output includes a private token and an explicit `peerspan join ...` command.
+The default invite lasts up to 7 days, bounded by its signer, and works once for
+a new host. Invites created
+after linking activation also bind the exact signed feature and coordinator.
+The teammate installs Peerspan and runs:
 
 ```sh
 cd ~/src/project
 peerspan up claude --join TOKEN
 ```
 
-**Your own second machine** uses an invite with your own person name. Make the
-same person key available on that machine before running `up`: use the same key
-in `ssh-agent`, or copy `~/.config/peerspan/person_ed25519` and its `.pub` file to
-the same private configuration directory there. Approved machine linking is
-still a later milestone.
+Keep the token private. An older unwrapped invite may be refused after network
+activation; obtain a fresh invite instead of copying a person key or bypassing
+the feature check. If membership succeeds but person admission or binding does
+not, `up` stops before attachment and reports the exact identity repair step.
+A retry preserves the existing membership and does not redeem the invite again.
 
-If a host joins but its person cannot be bound, `up` stops before attaching an
-agent and prints the identity repair step. Keep the joined network, make the
-original key available, run the suggested `network bind` command, then rerun
-`up`. A retry reuses existing membership and does not redeem an invite again.
-
-Administrators can delegate administration with `peerspan network delegate-admin` and maintain groups with `peerspan network group set`; see `peerspan help advanced`.
+Administrators can delegate administration with `peerspan network delegate-admin`
+and maintain groups with `peerspan network group set`; see `peerspan help advanced`.
 
 ## Let others reach your agents
 

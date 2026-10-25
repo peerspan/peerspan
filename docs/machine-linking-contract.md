@@ -1,24 +1,28 @@
 # Machine linking: delegated signing and pairing primitives
 
 Status: **UP-06a accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41)**,
-2026-10-23. The first [UP-06c signed-object readers](linking-reader-checks.md)
-verify cryptographic bytes. The [certificate-path evaluator](linking-path-checks.md)
-checks chains against independently verified current state. The bounded
-[catalog/activation](linking-activation-checks.md) and
-[history](linking-history-checks.md) verifiers build genesis state and check
-complete transcripts and retained link records. General catalog verification,
-durable propagation and live delegated writes remain pending.
+2026-10-23. The shared Go and Rust verifiers now cover signed catalogs, root
+chains, complete activations, retained history, restrictions and monotonic
+policy/group selection. The composed host/coordinator runtime implements durable
+propagation, approved new/renew ceremonies and live delegated writes under the
+[transaction contract](machine-linking-transactions.md) and
+[host runtime checks](linking-host-checks.md). The
+[Linux validation record](results/linking-launch-validation.json) contains the
+independent runtime and installed-bundle results, per-run sources and known
+limits.
+
 This refines the [UP-05 design](https://github.com/peerspan/docs-internal/blob/main/docs/machine-linking.md),
 accepted in [docs PR #9](https://github.com/peerspan/docs-internal/pull/9).
-Both Go and Rust must implement the eventual shared behavior. Rust remains the
-recommended install. Release configuration is deferred.
+Both Go and Rust implement the shared behavior. Rust remains the recommended
+install; Go remains supported. Private release configuration, macOS and live
+model validation remain separate work.
 
-This slice specifies signed bytes, authority evaluation, and encryption
-primitives. The transaction schemas, routes, durable storage migration, and CLI
-are defined in the [UP-06b transaction contract](machine-linking-transactions.md),
-accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43).
-**Do not enable delegated writers or advertise `peerspan link` from this document
-alone.** Writers require the complete transaction and live-authority checks.
+This document fixes signed bytes, authority evaluation and encryption primitives.
+The [UP-06b transaction contract](machine-linking-transactions.md), accepted in
+[PR #43](https://github.com/peerspan/peerspan-internal/pull/43), fixes transaction
+containers, migration, routes and CLI. Writers require those complete runtime
+and current-authority checks; a cryptographic reader result alone supplies no
+signing authority, membership or readiness.
 
 ## Required result
 

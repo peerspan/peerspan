@@ -1,17 +1,21 @@
 # Machine linking: transactions, persistence and recovery
 
 Status: **UP-06b accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43)**,
-2026-10-23. The first [UP-06c signed-object readers](linking-reader-checks.md)
-verify cryptographic bytes in both languages. The
-[certificate-path evaluator](linking-path-checks.md) checks exact signing paths
-against independently verified current state. Building that state from catalogs
-and activation transcripts, propagation, transaction execution and recovery
-remain pending.
+2026-10-23. Signed catalog verification, durable storage and propagation,
+transaction execution and recovery are implemented in the composed Go/Rust host
+and Go coordinator runtime. Independent runtime and installed Linux results are
+recorded in the [validation record](results/linking-launch-validation.json).
+The [host runtime checks](linking-host-checks.md),
+[coordinator checks](linking-coordinator-checks.md),
+[recovery contract](linking-recovery-checks.md) and
+[feature-bound invitations](linking-invite-feature-checks.md) pin the implemented
+extensions and exact outcomes.
+
 The [signing primitives](machine-linking-contract.md) were accepted in
-[PR #41](https://github.com/peerspan/peerspan-internal/pull/41). This document
-completes their transaction containers and implementation gates. Both hosts and
-the Go coordinator must agree on these bytes and outcomes before writers ship.
-Rust remains recommended, Go supported, and release configuration deferred.
+[PR #41](https://github.com/peerspan/peerspan-internal/pull/41). Both hosts and the
+Go coordinator use these bytes and authority gates. Rust remains recommended,
+Go supported, and private release configuration deferred. macOS, live model
+execution and separate-machine user observation are separate validation work.
 
 ## 1. Common types
 
@@ -645,9 +649,11 @@ key generation. An explicit original-key option is allowed only when it matches
 the bound original person. Renewal selects the shortest usable path (then ID)
 from verified state and cannot silently replace a user's selected identity.
 
-## 7. Local API, proposed CLI and outcomes
+## 7. Local API, CLI and outcomes
 
-These commands/routes are proposed, unavailable until implementation:
+These commands/routes are implemented in the composed runtime. The
+[host runtime checks](linking-host-checks.md) also specify exact requester
+selection/final-commit commands, coordinator pin flags and approval review pins.
 
 | CLI | Private local route and exact request |
 | --- | --- |
