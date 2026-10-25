@@ -249,6 +249,7 @@ The slice 1 instance rules carry over with these meanings:
 - **The review** adds a line for remote sources:
   - headers: `Credential: the token in the Authorization header of AGENT/SERVER (from claude-code:user).`
   - OAuth: `Credential: Peerspan's own sign-in to ISSUER_HOST, scopes SCOPE, account LABEL (or: account not labelled; Peerspan cannot see which account approved), signed in on DATE.`
+  - none (settled with the owner on 2026-10-25): `Credential: none. AGENT/SERVER (URL_HOST) asks for no sign-in, so it serves anyone who can reach it. Sharing it lets the people you share with use the selected operations through this host, including when the server is only reachable from here (a local, home, VPN, or company network).`
 
   The reach sentence is unchanged.
 - **Raw sources** for the person's own machines (open list) cover remote sources too, on the serving host's token.

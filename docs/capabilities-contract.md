@@ -842,7 +842,7 @@ Settled with the owner on 2026-10-25:
 
 16. **Slice 3.** Slice 3 covers four items, each designed in its own proposal. The owner accepted every recommendation in each proposal's "Owner decisions needed" list, so each proposal's recommended design is the design for its item. Each item's contract section, added when it is implemented, follows its proposal.
     - **Remote MCP servers and OAuth** ([proposal](capabilities-slice3-remote-proposal.md), decisions 1–12):
-      - remote servers with no sign-in, fixed headers, or OAuth;
+      - remote servers with no sign-in, fixed headers, or OAuth; for a server with no sign-in, the share review says plainly that it asks for no sign-in and serves anyone who can reach it, and that sharing extends that reach to the recipients through this host (added by the owner on 2026-10-25);
       - registration by dynamic client registration or an owner-supplied client ID, with Client ID Metadata Documents once Peerspan has a public domain;
       - the client name `Peerspan (HOST_LABEL)`;
       - no HTTP+SSE;
