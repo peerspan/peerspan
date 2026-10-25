@@ -64,6 +64,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -450,13 +451,18 @@ class OpenCodeDriver:
             {'permission': name, 'pattern': '*', 'action': 'deny'}
             for name in ('bash', 'edit', 'webfetch', 'websearch', 'task', 'external_directory')]})
         self.conversation = Conversation(url, session['id'], self.workspace, bindings)
-        baseline = self.conversation.request('POST', f"/session/{session['id']}/message", {
+        # Submitted asynchronously and awaited with the turn timeout, as the later turns are; the server's default
+        # model and agent answer it, and the sidecar keeps them for its own input.
+        message_id = 'msg_' + secrets.token_hex(16)
+        self.conversation.request('POST', f"/session/{session['id']}/prompt_async", {
+            'messageID': message_id,
             'parts': [{'type': 'text', 'text': 'Reply with BASELINE_READY and nothing else. Do not use tools.'}]})
-        info = (baseline or {}).get('info', {})
+        replies = self.replies(message_id)
+        info = replies[-1]['info']
         self.attachment['session'] = {'id': session['id'], 'model': info.get('modelID'),
                                       'provider': info.get('providerID')}
         self.attachment['baseline'] = {'error': info.get('error'), 'answer': '\n'.join(
-            part.get('text', '') for part in (baseline or {}).get('parts', []) if part.get('type') == 'text')}
+            part.get('text', '') for m in replies for part in m['parts'] if part.get('type') == 'text')}
         self.attachment['version'] = self.conversation.request('GET', '/global/health').get('version')
         self.sidecar = Sidecar(run, ['attach', 'opencode', '--calls', '--directory', str(self.workspace),
                                      '--integrations', str(run.args.integrations), '--runner', str(run.args.node),
@@ -484,18 +490,22 @@ class OpenCodeDriver:
         status = lambda: self.conversation.request('GET', '/session/status').get(self.conversation.session_id, {})
         wait_until(lambda: status().get('type', 'idle') == 'idle', seconds, 'the OpenCode session to be idle')
 
-    def turn(self, prompt):
-        events = len(self.sidecar.events)
-        started = time.monotonic()
-        message_id = self.conversation.submit(prompt)
-
+    def replies(self, message_id):
+        """The assistant messages answering message_id, once all are finished and the session is idle, waiting up
+        to the turn timeout."""
         def finished():
             replies = [m for m in self.conversation.messages() if m['info']['role'] == 'assistant'
                        and m['info'].get('parentID') == message_id]
             busy = self.conversation.request('GET', '/session/status').get(self.conversation.session_id, {})
             done = replies and all('completed' in m['info'].get('time', {}) or m['info'].get('error') for m in replies)
             return replies if done and busy.get('type', 'idle') == 'idle' else None
-        replies = wait_until(finished, self.run.args.timeout, 'the OpenCode turn to finish')
+        return wait_until(finished, self.run.args.timeout, 'the OpenCode turn to finish')
+
+    def turn(self, prompt):
+        events = len(self.sidecar.events)
+        started = time.monotonic()
+        message_id = self.conversation.submit(prompt)
+        replies = self.replies(message_id)
         self.sidecar.drain()
         output = '\n'.join([json.dumps(m) for m in replies] + [json.dumps(e) for e in self.sidecar.events[events:]])
         answer = '\n'.join(p['text'] for m in replies for p in m['parts'] if p.get('type') == 'text')
