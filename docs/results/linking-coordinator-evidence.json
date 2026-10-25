@@ -1,0 +1,55 @@
+{
+  "checked_on": "2026-10-25",
+  "base_commit": "49aad53",
+  "scope": "Strict existing-shape coordinator move and successor signature recognition as inert catalog transport evidence. No current pin-switch authority or runtime readiness claim.",
+  "contract": "docs/linking-coordinator-evidence-checks.md",
+  "suite_authorship": "Independent contract/public-signers author without implementation-source access.",
+  "conformance": {
+    "passed": true,
+    "checks_per_mode": 67,
+    "modes": [
+      "normal",
+      "stored"
+    ],
+    "checks_per_implementation": 134,
+    "fixture_signatures_reproduced": 199,
+    "command": "python3 conformance/linking_transport_evidence.py --go-probe /tmp/peerspan-coordinator-evidence-go --rust-probe /tmp/peerspan-coordinator-evidence-rust",
+    "post_review_affected_checks_per_implementation": 497,
+    "post_review_affected_suites": {
+      "transport_evidence": 134,
+      "historical_pins": 42,
+      "activations": 248,
+      "roots": 73
+    },
+    "prior_regression_checks_per_implementation": 3245,
+    "prior_regression_passed": true,
+    "review_fix": "Independent signed current/historical descriptor and move/successor address regressions. Rust now uses exact existing Go address syntax; Go validator unchanged."
+  },
+  "language_checks": {
+    "go_vet": true,
+    "rust_fmt": true,
+    "rust_clippy": true,
+    "clippy_log": "/tmp/peerspan-coordinator-evidence-clippy.log",
+    "probe_and_host_builds": true
+  },
+  "shared_final_integration_gate": {
+    "all14_probe_checks_per_implementation": 3245,
+    "all14_probes_passed": true,
+    "go_race_passed": false,
+    "go_log": "/tmp/peerspan-coordinator-evidence-go-race.log",
+    "go_failure": "Only unchanged TestPathDiscoveryChecks packet routing at go/internal/host/peer_path_test.go:157; host 358.972 seconds. All other tests/packages passed. Existing baseline evidence: docs/results/linking-readers.json. No host/disco source changes.",
+    "rust_full_tests_passed": true,
+    "rust_log": "/tmp/peerspan-coordinator-evidence-rust-tests.log",
+    "status": "Final composed reader-stack gates complete. Full Rust passed; full Go failed only the documented unchanged discovery assertion. No runtime readiness claim.",
+    "rust_library_passed": 138,
+    "rust_library_ignored": 2,
+    "rust_library_seconds": 169.3,
+    "rust_main_passed": 10,
+    "rust_integration_passed": 6,
+    "scope": "Completed full composed gates before isolated address-syntax review fix; affected post-fix suites pass. No unrelated full-runtime rerun."
+  },
+  "remaining": [
+    "Actual current-authority move and independently pinned consecutive successor following in runtime",
+    "Complete host/coordinator ceremony/provider/up acceptance"
+  ]
+}

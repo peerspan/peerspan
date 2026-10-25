@@ -22,6 +22,10 @@ pub use policy::{
     AccessContext, AccessHighWater, AccessSelection, AccessState, GroupAccess, GroupHighWater,
     PolicyAccess, PolicyHighWater, verify_access_state,
 };
+#[path = "coordinator_address.rs"]
+mod coordinator_address;
+#[path = "coordinator_evidence.rs"]
+mod coordinator_evidence;
 #[path = "redemptions.rs"]
 mod redemptions;
 #[path = "roots.rs"]
@@ -311,7 +315,10 @@ impl<'a> Verifier<'a> {
             "invalid",
         )?;
         crate::membership::label(text(&network, "name")?)?;
-        crate::membership::split_host_port(text(&network, "coordinator_address")?)?;
+        check(
+            coordinator_address::valid(text(&network, "coordinator_address")?),
+            "invalid",
+        )?;
         let state = PathState {
             network_id: net.clone(),
             ..PathState::default()
@@ -562,12 +569,33 @@ impl<'a> Verifier<'a> {
             )?;
             last = id;
             match kind {
-                "admin_delegation" | "person_admission" | "host_admission" | "host_binding"
-                | "feature" | "certificate" | "activation" | "person_record" | "root_record"
-                | "device_revocation" | "admin_removal" | "person_membership"
-                | "host_membership" | "host_unbinding" | "host_leave" | "host_revocation"
-                | "invite_revocation" | "person_removal" | "join_ack" | "checkpoint"
-                | "invite_redemption" | "policy" | "group" | "rotation" | "attestation" => {}
+                "admin_delegation"
+                | "person_admission"
+                | "host_admission"
+                | "host_binding"
+                | "feature"
+                | "certificate"
+                | "activation"
+                | "person_record"
+                | "root_record"
+                | "device_revocation"
+                | "admin_removal"
+                | "person_membership"
+                | "host_membership"
+                | "host_unbinding"
+                | "host_leave"
+                | "host_revocation"
+                | "invite_revocation"
+                | "person_removal"
+                | "join_ack"
+                | "checkpoint"
+                | "invite_redemption"
+                | "policy"
+                | "group"
+                | "rotation"
+                | "attestation"
+                | "coordinator_move"
+                | "coordinator_successor" => {}
                 _ => return Err(problem("invalid")),
             }
             self.index(kind, &b)?;
@@ -1258,7 +1286,10 @@ fn operation_descriptor(
         &[],
     )?;
     check(key(text(network, "coordinator_public_key")?), "invalid")?;
-    crate::membership::split_host_port(text(network, "coordinator_address")?)?;
+    check(
+        coordinator_address::valid(text(network, "coordinator_address")?),
+        "invalid",
+    )?;
     for field in ["network_id", "name", "genesis_root_public_key"] {
         check(text(network, field)? == text(current, field)?, "invalid")?;
     }

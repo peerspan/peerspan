@@ -71,6 +71,15 @@ class Author(RootAuthor):
     def build(self):
         for label, descriptor in (('address', self.changed(key=False)), ('key', self.changed(address=False)), ('both', self.changed())):
             self.activation_case('historical/unchanged_old_' + label, descriptor=descriptor)
+        for label, address, code in (('opaque_underscore', 'coord_internal.example:443', None),
+                                     ('leading_zero_port', 'next.example:0443', 'invalid')):
+            descriptor = self.changed()
+            descriptor['coordinator_address'] = address
+            self.activation_case('address/current_' + label, descriptor=descriptor, code=code)
+            transcript = Transcript(self, self.base)
+            transcript.values['request']['coordinator_address'] = address
+            transcript.values['owner']['network']['coordinator_address'] = address
+            self.activation_case('address/historical_' + label, transcript.finish(), code=code)
         self.activation_case('first/actual_pin_still_required', verification='first', code='invalid')
         self.action_case('current/path_resolves_complete_old_pin_activation')
         for field, value in (('name', 'different-network-name'),

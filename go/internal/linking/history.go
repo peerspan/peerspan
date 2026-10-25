@@ -266,6 +266,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	if e := v.loadWithdrawals(); e != nil {
 		return e
 	}
+	if e := v.coordinatorEvidence(); e != nil {
+		return e
+	}
 	if e := v.loadRestrictions(); e != nil {
 		return e
 	}

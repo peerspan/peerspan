@@ -372,7 +372,7 @@ func (v *activationVerifier) catalog(body []byte) error {
 		}
 		last = id
 		switch kind {
-		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption", "policy", "group", "rotation", "attestation":
+		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption", "policy", "group", "rotation", "attestation", "coordinator_move", "coordinator_successor":
 		default:
 			return pathError("invalid")
 		}

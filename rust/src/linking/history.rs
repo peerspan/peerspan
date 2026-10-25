@@ -371,6 +371,7 @@ impl Verifier<'_> {
                 .insert(s(o, "person_public_key").into());
         }
         self.load_withdrawals()?;
+        self.coordinator_evidence()?;
         self.load_restrictions()?;
         self.load_ordinary_restrictions()?;
         for p in &proofs {
