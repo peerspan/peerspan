@@ -5071,19 +5071,27 @@ pub(crate) fn changed(store: &Arc<Store>, network: String) {
 }
 
 /// Background registration and sync for every network until shutdown.
+/// Shutdown abandons a round in progress, as a stop between rounds would, so
+/// a slow coordinator does not hold the daemon past its stop.
 pub async fn coordinate(store: Arc<Store>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
     loop {
-        let ids = blocking(store.clone(), |s| {
-            Ok(s.networks()?.into_iter().map(|n| n.id).collect::<Vec<_>>())
-        })
-        .await
-        .unwrap_or_default();
-        for id in ids {
-            if let Err(error) = sync_network(store.clone(), id).await {
-                eprintln!("coordination sync error: {error}");
+        let round = async {
+            let ids = blocking(store.clone(), |s| {
+                Ok(s.networks()?.into_iter().map(|n| n.id).collect::<Vec<_>>())
+            })
+            .await
+            .unwrap_or_default();
+            for id in ids {
+                if let Err(error) = sync_network(store.clone(), id).await {
+                    eprintln!("coordination sync error: {error}");
+                }
             }
+            crate::policy::renew(store.clone()).await;
+        };
+        tokio::select! {
+            _ = round => {}
+            _ = shutdown.changed() => return,
         }
-        crate::policy::renew(store.clone()).await;
         let interval = store.coordination_interval.load(Ordering::Relaxed);
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(interval)) => {}

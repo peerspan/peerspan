@@ -60,6 +60,9 @@ const REQUEST_BOUND: Duration = Duration::from_secs(8);
 /// stalls the connection's idle timeout bounds instead.
 const SERVE_BOUND: Duration = Duration::from_secs(15);
 const TRANSFER_BOUND: Duration = Duration::from_secs(3600);
+/// How long a served request waits for the peer to acknowledge its response,
+/// so a stopping daemon closes the connection only after delivery.
+const DELIVERY_BOUND: Duration = Duration::from_secs(5);
 
 /// Set by a handler whose response may outlast the usual serve bound.
 #[derive(Clone, Default)]
@@ -908,8 +911,11 @@ impl tokio::io::AsyncWrite for Stream {
     }
 }
 
-/// Accepts peer connections until shutdown. Requests that outlive the bounded
-/// drain remain unknown to their senders.
+/// Accepts peer connections until shutdown. On shutdown every connection stops
+/// accepting new requests and closes once its in-flight requests finish and
+/// the peer has acknowledged their responses, so an idle connection a peer
+/// keeps open does not hold the drain. Requests that
+/// outlive the bounded drain remain unknown to their senders.
 pub async fn serve(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
     let transport = transport(&store)?;
     let relays = tokio::spawn(keep_relays(store.clone(), transport.clone()));
@@ -925,7 +931,7 @@ pub async fn serve(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) -> an
                     incoming.refuse();
                     continue;
                 }
-                connections.spawn(connection(store.clone(), incoming));
+                connections.spawn(connection(store.clone(), incoming, shutdown.clone()));
             }
         }
     }
@@ -938,15 +944,18 @@ pub async fn serve(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) -> an
     transport.endpoint.close(VarInt::from_u32(0), b"shutdown");
     Ok(())
 }
-async fn connection(store: Arc<Store>, incoming: Incoming) {
-    let Ok(Ok(connection)) = tokio::time::timeout(HANDSHAKE, async {
+async fn connection(store: Arc<Store>, incoming: Incoming, mut shutdown: watch::Receiver<bool>) {
+    let handshake = tokio::time::timeout(HANDSHAKE, async {
         match incoming.accept() {
             Ok(connecting) => connecting.await,
             Err(error) => Err(error),
         }
-    })
-    .await
-    else {
+    });
+    // A connection still in its handshake at shutdown carries no request yet.
+    let Ok(Ok(connection)) = (tokio::select! {
+        handshake = handshake => handshake,
+        _ = shutdown.changed() => return,
+    }) else {
         return;
     };
     // Rustls accepts a client that offers no ALPN at all; require ours.
@@ -967,8 +976,10 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
     let forbidden: axum::Router = axum::Router::new()
         .fallback(|| async { Err::<(), crate::model::Error>(crate::model::Error::Forbidden) });
     let mut streams = JoinSet::new();
-    loop {
+    let mut stopping = *shutdown.borrow_and_update();
+    while !stopping {
         tokio::select! {
+            _ = shutdown.changed() => stopping = true,
             Some(_) = streams.join_next(), if !streams.is_empty() => {}
             accepted = connection.accept_bi() => {
                 let Ok((send, recv)) = accepted else { break };
@@ -982,23 +993,40 @@ async fn connection(store: Arc<Store>, incoming: Incoming) {
                 } else {
                     forbidden.clone()
                 });
+                // Resolves once the peer acknowledges the whole response (or
+                // stops the stream), so a stop closes the connection only
+                // after what was answered has been delivered.
+                let delivered = send.stopped();
                 streams.spawn(async move {
-                    let served = hyper::server::conn::http1::Builder::new()
-                        .keep_alive(false)
-                        // The client finishes its send side after the request.
-                        .half_close(true)
-                        .serve_connection(TokioIo::new(Stream { send, recv }), service);
-                    let mut served = std::pin::pin!(served);
-                    if tokio::time::timeout(SERVE_BOUND, served.as_mut()).await.is_err()
-                        && long.allowed()
-                    {
-                        let _ = tokio::time::timeout(TRANSFER_BOUND, served).await;
+                    // The Hyper connection owns the stream; it is dropped at
+                    // the end of this block, finishing or resetting it.
+                    let answered = {
+                        let served = hyper::server::conn::http1::Builder::new()
+                            .keep_alive(false)
+                            // The client finishes its send side after the request.
+                            .half_close(true)
+                            .serve_connection(TokioIo::new(Stream { send, recv }), service);
+                        let mut served = std::pin::pin!(served);
+                        match tokio::time::timeout(SERVE_BOUND, served.as_mut()).await {
+                            Ok(_) => true,
+                            Err(_) if long.allowed() => {
+                                tokio::time::timeout(TRANSFER_BOUND, served).await.is_ok()
+                            }
+                            Err(_) => false,
+                        }
+                    };
+                    // A request cut off by its bound has nothing to deliver.
+                    if answered {
+                        let _ = tokio::time::timeout(DELIVERY_BOUND, delivered).await;
                     }
                 });
             }
         }
     }
     while streams.join_next().await.is_some() {}
+    if stopping {
+        connection.close(VarInt::from_u32(0), b"shutdown");
+    }
 }
 
 #[cfg(test)]
