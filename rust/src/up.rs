@@ -30,7 +30,7 @@ impl Drop for TerminalMode {
     }
 }
 
-async fn prompt(question: &str, fallback: &str, secret: bool) -> anyhow::Result<String> {
+pub(crate) async fn prompt(question: &str, fallback: &str, secret: bool) -> anyhow::Result<String> {
     if !std::io::stdin().is_terminal() {
         bail!("without a terminal, supply the missing setup choices as flags")
     }
@@ -275,6 +275,32 @@ impl Setup {
                 )
             }
             let stored: BTreeMap<String, String> = serde_json::from_value(p["options"].clone())?;
+            if options
+                .iter()
+                .any(|(key, value)| stored.get(key) != Some(value))
+            {
+                bail!("requested options conflict with this project's attachment")
+            }
+            let stored_calls = p["request"]["calls"] == true;
+            if (args.calls && !stored_calls)
+                || (args.no_calls && stored_calls)
+                || args.max_calls_per_hour.as_ref().is_some_and(|n| {
+                    n.parse::<i64>().ok() != p["request"]["max_calls_per_hour"].as_i64()
+                })
+                || args
+                    .max_sends_per_hour
+                    .is_some_and(|n| Some(n) != p["request"]["max_sends_per_hour"].as_i64())
+            {
+                bail!("requested call or rate settings conflict with this project's attachment")
+            }
+            if let Some(expiry) = &args.expires_at {
+                let stored = p["request"]["expires_at"]
+                    .as_str()
+                    .context("this attachment is renewable; an explicit expiry conflicts")?;
+                if membership::time(expiry)? != membership::time(stored)? {
+                    bail!("requested expiry conflicts with this project's attachment")
+                }
+            }
             for (key, value) in stored {
                 if options.get(&key).is_some_and(|v| v != &value) {
                     bail!(
@@ -336,8 +362,51 @@ impl Setup {
             )
         }
         if networks.is_empty() && args.create.is_none() && args.join.is_none() {
+            let pending = get(&state, "/v1/link/requests").await?;
+            let requests: Vec<_> = pending
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|r| {
+                    !matches!(
+                        r["state"].as_str(),
+                        Some("linked" | "cancelled" | "expired")
+                    ) && r["mode"] != "approver"
+                })
+                .collect();
+            if requests.len() > 1 {
+                bail!(
+                    "multiple linking requests are pending; use peerspan link status and resume the intended request"
+                );
+            }
+            if let Some(request) = requests.first() {
+                let id = text(&request["request_id"]);
+                self.result["next"] = json!(format!("peerspan link resume {id}"));
+                let value = crate::link_cli::resume(
+                    &state.join("admin.sock"),
+                    id,
+                    args.person_key.as_deref(),
+                    None,
+                    std::io::stdin().is_terminal(),
+                    false,
+                )
+                .await?;
+                if value["state"] != "linked" {
+                    bail!(
+                        "machine linking is incomplete; {}",
+                        text(&self.result["next"])
+                    );
+                }
+                networks = get(&state, "/v1/networks")
+                    .await?
+                    .as_array()
+                    .context("invalid network list")?
+                    .clone();
+            }
+        }
+        if networks.is_empty() && args.create.is_none() && args.join.is_none() {
             let choice = prompt(
-                "Create a network or join with an invite (create/join)",
+                "Create a network, link this machine, or join with an invite (create/link/join)",
                 "",
                 false,
             )
@@ -346,7 +415,25 @@ impl Setup {
             match choice.as_str() {
                 "create" => args.create = Some(prompt("Network name", "personal", false).await?),
                 "join" => args.join = Some(prompt("Invite (hidden)", "", true).await?),
-                _ => bail!("choose create or join"),
+                "link" => {
+                    let value = integration::admin(&state, Method::POST, "/v1/link/requests".into(), Some(json!({"mode":"new","network_id":"-","person_public_key":"-","coordinator_address":args.coordinator.as_deref().unwrap_or("-"),"coordinator_public_key":args.coordinator_key.as_deref().unwrap_or("-")}))).await?;
+                    let id = text(&value["request_id"]).to_owned();
+                    self.result["next"] = json!(format!("peerspan link resume {id}"));
+                    let value =
+                        crate::link_cli::guide(&state.join("admin.sock"), value, true).await?;
+                    if value["state"] != "linked" {
+                        bail!(
+                            "machine linking is incomplete; {}",
+                            text(&self.result["next"])
+                        );
+                    }
+                    networks = get(&state, "/v1/networks")
+                        .await?
+                        .as_array()
+                        .context("invalid network list")?
+                        .clone();
+                }
+                _ => bail!("choose create, link or join"),
             }
         }
         let existing = networks.len() == 1;
@@ -500,12 +587,33 @@ impl Setup {
                 text(&self.result["next"])
             )
         }
-        let signer = persons::PersonSigner::open(args.person_key.as_deref())
-            .context("recover the original person key before continuing")?;
-        if persons::person_id(&signer.public_key()) != text(&person["id"]) {
-            bail!(
-                "selected person key differs from this host's bound person; recover the original key"
-            )
+        let signer_path = format!("/v1/networks/{}/link-signer", crate::cli::encoded(network));
+        let selected = match get(&state, &signer_path).await {
+            Ok(value) => Some(value),
+            Err(e)
+                if e.downcast_ref::<integration::DaemonError>()
+                    .is_some_and(|e| e.status == 404) =>
+            {
+                None
+            }
+            Err(e) => {
+                self.result["next"] = json!(format!("peerspan link --renew --network {network}"));
+                return Err(e)
+                    .context("repair this person's selected device authority before continuing");
+            }
+        };
+        if let Some(selected) = &selected {
+            if persons::person_id_of(text(&selected["person_public_key"]))? != text(&person["id"]) {
+                bail!("selected device authority differs from this host's bound person");
+            }
+        } else {
+            let signer = persons::PersonSigner::open(args.person_key.as_deref())
+                .context("recover the original person key before continuing")?;
+            if persons::person_id(&signer.public_key()) != text(&person["id"]) {
+                bail!(
+                    "selected person key differs from this host's bound person; recover the original key"
+                );
+            }
         }
         if args
             .person
@@ -540,6 +648,15 @@ impl Setup {
                 bail!(
                     "person binding changed during coordination; inspect peerspan status before retrying"
                 )
+            }
+            if selected.is_some() {
+                let fresh = get(&state, &signer_path)
+                    .await
+                    .context("repair selected device authority before continuing")?;
+                if persons::person_id_of(text(&fresh["person_public_key"]))? != text(&person["id"])
+                {
+                    bail!("selected device authority changed to a different person");
+                }
             }
         }
         eprintln!(
@@ -620,7 +737,7 @@ impl Setup {
             directory: Some(workspace),
             expires_at: args.expires_at.clone(),
             expires_in: None,
-            max_sends_per_hour: args.max_sends_per_hour,
+            max_sends_per_hour: args.max_sends_per_hour.unwrap_or(100),
             calls: args.calls,
             no_calls: args.no_calls,
             max_calls_per_hour: args.max_calls_per_hour.clone(),
@@ -631,7 +748,13 @@ impl Setup {
             harness_args: args.harness_args.clone(),
         };
         command.resolve_expiries()?;
-        let prepared = integration::prepare_attach(command, Some(state.clone())).await?;
+        let prepared = integration::prepare_up_attach(
+            command,
+            Some(state.clone()),
+            profile,
+            args.max_sends_per_hour,
+        )
+        .await?;
         self.result["attachment"] = prepared.value.clone();
         self.result["next"] = json!(format!(
             "peerspan session start --directory '{}'",
@@ -652,15 +775,43 @@ fn quote(value: &str) -> String {
 async fn get(state: &Path, path: &str) -> anyhow::Result<Value> {
     integration::admin(state, Method::GET, path.into(), None).await
 }
-fn invite(
-    token: &str,
-    now: chrono::DateTime<chrono::Utc>,
-) -> anyhow::Result<membership::InviteToken> {
-    if token.starts_with(persons::MEMBER_TOKEN_PREFIX) {
-        Ok(persons::MemberInviteToken::decode_at(token, now)?.host())
-    } else {
-        Ok(membership::InviteToken::decode_at(token, now)?)
+struct InviteMetadata {
+    network_id: String,
+    network_name: String,
+    member: String,
+    coordinator_address: String,
+    coordinator_public_key: String,
+}
+fn invite(token: &str, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<InviteMetadata> {
+    if token
+        .trim()
+        .starts_with(peerspan_host::link_runtime::invite::PREFIX)
+    {
+        let decoded = peerspan_host::link_runtime::invite::decode(
+            token,
+            peerspan_host::link_runtime::support::now()?,
+            "-",
+        )?;
+        return Ok(InviteMetadata {
+            network_id: decoded.network.id,
+            network_name: decoded.network.name,
+            member: decoded.member,
+            coordinator_address: decoded.network.coordinator_address,
+            coordinator_public_key: decoded.network.coordinator_public_key,
+        });
     }
+    let decoded = if token.starts_with(persons::MEMBER_TOKEN_PREFIX) {
+        persons::MemberInviteToken::decode_at(token, now)?.host()
+    } else {
+        membership::InviteToken::decode_at(token, now)?
+    };
+    Ok(InviteMetadata {
+        network_id: decoded.network_id,
+        network_name: decoded.network_name,
+        member: decoded.member,
+        coordinator_address: decoded.coordinator_address,
+        coordinator_public_key: decoded.coordinator_public_key,
+    })
 }
 fn required_options(harness: &str) -> &'static [(&'static str, &'static str)] {
     match harness {
@@ -708,12 +859,23 @@ pub(crate) async fn run(mut args: UpArgs, state: Option<PathBuf>) -> anyhow::Res
     if args.no_start {
         return Ok(());
     }
-    eprintln!(
-        "Prepared; starting the integration. Check peerspan status for its connection and delivery readiness."
-    );
+    if prepared.value.get("connection").is_some() && prepared.value["adapter_ready"] == true {
+        eprintln!("The existing integration remains running; no duplicate was launched.");
+        return Ok(());
+    }
     let workspace = prepared.value["workspace"].as_str().map(PathBuf::from);
     let state = Some(state);
-    let launch = tokio::select! {value=integration::start(&prepared.directory,&state,workspace,args.harness_args)=>value,_=interrupt.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept")),_=terminate.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept"))};
+    let launch = if prepared.value.get("connection").is_some() {
+        Err(anyhow::anyhow!(
+            "the original integration is offline and recoverable; reconnect it and run peerspan session doctor --directory '{}'; no duplicate was launched",
+            prepared.directory.to_string_lossy().replace('\'', "'\\''")
+        ))
+    } else {
+        eprintln!(
+            "Prepared; starting the integration. Check peerspan status for its connection and delivery readiness."
+        );
+        tokio::select! {value=integration::start(&prepared.directory,&state,workspace,args.harness_args)=>value,_=interrupt.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept")),_=terminate.recv()=>Err(anyhow::anyhow!("setup cancelled; completed stages were kept"))}
+    };
     if let Err(error) = &launch {
         setup.result["setup"]["state"] = json!("incomplete");
         setup.result["setup"]["stages"]

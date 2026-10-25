@@ -20,6 +20,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
+use base64::Engine;
 use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -766,6 +767,8 @@ pub struct PolicyView {
     #[serde(flatten)]
     pub policy: Policy,
     pub expires_soon: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_base64: Option<String>,
 }
 
 impl Store {
@@ -776,6 +779,13 @@ impl Store {
         network: &str,
         person_key: &str,
     ) -> Result<Option<Policy>, Error> {
+        let n = self.network_record(connection, network)?;
+        if let Some(p) = self
+            .linking_projection(connection, &n)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            return Ok(p.policies.get(person_key).cloned());
+        }
         connection
             .query_row(
                 "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'policy' AND subject = ?2",
@@ -1184,6 +1194,15 @@ impl Store {
         Ok(PolicyView {
             policy,
             expires_soon,
+            authorization_base64: self
+                .linking_projection(&connection, &self.network_record(&connection, network)?)
+                .map_err(crate::link_runtime::support::model_error)?
+                .and_then(|p| {
+                    p.policy_authorizations
+                        .get(&key)
+                        .filter(|s| s.as_str() != "-")
+                        .cloned()
+                }),
         })
     }
     /// Applies the acceptance rule to a policy from any source (the
@@ -1208,6 +1227,45 @@ impl Store {
         {
             return Err(Error::Forbidden);
         }
+        let mut n = self.network_record(tx, network)?;
+        if let Some(before) = self
+            .linking_projection(tx, &n)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            let body = serde_json::to_vec(p)?;
+            let added = crate::link_runtime::crypto::json(&crate::link_runtime::catalog::Catalog {
+                format: 1,
+                network_id: network.into(),
+                objects: vec![crate::link_runtime::catalog::Entry {
+                    id: crate::link_runtime::catalog::proof_id("policy", &body),
+                    kind: "policy".into(),
+                    body_base64: base64::engine::general_purpose::STANDARD.encode(&body),
+                }],
+            })
+            .map_err(crate::link_runtime::support::model_error)?;
+            let union = crate::link_runtime::catalog::merge(network, &[&before.catalog, &added])
+                .map_err(crate::link_runtime::support::model_error)?;
+            if union == before.catalog {
+                return Ok(Accepted::Identical);
+            }
+            let selected = crate::link_runtime::catalog::verify(tx, &n, &union, at)
+                .map_err(crate::link_runtime::support::model_error)?;
+            if selected.policies.get(&p.person_public_key) != Some(p) {
+                return match selected.policies.get(&p.person_public_key) {
+                    Some(old) => Ok(Accepted::Kept(Box::new(old.clone()))),
+                    None => Err(Error::Conflict(
+                        "a higher access version remains selected".into(),
+                    )),
+                };
+            }
+            let old = self.stored_members(tx, network)?;
+            let at = at.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            let mut members = crate::link_runtime::map::projected_members(&selected, &old, &at)
+                .map_err(crate::link_runtime::support::model_error)?;
+            crate::link_runtime::map::persist(self, tx, &mut n, &selected, &mut members, &at)
+                .map_err(crate::link_runtime::support::model_error)?;
+            return Ok(Accepted::Stored);
+        }
         match self.stored_policy(tx, network, &p.person_public_key)? {
             Some(old) if old == *p => return Ok(Accepted::Identical),
             Some(old) if !p.supersedes(&old) => return Ok(Accepted::Kept(Box::new(old))),
@@ -1229,6 +1287,22 @@ impl Store {
         let at = Utc::now();
         let mut out = Vec::new();
         for (network, own) in self.own_members(&connection)? {
+            let selected: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM link_signers WHERE network_id=?1)",
+                [&network],
+                |row| row.get(0),
+            )?;
+            let at = if selected
+                && crate::link_runtime::catalog::feature(&connection, &network)
+                    .map_err(crate::link_runtime::support::model_error)?
+                    .0
+                    != "-"
+            {
+                crate::link_runtime::support::now()
+                    .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
+            } else {
+                at
+            };
             let Some(person) = &own.person_id else {
                 continue;
             };
@@ -1361,6 +1435,30 @@ pub(crate) async fn renew(store: Arc<Store>) {
             && crate::policy_edit::reapply(store.clone(), network.clone()).await
         {
             continue;
+        }
+        let (run, lookup, old) = (store.clone(), network.clone(), policy.clone());
+        let edits = blocking(run, move |s| {
+            s.unretired_edits(&*s.connection()?, &lookup, &old)
+        })
+        .await
+        .unwrap_or_else(|_| policy.edits().to_vec());
+        match crate::link_runtime::provider::automatic_policy(
+            store.clone(),
+            network.clone(),
+            policy.clone(),
+            policy.content(),
+            edits,
+            policy.duration(),
+            None,
+        )
+        .await
+        {
+            Ok(Some(_)) => continue,
+            Err(e) => {
+                eprintln!("policy device renewal requires repair: {e}");
+                continue;
+            }
+            Ok(None) => {}
         }
         let signer = {
             let store = store.clone();

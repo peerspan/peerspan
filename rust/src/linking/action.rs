@@ -105,63 +105,7 @@ pub(super) fn verify_action_authority_budget(
         v.revocations()?;
         let path = v.authority(ctx.person_public_key, ctx.certificate_id, required, 0)?;
         let r = read(action_kind, action, &path.signer_public_key, "-")?;
-        let invalidate = || -> anyhow::Error {
-            ActionInvalidation {
-                certificate_ids: path.certificate_ids.clone(),
-            }
-            .into()
-        };
-        if action_kind == "device_revocation" {
-            let target = v.structural(text(&o, "target_certificate_id")?, ctx.person_public_key)?;
-            check(
-                target.device == s(&o, "target_device_public_key"),
-                "invalid",
-            )?;
-            for id in &path.certificate_ids {
-                let c = Cert::candidate(id, v.state.certificates.get(id).expect("verified path"))?;
-                if c.device == target.device {
-                    return Err(invalidate());
-                }
-            }
-            check(
-                ctx.certificate_id == "root" || v.ancestor(ctx.certificate_id, &target.id),
-                "forbidden",
-            )?;
-        } else {
-            let p = obj(r.payload.as_ref().ok_or_else(|| problem("invalid"))?)?;
-            let expiry = match kind {
-                "peerspan-policy-v1" | "peerspan-policy-v2" => {
-                    Some(stamp(text(&p, "valid_until")?)?)
-                }
-                "peerspan-invite-v1" | "peerspan-person-invite-v1" => {
-                    let until = stamp(text(&p, "invite_expires_at")?)?;
-                    check(ctx.now < until, "expired")?;
-                    check(until <= ctx.now + chrono::Duration::days(30), "invalid")?;
-                    Some(until)
-                }
-                _ => None,
-            };
-            if let Some(until) = expiry
-                && path.not_after != "-"
-            {
-                check(until <= stamp(&path.not_after)?, "forbidden")?;
-            }
-            if ctx.certificate_id != "root" {
-                if kind == "peerspan-person-remove-v1"
-                    && s(&p, "person_public_key") == ctx.person_public_key
-                {
-                    return Err(invalidate());
-                }
-                if matches!(kind, "peerspan-host-unbind-v1" | "peerspan-revoke-host-v1")
-                    && path
-                        .host_public_keys
-                        .iter()
-                        .any(|h| h == s(&p, "host_public_key"))
-                {
-                    return Err(invalidate());
-                }
-            }
-        }
+        validate_action_effects(&ctx, action_kind, kind, &o, r.payload.as_deref(), &v, &path)?;
         Ok(ActionAuthority {
             action_kind: action_kind.into(),
             record_id: r.id,
@@ -230,6 +174,184 @@ pub(super) fn probe_action(o: &Obj, stored: bool) -> Value {
             }
         } else {
             json!({"ok":false,"code":"invalid"})
+        }
+    })
+}
+
+/// Strict ordinary unsigned payload parsing; this supplies no signing authority.
+pub fn validate_action_payload(kind: &str, raw: &[u8]) -> Result<()> {
+    let run = || -> Result<()> {
+        action_scope(kind)?;
+        let p = parse_limit(raw, MAX_PAYLOAD)?;
+        record_payload(kind, object(&p)?)?;
+        Ok(())
+    };
+    run().map_err(|_| problem("invalid"))
+}
+
+fn validate_action_effects(
+    ctx: &ActionContext<'_>,
+    action_kind: &str,
+    kind: &str,
+    o: &Obj,
+    payload: Option<&[u8]>,
+    v: &Verifier<'_>,
+    path: &SigningPath,
+) -> Result<()> {
+    let invalidate = || -> anyhow::Error {
+        ActionInvalidation {
+            certificate_ids: path.certificate_ids.clone(),
+        }
+        .into()
+    };
+    if action_kind == "device_revocation" {
+        let target = v.structural(text(o, "target_certificate_id")?, ctx.person_public_key)?;
+        check(target.device == s(o, "target_device_public_key"), "invalid")?;
+        for id in &path.certificate_ids {
+            let c = Cert::candidate(id, v.state.certificates.get(id).expect("verified path"))?;
+            if c.device == target.device {
+                return Err(invalidate());
+            }
+        }
+        check(
+            ctx.certificate_id == "root" || v.ancestor(ctx.certificate_id, &target.id),
+            "forbidden",
+        )?;
+    } else {
+        let p = obj(payload.ok_or_else(|| problem("invalid"))?)?;
+        let expiry = match kind {
+            "peerspan-policy-v1" | "peerspan-policy-v2" => Some(stamp(text(&p, "valid_until")?)?),
+            "peerspan-invite-v1" | "peerspan-person-invite-v1" => {
+                let until = stamp(text(&p, "invite_expires_at")?)?;
+                check(ctx.now < until, "expired")?;
+                check(until <= ctx.now + chrono::Duration::days(30), "invalid")?;
+                Some(until)
+            }
+            _ => None,
+        };
+        if let Some(until) = expiry
+            && path.not_after != "-"
+        {
+            check(until <= stamp(&path.not_after)?, "forbidden")?;
+        }
+        if ctx.certificate_id != "root" {
+            if kind == "peerspan-person-remove-v1"
+                && s(&p, "person_public_key") == ctx.person_public_key
+            {
+                return Err(invalidate());
+            }
+            if matches!(kind, "peerspan-host-unbind-v1" | "peerspan-revoke-host-v1")
+                && path
+                    .host_public_keys
+                    .iter()
+                    .any(|h| h == s(&p, "host_public_key"))
+            {
+                return Err(invalidate());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checks a typed current signing intention, before any private signature exists.
+pub fn verify_stored_action_intent(
+    ctx: ActionContext<'_>,
+    action_kind: &str,
+    catalog: &[u8],
+    intent: &[u8],
+) -> Result<ActionAuthority> {
+    let run = || -> Result<ActionAuthority> {
+        check(
+            verification_budget(true, ctx.network.len(), catalog.len(), intent.len())
+                && key(ctx.person_public_key)
+                && (ctx.certificate_id == "root" || ident(ctx.certificate_id, "dc_"))
+                && matches!(action_kind, "person_record" | "device_revocation"),
+            "invalid",
+        )?;
+        check(ctx.known_feature_id != "-", "upgrade_required")?;
+        let o = obj(intent)?;
+        let (mut kind, mut required) = ("", 4);
+        let mut raw_payload = None;
+        if action_kind == "person_record" {
+            fields(&o, "kind payload_base64", &[])?;
+            kind = text(&o, "kind")?;
+            let raw = decode(text(&o, "payload_base64")?, MAX_PAYLOAD)?;
+            validate_action_payload(kind, &raw)?;
+            required = action_scope(kind)?;
+            raw_payload = Some(raw);
+        } else {
+            fields(
+                &o,
+                "format network_id person_public_key target_device_public_key target_certificate_id issuer_certificate_id revoked_at",
+                &[],
+            )?;
+            version(&o, 1)?;
+            public_fields(&o)?;
+            check(
+                s(&o, "person_public_key") == ctx.person_public_key
+                    && s(&o, "issuer_certificate_id") == ctx.certificate_id
+                    && key(s(&o, "target_device_public_key"))
+                    && ident(s(&o, "target_certificate_id"), "dc_"),
+                "invalid",
+            )?;
+        }
+        let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
+        v.stored_snapshot = true;
+        v.catalog(catalog)?;
+        v.bootstrap(true)?;
+        v.revocations()?;
+        if action_kind == "device_revocation" {
+            check(s(&o, "network_id") == v.net, "invalid")?;
+        }
+        if let Some(raw) = &raw_payload {
+            let p = obj(raw)?;
+            check(s(&p, "network_id") == v.net, "invalid")?;
+            for field in ["epoch", "invite_epoch"] {
+                if p.contains_key(field) {
+                    check(num(&p, field)? == v.epoch, "invalid")?;
+                }
+            }
+            if matches!(
+                kind,
+                "peerspan-policy-v1"
+                    | "peerspan-policy-v2"
+                    | "peerspan-host-bind-v1"
+                    | "peerspan-host-unbind-v1"
+            ) {
+                check(
+                    s(&p, "person_public_key") == ctx.person_public_key,
+                    "invalid",
+                )?;
+            }
+        }
+        let path = v.authority(ctx.person_public_key, ctx.certificate_id, required, 0)?;
+        validate_action_effects(
+            &ctx,
+            action_kind,
+            kind,
+            &o,
+            raw_payload.as_deref(),
+            &v,
+            &path,
+        )?;
+        Ok(ActionAuthority {
+            action_kind: action_kind.into(),
+            record_id: "-".into(),
+            network_id: v.net,
+            feature_id: v.feature,
+            person_public_key: ctx.person_public_key.into(),
+            certificate_id: ctx.certificate_id.into(),
+            required_scope: required,
+            not_after: path.not_after,
+        })
+    };
+    run().map_err(|e| {
+        if e.downcast_ref::<PathError>().is_some()
+            || e.downcast_ref::<ActionInvalidation>().is_some()
+        {
+            e
+        } else {
+            problem("invalid")
         }
     })
 }

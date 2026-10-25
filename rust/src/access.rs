@@ -8,6 +8,7 @@ use crate::{
     integration::DaemonError,
 };
 use anyhow::{Context, bail};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use peerspan_host::{
     persons::{self, PersonSigner},
@@ -18,6 +19,165 @@ use std::path::Path;
 
 pub(crate) fn failed(e: impl std::fmt::Display) -> anyhow::Error {
     anyhow::anyhow!("{e}")
+}
+
+/// Device-backed policy commands keep original person authority distinct.
+pub(crate) trait PolicySigning {
+    fn public_key(&self) -> Vec<u8>;
+    fn original(&self) -> Option<&PersonSigner>;
+    fn device(&self) -> Option<(&str, &str)> {
+        None
+    }
+    fn public_key_b64(&self) -> String {
+        STANDARD.encode(self.public_key())
+    }
+}
+impl PolicySigning for PersonSigner {
+    fn public_key(&self) -> Vec<u8> {
+        self.public_key().to_vec()
+    }
+    fn original(&self) -> Option<&PersonSigner> {
+        Some(self)
+    }
+}
+pub(crate) enum PolicySigner {
+    Original(PersonSigner),
+    Device {
+        person: Vec<u8>,
+        certificate: String,
+        not_after: String,
+    },
+}
+impl PolicySigner {
+    pub async fn open(
+        local: &Local<'_>,
+        network: &str,
+        path: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        Self::open_inner(local, network, path, false).await
+    }
+    pub async fn for_binding(
+        local: &Local<'_>,
+        network: &str,
+        path: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        Self::open_inner(local, network, path, true).await
+    }
+    async fn open_inner(
+        local: &Local<'_>,
+        network: &str,
+        path: Option<&Path>,
+        allow_unbound: bool,
+    ) -> anyhow::Result<Self> {
+        if path.is_none() {
+            match local
+                .get(format!("/v1/networks/{}/link-signer", encoded(network)))
+                .await
+            {
+                Ok(v) => {
+                    let person = STANDARD.decode(
+                        v["person_public_key"]
+                            .as_str()
+                            .context("invalid selected person")?,
+                    )?;
+                    anyhow::ensure!(person.len() == 32, "invalid selected person");
+                    return Ok(Self::Device {
+                        person,
+                        certificate: v["certificate_id"]
+                            .as_str()
+                            .context("invalid selected certificate")?
+                            .into(),
+                        not_after: v["not_after"]
+                            .as_str()
+                            .context("invalid selected expiry")?
+                            .into(),
+                    });
+                }
+                Err(e)
+                    if e.downcast_ref::<DaemonError>()
+                        .is_some_and(|d| d.status == 404) => {}
+                Err(e) => {
+                    return Err(e).context(
+                        "repair selected device authority for this person before continuing",
+                    );
+                }
+            }
+        }
+        let original = PersonSigner::open(path).map_err(failed)?;
+        if path.is_some() {
+            match local
+                .get(format!("/v1/networks/{}/link-catalog", encoded(network)))
+                .await
+            {
+                Ok(_) => {
+                    let own = local.get("/v1/host".into()).await?;
+                    let members = local
+                        .get(format!("/v1/networks/{}/members", encoded(network)))
+                        .await?;
+                    let member = members
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|m| m["host_id"] == own["id"]);
+                    let bound = member.and_then(|m| m["person_id"].as_str());
+                    if allow_unbound && member.is_some() && bound.is_none() {
+                        // First binding is available to host-only members. A
+                        // selected but unusable device still requires repair.
+                        match local
+                            .get(format!("/v1/networks/{}/link-signer", encoded(network)))
+                            .await
+                        {
+                            Err(e)
+                                if e.downcast_ref::<DaemonError>()
+                                    .is_some_and(|d| d.status == 404) => {}
+                            Err(e) => {
+                                return Err(e).context(
+                                    "repair selected device authority before changing the binding",
+                                );
+                            }
+                            Ok(_) => anyhow::bail!(
+                                "repair the selected device binding before continuing"
+                            ),
+                        }
+                    } else {
+                        anyhow::ensure!(
+                            bound == Some(persons::person_id(&original.public_key()).as_str()),
+                            "explicit original person key must match this host's bound person"
+                        );
+                    }
+                }
+                Err(e)
+                    if e.downcast_ref::<DaemonError>()
+                        .is_some_and(|d| d.status == 426) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Self::Original(original))
+    }
+}
+impl PolicySigning for PolicySigner {
+    fn public_key(&self) -> Vec<u8> {
+        match self {
+            Self::Original(s) => s.public_key().to_vec(),
+            Self::Device { person, .. } => person.clone(),
+        }
+    }
+    fn original(&self) -> Option<&PersonSigner> {
+        match self {
+            Self::Original(s) => Some(s),
+            Self::Device { .. } => None,
+        }
+    }
+    fn device(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Device {
+                certificate,
+                not_after,
+                ..
+            } => Some((certificate, not_after)),
+            _ => None,
+        }
+    }
 }
 
 /// A submission refused because the stored policy or the newest
@@ -39,6 +199,7 @@ pub(crate) struct Editor {
     pub host: String,
     pub person_id: String,
     numbered: bool,
+    device_certificate: Option<String>,
 }
 /// Where one edit starts.
 pub(crate) struct Start {
@@ -50,26 +211,26 @@ impl Editor {
     pub async fn new(
         local: &Local<'_>,
         network: &str,
-        signer: &PersonSigner,
+        signer: &dyn PolicySigning,
     ) -> anyhow::Result<Self> {
         let me = persons::person_id(&signer.public_key());
         let host = local.get("/v1/host".into()).await?["id"]
             .as_str()
             .context("invalid daemon response")?
             .to_owned();
-        let status = local.get("/v1/status".into()).await?;
-        let numbered = status["networks"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|n| {
-                n["id"].as_str() == Some(network) && n["person"]["id"].as_str() == Some(me.as_str())
-            });
+        let members = local
+            .get(format!("/v1/networks/{}/members", encoded(network)))
+            .await?;
+        let numbered = members.as_array().into_iter().flatten().any(|m| {
+            m["host_id"].as_str() == Some(host.as_str())
+                && m["person_id"].as_str() == Some(me.as_str())
+        });
         Ok(Self {
             network: network.to_owned(),
             host,
             person_id: me,
             numbered,
+            device_certificate: signer.device().map(|(id, _)| id.into()),
         })
     }
     /// The starting point of the next edit.
@@ -151,7 +312,7 @@ impl Editor {
     /// false) copies the entries.
     pub fn sign(
         &self,
-        signer: &PersonSigner,
+        signer: &dyn PolicySigning,
         start: &Start,
         mut content: Content,
         duration: Option<TimeDelta>,
@@ -174,19 +335,60 @@ impl Editor {
             (None, _) => Vec::new(),
         };
         let now = Utc::now();
-        Policy::sign_v2(
-            signer,
-            &self.network,
-            start.version + 1,
-            &at(now),
-            &at(now + duration),
-            content,
-            edits,
-        )
-        .map_err(failed)
+        let version = start
+            .version
+            .checked_add(1)
+            .context("access version exhausted")?;
+        if let Some(original) = signer.original() {
+            return Policy::sign_v2(
+                original,
+                &self.network,
+                version,
+                &at(now),
+                &at(now + duration),
+                content,
+                edits,
+            )
+            .map_err(failed);
+        }
+        let (_, not_after) = signer.device().context("missing selected provider")?;
+        let until =
+            (now + duration).min(DateTime::parse_from_rfc3339(not_after)?.with_timezone(&Utc));
+        anyhow::ensure!(
+            until > now,
+            "selected device authority has expired; renew this person's device"
+        );
+        Ok(Policy {
+            format: Some(2),
+            network_id: self.network.clone(),
+            person_public_key: signer.public_key_b64(),
+            version,
+            issued_at: at(now),
+            valid_until: at(until),
+            rules: content.rules,
+            capability_rules: Some(content.capability_rules),
+            trusted_hosts: Some(content.trusted_hosts),
+            edits: Some(edits),
+            signature: "-".into(),
+        })
     }
     /// Submits a signed policy.
     pub async fn submit(&self, local: &Local<'_>, policy: &Policy) -> anyhow::Result<Value> {
+        if let Some(certificate) = &self.device_certificate {
+            let mut payload = serde_json::to_value(policy)?;
+            payload
+                .as_object_mut()
+                .context("invalid policy")?
+                .remove("signature");
+            local.post(format!("/v1/networks/{}/link-actions", encoded(&self.network)), json!({"kind":"peerspan-policy-v2","payload_base64":STANDARD.encode(serde_json::to_vec(&payload)?),"certificate_id":certificate})).await?;
+            return local
+                .get(format!(
+                    "/v1/networks/{}/policy?person={}",
+                    encoded(&self.network),
+                    encoded(&self.person_id)
+                ))
+                .await;
+        }
         local
             .post(
                 format!("/v1/networks/{}/policy", encoded(&self.network)),
@@ -216,7 +418,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
     };
     let network = resolved(network);
     let local = Local(socket);
-    let signer = PersonSigner::open(person_key_path.as_deref()).map_err(failed)?;
+    let signer = PolicySigner::open(&local, network, person_key_path.as_deref()).await?;
     // Principals resolve once; the edit itself may start again.
     let mut resolved_principals = Vec::new();
     match command {
@@ -337,6 +539,7 @@ pub(crate) fn at(time: DateTime<Utc>) -> String {
 pub(crate) fn strip_view(mut value: Value) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.remove("expires_soon");
+        object.remove("authorization_base64");
     }
     value
 }
@@ -555,7 +758,7 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
         }
     }
     let local = Local(socket);
-    let signer = PersonSigner::open(person_key_path.as_deref()).map_err(failed)?;
+    let signer = PolicySigner::open(&local, network, person_key_path.as_deref()).await?;
     let owner = signer.public_key_b64();
     let persons = local
         .get(format!("/v1/networks/{}/persons", encoded(network)))

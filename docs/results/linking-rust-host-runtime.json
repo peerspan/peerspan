@@ -1,0 +1,614 @@
+{
+  "checked_on": "2026-10-25",
+  "scope": "Rust approved machine-linking host runtime. All required technical gates complete with exact source/artifact attribution and retained initial failures. Final current-main/evidence head requires normal exact-head review and merge.",
+  "contracts": [
+    "docs/linking-host-checks.md",
+    "docs/linking-invite-feature-checks.md",
+    "docs/linking-shared-writer-checks.md",
+    "docs/linking-up-checks.md"
+  ],
+  "probe": {
+    "path": "/tmp/peerspan-link-runtime-probe-rust-v16",
+    "sha256": "e00b216ff07f0db4fc777dec9502b5d2447b463e4b33c5250e14d6de0ee4ec8f",
+    "suites": {
+      "readers": 1093,
+      "paths": 331,
+      "activations": 248,
+      "history": 113,
+      "features": 172,
+      "actions": 313,
+      "records": 176,
+      "restrictions": 179,
+      "redemptions": 218,
+      "policy_state": 146,
+      "roots": 73,
+      "stored": 35,
+      "history_pins": 42,
+      "transport_evidence": 134,
+      "legacy_times": 114
+    },
+    "checks": 3387,
+    "passed": true,
+    "signatures_independently_reproduced": 199,
+    "command": "python3 conformance/linking_<suite>.py --rust-probe /tmp/peerspan-link-runtime-probe-rust-v16",
+    "run_details": "/tmp/peerspan-link-rust-v16-readers-results.json",
+    "source": "118dad7eafd21a07b5ec02c27c1d05cc528075ed"
+  },
+  "language_checks": {
+    "fmt_passed": true,
+    "clippy_all_targets_warnings_denied_passed": true,
+    "initial_full_test": {
+      "library_passed": 134,
+      "library_failed": 4,
+      "library_ignored": 2,
+      "library_seconds": 175.57,
+      "log": "/tmp/peerspan-link-rust-runtime-full-test.log",
+      "failures": [
+        "artifact::tests::migration_from_version_nine_adds_the_artifact_tables",
+        "chain::tests::version_ten_migrates_to_latest_and_nineteen_is_refused",
+        "network::tests::version_two_state_migrates_to_latest",
+        "policy_sync::tests::version_eleven_migrates_to_latest_and_nineteen_is_refused"
+      ],
+      "cause": "Historical migration fixtures lowered user_version without dropping the exact 8 new linking tables. Parent approved mechanical fixture-only correction ab98d76, preserving migration/backfill/rollback/future-refusal assertions. All four exact followups passed; the initial failed run is retained."
+    },
+    "focused_followup": {
+      "passed": true,
+      "library_tests": 4,
+      "main_tests": 10,
+      "probe_tests": 0,
+      "cli_integration_tests": 3,
+      "store_integration_tests": 3,
+      "details": "/tmp/peerspan-link-rust-runtime-followup-results.json",
+      "runtime_fixture_root": "isolated /dev/shm temporary directories, approved after measured global disk I/O stalls; same assertions and deadlines. Installed acceptance remains on disk."
+    },
+    "last_clippy_source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236",
+    "release_build_passed": true,
+    "composed_test_totals": {
+      "library_passed_across_original_and_exact_followups": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "cli_integration_passed": 3,
+      "store_integration_passed": 3,
+      "note": "134 original library passes plus the four exact mechanically adapted fixture followups; not a second full-library run."
+    },
+    "final_existing_cli_tests": {
+      "passed": true,
+      "tests": 3,
+      "log": "/tmp/peerspan-link-rust31-cli_tests.log",
+      "source": "87f86c2390e6fa8baf59a516dfef43eb0f93166c",
+      "note": "The only subsequent Rust source delta is status predicate placement; CLI source is unchanged."
+    },
+    "final_static_build": {
+      "clippy_all_targets_warnings_denied_passed": true,
+      "fmt": {
+        "passed": true,
+        "exit_code": 0,
+        "log": "/tmp/peerspan-link-rust32-fmt.log"
+      },
+      "status_test": {
+        "passed": true,
+        "exit_code": 0,
+        "log": "/tmp/peerspan-link-rust32-status_test.log"
+      },
+      "release": {
+        "passed": true,
+        "exit_code": 0,
+        "log": "/tmp/peerspan-link-rust32-release.log"
+      },
+      "artifact": {
+        "path": "/tmp/peerspan-link-runtime-host-rust-v32-release",
+        "sha256": "889c467a8cd7f9554610cee2d60f4fc8e4a83a765f75f5cebedc4dd69d3afb4c",
+        "source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236"
+      }
+    }
+  },
+  "independent_runtime": {
+    "migration_18_to_19_and_rollback": "passed",
+    "go_owner_rust_requester_core_A_B_C": "passed",
+    "rust_owner_go_requester_core_A_B_C": "passed after sibling database guard fix",
+    "high_u64_metadata_and_cli_assertions": "passed; v6 process shutdown cleanup timed out8s, retained. Later v8 cold/provider shutdowns passed after main idle-connection fix.",
+    "checkpoint_provider_A_B_C_D": "passed v8 including expired issuer retention repair and authority_expired refusal",
+    "actual_go_to_rust_cold_root_and_device_member": "passed v8 including exact LRI/receipt/identity/binding retry and all shutdowns",
+    "admin_removal_plan_checks": 22,
+    "admin_removal_plan_passed": true,
+    "invite_feature_helper_checks": 139,
+    "invite_feature_helper_passed": true,
+    "inert_history_checks": 9,
+    "inert_history_passed": true,
+    "immutable_submitted_root_import_receipt": "passed v13: original-person external signature slots, exact submitted authorization and receipt, later policy52, current union, feature/pin/highwater preservation",
+    "renewal_native_rust16_and_go12_to_rust16": "passed",
+    "renewal_rust19_to_go16": "passed, including unchanged state_conflict409 at the original repeated-approval429 site",
+    "capability_claim_management_rust15": "passed",
+    "optimized_rotation_rust22": {
+      "passed": true,
+      "log": "/tmp/peerspan-link-R22-rotation.log",
+      "scope": "Unchanged exact-one root_rotated event, accepted epoch/current seed, pending zero, root group 8 to 9, maxima and all old exact PF retention."
+    },
+    "independent_owner_admin_go17_to_rust22": "passed",
+    "optimized_cold_root_first_binding_rust23": {
+      "passed": true,
+      "log": "/tmp/peerspan-link-G18R23-root-rust-rust.log",
+      "fixture": "/dev/shm/pl-G18R23-root-rust-rust",
+      "scope": "Host-only explicit valid unadmitted external SSH person reports admitted:false/bound:false; actual separate administrator admits the exact key; explicit network bind --person-key establishes the first binding without creating or importing a default original-person key. Unchanged assertions.",
+      "rust_source": "db9e2023d8166d5520aa599b4aa06b480c2812db",
+      "rust_sha256": "0c538b13de7c5fb29e25958d82ed2670470eeb628d7b302a7e252f2fb6e314e3",
+      "go_artifact": "Go18",
+      "coordinator_artifact": "359"
+    },
+    "optimized_approval_network_pins_rust23": {
+      "passed": true,
+      "log": "/tmp/peerspan-link-G18R23-final-approval-pins-rust-rust.log",
+      "scope": "Unchanged two-network uncached/cached invalid400 assertions, no approval/signature/publication."
+    },
+    "optimized_competing_root_refusal_rust24": {
+      "passed": true,
+      "log": "/tmp/peerspan-link-R24-rotation-refusal.log",
+      "fixture": "/dev/shm/lf-refusal-r24",
+      "source": "8092719979ce63b925db6a3ad0f196e36b64c75d",
+      "scope": "Definitively refused pending transition retires, next verified winning root/epoch has no obsolete owned seed or false root-provider state."
+    },
+    "optimized_cli_rust25_both_daemons": {
+      "passed": true,
+      "logs": [
+        "/tmp/peerspan-link-R25-cli-rust-go.log",
+        "/tmp/peerspan-link-R25-cli-rust-rust.log"
+      ],
+      "scope": "Strict flat public resume view, incomplete nonzero result, fixed external signatures and separate explicit selection/final commit; unchanged oracle."
+    },
+    "all_ten_cross_language_crash_points": {
+      "passed": true,
+      "last_log": "/tmp/peerspan-link-G21R26-initial-frame.log",
+      "scope": "All ten required cross-language crash points covered across attributed independent runs. Last missing initial-frame boundary passes Go21 to Rust26; insertion-aware receive hooks preserve exact bytes and skip duplicates."
+    },
+    "author_intermediate_ledger": "/tmp/peerspan-link-host-runtime-intermediate-results.json",
+    "focused_capability_identity_removal_rust29": {
+      "passed": true,
+      "details": "/tmp/peerspan-link-rust29-focused/results.json",
+      "author_source": "2507100",
+      "scope": "Explicit-person/two-active-network regression reproduced28 and passed29 unchanged; strengthened exact existing claims/removal phases passed Rust CLI with both Go and Rust daemons. No idle-stop repeat."
+    },
+    "status_device_scope2_rust30": {
+      "passed": true,
+      "seconds": 19.49,
+      "source": "db54861f2d0c43d31b19d5ee1b780306b3deef7b",
+      "sha256": "b979077a359d7da1158cb91a9e2577603b607058ef793123763478862b8a46c4",
+      "details": "/tmp/peerspan-link-status-scope-rust/results.json",
+      "scope": "Existing selected scope2 path cannot automatically renew scope1 policy: exact device warning, no original signer fallback and no durable state mutation."
+    },
+    "status_inactive_policy_expiry_rust32": {
+      "passed": true,
+      "author_source": "901fb51",
+      "scope": "Same existing owned/activated scope2 fixture advances decision clock to certificate not_after+1: inactive policy GET404/status null, exact authority_expired device warning, sync guidance, no original fallback and unchanged catalog/highwater/selection/pending/private hashes. Native final optimized Rust32, author901fb51.",
+      "seconds": 19.67,
+      "details": "/tmp/peerspan-link-final-status-rust-rust/results.json",
+      "log": "/tmp/peerspan-link-final-status-rust-rust/run.log"
+    },
+    "optimized_management_rust_scoped_passes": [
+      {
+        "suite": "linking_management.py",
+        "section": "withdrawal",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-R22-withdrawal.log"
+      },
+      {
+        "suite": "linking_management.py",
+        "section": "import-previews",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-G18R23-final-import-previews-rust-rust.log"
+      },
+      {
+        "suite": "linking_management.py",
+        "section": "automatic",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-G18R23-final-automatic-rust-rust.log"
+      },
+      {
+        "suite": "linking_management.py",
+        "section": "marker",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-G18R23-final-marker-rust-rust.log"
+      },
+      {
+        "suite": "linking_management.py",
+        "section": "peer",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-G18R23-final-peer-rust-rust.log"
+      },
+      {
+        "suite": "linking_management.py",
+        "section": "unpublished-admin",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-R23-unpublished-synced.log"
+      },
+      {
+        "suite": "linking_rotation_faults.py",
+        "section": "rotation-fault",
+        "pair": "rust-rust",
+        "result": "PASS",
+        "log": "/tmp/peerspan-link-R23-rotation-fault-explicit-sync.log"
+      }
+    ]
+  },
+  "initial_failures_retained": [
+    "Inherited3s client socket timeout for synchronous finalization; independent linking harness30s only.",
+    "Sibling receipt SQLite guard reentry, fixed6fb3de4 and core rerun passed.",
+    "Max CLI aggregate-status timeout; direct members lookup, max guards then passed.",
+    "Transport preflight blocked learning remote retention; fixed in6ed6a97 and provider checkpoint gate passed.",
+    "Background/explicit poll collision with frozen decisionclock; successful decisionclock dedupe, provider gate passed.",
+    "Cold duplicate binding initially attributed Rust; corrected fixture target was Go. Actual Rust target retry passed.",
+    "v13 rotation scratch fresh-policy/group catalog was not sorted; fixed328a597. v15 accepted the epoch and exact seed but duplicated the event; fixed5c11232. Optimized Rust22 rerun passed the unchanged complete rotation gate; both first failures remain retained.",
+    "v15 withdrawal malformed duplicate/unknown query used non-JSON extractor refusal; fixed4cacef5 with strict JSON invalid400, unchanged optimized Rust22 withdrawal rerun passed.",
+    "v16 repeated approval bypassed successful decision-clock read dedupe and returned429 before immutable signer conflict; fixed3690808. Rust19 to Go16 renewal rerun passed with the original409 state_conflict expectation unchanged.",
+    "Debug v15 automatic renewal and unpublished-admin barrier exceeded existing waits. The exact later policy18 and intended unpublished frame/barrier were retained; no authority failure inferred. Optimized Rust23 automatic and unpublished-admin reruns passed the unchanged assertions/deadlines; unpublished setup additionally required the independently approved explicit ordinary sync. The consistent selected-device decision-clock scheduler correction remains independently justified.",
+    "Optimized Rust23 approver CLI resume emitted the auxiliary approval wrapper. Fixedbdaf3a3; both unchanged Rust25 CLI/daemon pairings pass with flat public views and incomplete nonzero status.",
+    "Competing-root refusal correctly retired pending but kept obsolete root seed in active projection. Fixed8092719; exact unchanged optimized Rust24 refusal gate passed.",
+    "Existing move/roles/unpublished setup delegated a remotely joined person before the root host learned it. Parent approved one explicit ordinary sync as fixture setup maintenance; original no-feature delegation source is byte-identical to preserved main.",
+    "Actual installed no-argument up reused the explicit attach path and replaced/refused a live/recoverable project attachment. Narrow pre-specified up-only reuse and launch-argument guard are in final29; final normal installed all-four acceptance passed with exact Go25/Rust32 packages.",
+    "Bot found unrelated explicit-person claim lookup and early other-owner removal refusal. Fixed97cc0678 without weakening active binding/device authority; focused independent exact Rust29 delta passed both daemon implementations.",
+    "Bot found selected-device status warning was gated on active policy rendering. Narrow a8d0ec25 derives expected person from verified binding and checks selection independently; native901 expiry extension passed19.67s, inactive policies remain unauthorized.",
+    "Final installed Go/Go first run requested CLI invitation5s below documented minimum1m after active renewal/reuse/status/default-no phases had passed. Author corrected only fixture input to1m with existing expiry wait and reused verified exact normal archives. All four complete installed pairs then passed; initial failure/public receipts and safe empty cleanup retained.",
+    "Required existing launch_service final full run passed every section except two Rust-daemon host-limit phases: pre-feature coordinator v2 registration erased hosted-limit429 metadata into409quota_exceeded. Coordinator-only PR85 source950af345 preserves existing *limitError responder; exact unchanged failed phases pass2.09s/1.90s on the same Go25/Rust32 hosts. Original failure165.99s and separately sandbox-denied coordinator test remain retained; authorized exact coordinator race passes10.88s. Root independently verified host dependency graph excludes internal/coord."
+  ],
+  "review": {
+    "pr": 68,
+    "initial_bot_P1s_resolved": true,
+    "final_exact_head_review": "All eight reported review threads resolved after actual focused verification. Root source review of tested32 found no findings. Old a8 job remained stale/running; the final integrated evidence-only head receives a fresh normal exact-head request. All technical gates are complete and final product/source equality is verified.",
+    "external_signed_sqlite_P1": {
+      "comment_id": 4369711169,
+      "source": "ed76e39",
+      "audit": "Initial connection and pending load moved to spawn_blocking. All adjacent approval accesses audited. Independent v13 A-to-B-to-C receipt setup exercised all five original-person external signing slots through /signed and passed; thread resolved. Prior source bot9687742 was clean; final integrated exact-head review is tracked separately.",
+      "resolved": true
+    },
+    "host_only_person_outcome_P2": {
+      "comment_id": 4369893376,
+      "source": "e583669",
+      "resolved": true,
+      "audit": "Host-only redemption derives verified current person state and standard recovery guidance. Independent optimized Rust23 cold-root case passed admitted:false/bound:false for a genuinely unadmitted external SSH key, actual administrator admission, then explicit first binding; unchanged assertions. Reply4370193372; thread resolved."
+    },
+    "original_key_first_binding_P2": {
+      "comment_id": 4369972558,
+      "source": "db9e2023d8166d5520aa599b4aa06b480c2812db",
+      "resolved": true,
+      "audit": "Only network bind permits an explicit original key to establish an absent binding on an independently verified local member without a selected device row; general providers remain strict. Independent optimized Rust23 admin-admit then explicit-key bind passed without creating/importing a default person key; unchanged assertions. Reply4370193504; thread resolved."
+    },
+    "capability_claim_identity_P2": {
+      "comment_id": 4370341956,
+      "thread_id": "PRRT_kwDOVMSEtc6wAENH",
+      "source": "97cc0678e1b47431e1393b6981a3c0720118ee8e",
+      "resolved": true,
+      "audit": "Independent two-active-network case reproduces explicit bound-person refusal on Rust28 in0.65s and passes unchanged on exact Rust29 in0.72s, with unrelated B untouched. Root source review found no further findings. Reply4370428316; thread resolved. Evidence /tmp/peerspan-link-rust29-focused/results.json, author2507100."
+    },
+    "capability_removal_order_P2": {
+      "comment_id": 4370341959,
+      "thread_id": "PRRT_kwDOVMSEtc6wAENJ",
+      "source": "97cc0678e1b47431e1393b6981a3c0720118ee8e",
+      "resolved": true,
+      "audit": "Strengthened existing claims/removal phases pass exact Rust29 with Go daemon42.44s and Rust daemon34.23s; every own policy advanced/withdrew before reporting other holders, no compensating retry. Reply4370428635; thread resolved. Evidence /tmp/peerspan-link-rust29-focused/results.json, author2507100."
+    },
+    "inactive_policy_device_warning_P2": {
+      "comment_id": 4370491267,
+      "thread_id": "PRRT_kwDOVMSEtc6wAbRH",
+      "source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236",
+      "resolved": true,
+      "audit": "Independent native901 scope+expiry case passed19.67s on exact optimized Rust32. Inactive policy stays unauthorized and status retains actual authority_expired device warning without fallback or durable state mutation. Root source review no findings; actual evidence /tmp/peerspan-link-final-status-rust-rust/results.json. Reply4370521453; thread resolved."
+    },
+    "prior_clean_bot_head": "9687742e4561736f2681b74d6d0be369bccb2323",
+    "prior_clean_bot_receipt": "https://github.com/peerspan/peerspan-internal/pull/68#issuecomment-6394827219"
+  },
+  "source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236",
+  "current_main_preserved": "34713c898f43c51acc6d89fcf91b5cdc7f28f4a8",
+  "release_artifact": {
+    "path": "/tmp/peerspan-link-runtime-host-rust-v32-release",
+    "sha256": "889c467a8cd7f9554610cee2d60f4fc8e4a83a765f75f5cebedc4dd69d3afb4c",
+    "source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236",
+    "profile": "release (optimized), unchanged protocol assertions and deadlines",
+    "build_passed": true,
+    "build_details": "/tmp/peerspan-link-rust32-build-results.json",
+    "runtime_acceptance": "All required technical gates complete: native901 status expiry; actual final normal installed all-four machine-linking acceptance; existing installed up all-four; current directory/Claude/harness all-four and composed service phases (exact coordinator-only quota followup). Per-run artifact attribution and first failures retained."
+  },
+  "pending_acceptance": [
+    "Final exact-head Codex and root review, then merge. No technical verification gates remain."
+  ],
+  "prior_release_artifacts": {
+    "rust23": {
+      "path": "/tmp/peerspan-link-runtime-host-rust-v23-release",
+      "sha256": "0c538b13de7c5fb29e25958d82ed2670470eeb628d7b302a7e252f2fb6e314e3",
+      "profile": "release (optimized), unchanged protocol assertions and deadlines",
+      "build_passed": true,
+      "daemon_library_equivalence": {
+        "release22_path": "/tmp/peerspan-link-runtime-host-rust-v22-release",
+        "release22_sha256": "ecd1de9a2ae449eb10893095046410d425ca5982df1406ab676aaf691e588405",
+        "release22_rust_source": "e795b84d4ae76f9083e3c39ac568a0f125778117",
+        "release23_rust_source": "db9e2023d8166d5520aa599b4aa06b480c2812db",
+        "delta": "Only rust/src/access.rs and the NetworkCommand::Bind CLI branch in rust/src/main.rs differ. Daemon handlers and verifier/library sources are identical. Explicit first-binding recovery cases require release23; other daemon management gates may use frozen release22."
+      }
+    },
+    "rust29": {
+      "path": "/tmp/peerspan-link-runtime-host-rust-v29-release",
+      "sha256": "15394b38f5d9248c892cc8c7d406e4d4c020e5f24f86318d74001a9a9b9d104c",
+      "source": "97cc0678e1b47431e1393b6981a3c0720118ee8e",
+      "profile": "release (optimized), unchanged protocol assertions and deadlines",
+      "build_passed": true,
+      "build_details": "/tmp/peerspan-link-rust29-build-results.json",
+      "daemon_library_equivalence": "Rust29 library/daemon sources are unchanged from optimized Rust26; subsequent changes are CLI attachment reuse/input guards and capability identity/withdrawal handling. Main385 agent recipient/principal support was preserved in Rust25."
+    },
+    "rust30": {
+      "path": "/tmp/peerspan-link-runtime-host-rust-v30-release",
+      "sha256": "b979077a359d7da1158cb91a9e2577603b607058ef793123763478862b8a46c4",
+      "source": "db54861f2d0c43d31b19d5ee1b780306b3deef7b"
+    },
+    "rust31": {
+      "path": "/tmp/peerspan-link-runtime-host-rust-v31-release",
+      "sha256": "fffbe80df9067d3358e86e2a1b556e4b530b3f772ea6c69ad0fcfe143221fd68",
+      "source": "87f86c2390e6fa8baf59a516dfef43eb0f93166c"
+    }
+  },
+  "installed_normal_packages": {
+    "passed": true,
+    "error": null,
+    "composition_source": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+    "product_rust_source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236",
+    "fixture_source": "d56ab5f",
+    "details": "/tmp/peerspan-link-installed-G25R32-fixture-retry-results.json",
+    "log": "/tmp/peerspan-link-installed-G25R32-fixture-retry.log",
+    "release": {
+      "go": {
+        "archive": "peerspan-0.0.0-acceptance-linux-amd64-go.tar.gz",
+        "sha256": "af7f206441fb7f17488e1224f7cd6a57a260dcb53435b3db9e28aaa27a08cb46",
+        "checksum_verified": true,
+        "release": {
+          "version": "0.0.0-acceptance",
+          "implementation": "go",
+          "source_revision": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+          "source_dirty": false,
+          "os": "linux",
+          "architecture": "amd64",
+          "node_requirement": ">=22",
+          "rust_libc": "glibc (builder baseline; rust bundles only)"
+        },
+        "reused_original_normal_package": true,
+        "embedded_original_pin_verified": true
+      },
+      "rust": {
+        "archive": "peerspan-0.0.0-acceptance-linux-amd64-rust.tar.gz",
+        "sha256": "f70c3cd5f289aeb967350b0969edd9f9d4d2df202c2d835cfab10d48c594b7a2",
+        "checksum_verified": true,
+        "release": {
+          "version": "0.0.0-acceptance",
+          "implementation": "rust",
+          "source_revision": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+          "source_dirty": false,
+          "os": "linux",
+          "architecture": "amd64",
+          "node_requirement": ">=22",
+          "rust_libc": "glibc (builder baseline; rust bundles only)"
+        },
+        "reused_original_normal_package": true,
+        "embedded_original_pin_verified": true
+      }
+    },
+    "pairs": [
+      {
+        "cli": "go",
+        "daemon": "go",
+        "passed": true,
+        "original_key_absent_B_C": true,
+        "service_preserved": true,
+        "attached_renewal_service_profile_preserved": true,
+        "fixture_adapter_ready": true,
+        "schema19_old_binary_refusal": true,
+        "schema20_installed_binary_refusal": true,
+        "guided_signed_feature_invite_preflight": true,
+        "live_model_task_checked": false
+      },
+      {
+        "cli": "go",
+        "daemon": "rust",
+        "passed": true,
+        "original_key_absent_B_C": true,
+        "service_preserved": true,
+        "attached_renewal_service_profile_preserved": true,
+        "fixture_adapter_ready": true,
+        "schema19_old_binary_refusal": true,
+        "schema20_installed_binary_refusal": true,
+        "guided_signed_feature_invite_preflight": true,
+        "live_model_task_checked": false
+      },
+      {
+        "cli": "rust",
+        "daemon": "go",
+        "passed": true,
+        "original_key_absent_B_C": true,
+        "service_preserved": true,
+        "attached_renewal_service_profile_preserved": true,
+        "fixture_adapter_ready": true,
+        "schema19_old_binary_refusal": true,
+        "schema20_installed_binary_refusal": true,
+        "guided_signed_feature_invite_preflight": true,
+        "live_model_task_checked": false
+      },
+      {
+        "cli": "rust",
+        "daemon": "rust",
+        "passed": true,
+        "original_key_absent_B_C": true,
+        "service_preserved": true,
+        "attached_renewal_service_profile_preserved": true,
+        "fixture_adapter_ready": true,
+        "schema19_old_binary_refusal": true,
+        "schema20_installed_binary_refusal": true,
+        "guided_signed_feature_invite_preflight": true,
+        "live_model_task_checked": false
+      }
+    ],
+    "cleanup": {
+      "errors": [],
+      "leftovers": {
+        "users": [],
+        "homes": [],
+        "linger": [],
+        "processes": []
+      }
+    },
+    "scope": "Actual checksum-verified normally built Go25/Rust32 Linux bundles, all four installed CLI/daemon pairs: A offline B-to-C linking, exact consent and public transcript, attached C renewal retaining service/profile/credential, ready/offline up reuse and truthful adapter readiness, valid-device status, no original-key copying, fresh and pending guided PTY default-no handling, signed feature invitation preflight and schema refusals. No live model-task claim.",
+    "fixture_only_retry": "Initial final Go/Go completed active renewal/reuse/status/fresh guided phases, then requested --expires-in5s below documented CLI minimum1m. Approved fixture-only correction d56ab5f uses1m and existing production-clock expiry wait; same exact normal packages/pins reused without substitution or product/cache mutation. Initial failure and public receipts retained; both runs cleaned owned users safely."
+  },
+  "existing_installed_up_all_four": {
+    "passed": true,
+    "error": null,
+    "seconds": 294.88,
+    "composition_source": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+    "details": "/tmp/peerspan-link-installed-up-final/up_all_four.json",
+    "log": "/tmp/peerspan-link-installed-up-final/up_all_four.log",
+    "script_sha256": "6a119afc81dbcb4bc18805edb192b43978acd55c468df78647a9a874eb43c8c8",
+    "support_sha256": "fa917d9182cebdac5e679de510b5c76effee06721e1df157cafaa945367991a9",
+    "pairs": [
+      {
+        "cli": "go",
+        "daemon": "go",
+        "passed": true
+      },
+      {
+        "cli": "go",
+        "daemon": "rust",
+        "passed": true
+      },
+      {
+        "cli": "rust",
+        "daemon": "go",
+        "passed": true
+      },
+      {
+        "cli": "rust",
+        "daemon": "rust",
+        "passed": true
+      }
+    ],
+    "cleanup": {
+      "errors": [],
+      "leftovers": {
+        "users": [],
+        "homes": [],
+        "linger": [],
+        "processes": []
+      }
+    },
+    "scope": "Existing installed guided setup/up acceptance, all four actual normal CLI/daemon pairings, including create/join, profile reuse, missing harness/options/expiry refusals, explicit trust settings, unknown-state guard, incomplete identity and repeated joins. No product/source changes."
+  },
+  "technical_gates_passed": true,
+  "required_current_launch_coverage": {
+    "passed": true,
+    "details": "/tmp/peerspan-link-final-up-coverage/results.json",
+    "composition_source": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+    "fixture_scope": "Existing four suites, default all4 pairings; TMPDIR=/dev/shm; no real-systemd; unchanged assertions and deadlines; no retries.",
+    "default_pin_build_source": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+    "service": {
+      "passed_composed": true,
+      "initial_exit_code": 1,
+      "initial_seconds": 165.99,
+      "initial_log": "/tmp/peerspan-link-final-up-coverage/launch_service.log",
+      "scope": "All coordinator, install/uninstall stubs, root help and default-pin sections plus both Go-daemon full pairings passed originally; only Rust-daemon host-limit phases failed due coordinator v2 registration429-to409 conversion. Exact two unchanged failed phases pass against coordinator950; no second full-service run claimed.",
+      "followup_details": "/tmp/peerspan-link-final-service-hosts-followup/results.json",
+      "followup": {
+        "source": "25f7c54203dd38867dea9786a6be8bdaf05f2207",
+        "phase": "launch_service.check_hosts",
+        "suite_sha256": "0670f37a7fdc745b922a7c964c2458617a914e34903747aa7f0fa4f0aa711b9f",
+        "scope": "Only previously failing GoCLI/RustDaemon and RustCLI/RustDaemon phases; unchanged assertions/deadlines; no default-pin rebuild or retry.",
+        "artifacts": {
+          "go": {
+            "path": "/tmp/peerspan-link-host-go-complete-v25",
+            "source": "79c4ad529b2c364a22edd0149620b5d58e79b1de",
+            "sha256": "e21e39b7dbb606a02a5ccc6f5de62ed6d811f0c130a43fb8ec11c1f0f0a03c2f"
+          },
+          "rust": {
+            "path": "/tmp/peerspan-link-runtime-host-rust-v32-release",
+            "source": "a8d0ec25ede7ccfa26b1d89202f0fef5dc86f236",
+            "sha256": "889c467a8cd7f9554610cee2d60f4fc8e4a83a765f75f5cebedc4dd69d3afb4c"
+          },
+          "coordinator": {
+            "path": "/tmp/peerspan-link-coord-registration-limit",
+            "source": "950af34520a9019c10feb0e6e20f1b63a59f1775",
+            "sha256": "3710390c7ff83600d8965f7498a36b78e061c0ed1ac49c0ca5518fa59c12584f"
+          },
+          "probe": {
+            "path": "/tmp/peerspan-link-runtime-peer-probe",
+            "sha256": "2c33598397d52f5632ffd7add0ca8aaad81f24b9f6841dd55d34d73e80a0fa8a"
+          }
+        },
+        "rows": [
+          {
+            "pairing": "Go/Rust",
+            "exit_code": 0,
+            "seconds": 2.09,
+            "log": "/tmp/peerspan-link-final-service-hosts-followup/go-rust.log"
+          },
+          {
+            "pairing": "Rust/Rust",
+            "exit_code": 0,
+            "seconds": 1.9,
+            "log": "/tmp/peerspan-link-final-service-hosts-followup/rust-rust.log"
+          }
+        ]
+      },
+      "fix_pr": 85,
+      "merged_commit": "7016f977b2e6560c734bbf2cfab3f2b8d37f03f5"
+    },
+    "other_suites": [
+      {
+        "suite": "launch_directory",
+        "passed": true,
+        "seconds": 618.43,
+        "log": "/tmp/peerspan-link-final-up-coverage/launch_directory.log",
+        "suite_sha256": "a0dcbd4bebe3dd7888ddd4f91bd228281c79d385d24c1d1082a246f15d780f23",
+        "scope": "All four default Go/Rust CLI/daemon pairings; original assertions/deadlines unchanged."
+      },
+      {
+        "suite": "claude_setup",
+        "passed": true,
+        "seconds": 28.05,
+        "log": "/tmp/peerspan-link-final-up-coverage/claude_setup.log",
+        "suite_sha256": "38d1a30a6f9adf7cdd779b452b360c93c0dbb9ea4bb43b5ca683c28c09254665",
+        "scope": "All four default Go/Rust CLI/daemon pairings; original assertions/deadlines unchanged."
+      },
+      {
+        "suite": "harness_setup",
+        "passed": true,
+        "seconds": 5.67,
+        "log": "/tmp/peerspan-link-final-up-coverage/harness_setup.log",
+        "suite_sha256": "97c2d9bec7587265ea81ab90ae7e3096b81573083dbb476a5b73709fe58a5234",
+        "scope": "All four default Go/Rust CLI/daemon pairings; original assertions/deadlines unchanged."
+      }
+    ],
+    "live_model_task_checked": false
+  },
+  "final_source_equivalence": {
+    "merge_commit": "aa9d081992bf0e47bc7d3a312f8ee8df5289cb50",
+    "main": "34713c898f43c51acc6d89fcf91b5cdc7f28f4a8",
+    "final_rust_tree": "88aed7c39eb648fb6752bcfc5032c4b55cee12f9",
+    "tested_rust_tree": "88aed7c39eb648fb6752bcfc5032c4b55cee12f9",
+    "installed_rust_tree": "88aed7c39eb648fb6752bcfc5032c4b55cee12f9",
+    "final_integrations_tree": "96390c9e695347dd5c30560236595ab543a49745",
+    "installed_integrations_tree": "96390c9e695347dd5c30560236595ab543a49745",
+    "final_scripts_tree": "e07e52ba0adb133d256b41ab76a1c312720b4827",
+    "installed_scripts_tree": "e07e52ba0adb133d256b41ab76a1c312720b4827",
+    "final_go_tree": "aca657bcd1f97846a5b21daa2b27de050b1bc181",
+    "main_go_tree": "aca657bcd1f97846a5b21daa2b27de050b1bc181",
+    "verified": true,
+    "canonical_conformance_matches_main": true,
+    "canonical_contracts_match_pre_reviewed_resolution_plan": true,
+    "go_delta_from_tested_host_source": [
+      "go/internal/coord/linking_maps.go"
+    ],
+    "coordinator_only_delta_PR": 85,
+    "host_dependency_check": "Root verified go list -deps ./cmd/peerspan-host excludes internal/coord; Rust Cargo tree, integrations and scripts are byte-identical to tested32 and installed composition25f7c54.",
+    "same_review_409_paragraph_retained": true,
+    "shared_writer_contract_retained": true,
+    "stored_result_metadata_refinement_retained": true
+  }
+}

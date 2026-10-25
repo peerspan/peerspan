@@ -16,6 +16,7 @@ pub mod chain;
 pub mod coordinator_move;
 pub mod directory;
 pub mod disco;
+pub mod link_runtime;
 pub mod linking;
 pub mod live_delivery;
 pub mod mcp;

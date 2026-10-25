@@ -303,6 +303,7 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
         .merge(crate::calls::peer_routes())
         .merge(crate::artifact::peer_routes())
         .merge(crate::policy_sync::peer_routes())
+        .merge(crate::link_runtime::peer::routes())
         .merge(crate::directory::peer_routes())
         .merge(crate::agent_lookup::peer_routes())
         .merge(crate::coordinator_move::peer_routes())
@@ -361,6 +362,30 @@ pub(crate) async fn https(
     path: &str,
     body: Vec<u8>,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
+    let (status, _, body) =
+        https_bounded(config, address, name, method, path, body, 1 << 20).await?;
+    Ok((status, body))
+}
+/// Fixed format-2 response budget; the parser enforces nested catalog limits.
+pub(crate) async fn https_link(
+    config: ClientConfig,
+    address: &str,
+    name: ServerName<'static>,
+    method: Method,
+    path: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<(u16, axum::http::HeaderMap, Vec<u8>)> {
+    https_bounded(config, address, name, method, path, body, 16 << 20).await
+}
+async fn https_bounded(
+    config: ClientConfig,
+    address: &str,
+    name: ServerName<'static>,
+    method: Method,
+    path: &str,
+    body: Vec<u8>,
+    limit: usize,
+) -> anyhow::Result<(u16, axum::http::HeaderMap, Vec<u8>)> {
     let stream = TcpStream::connect(address).await?;
     // Without this, Nagle plus delayed ACK adds ~40 ms to each small request.
     stream.set_nodelay(true)?;
@@ -380,12 +405,13 @@ pub(crate) async fn https(
         .body(Full::new(BodyBytes::from(body)))?;
     let response = sender.send_request(request).await?;
     let status = response.status().as_u16();
-    let bytes = http_body_util::Limited::new(response.into_body(), 1 << 20)
+    let headers = response.headers().clone();
+    let bytes = http_body_util::Limited::new(response.into_body(), limit)
         .collect()
         .await
         .map_err(|e| anyhow::anyhow!("read response: {e}"))?
         .to_bytes();
-    Ok((status, bytes.to_vec()))
+    Ok((status, headers, bytes.to_vec()))
 }
 pub(crate) async fn exchange(
     store: Arc<Store>,

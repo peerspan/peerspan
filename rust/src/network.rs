@@ -382,6 +382,8 @@ pub struct IssuedInvite {
 }
 #[derive(Deserialize)]
 pub(crate) struct WireMap {
+    #[serde(skip)]
+    pub(crate) active_map: Option<Vec<u8>>,
     pub(crate) network_id: String,
     pub(crate) root_public_key: String,
     pub(crate) members: Vec<Value>,
@@ -522,15 +524,15 @@ impl RotationPlan {
 /// directory protects it like `networks.root_seed`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct PendingRotation {
-    rotation: Rotation,
-    attestations: Vec<Attestation>,
+    pub(crate) rotation: Rotation,
+    pub(crate) attestations: Vec<Attestation>,
     /// Host and person admissions re-signed at the new epoch.
     #[serde(default)]
-    admissions: Vec<Value>,
-    /// Root-signed groups renewed by the new root at the same version.
+    pub(crate) admissions: Vec<Value>,
+    /// Root-signed groups renewed by the new root under the active version rules.
     #[serde(default)]
-    groups: Vec<Group>,
-    root_seed: String,
+    pub(crate) groups: Vec<Group>,
+    pub(crate) root_seed: String,
 }
 #[derive(Debug)]
 enum PendingOutcome {
@@ -1396,7 +1398,7 @@ impl Store {
         all.dedup();
         Ok(all)
     }
-    fn refresh_member_pins(&self, connection: &Connection) -> Result<(), Error> {
+    pub(crate) fn refresh_member_pins(&self, connection: &Connection) -> Result<(), Error> {
         let pins = load_member_pins(connection, &self.identity().id).map_err(Error::Internal)?;
         *self
             .member_pins
@@ -1412,7 +1414,7 @@ impl Store {
             *advertise = address;
         }
     }
-    fn advertised(&self) -> String {
+    pub(crate) fn advertised(&self) -> String {
         self.advertise.read().map(|a| a.clone()).unwrap_or_default()
     }
     /// The candidates this host most recently published.
@@ -1548,12 +1550,37 @@ impl Store {
     }
 
     pub fn issue_invite(&self, id: &str, r: CreateInvite) -> Result<IssuedInvite, Error> {
+        let mut r = r;
+        if r.token.is_none() {
+            let c = self.connection()?;
+            if crate::link_runtime::catalog::feature(&c, id)
+                .map_err(crate::link_runtime::support::model_error)?
+                .0
+                != "-"
+            {
+                r.expires_at = membership::time(&r.expires_at)?
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string();
+            }
+        }
         if let Some(token) = r.token {
             return self.record_signed_invite(id, &token, false);
         }
         membership::label(&r.member)?;
         let expires = membership::time(&r.expires_at)?;
-        let at = chrono::Utc::now();
+        let at = {
+            let c = self.connection()?;
+            if crate::link_runtime::catalog::feature(&c, id)
+                .map_err(crate::link_runtime::support::model_error)?
+                .0
+                != "-"
+            {
+                crate::link_runtime::support::now()
+                    .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
+            } else {
+                chrono::Utc::now()
+            }
+        };
         if expires <= at || expires > at + MAX_INVITE_LIFETIME {
             return Err(Error::Invalid(
                 "invite expiry must be in the future and at most 30 days ahead".into(),
@@ -1583,31 +1610,38 @@ impl Store {
                 &root,
                 &invite,
                 &network.id,
-                &network.name,
+                &network.name.clone(),
                 network.root_epoch,
                 &r.member,
                 &r.expires_at,
-                &network.coordinator_address,
-                &network.coordinator_public_key,
+                &network.coordinator_address.clone(),
+                &network.coordinator_public_key.clone(),
             );
             append_event(&tx, "network.invite_issued", &network.id, &now())?;
+            let wrapped = crate::link_runtime::invite::wrap_legacy(
+                &tx,
+                &network,
+                &token.encode(),
+                &KeySigner::Raw(&root),
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
             tx.commit()?;
             return Ok(IssuedInvite {
                 network_id: network.id,
                 member: signed.member,
                 invite_public_key: signed.invite_public_key,
                 invite_expires_at: signed.invite_expires_at,
-                token: token.encode(),
+                token: wrapped,
             });
         }
         let token = InviteToken {
             network_id: network.id.clone(),
-            network_name: network.name,
+            network_name: network.name.clone(),
             // The current root signed the invite; after a rotation it no longer
             // derives the network ID, and the joiner checks it against the chain.
-            root_public_key: network.current_root_public_key,
-            coordinator_address: network.coordinator_address,
-            coordinator_public_key: network.coordinator_public_key,
+            root_public_key: network.current_root_public_key.clone(),
+            coordinator_address: network.coordinator_address.clone(),
+            coordinator_public_key: network.coordinator_public_key.clone(),
             member: signed.member.clone(),
             invite_public_key: signed.invite_public_key.clone(),
             invite_seed: STANDARD.encode(invite.to_bytes()),
@@ -1615,13 +1649,20 @@ impl Store {
             invite_signature: signed.invite_signature,
         };
         append_event(&tx, "network.invite_issued", &network.id, &now())?;
+        let wrapped = crate::link_runtime::invite::wrap_legacy(
+            &tx,
+            &network,
+            &token.encode(),
+            &KeySigner::Raw(&root),
+        )
+        .map_err(crate::link_runtime::support::model_error)?;
         tx.commit()?;
         Ok(IssuedInvite {
             network_id: network.id,
             member: signed.member,
             invite_public_key: signed.invite_public_key,
             invite_expires_at: signed.invite_expires_at,
-            token: token.encode(),
+            token: wrapped,
         })
     }
 
@@ -1640,6 +1681,24 @@ impl Store {
         joined: bool,
         switch: Option<CoordinatorPending>,
     ) -> Result<Network, Error> {
+        if let Some(raw) = map.active_map {
+            return self
+                .apply_link_map(network, &raw, joined, switch)
+                .map_err(crate::link_runtime::support::model_error);
+        }
+        {
+            let c = self.connection()?;
+            if crate::link_runtime::catalog::feature(&c, &network.id)
+                .map_err(crate::link_runtime::support::model_error)?
+                .0
+                != "-"
+            {
+                return Err(crate::link_runtime::support::model_error(
+                    crate::link_runtime::support::Failure::new("upgrade_required", "-", "map")
+                        .into(),
+                ));
+            }
+        }
         // The first accepted map (a join, or a created network's registration)
         // means the coordinator now knows this host, so its relay will accept it.
         let first = joined || network.last_sync_at.is_none();
@@ -1930,6 +1989,28 @@ impl Store {
         connection: &Connection,
         id: &str,
     ) -> Result<Vec<PersonEntry>, Error> {
+        let n = self.network_record(connection, id)?;
+        if let Some(p) = self
+            .linking_projection(connection, &n)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            let mut people = Vec::new();
+            for (key, state) in &p.network.facts.state.persons {
+                if state.admitted {
+                    people.push(PersonEntry {
+                        person_id: persons::person_id_of(key)?,
+                        person_public_key: key.clone(),
+                        member: p.network.facts.person_labels.get(key).cloned().ok_or_else(
+                            || Error::Internal(anyhow::anyhow!("verified person label absent")),
+                        )?,
+                        admission: None,
+                        membership: None,
+                    });
+                }
+            }
+            people.sort_by(|a, b| a.person_id.cmp(&b.person_id));
+            return Ok(people);
+        }
         let mut statement = connection.prepare(
             "SELECT record FROM network_statements WHERE network_id = ?1 AND kind = 'person' ORDER BY subject",
         )?;
@@ -2028,6 +2109,12 @@ impl Store {
         connection: &Connection,
         network: &Network,
     ) -> Result<Vec<String>, Error> {
+        if let Some(p) = self
+            .linking_projection(connection, network)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            return p.roots().map_err(crate::link_runtime::support::model_error);
+        }
         let mut roots = vec![network.root_public_key.clone()];
         roots.extend(
             Statements::load(connection, &network.id)?
@@ -2043,6 +2130,26 @@ impl Store {
         connection: &Connection,
         network: &Network,
     ) -> Result<Authority, Error> {
+        if let Some(p) = self
+            .linking_projection(connection, network)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            return Ok(Authority {
+                roots: p
+                    .roots()
+                    .map_err(crate::link_runtime::support::model_error)?,
+                admins: p
+                    .network
+                    .facts
+                    .state
+                    .persons
+                    .iter()
+                    .filter(|(_, state)| state.admitted && state.administrator)
+                    .map(|(key, _)| key.clone())
+                    .collect(),
+                ..Authority::default()
+            });
+        }
         let statements = Statements::load(connection, &network.id)?;
         let mut roots = vec![network.root_public_key.clone()];
         roots.extend(
@@ -2097,6 +2204,13 @@ impl Store {
         connection: &Connection,
         id: &str,
     ) -> Result<Vec<Group>, Error> {
+        let n = self.network_record(connection, id)?;
+        if let Some(p) = self
+            .linking_projection(connection, &n)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            return Ok(p.groups.into_values().collect());
+        }
         let mut groups = Statements::load(connection, id)?.groups;
         groups.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(groups)
@@ -2389,6 +2503,72 @@ impl Store {
         let tx = connection.transaction()?;
         let network = self.network_record(&tx, id)?;
         let token = token.trim();
+        if token.starts_with(crate::link_runtime::invite::PREFIX) {
+            let (feature, _) = crate::link_runtime::catalog::feature(&tx, id)
+                .map_err(crate::link_runtime::support::model_error)?;
+            if feature == "-" {
+                return Err(crate::link_runtime::support::model_error(
+                    crate::link_runtime::support::Failure::new("upgrade_required", "-", "feature")
+                        .into(),
+                ));
+            }
+            let decoded = crate::link_runtime::invite::decode(
+                token,
+                crate::link_runtime::support::now()
+                    .map_err(|e| crate::link_runtime::support::model_error(e.into()))?,
+                &feature,
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
+            if decoded.network.id != network.id
+                || decoded.network.name != network.name
+                || decoded.network.coordinator_address != network.coordinator_address
+                || decoded.network.coordinator_public_key != network.coordinator_public_key
+                || (person_only && decoded.token.mode != "person")
+                || (!person_only && decoded.token.mode == "person")
+            {
+                return Err(Error::Invalid("invitation pins differ".into()));
+            }
+            let prior = crate::link_runtime::catalog::read(&tx, id)
+                .map_err(crate::link_runtime::support::model_error)?;
+            let union = crate::link_runtime::catalog::merge(
+                id,
+                &[&prior, decoded.token.catalog.get().as_bytes()],
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
+            let p = crate::link_runtime::catalog::verify(
+                &tx,
+                &network,
+                &union,
+                crate::link_runtime::support::now()
+                    .map_err(|e| crate::link_runtime::support::model_error(e.into()))?,
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
+            crate::linking::select_stored_proof_catalog(
+                crate::linking::CatalogFactContext {
+                    network: &p.descriptor,
+                    epoch: p.network.epoch,
+                    known_feature_id: &feature,
+                    now: crate::link_runtime::support::now()
+                        .map_err(|e| crate::link_runtime::support::model_error(e.into()))?,
+                },
+                &union,
+                &[crate::linking::ProofSeed {
+                    kind: "invite_feature".into(),
+                    body: crate::link_runtime::invite::seed_body(&decoded.token)
+                        .map_err(crate::link_runtime::support::model_error)?,
+                }],
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
+            append_event(&tx, "network.invite_issued", id, &now())?;
+            tx.commit()?;
+            return Ok(IssuedInvite {
+                network_id: network.id,
+                member: decoded.member,
+                invite_public_key: STANDARD.encode(decoded.seed.verifying_key().as_bytes()),
+                invite_expires_at: decoded.expires,
+                token: token.into(),
+            });
+        }
         let (network_id, member, invite, expires, signatures) = if person_only {
             let t = PersonInviteToken::decode(token)?;
             self.check_label_free(&tx, id, &t.member, None)?;
@@ -2442,12 +2622,37 @@ impl Store {
     }
     /// Issues a one-time person invite signed by the current root.
     pub fn issue_person_invite(&self, id: &str, r: CreateInvite) -> Result<IssuedInvite, Error> {
+        let mut r = r;
+        if r.token.is_none() {
+            let c = self.connection()?;
+            if crate::link_runtime::catalog::feature(&c, id)
+                .map_err(crate::link_runtime::support::model_error)?
+                .0
+                != "-"
+            {
+                r.expires_at = membership::time(&r.expires_at)?
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string();
+            }
+        }
         if let Some(token) = r.token {
             return self.record_signed_invite(id, &token, true);
         }
         membership::label(&r.member)?;
         let expires = membership::time(&r.expires_at)?;
-        let at = chrono::Utc::now();
+        let at = {
+            let c = self.connection()?;
+            if crate::link_runtime::catalog::feature(&c, id)
+                .map_err(crate::link_runtime::support::model_error)?
+                .0
+                != "-"
+            {
+                crate::link_runtime::support::now()
+                    .map_err(|e| crate::link_runtime::support::model_error(e.into()))?
+            } else {
+                chrono::Utc::now()
+            }
+        };
         if expires <= at || expires > at + MAX_INVITE_LIFETIME {
             return Err(Error::Invalid(
                 "invite expiry must be in the future and at most 30 days ahead".into(),
@@ -2471,13 +2676,20 @@ impl Store {
             &network.coordinator_public_key,
         );
         append_event(&tx, "network.invite_issued", &network.id, &now())?;
+        let wrapped = crate::link_runtime::invite::wrap_legacy(
+            &tx,
+            &network,
+            &token.encode(),
+            &KeySigner::Raw(&root),
+        )
+        .map_err(crate::link_runtime::support::model_error)?;
         tx.commit()?;
         Ok(IssuedInvite {
             network_id: network.id,
             member: token.member.clone(),
             invite_public_key: token.invite_public_key.clone(),
             invite_expires_at: token.invite_expires_at.clone(),
-            token: token.encode(),
+            token: wrapped,
         })
     }
     /// Removes a person (administrator only): signed by the current root,
@@ -2835,7 +3047,7 @@ impl Store {
 
     /// Resolves a person ID, key, or label to a person key, including an
     /// administrator who is no longer a current person.
-    fn resolve_admin(
+    pub(crate) fn resolve_admin(
         &self,
         connection: &Connection,
         id: &str,
@@ -2994,6 +3206,26 @@ impl Store {
         let connection = self.connection()?;
         let network = self.network_record(&connection, id)?;
         let stored = self.stored_groups(&connection, id)?;
+        let projection = self
+            .linking_projection(&connection, &network)
+            .map_err(crate::link_runtime::support::model_error)?;
+        let water = |name: &str| {
+            projection
+                .as_ref()
+                .and_then(|p| {
+                    p.access
+                        .groups
+                        .iter()
+                        .find(|g| g.name == name)
+                        .map(|g| g.selection.high_water.version)
+                })
+                .unwrap_or_else(|| {
+                    stored
+                        .iter()
+                        .find(|g| g.name == name)
+                        .map_or(0, |g| g.version)
+                })
+        };
         let group = match (r.group, r.name) {
             (Some(g), None) => {
                 let signer = self.accept_signer(&connection, &network, &g.signature)?;
@@ -3008,10 +3240,19 @@ impl Store {
                     .iter()
                     .map(|m| admins::resolve_person(&persons, m).map(|p| p.person_id.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
-                let version = stored
-                    .iter()
-                    .find(|g| g.name == name)
-                    .map_or(1, |g| g.version + 1);
+                let version = water(&name).checked_add(1).ok_or_else(|| {
+                    crate::link_runtime::support::model_error(
+                        crate::link_runtime::support::Failure {
+                            error: "access version exhausted".into(),
+                            ..crate::link_runtime::support::Failure::new(
+                                "quota_exceeded",
+                                "-",
+                                "version",
+                            )
+                        }
+                        .into(),
+                    )
+                })?;
                 Group::sign(
                     &KeySigner::Raw(&self.current_root(&connection, id)?),
                     &network.id,
@@ -3025,6 +3266,11 @@ impl Store {
                 return Err(Error::Invalid("give exactly one of name or group".into()));
             }
         };
+        if projection.is_some() && group.version <= water(&group.name) {
+            return Err(Error::Conflict(
+                "a higher group version remains selected".into(),
+            ));
+        }
         if let Some(old) = stored.iter().find(|g| g.name == group.name)
             && old.version >= group.version
         {
@@ -3041,6 +3287,45 @@ impl Store {
     pub fn groups(&self, id: &str, all: bool) -> Result<Vec<GroupView>, Error> {
         let connection = self.connection()?;
         let network = self.network_record(&connection, id)?;
+        if let Some(p) = self
+            .linking_projection(&connection, &network)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            let people: BTreeSet<_> = p
+                .network
+                .facts
+                .state
+                .persons
+                .iter()
+                .filter(|(_, s)| s.admitted)
+                .map(|(key, _)| persons::person_id_of(key))
+                .collect::<Result<_, _>>()?;
+            let mut groups = Vec::new();
+            for (name, group) in &p.groups {
+                if !all && group.members.is_empty() {
+                    continue;
+                }
+                let mut view = GroupView::of(group, &p.network.root_public_key);
+                view.members.retain(|id| people.contains(id));
+                if let Some(auth) = p
+                    .group_authorizations
+                    .get(name)
+                    .filter(|s| s.as_str() != "-")
+                {
+                    let raw = crate::link_runtime::crypto::bytes(auth, crate::linking::MAX_OBJECT)
+                        .map_err(crate::link_runtime::support::model_error)?;
+                    let record: Value = serde_json::from_slice(&raw)?;
+                    view.signer =
+                        persons::sshsig_signer(record["signature"].as_str().unwrap_or("-"))
+                            .ok_or_else(|| {
+                                Error::Internal(anyhow::anyhow!("verified group signer absent"))
+                            })?;
+                    view.authorization_base64 = Some(auth.clone());
+                }
+                groups.push(view);
+            }
+            return Ok(groups);
+        }
         let persons: BTreeSet<String> = self
             .stored_persons(&connection, id)?
             .into_iter()
@@ -3101,7 +3386,7 @@ impl Store {
     ) -> Result<Vec<Value>, Error> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT kind, subject, record FROM network_statements WHERE network_id = ?1 AND kind IN ('host', 'invite', 'person_removal', 'unbind', 'admin_removal')",
+            "SELECT kind, subject, record FROM network_statements WHERE network_id = ?1 AND kind IN ('host', 'invite', 'person_removal', 'unbind', 'admin_removal','link_admin_removal_v2')",
         )?;
         let rows = statement
             .query_map([id], |r| {
@@ -3117,7 +3402,7 @@ impl Store {
             .filter(|(kind, subject, _)| !listed.contains(&(kind.clone(), subject.clone())))
             .filter_map(|(kind, _, record)| {
                 let statement: Value = serde_json::from_str(&record).ok()?;
-                let kind = if kind == "admin_removal" {
+                let kind = if kind == "admin_removal" || kind == "link_admin_removal_v2" {
                     "admin"
                 } else if kind == "person_removal" {
                     "person"
@@ -3143,7 +3428,7 @@ impl Store {
     }
 
     /// The rotation this administrator has signed but not yet seen accepted.
-    fn pending_rotation(
+    pub(crate) fn pending_rotation(
         &self,
         connection: &Connection,
         id: &str,
@@ -3212,6 +3497,11 @@ impl Store {
         network: &Network,
         epoch: u64,
     ) -> Result<RotationPlan, Error> {
+        if let Some(plan) = crate::link_runtime::rotation::plan(connection, network, epoch)
+            .map_err(crate::link_runtime::support::model_error)?
+        {
+            return Ok(plan);
+        }
         let id = &network.id;
         let authority = self.authority(connection, network)?;
         let admin_signed = |signature: &str| {
@@ -3569,7 +3859,7 @@ pub(crate) async fn coordinator(
     let name = rustls::pki_types::ServerName::try_from(host)?;
     tokio::time::timeout(
         Duration::from_secs(8),
-        https(
+        crate::peer::https_link(
             config,
             address,
             name,
@@ -3580,6 +3870,7 @@ pub(crate) async fn coordinator(
     )
     .await
     .map_err(|_| anyhow::anyhow!("coordinator request timed out"))?
+    .map(|(status, _, body)| (status, body))
 }
 /// A coordinator GET over the same pinned client.
 async fn coordinator_get(
@@ -3716,6 +4007,32 @@ pub(crate) fn coordinator_error(status: u16, body: &[u8]) -> String {
     format!("coordinator returned HTTP {status}: {message}")
 }
 fn parse_map(body: &[u8]) -> Result<WireMap, Error> {
+    let value: Value = serde_json::from_slice(body)
+        .map_err(|_| Error::Unavailable("malformed coordinator map".into()))?;
+    if value.get("format").is_some() {
+        let map = crate::link_runtime::map::Map::decode(body)
+            .map_err(crate::link_runtime::support::model_error)?;
+        let descriptor: crate::link_runtime::map::Descriptor = crate::linking::decode_mutation(
+            map.network.get().as_bytes(),
+            "network_id name genesis_root_public_key coordinator_address coordinator_public_key",
+        )
+        .map_err(crate::link_runtime::support::model_error)?;
+        return Ok(WireMap {
+            active_map: Some(body.to_vec()),
+            network_id: descriptor.network_id,
+            root_public_key: descriptor.genesis_root_public_key,
+            members: Vec::new(),
+            rotations: Vec::new(),
+            attestations: Vec::new(),
+            revocations: Vec::new(),
+            persons: Vec::new(),
+            admins: Vec::new(),
+            groups: Vec::new(),
+            policies: Vec::new(),
+            successors: Value::Null,
+            r#move: Value::Null,
+        });
+    }
     serde_json::from_slice(body).map_err(|_| Error::Unavailable("malformed coordinator map".into()))
 }
 
@@ -3806,10 +4123,117 @@ fn interface_addresses() -> Vec<std::net::IpAddr> {
 /// Registers an unregistered administered network, or syncs any other one.
 /// A pending coordinator is synced first, and the pinned one only if that
 /// fails. Failures are recorded on the network rather than returned.
+/// Fresh current pinned map for a typed expansion; never follows a move mid-ceremony.
+pub(crate) async fn sync_link_network(store: Arc<Store>, id: String) -> Result<Network, Error> {
+    let restriction_failure =
+        crate::link_runtime::restrictions::resume_for_sync(store.clone(), &id)
+            .await
+            .map_err(crate::link_runtime::support::model_error)?;
+    let lookup = id.clone();
+    let (network, registration, pending) = blocking(store.clone(), move |s| {
+        let c = s.connection()?;
+        let n = s.network_record(&c, &lookup)?;
+        drop(c);
+        let own = if n.administrator && n.last_sync_at.is_none() {
+            s.own_membership(&lookup)?
+        } else {
+            None
+        };
+        let c = s.connection()?;
+        let pending = if crate::link_runtime::catalog::feature(&c, &lookup)
+            .map_err(crate::link_runtime::support::model_error)?
+            .0
+            != "-"
+        {
+            s.pending_rotation(&c, &lookup)?
+        } else {
+            None
+        };
+        Ok((n, own, pending))
+    })
+    .await?;
+    if pending.is_some()
+        && let Some(error) = restriction_failure
+    {
+        return Err(crate::link_runtime::support::model_error(
+            crate::link_runtime::restrictions::rotation_refusal(error),
+        ));
+    }
+    if let Some(pending) = pending
+        && let Some(completed) =
+            crate::link_runtime::rotation::complete_locked(store.clone(), network.clone(), pending)
+                .await?
+    {
+        return Ok(completed);
+    }
+    let current = network;
+    let network = blocking(store.clone(), move |s| {
+        crate::link_runtime::map::refresh_transport(s, current)
+    })
+    .await?;
+    let map = if let Some(raw) = crate::link_runtime::restrictions::repair_at(
+        store.clone(),
+        &id,
+        &network.coordinator_address,
+        &network.coordinator_public_key,
+    )
+    .await
+    .map_err(crate::link_runtime::support::model_error)?
+    {
+        parse_map(&raw)?
+    } else {
+        fetch_map(
+            &store,
+            &network,
+            &network.coordinator_address,
+            &network.coordinator_public_key,
+            registration,
+        )
+        .await
+        .map_err(|(error, _)| error)?
+    };
+    blocking(store, move |s| s.apply_map_at(network, map, false, None)).await
+}
+
 pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Error> {
+    let restriction_failure =
+        crate::link_runtime::restrictions::resume_for_sync(store.clone(), &id)
+            .await
+            .map_err(crate::link_runtime::support::model_error)?;
     let lookup = id.clone();
     let (network, own) = blocking(store.clone(), move |s| {
         Ok((s.network(&lookup)?, s.own_membership(&lookup)?))
+    })
+    .await?;
+    let (run, lookup) = (store.clone(), id.clone());
+    let pending_rotation = blocking(run, move |s| {
+        let c = s.connection()?;
+        if crate::link_runtime::catalog::feature(&c, &lookup)
+            .map_err(crate::link_runtime::support::model_error)?
+            .0
+            == "-"
+        {
+            return Ok(None);
+        }
+        s.pending_rotation(&c, &lookup)
+    })
+    .await?;
+    if pending_rotation.is_some()
+        && let Some(error) = restriction_failure
+    {
+        return Err(crate::link_runtime::support::model_error(
+            crate::link_runtime::restrictions::rotation_refusal(error),
+        ));
+    }
+    if let Some(pending) = pending_rotation
+        && let Some(completed) =
+            crate::link_runtime::rotation::complete(store.clone(), network.clone(), pending).await?
+    {
+        return Ok(completed);
+    }
+    let (run, current) = (store.clone(), network);
+    let network = blocking(run, move |s| {
+        crate::link_runtime::map::refresh_transport(s, current)
     })
     .await?;
     let registration = own.filter(|_| network.administrator && network.last_sync_at.is_none());
@@ -3849,13 +4273,17 @@ pub async fn sync_network(store: Arc<Store>, id: String) -> Result<Network, Erro
             {
                 Followed::Switched(network) => Ok(network),
                 Followed::Stayed(network) => {
-                    let repaired = crate::coordinator_move::repair(
-                        &store,
-                        &network,
-                        &synced.served,
-                        synced.held,
-                    )
-                    .await;
+                    let repaired = if synced.active {
+                        false
+                    } else {
+                        crate::coordinator_move::repair(
+                            &store,
+                            &network,
+                            &synced.served,
+                            synced.held,
+                        )
+                        .await
+                    };
                     after_sync(store, network, synced.listed, synced.offered, repaired).await
                 }
             }
@@ -3876,6 +4304,7 @@ const CHAIN_BEHIND: &str = "coordinator root chain is behind this host";
 /// A map fetched and applied, with what the caller still follows.
 struct Synced {
     network: Network,
+    active: bool,
     successors: Value,
     moved: Value,
     served: crate::coordinator_move::MapSummary,
@@ -3897,11 +4326,20 @@ async fn sync_at(
     switch: Option<CoordinatorPending>,
 ) -> Result<Synced, Error> {
     let registering = registration.is_some();
-    let mut map = coordinator_map(store, network, address, key, registration).await?;
+    let mut map = if let Some(raw) =
+        crate::link_runtime::restrictions::repair_at(store.clone(), &network.id, address, key)
+            .await
+            .map_err(crate::link_runtime::support::model_error)?
+    {
+        parse_map(&raw)?
+    } else {
+        coordinator_map(store, network, address, key, registration).await?
+    };
     let mut retried = registering;
     loop {
-        let successors = std::mem::take(&mut map.successors);
-        let moved = std::mem::take(&mut map.r#move);
+        let active = map.active_map.is_some();
+        let mut successors = std::mem::take(&mut map.successors);
+        let mut moved = std::mem::take(&mut map.r#move);
         let served = crate::coordinator_move::MapSummary::of(&map);
         let listed = listed_revocations(&map);
         let offered = offered_rotations(&map);
@@ -3916,8 +4354,18 @@ async fn sync_at(
         .await
         {
             Ok(network) => {
+                if active {
+                    let (run, current) = (store.clone(), network.clone());
+                    (moved, successors) = tokio::task::spawn_blocking(move || {
+                        crate::link_runtime::map::transport_evidence(&run, &current)
+                    })
+                    .await
+                    .map_err(|e| Error::Internal(e.into()))?
+                    .map_err(crate::link_runtime::support::model_error)?;
+                }
                 return Ok(Synced {
                     network,
+                    active,
                     successors,
                     moved,
                     served,
@@ -3995,14 +4443,14 @@ async fn fetch_map(
     let candidates = publish_candidates(store, address).await;
     let (path, body, accepted): (_, _, &[u16]) = if let Some(own) = registration {
         (
-            "/coord/v1/networks".to_owned(),
-            json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": advertised, "candidates": candidates}),
+            "/coord/v2/networks".to_owned(),
+            json_value!({"name": network.name, "root_public_key": network.root_public_key, "membership": own, "address": advertised, "candidates": candidates, "linking_version":1}),
             &[200, 201],
         )
     } else {
         (
-            format!("/coord/v1/networks/{}/sync", network.id),
-            json_value!({"address": advertised, "candidates": candidates}),
+            format!("/coord/v2/networks/{}/sync", network.id),
+            json_value!({"address": advertised, "candidates": candidates, "linking_version":1}),
             &[200],
         )
     };
@@ -4050,7 +4498,9 @@ async fn after_sync(
     }
     // A rotation left pending, for example by a crash after the
     // coordinator accepted it, is completed or resubmitted here.
-    settle_rotation(store, network, offered).await
+    let network = settle_rotation(store.clone(), network, offered).await?;
+    let _ = crate::link_runtime::feature::resume(store, &network).await;
+    Ok(network)
 }
 
 /// Syncs a network at its pending coordinator. On success the pending
@@ -4089,8 +4539,11 @@ pub(crate) async fn switch_coordinator(
             blocking(store.clone(), move |s| s.set_coordinator_pending(&id, next)).await?
         }
     };
-    let repaired =
-        crate::coordinator_move::repair(store, &network, &synced.served, synced.held).await;
+    let repaired = if synced.active {
+        false
+    } else {
+        crate::coordinator_move::repair(store, &network, &synced.served, synced.held).await
+    };
     after_sync(
         store.clone(),
         network,
@@ -4275,18 +4728,42 @@ fn listed_revocations(map: &WireMap) -> BTreeSet<(String, String)> {
 }
 
 /// Submits one `{kind, statement}` revocation; true once the coordinator accepts.
-async fn submit_revocation(store: Arc<Store>, network: &Network, body: Value) -> bool {
-    matches!(
+async fn submit_revocation(
+    store: Arc<Store>,
+    network: &Network,
+    body: Value,
+) -> Result<bool, Error> {
+    let kind = match body["kind"].as_str() {
+        Some("host") => Some("host_revocation"),
+        Some("invite") => Some("invite_revocation"),
+        Some("person") => Some("person_removal"),
+        Some("binding") => Some("host_unbinding"),
+        Some("admin") => Some("admin_removal"),
+        _ => None,
+    };
+    if let Some(kind) = kind
+        && let Some(result) = crate::link_runtime::legacy::submit(
+            store.clone(),
+            network,
+            kind,
+            body["statement"].clone(),
+            true,
+        )
+        .await?
+    {
+        return Ok(result.submitted);
+    }
+    Ok(matches!(
         coordinator(
             store,
             &network.coordinator_address,
             &network.coordinator_public_key,
             format!("/coord/v1/networks/{}/revocations", network.id),
-            body,
+            body
         )
         .await,
         Ok((200, _))
-    )
+    ))
 }
 
 /// Maps a coordinator rejection to the matching local status.
@@ -4297,6 +4774,12 @@ fn coordinator_status(status: u16, body: &[u8]) -> Error {
         403 => Error::Forbidden,
         404 => Error::NotFound,
         409 => Error::Conflict(message),
+        426 => {
+            let mut failure =
+                crate::link_runtime::support::Failure::new("upgrade_required", "-", "feature");
+            failure.details.next=vec!["Request a fresh feature-bound invitation for this network.".into(),"Ask the current root owner to review and approve exact feature recovery when needed.".into()];
+            crate::link_runtime::support::model_error(failure.into())
+        }
         _ => Error::Unavailable(message),
     }
 }
@@ -4307,7 +4790,7 @@ pub async fn revoke(store: Arc<Store>, id: String, request: Revoke) -> Result<Re
     let lookup = id.clone();
     let (mut revoked, body) = blocking(store.clone(), move |s| s.revoke(&lookup, request)).await?;
     let network = blocking(store.clone(), move |s| s.network(&id)).await?;
-    revoked.submitted = submit_revocation(store, &network, body).await;
+    revoked.submitted = submit_revocation(store, &network, body).await?;
     Ok(revoked)
 }
 
@@ -4322,6 +4805,21 @@ pub async fn leave(store: Arc<Store>, id: String) -> Result<Left, Error> {
         ));
     }
     let statement = Leave::sign(&store.signing_key, &network.id, &now());
+    if let Some(result) = crate::link_runtime::legacy::submit(
+        store.clone(),
+        &network,
+        "host_leave",
+        serde_json::to_value(&statement)?,
+        true,
+    )
+    .await?
+    {
+        blocking(store, move |s| s.forget_network(&id)).await?;
+        return Ok(Left {
+            network_id: network.id,
+            submitted: result.submitted,
+        });
+    }
     let submitted = matches!(
         coordinator(
             store.clone(),
@@ -4424,6 +4922,12 @@ pub async fn rotate(
     let lookup = id.clone();
     let (network, pending) =
         blocking(store.clone(), move |s| s.prepare_rotation(&lookup, ssh)).await?;
+    if let Some(completed) =
+        crate::link_runtime::rotation::complete(store.clone(), network.clone(), pending.clone())
+            .await?
+    {
+        return Ok(completed);
+    }
     match submit_rotation(store.clone(), &network, &pending).await {
         Submitted::Accepted(map) => accept_rotation(store, id, pending, *map).await,
         Submitted::Rejected(error) => {
@@ -4566,6 +5070,25 @@ async fn submit_statement(
     endpoint: &str,
     body: Value,
 ) -> Result<Network, Error> {
+    let candidate = match (endpoint, body.as_object()) {
+        ("persons", Some(o)) if o.contains_key("admission") => {
+            Some(("person_admission", o["admission"].clone()))
+        }
+        ("persons", Some(o)) if o.contains_key("membership") => {
+            Some(("person_membership", o["membership"].clone()))
+        }
+        ("hosts", Some(o)) => o.get("admission").map(|p| ("host_admission", p.clone())),
+        ("admins", Some(o)) => o.get("delegation").map(|p| ("admin_delegation", p.clone())),
+        ("groups", Some(o)) => o.get("group").map(|p| ("group", p.clone())),
+        ("bindings", Some(o)) => o.get("binding").map(|p| ("host_binding", p.clone())),
+        _ => None,
+    };
+    if let Some((kind, record)) = candidate
+        && let Some(result) =
+            crate::link_runtime::legacy::submit(store.clone(), network, kind, record, false).await?
+    {
+        return Ok(result.network);
+    }
     let response = coordinator(
         store.clone(),
         &network.coordinator_address,
@@ -4634,6 +5157,18 @@ pub async fn remove_admin(
     id: String,
     request: RemoveAdmin,
 ) -> Result<Revoked, Error> {
+    if request.removal.is_none()
+        && let Some(result) = crate::link_runtime::withdrawal::submit(
+            store.clone(),
+            id.clone(),
+            request.person.clone(),
+            request.revoke_admitted,
+            None,
+        )
+        .await?
+    {
+        return Ok(result);
+    }
     let lookup = id.clone();
     let (mut revoked, body) =
         blocking(store.clone(), move |s| s.remove_admin(&lookup, request)).await?;
@@ -4642,7 +5177,7 @@ pub async fn remove_admin(
         move |s| s.network(&id)
     })
     .await?;
-    revoked.submitted = submit_revocation(store.clone(), &network, body).await;
+    revoked.submitted = submit_revocation(store.clone(), &network, body).await?;
     if revoked.submitted {
         // Apply the cascade (dropped members, reverted groups) at once.
         let _ = sync_network(store, id).await;
@@ -4702,6 +5237,24 @@ pub async fn redeem_person(
     store: Arc<Store>,
     request: RedeemPerson,
 ) -> Result<RedeemedPerson, Error> {
+    if request
+        .token
+        .trim()
+        .starts_with(crate::link_runtime::invite::PREFIX)
+    {
+        crate::link_runtime::redemption::redeem(
+            store,
+            request.token,
+            Some(request.person_public_key.clone()),
+            true,
+        )
+        .await?;
+        return Ok(RedeemedPerson {
+            person_id: persons::person_id_of(&persons::normalize_person_key(
+                &request.person_public_key,
+            )?)?,
+        });
+    }
     let token = persons::decode_person_invite(&request.token)?;
     let key = persons::normalize_person_key(&request.person_public_key)?;
     let id = token.network_id.clone();
@@ -4759,7 +5312,7 @@ pub async fn unbind(store: Arc<Store>, id: String, request: Unbind) -> Result<Re
     })
     .await?;
     let network = blocking(store.clone(), move |s| s.network(&id)).await?;
-    revoked.submitted = submit_revocation(store, &network, body).await;
+    revoked.submitted = submit_revocation(store, &network, body).await?;
     Ok(revoked)
 }
 /// Removes a person (administrator only): enforced locally first, then
@@ -4773,7 +5326,7 @@ pub async fn remove_person(
     let (mut revoked, body) =
         blocking(store.clone(), move |s| s.remove_person(&lookup, request)).await?;
     let network = blocking(store.clone(), move |s| s.network(&id)).await?;
-    revoked.submitted = submit_revocation(store, &network, body).await;
+    revoked.submitted = submit_revocation(store, &network, body).await?;
     Ok(revoked)
 }
 /// Joins with an administrator's admission of this host's key. The
@@ -4858,7 +5411,7 @@ fn admit_command(network: &str, person: &str, member: &str) -> String {
 /// The person step of `network join`: admit the person if needed (from a
 /// member invite's person part), then bind this host. Failures are reported,
 /// never returned, so they cannot undo the host join that preceded them.
-async fn person_step(
+pub(crate) async fn person_step(
     store: Arc<Store>,
     network: &Network,
     member_token: Option<(&str, &MemberInviteToken)>,
@@ -4938,6 +5491,13 @@ async fn person_step(
 /// `network join`: joins the host (a failure here fails the request), then
 /// runs the person step when the CLI supplied a person key.
 pub async fn join_network(store: Arc<Store>, request: JoinNetwork) -> Result<Joined, Error> {
+    if request
+        .token
+        .as_ref()
+        .is_some_and(|t| t.trim().starts_with(crate::link_runtime::invite::PREFIX))
+    {
+        return crate::link_runtime::redemption::join(store, request).await;
+    }
     let mut member = None;
     let network = match (&request.token, &request.descriptor) {
         (Some(text), None) if text.trim().starts_with(MEMBER_TOKEN_PREFIX) => {
@@ -5139,17 +5699,30 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
         )
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PlanQuery {
     person: String,
+    format: Option<String>,
 }
 async fn admin_removal_plan_route(
     State(store): State<Arc<Store>>,
     Path(id): Path<String>,
-    Query(query): Query<PlanQuery>,
-) -> Result<Json<AdminRemovalPlan>, Error> {
-    Ok(Json(
-        blocking(store, move |s| s.admin_removal_plan(&id, &query.person)).await?,
-    ))
+    query: Result<Query<PlanQuery>, axum::extract::rejection::QueryRejection>,
+) -> Result<Json<Value>, Error> {
+    let Query(query) = query.map_err(|_| Error::Invalid("invalid removal plan query".into()))?;
+    match query.format.as_deref() {
+        None => Ok(Json(serde_json::to_value(
+            blocking(store, move |s| s.admin_removal_plan(&id, &query.person)).await?,
+        )?)),
+        Some("2") => Ok(Json(
+            blocking(store, move |s| {
+                crate::link_runtime::withdrawal::plan(s, &id, &query.person)
+                    .map_err(crate::link_runtime::support::model_error)
+            })
+            .await?,
+        )),
+        _ => Err(Error::Invalid("invalid removal plan format".into())),
+    }
 }
 async fn rotation_plan_route(
     State(store): State<Arc<Store>>,
@@ -5173,7 +5746,25 @@ async fn remove_admin_route(
     Path(id): Path<String>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<Revoked>), Error> {
-    let request = decode(body)?;
+    let raw = body.map_err(|_| Error::Invalid("invalid request".into()))?;
+    let shape: Value = serde_json::from_slice(&raw)?;
+    if shape.get("removal_base64").is_some() {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Signed {
+            removal_base64: String,
+        }
+        let signed: Signed = crate::linking::decode_mutation(&raw, "removal_base64")
+            .map_err(|_| Error::Invalid("invalid signed removal".into()))?;
+        let raw =
+            crate::link_runtime::crypto::bytes(&signed.removal_base64, crate::linking::MAX_OBJECT)
+                .map_err(crate::link_runtime::support::model_error)?;
+        let result = crate::link_runtime::withdrawal::submit(store, id, None, false, Some(raw))
+            .await?
+            .ok_or_else(|| Error::Invalid("active feature required".into()))?;
+        return Ok((StatusCode::CREATED, Json(result)));
+    }
+    let request = decode(Ok(raw))?;
     Ok((
         StatusCode::CREATED,
         Json(remove_admin(store, id, request).await?),
@@ -5406,6 +5997,7 @@ mod tests {
             policies: Vec::new(),
             successors: Value::Null,
             r#move: Value::Null,
+            active_map: None,
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -5432,6 +6024,7 @@ mod tests {
             policies: Vec::new(),
             successors: Value::Null,
             r#move: Value::Null,
+            active_map: None,
             network_id: network.id.clone(),
             root_public_key: STANDARD.encode(forger.verifying_key().as_bytes()),
             members: vec![],
@@ -5546,6 +6139,7 @@ mod tests {
             policies: Vec::new(),
             successors: Value::Null,
             r#move: Value::Null,
+            active_map: None,
             rotations: vec![],
             attestations: vec![],
             revocations: vec![],
@@ -5651,6 +6245,7 @@ mod tests {
             policies: Vec::new(),
             successors: Value::Null,
             r#move: Value::Null,
+            active_map: None,
             network_id: network.id.clone(),
             root_public_key: network.root_public_key.clone(),
             members,
@@ -6979,6 +7574,7 @@ mod tests {
             policies: Vec::new(),
             successors: Value::Null,
             r#move: Value::Null,
+            active_map: None,
             network_id: id.clone(),
             root_public_key: network.root_public_key.clone(),
             members: vec![
@@ -7598,7 +8194,7 @@ mod tests {
         let connection = Connection::open(path.join("host.db")).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
+                "DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE task_artifacts; DROP TABLE artifact_files; DROP TABLE task_update_notifications; DROP TABLE task_deliveries; DROP TABLE outbound_task_events; DROP TABLE outbound_tasks; DROP TABLE task_events; DROP TABLE received_tasks; DROP TABLE access_blocks; DROP TABLE network_statements; DROP TABLE adapter_connections; DROP TABLE adapter_outbound; DROP TABLE adapter_routes; DROP TABLE outbound_replies; DROP TABLE received_replies; DROP TABLE deliveries; DROP TABLE adapter_credentials; DROP TABLE network_members; DROP TABLE networks; PRAGMA user_version = 2;",
             )
             .unwrap();
         drop(connection);
@@ -7610,11 +8206,11 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 19;")
+            .execute_batch("PRAGMA user_version = 20;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

@@ -41,13 +41,11 @@
       "library_seconds": 251.74,
       "log": "/tmp/peerspan-link-stored-rust-tests.log"
     },
-    "note": "These completed before the second root attestation fix; that fix has focused roots73 and all14 final-stack regression coverage. Final composed stack full gates remain queued, as stated below."
+    "note": "These completed before the second root attestation fix; that fix has focused roots73 and all14 final-stack regression coverage. The completed composed full gate outcomes are recorded below."
   },
   "shared_final_integration_gate": {
     "source_branch": "codex/linking-coordinator-evidence",
     "probe_checks_per_implementation": 3245,
-    "full_go_race_passed": null,
-    "full_rust_tests_passed": null,
     "status": "Final composed reader-stack gates complete. Full Rust passed; full Go failed only the documented unchanged discovery assertion. No runtime readiness claim.",
     "go_log": "/tmp/peerspan-coordinator-evidence-go-race.log",
     "rust_log": "/tmp/peerspan-coordinator-evidence-rust-tests.log",

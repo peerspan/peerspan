@@ -3,6 +3,7 @@ use crate::cli::SessionCommand;
 use anyhow::{Context, bail};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use hyper::Method;
+use peerspan_host::membership;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
@@ -1229,6 +1230,11 @@ pub(crate) async fn up_preflight(input: UpPreflight<'_>) -> anyhow::Result<()> {
     } else {
         load_manifest(integrations, harness, runner)?
     };
+    if let Some(profile) = profile
+        && serde_json::to_value(&manifest)? != profile["harness"]
+    {
+        bail!("requested integration conflicts with this project's attachment")
+    }
     let directory = profile
         .and_then(|p| p["directory"].as_str())
         .map(PathBuf::from)
@@ -1577,6 +1583,24 @@ pub(crate) async fn prepare_attach(
     command: crate::cli::Command,
     state: Option<PathBuf>,
 ) -> anyhow::Result<PreparedAttachment> {
+    prepare_attach_inner(command, state, None, None).await
+}
+
+pub(crate) async fn prepare_up_attach(
+    command: crate::cli::Command,
+    state: Option<PathBuf>,
+    profile: Option<Value>,
+    send_limit: Option<i64>,
+) -> anyhow::Result<PreparedAttachment> {
+    prepare_attach_inner(command, state, profile, send_limit).await
+}
+
+async fn prepare_attach_inner(
+    command: crate::cli::Command,
+    state: Option<PathBuf>,
+    up_profile: Option<Value>,
+    requested_send_limit: Option<i64>,
+) -> anyhow::Result<PreparedAttachment> {
     let crate::cli::Command::Attach {
         harness,
         name: wanted,
@@ -1751,8 +1775,16 @@ pub(crate) async fn prepare_attach(
     let existing = profiles
         .iter()
         .find(|(_, p)| p.workspace == workspace_text && p.host_id == host);
+    if up_profile.is_some() && existing.is_none() {
+        bail!("the project's attachment changed; inspect its original session")
+    }
     let (agent_id, agent_name) = match existing {
         Some((directory, p)) => {
+            if let Some(expected) = &up_profile
+                && serde_json::to_value(p)? != *expected
+            {
+                bail!("the project's attachment changed; inspect its original session")
+            }
             if p.phase == "configured" {
                 let adapter = admin(
                     &state,
@@ -1768,6 +1800,87 @@ pub(crate) async fn prepare_attach(
                     None,
                 )
                 .await?;
+                if up_profile.is_some()
+                    && matches!(connection["state"].as_str(), Some("ready" | "offline"))
+                {
+                    same_host(p).await?;
+                    let secret = credential(p)?;
+                    if !verify(p, &secret["token"]).await? {
+                        bail!(
+                            "the original attachment credential no longer matches; inspect session doctor"
+                        )
+                    }
+                    let session = admin(
+                        &state,
+                        Method::GET,
+                        format!("/v1/sessions/{}", p.session_id),
+                        None,
+                    )
+                    .await?;
+                    let agent_name = directory
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .context("invalid attachment directory")?;
+                    let same_expiry = match p.request["expires_at"].as_str() {
+                        Some(expiry) => {
+                            adapter["renewable"] != true
+                                && membership::time(expiry)?
+                                    == membership::time(
+                                        adapter["expires_at"].as_str().unwrap_or(""),
+                                    )?
+                        }
+                        None => adapter["renewable"] == true,
+                    };
+                    let same_options = parse_options(options.clone())? == p.options;
+                    if adapter["id"] != p.adapter_id
+                        || adapter["session_id"] != p.session_id
+                        || !adapter["revoked_at"].is_null()
+                        || !future(adapter["expires_at"].as_str().unwrap_or(""))
+                        || !same_expiry
+                        || session["id"] != p.session_id
+                        || session["agent_id"] != p.agent_id
+                        || session["integration"] != p.harness.id
+                        || p.harness.id != integration
+                        || local.get(agent_name) != Some(&p.agent_id)
+                        || wanted.as_deref().is_some_and(|name| name != agent_name)
+                        || !same_options
+                        || adapter["directory"].as_bool().unwrap_or(false)
+                            != (p.request["directory"] == true)
+                        || adapter["max_sends_per_hour"] != p.request["max_sends_per_hour"]
+                        || adapter["calls"].as_bool().unwrap_or(false)
+                            != (p.request["calls"] == true)
+                        || adapter["max_calls_per_hour"] != p.request["max_calls_per_hour"]
+                        || (calls && adapter["calls"] != true)
+                        || (no_calls && adapter["calls"] == true)
+                        || max_calls_per_hour
+                            .is_some_and(|n| adapter["max_calls_per_hour"].as_i64() != Some(n))
+                        || requested_send_limit
+                            .is_some_and(|n| adapter["max_sends_per_hour"].as_i64() != Some(n))
+                        || connection["adapter_id"] != p.adapter_id
+                        || connection["session_id"] != p.session_id
+                    {
+                        bail!(
+                            "the original attachment or its settings no longer match; inspect session doctor"
+                        )
+                    }
+                    let ready = connection["state"] == "ready" && session["state"] == "attached";
+                    let recoverable = connection["state"] == "offline"
+                        && connection["recoverable"] == true
+                        && matches!(session["state"].as_str(), Some("attached" | "detached"));
+                    if ready || recoverable {
+                        if !harness_args.is_empty() {
+                            bail!(
+                                "harness arguments require a new launch; the original integration is retained without launching a duplicate"
+                            )
+                        }
+                        let tools = discovered(p.agent_id.clone()).await;
+                        let mut prepared =
+                            build(&p.agent_id, agent_name, p, directory, true, &adapter, tools);
+                        prepared.value["connection"] = connection;
+                        prepared.value["adapter_ready"] = json!(ready);
+                        return Ok(prepared);
+                    }
+                }
                 // A live lease may belong to an adapter that has just exited:
                 // wait for the lease seen here to run out, and refuse only if
                 // it is renewed meanwhile. A valid credential that never

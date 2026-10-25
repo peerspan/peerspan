@@ -216,10 +216,16 @@ pub struct CreateCapability {
     /// its person, each claiming `name` for this host.
     #[serde(default)]
     pub policies: Option<Vec<Policy>>,
+    #[serde(default)]
+    pub(crate) catalogs: Vec<crate::link_runtime::claims::ClaimCatalog>,
 }
 
 /// A checked new capability and its claims, by network.
-type Drafted = (CapabilityRecord, Vec<(String, Policy)>);
+type Drafted = (
+    CapabilityRecord,
+    Vec<(String, Policy)>,
+    Vec<crate::link_runtime::claims::ClaimCatalog>,
+);
 
 impl Store {
     /// This host's person's stored policies, by network.
@@ -388,8 +394,9 @@ impl Store {
                 c.name
             )));
         }
-        let policies = self.claim_policies(&conn, &c.name, c.policies.unwrap_or_default())?;
-        Ok(Ok((record, policies)))
+        let policies =
+            self.claim_policies(&conn, &c.name, c.policies.unwrap_or_default(), &c.catalogs)?;
+        Ok(Ok((record, policies, c.catalogs)))
     }
     /// Checks the claims sent with a new capability: one policy for each
     /// network in which this host is bound to its person, verified, signed
@@ -399,7 +406,21 @@ impl Store {
         conn: &Connection,
         name: &str,
         mut given: Vec<Policy>,
+        catalogs: &[crate::link_runtime::claims::ClaimCatalog],
     ) -> Result<Vec<(String, Policy)>, Error> {
+        let mut networks: std::collections::BTreeSet<String> =
+            given.iter().map(|p| p.network_id.clone()).collect();
+        if networks.len() != given.len() {
+            return Err(Error::Invalid("duplicate claim network".into()));
+        }
+        for claim in catalogs {
+            if !networks.insert(claim.network_id.clone()) {
+                return Err(Error::Invalid("duplicate claim network".into()));
+            }
+            let checked = crate::link_runtime::claims::check(self, conn, name, claim)
+                .map_err(crate::link_runtime::support::model_error)?;
+            given.push(checked.policy);
+        }
         let me = self.identity().id;
         let at = chrono::Utc::now();
         let mut out = Vec::new();
@@ -431,8 +452,12 @@ impl Store {
                 )));
             };
             let p = given.remove(i);
-            p.verify(&network)?;
-            if !p.in_window(at) {
+            if !catalogs.iter().any(|c| c.network_id == network) {
+                p.verify(&network)?;
+            }
+            // Typed catalogs were revalidated at the runtime decision clock
+            // above; preserve the legacy policy clock for legacy submissions.
+            if !catalogs.iter().any(|c| c.network_id == network) && !p.in_window(at) {
                 return Err(Error::Invalid(
                     "a claim policy is not within its validity window".into(),
                 ));
@@ -469,6 +494,7 @@ impl Store {
         mut record: CapabilityRecord,
         own: Option<Snapshot>,
         policies: &[(String, Policy)],
+        catalogs: &[crate::link_runtime::claims::ClaimCatalog],
     ) -> Result<Value, Error> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -514,14 +540,30 @@ impl Store {
         if record.credential.own() {
             record.snapshot = snapshot;
         }
+        self.claim_policies(
+            &tx,
+            &record.name,
+            policies
+                .iter()
+                .filter(|(n, _)| !catalogs.iter().any(|c| &c.network_id == n))
+                .map(|(_, p)| p.clone())
+                .collect(),
+            catalogs,
+        )?;
+        crate::link_runtime::claims::apply(self, &tx, &record.name, catalogs)
+            .map_err(crate::link_runtime::support::model_error)?;
         // The claims and the record are stored together; a refusal stores
         // nothing.
-        for (network, p) in policies {
+        for (network, p) in policies
+            .iter()
+            .filter(|(n, _)| !catalogs.iter().any(|c| &c.network_id == n))
+        {
             self.submit_local_in(&tx, network, p)?;
         }
         save(&tx, &record)?;
         append_event(&tx, "capability.created", &record.name, &record.created_at)?;
         tx.commit()?;
+        self.refresh_member_pins(&conn)?;
         record_view(&conn, &record)
     }
     fn remove_capability(&self, name: &str) -> Result<Value, Error> {
@@ -738,10 +780,11 @@ async fn create_route(
     body: Result<Bytes, BytesRejection>,
 ) -> Result<(StatusCode, Json<Value>), Error> {
     let request: CreateCapability = decode(body)?;
-    let (record, policies) = match blocking(store.clone(), move |s| s.draft(request)).await? {
-        Ok(drafted) => drafted,
-        Err(existing) => return Ok((StatusCode::OK, Json(existing))),
-    };
+    let (record, policies, catalogs) =
+        match blocking(store.clone(), move |s| s.draft(request)).await? {
+            Ok(drafted) => drafted,
+            Err(existing) => return Ok((StatusCode::OK, Json(existing))),
+        };
     // A capability with its own credential is snapshotted with it, and its
     // operations are checked against that snapshot.
     let own = if record.credential.own() {
@@ -762,12 +805,17 @@ async fn create_route(
         None
     };
     let claims = policies.clone();
+    let legacy: Vec<_> = policies
+        .iter()
+        .filter(|(n, _)| !catalogs.iter().any(|c| &c.network_id == n))
+        .cloned()
+        .collect();
     let view = blocking(store.clone(), move |s| {
-        s.store_capability(record, own, &claims)
+        s.store_capability(record, own, &claims, &catalogs)
     })
     .await?;
     // The claims are then submitted as any policy.
-    for (network, p) in policies {
+    for (network, p) in legacy {
         crate::policy_sync::after_store(store.clone(), network, p).await;
     }
     Ok((StatusCode::CREATED, Json(view)))

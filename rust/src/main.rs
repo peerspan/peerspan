@@ -5,17 +5,19 @@ mod capability_cli;
 mod cli;
 mod discovery;
 mod integration;
+mod link_cli;
 mod service;
 mod up;
 
 use anyhow::{Context, bail};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use bytes::Bytes;
 use clap::FromArgMatches;
 use cli::Cli;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
-use peerspan_host::{api, membership, model, persons, store::Store};
+use peerspan_host::{api, membership, model, persons, status::ATTENTION_ORDER, store::Store};
 use serde_json::{Value, json};
 use std::{
     env, fs,
@@ -73,6 +75,16 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     }
     if let cli::Command::Up(args) = command {
         return up::run(args, cli.state).await;
+    }
+    if let cli::Command::Link(args) = command {
+        return link_cli::run(args, cli.state).await;
+    }
+    if let cli::Command::Network(cli::NetworkCommand::Repair(args)) = command {
+        return link_cli::repair(args, cli.state).await;
+    }
+    if let cli::Command::Network(cli::NetworkCommand::EnableLinking { network, root_key }) = command
+    {
+        return link_cli::enable(network, root_key, cli.state).await;
     }
     // The top-level invite and join are network invite and network join.
     let mut top_invite = false;
@@ -359,24 +371,6 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
     }
     Ok(())
 }
-const ATTENTION_ORDER: [&str; 15] = [
-    "coordination_error",
-    "policy_expired",
-    "policy_expiring",
-    "policy_delivery_failing",
-    "credential_expiring",
-    "tasks_failed",
-    "artifact_quota",
-    "service_not_installed",
-    "linger_disabled",
-    "person_agent_unreachable",
-    "coordinator_limit",
-    "agent_name_conflict",
-    "channel_unverified",
-    "capability_failing",
-    "capability_name_conflict",
-];
-
 fn exit(code: i32) -> ! {
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -649,9 +643,52 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                 if let Some(network) = &network
                     && let Ok(host) = local(Method::GET, "/v1/host".into(), None).await
                     && let Some(key) = host["public_key"].as_str()
-                    && let Ok(binding) = persons::HostBinding::sign(signer, network, key, &at())
                 {
-                    body["binding"] = json!(binding);
+                    let bound = if token.as_deref().is_some_and(|t| {
+                        t.trim()
+                            .starts_with(peerspan_host::link_runtime::invite::PREFIX)
+                    }) {
+                        let people = local(
+                            Method::GET,
+                            format!("/v1/networks/{}/persons", encoded(network)),
+                            None,
+                        )
+                        .await;
+                        match people {
+                            Ok(people) => {
+                                let people = people
+                                    .as_array()
+                                    .context("invalid local persons response")?;
+                                let existing = people.iter().find(|person| {
+                                    person["hosts"].as_array().is_some_and(|hosts| {
+                                        hosts.iter().any(|id| id == &host["id"])
+                                    })
+                                });
+                                if let Some(person) = existing {
+                                    anyhow::ensure!(
+                                        person["public_key"] == signer.public_key_b64(),
+                                        "this host is already bound to a different person; use its existing person identity"
+                                    );
+                                }
+                                existing.is_some()
+                            }
+                            Err(error)
+                                if error
+                                    .downcast_ref::<integration::DaemonError>()
+                                    .is_some_and(|e| e.status == 404) =>
+                            {
+                                false
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    } else {
+                        false
+                    };
+                    if !bound
+                        && let Ok(binding) = persons::HostBinding::sign(signer, network, key, &at())
+                    {
+                        body["binding"] = json!(binding);
+                    }
                 }
             }
             let mut value = local(Method::POST, "/v1/networks/join".into(), Some(body)).await?;
@@ -721,6 +758,17 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             person_key,
         }) => {
             let network = cli::resolved(network);
+            let provider = access::PolicySigner::for_binding(
+                &admin::Local(&socket),
+                network,
+                person_key.as_deref(),
+            )
+            .await?;
+            if let Some((certificate, _)) = access::PolicySigning::device(&provider) {
+                let own = local(Method::GET, "/v1/host".into(), None).await?;
+                let payload = json!({"network_id":network,"person_public_key":access::PolicySigning::public_key_b64(&provider),"host_public_key":own["public_key"],"bound_at":at()});
+                return Ok(Some(local(Method::POST,format!("/v1/networks/{}/link-actions",encoded(network)),Some(json!({"kind":"peerspan-host-bind-v1","certificate_id":certificate,"payload_base64":STANDARD.encode(serde_json::to_vec(&payload)?)}))).await?));
+            }
             let signer = signer(person_key)?;
             let host = local(Method::GET, "/v1/host".into(), None).await?;
             let key = host["public_key"]
@@ -741,7 +789,10 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             person_key,
         }) => {
             let network = cli::resolved(network);
-            let signer = signer(person_key)?;
+            let provider =
+                access::PolicySigner::open(&admin::Local(&socket), network, person_key.as_deref())
+                    .await?;
+
             let members = local(
                 Method::GET,
                 format!("/v1/networks/{}/members", encoded(network)),
@@ -756,6 +807,11 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                 .and_then(|m| m["public_key"].as_str())
                 .context("that host is not a member of this network")?
                 .to_owned();
+            if let Some((certificate, _)) = access::PolicySigning::device(&provider) {
+                let payload = json!({"network_id":network,"person_public_key":access::PolicySigning::public_key_b64(&provider),"host_public_key":key,"unbound_at":at()});
+                return Ok(Some(local(Method::POST,format!("/v1/networks/{}/link-actions",encoded(network)),Some(json!({"kind":"peerspan-host-unbind-v1","certificate_id":certificate,"payload_base64":STANDARD.encode(serde_json::to_vec(&payload)?)}))).await?));
+            }
+            let signer = signer(person_key)?;
             let unbinding = persons::HostUnbinding::sign(&signer, network, &key, &at())
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
             local(
@@ -960,6 +1016,18 @@ fn hostname() -> String {
 }
 /// An invite token's member label.
 fn token_member(token: &str) -> Option<String> {
+    if token
+        .trim()
+        .starts_with(peerspan_host::link_runtime::invite::PREFIX)
+    {
+        return peerspan_host::link_runtime::invite::decode(
+            token,
+            peerspan_host::link_runtime::support::now().ok()?,
+            "-",
+        )
+        .ok()
+        .map(|t| t.member);
+    }
     persons::MemberInviteToken::decode(token)
         .map(|t| t.member)
         .or_else(|_| membership::InviteToken::decode(token).map(|t| t.member))
@@ -968,6 +1036,18 @@ fn token_member(token: &str) -> Option<String> {
 /// The network a token names, read locally so the CLI can sign a binding
 /// before joining. The daemon verifies the token itself.
 fn token_network(token: &str) -> Option<String> {
+    if token
+        .trim()
+        .starts_with(peerspan_host::link_runtime::invite::PREFIX)
+    {
+        return peerspan_host::link_runtime::invite::decode(
+            token,
+            peerspan_host::link_runtime::support::now().ok()?,
+            "-",
+        )
+        .ok()
+        .map(|t| t.network.id);
+    }
     persons::MemberInviteToken::decode(token)
         .map(|t| t.network_id)
         .or_else(|_| membership::InviteToken::decode(token).map(|t| t.network_id))
@@ -1097,6 +1177,7 @@ async fn run_daemon(
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
     let policy_sync = peerspan_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
+    let linking = peerspan_host::link_runtime::worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
     let calls = peerspan_host::calls::worker(store.clone(), peer_shutdown.clone());
@@ -1151,6 +1232,10 @@ async fn run_daemon(
         },
         async {
             coordination.await;
+            Ok(())
+        },
+        async {
+            linking.await;
             Ok(())
         }
     )?;

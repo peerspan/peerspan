@@ -12,7 +12,10 @@ mod feature;
 pub use feature::{FeatureContext, FeatureEvidence, verify_feature};
 #[path = "action.rs"]
 mod action;
-pub use action::{ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority};
+pub use action::{
+    ActionAuthority, ActionContext, ActionInvalidation, validate_action_payload,
+    verify_action_authority, verify_stored_action_intent,
+};
 #[path = "records.rs"]
 mod records;
 pub use records::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
@@ -30,8 +33,39 @@ mod coordinator_evidence;
 mod redemptions;
 #[path = "roots.rs"]
 mod roots;
+#[path = "runtime_network.rs"]
+mod runtime_network;
 #[path = "stored.rs"]
 mod stored;
+pub use runtime_network::{MemberProof, NetworkState, verify_stored_network_state};
+#[path = "runtime_feature.rs"]
+mod runtime_feature;
+pub use runtime_feature::{FeaturePreparation, verify_stored_feature_preparation};
+#[path = "runtime_owner.rs"]
+mod runtime_owner;
+pub use runtime_owner::{
+    AdministratorOfferEvidence, OwnerOfferEvidence, SelectionEvidence,
+    verify_stored_administrator_offer, verify_stored_owner_offer, verify_stored_selection,
+};
+#[path = "runtime_select.rs"]
+mod runtime_select;
+pub use runtime_select::{ProofSeed, select_stored_proof_catalog};
+#[path = "runtime_invite_feature.rs"]
+mod runtime_invite_feature;
+pub use runtime_invite_feature::{
+    InviteFeatureEvidence, verify_stored_invite_feature, verify_stored_invite_feature_intent,
+};
+#[path = "runtime_import.rs"]
+mod runtime_import;
+pub use runtime_import::{FeatureImportEvidence, verify_stored_feature_import};
+#[path = "runtime_legacy.rs"]
+mod runtime_legacy;
+#[path = "runtime_write.rs"]
+mod runtime_write;
+pub use runtime_write::{
+    verify_stored_catalog_additions, verify_stored_catalog_repair, verify_stored_checkpoint,
+    verify_stored_checkpoint_intent,
+};
 use stored::{MAX_STORED_BODIES, MAX_STORED_CATALOG, catalog_probe_limit, verification_budget};
 pub use stored::{
     MAX_STORED_PROBE, verify_stored_access_state, verify_stored_action_authority,
@@ -92,6 +126,8 @@ struct CatalogContext<'a> {
 }
 struct Verifier<'a> {
     stored_snapshot: bool,
+    project_history: bool,
+    feature_preparation: bool,
     ctx: CatalogContext<'a>,
     network: Obj,
     net: String,
@@ -112,6 +148,7 @@ struct Verifier<'a> {
     hosts: BTreeMap<String, String>,
     active_records: BTreeSet<String>,
     inert_records: BTreeSet<String>,
+    inert_certificates: BTreeSet<String>,
     history: HistoryFacts,
     evidence: BTreeMap<String, Proof>,
     redemptions: BTreeSet<String>,
@@ -253,6 +290,8 @@ pub(super) fn verify_activation_budget(
         let historical = ctx.verification == "historical";
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
         v.stored_snapshot = stored;
+        // Exact selected historical evidence keeps its precise retention gate.
+        v.project_history = !historical;
         v.catalog(catalog)?;
         let request = v.index_activation(activation)?;
         v.bootstrap(true)?;
@@ -325,6 +364,8 @@ impl<'a> Verifier<'a> {
         };
         Ok(Self {
             stored_snapshot: false,
+            project_history: true,
+            feature_preparation: false,
             ctx: CatalogContext {
                 known_feature_id,
                 now,
@@ -348,6 +389,7 @@ impl<'a> Verifier<'a> {
             hosts: BTreeMap::new(),
             active_records: BTreeSet::new(),
             inert_records: BTreeSet::new(),
+            inert_certificates: BTreeSet::new(),
             history: HistoryFacts::default(),
             evidence: BTreeMap::new(),
             redemptions: BTreeSet::new(),
@@ -664,6 +706,7 @@ impl<'a> Verifier<'a> {
             if !self.state.activated_certificates.contains(cert) {
                 self.activate(&c.request, true, depth + 1)?;
             }
+            check(!self.inert_certificates.contains(cert), "forbidden")?;
         }
         Ok(evaluate_path(
             &self.state,
@@ -728,8 +771,24 @@ impl<'a> Verifier<'a> {
         person: &str,
         host: &str,
         depth: usize,
+        inert: bool,
     ) -> Result<()> {
         let p = self.proofs.get(id).ok_or_else(|| missing(id))?.clone();
+        if p.kind == "attestation" {
+            check(
+                kind == "peerspan-host-admit-v1"
+                    && s(&p.object, "host_public_key") == host
+                    && num(&p.object, "epoch")? == self.epoch,
+                "invalid",
+            )?;
+            let label = s(&p.object, "member");
+            return check(
+                self.state.hosts.get(host) == Some(&true)
+                    && self.attested.get(host).is_some_and(|l| l == label)
+                    && self.persons.get(person).is_some_and(|l| l == label),
+                "forbidden",
+            );
+        }
         if p.kind == "invite_redemption" {
             check(
                 kind == "peerspan-host-admit-v1" && s(&p.object, "host_public_key") == host,
@@ -749,13 +808,19 @@ impl<'a> Verifier<'a> {
             if s(&p.object, "operation_id") == "-" {
                 self.ordinary_record(id)?;
                 let g = self.read_ordinary(&p)?;
-                check(self.active_records.contains(id), "forbidden")?;
-                self.historical_record(&g.record, &p.object, g.scope, depth)?;
+                check(
+                    self.active_records.contains(id) || inert && self.inert_records.contains(id),
+                    "forbidden",
+                )?;
+                if !(inert && self.inert_records.contains(id)) {
+                    self.historical_record(&g.record, &p.object, g.scope, depth)?;
+                }
             } else {
                 self.activate(text(&p.object, "operation_id")?, true, depth + 1)?;
             }
             check(
-                self.active_records.contains(id) && s(&p.object, "kind") == kind,
+                (self.active_records.contains(id) || inert && self.inert_records.contains(id))
+                    && s(&p.object, "kind") == kind,
                 "invalid",
             )?;
             let (_, o) = p_obj(&p.object)?;
@@ -942,6 +1007,8 @@ impl<'a> Verifier<'a> {
         };
         let required = if mode == "renew" { 4 } else { 6 };
         let path = self.actor(&person, &issuer, required, historical, depth)?;
+        let mut inert_operation =
+            historical && self.project_history && self.inert_certificates.contains(&issuer);
         let (_, offer, oid, offer_raw) = self.packet(
             &raw_field(body, "owner")?,
             "owner",
@@ -1024,6 +1091,7 @@ impl<'a> Verifier<'a> {
         )?;
         let mut completed_records = Vec::new();
         let mut current_admission = true;
+        let (mut inactive_admission, mut current_binding) = (false, true);
         if mode == "new" {
             check(
                 s(&req, "renewed_certificate_id") == "-"
@@ -1079,7 +1147,13 @@ impl<'a> Verifier<'a> {
                     .is_some_and(|label| label == s(&p, "member"));
             }
             if historical {
-                self.historical_record(&ar, &obj(&admission)?, 8, depth)?;
+                let object = obj(&admission)?;
+                inactive_admission = self.withdrawn_activation_admission(&ar.id, &object);
+                if inactive_admission {
+                    current_admission = false;
+                } else {
+                    self.historical_record(&ar, &object, 8, depth)?;
+                }
             }
             let binding = raw_field(&commit_raw, "binding_record")?;
             let (br, p) = self.record(
@@ -1096,8 +1170,22 @@ impl<'a> Verifier<'a> {
                     && s(&p, "person_public_key") == person,
                 "invalid",
             )?;
-            if historical {
-                self.historical_record(&br, &obj(&binding)?, 2, depth)?;
+            if historical && let Err(error) = self.historical_record(&br, &obj(&binding)?, 2, depth)
+            {
+                let missing = error.downcast_ref::<PathError>();
+                if !((inactive_admission || inert_operation)
+                    && missing.is_some_and(|e| {
+                        e.code == "proof_required"
+                            && e.required_ids.len() == 1
+                            && e.required_ids[0] == br.id
+                    }))
+                {
+                    return Err(error);
+                }
+                // Original signatures and structural paths still verified;
+                // this exact unretained binding supplies no current facts.
+                current_binding = false;
+                self.inert_records.insert(br.id.clone());
             }
             let mut draft = object(
                 offer
@@ -1146,15 +1234,25 @@ impl<'a> Verifier<'a> {
             check(old.host == host && old.device == device, "invalid")?;
             self.activate(&old.request, true, depth + 1)?;
             check(
-                self.state.activated_certificates.contains(&old.id),
-                "invalid",
+                self.state.activated_certificates.contains(&old.id)
+                    || historical
+                        && self.project_history
+                        && self.inert_certificates.contains(&old.id),
+                if self.inert_certificates.contains(&old.id) {
+                    "forbidden"
+                } else {
+                    "invalid"
+                },
             )?;
+            inert_operation |=
+                historical && self.project_history && self.inert_certificates.contains(&old.id);
             self.renewal_proof(
                 text(&offer, "membership_proof_id")?,
                 "peerspan-host-admit-v1",
                 &person,
                 &host,
                 depth,
+                inert_operation,
             )?;
             self.renewal_proof(
                 text(&offer, "binding_proof_id")?,
@@ -1162,10 +1260,12 @@ impl<'a> Verifier<'a> {
                 &person,
                 &host,
                 depth,
+                inert_operation,
             )?;
             check(
-                self.state.hosts.get(&host) == Some(&true)
-                    && self.state.bindings.get(&host) == Some(&person),
+                inert_operation
+                    || (self.state.hosts.get(&host) == Some(&true)
+                        && self.state.bindings.get(&host) == Some(&person)),
                 "forbidden",
             )?;
         } else {
@@ -1183,9 +1283,12 @@ impl<'a> Verifier<'a> {
                         .ok_or_else(|| problem("proof_required"))?,
                 );
             }
-            self.add_binding(&host, &person)?;
+            if current_binding {
+                self.add_binding(&host, &person)?;
+            }
             self.restrict_state();
-            for raw in completed_records {
+            for (part, raw) in completed_records.into_iter().enumerate() {
+                let inactive = part == 0 && !current_binding || part == 1 && inactive_admission;
                 let o = obj(&raw)?;
                 let kind = if o.contains_key("person_public_key") {
                     "person_record"
@@ -1194,12 +1297,20 @@ impl<'a> Verifier<'a> {
                 };
                 for (pf, p) in &self.proofs {
                     if p.kind == kind && p.object == o {
-                        self.active_records.insert(pf.clone());
+                        if inactive {
+                            self.inert_records.insert(pf.clone());
+                        } else {
+                            self.active_records.insert(pf.clone());
+                        }
                     }
                 }
             }
         }
-        self.state.activated_certificates.insert(cid.clone());
+        if inactive_admission || inert_operation {
+            self.inert_certificates.insert(cid.clone());
+        } else {
+            self.state.activated_certificates.insert(cid.clone());
+        }
         Ok(Identity {
             request_id: id.into(),
             manifest_id: mid,
@@ -1273,6 +1384,10 @@ pub(super) fn probe_access(o: &Obj, stored: bool) -> Value {
     policy::probe_access(o, stored)
 }
 
+pub(super) fn probe_proof_selection(o: &Obj) -> Value {
+    runtime_select::probe(o)
+}
+
 // Original signed descriptors remain evidence; historical transport is not authority.
 fn operation_descriptor(
     network: &Obj,
@@ -1297,4 +1412,15 @@ fn operation_descriptor(
         check(text(request, field)? == text(network, field)?, "invalid")?;
     }
     check(historical || network == current, "invalid")
+}
+
+pub(super) fn probe_invite_feature(o: &Obj, stored: bool) -> Value {
+    runtime_invite_feature::probe(o, stored)
+}
+
+#[path = "runtime_admin_plan.rs"]
+mod runtime_admin_plan;
+pub use runtime_admin_plan::build_stored_admin_removal_plan;
+pub(super) fn probe_admin_removal_plan(o: &Obj) -> Value {
+    runtime_admin_plan::probe(o)
 }

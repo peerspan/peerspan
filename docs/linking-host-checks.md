@@ -577,6 +577,11 @@ The atomic application event is exactly `network.link_applied`, with subject
 equal to the request ID for both new and renewal. Ordinary membership/binding
 events may also occur; this event makes no agent-readiness claim.
 
+After a same-review administrator intent has been explicitly approved, an
+attempt to select an alternate `network_root` or administrator issuer before
+its administrator offer is materialized returns HTTP 409 `state_conflict`.
+The approved identity/path remains fixed; no fallback signer is selected.
+
 For an already locally applied request, a well-formed conflicting supplied
 owner/selection/administrator/network/person/host/device pin returns HTTP 409
 `operation_conflict`, preserving its exact original outcome and newer signer

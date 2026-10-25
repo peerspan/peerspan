@@ -3,15 +3,15 @@ use super::*;
 
 pub(super) struct InviteHalf {
     pub(super) host: bool,
-    legacy: bool,
+    pub(super) legacy: bool,
     kept: bool,
     pub(super) person: String,
     pub(super) cert: String,
-    key: String,
+    pub(super) key: String,
     pub(super) label: String,
-    expires: String,
-    record: String,
-    epoch: u64,
+    pub(super) expires: String,
+    pub(super) record: String,
+    pub(super) epoch: u64,
 }
 
 pub(super) struct Redemption {
@@ -130,7 +130,7 @@ impl Verifier<'_> {
         Ok(())
     }
 
-    fn read_invite(&self, value: &Value, host: bool) -> Result<InviteHalf> {
+    pub(super) fn read_invite(&self, value: &Value, host: bool) -> Result<InviteHalf> {
         let mut o = object(value)?.clone();
         let mut h = InviteHalf {
             host,

@@ -367,6 +367,8 @@ pub struct GroupView {
     pub members: Vec<String>,
     /// The signing key (standard Base64): the root or an administrator.
     pub signer: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_base64: Option<String>,
 }
 impl GroupView {
     pub fn of(group: &Group, root_signer: &str) -> Self {
@@ -375,6 +377,7 @@ impl GroupView {
             version: group.version,
             members: group.members.clone(),
             signer: group.signer().unwrap_or_else(|| root_signer.to_owned()),
+            authorization_base64: None,
         }
     }
 }

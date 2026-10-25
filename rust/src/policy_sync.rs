@@ -18,6 +18,7 @@ use axum::{
     extract::{Path, State, rejection::BytesRejection},
     routing::{get, post},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
@@ -107,6 +108,8 @@ struct DeliveryRecord {
     #[serde(flatten)]
     delivery: PolicyDelivery,
     policy: Policy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    catalog_base64: Option<String>,
 }
 impl DeliveryRecord {
     fn pending(target: &str, policy: &Policy, at: &str) -> Self {
@@ -121,12 +124,14 @@ impl DeliveryRecord {
                 delivered_at: None,
             },
             policy: policy.clone(),
+            catalog_base64: None,
         }
     }
     /// Whether two rows carry the same policy.
     fn same_policy(&self, other: &Self) -> bool {
         self.policy.version == other.policy.version
             && self.policy.signature == other.policy.signature
+            && self.catalog_base64 == other.catalog_base64
     }
 }
 
@@ -240,6 +245,89 @@ impl Store {
                 &person,
                 &DeliveryRecord::pending(target, p, &at),
             )?;
+        }
+        Ok(())
+    }
+    /// Queues exact signed evidence when a verified whole-body selection changes.
+    pub(crate) fn queue_link_policies(
+        &self,
+        tx: &Transaction<'_>,
+        n: &crate::network::Network,
+        p: &crate::link_runtime::catalog::Projection,
+        members: &[crate::network::Member],
+        prior: &[crate::linking::PolicyHighWater],
+        at: &str,
+    ) -> Result<(), Error> {
+        let Some(own) = members
+            .iter()
+            .find(|m| m.host_id == self.identity().id)
+            .and_then(|m| m.person_id.as_ref())
+        else {
+            return Ok(());
+        };
+        let mut targets: Vec<_> = members
+            .iter()
+            .filter(|m| m.host_id != self.identity().id && m.person_id.as_ref() == Some(own))
+            .map(|m| m.host_id.clone())
+            .collect();
+        targets.push(COORDINATOR.into());
+        for selection in &p.access.policies {
+            if !selection.selection.active
+                || crate::persons::person_id_of(&selection.person_public_key)? != *own
+                || prior.iter().any(|old| {
+                    old.person_public_key == selection.person_public_key
+                        && old.high_water == selection.selection.high_water
+                })
+            {
+                continue;
+            }
+            let body = crate::link_runtime::crypto::bytes(
+                &selection.selection.body_base64,
+                crate::linking::MAX_OBJECT,
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
+            let catalog = crate::linking::select_stored_proof_catalog(
+                crate::linking::CatalogFactContext {
+                    network: &p.descriptor,
+                    epoch: p.network.epoch,
+                    known_feature_id: &p.network.facts.feature_id,
+                    now: crate::link_runtime::support::stamp(at)
+                        .map_err(crate::link_runtime::support::model_error)?,
+                },
+                &p.catalog,
+                &[crate::linking::ProofSeed {
+                    kind: if selection.selection.record_id == "-" {
+                        "policy"
+                    } else {
+                        "person_record"
+                    }
+                    .into(),
+                    body,
+                }],
+            )
+            .map_err(crate::link_runtime::support::model_error)?;
+            let wrapper =
+                crate::link_runtime::crypto::raw_object(vec![("catalog", catalog.clone())])
+                    .map_err(crate::link_runtime::support::model_error)?;
+            if wrapper.len() > 1 << 20 {
+                return Err(crate::link_runtime::support::model_error(
+                    crate::link_runtime::support::Failure::new("quota_exceeded", "-", "delivery")
+                        .into(),
+                ));
+            }
+            let policy = p
+                .policies
+                .get(&selection.person_public_key)
+                .ok_or_else(|| Error::Internal(anyhow::anyhow!("missing selected policy")))?;
+            tx.execute(
+                "DELETE FROM policy_deliveries WHERE network_id=?1 AND person_id=?2",
+                params![n.id, own],
+            )?;
+            for target in &targets {
+                let mut row = DeliveryRecord::pending(target, policy, at);
+                row.catalog_base64 = Some(STANDARD.encode(&catalog));
+                self.put_delivery_record(tx, &n.id, own, &row)?;
+            }
         }
         Ok(())
     }
@@ -605,7 +693,7 @@ impl Drop for Claim {
     }
 }
 
-async fn peer_call(
+pub(crate) async fn peer_call(
     store: &Arc<Store>,
     host: &str,
     method: &str,
@@ -692,7 +780,9 @@ async fn attempt(store: Arc<Store>, network: String, person: String, target: Str
     else {
         return false;
     };
-    let outcome = if target == COORDINATOR {
+    let outcome = if let Some(catalog) = &attempted.catalog_base64 {
+        crate::link_runtime::delivery::deliver(&store, &record, &target, catalog).await
+    } else if target == COORDINATOR {
         push_to_coordinator(&store, record, &attempted.policy).await
     } else {
         push_to_sibling(&store, &target, &attempted.policy).await
@@ -722,6 +812,22 @@ pub(crate) async fn sync_sibling(
     let Some(_claim) = Claim::take(&store, format!("sync {network} {sibling}")) else {
         return Ok(false);
     };
+    let active = {
+        let (run, id) = (store.clone(), network.clone());
+        blocking(run, move |s| {
+            Ok(
+                crate::link_runtime::catalog::feature(&*s.connection()?, &id)
+                    .map_err(crate::link_runtime::support::model_error)?
+                    .0
+                    != "-",
+            )
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+    if active {
+        return crate::link_runtime::delivery::sync(&store, &network, &sibling).await;
+    }
     let path = format!("/peer/v1/networks/{network}/policies/{person}");
     let policy: Policy = match peer_call(&store, &sibling, "GET", &path, b"").await? {
         (200, body) => {
@@ -943,6 +1049,8 @@ async fn push_route(
     Path(id): Path<String>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<StoredPolicy>, Error> {
+    let check = id.clone();
+    blocking(store.clone(), move |s| s.reject_legacy_link_peer(&check)).await?;
     let request: PushPolicy = crate::api::decode(body)?;
     Ok(Json(
         blocking(store, move |s| {
@@ -956,6 +1064,8 @@ async fn fetch_route(
     Extension(sender): Extension<String>,
     Path((id, person)): Path<(String, String)>,
 ) -> Result<Json<Policy>, Error> {
+    let check = id.clone();
+    blocking(store.clone(), move |s| s.reject_legacy_link_peer(&check)).await?;
     Ok(Json(
         blocking(store, move |s| s.sibling_policy(&sender, &id, &person)).await?,
     ))
@@ -1115,20 +1225,20 @@ mod tests {
     }
 
     #[test]
-    fn version_eleven_migrates_to_latest_and_nineteen_is_refused() {
+    fn version_eleven_migrates_to_latest_and_twenty_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("host");
         drop(Store::open(&path).unwrap());
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
+            .execute_batch("DROP TABLE link_signers; DROP TABLE link_highwater; DROP TABLE link_features; DROP TABLE link_objects; DROP TABLE link_operations; DROP TABLE link_frames; DROP TABLE link_pending; DROP TABLE link_device_keys; DROP TABLE call_update_notifications; DROP TABLE adapter_calls; DROP TABLE policy_edits; DROP TABLE outbound_calls; DROP TABLE received_calls; DROP TABLE source_access; DROP TABLE capabilities; DROP TABLE tool_values; DROP TABLE tool_servers; DROP TABLE directory_sends; DROP TABLE policy_deliveries; PRAGMA user_version = 11;")
             .unwrap();
         let store = Store::open(&path).unwrap();
         let connection = store.connection().unwrap();
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
         let sql: String = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE name = 'policy_deliveries'",
@@ -1144,7 +1254,7 @@ mod tests {
         drop(store);
         Connection::open(path.join("host.db"))
             .unwrap()
-            .execute_batch("PRAGMA user_version = 19;")
+            .execute_batch("PRAGMA user_version = 20;")
             .unwrap();
         assert!(Store::open(&path).is_err());
     }

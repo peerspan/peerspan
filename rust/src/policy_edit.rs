@@ -363,6 +363,7 @@ fn groups(conn: &Connection) -> Result<Vec<(String, String)>, Error> {
 }
 
 /// What one re-application signs.
+#[derive(Clone)]
 pub(crate) struct Plan {
     network: String,
     key: String,
@@ -484,6 +485,23 @@ impl Store {
         let key = self
             .person_key(&tx, network, &person)?
             .ok_or(Error::NotFound)?;
+        if self
+            .linking_projection(&tx, &self.network_record(&tx, network)?)
+            .map_err(crate::link_runtime::support::model_error)?
+            .is_some_and(|p| {
+                p.access.policies.iter().any(|s| {
+                    s.person_public_key == key && s.selection.high_water.version == u64::MAX
+                })
+            })
+        {
+            return Err(crate::link_runtime::support::model_error(
+                crate::link_runtime::support::Failure {
+                    error: "access version exhausted".into(),
+                    ..crate::link_runtime::support::Failure::new("quota_exceeded", "-", "version")
+                }
+                .into(),
+            ));
+        }
         let stored = self.stored_policy(&tx, network, &key)?;
         let recs = records(&tx, network, &person)?;
         // The view leaves out retired `edits` entries, which the CLI drops.
@@ -530,10 +548,21 @@ impl Store {
                 dropped_at: None,
             },
         )?;
+        let version = self
+            .linking_projection(&tx, &self.network_record(&tx, network)?)
+            .map_err(crate::link_runtime::support::model_error)?
+            .and_then(|p| {
+                p.access
+                    .policies
+                    .iter()
+                    .find(|p| p.person_public_key == key)
+                    .map(|p| p.selection.high_water.version)
+            })
+            .unwrap_or_else(|| stored.as_ref().map_or(0, |s| s.version));
         tx.commit()?;
         Ok(json!({
             "policy": policy,
-            "version": stored.as_ref().map_or(0, |s| s.version),
+            "version": version,
             "seq": seq,
         }))
     }
@@ -587,7 +616,21 @@ impl Store {
                 "the reservation of edit number {seq} lapsed"
             )));
         }
-        let expected = stored.as_ref().map_or(0, |s| s.version) + 1;
+        let high_water = self
+            .linking_projection(tx, &self.network_record(tx, network)?)
+            .map_err(crate::link_runtime::support::model_error)?
+            .and_then(|projection| {
+                projection
+                    .access
+                    .policies
+                    .iter()
+                    .find(|selected| selected.person_public_key == p.person_public_key)
+                    .map(|p| p.selection.high_water.version)
+            })
+            .unwrap_or_else(|| stored.as_ref().map_or(0, |s| s.version));
+        let expected = high_water
+            .checked_add(1)
+            .ok_or_else(|| Error::Invalid("access version exhausted".into()))?;
         if p.version != expected {
             return Err(edit_conflict(&format!(
                 "the stored policy changed: the edit must be version {expected}"
@@ -994,6 +1037,24 @@ pub(crate) async fn reapply(store: Arc<Store>, network: String) -> bool {
             return false;
         }
     };
+    match crate::link_runtime::provider::automatic_policy(
+        store.clone(),
+        network.clone(),
+        plan.stored.clone(),
+        plan.content.clone(),
+        plan.edits.clone(),
+        plan.duration,
+        Some(plan.clone()),
+    )
+    .await
+    {
+        Ok(Some(done)) => return done,
+        Err(e) => {
+            eprintln!("policy device re-application requires repair: {e}");
+            return false;
+        }
+        Ok(None) => {}
+    }
     let Ok(key) = crate::membership::canonical(&plan.key, 32) else {
         return false;
     };
@@ -1014,7 +1075,10 @@ pub(crate) async fn reapply(store: Arc<Store>, network: String) -> bool {
     // worker threads, bounded in time.
     let (n, version, content, edits, duration) = (
         network.clone(),
-        plan.stored.version + 1,
+        match plan.stored.version.checked_add(1) {
+            Some(v) => v,
+            None => return false,
+        },
         plan.content.clone(),
         plan.edits.clone(),
         plan.duration,
@@ -1068,4 +1132,49 @@ async fn edit_route(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, Error> {
     Ok(Json(blocking(store, move |s| s.edit_start(&id)).await?))
+}
+
+impl Store {
+    pub(crate) fn reapply_unchanged(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        plan: &Plan,
+    ) -> Result<bool, Error> {
+        let Some(stored) = self.stored_policy(tx, &plan.network, &plan.key)? else {
+            return Ok(false);
+        };
+        if stored != plan.stored {
+            return Ok(false);
+        }
+        let recs = records(tx, &plan.network, &stored.person_id())?;
+        let Some(last) = recs.iter().rfind(|r| r.state == UNSETTLED) else {
+            return Ok(false);
+        };
+        let (mut content, dropped) = Self::merged(&stored, &recs);
+        content.dedup_rules();
+        let mut kept = stored.clone();
+        kept.edits = Some(self.unretired_edits(tx, &plan.network, &stored)?);
+        let edits = kept.edits_with(&self.identity().id, last.seq);
+        let duration = last
+            .signed
+            .as_ref()
+            .map_or_else(|| stored.duration(), Policy::duration);
+        Ok(content == plan.content
+            && edits == plan.edits
+            && duration == plan.duration
+            && dropped == plan.dropped)
+    }
+    pub(crate) fn note_device_reapply(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        plan: &Plan,
+    ) -> Result<(), Error> {
+        self.note_dropped(
+            tx,
+            &plan.network,
+            &plan.stored.person_id(),
+            &plan.dropped,
+            false,
+        )
+    }
 }

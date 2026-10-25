@@ -189,8 +189,34 @@ impl Store {
         connection: &Connection,
         id: &str,
     ) -> Result<u64, Error> {
-        let latest = self.latest_move(connection, id)?.map_or(0, |m| m.sequence);
-        Ok(latest.max(self.applied_move(connection, id)?) + 1)
+        let mut latest = self.latest_move(connection, id)?.map_or(0, |m| m.sequence);
+        if crate::link_runtime::catalog::feature(connection, id)
+            .map_err(crate::link_runtime::support::model_error)?
+            .0
+            != "-"
+        {
+            let raw = crate::link_runtime::catalog::read(connection, id)
+                .map_err(crate::link_runtime::support::model_error)?;
+            for e in crate::link_runtime::catalog::decode(&raw, id)
+                .map_err(crate::link_runtime::support::model_error)?
+                .objects
+                .into_iter()
+                .filter(|e| e.kind == "coordinator_move")
+            {
+                let m: CoordinatorMove = serde_json::from_slice(
+                    &crate::link_runtime::crypto::bytes(&e.body_base64, crate::linking::MAX_OBJECT)
+                        .map_err(crate::link_runtime::support::model_error)?,
+                )?;
+                latest = latest.max(m.sequence);
+            }
+        }
+        let max = latest.max(self.applied_move(connection, id)?);
+        if max >= i64::MAX as u64 {
+            return Err(crate::link_runtime::support::model_error(
+                crate::link_runtime::support::Failure::new("quota_exceeded", "-", "move").into(),
+            ));
+        }
+        Ok(max + 1)
     }
     /// The sequence of the move this host last switched for, or 0.
     fn applied_move(&self, connection: &Connection, id: &str) -> Result<u64, Error> {
@@ -647,6 +673,13 @@ async fn import_to(
     with_move: Option<&CoordinatorMove>,
     held: Option<Value>,
 ) -> Result<(u16, Value), Error> {
+    if let Some(value) =
+        crate::link_runtime::movement::import(store, network, address, key, with_move)
+            .await
+            .map_err(crate::link_runtime::support::model_error)?
+    {
+        return Ok((200, value));
+    }
     let id = network.id.clone();
     let mut map = match held {
         Some(map) => map,
@@ -824,7 +857,7 @@ pub(crate) async fn follow_pending_move(
 
 /// `POST /v1/networks/{id}/move`: the coordinator, for the daemon to sign
 /// with the root seed, or a move the CLI signed.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MoveNetwork {
     pub coordinator_address: String,
@@ -842,75 +875,111 @@ pub async fn move_network(
     id: String,
     request: MoveNetwork,
 ) -> Result<Value, Error> {
+    let lock = store.clone();
+    let _guard = lock.link_mutation.lock().await;
     let lookup = id.clone();
-    let (network, m) = blocking(store.clone(), move |s| {
-        let connection = s.connection()?;
-        let network = s.network_record(&connection, &lookup)?;
-        let latest = s.next_move_sequence(&connection, &lookup)? - 1;
-        let m = match request.signed {
-            Some(value) => {
-                let m = s.verify_move(&connection, &network, &value)?;
-                if request.coordinator_address != m.address
-                    || request.coordinator_public_key != m.public_key
-                {
-                    return Err(invalid("the move names another coordinator"));
-                }
-                m
-            }
-            None => {
-                let (address, key) = (request.coordinator_address, request.coordinator_public_key);
-                if address == network.coordinator_address && key == network.coordinator_public_key {
-                    return Err(invalid("the network already uses that coordinator"));
-                }
-                let root = s.current_root(&connection, &lookup)?;
-                CoordinatorMove::sign(
-                    &KeySigner::Raw(&root),
-                    ROOT_SIGNER,
-                    &lookup,
-                    latest + 1,
-                    &address,
-                    &key,
-                    &now(),
-                )?
-            }
-        };
-        if m.address == network.coordinator_address
-            && m.public_key == network.coordinator_public_key
-        {
-            return Err(invalid("the network already uses that coordinator"));
-        }
-        if m.sequence <= latest {
-            return Err(Error::Conflict(format!(
-                "this host already holds move sequence {latest}"
-            )));
-        }
-        Ok((network, m))
+    let active = blocking(store.clone(), move |s| {
+        Ok(
+            crate::link_runtime::catalog::feature(&*s.connection()?, &lookup)
+                .map_err(crate::link_runtime::support::model_error)?
+                .0
+                != "-",
+        )
     })
     .await?;
-    // 1-2. Import into the new coordinator; nothing changes if that fails.
-    let (_, imported) = import_to(&store, &network, &m.address, &m.public_key, Some(&m), None)
-        .await
-        .map_err(|e| match e {
-            Error::Unavailable(message) => {
-                Error::Unavailable(format!("import into {}: {message}", m.address))
+    let (network, m) = if active {
+        crate::link_runtime::movement::start(store.clone(), id.clone(), request)
+            .await
+            .map_err(crate::link_runtime::support::model_error)?
+    } else {
+        let lookup = id.clone();
+        let (network, m) = blocking(store.clone(), move |s| {
+            let connection = s.connection()?;
+            let network = s.network_record(&connection, &lookup)?;
+            let latest = s.next_move_sequence(&connection, &lookup)? - 1;
+            let m = match request.signed {
+                Some(value) => {
+                    let m = s.verify_move(&connection, &network, &value)?;
+                    if request.coordinator_address != m.address
+                        || request.coordinator_public_key != m.public_key
+                    {
+                        return Err(invalid("the move names another coordinator"));
+                    }
+                    m
+                }
+                None => {
+                    let (address, key) =
+                        (request.coordinator_address, request.coordinator_public_key);
+                    if address == network.coordinator_address
+                        && key == network.coordinator_public_key
+                    {
+                        return Err(invalid("the network already uses that coordinator"));
+                    }
+                    let root = s.current_root(&connection, &lookup)?;
+                    CoordinatorMove::sign(
+                        &KeySigner::Raw(&root),
+                        ROOT_SIGNER,
+                        &lookup,
+                        latest + 1,
+                        &address,
+                        &key,
+                        &now(),
+                    )?
+                }
+            };
+            if m.address == network.coordinator_address
+                && m.public_key == network.coordinator_public_key
+            {
+                return Err(invalid("the network already uses that coordinator"));
             }
-            other => other,
-        })?;
+            if m.sequence <= latest {
+                return Err(Error::Conflict(format!(
+                    "this host already holds move sequence {latest}"
+                )));
+            }
+            Ok((network, m))
+        })
+        .await?;
+        (network, m)
+    };
+    // 1-2. Import into the new coordinator; nothing changes if that fails.
+    let imported = if active {
+        json!({"added":0,"skipped":0})
+    } else {
+        let (_, imported) = import_to(&store, &network, &m.address, &m.public_key, Some(&m), None)
+            .await
+            .map_err(|e| match e {
+                Error::Unavailable(message) => {
+                    Error::Unavailable(format!("import into {}: {message}", m.address))
+                }
+                other => other,
+            })?;
+        imported
+    };
+    let source = network.clone();
     let (lookup, value) = (id.clone(), serde_json::to_value(&m)?);
     let (network, _) = blocking(store.clone(), move |s| s.accept_move(&lookup, &value)).await?;
     // 3. The current coordinator, once.
-    let previous = match coordinator(
-        store.clone(),
-        &network.coordinator_address,
-        &network.coordinator_public_key,
-        format!("/coord/v1/networks/{}/moves", network.id),
-        json!({ "move": m }),
-    )
-    .await
+    let previous = if let Some(status) =
+        crate::link_runtime::movement::publish(store.clone(), &source, &m)
+            .await
+            .map_err(crate::link_runtime::support::model_error)?
     {
-        Ok((200, _)) => "accepted",
-        Ok((status, _)) if (400..500).contains(&status) => "refused",
-        _ => "unreachable",
+        status
+    } else {
+        match coordinator(
+            store.clone(),
+            &network.coordinator_address,
+            &network.coordinator_public_key,
+            format!("/coord/v1/networks/{}/moves", network.id),
+            json!({ "move": m }),
+        )
+        .await
+        {
+            Ok((200, _)) => "accepted",
+            Ok((status, _)) if (400..500).contains(&status) => "refused",
+            _ => "unreachable",
+        }
     };
     // 4. Every other current member host this host can reach.
     let lookup = id.clone();
@@ -967,8 +1036,14 @@ pub async fn move_network(
         }
     });
     let pushed = join_all(pushes).await.into_iter().filter(|ok| *ok).count();
-    // 5. Sync the new coordinator and switch this host's pin.
-    let _ = follow_pending_move(&store, network).await?;
+    // 5. Fresh sync independently rechecks current transport authority. Release
+    // local mutation serialization before sync may resume other durable writes.
+    drop(_guard);
+    if active {
+        let _ = crate::network::sync_network(store.clone(), id.clone()).await?;
+    } else {
+        let _ = follow_pending_move(&store, network).await?;
+    }
     Ok(json!({
         "network_id": id,
         "sequence": m.sequence,
@@ -996,7 +1071,12 @@ async fn local_move_route(
     Ok(Json(
         blocking(store, move |s| {
             let connection = s.connection()?;
-            s.network_record(&connection, &id)?;
+            let network = s.network_record(&connection, &id)?;
+            if let Some(m) = crate::link_runtime::movement::pending_plan(s, &connection, &network)
+                .map_err(crate::link_runtime::support::model_error)?
+            {
+                return Ok(json!({"next_sequence":m.sequence,"move":m}));
+            }
             Ok(json!({
                 "move": s.latest_move(&connection, &id)?,
                 "next_sequence": s.next_move_sequence(&connection, &id)?,

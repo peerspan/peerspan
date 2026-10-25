@@ -3,11 +3,12 @@
 //! `discover`, `call`, and the trust question of `join` and `network
 //! create`. Signing stays here; the daemon never sees the person key.
 use crate::{
-    access::{EDIT_ATTEMPTS, Editor, at, edit_conflict, failed, recipient},
+    access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, at, edit_conflict, recipient},
     admin::Local,
     cli::{CapabilityCommand, Command, SourcesArgs, SourcesCommand, encoded, resolved},
 };
 use anyhow::{Context, bail};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{TimeDelta, Utc};
 use peerspan_host::{
     persons::{self, PersonSigner},
@@ -154,7 +155,7 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
 async fn edit_policy<F>(
     local: &Local<'_>,
     network: &str,
-    signer: &PersonSigner,
+    signer: &dyn PolicySigning,
     mut change: F,
 ) -> anyhow::Result<(Option<Policy>, Option<Value>)>
 where
@@ -228,30 +229,38 @@ async fn create_claimed(
     } else {
         bound_networks(local).await?
     };
-    let signer = if bound.is_empty() {
+    let mut signers = std::collections::BTreeMap::new();
+    let mut selected_person = if bound.is_empty() {
         None
     } else {
-        Some(PersonSigner::open(person_key).map_err(failed)?)
+        person_key
+            .map(|path| PersonSigner::open(Some(path)))
+            .transpose()?
+            .map(|signer| persons::person_id(&signer.public_key()))
     };
-    // Claims are signed in the networks where this host is bound to the
-    // signing person; the others gain theirs at the first share there.
-    let networks: Vec<String> = match &signer {
-        Some(signer) => {
-            let me = persons::person_id(&signer.public_key());
-            bound
-                .into_iter()
-                .filter(|(_, p)| *p == me)
-                .map(|(n, _)| n)
-                .collect()
+    for (network, bound_person) in bound {
+        if selected_person.as_ref().is_some_and(|p| p != &bound_person) {
+            continue;
         }
-        None => Vec::new(),
-    };
+        let signer = PolicySigner::open(local, &network, person_key).await?;
+        let me = persons::person_id(&signer.public_key());
+        if me != bound_person {
+            continue;
+        }
+        if selected_person.as_ref().is_some_and(|p| p != &me) {
+            continue;
+        }
+        selected_person = Some(me);
+        signers.insert(network, signer);
+    }
+    let networks: Vec<String> = signers.keys().cloned().collect();
     let mut attempt = 0;
     loop {
         attempt += 1;
         let mut policies = Vec::new();
+        let mut catalogs = Vec::new();
         for network in &networks {
-            let signer = signer.as_ref().expect("opened for bound networks");
+            let signer = signers.get(network).expect("selected provider");
             let editor = Editor::new(local, network, signer).await?;
             let start = editor.start(local).await?;
             let mut content = start
@@ -291,9 +300,31 @@ async fn create_claimed(
                     content.capability_rules.push(rule);
                 }
             }
-            policies.push(editor.sign(signer, &start, content, None, true)?);
+            let signed = editor.sign(signer, &start, content, None, true)?;
+            if let Some((certificate, _)) = signer.device() {
+                let mut payload = serde_json::to_value(&signed)?;
+                payload
+                    .as_object_mut()
+                    .context("invalid claim policy")?
+                    .remove("signature");
+                let prepared=local.post(format!("/v1/networks/{}/link-actions",encoded(network)),json!({"kind":"policy_claim","certificate_id":certificate,"payload_base64":STANDARD.encode(serde_json::to_vec(&json!({"capability":name,"policy_base64":STANDARD.encode(serde_json::to_vec(&payload)?)}))?)})).await?;
+                anyhow::ensure!(
+                    prepared["committed"] == false,
+                    "claim preparation unexpectedly published"
+                );
+                catalogs.push(json!({"network_id":network,"catalog":prepared["catalog"]}));
+            } else {
+                policies.push(signed);
+            }
         }
         body["policies"] = json!(policies);
+        if !catalogs.is_empty() {
+            body["catalogs"] = json!(catalogs);
+        } else {
+            body.as_object_mut()
+                .context("invalid create request")?
+                .remove("catalogs");
+        }
         match local.post("/v1/capabilities".into(), body.clone()).await {
             Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
             outcome => {
@@ -314,7 +345,7 @@ async fn trust(
     host: Option<&str>,
     add: bool,
 ) -> anyhow::Result<Value> {
-    let signer = PersonSigner::open(person_key).map_err(failed)?;
+    let signer = PolicySigner::open(local, network, person_key).await?;
     let host = match host {
         Some(h) => h.to_owned(),
         None => local.get("/v1/host".into()).await?["id"]
@@ -751,10 +782,23 @@ async fn remove(
         }
     }
     let mut signed = Vec::new();
+    let mut other_holders = Vec::new();
     if !holders.is_empty() {
-        let signer = PersonSigner::open(person_key).map_err(failed)?;
-        let me = persons::person_id(&signer.public_key());
-        for (network, _, _) in holders.iter().filter(|(_, p, _)| *p == me) {
+        let explicit_person = person_key
+            .map(|path| PersonSigner::open(Some(path)))
+            .transpose()?
+            .map(|signer| persons::person_id(&signer.public_key()));
+        for (network, person, label) in &holders {
+            if explicit_person.as_ref().is_some_and(|p| p != person) {
+                other_holders.push(format!("{label} ({person}) in network {network}"));
+                continue;
+            }
+            let signer = PolicySigner::open(local, network, person_key).await?;
+            let me = persons::person_id(&signer.public_key());
+            if *person != me {
+                other_holders.push(format!("{label} ({person}) in network {network}"));
+                continue;
+            }
             let (_, stored) = edit_policy(local, network, &signer, |content| {
                 let before = content.capability_rules.len();
                 content
@@ -767,13 +811,12 @@ async fn remove(
                 signed.push(json!({"network_id": network, "version": stored["version"]}));
             }
         }
-        // A policy of another person cannot be withdrawn with this key: the
-        // record is kept.
-        if let Some((network, person, label)) = holders.iter().find(|(_, p, _)| *p != me) {
-            bail!(
-                "the policy of {label} ({person}) in network {network} holds this host's rule for {name}; run capability remove again with that person's key (--person-key)"
-            );
-        }
+    }
+    if !other_holders.is_empty() {
+        bail!(
+            "the policies of {} hold this host's rule for {name}; run capability remove again with those persons' keys (--person-key)",
+            other_holders.join(", ")
+        );
     }
     let removed = crate::delete(local.0, format!("/v1/capabilities/{}", encoded(name))).await?;
     Ok(json!({"capability": removed, "policies": signed}))
@@ -824,7 +867,7 @@ async fn share(
     guided: Guided,
 ) -> anyhow::Result<Value> {
     let terminal = std::io::stdin().is_terminal();
-    let signer = PersonSigner::open(person_key).map_err(failed)?;
+    let signer = PolicySigner::open(local, network, person_key).await?;
     let (principal, found) = recipient(local, network, with).await?;
     let recipient_view = recipient_object(found.as_ref());
     let host = local.get("/v1/host".into()).await?["id"]
@@ -1266,7 +1309,7 @@ async fn unshare(
     name: &str,
     with: &str,
 ) -> anyhow::Result<Value> {
-    let signer = PersonSigner::open(person_key).map_err(failed)?;
+    let signer = PolicySigner::open(local, network, person_key).await?;
     let host = local.get("/v1/host".into()).await?["id"]
         .as_str()
         .context("invalid daemon response")?
@@ -1354,7 +1397,7 @@ async fn agent_fallback(
     host: &str,
     name: &str,
     with: &str,
-    signer: &PersonSigner,
+    signer: &impl PolicySigning,
 ) {
     let Ok(Some((left, _))) = peerspan_host::agent_lookup::split_agent_address(with) else {
         return;

@@ -26,6 +26,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Link or renew this machine without copying an original person key
+    Link(crate::link_cli::LinkArgs),
     /// Guide service, network, and project setup
     Up(UpArgs),
     /// Show this host's networks, sessions, and what needs attention
@@ -636,6 +638,15 @@ pub enum PersonCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
+    /// Review an exact current-root feature recovery snapshot and target
+    Repair(crate::link_cli::RepairArgs),
+    /// Review and enable approved machine linking with the current root
+    EnableLinking {
+        #[arg(long)]
+        network: Option<String>,
+        #[arg(long)]
+        root_key: Option<PathBuf>,
+    },
     /// Create a network whose root key stays on this host
     Create {
         /// Network name; or give --name
@@ -1277,9 +1288,9 @@ pub struct UpArgs {
     /// Relative authorization lifetime, from 1m to 720h
     #[arg(long, value_name = "DURATION")]
     pub expires_in: Option<String>,
-    /// Cap on the session's sends and delegations by address per hour
-    #[arg(long, value_name = "N", default_value_t = 100, value_parser = clap::value_parser!(i64).range(1..=10000))]
-    pub max_sends_per_hour: i64,
+    /// Cap on sends and delegations per hour; default 100 for a new attachment
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(i64).range(1..=10000))]
+    pub max_sends_per_hour: Option<i64>,
     /// Let the agent call capabilities shared with you, and yours on your
     /// other trusted machines, without asking
     #[arg(long)]
@@ -1552,6 +1563,9 @@ impl Command {
     pub fn request(self) -> Option<AdminRequest> {
         let (method, path, body) = match self {
             Self::Up(_)
+            | Self::Link(_)
+            | Self::Network(NetworkCommand::EnableLinking { .. })
+            | Self::Network(NetworkCommand::Repair(_))
             | Self::Run { .. }
             | Self::Status { .. }
             | Self::Install { .. }

@@ -110,6 +110,10 @@ pub struct Store {
     pub(crate) call_runner: crate::calls::Runner,
     /// Held call requests and held status requests (owner decision 15).
     pub(crate) call_timing: crate::call_timing::Timing,
+    /// Serializes linking decisions across their pinned sync and durable commit.
+    pub(crate) link_mutation: tokio::sync::Mutex<()>,
+    pub(crate) link_polls: Mutex<BTreeMap<String, Instant>>,
+    pub(crate) link_successful_polls: Mutex<BTreeMap<String, chrono::DateTime<Utc>>>,
 }
 
 impl Store {
@@ -141,7 +145,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=18).contains(&version) {
+        if !(0..=19).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -198,6 +202,9 @@ impl Store {
         }
         if version < 18 {
             tx.execute_batch(crate::agent_calls::SCHEMA)?;
+        }
+        if version < 19 {
+            tx.execute_batch(crate::link_runtime::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -298,6 +305,9 @@ impl Store {
             tool_pool: Default::default(),
             call_runner: Default::default(),
             call_timing: Default::default(),
+            link_mutation: Default::default(),
+            link_polls: Default::default(),
+            link_successful_polls: Default::default(),
         };
         store.prepare_artifacts(&*store.connection().map_err(|e| anyhow::anyhow!("{e}"))?)?;
         Ok(store)

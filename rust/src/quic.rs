@@ -37,6 +37,12 @@ const MAX_BODY: usize = 1 << 20;
 const MAX_LARGE_RESPONSE: usize = 4 << 20;
 /// The response bound of a peer request.
 fn response_limit(method: &str, path: &str) -> usize {
+    if matches!(method, "GET" | "POST")
+        && path.starts_with("/peer/v1/networks/")
+        && path.ends_with("/link-catalog")
+    {
+        return 16 << 20;
+    }
     let route = path.split('?').next().unwrap_or_default();
     if method == "GET"
         && route.starts_with("/peer/v1/networks/")

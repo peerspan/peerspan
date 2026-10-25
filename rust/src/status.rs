@@ -1,6 +1,9 @@
 //! `GET /v1/status`: one summary of this host and what needs the owner's
 //! attention. It reads existing records.
-use crate::{adapter::Adapter, api::blocking, model::Error, policy::Policy, store::Store};
+use crate::{
+    adapter::Adapter, api::blocking, link_runtime::support::Failure, model::Error, policy::Policy,
+    store::Store,
+};
 use axum::{Json, Router, extract::State, routing::get};
 use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::OptionalExtension;
@@ -23,7 +26,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-const KINDS: [&str; 17] = [
+pub const ATTENTION_ORDER: [&str; 18] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -34,6 +37,7 @@ const KINDS: [&str; 17] = [
     "service_not_installed",
     "linger_disabled",
     "person_agent_unreachable",
+    "person_device_signer_unavailable",
     "coordinator_limit",
     "agent_name_conflict",
     "channel_unverified",
@@ -42,6 +46,11 @@ const KINDS: [&str; 17] = [
     "policy_edit_unsettled",
     "policy_edit_dropped",
 ];
+
+enum RenewalProvider {
+    Original,
+    Device(Option<Failure>),
+}
 
 /// How long an adapter may hold a lease without verifying its channel
 /// before status reports `channel_unverified`.
@@ -81,15 +90,56 @@ impl Store {
             let me = members.iter().find(|m| m.host_id == own);
             let person = me.and_then(|m| m.person_id.clone());
             let label = me.and_then(|m| m.person_member.clone());
-            let policy: Option<Policy> = match &person {
-                Some(person) => {
-                    let connection = self.connection()?;
-                    match self.person_key(&connection, &id, person)? {
-                        Some(key) => self.stored_policy(&connection, &id, &key)?,
-                        None => None,
-                    }
-                }
-                None => None,
+            let (policy, provider): (Option<Policy>, RenewalProvider) = {
+                let connection = self.connection()?;
+                let current = self.network_record(&connection, &id)?;
+                let projection = self
+                    .linking_projection(&connection, &current)
+                    .map_err(crate::link_runtime::support::model_error)?;
+                let key = match (&projection, &person) {
+                    (Some(p), _) => p
+                        .network
+                        .facts
+                        .state
+                        .bindings
+                        .get(&self.identity().public_key)
+                        .filter(|key| key.as_str() != "-")
+                        .cloned(),
+                    (None, Some(person)) => self.person_key(&connection, &id, person)?,
+                    (None, None) => None,
+                };
+                let policy = match (&projection, key.as_ref()) {
+                    (Some(p), Some(key)) => p.policies.get(key).cloned(),
+                    (None, Some(key)) => self.stored_policy(&connection, &id, key)?,
+                    (_, None) => None,
+                };
+                let selected: bool = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM link_signers WHERE network_id=?1)",
+                    [&id],
+                    |row| row.get(0),
+                )?;
+                let provider = if selected {
+                    let eligible = match (&projection, key.as_ref()) {
+                        (Some(p), Some(key)) => {
+                            crate::link_runtime::provider::automatic_policy_device(
+                                self,
+                                &connection,
+                                &current,
+                                p,
+                                key,
+                            )
+                            .map(|_| ())
+                        }
+                        (Some(_), None) => Err(Failure::new("forbidden", "-", "binding").into()),
+                        (None, _) => Err(Failure::new("proof_required", "-", "feature").into()),
+                    };
+                    RenewalProvider::Device(
+                        eligible.err().map(|e| Failure::cause(e, "-", "signer")),
+                    )
+                } else {
+                    RenewalProvider::Original
+                };
+                (policy, provider)
             };
             let deliveries = match &person {
                 Some(_) => self
@@ -134,15 +184,31 @@ impl Store {
                     ));
                 }
             }
-            if let Some(p) = &policy
-                && let Some(problem) = self.renewal_problem(&p.person_public_key)
-            {
-                attention.push(item(
-                    "person_agent_unreachable",
+            match provider {
+                RenewalProvider::Original => {
+                    if let Some(p) = &policy
+                        && let Some(problem) = self.renewal_problem(&p.person_public_key)
+                    {
+                        attention.push(item(
+                            "person_agent_unreachable",
+                            id.clone(),
+                            format!(
+                                "the daemon cannot renew this person's access policy: {problem}"
+                            ),
+                            "peerspan install".into(),
+                        ));
+                    }
+                }
+                RenewalProvider::Device(Some(problem)) => attention.push(item(
+                    "person_device_signer_unavailable",
                     id.clone(),
-                    format!("the daemon cannot renew this person's access policy: {problem}"),
-                    "peerspan install".into(),
-                ));
+                    format!(
+                        "selected device cannot renew this person's access policy: {}: {}",
+                        problem.code, problem.error
+                    ),
+                    format!("peerspan network sync {id}"),
+                )),
+                RenewalProvider::Device(None) => {}
             }
             for d in deliveries.iter().filter(|d| d.attempts >= 1) {
                 attention.push(item(
@@ -319,7 +385,7 @@ impl Store {
         }
         let capabilities = self.capabilities_summary()?;
         attention.sort_by(|a, b| {
-            let rank = |k: &str| KINDS.iter().position(|x| *x == k);
+            let rank = |k: &str| ATTENTION_ORDER.iter().position(|x| *x == k);
             rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.1.cmp(&b.1))
         });
         Ok(json!({

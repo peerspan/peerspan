@@ -10,12 +10,30 @@ use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fmt};
 
 mod path;
+mod runtime_json;
 pub use path::{DeviceKey, PathError, PathState, PersonState, SigningPath, evaluate_path};
+pub use runtime_json::{decode_mutation, decode_stored_json};
 mod activation;
-pub use activation::{ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority};
+pub use activation::{
+    ActionAuthority, ActionContext, ActionInvalidation, verify_action_authority,
+    verify_stored_action_intent,
+};
 pub use activation::{ActivationContext, ActivationEvidence, MAX_ACTIVATION, verify_activation};
+pub use activation::{
+    AdministratorOfferEvidence, OwnerOfferEvidence, SelectionEvidence,
+    verify_stored_administrator_offer, verify_stored_owner_offer, verify_stored_selection,
+};
 pub use activation::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
 pub use activation::{FeatureContext, FeatureEvidence, verify_feature};
+pub use activation::{
+    FeatureImportEvidence, InviteFeatureEvidence, validate_action_payload,
+    verify_stored_catalog_additions, verify_stored_catalog_repair, verify_stored_checkpoint,
+    verify_stored_checkpoint_intent, verify_stored_feature_import, verify_stored_invite_feature,
+    verify_stored_invite_feature_intent,
+};
+pub use activation::{FeaturePreparation, verify_stored_feature_preparation};
+pub use activation::{MemberProof, NetworkState, verify_stored_network_state};
+pub use activation::{ProofSeed, select_stored_proof_catalog};
 
 pub use activation::{
     AccessContext, AccessHighWater, AccessSelection, AccessState, GroupAccess, GroupHighWater,
@@ -565,9 +583,16 @@ fn revocation(o: &Obj, k: &str) -> Result<SignedObject> {
     Ok(signed(m, id, None))
 }
 fn checkpoint(o: &Obj, k: &str) -> Result<SignedObject> {
+    checkpoint_body(o, k, true)
+}
+fn checkpoint_body(o: &Obj, k: &str, signed_body: bool) -> Result<SignedObject> {
     fields(
         o,
-        "format network_id person_public_key issuer_certificate_id issued_at records signature",
+        if signed_body {
+            "format network_id person_public_key issuer_certificate_id issued_at records signature"
+        } else {
+            "format network_id person_public_key issuer_certificate_id issued_at records"
+        },
         &[],
     )?;
     version(o, 1)?;
@@ -599,7 +624,9 @@ fn checkpoint(o: &Obj, k: &str) -> Result<SignedObject> {
     ];
     parts.extend(records);
     let m = lines(&parts);
-    ssh(k, &m, text(o, "signature")?)?;
+    if signed_body {
+        ssh(k, &m, text(o, "signature")?)?;
+    }
     Ok(signed(m, "-".into(), None))
 }
 fn packet_payload(role: &str, p: &Obj) -> Result<()> {
@@ -923,6 +950,9 @@ pub fn probe(data: &[u8]) -> Value {
     let run = || -> Result<Value> {
         let v = parse_limit(data, 2 << 20)?;
         let o = object(&v)?;
+        if matches!(text(o, "kind")?, "invite_feature" | "invite_feature_intent") {
+            return Ok(activation::probe_invite_feature(o, false));
+        }
         if text(o, "kind")? == "path" {
             return Ok(path::probe_path(o));
         }
@@ -966,11 +996,14 @@ pub fn probe_stored_snapshot(data: &[u8]) -> Value {
         let v = parse_limit(data, MAX_STORED_PROBE)?;
         let o = object(&v)?;
         Ok(match text(o, "kind")? {
+            "invite_feature" | "invite_feature_intent" => activation::probe_invite_feature(o, true),
             "catalog_facts" => activation::probe_catalog_facts(o, true),
             "activation" => activation::probe_activation(o, true),
             "feature_activation" => activation::probe_feature(o, true),
             "action_authorization" => activation::probe_action(o, true),
             "access_state" => activation::probe_access(o, true),
+            "proof_selection" => activation::probe_proof_selection(o),
+            "admin_removal_plan" => activation::probe_admin_removal_plan(o),
             _ => json!({"ok":false,"code":"invalid"}),
         })
     };
@@ -981,3 +1014,5 @@ pub use activation::{
     MAX_STORED_PROBE, verify_stored_access_state, verify_stored_action_authority,
     verify_stored_activation, verify_stored_catalog_facts, verify_stored_feature,
 };
+
+pub use activation::build_stored_admin_removal_plan;

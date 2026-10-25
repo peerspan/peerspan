@@ -19,6 +19,9 @@ pub(super) struct HistoryFacts {
 }
 
 impl Verifier<'_> {
+    pub(super) fn access_admin_withdrawn(&self, person: &str) -> bool {
+        self.history.withdrawals.contains_key(person)
+    }
     pub(super) fn redemption_admin_kept(
         &self,
         person: &str,
@@ -532,6 +535,10 @@ impl Verifier<'_> {
             self.add_binding(host, person)?;
         }
         self.restrict_state();
+        if self.feature.is_empty() && self.feature_preparation {
+            self.validate_access_candidates()?;
+            return Ok(());
+        }
         check(!self.feature.is_empty(), "proof_required")?;
         check(
             self.ctx.known_feature_id == "-" || self.ctx.known_feature_id == self.feature,
@@ -709,7 +716,11 @@ impl Verifier<'_> {
         if !self.state.activated_certificates.contains(cert) {
             self.activate(&c.request, true, depth + 1)?;
         }
-        check(self.state.activated_certificates.contains(cert), "invalid")?;
+        check(
+            self.state.activated_certificates.contains(cert)
+                || self.project_history && self.inert_certificates.contains(cert),
+            "invalid",
+        )?;
         r.signer_public_key = c.device;
         r.scopes = c.scopes;
         r.not_after = c.until.format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -786,7 +797,7 @@ impl Verifier<'_> {
         }
         self.retained(&r.id, person, cert, depth + 1)
     }
-    fn retention_subject(&self, id: &str) -> Result<(String, String, u64)> {
+    pub(super) fn retention_subject(&self, id: &str) -> Result<(String, String, u64)> {
         if ident(id, "pf_") {
             let p = self.proofs.get(id).ok_or_else(|| missing(id))?;
             check(p.kind == "invite_redemption", "upgrade_required")?;
@@ -843,6 +854,16 @@ impl Verifier<'_> {
         person: &str,
         depth: usize,
     ) -> Result<()> {
+        self.checkpoint_with_signature(p, id, person, depth, true)
+    }
+    pub(super) fn checkpoint_with_signature(
+        &mut self,
+        p: &Proof,
+        id: &str,
+        person: &str,
+        depth: usize,
+        signed_body: bool,
+    ) -> Result<()> {
         let o = &p.object;
         let issuer = text(o, "issuer_certificate_id")?;
         let signer = if issuer == "root" {
@@ -850,7 +871,7 @@ impl Verifier<'_> {
         } else {
             self.structural(issuer, person)?.device
         };
-        read("checkpoint", &p.body, &signer, "-")?;
+        checkpoint_body(o, &signer, signed_body)?;
         let mut required = 0;
         for rid in string_list(o, "records")? {
             let (owner, target, scope) = self.retention_subject(rid)?;
@@ -951,6 +972,21 @@ impl Verifier<'_> {
         self.settle_history()
     }
 
+    pub(super) fn withdrawn_activation_admission(&self, id: &str, o: &Obj) -> bool {
+        let person = s(o, "person_public_key");
+        self.project_history
+            && self.history.delegated.contains(person)
+            && self
+                .history
+                .withdrawals
+                .get(person)
+                .is_some_and(|withdrawal| {
+                    withdrawal.revoke
+                        || !withdrawal.v2
+                        || !withdrawal.kept.contains(&format!("record:{id}"))
+                })
+    }
+
     // Dependencies may have been visited before a later issuer revocation.
     // Verify every derived historical fact against the final restrictive view.
     fn settle_history(&mut self) -> Result<()> {
@@ -1025,6 +1061,12 @@ impl Verifier<'_> {
                         ("root_record", self.epoch_root(&o, "epoch")?.0)
                     };
                     let r = read(typ, &raw, &signer, "-")?;
+                    if self.project_history
+                        && (scope == 8 && self.withdrawn_activation_admission(&r.id, &o)
+                            || self.inert_records.contains(&r.id))
+                    {
+                        continue;
+                    }
                     self.historical_record(&r, &o, scope, 0)?;
                 }
             }

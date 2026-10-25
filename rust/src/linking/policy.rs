@@ -1,7 +1,7 @@
 //! Exact signed access selection with caller-pinned monotonic high-water marks.
 use super::*;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct AccessHighWater {
     pub version: u64,
     pub message_hash: String,
@@ -233,6 +233,11 @@ impl Verifier<'_> {
             return Ok(());
         }
         if !c.root {
+            if self.inert_certificates.contains(&c.cert) {
+                c.selection.active = false;
+                c.selection.code = "forbidden".into();
+                return Ok(());
+            }
             let scope = if c.group { 8 } else { 1 };
             if let Err(e) = evaluate_path(&self.state, &c.person, &c.cert, scope, self.ctx.now) {
                 if matches!(e.code, "invalid" | "proof_required") {
