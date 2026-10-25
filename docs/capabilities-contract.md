@@ -9,7 +9,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-
 - other source types, such as a `gh` adapter;
 - optional resource bounds;
 - approval of each call;
-- remote OAuth servers.
+- remote OAuth servers ([proposal](capabilities-slice3-remote-proposal.md)).
 
 **Decided with the owner on 2026-10-16:**
 - **Discovery.** Sources are discovered from harness configuration, never registered.
