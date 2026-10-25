@@ -104,6 +104,9 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 		return st, err
 	}
 	st.OpenTo = int64(len(open))
+	if err = approvalAttention(ctx, tx, &st, attend); err != nil {
+		return st, err
+	}
 	return st, nil
 }
 

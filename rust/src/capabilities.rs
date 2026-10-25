@@ -63,6 +63,9 @@ pub struct CapabilityRecord {
     pub snapshot_error: Option<String>,
     #[serde(default)]
     pub health: Health,
+    /// The approval requirement; a record without one reads as none.
+    #[serde(default)]
+    pub approval: crate::approvals::Requirement,
 }
 impl CapabilityRecord {
     /// The instance its calls run on.
@@ -90,6 +93,7 @@ impl CapabilityRecord {
             && self.operations == other.operations
             && self.resources == other.resources
             && self.credential == other.credential
+            && self.approval == other.approval
     }
 }
 
@@ -103,15 +107,36 @@ pub(crate) fn capability_record(
         |r| r.get::<_, String>(0),
     )
     .optional()?
-    .map(json)
+    .map(|t| decode_capability(&t))
     .transpose()
 }
 pub(crate) fn capability_records(conn: &Connection) -> Result<Vec<CapabilityRecord>, Error> {
     let mut statement = conn.prepare("SELECT record FROM capabilities ORDER BY name")?;
     statement
         .query_map([], |r| r.get::<_, String>(0))?
-        .map(|r| json(r?))
+        .map(|r| decode_capability(&r?))
         .collect()
+}
+/// A `capabilities.record`, in this host's shape or as the Go host writes
+/// it, whose own snapshot is its flat snapshot state, so a database moved
+/// between the two reads either way.
+fn decode_capability(text: &str) -> Result<CapabilityRecord, Error> {
+    if let Ok(record) = serde_json::from_str::<CapabilityRecord>(text) {
+        return Ok(record);
+    }
+    let mut v: Value = serde_json::from_str(text)?;
+    let flat = v
+        .as_object_mut()
+        .and_then(|o| o.remove("snapshot"))
+        .unwrap_or(Value::Null);
+    let mut record: CapabilityRecord = json(v.to_string())?;
+    if !flat.is_null() {
+        let (snapshot, snapshot_error, health) = crate::sources::flat_snapshot(&flat)?;
+        record.snapshot = snapshot;
+        record.snapshot_error = snapshot_error;
+        record.health = health;
+    }
+    Ok(record)
 }
 pub(crate) fn save(tx: &Transaction<'_>, r: &CapabilityRecord) -> Result<(), Error> {
     tx.execute(
@@ -134,6 +159,7 @@ fn record_view(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> 
         "state": now.state(),
         "unavailable": now.unavailable,
         "created_at": r.created_at,
+        "approval": r.approval,
     }))
 }
 
@@ -218,6 +244,9 @@ pub struct CreateCapability {
     pub policies: Option<Vec<Policy>>,
     #[serde(default)]
     pub(crate) catalogs: Vec<crate::link_runtime::claims::ClaimCatalog>,
+    /// The approval requirement, `{operations, agent_self}`.
+    #[serde(default)]
+    pub approval: Option<Value>,
 }
 
 /// A checked new capability and its claims, by network.
@@ -364,7 +393,14 @@ impl Store {
                 "the environment file must be an existing absolute path".into(),
             ));
         }
+        let approval = match &c.approval {
+            None | Some(Value::Null) => crate::approvals::Requirement::default(),
+            Some(body) => {
+                crate::approvals::parse_requirement(body, &operations, !resources.is_null(), true)?
+            }
+        };
         let record = CapabilityRecord {
+            approval,
             name: c.name.clone(),
             source: c.source,
             agent_id,
@@ -566,6 +602,25 @@ impl Store {
         self.refresh_member_pins(&conn)?;
         record_view(&conn, &record)
     }
+    /// `PUT /v1/capabilities/{name}/approval`: replaces the requirement,
+    /// signing nothing, and records `capability.approval_changed`.
+    pub fn set_approval(&self, name: &str, body: &Value) -> Result<Value, Error> {
+        {
+            let mut conn = self.connection()?;
+            let tx = conn.transaction()?;
+            let mut record = capability_record(&tx, name)?.ok_or(Error::NotFound)?;
+            record.approval = crate::approvals::parse_requirement(
+                body,
+                &record.operations,
+                record.reads(),
+                record.approval.agent_self,
+            )?;
+            save(&tx, &record)?;
+            append_event(&tx, "capability.approval_changed", name, &now())?;
+            tx.commit()?;
+        }
+        self.capability_show(name)
+    }
     fn remove_capability(&self, name: &str) -> Result<Value, Error> {
         let view = self.capability_show(name)?;
         let mut conn = self.connection()?;
@@ -622,12 +677,18 @@ impl Store {
             |r| r.get(0),
         )?;
         let open: i64 = conn.query_row("SELECT COUNT(*) FROM source_access", [], |r| r.get(0))?;
+        let pending: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM call_approvals WHERE state = 'pending'",
+            [],
+            |r| r.get(0),
+        )?;
         Ok(json!({
             "sources": sources,
             "capabilities": records.len(),
             "shared": shared,
             "calls_running": running,
             "open_to": open,
+            "approvals_pending": pending,
         }))
     }
     /// Status item 14: sources failing, the environment file, and each
@@ -723,6 +784,24 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
             "/v1/capabilities/{name}",
             get(show_route).delete(remove_route),
         )
+        .route(
+            "/v1/capabilities/{name}/approval",
+            axum::routing::put(approval_route),
+        )
+}
+async fn approval_route(
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    body: Result<Bytes, BytesRejection>,
+) -> Result<Json<Value>, Error> {
+    let body: Value = decode(body)?;
+    let view = blocking(store.clone(), move |s| s.set_approval(&name, &body)).await?;
+    // As `capability show` without `lookup`: agent recipients are labeled
+    // from the cache, with no peer traffic.
+    let mut views = [view];
+    label_views(&store, &mut views, false).await?;
+    let [view] = views;
+    Ok(Json(view))
 }
 #[derive(Deserialize)]
 struct LookupQuery {

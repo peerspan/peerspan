@@ -73,6 +73,7 @@ func AdapterHandler(store *Store) http.Handler {
 	adapterTaskRoutes(mux, store, token)
 	adapterLiveDeliveryRoutes(mux, store, token)
 	adapterCallRoutes(mux, store, token)
+	adapterApprovalRoutes(mux, store, token)
 	return store.presenceTouching(mux)
 }
 func localAdapterRoutes(mux *http.ServeMux, store *Store) {

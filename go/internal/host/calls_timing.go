@@ -92,6 +92,28 @@ func (s *Store) noteCallAccepted(key string, now time.Time) {
 	}
 }
 
+// restartHeldWindow starts a new held window for a call whose stored
+// approval just left pending while the call is not final, as at acceptance.
+func (s *Store) restartHeldWindow(key string, now time.Time) {
+	s.tasks.mu.Lock()
+	defer s.tasks.mu.Unlock()
+	if s.tasks.timing.accepted == nil {
+		s.tasks.timing.accepted = map[string]time.Time{}
+	}
+	s.tasks.timing.accepted[key] = now
+}
+
+// windowStart is the start of a call's latest held window: its acceptance,
+// or a later restart.
+func (s *Store) windowStart(key string, accepted time.Time) time.Time {
+	s.tasks.mu.Lock()
+	defer s.tasks.mu.Unlock()
+	if at, ok := s.tasks.timing.accepted[key]; ok && at.After(accepted) {
+		return at
+	}
+	return accepted
+}
+
 // inHeldWindow reports whether a call is in its held window, so the poll
 // workers leave it to its held status requests.
 func (s *Store) inHeldWindow(key string, now time.Time) bool {
@@ -142,7 +164,9 @@ func (s *Store) startHeldRequests(ctx context.Context, items []OutboundCall) {
 		key := callKey(out.PeerHostID, out.Request.CallID)
 		s.tasks.mu.Lock()
 		at, ok := s.tasks.timing.accepted[key]
-		start := ok && now.Sub(at) < callHeldWindow && !s.tasks.timing.following[key]
+		// A call whose stored approval is pending is followed past its
+		// window, and again after a restart.
+		start := ((ok && now.Sub(at) < callHeldWindow) || awaitingApproval(out.Status)) && !s.tasks.timing.following[key]
 		if start {
 			if s.tasks.timing.following == nil {
 				s.tasks.timing.following = map[string]bool{}
@@ -165,7 +189,8 @@ func (s *Store) startHeldRequests(ctx context.Context, items []OutboundCall) {
 }
 
 // followCall sends held status requests one at a time, each as soon as the
-// previous answers, until the call is final or its window passes. An answer
+// previous answers, until the call is final or its window passes, and past
+// the window while the stored approval is pending. An answer
 // in under a second without a final state, as from a host that predates
 // wait, is followed by the next request a second later.
 func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.Time) {
@@ -177,14 +202,14 @@ func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.T
 		// After the window, the poll workers back off as usual.
 		s.schedulePoll(key, true)
 	}()
-	for ctx.Err() == nil && time.Since(accepted) < callHeldWindow {
+	for ctx.Err() == nil {
 		out, err := s.OutboundCall(ctx, peer, id)
-		if err != nil || !out.needsPoll() {
+		if err != nil || !out.needsPoll() || (time.Since(s.windowStart(key, accepted)) >= callHeldWindow && !awaitingApproval(out.Status)) {
 			return
 		}
 		sent := ""
 		if out.Status != nil {
-			sent = out.Status.State
+			sent = out.Status.State + "/" + callApprovalState(*out.Status)
 		}
 		started := time.Now()
 		_, _ = s.pollCallWait(ctx, peer, id, peerWaitMax)
@@ -194,7 +219,7 @@ func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.T
 		// An answer with a new state is followed at once; one under a
 		// second with the state that was sent, as from a host that predates
 		// wait, a second later.
-		if out.Status != nil && out.Status.State != sent {
+		if out.Status != nil && out.Status.State+"/"+callApprovalState(*out.Status) != sent {
 			continue
 		}
 		if wait := time.Second - time.Since(started); wait > 0 {
@@ -209,16 +234,19 @@ func (s *Store) followCall(ctx context.Context, peer, id string, accepted time.T
 
 // HeldSubmitterCall is SubmitterCall held until the call's state differs
 // from known, the state the caller last stored (or, when it names none, the
-// state on arrival), or wait seconds pass. A call already final, a state
-// that already differs, or wait 0 answers at once.
-func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait int, known string) (CallStatus, error) {
+// state on arrival), its approval state differs from knownApproval (when
+// given), or wait seconds pass. A call already final, a state that already
+// differs, or wait 0 answers at once. Decisions and expiry are seen within
+// one recheck.
+func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait int, known, knownApproval string) (CallStatus, error) {
 	until := time.Now().Add(time.Duration(wait) * time.Second)
 	for {
 		st, err := s.SubmitterCall(ctx, sender, id)
 		if known == "" {
 			known = st.State
 		}
-		if err != nil || callFinal(st.State) || st.State != known || !time.Now().Before(until) {
+		approvalChanged := knownApproval != "" && callApprovalState(st) != knownApproval
+		if err != nil || callFinal(st.State) || st.State != known || approvalChanged || !time.Now().Before(until) {
 			return st, err
 		}
 		select {
@@ -231,26 +259,33 @@ func (s *Store) HeldSubmitterCall(ctx context.Context, sender, id string, wait i
 	}
 }
 
-// peerWait parses GET /peer/v1/calls/{id}?wait=N&state=S: an absent wait is
-// 0, and N is an integer from 0 to 10; S, when given, is a call state.
-func peerWait(r *http.Request) (int, string, error) {
+// peerWait parses GET /peer/v1/calls/{id}?wait=N&state=S&approval=A: an
+// absent wait is 0, and N is an integer from 0 to 10; S, when given, is a
+// call state; A, when given, is an approval state or none.
+func peerWait(r *http.Request) (int, string, string, error) {
 	query := r.URL.Query()
-	known := ""
+	known, knownApproval := "", ""
 	if states, ok := query["state"]; ok {
 		if len(states) != 1 || !validCallState(states[0]) {
-			return 0, "", fmt.Errorf("%w: state is a call state", ErrInvalid)
+			return 0, "", "", fmt.Errorf("%w: state is a call state", ErrInvalid)
 		}
 		known = states[0]
 	}
+	if approvals, ok := query["approval"]; ok {
+		if len(approvals) != 1 || (approvals[0] != approvalNone && !validApprovalState(approvals[0])) {
+			return 0, "", "", fmt.Errorf("%w: approval is an approval state or none", ErrInvalid)
+		}
+		knownApproval = approvals[0]
+	}
 	given, ok := query["wait"]
 	if !ok {
-		return 0, known, nil
+		return 0, known, knownApproval, nil
 	}
 	n, err := strconv.Atoi(given[0])
 	if len(given) != 1 || err != nil || n < 0 || n > peerWaitMax {
-		return 0, "", fmt.Errorf("%w: wait is an integer from 0 to %d", ErrInvalid, peerWaitMax)
+		return 0, "", "", fmt.Errorf("%w: wait is an integer from 0 to %d", ErrInvalid, peerWaitMax)
 	}
-	return n, known, nil
+	return n, known, knownApproval, nil
 }
 
 // holdAgentCall answers an agent's held POST: the call view once the call

@@ -3,6 +3,7 @@
 //! one operation; and polls its status. The host authorizes each call by
 //! policy, or by self access from a trusted host, persists it, and runs it
 //! on the serving instance, never twice.
+use crate::approvals::{self, ApprovalRecord, ApprovalStatus, Caller};
 use crate::{
     api::{blocking, decode},
     capabilities::{
@@ -183,6 +184,9 @@ pub struct CallStatus {
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    /// The call's approval, null when it needed none.
+    #[serde(default)]
+    pub approval: Option<ApprovalStatus>,
 }
 /// `received_calls.record`: the status, the result, and what the receiver
 /// keeps for itself.
@@ -288,8 +292,28 @@ fn expire(
     if s.status.state != "queued" || crate::membership::time(&r.deadline)? > Utc::now() {
         return Ok(false);
     }
+    // A pending approval expires with the call; an approved one stays.
+    let at = now();
+    if let Some(record) = approvals::decide(tx, sender, &s.status.call_id, "expired", None, &at)? {
+        s.status.approval = Some(record.status());
+        append_event(
+            tx,
+            "call.approval_expired",
+            &subject(sender, &s.status.call_id),
+            &at,
+        )?;
+        finish(tx, sender, s, "expired", Some("approval_timeout"), None)?;
+        return Ok(true);
+    }
     finish(tx, sender, s, "expired", None, None)?;
     Ok(true)
+}
+/// Whether a call's approval is pending.
+fn awaiting(s: &Stored) -> bool {
+    s.status
+        .approval
+        .as_ref()
+        .is_some_and(|a| a.state == "pending")
 }
 
 /// What a call reaches on this host.
@@ -718,6 +742,16 @@ pub(crate) struct ListQuery {
 impl Store {
     /// `POST /peer/v1/calls`: authorizes a call and persists it as `queued`.
     pub fn accept_call(&self, sender: &str, r: CallRequest) -> Result<CallStatus, Error> {
+        self.accept_call_text(sender, r, None)
+    }
+    /// `accept_call`, storing the input as `input_text`, the canonical text
+    /// of the input as received, so its numbers stay as sent.
+    pub fn accept_call_text(
+        &self,
+        sender: &str,
+        r: CallRequest,
+        input_text: Option<String>,
+    ) -> Result<CallStatus, Error> {
         validate(&r)?;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
@@ -737,7 +771,18 @@ impl Store {
             return Ok(s.status);
         }
         let at = Utc::now();
-        let (authorized, _) = authorize(self, &tx, sender, &r, true)?;
+        let (authorized, target) = authorize(self, &tx, sender, &r, true)?;
+        // Whether the call needs approval, decided once, then the pending
+        // limit per pending key.
+        let need = self.needs_approval(&tx, sender, &r, &authorized, &target, at)?;
+        if let Some((_, key, _)) = &need
+            && approvals::pending_under(&tx, key)? >= approvals::MAX_PENDING
+        {
+            return Err(Error::Limit {
+                limit: "max_pending_approvals".into(),
+                message: "too many calls are waiting for approval".into(),
+            });
+        }
         let status = CallStatus {
             call_id: r.call_id.clone(),
             sender_host_id: sender.to_owned(),
@@ -751,6 +796,7 @@ impl Store {
             created_at: rfc3339(at),
             started_at: None,
             finished_at: None,
+            approval: need.as_ref().map(|(record, _, _)| record.status()),
         };
         let stored = Stored {
             status: status.clone(),
@@ -767,7 +813,7 @@ impl Store {
             params![
                 sender,
                 r.call_id,
-                serde_json::to_string(&r)?,
+                request_text(&r, input_text.as_deref())?,
                 serde_json::to_string(&stored)?
             ],
         )?;
@@ -777,9 +823,143 @@ impl Store {
             &subject(sender, &r.call_id),
             &status.created_at,
         )?;
+        if let Some((record, key, agent)) = need {
+            approvals::create(&tx, &record, key, &agent)?;
+            append_event(
+                &tx,
+                "call.approval_requested",
+                &subject(sender, &r.call_id),
+                &status.created_at,
+            )?;
+        }
         tx.commit()?;
         self.call_runner.wake.notify_one();
         Ok(status)
+    }
+    /// Whether a new call needs approval: the capability's requirement
+    /// covers the operation, read against the snapshot it runs against,
+    /// and the call is not exempt. Returns its pending approval record,
+    /// its pending key, and the source agent to tell.
+    fn needs_approval(
+        &self,
+        conn: &Connection,
+        sender: &str,
+        r: &CallRequest,
+        authorized: &Authorized,
+        target: &Target,
+        at: chrono::DateTime<Utc>,
+    ) -> Result<Option<(ApprovalRecord, String, String)>, Error> {
+        // Sources never need approval.
+        let Target::Capability(record) = target else {
+            return Ok(None);
+        };
+        let snapshot = current(conn, record)?.snapshot;
+        if !record.approval.covers(&r.operation, snapshot.as_ref()) {
+            return Ok(None);
+        }
+        // Self access without an origin is the person at a trusted machine;
+        // with one, it is exempt when `agent_self` is false.
+        if r.self_access.is_some() && (r.origin.is_none() || !record.approval.agent_self) {
+            return Ok(None);
+        }
+        let (network, via) = match (&r.policy, &r.self_access) {
+            (Some(p), _) => (p.network_id.as_str(), "policy"),
+            (_, Some(s)) => (s.network_id.as_str(), "self"),
+            _ => return Ok(None),
+        };
+        let member = crate::chain::member(conn, network, sender)?;
+        let person_id = member.as_ref().and_then(|m| m.person_id.clone());
+        let person_label = member
+            .as_ref()
+            .filter(|m| m.person_id.is_some())
+            .and_then(|m| m.person_member.clone());
+        // The pending key: the budget key and caller under policy, the
+        // caller alone under self access.
+        let key = match &authorized.budget {
+            Some(budget) => format!("{budget}\n{}", authorized.caller),
+            None => format!("caller:{}", authorized.caller),
+        };
+        let deadline = crate::membership::time(&r.deadline)?;
+        let approval = ApprovalRecord {
+            sender_host_id: sender.to_owned(),
+            call_id: r.call_id.clone(),
+            state: "pending".into(),
+            capability: r.capability.clone(),
+            operation: r.operation.clone(),
+            changes_things: approvals::changes_things(&r.operation, snapshot.as_ref()),
+            caller: Caller {
+                person_id,
+                person_label,
+                host_id: sender.to_owned(),
+                via: via.into(),
+            },
+            origin: approvals::origin_value(r.origin.as_ref()),
+            input_sha256: r.input_sha256(),
+            requested_at: rfc3339(at),
+            expires_at: rfc3339(deadline),
+            decided_at: None,
+            reason: None,
+        };
+        Ok(Some((approval, key, record.agent_id.clone())))
+    }
+    /// `POST /v1/approvals/{sender}/{call_id}/approve`: the call stays
+    /// queued, and the dispatcher may start it.
+    pub fn approve_call(&self, sender: &str, id: &str) -> Result<ApprovalRecord, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let (request, mut s) = load(&tx, sender, id)?.ok_or(Error::NotFound)?;
+        let current = approvals::approval(&tx, sender, id)?.ok_or(Error::NotFound)?;
+        // A call past its deadline expires first, and so is no longer
+        // waiting.
+        if expire(&tx, sender, &request, &mut s)? {
+            let record = approvals::approval(&tx, sender, id)?.unwrap_or(current);
+            tx.commit()?;
+            return Err(approvals::not_pending(&record));
+        }
+        let at = now();
+        let Some(record) = approvals::decide(&tx, sender, id, "approved", None, &at)? else {
+            return Err(approvals::not_pending(&current));
+        };
+        s.status.approval = Some(record.status());
+        save(&tx, sender, &s)?;
+        append_event(&tx, "call.approved", &subject(sender, id), &at)?;
+        tx.commit()?;
+        self.call_runner.wake.notify_one();
+        Ok(record)
+    }
+    /// `POST /v1/approvals/{sender}/{call_id}/deny`: the call becomes
+    /// `rejected` with `approval_denied`.
+    pub fn deny_call(
+        &self,
+        sender: &str,
+        id: &str,
+        reason: Option<String>,
+    ) -> Result<ApprovalRecord, Error> {
+        let mut connection = self.connection()?;
+        let tx = connection.transaction()?;
+        let (request, mut s) = load(&tx, sender, id)?.ok_or(Error::NotFound)?;
+        let current = approvals::approval(&tx, sender, id)?.ok_or(Error::NotFound)?;
+        if expire(&tx, sender, &request, &mut s)? {
+            let record = approvals::approval(&tx, sender, id)?.unwrap_or(current);
+            tx.commit()?;
+            return Err(approvals::not_pending(&record));
+        }
+        let at = now();
+        let Some(record) = approvals::decide(&tx, sender, id, "denied", reason, &at)? else {
+            return Err(approvals::not_pending(&current));
+        };
+        s.status.approval = Some(record.status());
+        append_event(&tx, "call.denied", &subject(sender, id), &at)?;
+        finish(
+            &tx,
+            sender,
+            &mut s,
+            "rejected",
+            Some("approval_denied"),
+            None,
+        )?;
+        tx.commit()?;
+        Ok(record)
     }
     /// The submitter's call, settled for expiry; anyone else's is not found.
     pub fn call_status(&self, sender: &str, id: &str) -> Result<CallView, Error> {
@@ -804,7 +984,14 @@ impl Store {
             s.status.cancel_requested = true;
             append_event(&tx, "call.cancel_requested", &subject(sender, id), &now())?;
             match s.status.state.as_str() {
-                "queued" => finish(&tx, sender, &mut s, "cancelled", None, None)?,
+                "queued" => {
+                    if let Some(record) =
+                        approvals::decide(&tx, sender, id, "cancelled", None, &now())?
+                    {
+                        s.status.approval = Some(record.status());
+                    }
+                    finish(&tx, sender, &mut s, "cancelled", None, None)?
+                }
                 _ => {
                     running = true;
                     finish(
@@ -937,10 +1124,21 @@ impl Store {
                 continue;
             }
             let now = current(&conn, &record)?;
+            // Advisory: covered, and either shared by policy or applying to
+            // agents' self-access calls.
+            let by_policy = via.iter().any(|v| v["kind"] == "policy");
+            let needs = |op: &str| {
+                record.approval.covers(op, now.snapshot.as_ref())
+                    && (by_policy || record.approval.agent_self)
+            };
             let mut operations: Vec<Value> = record
                 .operations
                 .iter()
-                .map(|op| tool_operation(now.snapshot.as_ref(), op))
+                .map(|op| {
+                    let mut o = tool_operation(now.snapshot.as_ref(), op);
+                    o["approval"] = json!(needs(op));
+                    o
+                })
                 .collect();
             let resources = present_resources(&record, now.snapshot.as_ref());
             if record.reads() {
@@ -950,6 +1148,7 @@ impl Store {
                     "description": "Read one of the capability's resources",
                     "input_schema": read_schema(&uris),
                     "read_only": true,
+                    "approval": needs(READ),
                 }));
             }
             out.push(json!({
@@ -975,7 +1174,11 @@ impl Store {
                     .tools
                     .iter()
                     .filter(|t| t.name != READ)
-                    .map(|t| tool_operation(Some(snapshot), &t.name))
+                    .map(|t| {
+                        let mut o = tool_operation(Some(snapshot), &t.name);
+                        o["approval"] = json!(false);
+                        o
+                    })
                     .collect();
                 if !snapshot.resources.is_empty() {
                     let uris: Vec<String> =
@@ -985,6 +1188,7 @@ impl Store {
                         "description": "Read one of the source's resources",
                         "input_schema": read_schema(&uris),
                         "read_only": true,
+                        "approval": false,
                     }));
                 }
                 out.push(json!({
@@ -1021,7 +1225,12 @@ impl Store {
     fn queued_calls(&self) -> Result<Vec<(String, String, Instance)>, Error> {
         let connection = self.connection()?;
         let mut out = Vec::new();
-        for (sender, r, _) in queued(&connection)? {
+        for (sender, r, s) in queued(&connection)? {
+            // A call waiting for approval is never started, and takes no
+            // slot.
+            if awaiting(&s) {
+                continue;
+            }
             let instance = instance_of(&connection, &r)?.unwrap_or_else(|| Instance {
                 agent_id: String::new(),
                 server: r.capability.clone(),
@@ -1045,6 +1254,9 @@ impl Store {
         }
         if expire(&tx, sender, &request, &mut s)? {
             tx.commit()?;
+            return Ok(None);
+        }
+        if awaiting(&s) {
             return Ok(None);
         }
         match authorize(self, &tx, sender, &request, false) {
@@ -1084,6 +1296,9 @@ impl Store {
             tx.commit()?;
             return Ok(false);
         }
+        if awaiting(&s) {
+            return Ok(false);
+        }
         match authorize(self, &tx, sender, &request, false) {
             Ok(_) => Ok(true),
             Err(Error::Unavailable(_)) => {
@@ -1112,7 +1327,7 @@ impl Store {
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         for (sender, request, mut s) in queued(&tx)? {
-            if instance_of(&tx, &request)?.as_ref() == Some(instance) {
+            if !awaiting(&s) && instance_of(&tx, &request)?.as_ref() == Some(instance) {
                 finish(&tx, &sender, &mut s, "failed", Some(error), None)?;
             }
         }
@@ -1167,20 +1382,33 @@ impl Store {
     }
     /// Deletes inputs and results 7 days after their calls became final.
     fn prune_calls(&self) -> Result<(), Error> {
-        let cutoff = (Utc::now() - RETENTION).timestamp_millis();
+        let cutoff = Utc::now() - RETENTION;
         let mut connection = self.connection()?;
         let tx = connection.transaction()?;
         let rows: Vec<(String, String, String)> = {
             let mut statement = tx.prepare(
-                "SELECT sender, request, record FROM received_calls WHERE json_extract(record, '$.finished_ms') < ?1 AND (json_extract(request, '$.input') IS NOT NULL OR json_extract(record, '$.result') IS NOT NULL)",
+                "SELECT sender, request, record FROM received_calls WHERE json_extract(record, '$.finished_at') IS NOT NULL AND (json_extract(request, '$.input') IS NOT NULL OR json_extract(record, '$.result') IS NOT NULL)",
             )?;
             statement
-                .query_map([cutoff], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                 .collect::<Result<_, _>>()?
         };
         for (sender, request, record) in rows {
-            let mut request: Value = serde_json::from_str(&request)?;
             let mut s: Stored = serde_json::from_str(&record)?;
+            // Final for 7 days: by the status record's `finished_at`, or the
+            // millisecond time kept with it.
+            let at = s
+                .status
+                .finished_at
+                .as_deref()
+                .and_then(|t| crate::membership::time(t).ok());
+            let ms = s
+                .finished_ms
+                .and_then(chrono::DateTime::<Utc>::from_timestamp_millis);
+            if !at.into_iter().chain(ms).any(|t| t < cutoff) {
+                continue;
+            }
+            let mut request: Value = serde_json::from_str(&request)?;
             if let Some(object) = request.as_object_mut() {
                 object.remove("input");
             }
@@ -1457,10 +1685,31 @@ async fn submit_route(
     Extension(sender): Extension<String>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<CallStatus>, Error> {
-    let request: CallRequest = decode(body)?;
+    let body = body.map_err(|_| Error::Invalid("invalid request".into()))?;
+    let request: CallRequest =
+        serde_json::from_slice(&body).map_err(|_| Error::Invalid("invalid request".into()))?;
+    let input = crate::canonical::member_text(&body, "input");
     Ok(Json(
-        blocking(store, move |s| s.accept_call(&sender, request)).await?,
+        blocking(store, move |s| s.accept_call_text(&sender, request, input)).await?,
     ))
+}
+/// The stored request: its JSON, with the input as its canonical text as
+/// received when there is one, so numbers keep the form the caller sent.
+fn request_text(r: &CallRequest, input: Option<&str>) -> Result<String, Error> {
+    let Some(input) = input else {
+        return Ok(serde_json::to_string(r)?);
+    };
+    let mut rest = serde_json::to_value(r)?;
+    if let Some(object) = rest.as_object_mut() {
+        object.remove("input");
+    }
+    let rest = rest.to_string();
+    let tail = &rest[1..];
+    Ok(if tail == "}" {
+        format!("{{\"input\":{input}}}")
+    } else {
+        format!("{{\"input\":{input},{tail}")
+    })
 }
 #[derive(Deserialize)]
 struct StatusQuery {
@@ -1468,9 +1717,12 @@ struct StatusQuery {
     wait: Option<String>,
     #[serde(default)]
     state: Option<String>,
+    #[serde(default)]
+    approval: Option<String>,
 }
-/// `GET /peer/v1/calls/{id}?wait=N&state=S`: held until the call's state
-/// differs from `S`, it is final, or `N` seconds pass.
+/// `GET /peer/v1/calls/{id}?wait=N&state=S&approval=A`: held until the
+/// call's state differs from `S`, its approval state from `A`, it is
+/// final, or `N` seconds pass.
 async fn status_route(
     State(store): State<Arc<Store>>,
     Extension(sender): Extension<String>,
@@ -1479,8 +1731,9 @@ async fn status_route(
 ) -> Result<Json<CallView>, Error> {
     let Query(q) = query.map_err(|_| Error::Invalid("invalid query".into()))?;
     let (wait, known) = crate::call_timing::peer_wait(q.wait, q.state)?;
+    let approval = crate::call_timing::approval_param(q.approval)?;
     Ok(Json(
-        crate::call_timing::held_status(store, sender, id, wait, known).await?,
+        crate::call_timing::held_status(store, sender, id, wait, known, approval).await?,
     ))
 }
 #[derive(Deserialize)]

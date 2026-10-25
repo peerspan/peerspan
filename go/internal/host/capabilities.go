@@ -89,6 +89,9 @@ type capabilityRecord struct {
 	CreatedAt  string               `json:"created_at"`
 	AgentID    string               `json:"agent_id"`
 	Snapshot   *toolSnapshotState   `json:"snapshot,omitempty"`
+	// Approval is the approval requirement; a record without one reads as
+	// none with agent_self true.
+	Approval *ApprovalRequirement `json:"approval,omitempty"`
 }
 
 func (c capabilityRecord) ownInstance() bool {
@@ -110,6 +113,7 @@ type Capability struct {
 	Resources   CapabilityResources  `json:"resources"`
 	Credential  CapabilityCredential `json:"credential"`
 	Bounds      map[string]any       `json:"bounds"`
+	Approval    ApprovalRequirement  `json:"approval"`
 	State       string               `json:"state"`
 	Unavailable []string             `json:"unavailable"`
 	CreatedAt   string               `json:"created_at"`
@@ -154,6 +158,10 @@ type CreateCapability struct {
 	// host is bound to its person, each with this host's rule for the name.
 	Policies []membership.Policy      `json:"policies"`
 	Catalogs []CapabilityClaimCatalog `json:"catalogs,omitempty"`
+	// Approval is the optional approval requirement.
+	Approval *approvalBody `json:"approval"`
+	// approval is the requirement read from Approval with defaults.
+	approval ApprovalRequirement
 }
 
 func readCapability(ctx context.Context, q dbQuerier, name string) (capabilityRecord, error) {
@@ -228,7 +236,7 @@ func (s *Store) capabilityView(ctx context.Context, q dbQuerier, c capabilityRec
 	if ops == nil {
 		ops = []string{}
 	}
-	return Capability{Name: c.Name, Source: c.Source, Operations: ops, Resources: c.Resources, Credential: c.Credential, Bounds: map[string]any{}, State: state, Unavailable: unavailable, CreatedAt: c.CreatedAt}, nil
+	return Capability{Name: c.Name, Source: c.Source, Operations: ops, Resources: c.Resources, Credential: c.Credential, Bounds: map[string]any{}, Approval: c.requirement(), State: state, Unavailable: unavailable, CreatedAt: c.CreatedAt}, nil
 }
 
 // recipients lists the principals of the rules for a capability on this
@@ -293,7 +301,9 @@ func sameCapability(a capabilityRecord, b CreateCapability) bool {
 	}
 	ra, _ := json.Marshal(a.Resources)
 	rb, _ := json.Marshal(b.Resources)
-	return a.Source == b.Source && slices.Equal(aops, ops) && bytes.Equal(ra, rb) && deref(a.Credential.EnvFile) == deref(b.EnvFile) && (a.Credential.EnvFile == nil) == (b.EnvFile == nil) && sameArgs(a.Credential.Args, b.Args)
+	ra2, _ := json.Marshal(a.requirement())
+	rb2, _ := json.Marshal(b.approval)
+	return bytes.Equal(ra2, rb2) && a.Source == b.Source && slices.Equal(aops, ops) && bytes.Equal(ra, rb) && deref(a.Credential.EnvFile) == deref(b.EnvFile) && (a.Credential.EnvFile == nil) == (b.EnvFile == nil) && sameArgs(a.Credential.Args, b.Args)
 }
 
 func sameArgs(a, b []string) bool {
@@ -336,6 +346,17 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	if r.Resources.Set && !r.Resources.All && len(r.Resources.URIs) == 0 {
 		return Capability{}, fmt.Errorf("%w: resources lists at least one URI", ErrInvalid)
 	}
+	r.approval = defaultApproval()
+	if r.Approval != nil {
+		ops, err := parseApprovalOperations(r.Approval.Operations, r.Operations, r.Resources.Set)
+		if err != nil {
+			return Capability{}, err
+		}
+		r.approval.Operations = ops
+		if r.Approval.AgentSelf != nil {
+			r.approval.AgentSelf = *r.Approval.AgentSelf
+		}
+	}
 	var agentID string
 	if err := s.db.QueryRowContext(ctx, `SELECT id FROM agents WHERE name = ?`, r.Source.Agent).Scan(&agentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -376,7 +397,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			return Capability{}, fmt.Errorf("%w: env_file %s does not exist", ErrInvalid, *r.EnvFile)
 		}
 	}
-	c := capabilityRecord{Name: r.Name, Source: r.Source, Operations: r.Operations, Resources: r.Resources, Credential: CapabilityCredential{EnvFile: r.EnvFile, Args: r.Args}, AgentID: agentID}
+	c := capabilityRecord{Name: r.Name, Source: r.Source, Operations: r.Operations, Resources: r.Resources, Credential: CapabilityCredential{EnvFile: r.EnvFile, Args: r.Args}, AgentID: agentID, Approval: &r.approval}
 	if c.Operations == nil {
 		c.Operations = []string{}
 	}
@@ -676,7 +697,7 @@ func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, 
 func localCapabilityRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateCapability
-		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "policies", "catalogs?") {
+		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "policies", "catalogs?", "approval?") {
 			return
 		}
 		c, err := store.CreateCapability(r.Context(), req)

@@ -23,9 +23,9 @@ import tempfile
 import time
 
 
-# The current database version (machine-linking transactions, Durable storage).
-SCHEMA_VERSION = 19
-# Exact schema19 tables, removed before modelling historical fixture state.
+# The current database version (capabilities contract, Persistence).
+SCHEMA_VERSION = 20  # version 20: call_approvals and approval_notices (capabilities contract, per-call approval)
+# Exact schema19 tables (machine linking), removed before modelling historical fixture state.
 LINKING_TABLES = ["link_signers", "link_highwater", "link_features", "link_objects",
                   "link_operations", "link_frames", "link_pending", "link_device_keys"]
 # Tables added by database version 16 (capabilities), dropped to model older state.
@@ -36,6 +36,9 @@ POLICY_EDIT_TABLES = ["policy_edits"]
 # Tables added by database version 18 (agent capability tools, capabilities contract slice 2), dropped first to
 # model older state (they refer to outbound_calls).
 AGENT_CALL_TABLES = ["adapter_calls", "call_update_notifications"]
+# Tables added by database version 20 (per-call approval, capabilities contract slice 3), dropped first to model
+# older state (they refer to received_calls and agents).
+APPROVAL_TABLES = ["call_approvals", "approval_notices"]
 # Tables added by database version 12 (policy propagation), dropped to model older state.
 POLICY_DELIVERY_TABLES = ["policy_deliveries", "directory_sends"]
 # Tables added by database version 11 (delegation chains), dropped to model older state.
@@ -314,7 +317,7 @@ def check(binary, label):
             # Model an existing v1 installation, retaining its identity/registry.
             connection = sqlite3.connect(host.state / "host.db")
             try:
-                for table in [*LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
+                for table in [*APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
                               "network_members", "networks",
                               "outbound_messages", "received_messages", "grants", "peers"]:
                     connection.execute("DROP TABLE " + table)

@@ -78,6 +78,12 @@ from a real version 17 state as well). Slice 3's sharing with one agent runs fro
 topology per pairing (sections named "shares: ..."; `--old` gives it a host built before slice 3). It needs `--node` for the shared adapter (`--skip-agents` skips it;
 `--agents-only` runs only it).
 
+Slice 3 item B (per-call approval) runs from conformance/capability_approval.py, in a topology of its own per
+pairing, after the slice 2 sections: configuration, acceptance, decisions, CLI, caller, notices, status, older peers,
+and the agent timeout case; and once per run, migration from versions 18 and 19 to 20 (with `--baseline18`, from a
+real version 18 state as well). It also needs `--node` (`--skip-approval` skips it; `--approval-only` runs only it, and
+`--approval-section` selects sections), and `--baseline18`, a version 18 peerspan-host, for the older-peer cases.
+
 Where the contract is silent, the suite takes the narrowest reading or makes no assertion; those spots are marked
 "ambiguous" in comments and soft results are printed as NOTE lines, not failures.
 
@@ -105,7 +111,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import LINKING_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
+from host_service import LINKING_TABLES, APPROVAL_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
@@ -127,7 +133,7 @@ SERVER_KEYS = {'name', 'transport', 'command', 'args', 'env', 'url', 'source', '
                'missing_env', 'tools', 'resources', 'snapshot_at', 'snapshot_error', 'start_failed_at',
                'auth_error_at', 'capabilities'}
 RECORD_KEYS = {'name', 'source', 'operations', 'resources', 'credential', 'bounds', 'state', 'unavailable',
-               'created_at'}
+               'created_at', 'approval'}
 RECIPIENT_KEYS = {'network_id', 'principal', 'label'}
 CAP_RULE_KEYS = {'host', 'capability', 'principals', 'max_input_bytes', 'allow_disconnected', 'max_calls_per_hour'}
 POLICY_V2_ORDER = ['format', 'network_id', 'person_public_key', 'version', 'issued_at', 'valid_until', 'rules',
@@ -138,16 +144,17 @@ SHARE_KEYS = {'policy', 'capability', 'principal', 'recipient', 'created'}
 UNSHARE_KEYS = {'policy', 'capability', 'principal', 'recipient', 'removed'}
 TRUST_KEYS = {'policy', 'host', 'trusted', 'changed'}
 PEER_ENTRY_KEYS = {'kind', 'capability', 'operations', 'resources', 'state', 'unavailable', 'via'}
-OPERATION_KEYS = {'name', 'description', 'input_schema', 'read_only'}
+# Per-call approval (slice 3) adds `approval` to capability records, operations, status records, and status counts.
+OPERATION_KEYS = {'name', 'description', 'input_schema', 'read_only', 'approval'}
 RESOURCE_KEYS = {'uri', 'name', 'description', 'mime_type'}
 STATUS_KEYS = {'call_id', 'sender_host_id', 'receiver_host_id', 'capability', 'operation', 'state',
-               'cancel_requested', 'error', 'result_bytes', 'created_at', 'started_at', 'finished_at'}
+               'cancel_requested', 'error', 'result_bytes', 'created_at', 'started_at', 'finished_at', 'approval'}
 OUTBOUND_KEYS = {'peer_host_id', 'target', 'network_id', 'request', 'submit_state', 'status', 'result',
                  'cancel_state', 'attempts', 'next_attempt_at', 'error', 'status_queries'}
 DISCOVER_KEYS = {'agents', 'capabilities', 'unanswered'}
 DISCOVER_ENTRY_KEYS = {'address', 'host_id', 'kind', 'capability', 'operations', 'resources', 'state',
                        'unavailable', 'via'}
-CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running'}
+CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running', 'approvals_pending'}
 FINAL = {'succeeded', 'failed', 'rejected', 'expired', 'cancelled', 'uncertain'}
 LAPSED = 'authorization lapsed before start'
 JOIN_PROMPT = ('Let this machine use your capabilities on your other machines, and the tools of those that allow '
@@ -169,7 +176,7 @@ WORK_OPERATIONS = ['echo', 'info', 'sleep', 'fail', 'tool_error', 'big', 'crash'
 # daemon did not pass it.
 INTERPRETER_NAMES = {'LC_CTYPE'}
 CANARY = 'PEERSPAN_TOOLS_CANARY'
-CURRENT_VERSION = SCHEMA_VERSION   # The current migrated host schema.
+CURRENT_VERSION = SCHEMA_VERSION   # the current database version (host_service.SCHEMA_VERSION)
 DAY = 86400
 
 # The adopted test vector's inputs (Policy statement, version 2: Test vector). The contract gives inputs, not the
@@ -2179,7 +2186,7 @@ class Pairing:
             need(set(e) == PEER_ENTRY_KEYS, 'entries are {kind, capability, operations, resources, state, '
                  'unavailable, via}', e)
             for o in e['operations']:
-                need(set(o) == OPERATION_KEYS, 'operations are {name, description, input_schema, read_only}', o)
+                need(set(o) == OPERATION_KEYS, 'operations are {name, description, input_schema, read_only, approval}', o)
             for r in e['resources']:
                 need(set(r) == RESOURCE_KEYS, 'resources are {uri, name, description, mime_type}', r)
         names = [e['capability'] for e in body]
@@ -3583,10 +3590,10 @@ def check_migration(original, replacement, label):
             try:
                 for table in LINKING_TABLES:
                     connection.execute(f'DROP TABLE {table}')
-                # Version 18 (agent tools, slice 2) tables, when the binaries have them, go first: they refer to
-                # outbound_calls.
+                # Version 20 (per-call approval) and 18 (agent tools, slice 2) tables, when the binaries have them,
+                # go first: they refer to received_calls and outbound_calls.
                 connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                for table in ('adapter_calls', 'call_update_notifications'):
+                for table in (*APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
                     connection.execute(f'DROP TABLE IF EXISTS {table}')
                 for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                     connection.execute(f'DROP TABLE {table}')
@@ -3596,7 +3603,7 @@ def check_migration(original, replacement, label):
                 connection.close()
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'migrated to current host database version')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'migrated to the current version')
             tables = {r[0] for r in db_rows(host, "SELECT name FROM sqlite_master WHERE type = 'table'")}
             need(set(CAPABILITY_TABLES) | set(POLICY_EDIT_TABLES) <= tables, 'versions 16 and 17 add their tables',
                  sorted(tables))
@@ -3676,7 +3683,24 @@ def main():
     parser.add_argument('--old', type=Path, help='a peerspan-host built before capabilities slice 3 (for example from '
                         'main before it): the agent share cases (slice 3) run it as a host that predates the agent '
                         'lookup route; without it those cases are skipped')
+    parser.add_argument('--skip-approval', action='store_true', help='skip the per-call approval cases (slice 3 '
+                        'item B, capability_approval.py)')
+    parser.add_argument('--approval-only', action='store_true', help='run only the per-call approval cases and their '
+                        'migration')
+    parser.add_argument('--approval-section', action='append', help='run only this approval section (by name, such as '
+                        '"decisions"); repeatable')
+    parser.add_argument('--baseline18', type=Path, help='a version 18 peerspan-host (built from main before per-call '
+                        'approval, such as ef86f06): the version 18 to 20 migration opens its state, and the approval '
+                        'cases use it for their older-peer section')
     args = parser.parse_args()
+    if args.approval_only:
+        args.agents_only, args.skip_agents = True, True
+    approval = not args.skip_approval and not args.vector_only
+    if approval and not args.node:
+        parser.error('--node is required for the per-call approval cases (or pass --skip-approval)')
+    if approval and not args.baseline18:
+        parser.error('--baseline18 is required for the per-call approval cases (its older-peer and migration cases), '
+                     'or pass --skip-approval')
     if not args.skip_agents and not args.vector_only and not args.node:
         parser.error('--node is required for the agent tool cases (or pass --skip-agents)')
     timing = not args.skip_agents and (not args.agent_section or 'call timing' in args.agent_section)
@@ -3686,7 +3710,7 @@ def main():
     if timing and not args.vector_only and not args.baseline17:
         print('SKIP [agent tools: call timing]: no --baseline17, so the version 17 receiver case will be skipped',
               flush=True)
-    if args.skip_agents and args.agents_only:
+    if args.skip_agents and args.agents_only and not args.approval_only:
         parser.error('--skip-agents and --agents-only exclude each other')
     for tool in ('ssh-agent', 'ssh-add', 'ssh-keygen', 'openssl'):
         if not shutil.which(tool):
@@ -3706,6 +3730,7 @@ def main():
         if binaries[cli] is None or binaries[daemon] is None:
             parser.error(f'pairing {pairing} needs --rust')
     import capability_agents
+    import capability_approval
     available = [name for name, binary in binaries.items() if binary]
     if not args.skip_migration:
         for first in available:
@@ -3716,6 +3741,17 @@ def main():
                 if not args.skip_agents:
                     failures += once(f'migration 17→18 {first}→{second}', capability_agents.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}')
+                if approval:
+                    failures += once(f'migration 18→20 {first}→{second}', capability_approval.check_migration,
+                                     binaries[first], binaries[second], f'{first} state opened by {second}')
+                    failures += once(f'migration 19→20 {first}→{second}', capability_approval.check_migration,
+                                     binaries[first], binaries[second], f'{first} state opened by {second}', None,
+                                     19)
+        if args.baseline18 and approval:
+            for second in available:
+                failures += once(f'migration 18→20 baseline→{second}', capability_approval.check_migration,
+                                 binaries[second], binaries[second], f'version 18 baseline state opened by {second}',
+                                 args.baseline18.resolve())
         if args.baseline17 and not args.skip_agents:
             for second in available:
                 failures += once(f'migration 17→18 baseline→{second}', capability_agents.check_migration,
@@ -3737,6 +3773,12 @@ def main():
             results += capability_agents.run_share_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
                                                            args.node.resolve(), label, args.agent_section,
                                                            args.old.resolve() if args.old else None)
+        if approval:
+            results += capability_approval.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
+                                                       args.node.resolve(), label,
+                                                       args.integrations.resolve() if args.integrations else None,
+                                                       args.approval_section,
+                                                       args.baseline18.resolve() if args.baseline18 else None)
         for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')

@@ -26,7 +26,7 @@ fn item(kind: &str, subject: String, detail: String, command: String) -> (String
 
 /// Every kind in order; the CLI adds `service_not_installed` and
 /// `linger_disabled`.
-pub const ATTENTION_ORDER: [&str; 18] = [
+pub const ATTENTION_ORDER: [&str; 19] = [
     "coordination_error",
     "policy_expired",
     "policy_expiring",
@@ -45,6 +45,7 @@ pub const ATTENTION_ORDER: [&str; 18] = [
     "capability_name_conflict",
     "policy_edit_unsettled",
     "policy_edit_dropped",
+    "call_approval_pending",
 ];
 
 enum RenewalProvider {
@@ -382,6 +383,9 @@ impl Store {
         }
         for (kind, subject, detail, command) in self.edit_attention()? {
             attention.push(item(&kind, subject, detail, command));
+        }
+        if let Some((subject, detail, command)) = self.approval_attention()? {
+            attention.push(item("call_approval_pending", subject, detail, command));
         }
         let capabilities = self.capabilities_summary()?;
         attention.sort_by(|a, b| {

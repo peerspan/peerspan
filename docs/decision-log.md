@@ -31,7 +31,7 @@ Contents:
 - **Decision:** slice 3 covers four items, each designed in its own proposal. The owner accepted every recommendation in each proposal's "Owner decisions needed" list, so each proposal's recommended design is the design for its item.
 - **Recorded in:** [decision 16](capabilities-contract.md#owner-decisions) of the capabilities contract ([PR #77](https://github.com/peerspan/peerspan-internal/pull/77)), and each proposal's status line.
 - **Contract section:** none yet. Each item's contract section is added when it is implemented, and follows its proposal.
-- **Implementing PRs** (open on 2026-10-25): item B [#78](https://github.com/peerspan/peerspan-internal/pull/78), item C [#79](https://github.com/peerspan/peerspan-internal/pull/79), item D [#80](https://github.com/peerspan/peerspan-internal/pull/80). Item A: none yet.
+- **Implementing PRs:** item B [#78](https://github.com/peerspan/peerspan-internal/pull/78) (merged), item C [#79](https://github.com/peerspan/peerspan-internal/pull/79) (merged), item D [#80](https://github.com/peerspan/peerspan-internal/pull/80). Item A: none yet.
 
 Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
 
@@ -123,6 +123,8 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
 #### CAP-16B: approval of each call
 
 - **Source:** [capabilities-slice3-approval-proposal.md, Owner decisions needed](capabilities-slice3-approval-proposal.md#owner-decisions-needed), decisions 1–12 (proposal [PR #72](https://github.com/peerspan/peerspan-internal/pull/72)).
+- **Contract section:** [Per-call approval (slice 3)](capabilities-contract.md#per-call-approval-slice-3), and the input deletion schedule under the slice 1 Records section of the capabilities contract.
+- **Implemented in:** [PR #78](https://github.com/peerspan/peerspan-internal/pull/78).
 
 ##### CAP-16B.1. Where the requirement lives
 
@@ -227,6 +229,21 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
   - (b) A per-rule or per-capability setting.
 - **Chosen (the recommendation):** Recommend (a).
 - **Reason given:** It stops one caller from flooding the owner's list; `max_calls_per_hour` already bounds volume.
+
+##### CAP-16B, settled by the implementer (not owner decisions)
+
+These points were left open by the proposal and were settled by the implementer in [PR #78](https://github.com/peerspan/peerspan-internal/pull/78), choosing what fits the proposal best. They are not owner decisions; the owner may revisit them. Each is specified in the contract section above.
+
+- **CAP-16B.impl1. Database version.** 20, the next after machine linking's version 19 (PRs #63 and #68, which merged while this PR was open). A version 20 binary migrates databases at versions 0 to 19 and refuses anything above 20.
+- **CAP-16B.impl2. The status attention item.** Item 18, `call_approval_pending`, after item 17: one item while any approval is pending, with the pending count as subject and `peerspan approvals` as command.
+- **CAP-16B.impl3. Bare call IDs.** `approve`, `deny`, and `approvals show` accept a bare call ID, resolved through `GET /v1/approvals/{call_id}`: 409 `ambiguous` with sorted `candidates` when several senders used that call ID, 404 when none.
+- **CAP-16B.impl4. `capability approval` without a flag.** With neither `--agent-self` nor `--no-agent-self`, the current `agent_self` is kept; `PUT /v1/capabilities/{name}/approval` treats an absent `agent_self` the same way.
+- **CAP-16B.impl5. The input preview.** The input encoded as the call view encodes a result (so Go and Rust agree byte for byte), cut to at most 512 bytes on a UTF-8 character boundary, then U+007F and U+0080 to U+009F written as `\u` and four lowercase hex digits (the encoding already escapes characters below U+0020); `input_bytes` is the full length.
+- **CAP-16B.impl6. The listing's per-operation `approval`.** Advisory, and computed as if the call carries an `origin`: true when the operation is covered and the entry has a `policy` via entry or `agent_self` is true. The receiver decides at acceptance.
+- **CAP-16B.impl7. `share NAME --approval`.** Refused with exit 1 before anything is signed (also `--no-agent-self-approval`); `share` of an existing capability never changes its requirement. Only `capability create` and the guided share take the flags.
+- **CAP-16B.impl8. `deny` with an approval ID.** `deny` treats its argument as an approval ID exactly when it has one of the two ID forms (`call_` plus 32 lowercase hex digits, or `SENDER_HOST_ID/CALL_ID`); anything else is the access `deny PRINCIPAL`. `--reason` with a non-ID, and `--agent` or `--network` with an ID, are refused with exit 1 before any request.
+- **CAP-16B.impl9. Held status requests after a decision.** When the caller's daemon stores an approval that is no longer pending for a call that is not final, a new 60-second window of held status requests begins, as at acceptance, so an approved call's result also arrives at once rather than after backoff polling.
+- **CAP-16B.impl10. When inputs are deleted.** The receiver deletes the inputs and results of calls final for more than 7 days within 60 seconds of starting, and at least every 10 minutes after that.
 
 #### CAP-16C: sharing with one agent
 

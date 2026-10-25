@@ -211,6 +211,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("capability list", "list", "List this host's capabilities", 0)
 	add("capability show", "show NAME", "Show a capability and its recipients", 1)
 	add("capability remove", "remove NAME", "Remove a capability, withdrawing its shares", 1)
+	add("capability approval", "approval NAME (none|changing|all|OP[,OP...])", "Set which calls to a capability wait for your approval", 2)
 	add("share", "share [NAME]", "Share a capability with a principal", 0).Args = cobra.RangeArgs(0, 1)
 	add("shares", "shares", "List capabilities and their shares", 0)
 	add("unshare", "unshare NAME", "Withdraw a principal's access to a capability", 1)
@@ -229,7 +230,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 		if c.state == "" {
 			c.state = state
 		}
-		return executeCall(cmd.Context(), c, cmd.OutOrStdout())
+		return executeCall(cmd.Context(), c, cmd.OutOrStdout(), cmd.ErrOrStderr())
 	}
 	root.AddCommand(callCommand)
 	leaves = append(leaves, callCommand)
@@ -237,6 +238,16 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("calls received", "received", "List calls received by this host", 0)
 	add("calls inspect", "inspect ID", "Inspect an outbound call", 1)
 	add("calls cancel", "cancel ID", "Cancel an outbound call", 1)
+	add("approvals show", "show ID", "Show a call waiting for your approval", 1)
+	// approvals is the approvals group itself, listing approvals.
+	approvalsGroup := groups["approvals"]
+	approvalsGroup.Use, approvalsGroup.Short, approvalsGroup.Args = "approvals", "List calls waiting for your approval", cobra.NoArgs
+	approvalsGroup.RunE = func(cmd *cobra.Command, args []string) error {
+		return execute(cmd.Context(), []string{"approvals"}, cmd.Flags(), state, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	}
+	configureFlags(approvalsGroup, []string{"approvals"})
+	leaves = append(leaves, approvalsGroup)
+	add("approve", "approve ID", "Approve one call waiting for your approval, at a terminal", 1)
 	add("trust", "trust [HOST]", "Let a machine of yours use your capabilities", 0).Args = cobra.RangeArgs(0, 1)
 	add("untrust", "untrust HOST", "Stop a machine of yours using your capabilities", 1)
 	add("artifact list", "list", "List stored artifacts", 0)
@@ -245,7 +256,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("join", "join TOKEN", "Join a network with an invite", 1)
 	add("invite", "invite LABEL", "Invite a person to a network", 1)
 	add("allow", "allow PRINCIPAL", "Set a principal's access to your agents", 1)
-	add("deny", "deny PRINCIPAL", "Remove a principal's access to your agents", 1)
+	add("deny", "deny (PRINCIPAL | ID) [--reason TEXT]", "Remove a principal's access to your agents", 1)
 	add("block", "block TARGET", "Block a person or host locally", 1)
 	add("unblock", "unblock TARGET", "Remove a local block", 1)
 	add("network join", "join", "Join a coordinated network", 0)
@@ -448,6 +459,16 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("resources", "", "all, or URIs, comma-separated; adds the read operation")
 		fs.String("env-file", "", "the capability's own environment file, applied whole to its own instance")
 		fs.StringArray("arg", nil, "argument replacing the source's args in its own instance; repeatable")
+		fs.String("approval", "", "calls that wait for your approval: none, changing, all, or OP[,OP...]; default none")
+		fs.Bool("no-agent-self-approval", false, "calls from your own agents on your trusted machines do not wait for approval")
+	case "capability approval":
+		fs.Bool("agent-self", false, "calls from your own agents on your trusted machines also wait for approval")
+		fs.Bool("no-agent-self", false, "calls from your own agents on your trusted machines do not wait for approval")
+	case "approvals":
+		fs.Bool("all", false, "also list approvals decided in the last 7 days")
+		fs.Bool("json", false, "print the approvals object")
+	case "approvals show":
+		fs.Bool("json", false, "print the approval")
 	case "capability list":
 		fs.Bool("json", false, "print the daemon's listing")
 	case "capability remove":
@@ -463,6 +484,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("name", "", "guided share: the capability name")
 		fs.String("env-file", "", "guided share: the capability's own environment file")
 		fs.StringArray("arg", nil, "guided share: argument replacing the source's args; repeatable")
+		fs.String("approval", "", "guided share: calls that wait for your approval: none, changing, all, or OP[,OP...]")
+		fs.Bool("no-agent-self-approval", false, "guided share: calls from your own agents on your trusted machines do not wait for approval")
 	case "unshare":
 		fs.String("with", "", "the principal to remove")
 		fs.String("network", "", "network ID; defaults to the only network")
@@ -500,6 +523,9 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "allow", "deny":
 		fs.String("network", "", "network ID; defaults to the only network")
 		fs.String("agent", membership.PolicyAgentAll, "agent name the access covers; * means every agent of yours")
+		if command == "deny" {
+			fs.String("reason", "", "with a call ID: the reason the call is denied, at most 1024 bytes")
+		}
 		if command == "allow" {
 			fs.Bool("no-tasks", false, "allow messages only, not task.submit")
 			fs.String("files", "", "task artifact bound, a byte count with an optional K, M, or G suffix; default none")

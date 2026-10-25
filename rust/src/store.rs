@@ -145,7 +145,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=19).contains(&version) {
+        if !(0..=20).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -205,6 +205,9 @@ impl Store {
         }
         if version < 19 {
             tx.execute_batch(crate::link_runtime::SCHEMA)?;
+        }
+        if version < 20 {
+            tx.execute_batch(crate::approvals::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(

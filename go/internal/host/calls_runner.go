@@ -190,9 +190,11 @@ type queuedCall struct {
 	status  receivedCall
 }
 
-// queuedCalls reads the queued calls in arrival order.
+// queuedCalls reads the queued calls in arrival order, leaving out calls
+// whose approval is pending: they are never started, start no instance,
+// and take no slot.
 func (s *Store) queuedCalls(ctx context.Context) ([]queuedCall, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT request, record FROM received_calls WHERE json_extract(record, '$.state') = 'queued' ORDER BY rowid LIMIT 1000`)
+	rows, err := s.db.QueryContext(ctx, `SELECT request, record FROM received_calls WHERE json_extract(record, '$.state') = 'queued' AND json_extract(record, '$.approval.state') IS NOT 'pending' ORDER BY rowid LIMIT 1000`)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +291,7 @@ func (s *Store) startCall(ctx context.Context, q queuedCall) (bool, error) {
 	defer tx.Rollback()
 	now := time.Now()
 	c, err := readReceivedCall(ctx, tx, q.status.SenderHostID, q.status.CallID)
-	if err != nil || c.State != CallQueued {
+	if err != nil || c.State != CallQueued || (c.Approval != nil && c.Approval.State == ApprovalPending) {
 		return false, err
 	}
 	if deadline, err := parseTime(q.request.Deadline); err == nil && !deadline.After(now) {

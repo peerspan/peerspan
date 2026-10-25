@@ -7,6 +7,7 @@ import (
 	"github.com/peerspan/peerspan/go/internal/linking"
 	"github.com/peerspan/peerspan/go/internal/membership"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -92,6 +93,7 @@ func Handler(store *Store) http.Handler {
 	localSourceRoutes(mux, store)
 	localCapabilityRoutes(mux, store)
 	localCallRoutes(mux, store)
+	localApprovalRoutes(mux, store)
 	return store.presenceTouching(mux)
 }
 
@@ -160,6 +162,13 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 	if err != nil {
 		code, message := "internal", "internal error"
 		status = http.StatusInternalServerError
+		defer func() {
+			// An internal error's cause goes to the daemon's log, never to
+			// the response.
+			if status == http.StatusInternalServerError {
+				log.Printf("internal error: %v", err)
+			}
+		}()
 		var limited *CoordinatorLimitError
 		switch {
 		case errors.As(err, &limited):

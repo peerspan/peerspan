@@ -131,6 +131,22 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		return runShares(ctx, client, fs, out)
 	case "discover":
 		return runDiscover(ctx, client, args, fs, out)
+	case "approvals":
+		return runApprovals(ctx, client, args, fs, out)
+	case "approve":
+		return runApprove(ctx, client, args[1], out, errOut)
+	case "deny":
+		// deny ID denies a call waiting for approval; deny PRINCIPAL is
+		// access.
+		if isApprovalID(args[1]) {
+			if fs.Changed("agent") || fs.Changed("network") {
+				return errors.New("--agent and --network are for denying a principal's access, not a call waiting for approval")
+			}
+			return runDenyApproval(ctx, client, args[1], fs, out)
+		}
+		if fs.Changed("reason") {
+			return errors.New("--reason is for denying a call waiting for your approval: deny ID --reason TEXT")
+		}
 	case "calls":
 		method, path, err := callsRequest(args, fs)
 		if err != nil {

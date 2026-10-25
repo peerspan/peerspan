@@ -98,8 +98,10 @@ HOOK_LEAD = ('Peerspan work this session still owes, listed after /clear, compac
              'with the task_* tools, answer each delivery with reply, and check each call with call_status; call '
              'pending_work for the current list. ')
 LAPSED = 'authorization lapsed before start'
+# `approval`: per-call approval (slice 3) adds it to the call view.
 VIEW_KEYS = {'call_id', 'address', 'peer_host_id', 'operation', 'submit_state', 'state', 'error', 'created_at',
-             'deadline', 'result', 'result_part', 'truncated', 'result_bytes', 'offset', 'next_offset', 'note'}
+             'deadline', 'result', 'result_part', 'truncated', 'result_bytes', 'offset', 'next_offset', 'note',
+             'approval'}
 ENTRY_KEYS = {'address', 'host_id', 'capability', 'operations', 'resources', 'state', 'unavailable'}
 LISTING_KEYS = {'capabilities', 'unanswered'}
 META_KEYS = {'call_id', 'notification_id', 'address', 'operation', 'state', 'error', 'result_bytes', 'truncated',
@@ -2968,9 +2970,11 @@ def check_migration(original, replacement, label, baseline=None):
     """Version 17 to 18, with existing credentials reading calls false; the next version refused.
 
     With `baseline` (a version 17 peerspan-host), the version 17 state is made by it. Otherwise it is made by
-    `original` and taken back to version 17: the two version 18 tables and the index dropped, credential records
-    without the new fields, and user_version 17."""
-    from host_service import Host
+    `original` and taken back to version 17: the two version 18 tables and the index dropped (and the version 20
+    approval tables, which later binaries add), credential records without the new fields, and user_version 17.
+    Binaries since per-call approval migrate 17 on to the current version (host_service.SCHEMA_VERSION) and refuse
+    19, which is reserved."""
+    from host_service import APPROVAL_TABLES, SCHEMA_VERSION, Host
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-migration-') as directory:
         host = Host(baseline or original, Path(directory) / 'host')
         try:
@@ -2985,11 +2989,12 @@ def check_migration(original, replacement, label, baseline=None):
             if baseline:
                 need(db_rows(host, 'PRAGMA user_version')[0][0] == VERSION - 1, 'the baseline is version 17')
             else:
-                need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'Current host database version', label)
+                need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'the current database version',
+                     label)
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                    for table in (*LINKING_TABLES, *NEW_TABLES):
+                    for table in (*APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
                         connection.execute(f'DROP TABLE {table}')
                     connection.execute(f'PRAGMA user_version = {VERSION - 1}')
                     connection.commit()
@@ -2998,7 +3003,7 @@ def check_migration(original, replacement, label, baseline=None):
                 strip_call_fields(host.state / 'host.db')
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'migrated through version18 to current host schema')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'migrated to the current version')
             tables = {r[0] for r in db_rows(host, "SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
             need(set(NEW_TABLES) | {'adapter_calls_rate'} <= tables, 'migration creates the two tables and the index',
                  sorted(tables))

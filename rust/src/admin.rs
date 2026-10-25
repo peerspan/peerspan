@@ -45,6 +45,9 @@ impl Local<'_> {
     pub(crate) async fn post(&self, path: String, body: Value) -> anyhow::Result<Value> {
         self.call(Method::POST, path, Some(body)).await
     }
+    pub(crate) async fn put(&self, path: String, body: Value) -> anyhow::Result<Value> {
+        self.call(Method::PUT, path, Some(body)).await
+    }
     async fn network(&self, id: &str) -> anyhow::Result<Value> {
         self.get("/v1/networks".into())
             .await?

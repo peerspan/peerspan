@@ -961,6 +961,7 @@ func (s *Store) updateOutboundCall(ctx context.Context, peer, id string, change 
 		return out, err
 	}
 	wasFinal := outboundCallFinal(out)
+	wasAwaiting := out.Status != nil && out.Status.Approval != nil && out.Status.Approval.State == ApprovalPending
 	updates := change(&out)
 	if err = putJSON(ctx, tx, `UPDATE outbound_calls SET record = ? WHERE peer = ? AND call_id = ?`, out, peer, id); err != nil {
 		return out, err
@@ -986,6 +987,11 @@ func (s *Store) updateOutboundCall(ctx context.Context, peer, id string, change 
 	// stored.
 	if becameFinal {
 		s.signalFinal(callKey(peer, id))
+	}
+	// A decided approval of a call not yet final starts a new held window,
+	// so its result also arrives at once.
+	if wasAwaiting && !outboundCallFinal(out) && out.Status != nil && out.Status.Approval != nil && out.Status.Approval.State != ApprovalPending {
+		s.restartHeldWindow(callKey(peer, id), time.Now())
 	}
 	return out, nil
 }
@@ -1017,7 +1023,11 @@ func storeCallStatus(out *OutboundCall, st CallStatus, fromGet bool) int {
 	if out.Status != nil && (callFinal(out.Status.State) || stateRank(st.State) < stateRank(out.Status.State)) {
 		return 0
 	}
-	changed := out.Status == nil || out.Status.State != st.State || out.Status.CancelRequested != st.CancelRequested
+	// Nor does a decided approval go back to pending.
+	if out.Status != nil && out.Status.Approval != nil && out.Status.Approval.State != ApprovalPending && callApprovalState(st) == ApprovalPending {
+		return 0
+	}
+	changed := out.Status == nil || out.Status.State != st.State || out.Status.CancelRequested != st.CancelRequested || callApprovalState(*out.Status) != callApprovalState(st)
 	result := st.Result
 	st.Result = nil
 	out.Status = &st
@@ -1172,7 +1182,7 @@ func (s *Store) pollCallWait(ctx context.Context, peerID, id string, wait int) (
 		// one stored here.
 		path += "?wait=" + strconv.Itoa(wait)
 		if out.Status != nil {
-			path += "&state=" + url.QueryEscape(out.Status.State)
+			path += "&state=" + url.QueryEscape(out.Status.State) + "&approval=" + url.QueryEscape(callApprovalState(*out.Status))
 		}
 		timeout = time.Duration(wait) * time.Second
 		unlock()

@@ -175,7 +175,11 @@ type capabilityRecord struct {
 	} `json:"credential"`
 	State       string   `json:"state"`
 	Unavailable []string `json:"unavailable"`
-	Recipients  []struct {
+	Approval    struct {
+		Operations json.RawMessage `json:"operations"`
+		AgentSelf  *bool           `json:"agent_self"`
+	} `json:"approval"`
+	Recipients []struct {
 		NetworkID  string  `json:"network_id"`
 		Principal  string  `json:"principal"`
 		Label      *string `json:"label"`
@@ -217,6 +221,118 @@ type capabilitySpec struct {
 	envFile      string
 	args         []string
 	argsGiven    bool
+	// approval is the requirement's operations as given ("" when not
+	// given); noAgentSelf sends agent_self false.
+	approval    string
+	noAgentSelf bool
+}
+
+// approvalOperations is the JSON operations of an approval mode given on
+// the command line: none, changing, all, or OP[,OP...].
+func approvalOperations(mode string) any {
+	switch mode {
+	case "none", "changing", "all":
+		return mode
+	}
+	list := splitList(mode)
+	if list == nil {
+		list = []string{}
+	}
+	return list
+}
+
+// approvalRequest is the approval object for a spec, or nil when neither
+// --approval nor --no-agent-self-approval was given.
+func (spec capabilitySpec) approvalRequest() map[string]any {
+	if spec.approval == "" && !spec.noAgentSelf {
+		return nil
+	}
+	mode := spec.approval
+	if mode == "" {
+		mode = "none"
+	}
+	body := map[string]any{"operations": approvalOperations(mode)}
+	if spec.noAgentSelf {
+		body["agent_self"] = false
+	}
+	return body
+}
+
+// approvalMode reads a record's approval operations: the mode, or "" and
+// the list.
+func (c capabilityRecord) approvalMode() (string, []string) {
+	var mode string
+	if json.Unmarshal(c.Approval.Operations, &mode) == nil && mode != "" {
+		return mode, nil
+	}
+	var list []string
+	if json.Unmarshal(c.Approval.Operations, &list) == nil && list != nil {
+		return "", list
+	}
+	return "none", nil
+}
+
+// approvalText is the readable approval of capability list: MODE and
+// +agent_self or -agent_self.
+func (c capabilityRecord) approvalText() string {
+	mode, list := c.approvalMode()
+	if mode == "" {
+		mode = strings.Join(list, ",")
+	}
+	self := "+agent_self"
+	if c.Approval.AgentSelf != nil && !*c.Approval.AgentSelf {
+		self = "-agent_self"
+	}
+	return mode + " " + self
+}
+
+// writeTool reports whether a selected operation is a tool the snapshot
+// does not mark read-only.
+func writeTool(server sourceServer, op string) bool {
+	for _, t := range server.Tools {
+		if t.Name == op {
+			return !t.ReadOnly
+		}
+	}
+	return true
+}
+
+// printApprovalReview prints share's approval lines: at most one line for
+// the covered operations, then under changing the warning about tools the
+// server marks.
+func printApprovalReview(errOut io.Writer, c capabilityRecord, server sourceServer) {
+	mode, list := c.approvalMode()
+	ops := append([]string{}, c.Operations...)
+	if string(c.Resources) != "" && string(c.Resources) != "null" {
+		ops = append(ops, "read")
+	}
+	var covered []string
+	anyWrite := false
+	for _, op := range ops {
+		write := op != "read" && writeTool(server, op)
+		anyWrite = anyWrite || write
+		switch mode {
+		case "changing":
+			if write {
+				covered = append(covered, op)
+			}
+		case "":
+			if contains(list, op) {
+				covered = append(covered, op)
+			}
+		}
+	}
+	switch {
+	case mode == "all":
+		fmt.Fprintln(errOut, "Every call waits for your approval at this machine (peerspan approvals).")
+	case len(covered) > 0:
+		fmt.Fprintf(errOut, "Calls to %s wait for your approval at this machine (peerspan approvals).\n", strings.Join(covered, ", "))
+	case anyWrite:
+		fmt.Fprintf(errOut, "No call waits for your approval. To require it: peerspan capability approval %s changing\n", c.Name)
+	}
+	if mode == "changing" {
+		fmt.Fprintln(errOut, "Tools are marked by the server itself; a tool it wrongly marks read-only runs without approval.")
+	}
 }
 
 // createBody is the POST /v1/capabilities body for a spec.
@@ -246,6 +362,9 @@ func createBody(listing sourcesListing, spec capabilitySpec) (map[string]any, er
 	if spec.argsGiven {
 		body["args"] = spec.args
 	}
+	if approval := spec.approvalRequest(); approval != nil {
+		body["approval"] = approval
+	}
 	return body, nil
 }
 
@@ -274,6 +393,12 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		spec.envFile, _ = fs.GetString("env-file")
 		spec.args, _ = fs.GetStringArray("arg")
 		spec.argsGiven = fs.Changed("arg")
+		if fs.Changed("approval") {
+			if spec.approval, _ = fs.GetString("approval"); spec.approval == "" {
+				spec.approval = ","
+			}
+		}
+		spec.noAgentSelf, _ = fs.GetBool("no-agent-self-approval")
 		if spec.source == "" {
 			return errors.New("capability create needs --from SOURCE")
 		}
@@ -314,6 +439,7 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 			if string(c.Resources) != "null" {
 				fmt.Fprintf(out, "  resources: %s", c.Resources)
 			}
+			fmt.Fprintf(out, "  approval: %s", c.approvalText())
 			fmt.Fprintf(out, "  recipients: %d\n", len(c.Recipients))
 		}
 		return nil
@@ -325,6 +451,21 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		return printJSON(out, data)
 	case "remove":
 		return removeCapability(ctx, client, args[2], fs, out, errOut)
+	case "approval":
+		self, _ := fs.GetBool("agent-self")
+		noSelf, _ := fs.GetBool("no-agent-self")
+		if self && noSelf {
+			return errors.New("give --agent-self or --no-agent-self, not both")
+		}
+		body := map[string]any{"operations": approvalOperations(args[3])}
+		if self || noSelf {
+			body["agent_self"] = self
+		}
+		data, err := client.Call(ctx, "PUT", "/v1/capabilities/"+url.PathEscape(args[2])+"/approval", body)
+		if err != nil {
+			return err
+		}
+		return printJSON(out, data)
 	}
 	return invalidCommand()
 }
@@ -453,6 +594,7 @@ func printReview(errOut io.Writer, address string, c capabilityRecord, server so
 	if string(c.Resources) != "" && string(c.Resources) != "null" {
 		fmt.Fprintf(errOut, "  read, over resources: %s\n", c.Resources)
 	}
+	printApprovalReview(errOut, c, server)
 	if c.Credential.EnvFile != nil || c.Credential.Args != nil {
 		fmt.Fprintf(errOut, "Credentials: the capability's own environment file %s", deref(c.Credential.EnvFile))
 		if c.Credential.Args != nil {
@@ -499,6 +641,12 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 	spec.envFile, _ = fs.GetString("env-file")
 	spec.args, _ = fs.GetStringArray("arg")
 	spec.argsGiven = fs.Changed("arg")
+	if fs.Changed("approval") {
+		if spec.approval, _ = fs.GetString("approval"); spec.approval == "" {
+			spec.approval = ","
+		}
+	}
+	spec.noAgentSelf, _ = fs.GetBool("no-agent-self-approval")
 	yes, _ := fs.GetBool("yes")
 	listing, err := readSources(ctx, client, "/v1/sources")
 	if err != nil {
@@ -551,6 +699,23 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 		fmt.Fprint(errOut, "Operations (comma-separated tool names): ")
 		spec.operations = splitList(readLine())
 	}
+	// Without --approval, a selection with a tool that can change things
+	// asks whether its calls wait for approval.
+	if !fs.Changed("approval") {
+		write := false
+		for _, op := range spec.operations {
+			write = write || writeTool(server, op)
+		}
+		if write {
+			fmt.Fprint(errOut, "Require your approval for each call to tools that can change things? [Y/n] ")
+			switch strings.ToLower(readLine()) {
+			case "", "y", "yes":
+				spec.approval = "changing"
+			default:
+				spec.approval = "none"
+			}
+		}
+	}
 	if !fs.Changed("resources") && len(server.Resources) > 0 {
 		if askYes(errOut, fmt.Sprintf("Include its %d resources?", len(server.Resources))) {
 			spec.resources = "all"
@@ -573,6 +738,10 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 	yes, _ := fs.GetBool("yes")
 	if given == "" {
 		return errors.New("share needs --with PRINCIPAL")
+	}
+	// share NAME never changes an existing capability's requirement.
+	if len(args) >= 2 && (fs.Changed("approval") || fs.Changed("no-agent-self-approval")) {
+		return fmt.Errorf("share %s never changes its approval requirement; use peerspan capability approval %s MODE", args[1], args[1])
 	}
 	var calls int64
 	if fs.Changed("calls-per-hour") {
@@ -635,6 +804,14 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		}
 		if spec.argsGiven {
 			c.Credential.Args = spec.args
+		}
+		if approval := spec.approvalRequest(); approval != nil {
+			c.Approval.Operations, _ = json.Marshal(approval["operations"])
+			if self, ok := approval["agent_self"].(bool); ok {
+				c.Approval.AgentSelf = &self
+			}
+		} else {
+			c.Approval.Operations = json.RawMessage(`"none"`)
 		}
 	} else {
 		name = args[1]
@@ -1215,7 +1392,11 @@ func runDiscover(ctx context.Context, client host.Client, args []string, fs *pfl
 	for _, c := range d.Capabilities {
 		var names []string
 		for _, op := range c.Operations {
-			names = append(names, op.Name)
+			name := op.Name
+			if op.Approval {
+				name += " (needs approval)"
+			}
+			names = append(names, name)
 		}
 		line := fmt.Sprintf("  %s  %s  %s", c.Address, c.State, strings.Join(names, ", "))
 		if c.ForAgents != nil {

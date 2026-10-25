@@ -1,11 +1,11 @@
 # Capabilities contract
 
-Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; and slice 2: [agent tools](#agent-tools-slice-2).
+Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; slice 2: [agent tools](#agent-tools-slice-2); and slice 3: [sharing with one agent](#sharing-with-one-agent-slice-3) and [per-call approval](#per-call-approval-slice-3).
 - **Public surface.** It follows the CLI experience agreed on 2026-10-16 in the system design (`docs-internal`, `docs/cli-spec.md`).
 - **Background.** The [remote tools proposal](remote-tools-proposal.md) and [credentials for shared tools](tool-credentials.md) give the background. Their MCP-server sharing model is superseded.
 - **What it builds on.** The [task contract](task-contract.md) for call records, retry, and polling; owner access policy in the [coordination contract](coordination-contract.md); and `attach`, self access, and status in the [launch contract](launch-contract.md).
 
-Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Each item is specified here as it is implemented; [sharing with one agent](#sharing-with-one-agent-slice-3) is. The designs are in four proposals:
+Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Its designs are in four proposals, and each item's section is added here when it is implemented; [sharing with one agent](#sharing-with-one-agent-slice-3) and [per-call approval](#per-call-approval-slice-3) are specified:
 - remote MCP servers and OAuth ([proposal](capabilities-slice3-remote-proposal.md));
 - approval of each call ([proposal](capabilities-slice3-approval-proposal.md));
 - sharing with one agent, and `call --from-agent` ([proposal](capabilities-slice3-agent-shares-proposal.md));
@@ -377,7 +377,7 @@ The list starts empty. Calls already running when a host is closed finish, and q
 
 ### Records
 
-The receiver stores the request, the status record, and the result. Seven days after the call becomes final, the request's `input` and the result are deleted. The status record and `input_sha256` remain.
+The receiver stores the request, the status record, and the result. Seven days after the call becomes final, the request's `input` and the result are deleted. The status record and `input_sha256` remain. The daemon deletes them within 60 seconds of starting, and at least every 10 minutes after that.
 
 ### Discovery and calls from the CLI
 
@@ -950,6 +950,263 @@ Principals of agents that are gone are never removed automatically. Each still u
 - **Unchanged:** the policy v2 test vector.
 
 `conformance/launch_onboarding.py` gains the `allow` and `deny` cases listed in the [launch contract](launch-contract.md#verification-2).
+
+## Per-call approval (slice 3)
+
+Roadmap milestone 10, slice 3, item B, as accepted in [decision 16](#owner-decisions) from its [proposal](capabilities-slice3-approval-proposal.md). The owner can require that calls to selected operations of a capability wait until the person approves each one at a terminal on the serving host. It extends the calls, agent tools, and status sections above; where they differ, this section applies. The behavior is the same in Go and Rust hosts and in the shared Node adapter.
+
+Out of scope: approving from another machine or a dashboard, signed approvals, approvals that cover more than one call, per-recipient exemptions, and deadlines longer than 15 minutes.
+
+### Terms
+
+| Term | Meaning |
+| --- | --- |
+| **Approval requirement** | The `approval` field of a capability record: which operations need approval, and whether self-access calls from agents do. |
+| **Approval** | The record of one received call's approval, keyed like the call by `(sender, call_id)`: `pending`, then `approved`, `denied`, `expired`, or `cancelled`. |
+| **Approver** | The person, acting through the owner CLI on the serving host. Agents never approve. |
+
+An approval covers exactly one call: one sender, one `call_id`, one input. It never covers another call, even one with the same input.
+
+### The requirement
+
+The capability record gains `approval`:
+
+```json
+"approval": {"operations": "changing", "agent_self": true}
+```
+
+- **`operations`** is one of:
+  - `"none"`: no call needs approval;
+  - `"changing"`: a call to a tool operation needs approval when that tool's entry in the snapshot the call runs against (the capability's own snapshot for a capability with its own credential, otherwise the source's), read when the call is accepted, has `read_only` false. `read` never needs approval under `"changing"`;
+  - `"all"`: every operation, `read` included;
+  - a list of operation names: each is one of the record's `operations`, or `read` when the record has `resources`. The list is non-empty, and is stored without duplicates, sorted by byte order.
+- **`agent_self`** is a boolean, default `true` (see [Which calls need approval](#which-calls-need-approval)).
+- **Reading.** A record without `approval`, including every record written before this slice, reads as `{"operations": "none", "agent_self": true}`, and every response that shows a capability record shows `approval` in that form.
+- **Sources.** A source called as an implicit capability (`AGENT/SERVER`) never needs approval.
+- **Not in policy.** The requirement lives only in the record on the serving host. It is never signed, never sent to coordination, and changing it signs nothing.
+
+### Commands
+
+| CLI | Local API | Behavior |
+| --- | --- | --- |
+| `capability create NAME --from SOURCE … [--approval none\|changing\|all\|OP[,OP...]] [--no-agent-self-approval]` | `POST /v1/capabilities` gains optional `approval: {operations, agent_self}` | Stores the requirement with the record. An absent `approval` means `{"operations": "none", "agent_self": true}`; within it, an absent `agent_self` means `true`. `--no-agent-self-approval` sends `agent_self: false`; without `--approval` it sends `operations: "none"`. A list name that is not an operation of the record (or `read` without `resources`), an empty list, or any other value is 400. `approval` is part of the record for the repeat rule, compared after reading defaults: an identical repeat returns 200, a different one 409. |
+| `capability approval NAME (none\|changing\|all\|OP[,OP...]) [--agent-self\|--no-agent-self]` | `PUT /v1/capabilities/{name}/approval` with `{operations, agent_self}` | Replaces the requirement and returns the record as `capability show` does, with status 200. `operations` is required, with the values and refusals of `create`. `agent_self` is optional: absent keeps the record's current value; the CLI sends it only when `--agent-self` or `--no-agent-self` is given (both together are refused with exit 1 before any request). Signs nothing and needs no person key. Records `capability.approval_changed` (subject: the name), also when nothing changed. An unknown name is 404. It applies to calls accepted afterwards (see [Acceptance](#acceptance-with-approval)). |
+| `capability show NAME`, `capability list [--json]`, `shares [--json]` | `GET /v1/capabilities`, `GET /v1/capabilities/{name}` | Show `approval` in every record. The readable `capability list` line adds `approval: MODE`, where `MODE` is `none`, `changing`, `all`, or the list joined with `,`, and `+agent_self` or `-agent_self`. |
+| `share NAME --with …` | as before | The review gains the approval lines (below). `share` of an existing capability never changes its requirement; `--approval` or `--no-agent-self-approval` given with `share NAME` is refused with exit 1 before anything is signed. |
+| guided `share --with … [--approval …] [--no-agent-self-approval]` | as before | Creates the capability with the requirement. At a terminal, when `--approval` is not given and any selected operation is a tool whose snapshot entry has `read_only` false, it asks right after the operations are chosen: `Require your approval for each call to tools that can change things? [Y/n] `, reading one line from stdin. An empty line, `y`, or `yes` (any case) means `changing`; anything else means `none`. Without a terminal, or with `--approval`, nothing is asked and `--approval` decides, absent meaning `none`. `--no-agent-self-approval` sets `agent_self` false either way. |
+
+**The review lines.** `share` prints, on stderr, right after the operation and resource lines of the review and before the credential line, at most one of these lines, where the covered operations are those the requirement covers (every tool with `read_only` false under `"changing"`; the list's names under a list; every operation under `"all"`), in the order of the record's `operations` followed by `read`:
+- under `"all"`: `Every call waits for your approval at this machine (peerspan approvals).`
+- otherwise, when at least one operation is covered: `Calls to OP, OP wait for your approval at this machine (peerspan approvals).`, with the covered operations joined by `, `;
+- otherwise, when some selected tool has `read_only` false: `No call waits for your approval. To require it: peerspan capability approval NAME changing`, with `NAME` the capability name;
+- otherwise nothing.
+
+Under `"changing"`, it then prints one more line: `Tools are marked by the server itself; a tool it wrongly marks read-only runs without approval.`
+
+### Which calls need approval
+
+At acceptance, a call needs approval when both hold:
+1. **The operation is covered:** the capability's requirement covers the call's operation, as defined above.
+2. **The call is not exempt.** Exempt are:
+   - every call to a source;
+   - a call citing `self` without `origin` (the person at the CLI of a trusted machine);
+   - a call citing `self` with `origin`, when `agent_self` is false.
+
+A call citing `policy` follows the requirement, whatever its origin.
+
+<a id="acceptance-with-approval"></a>
+### Acceptance
+
+`POST /peer/v1/calls` authorizes exactly as before: citation, blocks, capability, bounds, and budget, in that order, with the same refusals. A repeat of an accepted `call_id` is answered as before, before any of the following, and creates nothing. Then, for a new call:
+1. **Need.** It decides whether the call needs approval, as above. The decision is made once and stored: changing the capability's requirement later never adds or removes the approval of a call already accepted. A call accepted without approval runs without it even if approval is turned on while it is queued; turning approval off neither approves nor removes pending approvals.
+2. **Pending limit.** At most 20 approvals may be `pending` per pending key. The pending key of a call citing `policy` is its budget key (rule identity and caller, as for `max_calls_per_hour`); of a call citing `self`, it is the caller alone: the sender's bound person in the cited network, or else the sender's host ID. A call that would be the 21st is refused with 429 `{code: "limit", error: "too many calls are waiting for approval", limit: "max_pending_approvals"}` and persists nothing. The check follows the budget check, so a call over both limits gets the `max_calls_per_hour` refusal.
+3. **Persist.** In one transaction: the received call as `queued`; its approval as `pending`, with `expires_at` equal to the call's `deadline`; the [notice](#the-notice) for the capability's source agent; and the activities `call.received` and `call.approval_requested`.
+4. **Answer.** 200 with the status record, whose `approval` is the pending object.
+
+The call counts against `max_calls_per_hour` at acceptance, as any accepted call, whether it is later approved, denied, expired, or cancelled.
+
+### The approval record
+
+`{sender_host_id, call_id, state, capability, operation, changes_things, caller, origin, input_sha256, requested_at, expires_at, decided_at, reason}`:
+- `state`: `pending`, `approved`, `denied`, `expired`, or `cancelled`.
+- `changes_things`: for a tool operation, the negation of its snapshot entry's `read_only` at acceptance; `false` for `read`.
+- `caller`: `{person_id, person_label, host_id, via}`. `host_id` is the sender. `person_id` is the sender's bound person in the cited network, or null. `person_label` is that person's binding label in the cited network's map, as message events show it, or null. `via` is `policy` or `self`, as cited.
+- `origin`: the call's `origin` (`{agent_id, session_id}`), or null.
+- `input_sha256`: as stored with the received call.
+- `requested_at`: the acceptance time. `expires_at`: the call's deadline. `decided_at`: when the state left `pending`, or null. All RFC3339.
+- `reason`: the denial reason, or null.
+
+The record never holds the input itself; the input stays in the received call's request and is deleted with it, 7 days after the call becomes final.
+
+### Transitions
+
+| From | Event | Approval | Call | Activity |
+| --- | --- | --- | --- | --- |
+| `pending` | `approve` | `approved` | stays `queued`; the dispatcher may start it | `call.approved` |
+| `pending` | `deny` | `denied`, with `reason` | `rejected`, `error` `approval_denied` | `call.denied`, `call.finished` |
+| `pending` | the call's deadline passes | `expired` | `expired`, `error` `approval_timeout` | `call.approval_expired`, `call.finished` |
+| `pending` | the caller cancels | `cancelled` | `cancelled`, as for any queued call | `call.cancel_requested`, `call.finished` |
+| `approved` | the dispatcher starts the call | unchanged | `running`, after the recheck | `call.started` |
+
+- **Each one once.** Every transition happens in one transaction with its call change and activities, and sets `decided_at` when it leaves `pending`. Approving or denying an approval that is no longer `pending` changes nothing and returns 409 `{code: "conflict", error: "the call is no longer waiting for approval", approval: RECORD}`.
+- **Dispatch.** The dispatcher never starts a call whose approval is `pending`, and never starts or keeps alive a server instance for one. A pending call takes no concurrency slot.
+- **Recheck.** An approved call is rechecked immediately before it starts, as any call. A failure rejects it with `authorization lapsed before start` (for example after `unshare` or `capability remove`); a recoverable failure leaves it queued as before. Approval never overrides authorization.
+- **Deadline.** A call approved but not yet started at its deadline becomes `expired` as any queued call, with `error` null; its approval stays `approved`. A pending approval expires at the deadline even while no request reaches the daemon: the daemon checks at least every 5 seconds.
+- **Restart.** Approvals persist. After a daemon restart, pending calls stay pending, approved calls stay queued and start normally, and approvals past their deadline expire as above.
+
+### The status record
+
+The peer status record (`POST /peer/v1/calls`, `GET /peer/v1/calls/{id}`, `POST /peer/v1/calls/{id}/cancel`, and `calls received`) gains `approval`, null when the call needed none, and otherwise:
+
+```json
+"approval": {"state": "pending", "requested_at": "RFC3339", "expires_at": "RFC3339", "decided_at": null, "reason": null}
+```
+
+- **States on the wire.** `state` stays one of the eight call states. A call is `queued` while its approval is pending, and while it is approved and not yet started.
+- **Errors.** `error` gains `approval_denied` (with `rejected`) and `approval_timeout` (with `expired`).
+- **Older callers** ignore the unknown field, so they keep working: they see `queued`, then the final state.
+
+### Held status requests
+
+`GET /peer/v1/calls/{id}?wait=N&state=S` gains an optional `approval=A`, the approval state the caller last stored: one of the five approval states, or `none` when it stored no approval. The receiver also answers as soon as the call's approval state (`none` when the call has no approval) differs from `A`, so a held request answers within 1 second of an approval or denial. With `approval` but without `wait`, it answers at once. An `approval` value outside these six is 400. A host that predates this ignores the parameter.
+
+### Telling the person
+
+**Status.**
+- `GET /v1/status` `capabilities` gains `approvals_pending`, the number of approvals in `pending`.
+- **Attention item 18, `call_approval_pending`**, after item 17. One item while at least one approval is pending. Subject: the number of pending approvals as a decimal string. Detail (free text): the oldest pending call's capability, operation, caller, and `expires_at`. Command: `peerspan approvals`.
+
+<a id="the-notice"></a>**The notice.** With each approval, the daemon creates a notice for the capability's source agent (`source.agent` of the record), so that the person, who is often working in that agent's session, learns of it there.
+- **Record.** `{id, sender_host_id, call_id, agent_id, session_id, state, created_at}`, with an ID of `notice_` and 32 lowercase hex digits. `session_id` is null until claimed. `state` is `unknown`, `forwarded`, or `void`.
+- **Claim.** `POST /adapter/v1/approval-notices/next` with `{}` requires the adapter's credential and lease, as `/adapter/v1/next` does, and a verified channel: before verification it answers 409 `{code: "conflict", error: "channel not verified"}`, as the other work routes do. It does not need `calls` on the credential. It claims the oldest notice (by `created_at`, then ID) whose `agent_id` is this session's agent, whose `session_id` is null, and whose approval is still `pending`, binds it to this session, and returns `{notice, approval}`, where `approval` is the approval record; or `null` when there is none.
+- **Void.** A notice whose approval leaves `pending` before the notice is claimed becomes `void` and is never offered.
+- **Forwarded.** `POST /adapter/v1/approval-notices/{id}/forwarded` with `{}` sets `state` `forwarded` and returns the notice. Idempotent; a notice claimed by another credential, or an unknown ID, is 404.
+- **Once.** A notice is claimed once, by one session, and never redelivered. It has no `seen`, `mark_seen` does not accept its ID, and it is not listed in `pending_work`. Claims and forwards record no activity.
+- **The event.** For each claimed notice, the shared adapter emits a channel event with `meta.kind` `approval_request` and `meta` `{notice_id, call_id, sender_host_id, caller, origin_agent_id, capability, operation, changes_things, expires_at}`, then acknowledges it through `forwarded`. `caller` is the approval's `caller.person_label`, or `caller.host_id` when the label is null; `origin_agent_id` is `origin.agent_id` or null. A channel that cannot carry null meta values omits those keys. The content is exactly:
+
+  `A call to your capability CAPABILITY (OPERATION) from CALLER is waiting for the person's approval, until EXPIRES. You cannot approve or deny it. Tell the person, and ask them to run peerspan approvals in a terminal on this machine.`
+
+  with `CAPABILITY`, `OPERATION`, and `CALLER` as in `meta`, and `EXPIRES` the approval's `expires_at`. Neither the content nor `meta` ever includes the call's input.
+- **What agents cannot do.** No adapter route or MCP tool lists, approves, or denies approvals.
+
+### Approving
+
+| CLI | Local API | Behavior |
+| --- | --- | --- |
+| `approvals [--all] [--json]` | `GET /v1/approvals?state=pending\|all` | `state` defaults to `pending`; any other value is 400. `pending` lists pending approvals; `all` lists them and every other approval whose `decided_at` is within the last 7 days. Sorted oldest first by `requested_at`, then `sender_host_id`, then `call_id`. The JSON is `{approvals: [ITEM]}`, where `ITEM` is the approval record plus `input_preview` and `input_bytes`. `--json` prints it; otherwise one readable line per approval, which contains its `SENDER_HOST_ID/CALL_ID`, and `No calls are waiting for your approval.` when there is none. |
+| `approvals show ID [--json]` | `GET /v1/approvals/{sender}/{call_id}` | One approval, in any state: the approval record plus `input_preview`, `input_bytes`, and `input`, the input object, or null once it has been deleted. `--json` prints it; otherwise readable text with the whole input pretty-printed and escaped (below), and the capability's source and credential context when the capability still exists. |
+| `approve ID` | `POST /v1/approvals/{sender}/{call_id}/approve` with `{}` | Needs a terminal (below). Prints what `approvals show` prints to stderr, asks `Approve this call? It runs once, with the credentials it runs with on this machine. [y/N] `, reading one line from stdin, and on `y` or `yes` (any case) approves and prints the returned record on stdout as JSON. Any other answer exits 1 with nothing changed. When the shown approval is not `pending`, it asks nothing and sends the request, whose 409 makes it exit 1. The route returns 200 with the approval record. |
+| `deny ID [--reason TEXT]` | `POST /v1/approvals/{sender}/{call_id}/deny` with `{reason}` | Denies at once, with no prompt and with or without a terminal, and prints the returned record on stdout as JSON. `reason` is optional, a string or null; an empty string reads as null; more than 1,024 bytes of UTF-8 is 400. The route returns 200 with the approval record. |
+| (ID resolution) | `GET /v1/approvals/{call_id}` | Resolves a bare call ID: 200 with what `GET /v1/approvals/{sender}/{call_id}` returns when exactly one approval has that `call_id`, 409 `{code: "ambiguous", error, candidates: ["SENDER_HOST_ID/CALL_ID", ...]}` (sorted) when several senders used it, and 404 when none. |
+
+- **`deny` and access `deny`.** `deny PRINCIPAL` ([launch contract](launch-contract.md)) keeps its meaning. `deny` treats its argument as an approval `ID` exactly when it has one of the two `ID` forms below; anything else is the access `deny`. `--reason` with an argument that is not an `ID` is refused with exit 1 before any request, as is `--agent` or `--network` with an `ID`.
+- **`ID`** is a call ID (`call_` and 32 lowercase hex digits), or `SENDER_HOST_ID/CALL_ID`. The CLI resolves a bare ID through `GET /v1/approvals/{call_id}`, then uses the full form. Anything else is refused with exit 1 before any request.
+- **Refusals.** An unknown approval is 404, an approval no longer pending is 409 as above, and the CLI exits 1 for each, printing the daemon's error on stderr.
+- **`approve` needs a terminal.** When stdin is not a terminal, `approve` exits 1 before any request, printing on stderr a line that contains `peerspan approve needs a terminal: approval must come from the person.` It has no `--yes`. `deny` and `approvals` work without a terminal, because denying only narrows.
+- **Where.** Only on the serving host, at its local administration socket. No peer route approves.
+- **The remaining limit.** A process running as the same OS user can reach the local administration socket directly; this is the existing owner-local trust boundary. The terminal check stops the person's agent from approving through Peerspan's own surfaces, not a deliberately misbehaving local process.
+
+**The input preview.** The input text is the input object encoded as the call view encodes a result ([The call view](#adapter-routes): no whitespace, keys sorted by UTF-8 bytes, numbers as sent, minimal string escapes), so it is the same in Go and Rust. `input_bytes` is its length in bytes. `input_preview` is its longest prefix of at most 512 bytes that ends on a UTF-8 character boundary, with U+007F and U+0080 to U+009F then written as `\u` and four lowercase hex digits (the encoding already escapes characters below U+0020). Both are null once the input has been deleted.
+
+**Showing untrusted text.** The input, person labels, and origin IDs come from the caller. In its readable output, the CLI writes every character below U+0020 (other than the line breaks of its own layout), U+007F, and U+0080 to U+009F in anything it prints from them as `\u` and four lowercase hex digits, so no terminal escape sequence reaches the terminal. The pretty-printed input in `approvals show` and `approve` uses the same escapes.
+
+### What the caller sees
+
+**The capability listing.** In `GET /peer/v1/capabilities`, each operation of a `capability` entry gains `approval`, a boolean: `true` when the operation is covered by the requirement and either the entry has a `via` entry of kind `policy` or `agent_self` is true; otherwise `false`. It is advisory, assumes the call carries an `origin`, and the receiver decides at acceptance; a self-access call without `origin` never needs approval. Operations of `source` entries have `approval: false`. `GET /v1/discover`, `GET /adapter/v1/capabilities`, and `list_capabilities` carry it through unchanged; an entry from a host that predates this has none, which reads as `false` and is shown as `false` by this host. Readable `discover` prints ` (needs approval)` right after such an operation's name.
+
+**The outbound record.** The stored `status` includes the receiver's `approval` as returned, null for a receiver that predates this.
+
+**Results without polling.** While the stored status is `queued` and its `approval` is `pending`, the caller's daemon keeps sending held status requests (`wait=10&state=S&approval=pending`, one at a time as before) past the first 60 seconds after acceptance, until the stored approval is no longer pending or the call is final. When it stores an approval that is no longer pending for a call that is not final, a new 60-second window of held requests begins, as at acceptance, so the result of an approved call also arrives at once; after it, the call is polled with backoff as usual. So an approval or denial reaches the caller within 2 seconds of the decision. After a daemon restart, a call whose stored approval is pending is followed this way again.
+
+**`call`.** When `call` exits 3 and the record's stored approval is `pending`, it prints on stderr one line: `Waiting for OWNER to approve this call (until EXPIRES). Check it later with peerspan calls inspect --peer HOST ID.`, where `OWNER` is the `PERSON` of a `PERSON/CAPABILITY` address and otherwise the host ID, `EXPIRES` the approval's `expires_at`, `HOST` the peer host ID, and `ID` the call ID. Its exit code stays 3, and `--wait` keeps its 15-minute maximum. `calls list` and `calls inspect` show `approval` inside `status`.
+
+**The agent's call view** gains `approval`, the stored status's `approval`, or null.
+- **State.** `state` is `awaiting_approval` when the stored status is `queued` and its `approval.state` is `pending`; otherwise as before.
+- **Note.** For `awaiting_approval`, exactly: `The capability's owner must approve this call before it runs; it has not run. Its result arrives as a kind=call_update event; call_status reports it at any time. Do not call it again: a new call needs a new approval.`
+- **Timing.** `call_capability` still returns within the wait limit, with `awaiting_approval` when the owner has not decided.
+- **Updates.** The call-update notification is created when the call becomes final, as before. A denial gives `rejected` with `approval_denied`, and a timeout `expired` with `approval_timeout`, each with the never-ran note; a denial's reason, when given, is in `approval.reason`. No notification is created when an approval is granted.
+- **`pending_work`** lists such calls with `state` `awaiting_approval`, and the `--hook` text is unchanged.
+- **Tool description.** `call_capability`'s description gains: `Some operations wait for their owner's approval, shown by approval in list_capabilities; such a call returns awaiting_approval, and its result follows as a kind=call_update event.`
+
+**Older peers.**
+
+| Caller | Receiver | Result |
+| --- | --- | --- |
+| this slice | version 18 | No approval exists; everything is as before, and listings read `approval: false`. |
+| version 18 | this slice | Approval is enforced. The caller sees `queued` until the call runs, or until it becomes `rejected` (`approval_denied`) or `expired` (`approval_timeout`). Its held requests end after 60 seconds, then it polls with backoff, so a result can arrive up to a minute after the decision. |
+
+### Persistence
+
+Database version 20 adds the following. Version 19 is machine linking. Version 20 binaries migrate every version from 0 to 19 up to 20, and refuse anything above 20.
+
+```sql
+CREATE TABLE call_approvals (sender TEXT NOT NULL, call_id TEXT NOT NULL, state TEXT NOT NULL, expires_at TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(sender, call_id), FOREIGN KEY(sender, call_id) REFERENCES received_calls(sender, call_id));
+CREATE INDEX call_approvals_state ON call_approvals(state, expires_at);
+CREATE TABLE approval_notices (id TEXT PRIMARY KEY, sender TEXT NOT NULL, call_id TEXT NOT NULL, agent_id TEXT NOT NULL REFERENCES agents(id), session_id TEXT REFERENCES sessions(id), record TEXT NOT NULL, UNIQUE(sender, call_id));
+PRAGMA user_version = 20;
+```
+
+- **`call_approvals`** rows are kept as long as their received call's status record. `record` holds the approval record, and the pending key under `pending_key`, which is not shown.
+- **Records.** Capability records gain `approval`; received call status records and outbound records gain `approval` in the status. Records without them read as none and null, so migration rewrites no record.
+- **Migration** to 20 creates the two tables and the index and sets the version, in the same transaction as any earlier version's migration (a database below 19 gets the version 19 tables first). Older binaries reject version 20.
+
+**Activity** (subject `SENDER_HOST_ID/CALL_ID` unless noted): `call.approval_requested`, `call.approved`, `call.denied`, `call.approval_expired`, and `capability.approval_changed` (subject: the capability name). Activity never holds inputs or denial reasons.
+
+### Verification
+
+`conformance/capabilities.py` gains these cases, written from this section by an author independent of both implementations and the adapter. They run across all four Go/Rust CLI and daemon pairings, with `--probe`, the Go coordinator, OpenSSH, `--node`, and the fixture MCP server; the older-peer and migration cases also take `--baseline18`, a `peerspan-host` built from main before this section (schema 18, for example `ef86f06`).
+- **Configuration:**
+  - `capability create --approval` with `none`, `changing`, `all`, and a list, the stored list sorted and deduplicated, and `--no-agent-self-approval`;
+  - refusals: a list name that is not an operation, `read` without resources, an empty list, and an invalid value;
+  - repeat and conflict including `approval`;
+  - `capability approval` changing modes, keeping `agent_self` when neither flag is given, signing no policy (the stored policy versions unchanged), recording `capability.approval_changed`, and 404 for an unknown name;
+  - records without `approval` reading as `none` with `agent_self` true;
+  - the review lines for each case and the `changing` warning; the guided prompt at a pseudo-terminal answered with an empty line and with `n`, not asked without write tools, and `--approval` deciding without a terminal; `share NAME --approval` refused;
+  - `approval` in `capability show`, `capability list --json`, and `shares --json`.
+- **Acceptance:**
+  - under `changing`, a tool with `read_only` false held, and a read-only tool and `read` running at once;
+  - `all` holding `read`; a list holding only its names;
+  - self access without `origin` exempt; with `origin` held; with `origin` exempt under `agent_self` false; a policy call with an origin held whatever `agent_self`;
+  - sources never held;
+  - the pending limit: 20 pending calls from one caller under one rule accepted, the 21st refused with 429 `max_pending_approvals` and nothing persisted, and another caller still accepted;
+  - the budget counted at acceptance, with `max_calls_per_hour` refused before the pending limit;
+  - a requirement changed after acceptance not changing the accepted call's approval.
+- **Decisions:**
+  - approve, then the call runs with exactly one execution recorded by the fixture;
+  - deny with a reason, giving `rejected` with `approval_denied` and the reason in the approval, never executed; a reason over 1,024 bytes refused;
+  - a pending approval reaching its deadline: `expired` with `approval_timeout`, and the approval `expired`, with no request reaching the receiver;
+  - cancel while pending: call `cancelled`, approval `cancelled`;
+  - approve after `unshare`, rejected at the recheck with `authorization lapsed before start`;
+  - approve or deny twice: 409 `conflict` with the record;
+  - a repeated `call_id` returning the same record with its approval, and creating no second approval or notice; a new `call_id` with the same input needing its own approval;
+  - no server instance started while every queued call is pending (the fixture records no start);
+  - pending and approved calls surviving a receiver restart, then approved and run, or started;
+  - the activities for each transition.
+- **CLI:**
+  - `approvals` and `--json`, `--all` including decided ones, the order, and the empty message;
+  - `approvals show` with the input, and `input` null after the input is deleted;
+  - `approve` refused without a terminal with its text and nothing changed; accepted at a pseudo-terminal with `y`; declined with `n`;
+  - `deny` without a terminal;
+  - a bare ID resolved, two senders using one call ID giving `ambiguous` with `candidates`, and the full form then working; unknown IDs 404 and exit 1;
+  - `input_preview` truncated at 512 bytes on a character boundary, with `input_bytes`, and U+007F and C1 characters escaped; readable output with an escape sequence in the input and in a person label showing no raw escape character.
+- **Caller:**
+  - `approval` in the peer status record, and in `calls received`, `calls list`, and `calls inspect`;
+  - `call_capability` returning `awaiting_approval` with its note and `approval` within the wait limit;
+  - exactly one `call_update` event after approval and success, after denial, and after timeout, with the never-ran note for the last two, and none on approval itself;
+  - `pending_work` and `session pending --json` listing `awaiting_approval`;
+  - `call`'s stderr line and exit 3;
+  - held requests with `approval=pending` continuing past 60 seconds while pending, observed by their effect: a call pending for more than 75 seconds stored final by the caller within 2 seconds of `approve`, which polling with backoff could not do; the peer route answering a held request within 1 second of a decision, and refusing an invalid `approval` value with 400;
+  - `approval` per operation in `GET /peer/v1/capabilities`, `discover --json`, and `list_capabilities`, and `(needs approval)` in readable `discover`.
+- **Older peers:** a version 18 caller against this slice's receiver seeing `queued`, then the result after approval, and `rejected` with `approval_denied` after denial; this slice's caller against a version 18 receiver unchanged, with listings reading `approval: false`.
+- **Notices:**
+  - one `approval_request` event in the source agent's verified session, with its exact content and meta and without the input;
+  - no event for a notice whose approval was decided before it was claimed;
+  - the claim route answering 409 before verification, `null` when there is nothing, and working without `calls` on the credential; `forwarded` idempotent and 404 for another credential;
+  - no event in a session of another agent.
+- **Status:** `approvals_pending`, and item 18 present while an approval is pending and gone once it is decided.
+- **Migration:** a version 18 database from `--baseline18` migrating to 20 with its capabilities reading `approval` `none`; a database at version 19 migrating to 20; a database at version 21 refused.
+
+`conformance/live_capability_agents.py` adds one live run per harness, separately from deterministic conformance: Bob sets `capability approval github-issues all`; Alice's agent calls `list_issues`, gets `awaiting_approval`, and tells Alice it is waiting; Bob's Claude Code session receives the notice and tells Bob without approving; Bob runs `peerspan approve` at a terminal; Alice's agent receives the `call_update` and answers with the issues.
 
 ## Owner decisions
 

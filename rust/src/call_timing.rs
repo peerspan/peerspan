@@ -146,26 +146,69 @@ pub(crate) fn accepted(store: &Arc<Store>, key: CallKey) {
         return;
     };
     if following.insert(key.clone()) {
-        tokio::spawn(follow(store.clone(), key, at));
+        tokio::spawn(follow(store.clone(), key, Some(at)));
+    }
+}
+
+/// Starts a new 60-second window of held status requests for a call whose
+/// approval was just decided, unless they are in progress.
+pub(crate) fn follow_window(store: &Arc<Store>, key: CallKey) {
+    let Ok(mut following) = store.call_timing.following.lock() else {
+        return;
+    };
+    if following.insert(key.clone()) {
+        tokio::spawn(follow(store.clone(), key, Some(Instant::now())));
+    }
+}
+
+/// Follows a call whose stored approval is pending with held status
+/// requests, past its held window and after a restart, unless they are in
+/// progress.
+pub(crate) fn follow_approval(store: &Arc<Store>, key: CallKey) {
+    let Ok(mut following) = store.call_timing.following.lock() else {
+        return;
+    };
+    if following.insert(key.clone()) {
+        tokio::spawn(follow(store.clone(), key, None));
     }
 }
 
 /// Sends held status requests one at a time, each as soon as the previous
-/// answers, until the call is final or its held window passes; the poll
-/// workers then back off as usual. Held requests do not use the task
-/// polling slots.
-async fn follow(store: Arc<Store>, key: CallKey, accepted: Instant) {
-    while accepted.elapsed() < HELD_WINDOW {
+/// answers, until the call is final, or its held window passes while its
+/// stored approval is not pending; the poll workers then back off as
+/// usual. Held requests do not use the task polling slots.
+async fn follow(store: Arc<Store>, key: CallKey, accepted: Option<Instant>) {
+    let mut window = accepted;
+    let in_window = |w: Option<Instant>| w.is_some_and(|at| at.elapsed() < HELD_WINDOW);
+    // Followed for its approval: pending until an answer says otherwise.
+    let mut pending = accepted.is_none();
+    while in_window(window) || pending {
         let sent = Instant::now();
-        match crate::call_outbound::poll_held(store.clone(), &key.0, &key.1).await {
+        let outcome = crate::call_outbound::poll_held(store.clone(), &key.0, &key.1).await;
+        if let Ok(Some(p)) = &outcome {
+            // A decided approval opens a new window, as at acceptance, so
+            // the approved call's result arrives as soon as it exists.
+            if p.decided {
+                window = Some(Instant::now());
+            }
+            pending = p.pending;
+        }
+        match outcome {
             // Final, or no longer accepted.
             Ok(None) => break,
             // A new state is followed at once.
-            Ok(Some(true)) => continue,
+            Ok(Some(p)) if p.changed => {}
             // The same state: at once after a held answer, and a second
             // later after a quick one.
-            Ok(Some(false)) if sent.elapsed() >= QUICK_PAUSE => continue,
-            Ok(Some(false)) | Err(_) => tokio::time::sleep(QUICK_PAUSE).await,
+            Ok(Some(_)) => {
+                if sent.elapsed() < QUICK_PAUSE {
+                    tokio::time::sleep(QUICK_PAUSE).await;
+                }
+            }
+            // Past the window, polling with backoff takes over, and follows
+            // a pending approval again when it sees one.
+            Err(_) if !in_window(window) => break,
+            Err(_) => tokio::time::sleep(QUICK_PAUSE).await,
         }
     }
     if let Ok(mut following) = store.call_timing.following.lock() {
@@ -197,15 +240,37 @@ pub(crate) fn peer_wait(
     Ok((wait, state))
 }
 
+/// Parses `approval` of `GET /peer/v1/calls/{id}`: one of the five
+/// approval states, or `none`.
+pub(crate) fn approval_param(approval: Option<String>) -> Result<Option<String>, Error> {
+    if let Some(a) = &approval
+        && a != "none"
+        && !crate::approvals::APPROVAL_STATES.contains(&a.as_str())
+    {
+        return Err(Error::Invalid(
+            "approval is an approval state, or none".into(),
+        ));
+    }
+    Ok(approval)
+}
+/// A call view's approval state, `none` without one.
+fn approval_state(view: &CallView) -> &str {
+    view.status
+        .approval
+        .as_ref()
+        .map_or("none", |a| a.state.as_str())
+}
+
 /// The submitter's call, held until its state differs from `known` (or,
-/// without it, from the state on arrival), it is final, or `wait` seconds
-/// pass.
+/// without it, from the state on arrival), its approval state differs from
+/// `approval`, it is final, or `wait` seconds pass.
 pub(crate) async fn held_status(
     store: Arc<Store>,
     sender: String,
     id: String,
     wait: u64,
     mut known: Option<String>,
+    approval: Option<String>,
 ) -> Result<CallView, Error> {
     let until = Instant::now() + Duration::from_secs(wait);
     let mut closing = store.call_timing.closing.subscribe();
@@ -215,7 +280,15 @@ pub(crate) async fn held_status(
         let state = &view.status.state;
         let known = known.get_or_insert_with(|| state.clone());
         let now = Instant::now();
-        if is_final(state) || state != known || now >= until || *closing.borrow_and_update() {
+        let decided = approval
+            .as_deref()
+            .is_some_and(|a| a != approval_state(&view));
+        if is_final(state)
+            || state != known
+            || decided
+            || now >= until
+            || *closing.borrow_and_update()
+        {
             return Ok(view);
         }
         tokio::select! {

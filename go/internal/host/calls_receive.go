@@ -198,19 +198,22 @@ func validateCall(r CallRequest) error {
 // CallStatus is the status record a receiver keeps and serves to the
 // submitter; Result is shown on GET once the call is final.
 type CallStatus struct {
-	CallID          string          `json:"call_id"`
-	SenderHostID    string          `json:"sender_host_id"`
-	ReceiverHostID  string          `json:"receiver_host_id"`
-	Capability      string          `json:"capability"`
-	Operation       string          `json:"operation"`
-	State           string          `json:"state"`
-	CancelRequested bool            `json:"cancel_requested"`
-	Error           *string         `json:"error"`
-	ResultBytes     *int64          `json:"result_bytes"`
-	CreatedAt       string          `json:"created_at"`
-	StartedAt       *string         `json:"started_at"`
-	FinishedAt      *string         `json:"finished_at"`
-	Result          json.RawMessage `json:"result,omitempty"`
+	CallID          string  `json:"call_id"`
+	SenderHostID    string  `json:"sender_host_id"`
+	ReceiverHostID  string  `json:"receiver_host_id"`
+	Capability      string  `json:"capability"`
+	Operation       string  `json:"operation"`
+	State           string  `json:"state"`
+	CancelRequested bool    `json:"cancel_requested"`
+	Error           *string `json:"error"`
+	ResultBytes     *int64  `json:"result_bytes"`
+	CreatedAt       string  `json:"created_at"`
+	StartedAt       *string `json:"started_at"`
+	FinishedAt      *string `json:"finished_at"`
+	// Approval is the call's approval, or null when it needed none (or the
+	// receiver predates approval).
+	Approval *CallApproval   `json:"approval"`
+	Result   json.RawMessage `json:"result,omitempty"`
 }
 
 // receivedCall is received_calls.record: the status, the result, and what
@@ -304,6 +307,25 @@ func expireCalls(ctx context.Context, tx *sql.Tx, now time.Time) error {
 		return err
 	}
 	for _, c := range due {
+		// A pending approval expires with its call; an approved call not yet
+		// started expires as any queued call.
+		if c.Approval != nil && c.Approval.State == ApprovalPending {
+			a, err := readApproval(ctx, tx, c.SenderHostID, c.CallID)
+			if err != nil {
+				return err
+			}
+			if err = leavePending(ctx, tx, &a, &c, ApprovalExpired, nil, now); err != nil {
+				return err
+			}
+			if err = appendEvent(ctx, tx, "call.approval_expired", callSubject(c.SenderHostID, c.CallID), timestamp(now)); err != nil {
+				return err
+			}
+			failure := callApprovalTimeout
+			if err = finishCall(ctx, tx, &c, CallExpired, &failure, now); err != nil {
+				return err
+			}
+			continue
+		}
 		if err = finishCall(ctx, tx, &c, CallExpired, nil, now); err != nil {
 			return err
 		}
@@ -741,6 +763,11 @@ func (s *Store) AcceptCall(ctx context.Context, sender string, r CallRequest) (C
 	if err != nil {
 		return CallStatus{}, err
 	}
+	// Whether the call needs approval is decided once, now.
+	need, capability, changes, err := approvalNeed(ctx, tx, r)
+	if err != nil {
+		return CallStatus{}, err
+	}
 	at := timestamp(now)
 	c := receivedCall{CallStatus: CallStatus{CallID: r.CallID, SenderHostID: sender, ReceiverHostID: s.identity.ID, Capability: r.Capability, Operation: r.Operation, State: CallQueued, CreatedAt: at},
 		BudgetKey: g.budgetKey, AcceptedMS: now.UnixMilli()}
@@ -759,6 +786,17 @@ func (s *Store) AcceptCall(ctx context.Context, sender string, r CallRequest) (C
 	}
 	if err = appendEvent(ctx, tx, "call.received", callSubject(sender, r.CallID), at); err != nil {
 		return CallStatus{}, err
+	}
+	if need {
+		// The pending limit refuses the call, and the rollback persists
+		// nothing; otherwise the approval, its notice, and its activity are
+		// stored with the call.
+		if c.Approval, err = requestApproval(ctx, tx, sender, r, capability, changes, g.budgetKey, c.InputSHA256, now); err != nil {
+			return CallStatus{}, err
+		}
+		if err = writeReceivedCall(ctx, tx, c); err != nil {
+			return CallStatus{}, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return CallStatus{}, err
@@ -810,6 +848,16 @@ func (s *Store) RequestCallCancel(ctx context.Context, sender, id string) (CallS
 		return CallStatus{}, err
 	}
 	running := c.State == CallRunning
+	if c.State == CallQueued && c.Approval != nil && c.Approval.State == ApprovalPending {
+		// A cancel while pending cancels the approval with the call.
+		a, err := readApproval(ctx, tx, sender, id)
+		if err != nil {
+			return CallStatus{}, err
+		}
+		if err = leavePending(ctx, tx, &a, &c, ApprovalCancelled, nil, now); err != nil {
+			return CallStatus{}, err
+		}
+	}
 	if c.State == CallQueued {
 		err = finishCall(ctx, tx, &c, CallCancelled, nil, now)
 	} else {
@@ -937,6 +985,9 @@ type ListedOperation struct {
 	Description *string         `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
 	ReadOnly    bool            `json:"read_only"`
+	// Approval is advisory: whether a call with an origin needs approval.
+	// A listing from a host that predates it reads as false.
+	Approval bool `json:"approval"`
 }
 
 // ListedCapability is one entry of GET /peer/v1/capabilities: a capability,
@@ -1086,6 +1137,18 @@ func (s *Store) ListCapabilities(ctx context.Context, sender, network string) ([
 			entry.Resources = readURIs(c, snap)
 			entry.Operations = append(entry.Operations, readOperation(entry.Resources))
 		}
+		// An operation needs approval when covered, and either a policy
+		// authorizes the entry or agent_self is true.
+		req := c.requirement()
+		viaPolicy := false
+		for _, v := range via {
+			if v.Kind == AuthorizationPolicy {
+				viaPolicy = true
+			}
+		}
+		for i := range entry.Operations {
+			entry.Operations[i].Approval = req.covers(entry.Operations[i].Name, snap) && (viaPolicy || req.AgentSelf)
+		}
 		out = append(out, entry)
 	}
 	// Sources opened to a trusted sender, as implicit capabilities.
@@ -1154,12 +1217,12 @@ func callPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.ResponseW
 		if !ok {
 			return
 		}
-		wait, known, err := peerWait(r)
+		wait, known, knownApproval, err := peerWait(r)
 		if err != nil {
 			respond(w, 0, nil, err)
 			return
 		}
-		st, err := store.HeldSubmitterCall(r.Context(), id, r.PathValue("id"), wait, known)
+		st, err := store.HeldSubmitterCall(r.Context(), id, r.PathValue("id"), wait, known, knownApproval)
 		respond(w, http.StatusOK, st, err)
 	})
 	mux.HandleFunc("POST /peer/v1/calls/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {

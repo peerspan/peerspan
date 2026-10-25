@@ -43,10 +43,15 @@ const (
 	noteUncertain = "The call was running when it ended without a result, so it may or may not have taken effect. Do not call it again on your own: check whether it took effect, or ask the person."
 	noteNeverRan  = "The call never ran, so it had no effect. Calling again makes a new call."
 	noteParts     = "The result is in parts; call call_status with offset set to next_offset for the next part."
+	noteAwaiting  = "The capability's owner must approve this call before it runs; it has not run. Its result arrives as a kind=call_update event; call_status reports it at any time. Do not call it again: a new call needs a new approval."
 )
 
 // callSubmitting is the call view's state while the submission is unknown.
 const callSubmitting = "submitting"
+
+// callAwaitingApproval is the call view's state while the stored status is
+// queued with its approval pending.
+const callAwaitingApproval = "awaiting_approval"
 
 var errNoCalls = &codedError{status: http.StatusForbidden, code: "no_calls", message: "this session may not call capabilities; the person enables it with peerspan attach --calls"}
 
@@ -181,6 +186,8 @@ type CallView struct {
 	Offset      int64           `json:"offset"`
 	NextOffset  *int64          `json:"next_offset"`
 	Note        *string         `json:"note"`
+	// Approval is the stored status's approval, or null.
+	Approval *CallApproval `json:"approval"`
 }
 
 // outboundCallFinal reports whether the local record is final: its
@@ -201,6 +208,8 @@ func viewState(o OutboundCall) string {
 	case o.Status == nil:
 		// Accepted, with a final status not yet stored with its result.
 		return CallQueued
+	case awaitingApproval(o.Status):
+		return callAwaitingApproval
 	}
 	return o.Status.State
 }
@@ -320,6 +329,9 @@ func callView(o OutboundCall, createdAt string, offset int64) (CallView, error) 
 	case o.Status != nil:
 		v.Error = o.Status.Error
 	}
+	if o.Status != nil {
+		v.Approval = o.Status.Approval
+	}
 	text, err := resultText(o)
 	if err != nil {
 		return v, err
@@ -351,6 +363,8 @@ func callView(o OutboundCall, createdAt string, offset int64) (CallView, error) 
 	switch v.State {
 	case callSubmitting, CallQueued, CallRunning:
 		note = notePending
+	case callAwaitingApproval:
+		note = noteAwaiting
 	case CallUncertain:
 		note = noteUncertain
 	case CallRejected, CallExpired, CallCancelled:

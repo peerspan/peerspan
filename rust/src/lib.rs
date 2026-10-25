@@ -6,6 +6,7 @@ pub mod admins;
 pub mod agent_calls;
 pub mod agent_lookup;
 pub mod api;
+pub mod approvals;
 pub mod artifact;
 pub mod call_outbound;
 pub(crate) mod call_timing;

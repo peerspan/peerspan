@@ -409,7 +409,7 @@ func operationSchema(ctx context.Context, client host.Client, address, operation
 
 // runCall runs call ADDRESS OPERATION: it submits the call, waits for a
 // final state, and prints the local record.
-func runCall(ctx context.Context, client host.Client, c callArgs, out io.Writer) error {
+func runCall(ctx context.Context, client host.Client, c callArgs, out, errOut io.Writer) error {
 	if len(c.positional) != 2 {
 		return errors.New("call takes ADDRESS OPERATION")
 	}
@@ -484,14 +484,24 @@ func runCall(ctx context.Context, client host.Client, c callArgs, out io.Writer)
 	if err = printJSON(out, json.RawMessage(data)); err != nil {
 		return err
 	}
-	if code := callOutcome(record); code != 0 {
+	code := callOutcome(record)
+	if st := record.Status; code == 3 && st != nil && st.Approval != nil && st.Approval.State == host.ApprovalPending {
+		// OWNER is the PERSON of a PERSON/CAPABILITY address, and otherwise
+		// the host ID.
+		owner := record.PeerHostID
+		if left, _, ok := strings.Cut(address, "/"); ok && !strings.HasPrefix(left, "host_") {
+			owner = left
+		}
+		fmt.Fprintf(errOut, "Waiting for %s to approve this call (until %s). Check it later with peerspan calls inspect --peer %s %s.\n", owner, st.Approval.ExpiresAt, record.PeerHostID, record.Request.CallID)
+	}
+	if code != 0 {
 		return exitStatus(code)
 	}
 	return nil
 }
 
 // executeCall runs call against the daemon of the state directory.
-func executeCall(ctx context.Context, c callArgs, out io.Writer) error {
+func executeCall(ctx context.Context, c callArgs, out, errOut io.Writer) error {
 	state := c.state
 	if state == "" {
 		var err error
@@ -499,7 +509,7 @@ func executeCall(ctx context.Context, c callArgs, out io.Writer) error {
 			return err
 		}
 	}
-	return runCall(ctx, host.Client{SocketPath: filepath.Join(state, "admin.sock")}, c, out)
+	return runCall(ctx, host.Client{SocketPath: filepath.Join(state, "admin.sock")}, c, out, errOut)
 }
 
 // callsRequest builds calls list, received, inspect, and cancel.

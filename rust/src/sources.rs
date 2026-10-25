@@ -8,7 +8,6 @@ use crate::{
     capabilities::{CapabilityRecord, capability_record, capability_records},
     mcp::{self, Launch},
     model::Error,
-    peer_store::json,
     policy::name_shape,
     store::{Store, append_event, now},
 };
@@ -344,6 +343,93 @@ fn valid_field(d: &Definition, field: &str) -> bool {
         .is_some_and(|n| n < d.args.len() && field == format!("args.{n}"))
 }
 
+/// A source's snapshot and health as the Go host stores them (its
+/// `toolSnapshotState`): the snapshot's entries flat beside `snapshot_at`,
+/// `snapshot_error`, `start_failed_at`, and `auth_error_at`. A null
+/// `snapshot_at` means no snapshot.
+pub(crate) fn flat_snapshot(
+    v: &Value,
+) -> Result<(Option<Snapshot>, Option<String>, Health), Error> {
+    let text = |key: &str| v.get(key).and_then(Value::as_str).map(str::to_owned);
+    let snapshot = match text("snapshot_at") {
+        Some(taken_at) => Some(Snapshot {
+            tools: serde_json::from_value(
+                v.get("tools")
+                    .cloned()
+                    .filter(|t| !t.is_null())
+                    .unwrap_or(json!([])),
+            )?,
+            resources: serde_json::from_value(
+                v.get("resources")
+                    .cloned()
+                    .filter(|r| !r.is_null())
+                    .unwrap_or(json!([])),
+            )?,
+            taken_at,
+        }),
+        None => None,
+    };
+    let health = Health {
+        start_failed_at: text("start_failed_at"),
+        auth_error_at: text("auth_error_at"),
+        auth_error: text("auth_error"),
+    };
+    Ok((snapshot, text("snapshot_error"), health))
+}
+/// A `tool_servers.record`, in this host's shape or as the Go host writes
+/// it (the definition flat beside the snapshot state, without the agent),
+/// so a database moved between the two reads either way.
+pub(crate) fn decode_server(agent: &str, text: &str) -> Result<ServerRecord, Error> {
+    if let Ok(record) = serde_json::from_str::<ServerRecord>(text) {
+        return Ok(record);
+    }
+    let v: Value = serde_json::from_str(text)?;
+    let field = |key: &str| v.get(key).cloned().unwrap_or(Value::Null);
+    let mut definition: Definition = serde_json::from_value(json!({
+        "name": field("name"),
+        "transport": field("transport"),
+        "command": field("command"),
+        "args": field("args").as_array().cloned().unwrap_or_default(),
+        "env": field("env").as_object().cloned().unwrap_or_default(),
+        "url": field("url"),
+        "source": field("source"),
+    }))?;
+    if v.get("disabled") == Some(&Value::Bool(true)) {
+        definition.disabled = Some(true);
+    }
+    let (snapshot, snapshot_error, health) = flat_snapshot(&v)?;
+    let updated_at = snapshot
+        .as_ref()
+        .map(|s| s.taken_at.clone())
+        .unwrap_or_default();
+    Ok(ServerRecord {
+        agent_id: agent.to_owned(),
+        definition,
+        workspace: v["workspace"].as_str().unwrap_or_default().to_owned(),
+        shareable: v["shareable"].as_bool().unwrap_or(false),
+        reason: v["reason"].as_str().map(str::to_owned),
+        missing_env: serde_json::from_value(
+            v.get("missing_env")
+                .cloned()
+                .filter(|m| !m.is_null())
+                .unwrap_or(json!([])),
+        )?,
+        snapshot,
+        snapshot_error,
+        health,
+        updated_at,
+    })
+}
+/// Reads `agent_id, record` rows of `tool_servers`.
+fn decode_rows(
+    statement: &mut rusqlite::Statement<'_>,
+    params: impl rusqlite::Params,
+) -> Result<Vec<ServerRecord>, Error> {
+    let rows: Vec<(String, String)> = statement
+        .query_map(params, |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    rows.iter().map(|(a, t)| decode_server(a, t)).collect()
+}
 pub(crate) fn server_record(
     conn: &Connection,
     agent: &str,
@@ -355,16 +441,13 @@ pub(crate) fn server_record(
         |r| r.get::<_, String>(0),
     )
     .optional()?
-    .map(json)
+    .map(|t| decode_server(agent, &t))
     .transpose()
 }
 pub(crate) fn server_records(conn: &Connection, agent: &str) -> Result<Vec<ServerRecord>, Error> {
-    let mut statement =
-        conn.prepare("SELECT record FROM tool_servers WHERE agent_id = ?1 ORDER BY name")?;
-    statement
-        .query_map([agent], |r| r.get::<_, String>(0))?
-        .map(|r| json(r?))
-        .collect()
+    let mut statement = conn
+        .prepare("SELECT agent_id, record FROM tool_servers WHERE agent_id = ?1 ORDER BY name")?;
+    decode_rows(&mut statement, [agent])
 }
 fn values(conn: &Connection, agent: &str, server: &str) -> Result<BTreeMap<String, String>, Error> {
     let mut statement =
@@ -398,11 +481,8 @@ impl Store {
         conn: &Connection,
     ) -> Result<Vec<ServerRecord>, Error> {
         let mut statement =
-            conn.prepare("SELECT record FROM tool_servers ORDER BY agent_id, name")?;
-        let servers: Vec<ServerRecord> = statement
-            .query_map([], |r| r.get::<_, String>(0))?
-            .map(|r| json(r?))
-            .collect::<Result<_, Error>>()?;
+            conn.prepare("SELECT agent_id, record FROM tool_servers ORDER BY agent_id, name")?;
+        let servers: Vec<ServerRecord> = decode_rows(&mut statement, [])?;
         Ok(servers
             .into_iter()
             .filter(|s| s.shareable && s.snapshot.is_some())
@@ -836,11 +916,8 @@ impl Store {
         };
         let mut out = Vec::new();
         let mut statement =
-            conn.prepare("SELECT record FROM tool_servers ORDER BY agent_id, name")?;
-        let servers: Vec<ServerRecord> = statement
-            .query_map([], |r| r.get::<_, String>(0))?
-            .map(|r| json(r?))
-            .collect::<Result<_, Error>>()?;
+            conn.prepare("SELECT agent_id, record FROM tool_servers ORDER BY agent_id, name")?;
+        let servers: Vec<ServerRecord> = decode_rows(&mut statement, [])?;
         let mut check = |agent: &str, label: String, error: &Option<String>, h: &Health| {
             let name = names
                 .get(agent)

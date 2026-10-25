@@ -39,6 +39,8 @@ type CapabilitiesStatus struct {
 	Shared       int64 `json:"shared"`
 	CallsRunning int64 `json:"calls_running"`
 	OpenTo       int64 `json:"open_to"`
+	// ApprovalsPending counts approvals in pending.
+	ApprovalsPending int64 `json:"approvals_pending"`
 }
 
 type NetworkStatus struct {
@@ -96,7 +98,7 @@ type AttentionItem struct {
 // Attention kinds, in the order status reports them. The CLI adds
 // service_not_installed and linger_disabled.
 var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
-	"service_not_installed", "linger_disabled", "person_agent_unreachable", "person_device_signer_unavailable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped"}
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "person_device_signer_unavailable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped", "call_approval_pending"}
 
 // SortAttention orders items by kind, then subject.
 func SortAttention(items []AttentionItem) {

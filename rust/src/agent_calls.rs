@@ -50,6 +50,7 @@ const NOTE_PENDING: &str = "The call has not finished. Its result arrives as a k
 const NOTE_UNCERTAIN: &str = "The call was running when it ended without a result, so it may or may not have taken effect. Do not call it again on your own: check whether it took effect, or ask the person.";
 const NOTE_NEVER_RAN: &str =
     "The call never ran, so it had no effect. Calling again makes a new call.";
+const NOTE_AWAITING_APPROVAL: &str = "The capability's owner must approve this call before it runs; it has not run. Its result arrives as a kind=call_update event; call_status reports it at any time. Do not call it again: a new call needs a new approval.";
 const NOTE_PARTS: &str =
     "The result is in parts; call call_status with offset set to next_offset for the next part.";
 
@@ -166,6 +167,7 @@ fn view_state(out: &OutboundCall) -> String {
     match out.submit_state.as_str() {
         "unknown" => "submitting".into(),
         "rejected" => "rejected".into(),
+        _ if call_outbound::awaiting_approval(out) => "awaiting_approval".into(),
         _ => out
             .status
             .as_ref()
@@ -214,6 +216,8 @@ pub struct CallView {
     submit_state: String,
     state: String,
     error: Option<String>,
+    /// The stored status's approval, or null.
+    approval: Option<crate::approvals::ApprovalStatus>,
     created_at: String,
     deadline: String,
     result: Option<Box<RawValue>>,
@@ -252,6 +256,7 @@ fn view(out: &OutboundCall, called_at_ms: i64, offset: usize) -> Result<CallView
         }
     }
     let note = match state.as_str() {
+        "awaiting_approval" => Some(NOTE_AWAITING_APPROVAL),
         "submitting" | "queued" | "running" => Some(NOTE_PENDING),
         "uncertain" => Some(NOTE_UNCERTAIN),
         "rejected" | "expired" | "cancelled" => Some(NOTE_NEVER_RAN),
@@ -266,6 +271,7 @@ fn view(out: &OutboundCall, called_at_ms: i64, offset: usize) -> Result<CallView
         submit_state: out.submit_state.clone(),
         state,
         error: view_error(out),
+        approval: out.status.as_ref().and_then(|s| s.approval.clone()),
         created_at: created_at(called_at_ms),
         deadline: out.request.deadline.clone(),
         result,

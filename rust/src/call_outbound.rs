@@ -577,6 +577,7 @@ async fn listings(
             let outcome =
                 match peer_request(&store, &host, "GET", path, Vec::new(), LISTING_BOUND).await {
                     Ok((200, body)) => serde_json::from_slice::<Vec<Value>>(&body)
+                        .map(with_approval)
                         .map_err(|_| "invalid capability listing".to_owned()),
                     Ok((code, _)) => Err(format!("peer returned HTTP {code}")),
                     Err(e) => Err(format!("{e:#}")),
@@ -590,6 +591,22 @@ async fn listings(
     }
     out.sort_by_key(|(i, _, _)| *i);
     out.into_iter().map(|(_, h, o)| (h, o)).collect()
+}
+
+/// Each operation's `approval` as a boolean: an entry from a host that
+/// predates per-call approval has none, which reads as false.
+fn with_approval(mut entries: Vec<Value>) -> Vec<Value> {
+    for entry in &mut entries {
+        if let Some(ops) = entry.get_mut("operations").and_then(Value::as_array_mut) {
+            for op in ops {
+                if let Some(op) = op.as_object_mut() {
+                    let flag = op.get("approval").and_then(Value::as_bool).unwrap_or(false);
+                    op.insert("approval".into(), Value::Bool(flag));
+                }
+            }
+        }
+    }
+    entries
 }
 
 /// A host bound to a person in one network, with the person's label. A
@@ -1360,6 +1377,8 @@ async fn fetch_status(
         if let Some(status) = &out.status {
             path.push_str(&format!("&state={}", status.state));
         }
+        // The approval state stored here, so a decision answers at once.
+        path.push_str(&format!("&approval={}", stored_approval(out)));
         bound += Duration::from_secs(wait);
     }
     match peer_request(store, &out.peer_host_id, "GET", path, Vec::new(), bound).await? {
@@ -1495,23 +1514,56 @@ pub(crate) async fn send_cancel(
 /// One poll: resends a pending cancellation, then fetches the status.
 /// Returns whether anything changed.
 pub(crate) async fn poll(store: Arc<Store>, peer: String, id: String) -> anyhow::Result<bool> {
-    Ok(poll_once(store, &peer, &id, false).await?.unwrap_or(false))
+    let outcome = poll_once(store.clone(), &peer, &id, false).await?;
+    // A call waiting for its owner's approval is followed with held
+    // requests again, also after a restart; a decided one gets a new
+    // window of them.
+    match outcome {
+        Some(p) if p.pending => crate::call_timing::follow_approval(&store, (peer, id)),
+        Some(p) if p.decided => crate::call_timing::follow_window(&store, (peer, id)),
+        _ => {}
+    }
+    Ok(outcome.is_some_and(|p| p.changed))
 }
-/// A poll with a held status request. Returns whether the stored state
-/// changed, or None once the call is final or not accepted.
+/// What one poll stored.
+#[derive(Clone, Copy)]
+pub(crate) struct Polled {
+    /// The stored state or approval state changed.
+    pub changed: bool,
+    /// The stored call is queued with its approval pending.
+    pub pending: bool,
+    /// It stored an approval that is no longer pending, for a call that
+    /// is not final, over a pending one.
+    pub decided: bool,
+}
+/// A poll with a held status request; None once the call is final or not
+/// accepted.
 pub(crate) async fn poll_held(
     store: Arc<Store>,
     peer: &str,
     id: &str,
-) -> anyhow::Result<Option<bool>> {
+) -> anyhow::Result<Option<Polled>> {
     poll_once(store, peer, id, true).await
+}
+/// The stored status's approval state, `none` without one.
+fn stored_approval(out: &OutboundCall) -> &str {
+    out.status
+        .as_ref()
+        .and_then(|s| s.approval.as_ref())
+        .map_or("none", |a| a.state.as_str())
+}
+/// Whether the stored status is queued with its approval pending.
+pub(crate) fn awaiting_approval(out: &OutboundCall) -> bool {
+    out.status.as_ref().is_some_and(|s| {
+        s.state == "queued" && s.approval.as_ref().is_some_and(|a| a.state == "pending")
+    })
 }
 async fn poll_once(
     store: Arc<Store>,
     peer: &str,
     id: &str,
     held: bool,
-) -> anyhow::Result<Option<bool>> {
+) -> anyhow::Result<Option<Polled>> {
     let (p, i) = (peer.to_owned(), id.to_owned());
     let mut out = blocking(store.clone(), move |s| s.outbound_call(&p, &i)).await?;
     if out.submit_state != "accepted" {
@@ -1523,7 +1575,10 @@ async fn poll_once(
     if out.final_state() {
         return Ok(None);
     }
-    let before = out.status.as_ref().map(|s| s.state.clone());
+    let before = (
+        out.status.as_ref().map(|s| s.state.clone()),
+        stored_approval(&out).to_owned(),
+    );
     let (status, result) = fetch_status(&store, &out, held).await?;
     let (p, i) = (peer.to_owned(), id.to_owned());
     let out = blocking(store, move |s| {
@@ -1533,9 +1588,15 @@ async fn poll_once(
     if out.final_state() {
         return Ok(None);
     }
-    Ok(Some(
-        before.as_deref() != out.status.as_ref().map(|s| s.state.as_str()),
-    ))
+    let after = (
+        out.status.as_ref().map(|s| s.state.clone()),
+        stored_approval(&out).to_owned(),
+    );
+    Ok(Some(Polled {
+        changed: before != after,
+        pending: awaiting_approval(&out),
+        decided: before.1 == "pending" && after.1 != "pending" && after.1 != "none",
+    }))
 }
 /// A retry of an uncertain submission, when due.
 pub(crate) async fn retry(store: Arc<Store>, peer: String, id: String) {

@@ -119,10 +119,14 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
-    /// Remove a principal's access to your agents
+    /// Remove a principal's access to your agents; deny ID [--reason TEXT] denies a call waiting for your approval
     Deny {
+        /// A principal, or the ID of a call waiting for your approval
         #[arg(value_name = "PRINCIPAL")]
         principal: String,
+        /// With a call ID: the reason given to the caller
+        #[arg(long, value_name = "TEXT")]
+        reason: Option<String>,
         /// Only from this agent's rules (* names the * rules); default every rule
         #[arg(long, value_name = "NAME")]
         agent: Option<String>,
@@ -227,6 +231,14 @@ pub enum Command {
     },
     /// Show the sources this host can operate, from attached agents' harnesses
     Sources(SourcesArgs),
+    /// List the calls waiting for your approval; approvals show ID for one
+    Approvals(ApprovalsArgs),
+    /// Approve one call waiting for your approval, at a terminal
+    Approve {
+        /// CALL_ID, or SENDER_HOST_ID/CALL_ID
+        #[arg(value_name = "ID")]
+        id: String,
+    },
     /// Create, list, show, and remove capabilities on this host
     #[command(subcommand)]
     Capability(CapabilityCommand),
@@ -261,6 +273,12 @@ pub enum Command {
         /// Guided share: arguments replacing the source's; repeat for each
         #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
         args: Vec<String>,
+        /// Guided share: which calls wait for your approval: none, changing, all, or OP[,OP...]
+        #[arg(long, value_name = "MODE")]
+        approval: Option<String>,
+        /// Guided share: self-access calls from your agents need no approval
+        #[arg(long)]
+        no_agent_self_approval: bool,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -405,6 +423,43 @@ pub enum Command {
 
 #[derive(Debug, clap::Args)]
 #[command(args_conflicts_with_subcommands = true)]
+pub struct ApprovalsArgs {
+    #[command(subcommand)]
+    pub command: Option<ApprovalsCommand>,
+    /// Also the approvals decided in the last 7 days
+    #[arg(long)]
+    pub all: bool,
+    /// Print JSON
+    #[arg(long)]
+    pub json: bool,
+}
+#[derive(Debug, Subcommand)]
+pub enum ApprovalsCommand {
+    /// Show one approval, with the call's input
+    Show {
+        /// CALL_ID, or SENDER_HOST_ID/CALL_ID
+        #[arg(value_name = "ID")]
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+/// Whether text is an approval ID: a call ID, or SENDER_HOST_ID/CALL_ID.
+pub fn approval_id(text: &str) -> bool {
+    let hex = |s: &str, n: usize| {
+        s.len() == n
+            && s.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    let call = |s: &str| s.strip_prefix("call_").is_some_and(|h| hex(h, 32));
+    match text.split_once('/') {
+        Some((host, id)) => host.strip_prefix("host_").is_some_and(|h| hex(h, 64)) && call(id),
+        None => call(text),
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct SourcesArgs {
     #[command(subcommand)]
     pub command: Option<SourcesCommand>,
@@ -470,6 +525,25 @@ pub enum CapabilityCommand {
         /// The person key that signs the name's claims
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
+        /// Which calls wait for your approval: none, changing, all, or OP[,OP...]
+        #[arg(long, value_name = "MODE")]
+        approval: Option<String>,
+        /// Self-access calls from your agents need no approval
+        #[arg(long)]
+        no_agent_self_approval: bool,
+    },
+    /// Set which calls wait for your approval: none, changing, all, or OP[,OP...]
+    Approval {
+        #[arg(value_name = "NAME")]
+        name: String,
+        #[arg(value_name = "MODE")]
+        mode: String,
+        /// Self-access calls from your agents need approval too
+        #[arg(long)]
+        agent_self: bool,
+        /// Self-access calls from your agents need no approval
+        #[arg(long)]
+        no_agent_self: bool,
     },
     /// List this host's capabilities
     List {
@@ -1458,6 +1532,8 @@ impl Command {
     /// when this host is in exactly one.
     pub fn network_mut(&mut self) -> Option<&mut Option<String>> {
         match self {
+            // Denying a call waiting for approval names no network.
+            Self::Deny { principal, .. } if approval_id(principal) => None,
             Self::Network(
                 NetworkCommand::Invite { network, .. }
                 | NetworkCommand::InvitePerson { network, .. }
@@ -1583,6 +1659,8 @@ impl Command {
             | Self::Allow { .. }
             | Self::Deny { .. }
             | Self::Sources(_)
+            | Self::Approvals(_)
+            | Self::Approve { .. }
             | Self::Capability(_)
             | Self::Share { .. }
             | Self::Shares { .. }

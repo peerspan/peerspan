@@ -5,7 +5,10 @@
 use crate::{
     access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, at, edit_conflict, recipient},
     admin::Local,
-    cli::{CapabilityCommand, Command, SourcesArgs, SourcesCommand, encoded, resolved},
+    cli::{
+        ApprovalsArgs, ApprovalsCommand, CapabilityCommand, Command, SourcesArgs, SourcesCommand,
+        approval_id, encoded, resolved,
+    },
 };
 use anyhow::{Context, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -39,10 +42,21 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             capability_name,
             env_file,
             args,
+            approval,
+            no_agent_self_approval,
             network,
             person_key,
         } => {
+            // `share NAME` never changes an existing capability's
+            // requirement.
+            if name.is_some() && (approval.is_some() || *no_agent_self_approval) {
+                bail!(
+                    "--approval and --no-agent-self-approval apply only to the guided share; use peerspan capability approval NAME MODE"
+                );
+            }
             let guided = Guided {
+                approval: approval.clone(),
+                no_agent_self: *no_agent_self_approval,
                 from: from.clone(),
                 operations: operations.clone(),
                 resources: resources.clone(),
@@ -144,6 +158,29 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             operation,
             options,
         } => return call(&local, address, operation, options).await,
+        Command::Approvals(args) => return approvals(&local, args).await,
+        Command::Approve { id } => approve(&local, id).await?,
+        Command::Deny {
+            principal,
+            reason,
+            agent,
+            network,
+            ..
+        } if approval_id(principal) => {
+            if agent.is_some() || network.is_some() {
+                bail!("--agent and --network apply to access rules, not to denying a call");
+            }
+            let (sender, id) = resolve_approval(&local, principal).await?;
+            local
+                .post(
+                    format!("/v1/approvals/{}/{}/deny", encoded(&sender), encoded(&id)),
+                    json!({ "reason": reason }),
+                )
+                .await?
+        }
+        Command::Deny {
+            reason: Some(_), ..
+        } => bail!("--reason applies only to denying a call: peerspan deny CALL_ID --reason TEXT"),
         _ => return Ok(None),
     }))
 }
@@ -610,6 +647,8 @@ fn resources_of(text: Option<&str>) -> Value {
 
 /// What the guided share asks for, or takes from flags.
 struct Guided {
+    approval: Option<String>,
+    no_agent_self: bool,
     from: Option<String>,
     operations: Option<String>,
     resources: Option<String>,
@@ -651,6 +690,8 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
             env_file,
             args,
             person_key,
+            approval,
+            no_agent_self_approval,
         } => {
             let (agent, server, _) = source_of(local, from).await?;
             let env_file = env_file
@@ -667,9 +708,33 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
                 env_file,
                 args,
             );
+            let mut body = body;
+            if approval.is_some() || *no_agent_self_approval {
+                body["approval"] = json!({
+                    "operations": approval_operations(approval.as_deref().unwrap_or("none")),
+                    "agent_self": !no_agent_self_approval,
+                });
+            }
             create_claimed(local, person_key.as_deref(), body, None)
                 .await?
                 .0
+        }
+        CapabilityCommand::Approval {
+            name,
+            mode,
+            agent_self,
+            no_agent_self,
+        } => {
+            if *agent_self && *no_agent_self {
+                bail!("--agent-self and --no-agent-self cannot be given together");
+            }
+            let mut body = json!({ "operations": approval_operations(mode) });
+            if *agent_self || *no_agent_self {
+                body["agent_self"] = json!(*agent_self);
+            }
+            local
+                .put(format!("/v1/capabilities/{}/approval", encoded(name)), body)
+                .await?
         }
         CapabilityCommand::List { json } => {
             let value = local.get("/v1/capabilities?lookup=true".into()).await?;
@@ -944,6 +1009,39 @@ async fn share(
                             .then_some(include),
                     )
                 };
+            // Right after the operations: whether calls to tools that can
+            // change things wait for the person's approval.
+            let changing_selected = operations
+                .as_deref()
+                .map(list_of)
+                .unwrap_or_default()
+                .iter()
+                .any(|op| {
+                    source["tools"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|t| t["name"].as_str() == Some(op) && t["read_only"] != true)
+                });
+            let approval_ops = match &guided.approval {
+                Some(mode) => approval_operations(mode),
+                None if terminal && changing_selected => {
+                    eprint!(
+                        "Require your approval for each call to tools that can change things? [Y/n] "
+                    );
+                    std::io::stderr().flush()?;
+                    let mut line = String::new();
+                    std::io::stdin().lock().read_line(&mut line)?;
+                    if matches!(line.trim().to_ascii_lowercase().as_str(), "" | "y" | "yes") {
+                        json!("changing")
+                    } else {
+                        json!("none")
+                    }
+                }
+                None => json!("none"),
+            };
+            let requirement =
+                json!({"operations": approval_ops, "agent_self": !guided.no_agent_self});
             let cap_name = match guided.name.clone() {
                 Some(n) => n,
                 None if terminal => prompt("Capability name", Some(&server))?,
@@ -958,7 +1056,10 @@ async fn share(
                 guided.env_file.clone(),
                 &guided.args,
             );
+            let mut body = body;
+            body["approval"] = requirement.clone();
             let preview = json!({
+                "approval": requirement,
                 "name": cap_name,
                 "source": {"agent": agent, "server": server},
                 "operations": body["operations"],
@@ -1053,6 +1154,9 @@ async fn share(
         Value::Null => {}
         Value::String(all) => eprintln!("Resources: {all} (read)"),
         list => eprintln!("Resources: {} (read)", list_text(list)),
+    }
+    for line in approval_review(&record, &cap, &read_only) {
+        eprintln!("{line}");
     }
     match record["credential"]["env_file"].as_str() {
         Some(file) => eprintln!("Credentials: the capability's environment file {file}"),
@@ -1584,6 +1688,7 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
             "credential": c["credential"],
             "state": c["state"],
             "unavailable": c["unavailable"],
+            "approval": c["approval"],
             "recipients": recipients,
         }));
     }
@@ -1619,6 +1724,7 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
                 "operations": null,
                 "credential": null,
                 "state": null,
+                "approval": null,
                 "recipients": r["principals"]
                     .as_array()
                     .into_iter()
@@ -1859,6 +1965,16 @@ async fn call(
     } else {
         3
     };
+    if code == 3 && record["status"]["approval"]["state"] == "pending" {
+        // The PERSON of a PERSON/CAPABILITY address, otherwise the host ID.
+        let owner = address.split('/').next().unwrap_or(&peer);
+        eprintln!(
+            "Waiting for {owner} to approve this call (until {}). Check it later with peerspan calls inspect --peer {peer} {id}.",
+            record["status"]["approval"]["expires_at"]
+                .as_str()
+                .unwrap_or_default()
+        );
+    }
     crate::exit(code)
 }
 
@@ -1917,7 +2033,7 @@ fn readable_sources(view: &Value) -> String {
 }
 fn readable_capability(c: &Value) -> String {
     format!(
-        "{} from {}/{}: {}{} ({})",
+        "{} from {}/{}: {}{} ({}) approval: {} {}",
         c["name"].as_str().unwrap_or_default(),
         c["source"]["agent"].as_str().unwrap_or_default(),
         c["source"]["server"].as_str().unwrap_or_default(),
@@ -1927,7 +2043,13 @@ fn readable_capability(c: &Value) -> String {
         } else {
             ", read"
         },
-        c["state"].as_str().unwrap_or_default()
+        c["state"].as_str().unwrap_or_default(),
+        approval_mode(&c["approval"]["operations"]),
+        if c["approval"]["agent_self"] == false {
+            "-agent_self"
+        } else {
+            "+agent_self"
+        }
     )
 }
 fn readable_shares(value: &Value) -> String {
@@ -1969,11 +2091,19 @@ fn readable_discover(value: &Value) -> String {
         out += &format!("agent {}\n", a["address"].as_str().unwrap_or_default());
     }
     for c in value["capabilities"].as_array().into_iter().flatten() {
-        let ops: Vec<&str> = c["operations"]
+        let ops: Vec<String> = c["operations"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|o| o["name"].as_str())
+            .filter_map(|o| {
+                o["name"].as_str().map(|name| {
+                    if o["approval"] == true {
+                        format!("{name} (needs approval)")
+                    } else {
+                        name.to_owned()
+                    }
+                })
+            })
             .collect();
         let only = match c["for_agents"].as_array() {
             Some(agents) => {
@@ -2004,4 +2134,323 @@ fn readable_discover(value: &Value) -> String {
         );
     }
     out
+}
+
+/// `--approval MODE` and `capability approval NAME MODE`: `none`,
+/// `changing`, `all`, or `OP[,OP...]` as a list.
+fn approval_operations(mode: &str) -> Value {
+    match mode {
+        "none" | "changing" | "all" => json!(mode),
+        list => json!(list_of(list)),
+    }
+}
+/// `none`, `changing`, `all`, or the list joined with `,`.
+fn approval_mode(operations: &Value) -> String {
+    match operations {
+        Value::String(mode) => mode.clone(),
+        Value::Array(_) => list_text(operations).replace(", ", ","),
+        _ => "none".into(),
+    }
+}
+/// The review's approval lines, in the order of the record's operations
+/// followed by `read`.
+fn approval_review(record: &Value, name: &str, read_only: &dyn Fn(&str) -> bool) -> Vec<String> {
+    let tools: Vec<&str> = record["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let mut every = tools.clone();
+    if !record["resources"].is_null() {
+        every.push("read");
+    }
+    let operations = &record["approval"]["operations"];
+    let changing = operations == "changing";
+    let covered: Vec<&str> = match operations {
+        Value::String(mode) if mode == "all" => every.clone(),
+        Value::String(mode) if mode == "changing" => {
+            tools.iter().copied().filter(|op| !read_only(op)).collect()
+        }
+        Value::Array(list) => every
+            .iter()
+            .copied()
+            .filter(|op| list.iter().any(|l| l.as_str() == Some(op)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut out = Vec::new();
+    if operations == "all" {
+        out.push("Every call waits for your approval at this machine (peerspan approvals).".into());
+    } else if !covered.is_empty() {
+        out.push(format!(
+            "Calls to {} wait for your approval at this machine (peerspan approvals).",
+            covered.join(", ")
+        ));
+    } else if tools.iter().any(|op| !read_only(op)) {
+        out.push(format!(
+            "No call waits for your approval. To require it: peerspan capability approval {name} changing"
+        ));
+    }
+    if changing {
+        out.push(
+            "Tools are marked by the server itself; a tool it wrongly marks read-only runs without approval."
+                .into(),
+        );
+    }
+    out
+}
+
+/// Writes every character below U+0020, U+007F, and U+0080 to U+009F as
+/// `\u` and four lowercase hex digits, so caller-supplied text carries no
+/// terminal escape sequence.
+fn escaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if (c as u32) < 0x20 || c == '\u{7f}' || ('\u{80}'..='\u{9f}').contains(&c) {
+            out.push_str(&format!("\\u{:04x}", c as u32));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+/// The input pretty-printed as JSON, its strings escaped as `escaped`
+/// does, and `"` and `\` as in JSON.
+fn pretty_input(value: &Value, indent: usize, out: &mut String) {
+    let pad = |n: usize| "  ".repeat(n);
+    let string = |s: &str| {
+        let mut text = String::from("\"");
+        for c in s.chars() {
+            match c {
+                '"' => text.push_str("\\\""),
+                '\\' => text.push_str("\\\\"),
+                c => text.push_str(&escaped(&c.to_string())),
+            }
+        }
+        text.push('"');
+        text
+    };
+    match value {
+        Value::Object(map) if !map.is_empty() => {
+            out.push_str("{\n");
+            for (i, (k, v)) in map.iter().enumerate() {
+                out.push_str(&pad(indent + 1));
+                out.push_str(&string(k));
+                out.push_str(": ");
+                pretty_input(v, indent + 1, out);
+                if i + 1 < map.len() {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&pad(indent));
+            out.push('}');
+        }
+        Value::Array(list) if !list.is_empty() => {
+            out.push_str("[\n");
+            for (i, v) in list.iter().enumerate() {
+                out.push_str(&pad(indent + 1));
+                pretty_input(v, indent + 1, out);
+                if i + 1 < list.len() {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&pad(indent));
+            out.push(']');
+        }
+        Value::String(s) => out.push_str(&string(s)),
+        other => out.push_str(&other.to_string()),
+    }
+}
+/// The caller as the readable output names it, escaped.
+fn caller_text(a: &Value) -> String {
+    let caller = &a["caller"];
+    let mut text = match caller["person_label"].as_str() {
+        Some(label) => format!(
+            "{} ({})",
+            escaped(label),
+            caller["host_id"].as_str().unwrap_or_default()
+        ),
+        None => caller["host_id"].as_str().unwrap_or_default().to_owned(),
+    };
+    if let Some(agent) = a["origin"]["agent_id"].as_str() {
+        text.push_str(&format!(", agent {}", escaped(agent)));
+    }
+    text
+}
+/// One readable line per approval.
+fn readable_approval(a: &Value) -> String {
+    format!(
+        "{}/{} {} {} {}{} from {} until {}{}",
+        escaped(a["sender_host_id"].as_str().unwrap_or_default()),
+        escaped(a["call_id"].as_str().unwrap_or_default()),
+        a["state"].as_str().unwrap_or_default(),
+        escaped(a["capability"].as_str().unwrap_or_default()),
+        escaped(a["operation"].as_str().unwrap_or_default()),
+        if a["changes_things"] == true {
+            " (can change things)"
+        } else {
+            ""
+        },
+        caller_text(a),
+        escaped(a["expires_at"].as_str().unwrap_or_default()),
+        match a["input_preview"].as_str() {
+            Some(p) => format!(" input {}", escaped(p)),
+            None => String::new(),
+        }
+    )
+}
+/// `approvals show` and `approve`: the approval, the capability's source
+/// and credential context while it exists, and the whole input.
+async fn readable_approval_show(local: &Local<'_>, a: &Value) -> String {
+    let mut out = format!(
+        "Call {}/{}: {}\n",
+        escaped(a["sender_host_id"].as_str().unwrap_or_default()),
+        escaped(a["call_id"].as_str().unwrap_or_default()),
+        a["state"].as_str().unwrap_or_default()
+    );
+    let capability = a["capability"].as_str().unwrap_or_default();
+    out += &format!(
+        "A call to {} ({}){} from {}, via {}\n",
+        escaped(capability),
+        escaped(a["operation"].as_str().unwrap_or_default()),
+        if a["changes_things"] == true {
+            ", which can change things,"
+        } else {
+            ""
+        },
+        caller_text(a),
+        escaped(a["caller"]["via"].as_str().unwrap_or_default())
+    );
+    if let Some(person) = a["caller"]["person_id"].as_str() {
+        out += &format!("Caller person: {}\n", escaped(person));
+    }
+    if let Some(session) = a["origin"]["session_id"].as_str() {
+        out += &format!("Caller session: {}\n", escaped(session));
+    }
+    out += &format!(
+        "Requested at {}, expires at {}\n",
+        escaped(a["requested_at"].as_str().unwrap_or_default()),
+        escaped(a["expires_at"].as_str().unwrap_or_default())
+    );
+    if let Some(decided) = a["decided_at"].as_str() {
+        out += &format!("Decided at {}\n", escaped(decided));
+    }
+    if let Some(reason) = a["reason"].as_str() {
+        out += &format!("Reason: {}\n", escaped(reason));
+    }
+    if let Ok(c) = local
+        .get(format!("/v1/capabilities/{}", encoded(capability)))
+        .await
+    {
+        out += &format!(
+            "Source: {}/{}\n",
+            c["source"]["agent"].as_str().unwrap_or_default(),
+            c["source"]["server"].as_str().unwrap_or_default()
+        );
+        let env_file = c["credential"]["env_file"].as_str();
+        let args = c["credential"]["args"].as_array();
+        if env_file.is_some() || args.is_some() {
+            out += &format!(
+                "Credentials: the capability's own environment file {}",
+                escaped(env_file.unwrap_or_default())
+            );
+            if let Some(args) = args {
+                let args: Vec<&str> = args.iter().filter_map(Value::as_str).collect();
+                out += &format!(", with arguments {}", escaped(&args.join(" ")));
+            }
+            out.push('\n');
+        } else {
+            out += "Credentials: the source's own environment on this host\n";
+        }
+    }
+    match &a["input"] {
+        Value::Null => out += "Input: deleted\n",
+        input => {
+            out += &format!(
+                "Input ({} bytes):\n",
+                a["input_bytes"].as_u64().unwrap_or_default()
+            );
+            let mut text = String::new();
+            pretty_input(input, 0, &mut text);
+            out += &text;
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// An approval ID as `(SENDER_HOST_ID, CALL_ID)`: the full form as given,
+/// or a bare call ID resolved by the daemon.
+async fn resolve_approval(local: &Local<'_>, id: &str) -> anyhow::Result<(String, String)> {
+    if !approval_id(id) {
+        bail!(
+            "an approval ID is a call ID (call_ and 32 lowercase hex digits) or SENDER_HOST_ID/CALL_ID"
+        );
+    }
+    if let Some((sender, call)) = id.split_once('/') {
+        return Ok((sender.to_owned(), call.to_owned()));
+    }
+    let found = local.get(format!("/v1/approvals/{}", encoded(id))).await?;
+    Ok((
+        found["sender_host_id"]
+            .as_str()
+            .context("invalid daemon response")?
+            .to_owned(),
+        found["call_id"]
+            .as_str()
+            .context("invalid daemon response")?
+            .to_owned(),
+    ))
+}
+fn approval_path(sender: &str, id: &str) -> String {
+    format!("/v1/approvals/{}/{}", encoded(sender), encoded(id))
+}
+
+/// `approvals [--all] [--json]` and `approvals show ID [--json]`.
+async fn approvals(local: &Local<'_>, args: &ApprovalsArgs) -> anyhow::Result<Option<Value>> {
+    if let Some(ApprovalsCommand::Show { id, json }) = &args.command {
+        let (sender, call) = resolve_approval(local, id).await?;
+        let value = local.get(approval_path(&sender, &call)).await?;
+        if *json {
+            return Ok(Some(value));
+        }
+        print!("{}", readable_approval_show(local, &value).await);
+        crate::exit(0)
+    }
+    let state = if args.all { "all" } else { "pending" };
+    let value = local.get(format!("/v1/approvals?state={state}")).await?;
+    if args.json {
+        return Ok(Some(value));
+    }
+    let list = value["approvals"].as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        println!("No calls are waiting for your approval.");
+    }
+    for a in &list {
+        println!("{}", readable_approval(a));
+    }
+    crate::exit(0)
+}
+
+/// `approve ID`: at a terminal only, after showing the call and asking.
+async fn approve(local: &Local<'_>, id: &str) -> anyhow::Result<Value> {
+    if !std::io::stdin().is_terminal() {
+        bail!("peerspan approve needs a terminal: approval must come from the person.");
+    }
+    let (sender, call) = resolve_approval(local, id).await?;
+    let path = approval_path(&sender, &call);
+    let shown = local.get(path.clone()).await?;
+    eprint!("{}", readable_approval_show(local, &shown).await);
+    // An approval no longer pending is sent as is; its 409 exits 1.
+    if shown["state"] == "pending"
+        && !ask(
+            "Approve this call? It runs once, with the credentials it runs with on this machine. [y/N] ",
+        )?
+    {
+        bail!("not approved; nothing changed");
+    }
+    local.post(format!("{path}/approve"), json!({})).await
 }

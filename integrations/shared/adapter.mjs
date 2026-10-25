@@ -245,7 +245,7 @@ export const tools = [
   {
     name: 'call_capability',
     description:
-      'Call one operation of a capability from list_capabilities, by its address and the operation name, with input matching the operation\'s input_schema from list_capabilities. It waits up to wait seconds for the call to finish (Peerspan caps wait at its wait limit, 15 seconds, which is also the default) and returns the call view: call_id, state, error, and the result. A call that has not finished by then returns its call_id with state submitting, queued, or running; a kind=call_update event follows when it ends, and call_status reports it at any time. If you lost this tool\'s response, call it again with the same call_id and identical address, operation, and input: that returns the existing call instead of making a second one. A result larger than 64 KiB comes in parts: truncated is true, result_bytes gives its size, and call_status with offset set to next_offset returns the next part, until next_offset is null. A call that ends uncertain was running when it ended without a result, so it may or may not have taken effect: do not call it again on your own; check whether it took effect, or ask the person. rejected, expired, and cancelled calls never ran.',
+      'Call one operation of a capability from list_capabilities, by its address and the operation name, with input matching the operation\'s input_schema from list_capabilities. It waits up to wait seconds for the call to finish (Peerspan caps wait at its wait limit, 15 seconds, which is also the default) and returns the call view: call_id, state, error, and the result. A call that has not finished by then returns its call_id with state submitting, queued, or running; a kind=call_update event follows when it ends, and call_status reports it at any time. If you lost this tool\'s response, call it again with the same call_id and identical address, operation, and input: that returns the existing call instead of making a second one. A result larger than 64 KiB comes in parts: truncated is true, result_bytes gives its size, and call_status with offset set to next_offset returns the next part, until next_offset is null. A call that ends uncertain was running when it ended without a result, so it may or may not have taken effect: do not call it again on your own; check whether it took effect, or ask the person. rejected, expired, and cancelled calls never ran. Some operations wait for their owner\'s approval, shown by approval in list_capabilities; such a call returns awaiting_approval, and its result follows as a kind=call_update event.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -700,6 +700,8 @@ export function createAdapter({
   });
   // Set when the host refuses call-update claims to this credential.
   let callUpdates = true;
+  // Set when the host has no approval-notice route.
+  let approvalNotices = true;
   // The protocol revision the daemon last accepted from this instance.
   let reported;
   const negotiatedVersion = () => {
@@ -1142,6 +1144,20 @@ export function createAdapter({
     }
   }
 
+  // claimApprovalNotice claims the next approval notice for this session's
+  // agent. A host without the route (404) has none to claim.
+  async function claimApprovalNotice() {
+    try {
+      return await scopedCall('POST', '/adapter/v1/approval-notices/next', {});
+    } catch (error) {
+      if (error.status === 404) {
+        approvalNotices = false;
+        return null;
+      }
+      throw error;
+    }
+  }
+
   let started = false;
   let polling;
   let heartbeat;
@@ -1327,6 +1343,31 @@ export function createAdapter({
             });
             acknowledge.push(`/adapter/v1/call-updates/${callUpdate.delivery.id}/forwarded`);
           }
+          // A claimed notice is never offered again; it carries no input.
+          const notice = approvalNotices ? await claimApprovalNotice() : null;
+          if (notice) {
+            if (notice.notice.session_id !== sessionId)
+              throw new AttachmentChanged('invalid approval notice session');
+            if (stop.signal.aborted) return;
+            const approval = notice.approval ?? {};
+            const caller = approval.caller?.person_label ?? approval.caller?.host_id ?? null;
+            await notify({
+              content: `A call to your capability ${approval.capability} (${approval.operation}) from ${caller} is waiting for the person's approval, until ${approval.expires_at}. You cannot approve or deny it. Tell the person, and ask them to run peerspan approvals in a terminal on this machine.`,
+              meta: {
+                kind: 'approval_request',
+                notice_id: notice.notice.id,
+                call_id: notice.notice.call_id,
+                sender_host_id: notice.notice.sender_host_id,
+                caller,
+                origin_agent_id: approval.origin?.agent_id ?? null,
+                capability: approval.capability ?? null,
+                operation: approval.operation ?? null,
+                changes_things: approval.changes_things === true,
+                expires_at: approval.expires_at ?? null
+              }
+            });
+            acknowledge.push(`/adapter/v1/approval-notices/${notice.notice.id}/forwarded`);
+          }
           while (acknowledge.length) {
             await scopedCall('POST', acknowledge[0], {});
             acknowledge.shift();
@@ -1334,7 +1375,7 @@ export function createAdapter({
           if (warned) log('Peerspan adapter reconnected to its original attachment.');
           warned = false;
           backoff = 250;
-          if (!handoff && !response && !task && !cancel && !update && !callUpdate) await delay(pollMs, undefined, { signal: stop.signal });
+          if (!handoff && !response && !task && !cancel && !update && !callUpdate && !notice) await delay(pollMs, undefined, { signal: stop.signal });
         } catch (error) {
           if (stop.signal.aborted) return;
           if (error.status === 409 && error.detail?.error === 'channel not verified') {

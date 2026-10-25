@@ -43,6 +43,8 @@ type codedError struct {
 	candidates []string
 	// forAgents names the agents an agent-only capability is for.
 	forAgents []ForAgent
+	// approval is the record of an approval no longer pending (409).
+	approval any
 }
 
 func (e *codedError) Error() string { return e.message }
@@ -55,6 +57,12 @@ func (e *codedError) body() any {
 			Error     string     `json:"error"`
 			ForAgents []ForAgent `json:"for_agents"`
 		}{e.code, e.message, e.forAgents}
+	case e.approval != nil:
+		return struct {
+			Code     string `json:"code"`
+			Error    string `json:"error"`
+			Approval any    `json:"approval"`
+		}{e.code, e.message, e.approval}
 	case e.unanswered != nil:
 		return struct {
 			Code       string       `json:"code"`
