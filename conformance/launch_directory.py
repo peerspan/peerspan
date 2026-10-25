@@ -1748,11 +1748,25 @@ class Pairing:
                 else {'address': self.z1_dead, 'path': paths['z1']['path']})
         need(zed and zed['endpoint'] == want and member(d1, 'z1')['address'] == self.z1_dead,
              'Endpoints: a relayed peer: path relay, and its advertised address from the map', zed, paths['z1'])
-        listed = adapter_agents()
-        for address, entry in (('dana/dpeer', reach['dana/dpeer']), ('pat/gamma', reach['pat/gamma']),
-                               ('dana/zed', zed)):
-            need(listed.get(address, {}).get('endpoint') == entry['endpoint'],
-                 'GET /adapter/v1/agents: endpoint as for agents', address, listed.get(address), entry)
+        def adapter_stable():
+            # Path discovery may select another endpoint between the agents --json read above and this one. As
+            # for JSON, compare one adapter read with the peer path immediately before and after it.
+            before = {n: path(d1, n) for n in ('d2', 'p1', 'z1')}
+            listed = adapter_agents()
+            after = {n: path(d1, n) for n in ('d2', 'p1', 'z1')}
+            return (listed, after) if before == after and after['d2']['path'] == 'direct' else None
+        listed, current = wait_for(adapter_stable, timeout=30, message='a stable peer path on d1 around '
+                                   'GET /adapter/v1/agents')
+        expected = {
+            'dana/dpeer': {'address': current['d2']['endpoint'], 'path': 'direct'},
+            'pat/gamma': {'address': member(d1, 'p1')['address'], 'path': current['p1']['path']},
+            'dana/zed': ({'address': current['z1']['endpoint'], 'path': 'direct'} if current['z1']['path'] == 'direct'
+                         else {'address': self.z1_dead, 'path': current['z1']['path']}),
+        }
+        for address, want in expected.items():
+            need(listed.get(address, {}).get('endpoint') == want,
+                 'GET /adapter/v1/agents: endpoint as for agents, with path as peer path reports it', address,
+                 listed.get(address), current)
         line = readable_line(d1, 'pat/gamma')
         need(f"{member(d1, 'p1')['address']} ({paths['p1']['path']})" in line or paths['p1']['path'] == 'direct',
              'agents: the address, then the path in parentheses when it is not direct or local', line)
