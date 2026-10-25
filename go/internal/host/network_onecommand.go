@@ -142,8 +142,32 @@ func (s *Store) completePerson(ctx context.Context, n Network, personKey, token 
 		}
 	}
 	out.Admitted = true
+	persons, err := s.Persons(ctx, n.ID)
+	if err != nil {
+		return out.skip("the current binding could not be verified: "+err.Error(), bindCommand(n.ID))
+	}
+	alreadyBound := false
+	for _, current := range persons {
+		if current.PublicKey == key {
+			for _, host := range current.Hosts {
+				alreadyBound = alreadyBound || host == s.identity.ID
+			}
+		}
+	}
 	if len(binding) == 0 {
+		if alreadyBound {
+			out.Bound = true
+			return out
+		}
 		return out.skip("no binding was supplied", bindCommand(n.ID))
+	}
+	proposed, err := membership.DecodePersonBinding(binding)
+	if err != nil || proposed.PersonPublicKey != key || proposed.HostPublicKey != s.identity.PublicKey || membership.VerifyPersonBinding(n.ID, proposed) != nil {
+		return out.skip("the binding must be valid consent for this host and the requested person", bindCommand(n.ID))
+	}
+	if alreadyBound {
+		out.Bound = true
+		return out
 	}
 	if _, err = s.Bind(ctx, n.ID, BindHost{Binding: binding}); err != nil {
 		return out.skip("this host was not bound: "+err.Error(), bindCommand(n.ID))

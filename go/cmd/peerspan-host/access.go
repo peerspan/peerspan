@@ -38,6 +38,7 @@ func currentPolicy(ctx context.Context, client host.Client, network, personID st
 		return nil, err
 	}
 	delete(fields, "expires_soon")
+	delete(fields, "authorization_base64")
 	data, _ = json.Marshal(fields)
 	p, err := membership.DecodePolicy(data)
 	return &p, err
@@ -169,7 +170,7 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 	for _, given := range principals {
 		principal, err := resolvePrincipal(o.persons, given)
 		if err != nil {
-			o.signer.Close()
+			o.close()
 			return "", "", nil, err
 		}
 		resolved = append(resolved, principal)
@@ -227,7 +228,7 @@ type policyEdit struct {
 }
 
 func (e policyEdit) submit(ctx context.Context, client host.Client, errOut io.Writer) (json.RawMessage, error) {
-	defer e.o.signer.Close()
+	defer e.o.close()
 	return e.run(ctx, client)
 }
 
@@ -251,15 +252,19 @@ func renewPolicy(ctx context.Context, client host.Client, o *ownerContext) (json
 		if stored != nil {
 			storedBody = membership.CombineDuplicateRules(stored.Body())
 		}
-		if stored != nil && membership.SameContent(storedBody, body) {
-			p, err = membership.SignPolicyV2(o.signer, o.network, o.version+1, time.Now().Truncate(time.Second), until.Sub(issued), body)
+		if o.device == nil && stored != nil && membership.SameContent(storedBody, body) {
+			version, nextErr := membership.NextAccessVersion(o.version)
+			if nextErr != nil {
+				return nil, nextErr
+			}
+			p, err = membership.SignPolicyV2(o.signer, o.network, version, time.Now().Truncate(time.Second), until.Sub(issued), body)
 		} else {
 			p, err = o.next(o.network, body, true)
 		}
 		if err != nil {
 			return nil, err
 		}
-		data, err := client.Call(ctx, "POST", policyPath(o.network), host.SubmitPolicy{Policy: &p})
+		data, err := o.submit(ctx, client, p)
 		if isEditConflict(err) && attempt < editRetries {
 			if err = o.start(ctx, client); err != nil {
 				return nil, err
@@ -392,7 +397,7 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 	if err != nil {
 		return err
 	}
-	defer o.signer.Close()
+	defer o.close()
 	principal, _, err := resolveRecipient(ctx, client, o, network, given)
 	if err != nil {
 		return err

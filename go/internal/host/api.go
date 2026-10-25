@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/peerspan/peerspan/go/internal/linking"
+	"github.com/peerspan/peerspan/go/internal/membership"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 // Unix socket by Serve. It is not a peer API and does not enforce network grants.
 func Handler(store *Store) http.Handler {
 	mux := http.NewServeMux()
+	localLinkRoutes(mux, store)
 	mux.HandleFunc("GET /v1/host", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusOK, store.Info(), nil)
 	})
@@ -137,6 +140,13 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, allowed ...string) 
 }
 
 func respond(w http.ResponseWriter, status int, value any, err error) {
+	var linkError *linkFailure
+	var pathError *linking.PathError
+	var invalidation *linking.ActionInvalidation
+	if errors.As(err, &linkError) || errors.As(err, &pathError) || errors.As(err, &invalidation) {
+		respondLink(w, status, value, err, "-", "-")
+		return
+	}
 	var coded *codedError
 	if errors.As(err, &coded) {
 		w.Header().Set("Content-Type", "application/json")
@@ -154,6 +164,8 @@ func respond(w http.ResponseWriter, status int, value any, err error) {
 		switch {
 		case errors.As(err, &limited):
 			status, code, message = http.StatusTooManyRequests, "limit", err.Error()
+		case errors.Is(err, membership.ErrAccessVersionExhausted):
+			status, code, message = http.StatusConflict, "quota_exceeded", "access version exhausted"
 		case errors.Is(err, ErrInvalid):
 			status, code, message = http.StatusBadRequest, "invalid", err.Error()
 		case errors.Is(err, ErrForbidden):

@@ -96,7 +96,7 @@ type AttentionItem struct {
 // Attention kinds, in the order status reports them. The CLI adds
 // service_not_installed and linger_disabled.
 var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
-	"service_not_installed", "linger_disabled", "person_agent_unreachable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped"}
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "person_device_signer_unavailable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped"}
 
 // SortAttention orders items by kind, then subject.
 func SortAttention(items []AttentionItem) {
@@ -208,17 +208,32 @@ func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, ow
 			if err != nil {
 				return nil, err
 			}
-			if key, ok := g.personKey(person); ok {
+			key, knownPerson := g.personKey(person)
+			if g.linking != nil {
+				key, knownPerson = g.linking.Network.Facts.State.Bindings[s.identity.PublicKey]
+				knownPerson = knownPerson && key != "" && key != "-"
+			}
+			if knownPerson {
+				selected, err := s.selectedPolicyAttention(ctx, tx, g, key, attend)
+				if err != nil {
+					return nil, err
+				}
 				if p, ok := g.storedPolicy(key); ok {
 					ns.Policy = &StatusPolicy{Version: p.Version, ValidUntil: p.ValidUntil}
-					owners[n.ID] = key
+					if !selected {
+						owners[n.ID] = key
+					}
 					renew := "peerspan access renew --network " + n.ID
 					until, _ := membership.ParseTime(p.ValidUntil)
 					switch {
 					case !now.Before(until):
 						attend("policy_expired", n.ID, "your access policy expired at "+p.ValidUntil, renew)
 					case membership.PolicyExpiresSoon(p, now):
-						attend("policy_expiring", n.ID, "your access policy expires at "+p.ValidUntil+" and was not renewed; check the daemon's ssh-agent", renew)
+						detail := "your access policy expires at " + p.ValidUntil + " and was not renewed; check the daemon's ssh-agent"
+						if selected {
+							detail = "your access policy expires at " + p.ValidUntil + " and was not renewed; check the selected device's policy signing path"
+						}
+						attend("policy_expiring", n.ID, detail, renew)
 					}
 				}
 			}

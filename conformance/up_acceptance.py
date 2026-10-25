@@ -77,7 +77,7 @@ class Check:
         try:
             until('Agent (')
             os.write(master, b'claude\n')
-            until('create/join')
+            until('create/link/join')
             os.write(master, b'join\n')
             until('Invite (hidden)')
             if cancel:

@@ -62,13 +62,14 @@ func resolveExpiry(args []string, fs *pflag.FlagSet) error {
 // network; networkArgOptional those whose network ID argument does.
 var (
 	networkFlagOptional = map[string]bool{
-		"network invite": true, "network invite-person": true, "network remove-person": true,
+		"network enable-linking": true,
+		"network invite":         true, "network invite-person": true, "network remove-person": true,
 		"network revoke-invite": true, "network admit": true, "network bind": true, "network unbind": true,
 		"network delegate-admin": true, "network group": true, "network move": true,
 		"access allow": true, "access deny": true, "access renew": true, "access show": true, "access sync": true,
 		"allow": true, "deny": true, "trust": true, "untrust": true, "share": true, "unshare": true,
 	}
-	networkArgOptional = map[string]bool{"network members": true, "network sync": true, "network persons": true, "network groups": true}
+	networkArgOptional = map[string]bool{"network members": true, "network sync": true, "network persons": true, "network groups": true, "network repair": true}
 )
 
 // defaultNetwork fills in an omitted network when this host is in exactly

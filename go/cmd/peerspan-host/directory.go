@@ -173,7 +173,8 @@ func runAttach(ctx context.Context, client host.Client, harness string, harnessA
 	})
 }
 
-func attachPrepared(ctx context.Context, client host.Client, harness string, harnessArgs []string, fs *pflag.FlagSet, state string, errOut io.Writer, complete func(*integration.Profile, map[string]any) error) error {
+func attachPrepared(ctx context.Context, client host.Client, harness string, harnessArgs []string, fs *pflag.FlagSet, state string, errOut io.Writer, complete func(*integration.Profile, map[string]any) error, guidedReuse ...bool) error {
+	upReuse := len(guidedReuse) == 1 && guidedReuse[0]
 	noStart, _ := fs.GetBool("no-start")
 	if noStart && len(harnessArgs) > 0 {
 		return errors.New("harness arguments require a launch; omit --no-start")
@@ -309,6 +310,7 @@ func attachPrepared(ctx context.Context, client host.Client, harness string, har
 		}
 		return identity.ID + "/" + name
 	}
+	var reusedConnection *host.Connection
 	print := func(p *integration.Profile, reused bool) error {
 		next := "peerspan session doctor"
 		if p.Launchable() {
@@ -322,6 +324,11 @@ func attachPrepared(ctx context.Context, client host.Client, harness string, har
 			"agent": attachAgent{agent.ID, agent.Name, address(agent.Name)}, "session_id": p.SessionID, "adapter_id": p.AdapterID,
 			"profile": p.Directory, "workspace": workspace, "reused": reused, "unchecked_hosts": unchecked, "next": next,
 			"calls": credential.Calls, "max_calls_per_hour": credential.MaxCallsPerHour,
+		}
+		if reusedConnection != nil {
+			result["next"] = "peerspan session doctor"
+			result["connection"] = *reusedConnection
+			result["adapter_ready"] = reusedConnection.State == "ready"
 		}
 		// Discovery follows a successful setup.
 		result["sources"] = attachSources(ctx, client, agent.ID, p.Harness.ID, workspace, errOut)
@@ -341,6 +348,34 @@ func attachPrepared(ctx context.Context, client host.Client, harness string, har
 		valid := false
 		if expires, err := time.Parse(time.RFC3339Nano, adapter.ExpiresAt); err == nil && adapter.RevokedAt == nil && expires.After(time.Now()) {
 			valid = true
+		}
+
+		if upReuse && valid && (conn.State == "ready" || conn.State == "offline" && conn.Recoverable) {
+			current, err := integration.ValidateAttachment(ctx, reusedProfile)
+			if err != nil {
+				return err
+			}
+			adapter, conn = current.Adapter, current.Connection
+			eligible := conn.State == "ready" && current.Session.State == host.SessionAttached || conn.State == "offline" && conn.Recoverable && (current.Session.State == host.SessionAttached || current.Session.State == host.SessionDetached)
+			if !eligible {
+				return errors.New("the existing attachment changed; inspect session doctor before retrying")
+			}
+			if reusedProfile.State != state || reusedProfile.Harness.ID != harness || (name != "" && name != agent.Name) || len(harnessArgs) != 0 {
+				return errors.New("the requested integration or launch inputs differ from this project's existing attachment")
+			}
+			if len(options) != len(reusedProfile.Options) {
+				return errors.New("the requested options differ from this project's existing attachment")
+			}
+			for key, value := range options {
+				if reusedProfile.Options[key] != value {
+					return errors.New("the requested options differ from this project's existing attachment")
+				}
+			}
+			if (expiresAt != "" && expiresAt != adapter.ExpiresAt) || (callsFlag && !adapter.Calls) || (noCalls && adapter.Calls) || (maxCallsGiven && (adapter.MaxCallsPerHour == nil || *adapter.MaxCallsPerHour != maxCalls)) || (fs.Changed("max-sends-per-hour") && (adapter.MaxSendsPerHour == nil || *adapter.MaxSendsPerHour != maxSends)) {
+				return errors.New("the requested expiry, calls or rate budgets differ from this project's existing attachment; nothing was changed")
+			}
+			reusedConnection = &conn
+			return print(reusedProfile, true)
 		}
 		switch {
 		case valid && conn.State == "registered":

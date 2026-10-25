@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,6 +92,17 @@ func signAsAdministrator(ctx context.Context, client host.Client, path string, b
 		if !membership.ValidLabel(r.Member) {
 			return nil, errors.New("invalid member label")
 		}
+		catalog, e := localInviteCatalog(ctx, client, id)
+		if e != nil {
+			return nil, e
+		}
+		if len(catalog) > 0 {
+			expires, e := membership.ParseTime(r.ExpiresAt)
+			if e != nil {
+				return nil, e
+			}
+			r.ExpiresAt = expires.UTC().Truncate(time.Second).Format(time.RFC3339)
+		}
 		var encoded string
 		switch {
 		case strings.HasSuffix(path, "/person-invites"):
@@ -120,6 +134,28 @@ func signAsAdministrator(ctx context.Context, client host.Client, path string, b
 			encoded, err = t.Encode()
 			if err != nil {
 				return nil, err
+			}
+		}
+		if len(catalog) > 0 {
+			decisionNow, e := host.LinkingDecisionTime()
+			if e != nil {
+				return nil, e
+			}
+			kind, owner, certificate := "person", membership.EncodeKey(loaded.PublicKey()), "root"
+			if owner == n.CurrentRootPublicKey {
+				kind, owner, certificate = "network_root", "-", "-"
+			}
+			unsigned, evidence, e := host.InviteFeatureIntent(n, catalog, encoded, kind, owner, certificate, membership.EncodeKey(loaded.PublicKey()), decisionNow)
+			if e != nil {
+				return nil, e
+			}
+			signature, e := membership.SignSSHSIG(loaded, evidence.Message)
+			if e != nil {
+				return nil, e
+			}
+			encoded, e = host.WrapFeatureInvite(n, encoded, catalog, unsigned, signature, decisionNow)
+			if e != nil {
+				return nil, e
 			}
 		}
 		return host.CreateInvite{Token: encoded}, nil
@@ -168,6 +204,13 @@ func signAsAdministrator(ctx context.Context, client host.Client, path string, b
 		plan, err := call[host.MovePlan](ctx, client, "GET", "/v1/networks/"+url.PathEscape(id)+"/move")
 		if err != nil {
 			return nil, err
+		}
+		if plan.Move != nil && plan.Move.Sequence == plan.NextSequence {
+			if plan.Move.Address != r.CoordinatorAddress || plan.Move.PublicKey != r.CoordinatorPublicKey {
+				return nil, errors.New("operation_conflict: resume the pending coordinator move before choosing another target")
+			}
+			r.Move = plan.Move
+			return r, nil
 		}
 		asRoot := membership.EncodeKey(loaded.PublicKey()) == n.CurrentRootPublicKey
 		mv, err := membership.SignMove(signer, asRoot, id, plan.NextSequence, r.CoordinatorAddress, r.CoordinatorPublicKey, now)
@@ -237,8 +280,21 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 			d, err := membership.SignAdminDelegation(signer, id, n.RootEpoch, key, now)
 			return "POST", path + "/admins", host.DelegateAdmin{Delegation: &d}, err
 		}
-		// The removal keeps exactly the statements this host verified as
-		// signed by that administrator.
+		// Activated withdrawals use the complete verified exact retention plan.
+		planV2, planError := call[host.LinkAdminRemovalPlan](ctx, client, "GET", path+"/admin-removal-plan?person="+url.QueryEscape(key)+"&format=2")
+		if planError == nil {
+			kept := planV2.Kept
+			if revokeAdmitted {
+				kept = []string{}
+			}
+			record, err := host.SignAdminRemovalV2(signer, id, key, revokeAdmitted, kept, time.Now().UTC().Truncate(time.Second).Format(time.RFC3339))
+			return "POST", path + "/admin-removals", host.RemoveAdmin{RemovalBase64: base64.StdEncoding.EncodeToString(record)}, err
+		}
+		var failure *host.ClientError
+		if !errors.As(planError, &failure) || failure.Status != 426 {
+			return "", "", nil, planError
+		}
+		// Legacy withdrawals retain their original digest-only wire statement.
 		var kept []string
 		if !revokeAdmitted {
 			plan, err := call[host.AdminRemovalPlan](ctx, client, "GET", path+"/admin-removal-plan?person="+url.QueryEscape(key))
@@ -297,6 +353,38 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 				if err != nil {
 					return "", "", nil, err
 				}
+			}
+		}
+		versions, versionErr := call[host.LinkAccessVersions](ctx, client, "GET", "/v1/networks/"+url.PathEscape(id)+"/link-access-versions")
+		if versionErr == nil {
+			for _, group := range versions.Groups {
+				if group.Name == name {
+					version, err = membership.NextAccessVersion(group.Version)
+					if err != nil {
+						return "", "", nil, err
+					}
+				}
+			}
+		} else {
+			var failure *host.ClientError
+			if !errors.As(versionErr, &failure) || failure.Status != 426 && failure.Status != 404 {
+				return "", "", nil, versionErr
+			}
+		}
+		if personKey(fs) == "" {
+			selected, selectErr := call[host.LinkSignerView](ctx, client, "GET", "/v1/networks/"+url.PathEscape(id)+"/link-signer")
+			if selectErr == nil {
+				sort.Strings(ids)
+				ids = slices.Compact(ids)
+				payload, err := json.Marshal(map[string]any{"network_id": id, "name": name, "version": version, "defined_at": time.Now().UTC().Truncate(time.Second).Format(time.RFC3339), "members": ids})
+				if err != nil {
+					return "", "", nil, err
+				}
+				return "POST", "/v1/networks/" + url.PathEscape(id) + "/link-actions", host.LinkActionRequest{Kind: "peerspan-group-v1", PayloadBase64: base64.StdEncoding.EncodeToString(payload), CertificateID: selected.CertificateID}, nil
+			}
+			var failure *host.ClientError
+			if !errors.As(selectErr, &failure) || failure.Status != 404 {
+				return "", "", nil, selectErr
 			}
 		}
 		loaded, err := person.Load(personKey(fs))

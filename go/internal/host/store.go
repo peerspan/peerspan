@@ -71,7 +71,9 @@ type Store struct {
 	coordination sync.Mutex // guards advertise and interval
 	advertise    string
 	interval     time.Duration
-	syncing      sync.Mutex // serializes coordinator syncs and map application
+	syncing      sync.Mutex           // serializes coordinator syncs and map application
+	linkMu       sync.Mutex           // serializes local linking ceremonies and frame publication
+	linkPolls    map[string]time.Time // private local throttle, guarded by linkMu
 	// syncStarted is when each network's latest sync started; changesMu
 	// guards it.
 	syncStarted map[string]time.Time
@@ -157,7 +159,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 18 {
+	if version < 0 || version > 19 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -254,6 +256,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if version < 18 {
 		// A state whose version was lowered keeps its tables.
 		if _, err = tx.ExecContext(ctx, strings.NewReplacer("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ").Replace(callsSchema)); err != nil {
+			return nil, err
+		}
+	}
+	if version < 19 {
+		if _, err = tx.ExecContext(ctx, linkingSchema); err != nil {
 			return nil, err
 		}
 	}

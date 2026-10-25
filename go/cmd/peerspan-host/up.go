@@ -149,6 +149,9 @@ func setupService(ctx context.Context, state string) (map[string]any, bool, erro
 }
 
 func setupInvite(value string, now time.Time) (membership.Token, error) {
+	if strings.HasPrefix(value, host.FeatureInvitePrefix) {
+		return host.InspectCurrentFeatureInvite(value)
+	}
 	if strings.HasPrefix(value, membership.MemberTokenPrefix) {
 		t, err := membership.DecodeMemberToken(value, now)
 		return t.Token, err
@@ -174,6 +177,7 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 	noStart, _ := fs.GetBool("no-start")
 	var profile *integration.Profile
 	var prepared *integration.Profile
+	var reusedConnection *host.Connection
 	var workspace string
 	work := func() error {
 		if runtime.GOOS != "linux" {
@@ -296,6 +300,39 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 			if harness != profile.Harness.ID || (name != "" && name != filepath.Base(profile.Directory)) {
 				return errors.New("this project already has another agent or integration; use its existing attachment or the explicit session commands")
 			}
+
+			for key, value := range options {
+				if saved, ok := profile.Options[key]; !ok || saved != value {
+					return fmt.Errorf("--option %s conflicts with this project's attachment; use its existing conversation", key)
+				}
+			}
+			at, _ := fs.GetString("expires-at")
+			if at != "" && at != profile.Request.ExpiresAt {
+				return errors.New("the requested expiry differs from this project's attachment; use explicit session recovery")
+			}
+			callsInput, _ := fs.GetBool("calls")
+			noCallsInput, _ := fs.GetBool("no-calls")
+			if callsInput && !profile.Request.Calls || noCallsInput && profile.Request.Calls {
+				return errors.New("the requested calls setting differs from this project's attachment")
+			}
+			sendBudget, callBudget := int64(100), int64(100)
+			if profile.Request.MaxSendsPerHour != nil {
+				sendBudget = *profile.Request.MaxSendsPerHour
+			}
+			if profile.Request.MaxCallsPerHour != nil {
+				callBudget = *profile.Request.MaxCallsPerHour
+			}
+			sendsInput, _ := fs.GetInt64("max-sends-per-hour")
+			callsBudgetInput, _ := fs.GetInt64("max-calls-per-hour")
+			if fs.Changed("max-sends-per-hour") && sendsInput != sendBudget || fs.Changed("max-calls-per-hour") && (!profile.Request.Calls || callsBudgetInput != callBudget) {
+				return errors.New("the requested rate budget differs from this project's attachment")
+			}
+			if at == "" && profile.Request.ExpiresAt != "" {
+				_ = fs.Set("expires-at", profile.Request.ExpiresAt)
+			}
+			if !fs.Changed("max-sends-per-hour") {
+				_ = fs.Set("max-sends-per-hour", fmt.Sprint(sendBudget))
+			}
 			for k, v := range profile.Options {
 				if supplied, ok := options[k]; ok && supplied != v {
 					return fmt.Errorf("--option %s conflicts with this project's attachment; use its existing conversation", k)
@@ -349,6 +386,11 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 		}
 		root, _ := fs.GetString("integrations")
 		runner, _ := fs.GetString("runner")
+		if profile != nil {
+			if err := integration.ValidateAttachmentManifest(profile, root, runner); err != nil {
+				return err
+			}
+		}
 		if err := integration.Preflight(ctx, integration.Options{Directory: dir, State: state, Harness: harness, Integrations: root, Runner: runner, ProviderOptions: options, Workspace: workspace, Args: harnessArgs}); err != nil {
 			return err
 		}
@@ -365,6 +407,54 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 		}
 		finish(reused)
 		client := host.Client{SocketPath: filepath.Join(state, "admin.sock")}
+		requests, err := call[[]host.LinkRequestView](ctx, client, "GET", "/v1/link/requests")
+		if err != nil {
+			var failure *host.ClientError
+			if !errors.As(err, &failure) || failure.Status != 404 {
+				return err
+			}
+			requests = nil
+		}
+		identity, err := call[host.Identity](ctx, client, "GET", "/v1/host")
+		if err != nil {
+			return err
+		}
+		pending := []host.LinkRequestView{}
+		for _, request := range requests {
+			if request.HostID == identity.ID && request.State != "linked" && request.State != "cancelled" && request.State != "expired" {
+				pending = append(pending, request)
+			}
+		}
+		if len(pending) > 0 {
+			result.Network = map[string]any{"link_request": pending[0]}
+			result.Next = "peerspan --state " + setupQuote(state) + " link resume " + pending[0].RequestID
+			if len(pending) != 1 || create != "" || token != "" {
+				return errors.New("an existing machine link requires explicit resume or cancellation before another setup choice")
+			}
+			var resumedView host.LinkRequestView
+			if isTerminal(os.Stdin) {
+				flags := pflag.NewFlagSet("link resume", pflag.ContinueOnError)
+				flags.String("person-key", personKey(fs), "")
+				flags.String("root-key", "", "")
+				if err = runLinkWithCodeDisplay(ctx, client, []string{"link", "resume", pending[0].RequestID}, flags, io.Discard, errOut, false); err != nil {
+					return err
+				}
+				resumedView, err = call[host.LinkRequestView](ctx, client, "GET", "/v1/link/requests/"+url.PathEscape(pending[0].RequestID))
+				if err != nil {
+					return err
+				}
+			} else {
+				resumed, err := linkCall[host.LinkRequestResult](ctx, client, "POST", "/v1/link/requests/"+url.PathEscape(pending[0].RequestID)+"/resume", map[string]any{})
+				if err != nil {
+					return err
+				}
+				resumedView = resumed.LinkRequestView
+			}
+			result.Network = map[string]any{"link_request": resumedView}
+			if resumedView.State != "linked" {
+				return errors.New("the same machine link needs review before agent attachment; resume it without creating a replacement person")
+			}
+		}
 		networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
 		if err != nil {
 			return err
@@ -377,7 +467,7 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 			return fmt.Errorf("guided up supports one network; found %s; use network and attach commands", strings.Join(names, ", "))
 		}
 		if len(networks) == 0 && create == "" && token == "" {
-			choice, err := setupPrompt(ctx, errOut, "Create a network or join with an invite (create/join)", "", false)
+			choice, err := setupPrompt(ctx, errOut, "Create a network, link this machine, or join with an invite (create/link/join)", "", false)
 			if err != nil {
 				return errors.New("choose --create NAME or --join TOKEN: " + err.Error())
 			}
@@ -386,8 +476,34 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 				create, err = setupPrompt(ctx, errOut, "Network name", "personal", false)
 			case "join":
 				token, err = setupPrompt(ctx, errOut, "Invite (hidden)", "", true)
+			case "link":
+				coordinator, coordinatorKey := address, key
+				if coordinator == "" {
+					coordinator, coordinatorKey = "-", "-"
+				}
+				created, e := linkCall[host.LinkRequestResult](ctx, client, "POST", "/v1/link/requests", host.CreateLinkRequest{Mode: "new", NetworkID: "-", PersonPublicKey: "-", CoordinatorAddress: coordinator, CoordinatorPublicKey: coordinatorKey})
+				if e != nil {
+					return e
+				}
+				result.Network = map[string]any{"link_request": created.LinkRequestView}
+				result.Next = "peerspan --state " + setupQuote(state) + " link resume " + created.RequestID
+				flags := pflag.NewFlagSet("link resume", pflag.ContinueOnError)
+				flags.String("person-key", personKey(fs), "")
+				flags.String("root-key", "", "")
+				if err = runLinkWithCodeDisplay(ctx, client, []string{"link", "resume", created.RequestID}, flags, io.Discard, errOut, true); err != nil {
+					return err
+				}
+				resumed, e := call[host.LinkRequestView](ctx, client, "GET", "/v1/link/requests/"+url.PathEscape(created.RequestID))
+				if e != nil {
+					return e
+				}
+				result.Network = map[string]any{"link_request": resumed}
+				if resumed.State != "linked" {
+					return errors.New("the same machine link needs review before agent attachment; resume it without creating a replacement person")
+				}
+				networks, err = call[[]host.Network](ctx, client, "GET", "/v1/networks")
 			default:
-				err = errors.New("choose create or join")
+				err = errors.New("choose create, link or join")
 			}
 			if err != nil {
 				return err
@@ -514,12 +630,30 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 			result.Next = "peerspan network bind --network " + n.ID
 			return errors.New("this host's person is unbound; use the original person key and " + result.Next)
 		}
-		signer, err := person.Load(personKey(fs))
-		if err != nil {
-			return fmt.Errorf("recover the original person key before continuing: %w", err)
+		id := ""
+		if personKey(fs) == "" {
+			selected, selectErr := call[host.LinkSignerView](ctx, client, "GET", "/v1/networks/"+url.PathEscape(n.ID)+"/link-signer")
+			if selectErr == nil {
+				public, decodeErr := membership.DecodeKey(selected.PersonPublicKey)
+				if decodeErr != nil {
+					return errors.New("the selected device's stable person requires repair")
+				}
+				id = membership.PersonID(public)
+			} else {
+				var failure *host.ClientError
+				if !errors.As(selectErr, &failure) || failure.Status != 404 {
+					return fmt.Errorf("repair this same person's selected device before continuing: %w", selectErr)
+				}
+			}
 		}
-		id := membership.PersonID(signer.PublicKey())
-		signer.Close()
+		if id == "" {
+			signer, err := person.Load(personKey(fs))
+			if err != nil {
+				return fmt.Errorf("recover the original person key before continuing: %w", err)
+			}
+			id = membership.PersonID(signer.PublicKey())
+			signer.Close()
+		}
 		if id != bound.ID {
 			return errors.New("selected person key differs from this host's bound person; recover the original key")
 		}
@@ -604,15 +738,30 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 			_ = fs.Set("calls", fmt.Sprint(calls))
 			_ = fs.Set("no-calls", fmt.Sprint(!calls))
 		}
-		if err := attachPrepared(ctx, client, harness, harnessArgs, fs, state, errOut, func(p *integration.Profile, v map[string]any) error { prepared = p; result.Attachment = v; return nil }); err != nil {
+		if err := attachPrepared(ctx, client, harness, harnessArgs, fs, state, errOut, func(p *integration.Profile, v map[string]any) error {
+			prepared, result.Attachment = p, v
+			if connection, ok := v["connection"].(host.Connection); ok {
+				reusedConnection = &connection
+			}
+			return nil
+		}, true); err != nil {
 			return err
 		}
 		result.Next = "peerspan session start --directory " + setupQuote(prepared.Directory)
+		if reusedConnection != nil {
+			result.Next = "peerspan session doctor --directory " + setupQuote(prepared.Directory)
+		}
 		finish(result.Attachment.(map[string]any)["reused"] == true)
 		result.Setup.State = "prepared"
 		return nil
 	}
 	err := work()
+	if err == nil && !noStart && reusedConnection != nil && reusedConnection.State == "offline" {
+		result.Setup.State = "incomplete"
+		result.Setup.Stages = append(result.Setup.Stages, setupStage{"launch", "failed"})
+		result.Next = "peerspan session doctor --directory " + setupQuote(prepared.Directory)
+		err = errors.New("the existing attachment is reconnecting; reconnect its original integration or inspect " + result.Next + "; no duplicate was launched")
+	}
 	if err != nil {
 		if stage < len(result.Setup.Stages) {
 			result.Setup.Stages[stage].State = "failed"
@@ -636,6 +785,10 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 		return err
 	}
 	if noStart {
+		return nil
+	}
+	if reusedConnection != nil {
+		fmt.Fprintln(errOut, "Prepared; the existing integration remains running. No duplicate was launched; inspect peerspan status for delivery readiness.")
 		return nil
 	}
 	fmt.Fprintln(errOut, "Prepared; starting the integration. Check peerspan status for its connection and delivery readiness.")

@@ -43,6 +43,30 @@ Acknowledging an installed reader never asserts agent readiness.
 
 ## Durable host state and authority
 
+For map-2 coordinator transport, verify catalog `coordinator_move` objects using
+the current verified root/administrator rules before selecting the highest
+valid sequence. An invalid historical higher move cannot hide a lower valid
+current move. Apply the existing move precedence and monotonic applied sequence.
+For successor proofs, start at the independently known actual connection pin,
+select its highest-sequence valid first edge, then follow only exact consecutive
+sequence-plus-one edges from each resulting key. Stop when the next edge is
+missing, bound traversal by the finite catalog, and run the existing complete
+`VerifySuccessors` checks on the selected chain. Repeated public keys are allowed
+for address-only successors and returning to an earlier key; increasing sequence
+and unique previous-key/sequence edges prevent unbounded traversal. Catalog
+import alone never changes a host's independently pinned connection.
+
+During atomic first adoption, access-state verification may use the feature ID
+from independently verified adoption evidence before storing feature and
+high-water together. An existing durable feature must still match exactly.
+Enable-linking first verifies the complete feature using its original durable
+`known_feature_id: "-"`. Generic first map adoption independently enforces
+those same first-feature deadline, current epoch and exact roster conditions,
+or requires the separately approved fresh-root repair workflow. A new link
+result instead uses the feature already locked by the requester's approved
+owner/selection and a complete verified activation. A raw map/catalog feature
+never substitutes for a previously durable feature or bypasses first adoption.
+
 Migrate atomically from 18 to the exact eight schema-19 tables in transaction
 section 6. Preserve host identity, roots, networks, policies, services, sessions,
 attachments and adapter credentials. Failed migration rolls back. Old binaries
@@ -101,12 +125,34 @@ kept only in `link_device_keys` under existing private-state permissions. It
 supports typed certificate/binding/admin/policy/revocation/checkpoint operations
 with transaction-time current authority checks. It exposes no raw-sign route and
 never exports the seed. Original-person and external SSH/root providers remain
-CLI-side. Every explicit original-person selection must match the bound stable
-person; failure to find a live device returns repair, never creates a new person.
+CLI-side. On an activated network, every explicit original-person selection
+must match the bound stable person; failure to find a live device returns repair,
+never creates a new person. Before activation, the existing explicit held-key
+workflow may still act for another current person under its original authority.
+Only a strict `426 upgrade_required` from the read-only active-feature check
+selects that legacy behavior; successful verified activation requires the bound
+identity check and every other failure refuses without signing or fallback.
+The existing `network bind --person-key PATH` recovery command may establish a
+first binding for an independently verified local member whose person binding
+is absent. Its original key and person admission still verify; a different
+existing binding is refused. This binding-specific allowance does not change
+access/capability provider selection or authorize fallback from a broken selected
+device signer.
 Pick the shortest usable renewal issuer path, then certificate ID, unless the
 user selected an exact issuer.
 
 ### Local access views and peer propagation
+
+Each local projection uses one coherent database snapshot for its retained
+catalog, durable feature/root/coordinator pins and policy/group high-water.
+Capture all bytes, references and maxima under the same read transaction, then
+close that transaction before expensive pure verification when the caller does
+not already own a write transaction. A concurrent renewal cannot combine an
+older catalog with a newer maximum and temporarily hide the selected policy.
+Verification, validity windows, missing-proof refusal and no-fallback rules are
+unchanged. The independent automatic-renewal gate requires every observed view
+to remain the verified prior policy or the verified renewal, never a transient
+missing-policy response caused by mixed snapshots.
 
 For an enveloped selected policy, `PolicyView` projects only its verified active
 unsigned payload fields, uses flat `signature: "-"`, retains `expires_soon`, and
@@ -119,6 +165,37 @@ gain view metadata. Internal rule evaluation uses the independently verified sel
 payload. Exact public envelopes remain in `link_objects`; no projected unsigned
 view may be propagated as a legacy signed policy/group. An inactive highest
 selection never falls back to an older active body.
+
+For next-version generation, owner-local `GET
+/v1/networks/{id}/link-access-versions` has no body or query and returns exactly
+`{policies: [{person_public_key, version, message_hash}], groups: [{name,
+version, message_hash}]}`. Arrays are sorted by their exact subject key and may
+be empty. Versions are positive u64 and message hashes use canonical lowercase
+SHA-256. The read verifies the current epoch's complete projection together with
+the exact retained high-water; invalid or missing required evidence fails closed.
+It performs no sync, mutation or signing and makes no authority/readiness claim.
+CLI and daemon generation consult these maxima before guarded `+1`; permission
+evaluation continues to use only active selected bodies. Fresh writers recheck
+under their existing lock, so a stale generation race is rejected.
+
+Active v2 root rotation derives its renewal plan from the complete independently
+verified current host/person projection, including linked hosts with no legacy
+member-row admission. Preserve every old exact public object and high-water.
+Only active root-signed group bodies are renewed by the new root, at guarded
+next version; the legacy same-version renewal exception does not apply after
+activation. An inactive maximum cannot resurrect an older group and device
+envelopes are retained exactly. Pending rotation/root-seed replacement and the
+accepted public rotation/renewals are committed atomically under the existing
+rotation retry rules. No root transition disables the durable feature or resets
+the selected original person/device.
+Before ordinary active sync, a durable pending rotation is resubmitted and its
+verified response commits the matching new root seed and full public projection
+in one transaction. A lost reply or restart cannot advance the public epoch
+while leaving the old seed installed. Unsettled transport retains the exact
+pending intent and prevents ordinary sync from bypassing its completion.
+A current-authorized held move learned through an authenticated peer catalog
+is considered before contacting an unavailable old coordinator; historical
+recognition alone never makes a held move current-authorized.
 
 Active upgraded peers use authenticated mTLS `GET` and `POST`
 `/peer/v1/networks/{network}/link-catalog`. GET has no body/query and returns
@@ -147,6 +224,18 @@ keeps its fixed 32 MiB bound. Both implementations preserve the optional field
 when opening each other's rows.
 
 ## Typed device management actions
+
+`GET /v1/networks/{id}/link-signer` is a read-only discovery route. Successful
+HTTP 200 is exactly `{network_id, person_public_key, device_public_key,
+certificate_id, scopes, not_after}`. It resolves the exact selected local row,
+owned device seed and current verified path, using a present non-administrator
+scope when available; a scope-8-only path also requires the current administrator
+role. It establishes no sync freshness or readiness. No selected row returns
+404. A present row with missing/corrupt seed, unresolved dependencies, expiry,
+revocation or role loss returns structured repair for the same stable person;
+it never returns 404 to trigger an original/new-identity fallback. Writers still
+freshly sync and revalidate. An explicitly chosen original-person key must match
+the bound original person, and a failed selected path never silently falls back.
 
 `POST /v1/networks/{id}/link-actions` is private local administration, with
 exact request `{kind, payload_base64, certificate_id}`. `kind` is exactly one
@@ -235,12 +324,24 @@ retry remain coordinator obligations.
 ## Exact local consent extensions
 
 The original approval/admission routes and review shapes remain as specified in
-transaction section 7. A preview signs/publishes nothing; approval requires exact
+transaction section 7. For admission by a separate administrator, request
+`expected_person_id` and `review.person_id` pin the selected owner's stable
+identity. The local administrative provider resolves from the local bound
+administrator (or exact selected issuer), never by substituting the target owner.
+`review.signer_public_key` and signing requests pin that actual administrator's
+signing key; the admission envelope's `person_public_key` names that signer,
+while its admitted host/member fields remain those fixed by the selected owner. A preview signs/publishes nothing; approval requires exact
 reviewed network/person/host/device pins. `auto` resolves once to a concrete
 issuer before consent. Persist fixed scopes, issuance/expiry, dependency bytes
 and signing templates. External signing requests expose only the next typed
 message that is ready; submission verifies a signature over those persisted
 bytes. No timestamp, role, subject or selected path changes between steps.
+
+An invalid actual-network approval pin returns `400 invalid` before approving,
+signing or publishing. Independently verified incoming transport may be cached;
+that cache grants no new owner/admin intent, signed packet, outbound publication
+or public authority. If the code already names an approved local intent, preserve
+its exact intent, signing template and packet bytes and all requester consents.
 
 The new machine separately consents to selecting an owner offer and making a
 final commit. `resume {}` never implies consent to a mutable offer or to a later
@@ -297,6 +398,12 @@ link commit REQUEST_ID --owner-offer ID --selection ID --administrator-offer ID
     --network ID --expect-person KEY --expect-host-key KEY --expect-device-key KEY
     [--approve]
 ```
+
+New and renewal request creation support the paired flags `--coordinator
+HOST:PORT --coordinator-key KEY`, mapping to the existing exact API pin fields.
+An unresolved new network otherwise uses the compiled default or returns an
+actionable error. Overrides for renewal or a known network must equal its
+current verified pin. Resume cannot override persisted pins.
 
 Without `--approve` these preview. With it all pins are required, including the
 literal admin offer `-` for renew. Existing `link approve`/`link admit` gain
@@ -404,6 +511,25 @@ uses person `-`, certificate `network_root`. A same-machine owner/admin approval
 may persist administrator intent approved for the exact reviewed request/owner
 and keys; its packet is constructed only after the matching signed selection
 has been verified and persisted. It never selects or commits for the requester.
+This single-review path requires that the selected owner signer itself currently
+has scope 8 and the administrator role. It fixes that same signer/issuer and the
+exact reviewed owner offer, network, person, host, device and scopes. Freshly
+revalidate that path/role before each administrator signature and publication.
+An owner-only review never selects a network root or alternate administrator as
+a fallback. Otherwise use a separate explicit `/admissions` review. An original
+SSH provider exposes the later dependency-ready administrator slots to the CLI
+when resuming the same reviewed approval; its private key is never imported.
+
+`GET /v1/link/requests/{id}/approval` has no query/body and returns exactly the
+existing `{request, review, signing_requests}` shape. It reads only persisted
+approved approver intent and already fixed dependency-ready signing slots;
+it creates no template, consent, signature or publication and returns no code
+or seed. Missing request is 404; an existing requester or unapproved approver
+is 409 `state_conflict`. Resume may materialize a later administrator packet
+template only after matching selection and fresh authority checks. The CLI then
+reads this endpoint and submits its typed signatures with the already selected
+matching original key. Requester resume may ignore this inapplicable auxiliary
+409; it cannot silently select another provider.
 
 Preview may retain the immutable local public review/template needed for consent
 and recovery; it produces no signature, outbound offer or network mutation.
@@ -447,6 +573,18 @@ public tombstone through deadline plus 24 hours, after which it may be removed.
 Commit-persisted/finalizing public intent and operation tombstones survive expiry
 or an unknown-operation 404 until outcome is resolved. Terminal rows do not
 consume active-pending quota; durable operation bounds remain unchanged.
+The atomic application event is exactly `network.link_applied`, with subject
+equal to the request ID for both new and renewal. Ordinary membership/binding
+events may also occur; this event makes no agent-readiness claim.
+
+For an already locally applied request, a well-formed conflicting supplied
+owner/selection/administrator/network/person/host/device pin returns HTTP 409
+`operation_conflict`, preserving its exact original outcome and newer signer
+selection. Malformed JSON/identifiers and missing mandatory approval fields
+remain HTTP 400 `invalid`; a first pending consent/reference mismatch also
+remains 400 `invalid`. An identical committed retry reconstructs its full review
+from the immutable persisted transcript without requiring current signing
+authority or reapplying signer, membership, proof or reachability mutations.
 
 Host barriers use the runtime foundation's opt-in environment controls:
 `host.request.after_commit`, `host.frame.after_commit`,
@@ -454,6 +592,12 @@ Host barriers use the runtime foundation's opt-in environment controls:
 `host.result.after_commit`. They occur after durable commit and before display,
 publish/submission or response. They contain only public request IDs. Both
 implementations honor the same barriers and test clock; production uses UTC.
+`host.frame.after_commit` applies to any durably persisted frame, received or
+outbound. A conformance check targeting an unpublished administrator frame first
+processes its exact incoming selection and fixes the external administrator's
+dependency-ready signing slots, then arms the barrier before submitting the
+final packet signature. Earlier received frames are not evidence of a sealed
+unpublished administrator packet.
 
 ## Sufficient ceremony proof catalogs
 
@@ -555,3 +699,407 @@ fixture signers without either implementation:
   tombstone retention, and coordinator restore.
 - Existing explicit invite and capability/policy propagation regressions, all
   relevant shared language/CLI/peer suites and installed Linux bundle `up` checks.
+
+Peer catalog POST authenticates the actual mTLS sender against the independently
+verified prior local membership and all known restrictions before applying the
+incoming historical union. A current sender may propagate its own valid removal;
+that removal governs subsequent entry. Added grants in the incoming body cannot
+supply the prior gate, and removal retains no subsequent GET/read authority.
+
+Daemon automatic policy renewal and edit reapplication select the owned device
+whenever a `link_signers` row exists. A broken selected row requires repair and
+never falls back to an original key. Before signing, fresh sync verifies the
+actual pin, current binding, owned seed and fixed typed intent. After signing,
+verify the exact action again; cap policy expiry at the live path minimum and
+choose checked retained maximum plus one. Reapplication rechecks its exact
+stored policy and edit plan/reservation under the existing mutation transaction.
+Catalog, projection, edit changes and delivery queue commit atomically. With no
+selected row the existing original-person renewal provider remains available.
+
+For a feature-active network with a selected device signer, daemon renewal
+eligibility (the due fraction and remaining policy lifetime) uses the same
+shared decision clock as the typed provider and signing checks. This includes
+the explicitly enabled injected test clock; production uses normal UTC.
+Legacy/original-provider scheduling is unchanged. This grants no extra renewal
+authority and does not relax any current path, expiry or edit guard.
+
+## Atomic capability claims with device providers
+
+`POST /v1/capabilities` keeps its existing fields and `policies` array and gains
+optional `catalogs: [{network_id, catalog}]` (omitted or empty for legacy).
+A network occurs once across both arrays. Exactly one checked claim is supplied
+for each network bound to the one selected original person, preserving existing
+name-based claims; unsigned projections never enter `policies`. One transaction
+revalidates every exact signed envelope, current path, local person/host/name
+claim, current maxima/edit reservations and capability source/name. Capability,
+all catalogs/projections, edit changes and delivery rows commit together; any
+refusal stores none.
+
+The explicit `link-actions` variant `policy_claim` takes `payload_base64` of
+exactly `{capability, policy_base64}`. The latter is canonical Base64 of the exact
+unsigned `peerspan-policy-v2` payload. Check scope 1, owned live device, current
+binding, fresh actual-pin sync, exact current edit reservation and guarded
+version before signing. The policy must claim that capability for this host and
+must not claim the same name for another host. Sign only the fixed ordinary
+person-record envelope; return the existing ar_/pf_/record/catalog result with
+`committed: false`. Store/publish no policy or delivery. Atomic capability create
+revalidates everything. CLI identical-name preflight signs nothing. Original-key
+CLI supplies the existing signed policy; selected-device CLI supplies the checked
+preparation's exact catalog. Existing stale create races remain rejected.
+
+## Format-2 administrator withdrawal and exact retention plans
+
+On an activated network, the existing daemon-root `POST
+/v1/networks/{id}/admin-removals` `{person, revoke_admitted}` form creates the
+accepted format-2 removal. The route additionally accepts exactly
+`{removal_base64}`: canonical Base64 of the exact signed `admin_removal_v2`
+object. This field is mutually exclusive with `person`, `revoke_admitted` and
+legacy `removal`, including explicitly supplied empty/false values. Legacy
+signed `removal` remains its existing explicit legacy statement; pre-feature
+root generation remains legacy. The Base64 variant requires an active durable
+feature and a signature by the current root before a new publication. A signed
+root's exact kept list is its consent; the host never adds omitted entries.
+
+`GET /v1/networks/{id}/admin-removal-plan?person=PERSON&format=2` returns exactly
+`{format: 2, person_public_key, kept}`; without `format`, the legacy response
+remains unchanged. Reject unknown/duplicate query parameters and other format
+values. This is a verified read, with no signing, sync, publication or authority
+claim. `BuildStoredAdminRemovalPlan(ctx, catalog, person)` / Rust equivalent
+validates the complete stored source and returns the same sorted unique exact
+kept tags: `legacy:` plus the actual signed legacy-message SHA-256, `record:`
+plus the exact ordinary authorization AR, and `redemption:` plus the original
+completed redemption PF. Resolve nested records through their exact original
+bytes. Include target-administrator scope-8 records with verified usable
+historical issuer evidence, active group candidates, and eligible completed
+redemptions together with every actual signed invitation half. A legacy
+signature recognized as a network-chain root remains root authority even when
+that key also names the target person; it is not administrator-issued. Typed
+person authorization retains its explicitly named person role. Existing
+withdrawal exclusions, revocation, expiry without valid retention and inactive
+access maxima cannot become eligible through planning. No checkpoint revives
+an inactive policy/group.
+
+A fresh withdrawal is verified against the independently held prior authority,
+then its sticky local catalog/projection and existing revocation event commit
+before network publication. Retain every old exact public object, feature and
+high-water. A failed/unknown publication keeps those exact signed bytes for
+resubmission; an identical generated retry reuses them, and `revoke_admitted`
+may only escalate an existing plain withdrawal. An external signed conflict
+cannot replace a retained same-kind withdrawal. Success retains the existing
+`RevocationResult` response and route status. No role, device, policy or group
+is reactivated by applying or retrying a withdrawal.
+
+The stored-snapshot diagnostic adapter adds `kind: "admin_removal_plan"`, exact
+fields `kind, network_base64, catalog_base64, epoch, known_feature_id, now,
+person_public_key`. Success is exactly `{ok: true, kept}`; failures use the
+existing code and exact missing-proof shape. This adapter performs no signing
+or persistent mutation.
+
+The plan's group entries come only from the highest selected active body for
+that name; an inactive higher maximum suppresses every lower group tag. A full
+source containing an ordinary admission whose expired issuer cannot be resolved
+without its missing exact checkpoint fails the whole plan with the exact
+required AR. Planning never discards unresolved authority to produce a partial
+answer. A known inactive access candidate remains high-water and contributes no
+group tag; that alone does not invalidate an otherwise complete snapshot.
+
+## Active coordinator move bridge and exact retry intent
+
+The existing `network move` and owner-local move routes retain their public
+shape on activated networks. Moves retain their existing current-root or named
+original-administrator signature shape. A selected device key cannot sign while
+claiming the original person key: refuse that attempt with root/original-admin
+signing guidance before signing, importing or mutating state. No new ordinary
+record kind or implicit device-to-original authority is introduced.
+
+Verify the complete durable projection, current move authority and guarded next
+sequence before publication. Import the exact full public catalog including the
+new signed move into the actual target pin via `/coord/v2/networks/import` with
+exact `{network, catalog, feature_authorization: "-"}`. A target without the
+feature requires the existing explicitly reviewed root feature-import workflow;
+`network move` never manufactures or signs that recovery authorization. Verify
+the returned target descriptor, durable feature and every exact submitted proof
+before retaining the move locally. Publish to the old coordinator through
+`/coord/v2/networks/{id}/moves` with exact `{move, catalog}` and a sufficient
+verified dependency closure, then use existing authenticated peer propagation
+and independently verified target sync. Only a verified live target map may
+change the coordinator pin or freshness. Existing `MoveResult` fields remain;
+v2 imports have no legacy added/skipped counters, represented as zero.
+
+Before the first target import POST, retain one public-only intent per network
+in `network_statements`, kind `pending_link_move`, empty subject. Its exact
+format-1 record is `{format, source_network_base64, network_base64, feature_id,
+move_base64, request_base64, submitted, result_map_base64}`. The first two fields
+encode the exact source and target network descriptors; `request_base64` encodes
+the immutable public import request, including its complete catalog. The move
+must independently match that request and both network identities. No private
+root, person, invite or device seed is retained. `result_map_base64` is `"-"`
+until a verified response is retained. Enforce the fixed 1 MiB submitted request
+limit before persistence/publication. The record is retained across restart.
+
+A timeout, malformed reply or unknown outcome retries the exact signed move
+and exact request bytes; it never re-signs at the same sequence. While that
+intent still needs completion/following, the existing move-plan response returns
+the exact pending `move` with `next_sequence` equal to its own sequence; the CLI
+reuses those bytes when the requested target matches. A different
+target or conflicting externally supplied move while that outcome is unknown
+returns `operation_conflict`. An authenticated definitive non-commit response on the first submission
+may retire the failed intent. A later refusal cannot disprove an earlier unknown
+commit and never retires that uncertain intent. A retained newer local move with independently verified current authority makes
+an older intent obsolete; a different move at the same sequence is a conflict.
+
+A response to that exact persisted intent may be verified as its original
+snapshot: require the actual target descriptor, durable feature, and every
+submitted PF, independently verify the complete response, then union all current
+local proofs and retained high-water before atomic local application. Preserve
+newer hints, restrictions, pin and freshness. Retain the exact response and mark
+the intent complete in that same transaction. This exception cannot relax any
+generic live-map omission check. A later live target sync must independently
+prove the complete current projection before changing the pin. Retrying a
+complete intent may resume publication/following without regenerating a move;
+a later different target starts a new intent at the guarded next sequence,
+above every retained verified move sequence including currently inactive ones.
+The existing legacy move signing API refuses sequence exhaustion rather than
+overflowing its positive signed 64-bit sequence representation.
+
+A successful mailbox GET records its decision-clock time for this host and
+locator. A later resume with `now >= last` and elapsed time below two seconds
+skips only the duplicate outbound GET and processes the already durable frames
+and approved intentions. This creates no synthetic mailbox response or authority.
+The first needed poll still performs an actual GET; remote 429 responses remain
+visible. Both normal time and the injected test clock use this same rule.
+
+The same successful-read rule applies when a repeated code-based owner or
+administrator approval opens an already retained approver request. Reuse requires
+the exact persisted approver role, code secret fingerprint, coordinator address
+and coordinator public key, and an unexpired request. It skips only a redundant
+mailbox GET; current-time projection, expected identity pins, signer selection and
+the immutable reviewed intent still verify before any signature or publication.
+An alternate issuer conflicting with an already reviewed intent remains
+`409 state_conflict`. A first read, clock rewind, expired cache or failed GET
+cannot supply this shortcut; a remote 429 remains visible.
+
+## Owned root seed after an independently learned rotation
+
+Applying a fully verified current root atomically retires an owned local root
+seed whose derived public key no longer equals that root. Capture the durable
+seed in the projection transaction, reject malformed private seed state without
+partial mutation, and retain a seed that still matches the verified current
+root. Retirement clears the obsolete seed and local root-provider flag together
+with the public root/epoch projection; it neither changes the person's separately
+verified administrator role nor removes public proofs, high-water or device keys.
+A signed catalog never supplies a private root seed or restores a retired seed.
+
+An exact accepted local rotation installs only its already persisted and verified
+pending seed later in that same transaction, restoring the local provider flag
+only when that accepted seed exists. A rejected pending seed never installs.
+Independent competing-rotation checks distinguish retirement of the refused
+pending transition from retirement of the obsolete prior owned root seed; a
+normal following sync must learn the winning root with no obsolete root provider.
+
+## Durable restrictive publication before active sync
+
+An offline local-first restriction retains a public-only marker in existing
+`network_statements`, kind `pending_link_restriction`, subject equal to its exact
+PF, record exactly `{format: 1, proof_id}`. Write the marker in the same
+transaction as the sticky exact catalog/projection, before publication. Every
+marker must name an actual verified restrictive object in that network's
+retained catalog. One marker per PF and the existing 4,096-object catalog limit
+bound this bookkeeping; no private seed, duplicate catalog or request is saved.
+
+Before pending rotation and ordinary strict active sync, load and verify the
+complete current catalog and all pending PFs. Repair the actual current pinned
+coordinator through the existing active-feature historical import route, exact
+`{network, catalog, feature_authorization: "-"}`. No new root authorization,
+feature adoption or first-use grant is generated. Use the full current catalog
+when its request fits 1 MiB; otherwise use a verified sufficient closure seeded
+by all exact pending restriction objects, enforcing the aggregate request bound
+without truncation. An irreducible closure refuses with `quota_exceeded` and
+keeps every marker and prior public object.
+
+This repair has no immutable operation ID and returns a live current map. Its
+request may be rebuilt from the current monotonic verified union on retry.
+Clear markers only in the transaction that independently verifies the returned
+live map retains every pending PF and the complete current projection. Unknown
+failure, malformed response, missing proof, expired authority or transport loss
+keeps the markers. No saved receipt can establish pin/freshness or relax live
+map omission checks. An explicit identical restriction retry also retains its
+exact signed bytes; successful verified publication may acknowledge its marker.
+
+When a durable pending rotation exists, restriction repair verifies the full
+live response and acknowledged PFs under the exact current pin, but its
+transaction clears only acknowledged markers. It defers public root,
+projection and freshness application to `completeLinkRotation`, preserving the
+atomic seed/public-epoch/pending-retirement transition after a lost rotation
+reply. Missing rotation proof keeps the marker and surfaces exact repair.
+
+
+Typed restrictive actions use the same local-first publication transaction.
+The exact registry is `device_revocation`, and `person_record` payload domains
+`peerspan-person-remove-v1`, `peerspan-revoke-host-v1`,
+`peerspan-revoke-invite-v1`, and `peerspan-host-unbind-v1`. Complete the existing
+fresh sync, owned current signing path, unsigned intent, signed authority and
+fresh-additions checks before applying the sticky union. Persist exact signed
+catalog/projection and its `pending_link_restriction` marker atomically before
+the first publication POST. Failed or uncertain publication returns the existing
+structured error while retaining the restriction and marker; it returns no
+success or `committed: false` signed-mutation result. HTTP 200 with
+`committed: true` still requires verified live acknowledgement. Nonrestrictive
+actions keep their existing publication order; `policy_claim` preparation stays
+nonpersisting and creates no marker.
+
+A persisted but unpublished approver frame is still a new publication. Resume
+first refreshes the exact pinned network and revalidates its approved owner or
+administrator issuer path, role, epoch, LF and request lifetime before replaying
+those exact bytes. Completed signatures and frames are never regenerated.
+An explicit resume of an unpublished administrator frame after independently
+verified current-role loss returns `403 forbidden`. Retain the exact approved
+intent and frame with `published: false` and `sequence: 0`; a worker may keep
+repair attention, but no new signature or administrator frame is published.
+Existing expired-request terminal cleanup and `410 expired` remain separate.
+
+When no durable root rotation is pending, a remote restriction-repair transport
+or HTTP failure may fall through to the existing independently verified move
+and successor following path while retaining every marker. Local malformed
+marker, catalog or authority-path errors remain hard failures. Before strict
+sync at an actual candidate target, repair all pending restrictions there using
+the same exact signed closure and 1 MiB request bound. Only the final chosen live
+map that independently proves the complete current local catalog and all marker
+PFs may atomically clear those markers and apply pin/freshness, subject to the
+existing current move and successor checks. A pending root rotation instead
+keeps the exact repair refusal and directs the owner to resume that rotation;
+no transport fallback may split its seed/public-epoch transition.
+
+Verified active-map projection preserves the existing external-root signature
+format hint. Derive `root_ssh: true` only from independently verified SSHSIG
+statements signed by the exact current root: current-epoch attestations, direct
+administrator delegations, person/host admissions, feature proposals, and root
+records (including an exact root admission inside a completed activation), or
+an active selected legacy group signed by that root. Preserve an existing true
+hint only while both the root epoch and current public key remain identical.
+Historical roots, ordinary person/device records and unsigned hints cannot set
+it. This affects the exposed root signing format only and supplies no root seed,
+provider selection, role or signing authority.
+
+## Conformance fault after accepted rotation
+
+If a durable pending root rotation completes and the subsequent ordinary sync
+fails in the same operation, recording that failure must preserve the newly
+committed public epoch/root, matching root seed, complete projection and cleared
+pending rotation. Failure metadata cannot restore a network view loaded before
+the accepted transition.
+
+A conformance-only TLS stand-in may reuse its own disposable coordinator's
+identity, discovered without private column assumptions by deriving and matching
+the CLI-reported public key from candidate 32-byte seeds. It forwards the exact
+signed proof bytes and normalizes only the unsigned outer map descriptor to its
+actual pinned listening address. After successfully forwarding the rotation
+mutation and its verified map, it returns 503 to subsequent ordinary syncs.
+This models a transport failure after acceptance without adding a protocol route
+or runtime hook. It supplies no root/person authority or private-key transfer to
+another machine. The check must observe the accepted epoch/seed transition and
+the later sync error, then verify ordinary recovery without duplicate application.
+
+Interactive guided setup re-reads the exact durable request after resuming a
+pending machine link and proceeds only when its public state is `linked`.
+Declining either owner-selection or final-commit consent, or returning while
+the same request is incomplete, stops before ordinary create/join or agent
+attachment. A successfully printed incomplete `link resume` view is not setup
+completion and cannot trigger generation of a replacement person. Independent
+installed verification covers both default-no consent exits while preserving
+the request, identity and existing service.
+
+The two requester consent prompts contain the exact questions
+`Select this exact owner offer?` and `Commit this exact machine link?`, followed
+by the literal default-no marker `y/N` enclosed in square brackets or
+parentheses. A blank line declines; only `y` or `yes`, ignoring ASCII case and
+surrounding whitespace, approves. Independent PTY checks identify the relevant
+question and marker before sending a blank answer; they do not infer consent
+from timeout or from another guided-setup prompt.
+
+With no local network and no explicit create/join input, interactive `up` offers
+`Create a network, link this machine, or join with an invite (create/link/join)`.
+Choosing `link` creates exactly one new request through the existing local API
+with mode `new`, absent network/person pins `-`, and the supplied coordinator
+pair or its existing build default. It runs the same guided selection and final
+consent, then re-reads that exact request. Only `linked` proceeds using the
+installed network and selected device; incomplete/declined linking retains the
+request and resume guidance and stops before ordinary create/join, person-key
+generation or attachment. Missing coordinator configuration remains an
+actionable error, and no noninteractive choice is inferred. Installed checks
+cover the fresh interactive `link` choice as well as existing pending resume.
+
+Automatic `up` resume of an existing pending request suppresses its private
+display code before output, including interactive resume. Explicit `link` or
+`link resume` keeps the documented code display. Choosing fresh interactive
+`up` → `link` explicitly starts the ceremony and may display that new one-time
+code on the terminal. Guided output controls this at the display point; it does
+not print then filter or redact a code.
+
+## Device-aware policy renewal attention
+
+Status checks a selected device policy renewer using the same read transaction
+and fully verified projection as the selected policy. Require the actual owned
+seed, exact selected network/person/certificate/device, current host binding,
+durable feature/root/path, policy scope `1`, and current decision-time expiry
+and restrictions through the existing device-provider eligibility check. This
+read performs no remote I/O, signing, fresh sync, new transaction, lease renewal
+or persistent mutation. A selected row alone never establishes eligibility.
+
+A valid selected provider produces no `person_agent_unreachable` item. An
+ineligible selected provider never falls back to the original SSH signer and
+instead uses the existing four-field attention object exactly:
+
+- `kind`: `person_device_signer_unavailable`;
+- `subject`: the exact network ID;
+- `detail`: a public string starting `selected device cannot renew this person's
+  access policy: CODE: MESSAGE`, where `CODE` and `MESSAGE` are the actual
+  structured failure code and public message;
+- `command`: `peerspan network sync NETWORK_ID`.
+
+This new kind sorts immediately after `person_agent_unreachable`. It adds no
+status object fields or authority claim. Invalid complete projection keeps the
+existing fail-closed status response. With no selected row, original-provider
+attention remains unchanged. Selected-device policy-expiry attention must not
+recommend ssh-agent or obtaining the original person private key.
+
+Only for `authority_expired`, an additional detail may suggest
+`peerspan link --renew --network NETWORK_ID` after syncing when the complete
+verified facts still establish this same owned target certificate's activation,
+current person/host membership and binding, and an unrevoked target device.
+Explain that another currently authorized machine must approve; do not promise
+renewal success. Missing/corrupt seed, missing proof, other restrictions or
+insufficient policy scope receive only sync/repair guidance.
+
+### Verification
+
+At the same installed renewal/reuse points, a valid selected policy provider
+with no original private key or ssh-agent has neither original-agent nor
+selected-device failure attention, and status changes no catalog, high-water,
+selection, pending intent or private credential. One bounded native case per
+implementation selects a cryptographically valid owned device path without
+policy scope `1`: status reports the exact device-repair kind/network and
+`forbidden` code, with the sync command and no original-key fallback, signing,
+publication or state mutation. Existing no-selection original-provider attention
+and complete-projection refusal retain their prior behavior.
+
+The bounded insufficient-scope fixture may independently sign a complete valid
+scope-2 activation with its own fixture keys/public packet helpers and import
+that historical public catalog through the authenticated route. While its
+fixture host is stopped, change only the documented selected certificate ID to
+that exact valid certificate for the same already owned device, host and person.
+The public `link-signer` read must first verify scope `2`; status must then refuse
+policy-renewer eligibility with the pinned `forbidden` attention. This adds no
+narrow-scope production issuance API, raw-row authority or verifier exception.
+
+Selected-provider status eligibility is independent of an active policy body.
+For the host's currently verified person binding, evaluate its retained selected
+provider even when expiry or revocation has removed that provider's policy from
+the active projection. Derive the expected stable person from the verified
+binding, never an inactive policy or an unverified selection row. The same
+`authority_expired` or `device_revoked` repair attention remains visible, with no
+original-signer fallback. This neither renders an inactive policy as active nor
+restores its permission or a lower body. Independent verification extends the
+bounded status case through selected-path expiry/revocation and checks inactive
+policy denial together with the exact device-repair attention and unchanged
+retained selection/high-water.

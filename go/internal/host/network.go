@@ -62,8 +62,9 @@ type Network struct {
 	CoordinatorPending *CoordinatorPending `json:"coordinator_pending"`
 }
 
-// NetworkMember is a verified map entry. Exactly one of Membership (an invite
-// chain) and Admission (an administrator's admission of its key) is set.
+// NetworkMember is a verified map view. Legacy entries carry exactly one of
+// Membership and Admission; upgraded entries retain their exact signed proof
+// references in link_objects and do not invent a legacy signature.
 // PersonID and PersonMember name the person the host is bound to, if any.
 type NetworkMember struct {
 	HostID       string                    `json:"host_id"`
@@ -294,6 +295,9 @@ func (s *Store) CreateNetwork(ctx context.Context, r CreateNetwork) (Network, er
 }
 
 func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (Invite, error) {
+	if strings.HasPrefix(r.Token, FeatureInvitePrefix) {
+		return s.recordFeatureInvite(ctx, id, r)
+	}
 	if r.Token != "" {
 		return s.recordSignedInvite(ctx, id, r)
 	}
@@ -315,6 +319,16 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 	}
 	if !membership.ValidLabel(r.Member) {
 		return Invite{}, fmt.Errorf("%w: invalid member label", ErrInvalid)
+	}
+	feature, _, err := readLinkFeature(ctx, s.db, id)
+	if err != nil {
+		return Invite{}, err
+	}
+	if feature != "-" {
+		r.ExpiresAt, err = floorLinkInviteExpiry(r.ExpiresAt)
+		if err != nil {
+			return Invite{}, err
+		}
 	}
 	expires, err := parseTime(r.ExpiresAt)
 	now := time.Now()
@@ -346,6 +360,12 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 			return Invite{}, err
 		}
 	}
+	if feature != "-" {
+		encoded, err = s.wrapRootLinkInvite(ctx, n, encoded, ed25519.NewKeyFromSeed(seed))
+		if err != nil {
+			return Invite{}, err
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Invite{}, err
@@ -360,6 +380,9 @@ func (s *Store) CreateInvite(ctx context.Context, id string, r CreateInvite) (In
 func (s *Store) JoinNetwork(ctx context.Context, r JoinNetwork) (Network, error) {
 	if (r.Token == "") == (r.Descriptor == "") {
 		return Network{}, fmt.Errorf("%w: give exactly one of token or descriptor", ErrInvalid)
+	}
+	if strings.HasPrefix(r.Token, FeatureInvitePrefix) {
+		return s.redeemFeatureInvite(ctx, r, false)
 	}
 	if r.Descriptor != "" {
 		return s.joinByDescriptor(ctx, r.Descriptor)
@@ -498,6 +521,54 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 	defer s.syncing.Unlock()
 	if n, err = s.Network(ctx, id); err != nil || s.syncedSince(id, since) {
 		return n, err
+	}
+	feature, _, err := readLinkFeature(ctx, s.db, id)
+	if err != nil {
+		return n, err
+	}
+	if feature != "-" {
+		updated, syncErr := s.syncLinkNetworkLocked(ctx, n, candidates)
+		if syncErr == nil {
+			s.syncResult(id, false)
+			return updated, nil
+		}
+		// Restriction repair or a pending rotation may already have committed.
+		// Record only the later failure against that exact durable transition.
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		n, err = s.Network(finishCtx, id)
+		if err != nil {
+			return n, err
+		}
+		message := linkCause(syncErr, "-", "sync").Message
+		n.LastSyncError = &message
+		record, e := json.Marshal(n)
+		if e != nil {
+			return n, e
+		}
+		if _, e := s.db.ExecContext(finishCtx, "UPDATE networks SET record = ? WHERE id = ?", string(record), n.ID); e != nil {
+			return n, e
+		}
+		s.syncResult(id, true)
+		return n, nil
+	}
+	// Upgraded readers advertise support while the network still serves its
+	// legacy map. A feature activated elsewhere can only enter through the
+	// independently verified v2 map, never through a legacy projection.
+	if n.LastSyncAt != nil {
+		advertise, _ := s.coordinationConfig()
+		body, e := linkJSON(map[string]any{"address": advertise, "candidates": candidates, "linking_version": 1})
+		if e != nil {
+			return n, e
+		}
+		if raw, e := s.linkCoordinator(ctx, n, http.MethodPost, "/coord/v2/networks/"+n.ID+"/sync", body); e == nil {
+			var discriminant struct {
+				Format uint64 `json:"format"`
+			}
+			if json.Unmarshal(raw, &discriminant) == nil && discriminant.Format == 2 {
+				return s.applyLinkMap(ctx, n, raw)
+			}
+		}
 	}
 	s.changesMu.Lock()
 	if s.syncStarted == nil {
@@ -639,6 +710,10 @@ func (s *Store) syncNetworkSince(ctx context.Context, id string, since time.Time
 		// Unsettled edits are tried again at each sync, which also resumes
 		// suspended ones once their person's binding is current again.
 		s.reapplyIfUnsettled(finishCtx, n.ID)
+		// Every upgraded legacy member independently acknowledges the exact
+		// current roster. Only a persisted root activation intent can publish
+		// the complete feature after all acknowledgments arrive.
+		_ = s.resumeLinkFeatureLocked(finishCtx, n)
 	}
 	return n, nil
 }
@@ -754,6 +829,19 @@ func (s *Store) coordinatorTLS(n Network, alpn ...string) (*tls.Config, error) {
 
 // callCoordinator posts to the pinned coordinator and decodes its map.
 func (s *Store) callCoordinator(ctx context.Context, n Network, path string, body any) (membership.Map, error) {
+	feature, _, err := readLinkFeature(ctx, s.db, n.ID)
+	if err != nil {
+		return membership.Map{}, err
+	}
+	if feature != "-" {
+		kind, record, handled, e := legacyLinkMutation(path, body)
+		if e != nil {
+			return membership.Map{}, e
+		}
+		if handled {
+			return membership.Map{}, s.publishLinkLegacy(ctx, n, kind, record)
+		}
+	}
 	m, _, err := s.callCoordinatorMap(ctx, n, path, body)
 	return m, err
 }
@@ -822,6 +910,11 @@ func (s *Store) coordinatorRequest(ctx context.Context, n Network, method, path 
 			Limit string `json:"limit"`
 		}
 		_ = json.Unmarshal(data, &failure)
+		if response.StatusCode == http.StatusUpgradeRequired {
+			upgraded := linkFail("upgrade_required", "-", "coordinator")
+			upgraded.Details.Next = []string{"request a fresh feature-bound invite from a current administrator, or use explicit current-root repair"}
+			return nil, upgraded
+		}
 		if response.StatusCode == http.StatusTooManyRequests && failure.Limit != "" {
 			s.limitRefused(n.ID, failure.Limit)
 			return nil, &CoordinatorLimitError{Limit: failure.Limit, Message: failure.Error}

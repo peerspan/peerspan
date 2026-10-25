@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -104,6 +105,23 @@ func personRequest(ctx context.Context, client host.Client, args []string, fs *p
 			if target == "" {
 				return "", "", nil, fmt.Errorf("host %s is not a member of that network", hostID)
 			}
+		}
+		selected, err := selectedLinkAdministrator(ctx, client, network, path)
+		if err != nil {
+			return "", "", nil, err
+		}
+		if selected != nil {
+			kind, field := "peerspan-host-bind-v1", "bound_at"
+			var result any = host.Bound{NetworkID: network, HostID: hostIDFromKey(target), PersonID: personIDFromKey(selected.PersonPublicKey)}
+			if args[1] == "unbind" {
+				kind, field = "peerspan-host-unbind-v1", "unbound_at"
+				result = host.RevocationResult{NetworkID: network, Kind: membership.KindUnbind, Subject: membership.UnbindSubject(selected.PersonPublicKey, target), Submitted: true}
+			}
+			payload, err := json.Marshal(map[string]any{"network_id": network, "person_public_key": selected.PersonPublicKey, "host_public_key": target, field: time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)})
+			if err != nil {
+				return "", "", nil, err
+			}
+			return "POST", "/v1/networks/" + url.PathEscape(network) + "/link-actions", linkAdminSubmission{network, host.LinkActionRequest{Kind: kind, PayloadBase64: base64.StdEncoding.EncodeToString(payload), CertificateID: selected.CertificateID}, result}, nil
 		}
 		signer, err := person.Load(path)
 		if err != nil {

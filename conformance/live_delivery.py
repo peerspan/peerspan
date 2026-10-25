@@ -2137,8 +2137,8 @@ class Pairing:
         h.stop()
         h.binary, h.cli_binary = str(self.daemon), str(self.cli_binary)
         h.start()
-        need(user_version(h) == SCHEMA_VERSION, 'Shared state: the schema moves to the current version (18 since '
-             'agent capability tools, capabilities contract)', user_version(h))
+        need(user_version(h) == SCHEMA_VERSION, 'Shared state: the schema moves to the current version (19 since '
+             'approved machine linking, transaction contract)', user_version(h))
         need(h.cli('agent', 'list') == agents, 'existing state is preserved')
         for table, columns in MIGRATED_COLUMNS.items():
             present = {r['name'] for r in rows(h, f'SELECT name FROM pragma_table_info(\'{table}\')')}

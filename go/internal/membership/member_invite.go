@@ -89,6 +89,24 @@ func DecodeAnyPersonToken(value string, now time.Time) (PersonToken, error) {
 // person invite, or descriptor, without validating it; the daemon validates.
 // The CLI uses it to sign a binding before joining.
 func NetworkOf(value string) (string, error) {
+	for _, prefix := range []string{"peerspan-feature-invite-v1.", "peerspan-authorized-invite-v1."} {
+		if !strings.HasPrefix(value, prefix) {
+			continue
+		}
+		data, e := decodePrefixed(value, prefix)
+		if e != nil {
+			return "", e
+		}
+		var token struct {
+			Network struct {
+				NetworkID string `json:"network_id"`
+			} `json:"network"`
+		}
+		if json.Unmarshal(data, &token) != nil || !strings.HasPrefix(token.Network.NetworkID, "net_") {
+			return "", fmt.Errorf("%w: token names no network", ErrInvalid)
+		}
+		return token.Network.NetworkID, nil
+	}
 	for _, prefix := range []string{TokenPrefix, MemberTokenPrefix, PersonTokenPrefix, DescriptorPrefix} {
 		if !strings.HasPrefix(value, prefix) {
 			continue

@@ -41,6 +41,7 @@ util-linux (runuser, flock).
 """
 import argparse
 from datetime import datetime, timezone
+import grp
 import hashlib
 import json
 import os
@@ -235,6 +236,28 @@ def existing_users():
     return sorted(entry.pw_name for entry in pwd.getpwall() if entry.pw_name.startswith(USER_PREFIX))
 
 
+def unused_fixture_id():
+    """Do not alias an existing host or container process's numeric identity."""
+    occupied = {entry.pw_uid for entry in pwd.getpwall()}
+    occupied.update(entry.gr_gid for entry in grp.getgrall())
+    for process in Path('/proc').iterdir():
+        if not process.name.isdecimal():
+            continue
+        try:
+            status = (process / 'status').read_text()
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        # Include real, effective, saved and filesystem IDs. A container may
+        # use a numeric ID which has no corresponding passwd/group entry.
+        for line in status.splitlines():
+            if line.startswith(('Uid:', 'Gid:')):
+                occupied.update(int(value) for value in line.split()[1:])
+    for candidate in range(20000, 60000):
+        if candidate not in occupied:
+            return candidate
+    raise Failure('no unused acceptance fixture UID/GID in 20000..59999')
+
+
 def quiet(*argv, timeout=60):
     try:
         return subprocess.run(list(argv), capture_output=True, text=True, timeout=timeout)
@@ -243,12 +266,16 @@ def quiet(*argv, timeout=60):
 
 
 def remove_user(name):
-    """Stop and remove the unit, disable linger, kill processes, delete the user and home."""
+    """Remove the fixture's unit/manager/account without signalling by UID."""
+    if not re.fullmatch(re.escape(USER_PREFIX) + r'[1-9][0-9]*', name):
+        raise Failure(f'refusing to remove a non-fixture account: {name}')
     try:
         entry = pwd.getpwnam(name)
     except KeyError:
         return
     uid, home = entry.pw_uid, Path(entry.pw_dir)
+    if home != Path('/home') / name or home.is_symlink() or uid < 1000:
+        raise Failure(f'refusing unexpected fixture account identity: {name}, {uid}, {home}')
     runtime = f'/run/user/{uid}'
     env = ['env', '-i', f'HOME={home}', f'USER={name}', f'LOGNAME={name}', f'XDG_RUNTIME_DIR={runtime}',
            'PATH=/usr/local/bin:/usr/bin:/bin']
@@ -260,14 +287,15 @@ def remove_user(name):
         if Path(runtime, 'bus').exists():
             quiet('runuser', '-u', name, '--', *env, 'systemctl', '--user', 'daemon-reload')
     quiet('loginctl', 'disable-linger', name)
-    quiet('loginctl', 'terminate-user', name)
-    quiet('systemctl', 'stop', f'user@{uid}.service')
-    for _ in range(50):
-        quiet('pkill', '-KILL', '-u', str(uid))
-        if quiet('pgrep', '-u', str(uid)).returncode != 0:
-            break
-        time.sleep(0.2)
-    result = quiet('userdel', '--remove', name)
+    # This stops only the fixture's systemd manager cgroup. UID-wide pkill or
+    # loginctl terminate-user could also kill unrelated container processes
+    # when cleaning an older fixture whose automatically allocated UID collided.
+    stopped = quiet('systemctl', 'stop', f'user@{uid}.service')
+    if stopped is None or stopped.returncode != 0:
+        raise Failure(f'could not stop fixture user manager for {name}')
+    # --force permits deleting the account when unrelated processes happen to
+    # share its numeric UID; userdel does not signal those processes.
+    result = quiet('userdel', '--force', '--remove', name)
     if result is None or result.returncode not in (0, 12):  # 12: could not remove the home (handled below)
         detail = result.stderr if result else 'timeout'
         if name in existing_users():
@@ -498,10 +526,13 @@ class Machine:
 
     def create(self):
         h = self.harness
-        subprocess.run(['useradd', '--create-home', '--shell', '/bin/bash', '--user-group', self.user],
+        fixture_id = unused_fixture_id()
+        subprocess.run(['useradd', '--uid', str(fixture_id), '--create-home', '--shell', '/bin/bash', '--user-group', self.user],
                        check=True, capture_output=True, text=True)
         entry = pwd.getpwnam(self.user)
         self.uid, self.gid, self.home = entry.pw_uid, entry.pw_gid, Path(entry.pw_dir)
+        if self.uid != fixture_id or self.gid != fixture_id:
+            raise Failure(f'fixture user/group allocation differs from reserved ID {fixture_id}')
         self.runtime = f'/run/user/{self.uid}'
         # As a login would: the user's systemd manager runs before the path.
         subprocess.run(['loginctl', 'enable-linger', self.user], check=True, capture_output=True, text=True)

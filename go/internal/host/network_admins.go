@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +43,7 @@ type governance struct {
 	admins    membership.AdminState
 	revoked   membership.Revoked
 	persisted persistedStatements
+	linking   *linkProjection
 }
 
 func (s *Store) loadGovernance(ctx context.Context, q dbQuerier, id string) (governance, error) {
@@ -65,6 +67,45 @@ func (s *Store) loadGovernance(ctx context.Context, q dbQuerier, id string) (gov
 	g.admins = chain.Administrators(rawValues[membership.AdminDelegation](g.persisted.admins), adminRemovals(g.persisted.revocations))
 	g.chain = chain.WithAdminState(g.admins)
 	g.revoked = verifiedRevoked(g.chain, g.persisted.revocations)
+	feature, _, err := readLinkFeature(ctx, q, n.ID)
+	if err != nil {
+		return g, err
+	}
+	if feature != "-" {
+		now, err := linkNow()
+		if err != nil {
+			return g, err
+		}
+		g.linking, err = s.readLinkProjection(ctx, q, n, now)
+		if err != nil {
+			return g, err
+		}
+		chain, err = linkChain(n, g.linking)
+		if err != nil {
+			return g, err
+		}
+		g.chain = chain.WithAdminState(g.admins)
+	}
+	if g.linking != nil {
+		// These are unsigned evaluation/view models, not signed wire records.
+		// Every authorization/propagation path uses the exact retained catalog.
+		g.persisted.policies = map[string]json.RawMessage{}
+		for key, policy := range g.linking.Policies {
+			raw, err := json.Marshal(policy)
+			if err != nil {
+				return g, err
+			}
+			g.persisted.policies[key] = raw
+		}
+		g.persisted.groups = map[string]json.RawMessage{}
+		for name, group := range g.linking.Groups {
+			raw, err := json.Marshal(group)
+			if err != nil {
+				return g, err
+			}
+			g.persisted.groups[name] = raw
+		}
+	}
 	return g, nil
 }
 
@@ -118,6 +159,16 @@ func verifiedRevoked(chain membership.Chain, records []statementRecord) membersh
 // persons returns valid, unremoved persons by key.
 func (g governance) persons() map[string]membership.PersonProof {
 	out := map[string]membership.PersonProof{}
+	if g.linking != nil {
+		// Compatibility view only: an explicit unsigned placeholder supplies
+		// labels to old local-view helpers, never a signed statement or grant.
+		for key, state := range g.linking.Network.Facts.State.Persons {
+			if state.Admitted {
+				out[key] = membership.PersonProof{Admission: &membership.PersonAdmission{NetworkID: g.network.ID, PersonPublicKey: key, Member: g.linking.Network.Facts.PersonLabels[key], Signature: "-"}}
+			}
+		}
+		return out
+	}
 	for key, data := range g.persisted.persons {
 		var proof membership.PersonProof
 		if g.revoked.Persons[key] || json.Unmarshal(data, &proof) != nil || (proof.Admission == nil) == (proof.Membership == nil) {
@@ -137,6 +188,15 @@ func (g governance) persons() map[string]membership.PersonProof {
 // currentAdmins are administrators now: delegated at the current epoch, not
 // removed, and valid persons.
 func (g governance) currentAdmins() map[string]bool {
+	if g.linking != nil {
+		out := map[string]bool{}
+		for key, state := range g.linking.Network.Facts.State.Persons {
+			if state.Admitted && state.Administrator {
+				out[key] = true
+			}
+		}
+		return out
+	}
 	persons := g.persons()
 	out := map[string]bool{}
 	for key := range g.admins.Current {
@@ -404,6 +464,7 @@ type RemoveAdmin struct {
 	Person         string                   `json:"person,omitempty"`
 	RevokeAdmitted bool                     `json:"revoke_admitted,omitempty"`
 	Removal        *membership.AdminRemoval `json:"removal,omitempty"`
+	RemovalBase64  string                   `json:"removal_base64,omitempty"`
 }
 
 // SetGroup is {name, members} for this host to sign the next version with
@@ -417,10 +478,11 @@ type SetGroup struct {
 // Group is a group as `network groups` shows it. Members that are not current
 // persons are omitted; signer is the signing key.
 type Group struct {
-	Name    string   `json:"name"`
-	Version uint64   `json:"version"`
-	Members []string `json:"members"`
-	Signer  string   `json:"signer"`
+	Name                string   `json:"name"`
+	Version             uint64   `json:"version"`
+	Members             []string `json:"members"`
+	Signer              string   `json:"signer"`
+	AuthorizationBase64 string   `json:"authorization_base64,omitempty"`
 }
 
 // personsOf lists the governance's valid persons for resolution.
@@ -494,6 +556,17 @@ func (s *Store) DelegateAdmin(ctx context.Context, id string, r DelegateAdmin) (
 // RemoveAdmin is sticky and local-first, like a revocation: the removal is
 // enforced here at once and resubmitted until the coordinator serves it.
 func (s *Store) RemoveAdmin(ctx context.Context, id string, r RemoveAdmin) (RevocationResult, error) {
+	feature, _, e := readLinkFeature(ctx, s.db, id)
+	if e != nil {
+		return RevocationResult{}, e
+	}
+	if feature != "-" {
+		return s.removeLinkAdmin(ctx, id, r)
+	}
+	if r.RemovalBase64 != "" {
+		return RevocationResult{}, linkFail("upgrade_required", "-", "feature")
+	}
+
 	if (r.Person == "") == (r.Removal == nil) || (r.Removal != nil && r.RevokeAdmitted) {
 		return RevocationResult{}, fmt.Errorf("%w: give exactly one of person or removal", ErrInvalid)
 	}
@@ -566,6 +639,10 @@ func (s *Store) RemoveAdmin(ctx context.Context, id string, r RemoveAdmin) (Revo
 // storedGroup returns the newest version of a group this host has verified,
 // deleted or not.
 func (g governance) storedGroup(name string) (membership.GroupDefinition, bool) {
+	if g.linking != nil {
+		group, ok := g.linking.Groups[name]
+		return group, ok
+	}
 	var group membership.GroupDefinition
 	data, ok := g.persisted.groups[name]
 	if !ok || json.Unmarshal(data, &group) != nil {
@@ -619,6 +696,16 @@ func (s *Store) SetGroup(ctx context.Context, id string, r SetGroup) (Group, err
 				return Group{}, err
 			}
 		}
+		if g.linking != nil {
+			for _, selected := range g.linking.Access.Groups {
+				if selected.Name == r.Name {
+					version, err = membership.NextAccessVersion(selected.Version)
+					if err != nil {
+						return Group{}, err
+					}
+				}
+			}
+		}
 		if group, err = membership.SignGroup(membership.RawSigner{Key: root}, n.ID, r.Name, version, ids, timestamp(time.Now())); err != nil {
 			return Group{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
@@ -666,7 +753,19 @@ func (s *Store) Groups(ctx context.Context, id string, all bool) ([]Group, error
 		if !ok || (len(group.Members) == 0 && !all) {
 			continue
 		}
-		out = append(out, groupView(g.chain, group, persons))
+		view := groupView(g.chain, group, persons)
+		if g.linking != nil {
+			view.AuthorizationBase64 = g.linking.GroupAuthorizations[name]
+			if view.AuthorizationBase64 != "" {
+				raw, _ := linkBytes(view.AuthorizationBase64, 1<<20)
+				var record struct {
+					Signature string `json:"signature"`
+				}
+				_ = json.Unmarshal(raw, &record)
+				view.Signer = membership.SignerOf(record.Signature)
+			}
+		}
+		out = append(out, view)
 	}
 	return out, nil
 }
@@ -682,7 +781,7 @@ func localAdminRoutes(mux *http.ServeMux, store *Store) {
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/admin-removals", func(w http.ResponseWriter, r *http.Request) {
 		var req RemoveAdmin
-		if !decode(w, r, &req, "person", "revoke_admitted", "removal") {
+		if !decode(w, r, &req, "person", "revoke_admitted", "removal", "removal_base64") {
 			return
 		}
 		result, err := store.RemoveAdmin(r.Context(), r.PathValue("id"), req)
@@ -701,7 +800,27 @@ func localAdminRoutes(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, result, err)
 	})
 	mux.HandleFunc("GET /v1/networks/{id}/admin-removal-plan", func(w http.ResponseWriter, r *http.Request) {
-		result, err := store.AdminRemovalPlan(r.Context(), r.PathValue("id"), r.URL.Query().Get("person"))
+		query, queryError := url.ParseQuery(r.URL.RawQuery)
+		if queryError != nil {
+			respond(w, 0, nil, ErrInvalid)
+			return
+		}
+		for key, values := range query {
+			if key != "person" && key != "format" || len(values) != 1 {
+				respond(w, 0, nil, ErrInvalid)
+				return
+			}
+		}
+		if _, present := query["format"]; present {
+			if query.Get("format") != "2" || query.Get("person") == "" {
+				respond(w, 0, nil, ErrInvalid)
+				return
+			}
+			result, err := store.LinkAdminRemovalPlan(r.Context(), r.PathValue("id"), query.Get("person"))
+			respond(w, http.StatusOK, result, err)
+			return
+		}
+		result, err := store.AdminRemovalPlan(r.Context(), r.PathValue("id"), query.Get("person"))
 		respond(w, http.StatusOK, result, err)
 	})
 	mux.HandleFunc("GET /v1/networks/{id}/rotation-plan", func(w http.ResponseWriter, r *http.Request) {
@@ -744,6 +863,29 @@ func (s *Store) RotationPlan(ctx context.Context, id string) (RotationPlan, erro
 	g, err := s.loadGovernance(ctx, s.db, id)
 	if err != nil {
 		return RotationPlan{}, err
+	}
+	if g.linking != nil {
+		plan := RotationPlan{NetworkID: id, Epoch: g.chain.Epoch() + 1, CurrentRootPublicKey: g.chain.CurrentPublicKey(), Attestations: []PlannedItem{}, HostAdmissions: []PlannedItem{}, PersonAdmissions: []PlannedItem{}, Admins: sortedKeys(g.currentAdmins()), Groups: []PlannedGroup{}}
+		for _, member := range g.linking.Network.Members {
+			plan.Attestations = append(plan.Attestations, PlannedItem{member.HostPublicKey, member.Member})
+		}
+		for _, person := range sortedKeys(g.linking.Network.Facts.State.Persons) {
+			if g.linking.Network.Facts.State.Persons[person].Admitted {
+				plan.PersonAdmissions = append(plan.PersonAdmissions, PlannedItem{person, g.linking.Network.Facts.PersonLabels[person]})
+			}
+		}
+		for _, selected := range g.linking.Access.Groups {
+			group, active := g.linking.Groups[selected.Name]
+			if !active || selected.RecordID != "-" || !g.chain.RootSigned(group.Message(), group.Signature) {
+				continue
+			}
+			version, e := membership.NextAccessVersion(selected.Version)
+			if e != nil {
+				return RotationPlan{}, e
+			}
+			plan.Groups = append(plan.Groups, PlannedGroup{group.Name, version, group.Members})
+		}
+		return plan, nil
 	}
 	// The coordinator requires coverage of its current members, so pending
 	// local revocations are submitted first.

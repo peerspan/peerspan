@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"sync"
@@ -325,6 +326,8 @@ func (s *Store) lookupMove(network string, interval time.Duration) {
 // keepMove verifies a move learned from a peer and stores it when its
 // sequence is above the held one. The next sync makes it pending.
 func (s *Store) keepMove(ctx context.Context, network string, mv membership.Move) (bool, error) {
+	s.syncing.Lock()
+	defer s.syncing.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -337,6 +340,41 @@ func (s *Store) keepMove(ctx context.Context, network string, mv membership.Move
 	if err = g.verifyMove(mv); err != nil {
 		return false, err
 	}
+	if g.linking != nil {
+		body, e := linkJSON(mv)
+		if e != nil {
+			return false, e
+		}
+		delta, e := catalogWithLinkObject(network, "coordinator_move", body)
+		if e != nil {
+			return false, e
+		}
+		union, e := mergeLinkCatalog(network, g.linking.Catalog, delta)
+		if e != nil {
+			return false, e
+		}
+		now, e := linkNow()
+		if e != nil {
+			return false, e
+		}
+		p, e := s.verifyLinkProjection(ctx, tx, g.network, union, now)
+		if e != nil {
+			return false, e
+		}
+		members, e := readLinkMembers(ctx, tx, network)
+		if e != nil {
+			return false, e
+		}
+		members = projectedLinkMembers(p, members, linkTime(now))
+		n := g.network
+		if e = s.applyLinkProjection(ctx, tx, &n, p, members, linkTime(now)); e != nil {
+			return false, e
+		}
+		if e = tx.Commit(); e != nil {
+			return false, e
+		}
+		return true, nil
+	}
 	stored, err := storeMove(ctx, tx, network, mv)
 	if err != nil {
 		return false, err
@@ -347,8 +385,23 @@ func (s *Store) keepMove(ctx context.Context, network string, mv membership.Move
 // currentMember checks that a peer is a current member host of a network
 // this host belongs to.
 func (s *Store) currentMember(ctx context.Context, network, sender string) error {
-	if _, err := s.Network(ctx, network); err != nil {
+	networkState, err := s.Network(ctx, network)
+	if err != nil {
 		return err
+	}
+	now, err := linkNow()
+	if err != nil {
+		return err
+	}
+	projection, err := s.readLinkProjection(ctx, s.db, networkState, now)
+	if err != nil {
+		return err
+	}
+	if projection != nil {
+		if sender == s.identity.ID || !linkProjectionMember(projection, sender) {
+			return ErrForbidden
+		}
+		return nil
 	}
 	var n int
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM network_members WHERE network_id = ? AND host_id = ?", network, sender).Scan(&n); err != nil {
@@ -462,14 +515,61 @@ type MovePlan struct {
 }
 
 func (s *Store) MovePlan(ctx context.Context, network string) (MovePlan, error) {
-	if _, err := s.Network(ctx, network); err != nil {
+	n, err := s.Network(ctx, network)
+	if err != nil {
 		return MovePlan{}, err
+	}
+	now, err := linkNow()
+	if err != nil {
+		return MovePlan{}, err
+	}
+	projection, err := s.readLinkProjection(ctx, s.db, n, now)
+	if err != nil {
+		return MovePlan{}, err
+	}
+	var retainedSequence int64
+	if projection != nil {
+		intent, e := readLinkMoveIntent(ctx, s.db, n)
+		if e != nil {
+			return MovePlan{}, e
+		}
+		if intent != nil {
+			_, target, mv, _, _, e := intent.materialize(n)
+			if e != nil {
+				return MovePlan{}, e
+			}
+			held, _, e := heldMove(ctx, s.db, network)
+			if e != nil {
+				return MovePlan{}, e
+			}
+			if (held == nil || held.Sequence <= mv.Sequence) && (intent.ResultMapBase64 == "-" || target.CoordinatorAddress != n.CoordinatorAddress || target.CoordinatorPublicKey != n.CoordinatorPublicKey) {
+				return MovePlan{Move: &mv, NextSequence: mv.Sequence}, nil
+			}
+		}
+		for _, p := range projection.Objects.Objects {
+			if p.Kind == "coordinator_move" {
+				raw, e := linkBytes(p.BodyBase64, 1<<20)
+				if e != nil {
+					return MovePlan{}, e
+				}
+				var move struct {
+					Sequence uint64 `json:"sequence"`
+				}
+				if json.Unmarshal(raw, &move) != nil || move.Sequence >= math.MaxInt64 {
+					return MovePlan{}, linkFail("state_conflict", "-", "move")
+				}
+				retainedSequence = max(retainedSequence, int64(move.Sequence))
+			}
+		}
 	}
 	held, applied, err := heldMove(ctx, s.db, network)
 	if err != nil {
 		return MovePlan{}, err
 	}
-	next := applied + 1
+	if applied == math.MaxInt64 || held != nil && held.Sequence == math.MaxInt64 {
+		return MovePlan{}, fmt.Errorf("%w: move sequence exhausted", ErrConflict)
+	}
+	next := max(applied, retainedSequence) + 1
 	if held != nil {
 		next = max(next, held.Sequence+1)
 	}
@@ -492,14 +592,21 @@ func (s *Store) Move(ctx context.Context, network string, r MoveNetwork) (MoveRe
 	if err != nil {
 		return result, err
 	}
+	g, err := s.loadGovernance(ctx, s.db, network)
+	if err != nil {
+		return result, err
+	}
+	if g.linking != nil {
+		result, err = s.moveLinkNetwork(ctx, network, r)
+		if err == nil {
+			_, err = s.SyncNetwork(ctx, network)
+		}
+		return result, err
+	}
 	if n.CoordinatorAddress == r.CoordinatorAddress && n.CoordinatorPublicKey == r.CoordinatorPublicKey {
 		return result, fmt.Errorf("%w: the network already uses that coordinator", ErrInvalid)
 	}
 	plan, err := s.MovePlan(ctx, network)
-	if err != nil {
-		return result, err
-	}
-	g, err := s.loadGovernance(ctx, s.db, network)
 	if err != nil {
 		return result, err
 	}

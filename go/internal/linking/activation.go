@@ -50,8 +50,8 @@ type catalogContext struct {
 type activationVerifier struct {
 	storedSnapshot     bool
 	projectHistory     bool // retain complete but withdrawn provenance without granting facts
-	ctx                catalogContext
 	featurePreparation bool
+	ctx                catalogContext
 	network            Object
 	net, root, feature string
 	epoch              uint64

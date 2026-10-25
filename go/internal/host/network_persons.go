@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/peerspan/peerspan/go/internal/membership"
@@ -221,6 +222,9 @@ func (s *Store) AdmitHost(ctx context.Context, id string, r AdmitHost) (Admitted
 // CreatePersonInvite issues a one-time person invite signed by the current
 // root, or records one an administrator signed through the CLI.
 func (s *Store) CreatePersonInvite(ctx context.Context, id string, r CreateInvite) (Invite, error) {
+	if strings.HasPrefix(r.Token, FeatureInvitePrefix) {
+		return s.recordFeatureInvite(ctx, id, r)
+	}
 	if r.Token != "" {
 		return s.recordSignedInvite(ctx, id, r)
 	}
@@ -233,6 +237,16 @@ func (s *Store) CreatePersonInvite(ctx context.Context, id string, r CreateInvit
 	}
 	if err = s.labelTaken(ctx, id, r.Member, ""); err != nil {
 		return Invite{}, err
+	}
+	feature, _, err := readLinkFeature(ctx, s.db, id)
+	if err != nil {
+		return Invite{}, err
+	}
+	if feature != "-" {
+		r.ExpiresAt, err = floorLinkInviteExpiry(r.ExpiresAt)
+		if err != nil {
+			return Invite{}, err
+		}
 	}
 	expires, err := parseTime(r.ExpiresAt)
 	now := time.Now()
@@ -247,6 +261,12 @@ func (s *Store) CreatePersonInvite(ctx context.Context, id string, r CreateInvit
 	encoded, err := token.Encode()
 	if err != nil {
 		return Invite{}, err
+	}
+	if feature != "-" {
+		encoded, err = s.wrapRootLinkInvite(ctx, n, encoded, root)
+		if err != nil {
+			return Invite{}, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -265,6 +285,17 @@ type Redeemed struct {
 }
 
 func (s *Store) RedeemPerson(ctx context.Context, r RedeemPerson) (Redeemed, error) {
+	if strings.HasPrefix(r.Token, FeatureInvitePrefix) {
+		_, e := s.redeemFeatureInvite(ctx, JoinNetwork{Token: r.Token, PersonPublicKey: r.PersonPublicKey}, true)
+		if e != nil {
+			return Redeemed{}, e
+		}
+		key, e := membership.NormalizePersonKey(r.PersonPublicKey)
+		if e != nil {
+			return Redeemed{}, e
+		}
+		return Redeemed{PersonID: personIDOf(key)}, nil
+	}
 	// A member invite's person half is redeemable here too, until it expires.
 	token, err := membership.DecodeAnyPersonToken(r.Token, time.Now())
 	if err != nil {
@@ -589,6 +620,29 @@ func (s *Store) Persons(ctx context.Context, id string) ([]Person, error) {
 	g, err := s.loadGovernance(ctx, s.db, id)
 	if err != nil {
 		return nil, err
+	}
+	if g.linking != nil {
+		members, err := s.NetworkMembers(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out := g.personList()
+		admins := g.currentAdmins()
+		for i := range out {
+			out[i].Hosts = []string{}
+			out[i].Administrator = admins[out[i].PublicKey]
+			for _, member := range members {
+				if member.PersonID != nil && *member.PersonID == out[i].PersonID {
+					out[i].Hosts = append(out[i].Hosts, member.HostID)
+				}
+			}
+			for j := range out {
+				if i != j && membership.LabelsConflict(out[i].Member, out[j].Member) {
+					out[i].LabelConflict = true
+				}
+			}
+		}
+		return out, nil
 	}
 	removed := g.revoked.Persons
 	admins := g.currentAdmins()

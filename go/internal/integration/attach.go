@@ -1,11 +1,17 @@
 package integration
 
 import (
+	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/peerspan/peerspan/go/internal/host"
 )
 
 // Attach profiles are session setup directories at
@@ -105,4 +111,65 @@ func WorkspaceProfiles(state, workspace string) ([]string, error) {
 	}
 	sort.Strings(found)
 	return found, nil
+}
+
+// AttachmentState is the existing daemon state of an exact configured profile.
+// Reading it neither renews a lease nor issues replacement authorization.
+type AttachmentState struct {
+	Adapter    host.Adapter
+	Session    host.Session
+	Connection host.Connection
+}
+
+// ValidateAttachment checks the private credential and the public identities
+// before guided setup reuses a live or recoverable attachment.
+func ValidateAttachment(ctx context.Context, p *Profile) (AttachmentState, error) {
+	var out AttachmentState
+	if p.Phase != "configured" {
+		return out, errors.New("the attachment is not configured")
+	}
+	if err := sameHost(ctx, p); err != nil {
+		return out, err
+	}
+	secret, err := readCredential(p)
+	if err != nil {
+		return out, err
+	}
+	if err = call(ctx, p, "GET", "/v1/adapters/"+url.PathEscape(p.AdapterID), nil, &out.Adapter); err != nil {
+		return out, err
+	}
+	if err = call(ctx, p, "GET", "/v1/sessions/"+url.PathEscape(p.SessionID), nil, &out.Session); err != nil {
+		return out, err
+	}
+	if err = call(ctx, p, "GET", "/v1/adapters/"+url.PathEscape(p.AdapterID)+"/connection", nil, &out.Connection); err != nil {
+		return out, err
+	}
+	until, err := time.Parse(time.RFC3339Nano, out.Adapter.ExpiresAt)
+	if err != nil || out.Adapter.RevokedAt != nil || !until.After(time.Now()) || out.Adapter.ID != p.AdapterID || out.Adapter.SessionID != p.SessionID || out.Session.ID != p.SessionID || out.Session.AgentID != p.AgentID || out.Session.Integration != p.Harness.ID || out.Connection.AdapterID != p.AdapterID || out.Connection.SessionID != p.SessionID {
+		return out, errors.New("the existing attachment authorization or identity requires repair")
+	}
+	matched, err := verify(ctx, p, secret.Token)
+	if err != nil {
+		return out, err
+	}
+	if !matched {
+		return out, errors.New("credential file must match the existing attachment; inspect session doctor")
+	}
+	return out, nil
+}
+
+// ValidateAttachmentManifest rejects a different explicitly selected provider
+// before guided setup changes service, trust or enrollment state.
+func ValidateAttachmentManifest(p *Profile, root, runner string) error {
+	if root == "" && runner == "" {
+		return nil
+	}
+	selected, err := loadManifest(root, p.Harness.ID, runner)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(selected, p.Harness) {
+		return errors.New("the requested integration manifest or runner differs from this project's attachment")
+	}
+	return nil
 }

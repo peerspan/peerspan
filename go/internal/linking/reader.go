@@ -1070,6 +1070,9 @@ func Probe(data []byte) any {
 	if kind, _ := text(o, "kind"); kind == "catalog_facts" {
 		return catalogFactsProbe(o, false)
 	}
+	if kind, _ := text(o, "kind"); kind == "invite_feature" || kind == "invite_feature_intent" {
+		return inviteFeatureProbe(o, false)
+	}
 	if fields(o, "kind object_base64 signer_public_key device_public_key") != nil {
 		return fail
 	}

@@ -848,6 +848,13 @@ func (s *Store) RotateRoot(ctx context.Context, id string, to *RotateRoot) (Netw
 // or as no longer applicable (400), the pending rotation is discarded and the
 // failure recorded as a sync error; otherwise it stays pending.
 func (s *Store) completeRotation(ctx context.Context, n Network, p *pendingRotation) (Network, error) {
+	feature, _, featureErr := readLinkFeature(ctx, s.db, n.ID)
+	if featureErr != nil {
+		return n, featureErr
+	}
+	if feature != "-" {
+		return s.completeLinkRotation(ctx, n, p)
+	}
 	admissions, groups := p.Admissions, p.Groups
 	if admissions == nil {
 		admissions = []json.RawMessage{}

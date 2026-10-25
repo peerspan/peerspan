@@ -105,7 +105,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
+from host_service import LINKING_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
@@ -169,7 +169,7 @@ WORK_OPERATIONS = ['echo', 'info', 'sleep', 'fail', 'tool_error', 'big', 'crash'
 # daemon did not pass it.
 INTERPRETER_NAMES = {'LC_CTYPE'}
 CANARY = 'PEERSPAN_TOOLS_CANARY'
-CURRENT_VERSION = SCHEMA_VERSION   # database version 17: policy_edits (coordination contract, Concurrent edits)
+CURRENT_VERSION = SCHEMA_VERSION   # The current migrated host schema.
 DAY = 86400
 
 # The adopted test vector's inputs (Policy statement, version 2: Test vector). The contract gives inputs, not the
@@ -3303,23 +3303,21 @@ class Pairing:
         held['signature'] = ssh_sign(policy_lines_v2(held), self.keys['quinn'][0], self.root)
         status, body = p1.call('POST', f'/v1/networks/{self.team}/policy', {'policy': held})
         need(status == 201, 'setup: quinn\'s policy holding p1\'s rule for rmhold', status, body)
+        owned_versions = {network: self.version('p1', network) for network in self.bound['p1']}
         code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmhold', '--yes')
         need(code != 0 and self.capability('rmhold'), 'a policy of another person holding the rule: the command fails '
              'and the record is kept', code)
         # "names that person and network": by label or person ID (the form is not said).
         need(self.quinn in stderr or 'quinn' in stderr, 'it names that person', stderr[-400:])
         need(self.team in stderr, 'and that network', stderr[-400:])
-        # Whether the policies pat's key can sign are withdrawn before the command fails is not said ("fails before
-        # deleting"); noted, not counted.
-        self.soft(all(self.rule_for('rmhold', n) is None for n in self.bound['p1']),
-                  'the policies the signing key owns are withdrawn before the command fails on another person\'s')
+        need(all(self.rule_for('rmhold', network) is None and
+                 self.version('p1', network) == version + 1 for network, version in owned_versions.items()) and
+             self.policy('p1', self.team, self.quinn) == held,
+             'every signing-person policy is withdrawn before reporting other holders, whose policies remain exact')
         # That person's key: --person-key selects quinn's identity (its .pub) in an agent holding it.
         quinn_pub = str(self.keys['quinn'][0]) + '.pub'
         code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmhold', '--yes', '--person-key', quinn_pub,
                                                sock=self.agents['quinn'].socket)
-        if code != 0 and any(self.rule_for('rmhold', n) for n in self.bound['p1']):
-            # pat's policies were left for a run with pat's key (see above).
-            code, out, stdout, stderr = p1.outcome('capability', 'remove', 'rmhold', '--yes')
         quinns = self.policy('p1', self.team, self.quinn)
         need(code == 0 and self.capability('rmhold') is None and quinns['version'] == held['version'] + 1 and
              not any(r['capability'] == 'rmhold' and r['host'] == ids['p1'] for r in quinns['capability_rules']),
@@ -3572,18 +3570,19 @@ def check_vector(directory):
 def check_migration(original, replacement, label):
     """Version 15 (the version 16 and 17 tables dropped) to the current version, and the next refused.
 
-    The capabilities contract specifies 15 to 16 and says version 16 binaries reject 17; database version 17
-    (coordination contract, Concurrent edits) has since been added, so current binaries migrate 15 to 17 (through
-    16) and reject 18."""
+    The capabilities contract specifies 15 to 16 and says version16 binaries reject17. Current host binaries
+    additionally migrate through policy edits17, agent calls18 and linking19, and reject the next schema20."""
     with tempfile.TemporaryDirectory(prefix='peerspan-capabilities-migration-') as directory:
         host = Host(original, Path(directory) / 'host')
         try:
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'Database version 17', label)
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'Current host database version', label)
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
             try:
+                for table in LINKING_TABLES:
+                    connection.execute(f'DROP TABLE {table}')
                 # Version 18 (agent tools, slice 2) tables, when the binaries have them, go first: they refer to
                 # outbound_calls.
                 connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
@@ -3597,7 +3596,7 @@ def check_migration(original, replacement, label):
                 connection.close()
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'migrated to version 17')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == CURRENT_VERSION, 'migrated to current host database version')
             tables = {r[0] for r in db_rows(host, "SELECT name FROM sqlite_master WHERE type = 'table'")}
             need(set(CAPABILITY_TABLES) | set(POLICY_EDIT_TABLES) <= tables, 'versions 16 and 17 add their tables',
                  sorted(tables))

@@ -162,6 +162,23 @@ Same-pin repair keeps host/device/person keys, active feature, attachment,
 integration profile, service and state path. A new machine's live ceremony never
 uses this recovery command to change its locked request pin.
 
+## Exact submitted recovery outcomes
+
+Only an exact persisted, explicitly approved import intent and authorization may
+interpret the target's original stored outcome as historical recovery evidence.
+Verify the outcome's exact reviewed target descriptor, immutable network identity,
+feature ID and every PF originally authorized by the frozen snapshot. Independently
+verify the complete historical public snapshot. Retain the exact original response,
+then union its verified objects with every current local object and run
+`VerifyStoredCatalogRepair` and the current complete projection. Preserve the local
+coordinator pin, feature, restrictions, operations, root epoch and access high-water;
+retain newer local reachability hints. Atomically mark only this original import
+intent complete. Completion establishes no target freshness or agent readiness.
+
+Generic live maps still reject omission of any locally retained proof. A move
+still requires fresh separately verified destination state and current reviewed
+move authority; an old recovery receipt cannot waive those checks or switch a pin.
+
 ## Verification
 
 The independent author checks exact signature/hash/name/epoch/pin/time binding,
@@ -172,3 +189,27 @@ imports require no additional root signature and cannot reset the feature.
 Both host implementations keep root keys private and review fixed external
 templates; installed recovery preserves host/device/person identities and the
 existing service.
+
+## Definitive rotation refusal and bounded preview retention
+
+An active pending root rotation is retired only after a strict authenticated
+response from the independently pinned actual coordinator definitively refuses
+the mutation with `invalid`, `state_conflict` or `operation_conflict`. Before
+deleting, a transaction must confirm the exact pending transition is still the
+one refused. Deletion retires its proposed seed only; it never installs that
+seed or overwrites current root metadata. A different/newer pending transition
+remains intact. Local request/TLS construction failures, malformed responses,
+transport/5xx failures, missing proofs, quotas and rate limits retain pending
+state. `forbidden` also retains it with explicit repair guidance. Ordinary sync
+can learn the accepted competing root after the definitively rejected pending
+transition is retired. Independent checks cover competing same-epoch root
+rotations and unchanged retention across uncertain failures.
+
+Before enforcing the eight-import-intent preview limit, reclaim validated rows
+whose deadline plus 24 hours has passed and which were never submitted or have a
+completed immutable outcome. Submitted unresolved rows are never reclaimed,
+regardless of age. Validate retained records and expiry before deletion; no
+public proof, membership, access maximum, receipt in an unresolved row or
+network authority is removed. Independent checks fill the preview quota, advance
+the decision clock past this retention window, then verify new capacity while
+submitted unknown outcomes remain byte-for-byte unchanged.

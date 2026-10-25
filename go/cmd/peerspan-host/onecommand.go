@@ -24,7 +24,8 @@ import (
 // --no-person is given, it uses a person key so the same command admits and
 // binds the person: --person-key, the generated key, the only ssh-ed25519
 // identity in ssh-agent, or else a newly generated key, which is saved only
-// once the network request has succeeded.
+// once the network request has succeeded. A signed feature-bound join persists
+// a new choice before POST so an uncertain response cannot change identity.
 func networkCreateOrJoin(ctx context.Context, client host.Client, command string, positional []string, fs *pflag.FlagSet, state string, out, errOut io.Writer) error {
 	return onboard(ctx, client, command, positional, fs, state, errOut, func(result map[string]any) error { return printJSON(out, result) })
 }
@@ -88,9 +89,11 @@ func onboard(ctx context.Context, client host.Client, command string, positional
 		defer choice.Close()
 		signer = choice
 	}
-	// save writes a new key once the network request has succeeded.
+	// Save only once, including when the signed invite requires persistence
+	// before publication of an immutable public redemption request.
+	saved := false
 	save := func() error {
-		if choice == nil {
+		if choice == nil || saved {
 			return nil
 		}
 		label := create.Member
@@ -99,9 +102,25 @@ func onboard(ctx context.Context, client host.Client, command string, positional
 		}
 		hostname, _ := os.Hostname()
 		if err := choice.Save(fmt.Sprintf("peerspan %s@%s", label, hostname)); err != nil {
-			return fmt.Errorf("the host joined, but the new person key could not be saved to %s: %w", choice.Path, err)
+			return fmt.Errorf("the new person key could not be saved to %s: %w", choice.Path, err)
 		}
+		saved = true
 		return nil
+	}
+
+	if command == "join" && strings.HasPrefix(join.Token, host.FeatureInvitePrefix) && choice != nil && choice.Source == person.SourceNew {
+		invite, e := host.InspectCurrentFeatureInvite(join.Token)
+		if e != nil {
+			return e
+		}
+		if _, e = networkOf(ctx, client, invite.NetworkID); e == nil {
+			return errors.New("this network is already joined; use its existing person identity or resume machine linking")
+		} else if !errors.Is(e, errNotJoined) {
+			return e
+		}
+		if e = save(); e != nil {
+			return e
+		}
 	}
 
 	var result map[string]any
@@ -125,11 +144,21 @@ func onboard(ctx context.Context, client host.Client, command string, positional
 				if err != nil {
 					return err
 				}
-				binding, err := signedBinding(signer, network, identity.PublicKey)
-				if err != nil {
-					return err
+				join.PersonPublicKey = membership.EncodeKey(signer.PublicKey())
+				bound := false
+				if strings.HasPrefix(join.Token, host.FeatureInvitePrefix) {
+					bound, err = featureInviteAlreadyBound(ctx, client, network, identity.ID, join.PersonPublicKey)
+					if err != nil {
+						return err
+					}
 				}
-				join.PersonPublicKey, join.Binding = membership.EncodeKey(signer.PublicKey()), binding
+				if !bound {
+					binding, err := signedBinding(signer, network, identity.PublicKey)
+					if err != nil {
+						return err
+					}
+					join.Binding = binding
+				}
 			}
 		}
 		if err = callInto(ctx, client, "POST", "/v1/networks/join", join, &result); err != nil {
@@ -191,6 +220,11 @@ func describeKey(result map[string]any, choice *person.Choice, memberJoin bool) 
 // tokenMember is an invite token's member label, or the login name.
 func tokenMember(token string) string {
 	now := time.Now()
+	if strings.HasPrefix(token, host.FeatureInvitePrefix) {
+		if t, e := host.InspectCurrentFeatureInvite(token); e == nil {
+			return t.Member
+		}
+	}
 	if t, err := membership.DecodeMemberToken(token, now); err == nil {
 		return t.Member
 	}
@@ -276,4 +310,27 @@ func withState(result map[string]any, state string) {
 		return
 	}
 	outcome["next"] = strings.ReplaceAll(next, programName+" network ", programName+" --state "+state+" network ")
+}
+
+// A verified exact invitation retry does not need fresh private binding consent.
+func featureInviteAlreadyBound(ctx context.Context, client host.Client, network, hostID, personKey string) (bool, error) {
+	persons, err := call[[]host.Person](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/persons")
+	if err != nil {
+		var response *host.ClientError
+		if errors.As(err, &response) && response.Status == 404 {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, person := range persons {
+		for _, boundHost := range person.Hosts {
+			if boundHost == hostID {
+				if person.PublicKey != personKey {
+					return false, errors.New("this host is already bound to a different person; use its existing person identity")
+				}
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

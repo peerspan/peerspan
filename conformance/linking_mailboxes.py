@@ -129,8 +129,15 @@ class Runtime:
             try:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=10)
+                # The coordinator is Go. Preserve its public goroutine stack
+                # in the existing retained stderr log before the existing kill;
+                # the normal ten-second shutdown deadline is unchanged.
+                self.process.send_signal(signal.SIGQUIT)
+                try:
+                    self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=9)
         self.process = None
 
     def restart(self):

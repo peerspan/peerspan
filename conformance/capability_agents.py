@@ -65,7 +65,7 @@ import traceback
 import urllib.parse
 
 from coordination import Coordinator, wait_for
-from host_service import UnixHTTPConnection, stop_all
+from host_service import LINKING_TABLES, SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need
 import live_delivery
 from live_delivery import Consumer, Fixture as ClaudeFixture, flag
@@ -2985,11 +2985,11 @@ def check_migration(original, replacement, label, baseline=None):
             if baseline:
                 need(db_rows(host, 'PRAGMA user_version')[0][0] == VERSION - 1, 'the baseline is version 17')
             else:
-                need(db_rows(host, 'PRAGMA user_version')[0][0] == VERSION, 'Database version 18', label)
+                need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'Current host database version', label)
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                    for table in NEW_TABLES:
+                    for table in (*LINKING_TABLES, *NEW_TABLES):
                         connection.execute(f'DROP TABLE {table}')
                     connection.execute(f'PRAGMA user_version = {VERSION - 1}')
                     connection.commit()
@@ -2998,7 +2998,7 @@ def check_migration(original, replacement, label, baseline=None):
                 strip_call_fields(host.state / 'host.db')
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == VERSION, 'migrated to version 18')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'migrated through version18 to current host schema')
             tables = {r[0] for r in db_rows(host, "SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
             need(set(NEW_TABLES) | {'adapter_calls_rate'} <= tables, 'migration creates the two tables and the index',
                  sorted(tables))
@@ -3007,12 +3007,12 @@ def check_migration(original, replacement, label, baseline=None):
                  record['max_calls_per_hour'] is None, 'an existing credential reads calls false', status, record)
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
-            connection.execute(f'PRAGMA user_version = {VERSION + 1}')
+            connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION + 1}')
             connection.commit()
             connection.close()
             for binary in {str(original), str(replacement)}:
                 result = subprocess.run([binary, '--state', str(host.state), 'run'], capture_output=True, timeout=10)
-                need(result.returncode != 0, 'version 18 binaries reject version 19', binary)
+                need(result.returncode != 0, 'current host binaries reject the next schema version', binary)
         finally:
             stop_all((host,))
     return label

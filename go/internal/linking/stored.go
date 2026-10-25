@@ -91,8 +91,12 @@ func ProbeStoredSnapshot(body []byte) any {
 		return fail
 	}
 	switch scalar(o, "kind") {
+	case "admin_removal_plan":
+		return adminRemovalPlanProbe(o)
 	case "proof_selection":
 		return proofSelectionProbe(o)
+	case "invite_feature", "invite_feature_intent":
+		return inviteFeatureProbe(o, true)
 	case "catalog_facts":
 		return catalogFactsProbe(o, true)
 	case "activation":

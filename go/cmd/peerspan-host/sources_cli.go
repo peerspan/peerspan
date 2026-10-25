@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -532,11 +534,13 @@ func callsRequest(args []string, fs *pflag.FlagSet) (string, string, error) {
 // owner: the current persons, the owner's person ID, and the starting point
 // of an edit, from the daemon's edit route (Concurrent edits).
 type ownerContext struct {
-	signer  person.Signer
-	persons []host.Person
-	ownerID string
-	network string
-	hostID  string
+	signer   person.Signer
+	device   *host.LinkSignerView
+	ownerKey string
+	persons  []host.Person
+	ownerID  string
+	network  string
+	hostID   string
 	// current is the edit's starting point; version is the stored version
 	// and seq the reserved edit number, 0 when the signer is not this
 	// host's person and the edit route does not apply.
@@ -548,16 +552,76 @@ type ownerContext struct {
 }
 
 func loadOwner(ctx context.Context, client host.Client, network, keyPath string) (*ownerContext, error) {
+	var selected *host.LinkSignerView
+	if keyPath == "" {
+		view, err := call[host.LinkSignerView](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/link-signer")
+		var failure *host.ClientError
+		if err == nil {
+			selected = &view
+		} else if !errors.As(err, &failure) || failure.Status != 404 {
+			return nil, err
+		}
+	}
+	if selected != nil {
+		o := &ownerContext{device: selected, ownerKey: selected.PersonPublicKey, network: network}
+		var err error
+		if o.persons, err = personsOf(ctx, client, network); err != nil {
+			return nil, err
+		}
+		for _, p := range o.persons {
+			if p.PublicKey == o.ownerKey {
+				o.ownerID = p.PersonID
+			}
+		}
+		if o.ownerID == "" {
+			return nil, errors.New("the selected device's stable person requires repair")
+		}
+		if err = o.start(ctx, client); err != nil {
+			return nil, err
+		}
+		return o, nil
+	}
 	signer, err := person.Load(keyPath)
 	if err != nil {
 		return nil, err
 	}
-	o := &ownerContext{signer: signer, network: network}
+	o := &ownerContext{signer: signer, network: network, ownerKey: membership.EncodeKey(signer.PublicKey())}
 	if o.persons, err = personsOf(ctx, client, network); err != nil {
 		signer.Close()
 		return nil, err
 	}
 	owner := membership.EncodeKey(signer.PublicKey())
+	activeFeature := false
+	if keyPath != "" {
+		_, e := call[host.LinkAccessVersions](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/link-access-versions")
+		if e == nil {
+			activeFeature = true
+		} else {
+			var failure *host.ClientError
+			if !errors.As(e, &failure) || failure.Status != http.StatusUpgradeRequired || failure.Code != "upgrade_required" {
+				signer.Close()
+				return nil, e
+			}
+		}
+	}
+	if activeFeature {
+		identity, e := call[host.Identity](ctx, client, "GET", "/v1/host")
+		if e != nil {
+			signer.Close()
+			return nil, e
+		}
+		members, e := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/members")
+		if e != nil {
+			signer.Close()
+			return nil, e
+		}
+		for _, member := range members {
+			if member.HostID == identity.ID && member.PersonID != nil && *member.PersonID != membership.PersonID(signer.PublicKey()) {
+				signer.Close()
+				return nil, errors.New("the explicit original key does not match this machine's bound person")
+			}
+		}
+	}
 	for _, p := range o.persons {
 		if p.PublicKey == owner {
 			o.ownerID = p.PersonID
@@ -572,6 +636,12 @@ func loadOwner(ctx context.Context, client host.Client, network, keyPath string)
 		return nil, err
 	}
 	return o, nil
+}
+
+func (o *ownerContext) close() {
+	if o.signer != nil {
+		_ = o.signer.Close()
+	}
 }
 
 // editStart is the edit route's answer.
@@ -623,6 +693,19 @@ func (o *ownerContext) start(ctx context.Context, client host.Client) error {
 	if current != nil {
 		o.version = current.Version
 	}
+	versions, versionErr := call[host.LinkAccessVersions](ctx, client, "GET", "/v1/networks/"+url.PathEscape(o.network)+"/link-access-versions")
+	if versionErr == nil {
+		for _, policy := range versions.Policies {
+			if policy.PersonPublicKey == o.ownerKey {
+				o.version = max(o.version, policy.Version)
+			}
+		}
+	} else {
+		var failure *host.ClientError
+		if !errors.As(versionErr, &failure) || failure.Status != 426 && failure.Status != 404 {
+			return versionErr
+		}
+	}
 	return nil
 }
 
@@ -646,7 +729,40 @@ func (o *ownerContext) next(network string, body membership.PolicyBody, keep boo
 	if o.seq > 0 {
 		body.Edits = membership.WithEdit(body.Edits, o.hostID, o.seq)
 	}
+	if o.device != nil {
+		issued := time.Now().UTC().Truncate(time.Second)
+		until := issued.Add(validFor)
+		if limit, err := membership.ParseTime(o.device.NotAfter); err == nil && until.After(limit) {
+			until = limit
+		}
+		p := membership.Policy{Format: 2, NetworkID: network, PersonPublicKey: o.ownerKey, Version: version, IssuedAt: issued.Format(time.RFC3339), ValidUntil: until.Format(time.RFC3339), Rules: body.Rules, CapabilityRules: body.CapabilityRules, TrustedHosts: body.TrustedHosts, Edits: body.Edits, Signature: "-"}
+		return p, membership.CheckPolicy(network, p)
+	}
 	return membership.SignPolicyV2(o.signer, network, version, time.Now().Truncate(time.Second), validFor, body)
+}
+
+func (o *ownerContext) submit(ctx context.Context, client host.Client, policy membership.Policy) (json.RawMessage, error) {
+	if o.device == nil {
+		return client.Call(ctx, "POST", policyPath(o.network), host.SubmitPolicy{Policy: &policy})
+	}
+	raw, err := json.Marshal(policy)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	delete(fields, "signature")
+	raw, err = json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	_, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(o.network)+"/link-actions", host.LinkActionRequest{Kind: "peerspan-policy-v2", PayloadBase64: base64.StdEncoding.EncodeToString(raw), CertificateID: o.device.CertificateID})
+	if err != nil {
+		return nil, err
+	}
+	return client.Call(ctx, "GET", policyPath(o.network)+"?"+url.Values{"person": {o.ownerID}}.Encode(), nil)
 }
 
 func (o *ownerContext) body() membership.PolicyBody {
@@ -685,7 +801,7 @@ func (o *ownerContext) edit(ctx context.Context, client host.Client, keep bool, 
 		if err != nil {
 			return nil, false, err
 		}
-		data, err := client.Call(ctx, "POST", policyPath(o.network), host.SubmitPolicy{Policy: &p})
+		data, err := o.submit(ctx, client, p)
 		if isEditConflict(err) && attempt < editRetries {
 			if err = o.start(ctx, client); err != nil {
 				return nil, false, err
@@ -738,7 +854,7 @@ func runTrust(ctx context.Context, client host.Client, command string, args []st
 	if err != nil {
 		return err
 	}
-	defer o.signer.Close()
+	defer o.close()
 	if command == "trust" {
 		members, err := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/members")
 		if err != nil {

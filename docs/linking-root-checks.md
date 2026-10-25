@@ -182,3 +182,12 @@ fixes, full Rust passed; full Go failed only at the unchanged discovery
 packet-routing assertion at line 157. The exact final result, prior passing run,
 unchanged-source evidence and baseline flake record are retained. Sandbox-only
 socket denials are recorded separately from these permitted final runs.
+
+
+Fresh rotation dependency validation may reuse only independently verified prior
+authority when the prior catalog already contains a completed feature object.
+An initial feature at a nonzero root epoch has no prior activated projection to
+renew; it continues through the ordinary first-use current-authority gate. A
+prior completed feature makes complete prior projection validation mandatory,
+and renewals remain limited to identities and administrator roles already
+current in that prior projection.

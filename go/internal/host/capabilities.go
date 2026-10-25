@@ -152,7 +152,8 @@ type CreateCapability struct {
 	Args       []string            `json:"args"`
 	// Policies claim the name: one signed policy per network in which this
 	// host is bound to its person, each with this host's rule for the name.
-	Policies []membership.Policy `json:"policies"`
+	Policies []membership.Policy      `json:"policies"`
+	Catalogs []CapabilityClaimCatalog `json:"catalogs,omitempty"`
 }
 
 func readCapability(ctx context.Context, q dbQuerier, name string) (capabilityRecord, error) {
@@ -303,6 +304,8 @@ func sameArgs(a, b []string) bool {
 // be shareable, and each operation and URI must be in its snapshot, or in
 // the capability's own snapshot when it has its own credential.
 func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capability, error) {
+	s.syncing.Lock()
+	defer s.syncing.Unlock()
 	if !membership.ValidCapabilityName(r.Name) {
 		return Capability{}, fmt.Errorf("%w: a capability name matches [a-z0-9][a-z0-9_-]{0,62} and is not read", ErrInvalid)
 	}
@@ -403,20 +406,63 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			return Capability{}, fmt.Errorf("%w: the source's snapshot has no resource %q", ErrInvalid, uri)
 		}
 	}
-	claims, err := s.checkClaims(ctx, r)
-	if err != nil {
-		return Capability{}, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Capability{}, err
 	}
 	defer tx.Rollback()
 	now := time.Now()
+	if len(r.Catalogs) > 0 {
+		now, err = linkNow()
+		if err != nil {
+			return Capability{}, err
+		}
+	}
+	// Original-person claims on an activated network also enter the immutable
+	// catalog; their signed legacy bytes are never replaced by a projection.
+	legacyPolicies := []membership.Policy{}
+	for _, policy := range r.Policies {
+		feature, _, e := readLinkFeature(ctx, tx, policy.NetworkID)
+		if e != nil {
+			return Capability{}, e
+		}
+		if feature == "-" {
+			legacyPolicies = append(legacyPolicies, policy)
+			continue
+		}
+		body, e := linkJSON(policy)
+		if e != nil {
+			return Capability{}, e
+		}
+		catalog, e := catalogWithLinkObject(policy.NetworkID, "policy", body)
+		if e != nil {
+			return Capability{}, e
+		}
+		r.Catalogs = append(r.Catalogs, CapabilityClaimCatalog{NetworkID: policy.NetworkID, Catalog: catalog})
+	}
+	r.Policies = legacyPolicies
+	linkClaims, err := s.prepareCapabilityCatalogs(ctx, tx, r, now)
+	if err != nil {
+		return Capability{}, err
+	}
+	projected := map[string]membership.Policy{}
+	for network, claim := range linkClaims {
+		projected[network] = claim.policy
+	}
+	claims, err := s.checkClaims(ctx, tx, r, projected)
+	if err != nil {
+		return Capability{}, err
+	}
 	c.CreatedAt = timestamp(now)
 	// The claims and the record are stored together; a refusal stores
 	// nothing.
 	for _, p := range claims {
+		if claim, ok := linkClaims[p.NetworkID]; ok {
+			if err = s.applyCapabilityCatalog(ctx, tx, claim, now); err != nil {
+				return Capability{}, err
+			}
+			continue
+		}
 		if err = s.submitPolicyIn(ctx, tx, p.NetworkID, p, now); err != nil {
 			if errors.Is(err, ErrForbidden) {
 				err = fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -448,8 +494,8 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 // exactly one for each network in which this host is bound to that person,
 // verifying, and holding this host's rule for the name. Networks where this
 // host is bound to another person gain the claim at their first share.
-func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membership.Policy, error) {
-	own, err := membershipsOf(ctx, s.db, s.identity.ID)
+func (s *Store) checkClaims(ctx context.Context, q dbQuerier, r CreateCapability, catalogs map[string]membership.Policy) ([]membership.Policy, error) {
+	own, err := membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -466,6 +512,16 @@ func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membersh
 		signer = person
 		given[p.NetworkID] = p
 	}
+	for network, policy := range catalogs {
+		if _, duplicate := given[network]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate claim network", ErrInvalid)
+		}
+		person := personIDOf(policy.PersonPublicKey)
+		if signer != "" && signer != person {
+			return nil, fmt.Errorf("%w: claims name more than one person", ErrInvalid)
+		}
+		signer, given[network] = person, policy
+	}
 	out := []membership.Policy{}
 	for _, n := range own {
 		if n.member.PersonID == nil {
@@ -480,8 +536,10 @@ func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membersh
 			return nil, fmt.Errorf("%w: policies lacks a policy for network %s, in which this host is bound", ErrInvalid, n.network)
 		}
 		delete(given, n.network)
-		if err := membership.VerifyPolicy(n.network, p); err != nil {
-			return nil, fmt.Errorf("%w: the policy for network %s: %v", ErrInvalid, n.network, err)
+		if _, catalog := catalogs[n.network]; !catalog {
+			if err := membership.VerifyPolicy(n.network, p); err != nil {
+				return nil, fmt.Errorf("%w: the policy for network %s: %v", ErrInvalid, n.network, err)
+			}
 		}
 		claimed := false
 		for _, rule := range p.CapabilityRules {
@@ -618,7 +676,7 @@ func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, 
 func localCapabilityRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateCapability
-		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "policies") {
+		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "policies", "catalogs?") {
 			return
 		}
 		c, err := store.CreateCapability(r.Context(), req)

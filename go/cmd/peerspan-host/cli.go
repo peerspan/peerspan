@@ -101,6 +101,22 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 		return cmd
 	}
 	add("status", "status", "Show this host and what needs attention", 0)
+	add("link approve", "approve", "Review and approve a machine for your person", 0)
+	add("link admit", "admit", "Review and admit a selected machine as administrator", 0)
+	add("link select", "select REQUEST_ID", "Review and select one exact owner offer", 1)
+	add("link commit", "commit REQUEST_ID", "Review and consent to the exact final operation", 1)
+	add("link status", "status [REQUEST_ID]", "Show public linking progress", 0).Args = cobra.RangeArgs(0, 1)
+	add("link resume", "resume REQUEST_ID", "Resume the same persisted machine link", 1)
+	add("link cancel", "cancel REQUEST_ID", "Stop a pending machine link", 1)
+	link := groups["link"]
+	link.Use, link.Short, link.Args = "link", "Link this machine to your existing person", cobra.NoArgs
+	configureLinkFlags(link, []string{"link"})
+	link.RunE = func(cmd *cobra.Command, args []string) error {
+		return execute(cmd.Context(), []string{"link"}, cmd.Flags(), state, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	}
+	leaves = append(leaves, link)
+	add("network enable-linking", "enable-linking", "Enable verified machine linking after every host acknowledges", 0)
+	add("network repair", "repair [NETWORK]", "Review exact current-root recovery at a pinned coordinator", 0).Args = cobra.RangeArgs(0, 1)
 	up := add("up", "up [HARNESS] [-- HARNESS_ARGS...]", "Guide service, network, and project setup", 0)
 	up.Args = func(cmd *cobra.Command, args []string) error {
 		n := cmd.Flags().ArgsLenAtDash()
@@ -392,6 +408,10 @@ func printHelp(root *cobra.Command, leaves []*cobra.Command, advanced bool) erro
 func configureFlags(cmd *cobra.Command, args []string) {
 	fs := cmd.Flags()
 	command := args[len(args)-1]
+	if args[0] == "link" {
+		configureLinkFlags(cmd, args)
+		return
+	}
 	if args[0] == "network" {
 		switch command {
 		case "create", "join", "redeem-person", "bind", "unbind", "set":
@@ -406,6 +426,15 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	}
 
 	switch strings.Join(args, " ") {
+	case "network enable-linking":
+		fs.String("network", "", "network ID")
+		fs.String("root-key", "", "current original root SSH key")
+	case "network repair":
+		fs.String("coordinator", "", "reviewed target HOST:PORT")
+		fs.String("coordinator-key", "", "reviewed target coordinator public key")
+		fs.String("import-id", "", "exact previously reviewed import intent")
+		fs.Bool("approve", false, "approve the exact reviewed root recovery")
+		fs.String("root-key", "", "current original root SSH key")
 	case "sources":
 		fs.String("agent", "", "only this local agent")
 		fs.Bool("json", false, "print the daemon's listing")

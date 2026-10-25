@@ -93,7 +93,8 @@ type SubmitPolicy struct {
 // than a quarter of its validity remains.
 type PolicyView struct {
 	membership.Policy
-	ExpiresSoon bool `json:"expires_soon"`
+	ExpiresSoon         bool   `json:"expires_soon"`
+	AuthorizationBase64 string `json:"authorization_base64,omitempty"`
 }
 
 func (v PolicyView) MarshalJSON() ([]byte, error) {
@@ -103,6 +104,14 @@ func (v PolicyView) MarshalJSON() ([]byte, error) {
 	}
 	// The policy's own fields, then expires_soon.
 	data = append(append(data[:len(data)-1], `,"expires_soon":`...), strconv.FormatBool(v.ExpiresSoon)...)
+	if v.AuthorizationBase64 != "" {
+		encoded, err := json.Marshal(v.AuthorizationBase64)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, `,"authorization_base64":`...)
+		data = append(data, encoded...)
+	}
 	return append(data, '}'), nil
 }
 
@@ -170,12 +179,28 @@ func (s *Store) persistPolicies(ctx context.Context, tx *sql.Tx, network string,
 // storedPolicy is the newest version of an owner's policy this host has
 // verified, within its window or not.
 func (g governance) storedPolicy(key string) (membership.Policy, bool) {
+	if g.linking != nil {
+		policy, ok := g.linking.Policies[key]
+		return policy, ok
+	}
 	var p membership.Policy
 	data, ok := g.persisted.policies[key]
 	if !ok || json.Unmarshal(data, &p) != nil || p.PersonPublicKey != key || membership.VerifyPolicy(g.network.ID, p) != nil {
 		return p, false
 	}
 	return p, true
+}
+
+// policyHash uses the exact signed authorization message for upgraded records.
+func (g governance) policyHash(key string, p membership.Policy) string {
+	if g.linking != nil {
+		for _, selection := range g.linking.Access.Policies {
+			if selection.PersonPublicKey == key && selection.Active {
+				return selection.MessageHash
+			}
+		}
+	}
+	return membership.PolicyHash(p)
 }
 
 // personKey is the key of a current person by ID.
@@ -222,6 +247,13 @@ func membershipsOf(ctx context.Context, q queryer, host string) ([]networkRecord
 // One coordinator attempt is made now; the delivery worker retries. An
 // identical resubmission changes nothing.
 func (s *Store) SubmitPolicy(ctx context.Context, id string, p membership.Policy) (membership.Policy, error) {
+	feature, _, err := readLinkFeature(ctx, s.db, id)
+	if err != nil {
+		return p, err
+	}
+	if feature != "-" {
+		return s.submitLinkLegacyPolicy(ctx, id, p)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return p, err
@@ -339,7 +371,11 @@ func (s *Store) Policy(ctx context.Context, id, given string) (PolicyView, error
 	if !ok {
 		return PolicyView{}, fmt.Errorf("%w: no access policy", ErrNotFound)
 	}
-	return PolicyView{Policy: p, ExpiresSoon: membership.PolicyExpiresSoon(p, time.Now())}, nil
+	view := PolicyView{Policy: p, ExpiresSoon: membership.PolicyExpiresSoon(p, time.Now())}
+	if g.linking != nil {
+		view.AuthorizationBase64 = g.linking.PolicyAuthorizations[key]
+	}
+	return view, nil
 }
 
 // blocked reports whether the block list refuses a sender: by host ID, or as
@@ -812,7 +848,9 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 	enabled := s.agent.socket != "" || s.agent.keyFile != ""
 	s.agent.Unlock()
 	if !enabled {
-		return
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM link_signers)`).Scan(&enabled); err != nil || !enabled {
+			return
+		}
 	}
 	own, err := membershipsOf(ctx, s.db, s.identity.ID)
 	if err != nil {
@@ -831,9 +869,13 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		if !ok {
 			continue
 		}
+		selected, eligibilityNow, err := s.policyRenewalDecisionTime(ctx, n.network, g, now)
+		if err != nil {
+			continue
+		}
 		p, ok := g.storedPolicy(key)
 		until, _ := membership.ParseTime(p.ValidUntil)
-		if !ok || !membership.PolicyExpiresSoon(p, now) || !now.Before(until) {
+		if !ok || !membership.PolicyExpiresSoon(p, eligibilityNow) || !eligibilityNow.Before(until) {
 			continue
 		}
 		// Unsettled edits of this host are re-applied instead; the result
@@ -844,7 +886,29 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 		if g, err = s.loadGovernance(ctx, s.db, n.network); err != nil {
 			continue
 		}
-		if p, ok = g.storedPolicy(key); !ok || !membership.PolicyExpiresSoon(p, now) {
+		selected, eligibilityNow, err = s.policyRenewalDecisionTime(ctx, n.network, g, now)
+		if err != nil {
+			continue
+		}
+		if p, ok = g.storedPolicy(key); !ok || !membership.PolicyExpiresSoon(p, eligibilityNow) {
+			continue
+		}
+		if selected {
+			issued, until, durationErr := policyDuration(p)
+			if durationErr != nil {
+				continue
+			}
+			body := p.Body()
+			if body.Edits, err = s.retiredDropped(ctx, s.db, n.network, body.Edits); err != nil {
+				continue
+			}
+			request, renewErr := s.nextLinkPolicy(ctx, n.network, p, body, until.Sub(issued))
+			if renewErr == nil {
+				_, renewErr = s.LinkAction(ctx, n.network, request)
+			}
+			if renewErr != nil {
+				logf("policy renewal for %s: %s", n.network, linkCause(renewErr, "-", "policy").Message)
+			}
 			continue
 		}
 		public, err := membership.DecodeKey(key)

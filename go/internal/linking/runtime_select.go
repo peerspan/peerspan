@@ -111,7 +111,7 @@ func discoverProofSubjects(o Object, out proofSubjects, feature bool) {
 					out.people[membership.EncodeKey(pub)] = true
 				}
 			}
-			if k == "payload_base64" {
+			if k == "payload_base64" || k == "host_invite_base64" || k == "person_invite_base64" {
 				if b, e := decode(str, MaxPayload); e == nil {
 					if nested, e := parseLimit(b, MaxPayload); e == nil {
 						discoverProofSubjects(nested, out, false)
@@ -231,6 +231,26 @@ func validateProofSeed(ctx CatalogFactContext, catalog []byte, p ProofSeed, sour
 	o, e := parse(p.Body)
 	if e != nil {
 		return pathError("invalid")
+	}
+	if p.Kind == "invite_feature" {
+		if fields(o, "binding host_invite_base64 person_invite_base64") != nil {
+			return pathError("invalid")
+		}
+		halves := [][]byte{nil, nil}
+		for i, name := range []string{"host_invite_base64", "person_invite_base64"} {
+			encoded, e := text(o, name)
+			if e != nil {
+				return pathError("invalid")
+			}
+			if encoded != "-" {
+				halves[i], e = decode(encoded, MaxObject)
+				if e != nil {
+					return pathError("invalid")
+				}
+			}
+		}
+		_, e := VerifyStoredInviteFeature(ctx, catalog, o["binding"], halves[0], halves[1])
+		return e
 	}
 	if p.Kind == "packet" {
 		device := "-"
@@ -469,6 +489,13 @@ func SelectStoredProofCatalog(ctx CatalogFactContext, catalog []byte, seeds []Pr
 	}
 	if _, e = VerifyStoredNetworkState(ctx, out); e != nil {
 		return nil, e
+	}
+	for _, seed := range seeds {
+		if seed.Kind == "invite_feature" {
+			if e = validateProofSeed(ctx, out, seed, nil); e != nil {
+				return nil, e
+			}
+		}
 	}
 	return out, nil
 }

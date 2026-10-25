@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -109,6 +110,9 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	}
 
 	client := host.Client{SocketPath: filepath.Join(state, "admin.sock")}
+	if args[0] == "link" {
+		return runLink(ctx, client, args, fs, out, errOut)
+	}
 	if args[0] == "status" {
 		return runStatus(ctx, client, fs, state, out)
 	}
@@ -142,6 +146,12 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if err != nil {
 		return err
 	}
+	if len(args) == 2 && args[0] == "network" && args[1] == "enable-linking" {
+		return runLinkFeature(ctx, client, fs, out)
+	}
+	if len(args) == 3 && args[0] == "network" && args[1] == "repair" {
+		return runFeatureImport(ctx, client, args[2], fs, out, errOut)
+	}
 	if len(args) >= 2 && args[0] == "network" && (args[1] == "create" || args[1] == "join") {
 		return networkCreateOrJoin(ctx, client, args[1], args[2:], fs, explicitState, out, errOut)
 	}
@@ -171,13 +181,24 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		method, path, body, err = adminRequest(ctx, client, args, fs)
 	}
 	if err == nil && args[0] == "network" && administeredCommands[args[1]] {
-		body, err = signAsAdministrator(ctx, client, path, body, personKey(fs))
+		var handled bool
+		var typed any
+		typed, handled, err = deviceAdministration(ctx, client, path, body, personKey(fs))
+		if handled {
+			body = typed
+		} else if err == nil {
+			body, err = signAsAdministrator(ctx, client, path, body, personKey(fs))
+		}
 	}
 	if err != nil {
 		return err
 	}
 	var result json.RawMessage
 	switch b := body.(type) {
+	case linkAdminSubmission:
+		result, err = b.submit(ctx, client)
+	case linkInviteSubmission:
+		result, err = b.submit(ctx, client)
 	case taskSubmission:
 		if b.SubmitTask.Artifacts, err = uploadArtifacts(ctx, client, b.files, b.types); err != nil {
 			return err
@@ -207,7 +228,9 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		}
 	}
 	var value any
-	if err := json.Unmarshal(result, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(result))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
 		return err
 	}
 	encoder := json.NewEncoder(out)
@@ -770,6 +793,9 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 	// Every member host keeps its coordinators' relay connections, which
 	// carry change notifications; a listening host is also reachable there.
 	go store.RunRelays(daemonCtx)
+	linkingDone := make(chan struct{})
+	go func() { defer close(linkingDone); store.RunLinking(daemonCtx) }()
+	defer func() { cancel(); <-linkingDone }()
 	if err = store.ConfigureCoordination(advertise, time.Duration(interval)*time.Second); err != nil {
 		return err
 	}

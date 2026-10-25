@@ -107,6 +107,7 @@ func PeerHandler(store *Store) http.Handler {
 	adapterPeerRoutes(mux, store, sender)
 	taskPeerRoutes(mux, store, sender)
 	policyPeerRoutes(mux, store, sender)
+	linkPeerRoutes(mux, store, sender)
 	directoryPeerRoutes(mux, store, sender)
 	agentLookupPeerRoutes(mux, store, sender)
 	movePeerRoutes(mux, store, sender)

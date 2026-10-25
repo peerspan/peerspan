@@ -267,6 +267,8 @@ func reapplied(stored membership.PolicyBody, edits []policyEditRecord) (membersh
 // network and returns the starting point for the edit: the stored policy
 // with this host's unsettled edits re-applied, without retired entries.
 func (s *Store) EditStart(ctx context.Context, network string) (EditStart, error) {
+	s.syncing.Lock()
+	defer s.syncing.Unlock()
 	if _, err := s.Network(ctx, network); err != nil {
 		return EditStart{}, err
 	}
@@ -281,6 +283,18 @@ func (s *Store) EditStart(ctx context.Context, network string) (EditStart, error
 	}
 	if person == "" {
 		return EditStart{}, fmt.Errorf("%w: this host is not bound to a person in that network", ErrNotFound)
+	}
+	if stored != nil && stored.Version == ^uint64(0) {
+		return EditStart{}, membership.ErrAccessVersionExhausted
+	}
+	// A known inactive maximum is still a progression barrier. Never reserve
+	// an edit that can only wrap or fall back to a lower permissive body.
+	version, err := linkPolicyVersion(ctx, tx, network, person)
+	if err != nil {
+		return EditStart{}, err
+	}
+	if version == ^uint64(0) {
+		return EditStart{}, membership.ErrAccessVersionExhausted
 	}
 	now := time.Now()
 	if _, err = s.settleEdits(ctx, tx, network, person, stored, now); err != nil {
@@ -305,6 +319,7 @@ func (s *Store) EditStart(ctx context.Context, network string) (EditStart, error
 		p := withBody(*stored, body)
 		out.Policy = &p
 	}
+	out.Version = max(out.Version, version)
 	out.Seq = next + 1
 	if out.Seq > membership.PolicyMaxEditSeq {
 		return EditStart{}, fmt.Errorf("%w: edit numbers are exhausted", ErrConflict)
@@ -326,6 +341,11 @@ func (s *Store) checkEdit(ctx context.Context, tx *sql.Tx, network, person strin
 	if stored != nil {
 		old, version = stored.EditSeq(s.identity.ID), stored.Version
 	}
+	water, err := linkPolicyVersion(ctx, tx, network, person)
+	if err != nil {
+		return nil, err
+	}
+	version = max(version, water)
 	if seq <= old {
 		// Not a new edit of this host: a renewal, or a policy built from
 		// an older one, which the acceptance rule handles.
@@ -452,6 +472,13 @@ func (s *Store) ackEdits(network, person, target string, seq int64) {
 func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(string, ...any)) error {
 	s.editsMu.Lock()
 	defer s.editsMu.Unlock()
+	selected, selectedErr := s.hasLinkSigner(ctx, network)
+	if selectedErr != nil {
+		return selectedErr
+	}
+	if selected {
+		return s.reapplyLinkEdits(ctx, network, logf)
+	}
 	now := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

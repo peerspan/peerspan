@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -408,7 +409,7 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 				body.CapabilityRules = append(body.CapabilityRules[:i:i], body.CapabilityRules[i+1:]...)
 				return true, nil
 			})
-			o.signer.Close()
+			o.close()
 			if changed {
 				signed = append(signed, data)
 			}
@@ -588,7 +589,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 	if err != nil {
 		return err
 	}
-	defer o.signer.Close()
+	defer o.close()
 	principal, recipient, err := resolveRecipient(ctx, client, o, network, given)
 	if err != nil {
 		return err
@@ -830,12 +831,27 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 	// Claims are signed in the networks where this host is bound to the
 	// signing person; networks bound to another person gain the claim at
 	// their first share.
-	signer, err := person.Load(keyPath)
-	if err != nil {
-		return nil, nil, err
+	signerID := ""
+	if keyPath == "" {
+		for _, network := range sortedNetworks(persons.ids) {
+			selected, e := selectedLinkAdministrator(ctx, client, network, keyPath)
+			if e != nil {
+				return nil, nil, e
+			}
+			if selected != nil {
+				signerID = personIDFromKey(selected.PersonPublicKey)
+				break
+			}
+		}
 	}
-	signerID := membership.PersonID(signer.PublicKey())
-	signer.Close()
+	if signerID == "" {
+		signer, err := person.Load(keyPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		signerID = membership.PersonID(signer.PublicKey())
+		signer.Close()
+	}
 	networks := []string{}
 	for _, n := range sortedNetworks(persons.ids) {
 		if persons.ids[n] == signerID {
@@ -848,11 +864,12 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 	owners := map[string]*ownerContext{}
 	defer func() {
 		for _, o := range owners {
-			o.signer.Close()
+			o.close()
 		}
 	}()
 	for attempt := 0; ; attempt++ {
 		policies := []membership.Policy{}
+		catalogs := []host.CapabilityClaimCatalog{}
 		for _, n := range networks {
 			o := owners[n]
 			if o == nil {
@@ -879,10 +896,39 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 			if err != nil {
 				return nil, nil, err
 			}
-			policies = append(policies, p)
+			if o.device != nil {
+				encoded, err := json.Marshal(p)
+				if err != nil {
+					return nil, nil, err
+				}
+				var fields map[string]json.RawMessage
+				if err = json.Unmarshal(encoded, &fields); err != nil {
+					return nil, nil, err
+				}
+				delete(fields, "signature")
+				encoded, err = json.Marshal(fields)
+				if err != nil {
+					return nil, nil, err
+				}
+				intent, err := json.Marshal(map[string]string{"capability": name, "policy_base64": base64.StdEncoding.EncodeToString(encoded)})
+				if err != nil {
+					return nil, nil, err
+				}
+				prepared, err := linkCall[host.LinkActionResult](ctx, client, "POST", "/v1/networks/"+url.PathEscape(n)+"/link-actions", host.LinkActionRequest{Kind: "policy_claim", PayloadBase64: base64.StdEncoding.EncodeToString(intent), CertificateID: o.device.CertificateID})
+				if err != nil {
+					return nil, nil, err
+				}
+				if prepared.Committed {
+					return nil, nil, errors.New("claim preparation unexpectedly committed a policy")
+				}
+				catalogs = append(catalogs, host.CapabilityClaimCatalog{NetworkID: n, Catalog: prepared.Catalog})
+			} else {
+				policies = append(policies, p)
+			}
 			signed[n] = p
 		}
 		body["policies"] = policies
+		body["catalogs"] = catalogs
 		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
 		if isEditConflict(err) && attempt < editRetries {
 			continue
@@ -928,7 +974,7 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 	if err != nil {
 		return err
 	}
-	defer o.signer.Close()
+	defer o.close()
 	var rule *membership.CapabilityRule
 	if o.current != nil {
 		body := o.body()

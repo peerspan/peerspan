@@ -51,7 +51,8 @@ type PolicyDelivery struct {
 // policyDeliveryRecord is the stored row: the delivery and its policy.
 type policyDeliveryRecord struct {
 	PolicyDelivery
-	Policy membership.Policy `json:"policy"`
+	Policy        membership.Policy `json:"policy"`
+	CatalogBase64 string            `json:"catalog_base64,omitempty"`
 }
 
 // PolicyHead names a stored policy: what a sibling reports after a push.
@@ -237,7 +238,7 @@ func queueDeliveries(ctx context.Context, tx *sql.Tx, network, person string, p 
 	}
 	for _, target := range targets {
 		at := now
-		record := policyDeliveryRecord{PolicyDelivery{Target: target, Version: p.Version, State: "pending", NextAttemptAt: &at}, p}
+		record := policyDeliveryRecord{PolicyDelivery: PolicyDelivery{Target: target, Version: p.Version, State: "pending", NextAttemptAt: &at}, Policy: p}
 		if err := putJSON(ctx, tx, "INSERT INTO policy_deliveries (record, network_id, person_id, target) VALUES (?, ?, ?, ?)", record, network, person, target); err != nil {
 			return err
 		}
@@ -316,7 +317,10 @@ func (s *Store) attemptDelivery(ctx context.Context, network, person, target str
 		return false, err
 	}
 	done, attemptErr := false, error(nil)
-	if target == policyTargetCoordinator {
+	if rec.CatalogBase64 != "" {
+		attemptErr = s.deliverLinkCatalog(ctx, n, target, rec.CatalogBase64)
+		done = attemptErr == nil
+	} else if target == policyTargetCoordinator {
 		_, attemptErr = s.callCoordinator(ctx, n, networkPath(n, "/policies"), map[string]any{"policy": rec.Policy})
 		done = attemptErr == nil || errors.Is(attemptErr, ErrConflict)
 		if attemptErr == nil {
@@ -341,7 +345,7 @@ func (s *Store) attemptDelivery(ctx context.Context, network, person, target str
 	}
 	defer tx.Rollback()
 	current, err := readJSON[policyDeliveryRecord](tx.QueryRowContext(finishCtx, "SELECT record FROM policy_deliveries WHERE network_id = ? AND person_id = ? AND target = ?", network, person, target))
-	if err != nil || current.State != "pending" || current.Version != rec.Version || current.Policy.Signature != rec.Policy.Signature {
+	if err != nil || current.State != "pending" || current.Version != rec.Version || current.Policy.Signature != rec.Policy.Signature || current.CatalogBase64 != rec.CatalogBase64 {
 		return false, ignoreNotFound(err) // superseded or dropped meanwhile
 	}
 	now := s.retryNow()
@@ -422,6 +426,18 @@ func (s *Store) syncPolicy(ctx context.Context, network string, logf func(string
 	if err != nil || person == "" {
 		return err
 	}
+	feature, _, err := readLinkFeature(ctx, s.db, network)
+	if err != nil {
+		return err
+	}
+	if feature != "-" {
+		for _, sibling := range hosts {
+			if err := s.fetchLinkPeerCatalog(ctx, network, sibling); err != nil {
+				logf("policy sync %s with %s: %v", network, sibling, err)
+			}
+		}
+		return nil
+	}
 	for _, sibling := range hosts {
 		p, err := s.fetchPolicy(ctx, network, sibling, person)
 		if err != nil {
@@ -465,6 +481,9 @@ func (s *Store) storeSynced(ctx context.Context, network, sibling string, p memb
 
 // ReceivePolicy applies a sibling's push and reports the stored policy.
 func (s *Store) ReceivePolicy(ctx context.Context, sender, network string, p membership.Policy) (PolicyHead, error) {
+	if err := s.rejectLegacyLinkPeer(ctx, network); err != nil {
+		return PolicyHead{}, err
+	}
 	if p.NetworkID != network {
 		return PolicyHead{}, fmt.Errorf("%w: the policy is for a different network", ErrInvalid)
 	}
@@ -510,6 +529,9 @@ func (s *Store) ReceivePolicy(ctx context.Context, sender, network string, p mem
 // SiblingPolicy is a sibling's fetch of this host's stored policy of their
 // shared person.
 func (s *Store) SiblingPolicy(ctx context.Context, sender, network, person string) (membership.Policy, error) {
+	if err := s.rejectLegacyLinkPeer(ctx, network); err != nil {
+		return membership.Policy{}, err
+	}
 	if sibling, err := s.isSibling(ctx, s.db, network, person, sender); err != nil || !sibling {
 		if err == nil {
 			err = ErrForbidden
@@ -552,7 +574,7 @@ func (s *Store) PolicySyncStatus(ctx context.Context, network string) (PolicySyn
 	}
 	if key, ok := g.personKey(person); ok {
 		if p, ok := g.storedPolicy(key); ok {
-			hash := membership.PolicyHash(p)
+			hash := g.policyHash(key, p)
 			status.Version, status.SHA256 = &p.Version, &hash
 		}
 	}
@@ -765,6 +787,10 @@ func policyPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.Respons
 		if !ok {
 			return
 		}
+		if err := store.rejectLegacyLinkPeer(r.Context(), r.PathValue("network")); err != nil {
+			respondLink(w, 0, nil, err, "-", "feature")
+			return
+		}
 		var req SubmitPolicy
 		if !decode(w, r, &req, "policy") {
 			return
@@ -779,6 +805,10 @@ func policyPeerRoutes(mux *http.ServeMux, store *Store, sender func(http.Respons
 	mux.HandleFunc("GET /peer/v1/networks/{network}/policies/{person}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := sender(w, r)
 		if !ok {
+			return
+		}
+		if err := store.rejectLegacyLinkPeer(r.Context(), r.PathValue("network")); err != nil {
+			respondLink(w, 0, nil, err, "-", "feature")
 			return
 		}
 		p, err := store.SiblingPolicy(r.Context(), id, r.PathValue("network"), r.PathValue("person"))
