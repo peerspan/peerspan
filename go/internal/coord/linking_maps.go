@@ -211,6 +211,11 @@ func (s *Server) linkRegisterHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status, value, err := s.registerFrom(r.Context(), caller, sourceOf(r.RemoteAddr), req.registerRequest)
+	var limited *limitError
+	if errors.As(err, &limited) {
+		respond(w, 0, nil, err)
+		return
+	}
 	if err != nil {
 		err = linkLegacyError(err)
 	}

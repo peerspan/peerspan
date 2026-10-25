@@ -27,6 +27,11 @@ join acknowledgment for every new host. Registration creates a pre-feature
 network. A daemon with a durable feature pin refuses the legacy response branch.
 A claimed version without a signed admission acknowledgment grants nothing.
 
+Pre-feature v2 registration preserves the existing hosted-limit refusal:
+HTTP 429 with `{code: "limit", error, limit}` and the exact limit name, including
+`networks_per_ip`. Hosts retain that name in coordination errors and attention.
+Active linking object quotas keep their existing structured refusal semantics.
+
 The pre-feature v2 POST sync bridge preserves v1's registered mTLS-host gate:
 the exact network/host SQL registration must exist before updating its hints.
 It serves the legacy stored signed objects for the host to verify, including
