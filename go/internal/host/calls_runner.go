@@ -414,12 +414,7 @@ func (s *Store) noteServer(ctx context.Context, target instanceTarget, change fu
 	}
 	defer tx.Rollback()
 	if target.own == nil {
-		rec, err := readToolServer(ctx, tx, target.agentID, target.server)
-		if err != nil {
-			return
-		}
-		change(&rec.toolSnapshotState)
-		if err = putJSON(ctx, tx, `UPDATE tool_servers SET record = ? WHERE agent_id = ? AND name = ?`, rec, target.agentID, target.server); err != nil {
+		if found, err := updateSourceState(ctx, tx, target.agentID, target.server, change); err != nil || !found {
 			return
 		}
 	} else {
@@ -495,6 +490,12 @@ func (s *Store) executeCall(ctx context.Context, inst *toolInstance, rc *running
 	}
 	select {
 	case r := <-ch:
+		if r.Error != nil && r.Error.Code == ghTooLargeCode && inst.target.agentID == builtinAgent {
+			// A built-in source's output over its limit: no result is stored.
+			failure := callResultTooLarge
+			finish(CallFailed, &failure, nil, nil)
+			return
+		}
 		if r.Error != nil {
 			data, _ := json.Marshal(map[string]any{"code": r.Error.Code, "message": r.Error.Message})
 			size := int64(len(data))

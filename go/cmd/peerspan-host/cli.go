@@ -451,14 +451,16 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.Bool("json", false, "print the daemon's listing")
 	case "sources refresh":
 		fs.String("agent", "", "only this local agent")
+		fs.Bool("builtin", false, "only the built-in sources, such as gh")
 	case "sources open-to", "sources close-to":
 		fs.Bool("all", false, "every machine of yours that passes self access, including ones trusted later")
 	case "capability create":
-		fs.String("from", "", "the source: AGENT/SERVER, or SERVER when one agent here has it")
+		fs.String("from", "", "the source: AGENT/SERVER, builtin/NAME, or SERVER when one source here has that name")
 		fs.String("operations", "", "tool names, comma-separated")
 		fs.String("resources", "", "all, or URIs, comma-separated; adds the read operation")
 		fs.String("env-file", "", "the capability's own environment file, applied whole to its own instance")
 		fs.StringArray("arg", nil, "argument replacing the source's args in its own instance; repeatable")
+		fs.StringArray("bound", nil, "allowed argument values, KEY=VALUE[,KEY=VALUE...]; repeatable, each an alternative")
 		fs.String("approval", "", "calls that wait for your approval: none, changing, all, or OP[,OP...]; default none")
 		fs.Bool("no-agent-self-approval", false, "calls from your own agents on your trusted machines do not wait for approval")
 	case "capability approval":
@@ -484,6 +486,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("name", "", "guided share: the capability name")
 		fs.String("env-file", "", "guided share: the capability's own environment file")
 		fs.StringArray("arg", nil, "guided share: argument replacing the source's args; repeatable")
+		fs.StringArray("bound", nil, "guided share: allowed argument values, KEY=VALUE[,KEY=VALUE...]; repeatable")
 		fs.String("approval", "", "guided share: calls that wait for your approval: none, changing, all, or OP[,OP...]")
 		fs.Bool("no-agent-self-approval", false, "guided share: calls from your own agents on your trusted machines do not wait for approval")
 	case "unshare":

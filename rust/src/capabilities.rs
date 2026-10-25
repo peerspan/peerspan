@@ -66,8 +66,18 @@ pub struct CapabilityRecord {
     /// The approval requirement; a record without one reads as none.
     #[serde(default)]
     pub approval: crate::approvals::Requirement,
+    /// `{}`, or `{"arguments": [COMBINATION, ...]}`.
+    #[serde(default = "no_bounds")]
+    pub bounds: Value,
+}
+fn no_bounds() -> Value {
+    json!({})
 }
 impl CapabilityRecord {
+    /// Its bound's combinations; empty for none.
+    pub fn combinations(&self) -> Vec<crate::bounds::Combination> {
+        crate::bounds::of_record(&self.bounds)
+    }
     /// The instance its calls run on.
     pub fn instance(&self) -> Instance {
         Instance {
@@ -94,6 +104,7 @@ impl CapabilityRecord {
             && self.resources == other.resources
             && self.credential == other.credential
             && self.approval == other.approval
+            && self.combinations() == other.combinations()
     }
 }
 
@@ -155,12 +166,36 @@ fn record_view(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> 
         "operations": r.operations,
         "resources": r.resources,
         "credential": r.credential,
-        "bounds": {},
+        "bounds": crate::bounds::to_value(&r.combinations()),
+        "credential_reach": credential_reach(conn, r)?,
         "state": now.state(),
         "unavailable": now.unavailable,
         "created_at": r.created_at,
         "approval": r.approval,
     }))
+}
+
+/// Whether a capability is built on a built-in `gh` source.
+pub(crate) fn on_gh(conn: &Connection, r: &CapabilityRecord) -> Result<bool, Error> {
+    Ok(crate::builtin::is_builtin(&r.agent_id)
+        && server_record(conn, &r.agent_id, &r.source.server)?
+            .and_then(|s| s.builtin)
+            .is_some_and(|b| b.adapter == "gh"))
+}
+/// The reach of a gh capability's credential: its own snapshot's, or the
+/// source's; null otherwise.
+fn credential_reach(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> {
+    if !on_gh(conn, r)? {
+        return Ok(Value::Null);
+    }
+    let reach = if r.credential.own() {
+        r.snapshot.as_ref().and_then(|s| s.reach.clone())
+    } else {
+        server_record(conn, &r.agent_id, &r.source.server)?
+            .and_then(|s| s.snapshot)
+            .and_then(|s| s.reach)
+    };
+    Ok(json!(reach))
 }
 
 /// What a capability can do now: the snapshot it serves from, and the
@@ -247,6 +282,10 @@ pub struct CreateCapability {
     /// The approval requirement, `{operations, agent_self}`.
     #[serde(default)]
     pub approval: Option<Value>,
+    /// Absent, `{}`, or `{"arguments": [...]}`; an explicit null is kept
+    /// as `Some(Null)` so validation refuses it.
+    #[serde(default, deserialize_with = "present_value")]
+    pub bounds: Option<Value>,
 }
 
 /// A checked new capability and its claims, by network.
@@ -326,13 +365,17 @@ impl Store {
     /// identical record instead, when there is one.
     fn draft(&self, c: CreateCapability) -> Result<Result<Drafted, Value>, Error> {
         let conn = self.connection()?;
-        let agent: Option<String> = conn
-            .query_row(
+        // `builtin/NAME` always names a built-in source.
+        let agent: Option<String> = if c.source.agent == crate::builtin::AGENT {
+            Some(crate::builtin::AGENT.into())
+        } else {
+            conn.query_row(
                 "SELECT id FROM agents WHERE name = ?1",
                 [&c.source.agent],
                 |r| r.get(0),
             )
-            .optional()?;
+            .optional()?
+        };
         let Some(agent_id) = agent else {
             return Err(Error::NotFound);
         };
@@ -393,6 +436,35 @@ impl Store {
                 "the environment file must be an existing absolute path".into(),
             ));
         }
+        let builtin = source.builtin.clone();
+        if builtin.is_some() && c.args.is_some() {
+            return Err(Error::Invalid(
+                "a built-in source has no arguments to replace; --arg is refused".into(),
+            ));
+        }
+        let combinations = crate::bounds::parse(c.bounds.as_ref())?;
+        let gh = builtin.as_ref().is_some_and(|b| b.adapter == "gh");
+        if gh
+            && combinations
+                .iter()
+                .filter_map(|k| k.get("repo"))
+                .any(|v| !crate::bounds::gh_repo_bound(v))
+        {
+            return Err(Error::Coded {
+                status: 400,
+                code: "invalid",
+                message: "A gh repository bound is OWNER/REPO or OWNER/*.".into(),
+                extra: Default::default(),
+            });
+        }
+        if !combinations.is_empty() && operations.is_empty() {
+            return Err(Error::Coded {
+                status: 400,
+                code: "invalid",
+                message: "A bound applies to tool operations, and the capability has none.".into(),
+                extra: Default::default(),
+            });
+        }
         let approval = match &c.approval {
             None | Some(Value::Null) => crate::approvals::Requirement::default(),
             Some(body) => {
@@ -401,6 +473,7 @@ impl Store {
         };
         let record = CapabilityRecord {
             approval,
+            bounds: crate::bounds::to_value(&combinations),
             name: c.name.clone(),
             source: c.source,
             agent_id,
@@ -554,6 +627,20 @@ impl Store {
                     .join(", ")
             )));
         }
+        if let Some(refusal) = crate::bounds::unenforceable(
+            &record.combinations(),
+            record.operations.iter().map(|o| {
+                (
+                    o.as_str(),
+                    snapshot
+                        .as_ref()
+                        .and_then(|s| s.tool(o))
+                        .map(|t| &t.input_schema),
+                )
+            }),
+        ) {
+            return Err(refusal);
+        }
         if let Value::Array(list) = &record.resources {
             let absent: Vec<&str> = list
                 .iter()
@@ -657,7 +744,11 @@ impl Store {
     /// `status`'s `capabilities` counts.
     pub(crate) fn capabilities_summary(&self) -> Result<Value, Error> {
         let conn = self.connection()?;
-        let sources: i64 = conn.query_row("SELECT COUNT(*) FROM tool_servers", [], |r| r.get(0))?;
+        let sources: i64 = conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM tool_servers) + (SELECT COUNT(*) FROM builtin_sources)",
+            [],
+            |r| r.get(0),
+        )?;
         let records = capability_records(&conn)?;
         let me = self.identity().id;
         let policies = self.own_policies(&conn)?;
@@ -854,6 +945,61 @@ async fn remove_route(
         blocking(store, move |s| s.remove_capability(&name)).await?,
     ))
 }
+/// For a new gh capability with a bound: each exact bound repository the
+/// capability's credential cannot see, as a warning.
+/// A field that is present, null included.
+fn present_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
+}
+/// The bound warnings' total time budget.
+const WARNING_BUDGET: std::time::Duration = std::time::Duration::from_secs(40);
+async fn visibility_warnings(store: &Arc<Store>, record: CapabilityRecord) -> Vec<String> {
+    let mut repos: Vec<String> = Vec::new();
+    for c in record.combinations() {
+        if let Some(r) = c.get("repo")
+            && crate::bounds::owner_wildcard(r).is_none()
+            && !repos.contains(r)
+        {
+            repos.push(r.clone());
+        }
+    }
+    if repos.is_empty() {
+        return Vec::new();
+    }
+    let r = record.clone();
+    let launch = blocking(store.clone(), move |s| {
+        let conn = s.connection()?;
+        if !on_gh(&conn, &r)? {
+            return Ok(None);
+        }
+        s.launch_with(&conn, &r.instance(), Some(&r)).map(Some)
+    })
+    .await;
+    let Ok(Some(launch)) = launch else {
+        return Vec::new();
+    };
+    let Some((gh, state)) = crate::gh::launch_target(&launch.args) else {
+        return Vec::new();
+    };
+    // The checks run in order and share one budget, so the create answers
+    // well inside the CLI's request timeout however many repositories the
+    // bound names; a repository the budget leaves no time for is not
+    // checked and gets no warning.
+    let started = std::time::Instant::now();
+    let mut out = Vec::new();
+    for repo in repos {
+        let Some(left) = WARNING_BUDGET.checked_sub(started.elapsed()) else {
+            break;
+        };
+        if left.is_zero() {
+            break;
+        }
+        if !crate::gh::repo_visible(&gh, &state, &launch.env, &repo, left).await {
+            out.push(format!("{repo} is not visible to this credential"));
+        }
+    }
+    out
+}
 async fn create_route(
     State(store): State<Arc<Store>>,
     body: Result<Bytes, BytesRejection>,
@@ -862,7 +1008,10 @@ async fn create_route(
     let (record, policies, catalogs) =
         match blocking(store.clone(), move |s| s.draft(request)).await? {
             Ok(drafted) => drafted,
-            Err(existing) => return Ok((StatusCode::OK, Json(existing))),
+            Err(mut existing) => {
+                existing["warnings"] = json!([]);
+                return Ok((StatusCode::OK, Json(existing)));
+            }
         };
     // A capability with its own credential is snapshotted with it, and its
     // operations are checked against that snapshot.
@@ -889,10 +1038,12 @@ async fn create_route(
         .filter(|(n, _)| !catalogs.iter().any(|c| &c.network_id == n))
         .cloned()
         .collect();
-    let view = blocking(store.clone(), move |s| {
+    let stored = record.clone();
+    let mut view = blocking(store.clone(), move |s| {
         s.store_capability(record, own, &claims, &catalogs)
     })
     .await?;
+    view["warnings"] = json!(visibility_warnings(&store, stored).await);
     // The claims are then submitted as any policy.
     for (network, p) in legacy {
         crate::policy_sync::after_store(store.clone(), network, p).await;

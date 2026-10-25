@@ -208,6 +208,9 @@ func attachPrepared(ctx context.Context, client host.Client, harness string, har
 	case maxCallsGiven && (maxCalls < 1 || maxCalls > 10000):
 		return errors.New("--max-calls-per-hour must be 1 to 10000")
 	}
+	if name == "builtin" {
+		return errors.New("the agent name builtin is reserved for built-in sources; choose another --name")
+	}
 	if name != "" && !host.AddressableName(name) {
 		return errors.New("--name must be 1 to 64 lowercase letters, digits, '.', '_', or '-', starting with a letter or digit")
 	}

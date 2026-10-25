@@ -1620,6 +1620,10 @@ async fn prepare_attach_inner(
     else {
         bail!("not an attach command")
     };
+    // `builtin` is the agent position of built-in sources.
+    if wanted.as_deref() == Some(peerspan_host::builtin::AGENT) {
+        bail!("the agent name builtin is reserved for built-in sources; choose another --name")
+    }
     // The capability call flags are checked before anything changes.
     if calls && no_calls {
         bail!("--calls and --no-calls are mutually exclusive")
@@ -1734,10 +1738,21 @@ async fn prepare_attach_inner(
         let (socket, integration, workspace) =
             (socket.clone(), integration.clone(), workspace.clone());
         async move {
-            match crate::discovery::refresh(&socket, &agent_id, &integration, &workspace).await {
-                Ok(tools) => tools,
-                Err(e) => json!({"servers": [], "errors": [{"error": format!("{e:#}")}]}),
+            let mut tools =
+                match crate::discovery::refresh(&socket, &agent_id, &integration, &workspace).await
+                {
+                    Ok(tools) => tools,
+                    Err(e) => json!({"servers": [], "errors": [{"error": format!("{e:#}")}]}),
+                };
+            // Built-in discovery follows; its failures land in errors.
+            let builtin = crate::builtin_discovery::refresh(&socket).await;
+            if let (Some(errors), Some(more)) =
+                (tools["errors"].as_array_mut(), builtin["errors"].as_array())
+            {
+                errors.extend(more.iter().cloned());
             }
+            tools["builtin"] = builtin["servers"].clone();
+            tools
         }
     };
     let build = |agent_id: &str,

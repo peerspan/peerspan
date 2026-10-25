@@ -54,6 +54,8 @@ type launchSpec struct {
 	Env     []string
 	Dir     string
 	LogPath string
+	// ghPath is the gh executable of a built-in gh source's instance.
+	ghPath string
 }
 
 // mcpProcess is one running server.
@@ -387,6 +389,7 @@ type SnapshotResource struct {
 type toolSnapshot struct {
 	Tools     []SnapshotTool
 	Resources []SnapshotResource
+	Reach     *GHReach
 }
 
 const (

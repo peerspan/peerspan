@@ -159,7 +159,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 20 {
+	if version < 0 || version > 21 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -266,6 +266,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 20 {
 		if _, err = tx.ExecContext(ctx, strings.NewReplacer("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ").Replace(approvalSchema)); err != nil {
+			return nil, err
+		}
+	}
+	if version < 21 {
+		if err = migrateBuiltin(ctx, tx); err != nil {
 			return nil, err
 		}
 	}

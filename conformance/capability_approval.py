@@ -44,7 +44,7 @@ import time
 import traceback
 
 from coordination import wait_for
-from host_service import APPROVAL_TABLES, LINKING_TABLES, Host, UnixHTTPConnection, stop_all
+from host_service import APPROVAL_TABLES, BUILTIN_TABLES, LINKING_TABLES, SCHEMA_VERSION, Host, UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need, parse_time as parse_datetime
 from live_delivery import Fixture as ClaudeFixture
 from peer_messaging import fixture_context, timestamp, wire
@@ -896,34 +896,35 @@ class ApprovalPairing(AgentPairing):
 
     def check_guided(self):
         p1 = self.hosts['p1']
-        # Every selection is given as a flag (resources included), so the only questions are approval's and the
+        # Every selection is given as a flag (resources included), so the only questions are approval's, the resource
+        # bound's (item D: asked when --bound is not given; answered with an empty line, no bound), and the
         # confirmation.
         flags = ['--from', 'srv/fx', '--operations', 'echo,write_note', '--resources', DOCS[1], '--network',
                  self.team]
         rhea = 'person:' + self.rhea
         code, out, tty, stdout, seen = p1.converse('share', '--with', rhea, *flags, '--name', 'gd-yes',
-                                                   answers=['', 'y'], prompt=SHARE_PROMPT, timeout=120)
+                                                   answers=['', '', 'y'], prompt=SHARE_PROMPT, timeout=120)
         need(code == 0 and caps.squash(GUIDED_PROMPT) in caps.squash(tty), 'the guided share asks about approval at a '
              'terminal when a selected tool can change things', code, tty[-800:])
         need(self.record('gd-yes')['approval'] == {'operations': 'changing', 'agent_self': True},
              'an empty line (the default) stores changing', self.record('gd-yes')['approval'])
         code, out, tty, stdout, seen = p1.converse('share', '--with', rhea, *flags, '--name', 'gd-no',
-                                                   answers=['n', 'y'], prompt=SHARE_PROMPT, timeout=120)
+                                                   answers=['n', '', 'y'], prompt=SHARE_PROMPT, timeout=120)
         need(code == 0 and self.record('gd-no')['approval'] == NONE, 'answering n stores none', code, tty[-600:])
         code, out, tty, stdout, seen = p1.converse('share', '--with', rhea, *flags, '--name', 'gd-yes2',
-                                                   '--no-agent-self-approval', answers=['YES', 'y'],
+                                                   '--no-agent-self-approval', answers=['YES', '', 'y'],
                                                    prompt=SHARE_PROMPT, timeout=120)
         need(code == 0 and self.record('gd-yes2')['approval'] == {'operations': 'changing', 'agent_self': False},
              'YES (any case) means changing; --no-agent-self-approval sets agent_self false', code, tty[-600:])
         code, out, tty, stdout, seen = p1.converse('share', '--with', rhea, '--from', 'srv/fx', '--operations', 'echo',
                                                    '--resources', DOCS[1], '--network', self.team, '--name', 'gd-ro',
-                                                   answers=['y'],
+                                                   answers=['', 'y'],
                                                    prompt=SHARE_PROMPT, timeout=120)
         need(code == 0 and caps.squash(GUIDED_PROMPT) not in caps.squash(tty) and
              self.record('gd-ro')['approval'] == NONE, 'no approval question when no selected tool can change things',
              code, tty[-600:])
         code, out, tty, stdout, seen = p1.converse('share', '--with', rhea, *flags, '--name', 'gd-given',
-                                                   '--approval', 'all', answers=['y'], prompt=SHARE_PROMPT,
+                                                   '--approval', 'all', answers=['', 'y'], prompt=SHARE_PROMPT,
                                                    timeout=120)
         need(code == 0 and caps.squash(GUIDED_PROMPT) not in caps.squash(tty) and
              self.record('gd-given')['approval'] == {'operations': 'all', 'agent_self': True},
@@ -1842,11 +1843,11 @@ def check_migration(original, replacement, label, baseline=None, start=18):
             if baseline:
                 need(start == 18 and db_rows(host, 'PRAGMA user_version')[0][0] == 18, 'the baseline is version 18')
             else:
-                need(db_rows(host, 'PRAGMA user_version')[0][0] == VERSION, 'database version 20', label)
+                need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'the current database version', label)
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute(f'DROP INDEX IF EXISTS {NEW_INDEX}')
-                    for table in (*APPROVAL_TABLES, *(LINKING_TABLES if start < 19 else ())):
+                    for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, *(LINKING_TABLES if start < 19 else ())):
                         connection.execute(f'DROP TABLE {table}')
                     for name, value in connection.execute('SELECT name, record FROM capabilities').fetchall():
                         record = json.loads(value)
@@ -1859,7 +1860,7 @@ def check_migration(original, replacement, label, baseline=None, start=18):
                     connection.close()
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == VERSION, 'migrated to version 20')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'migrated to the current version')
             objects = {r[0] for r in db_rows(host, "SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
             need(set(NEW_TABLES) | {NEW_INDEX} <= objects, 'migration creates the two tables and the index',
                  sorted(objects))
@@ -1869,7 +1870,7 @@ def check_migration(original, replacement, label, baseline=None, start=18):
             need(status == 200 and record.get('approval') == NONE, 'an existing capability reads approval none',
                  status, record)
             host.stop()
-            version = VERSION + 1
+            version = SCHEMA_VERSION + 1
             connection = sqlite3.connect(host.state / 'host.db')
             connection.execute(f'PRAGMA user_version = {version}')
             connection.commit()
@@ -1877,7 +1878,7 @@ def check_migration(original, replacement, label, baseline=None, start=18):
             for binary in {str(original), str(replacement)}:
                 result = subprocess.run([binary, '--state', str(host.state), 'run'], capture_output=True,
                                         timeout=10)
-                need(result.returncode != 0, f'version 20 binaries refuse version {version}', binary)
+                need(result.returncode != 0, f'current binaries refuse version {version}', binary)
             need(db_rows(host, 'PRAGMA user_version')[0][0] == version, 'refused without changes', version)
         finally:
             stop_all((host,))

@@ -45,6 +45,8 @@ type codedError struct {
 	forAgents []ForAgent
 	// approval is the record of an approval no longer pending (409).
 	approval any
+	// bounds is the capability's bound that refused a call (out_of_bounds).
+	bounds *CapabilityBounds
 }
 
 func (e *codedError) Error() string { return e.message }
@@ -63,6 +65,12 @@ func (e *codedError) body() any {
 			Error    string `json:"error"`
 			Approval any    `json:"approval"`
 		}{e.code, e.message, e.approval}
+	case e.bounds != nil:
+		return struct {
+			Code   string           `json:"code"`
+			Error  string           `json:"error"`
+			Bounds CapabilityBounds `json:"bounds"`
+		}{e.code, e.message, *e.bounds}
 	case e.unanswered != nil:
 		return struct {
 			Code       string       `json:"code"`

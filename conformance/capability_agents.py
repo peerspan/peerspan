@@ -39,6 +39,9 @@ Sections, per pairing (contract Verification bullets in brackets):
 - call updates and pending work [Call updates and pending work];
 - revocation [Revocation];
 - slash label [slice 1 CLI: a person whose label contains `/`];
+- bounds and gh (slice 3) [Resource bounds and the gh source, Verification: `bounds` and narrowed schemas in
+  list_capabilities and GET /adapter/v1/capabilities, the description's sentence, call_capability on a gh capability,
+  and an out_of_bounds refusal through call_capability running nothing];
 - unanswered [Listing: `unanswered` with a stopped host].
 Once per run (from capabilities.py): migration from version 17 to 18 [Migration].
 
@@ -102,7 +105,7 @@ LAPSED = 'authorization lapsed before start'
 VIEW_KEYS = {'call_id', 'address', 'peer_host_id', 'operation', 'submit_state', 'state', 'error', 'created_at',
              'deadline', 'result', 'result_part', 'truncated', 'result_bytes', 'offset', 'next_offset', 'note',
              'approval'}
-ENTRY_KEYS = {'address', 'host_id', 'capability', 'operations', 'resources', 'state', 'unavailable'}
+ENTRY_KEYS = {'address', 'host_id', 'capability', 'operations', 'resources', 'state', 'unavailable', 'bounds'}
 LISTING_KEYS = {'capabilities', 'unanswered'}
 META_KEYS = {'call_id', 'notification_id', 'address', 'operation', 'state', 'error', 'result_bytes', 'truncated',
              'session_id', 'redelivered'}
@@ -120,6 +123,9 @@ NOTIFICATION_ID = re.compile(r'notification_[0-9a-f]{32}')
 INLINE = 65536
 NEW_TABLES = ('adapter_calls', 'call_update_notifications')
 VERSION = 18
+# Database version 21 (slice 3, resource bounds) adds builtin_sources; a state taken back to version 17 drops it too, and current
+# binaries migrate it to CURRENT.
+CURRENT = caps.CURRENT_VERSION
 # The integrations directory whose shared adapter `attach --runner NODE` runs (capabilities.py --integrations).
 INTEGRATIONS = live_delivery.INTEGRATIONS
 
@@ -792,6 +798,7 @@ class AgentPairing:
         self.section('call updates and pending work', self.check_updates)
         self.section('revocation', self.check_revocation)
         self.section('slash label (slice 1)', self.check_slash_label)
+        self.section('bounds and gh (slice 3)', self.check_bounds_gh)
         self.section('unanswered', self.check_unanswered)
         if self.setup_notes:
             print(f'NOTE {self.label} agent tools setup: ' + ' | '.join(self.setup_notes), flush=True)
@@ -1955,6 +1962,72 @@ class AgentPairing:
 
     # --- unanswered ----------------------------------------------------------------------------------------
 
+    def check_bounds_gh(self):
+        """Slice 3, item D, for agents: the built-in gh source (a fake gh, put to p1 through PUT /v1/builtin-sources
+        as the CLI's discovery would), a bounded capability on it and one on srv/fx, both shared with quinn."""
+        import capability_bounds as cb
+        p1 = self.hosts['p1']
+        gh = cb.FakeGh(self.root / 'gh-agents')
+        token = 'gho_' + secrets.token_hex(18)
+        gh.set(users={token: {'login': 'bob', 'scopes': 'repo'}})
+        definition = {'name': 'gh', 'adapter': 'gh', 'command': str(gh.path), 'version': '2.102.0',
+                      'host': 'github.com', 'account': 'bob', 'authenticated': True,
+                      'env': {'GH_TOKEN': {'source': 'captured'}}, 'disabled': False}
+        status, body = p1.call('PUT', '/v1/builtin-sources', {'sources': [definition],
+                                                              'values': {'gh': {'env.GH_TOKEN': token}}})
+        need(status == 200, 'setup: PUT /v1/builtin-sources', status, body)
+        for name, source, operations, bound in (('bnd', 'srv/fx', ['echo'], 'text=ok'),
+                                                ('ghcap', 'builtin/gh', ['issue_list', 'issue_create'],
+                                                 'repo=acme/api')):
+            code, out, stdout, stderr = p1.outcome('capability', 'create', name, '--from', source, '--operations',
+                                                   ','.join(operations), '--bound', bound)
+            need(code == 0, f'setup: capability create {name} --bound {bound}', code, stderr[-400:])
+            self.share('p1', name, 'quinn', per_hour=1000)
+        self.sync_pat()
+        bounds = {'bnd': {'arguments': [{'text': 'ok'}]}, 'ghcap': {'arguments': [{'repo': 'acme/api'}]}}
+        found = {e['address']: e for e in self.listing('qa')['capabilities']}
+        for name, b in bounds.items():
+            need(found.get(f'pat/{name}', {}).get('bounds') == b, f'list_capabilities: pat/{name} with its bounds',
+                 found.get(f'pat/{name}'))
+        need(found['pat/tools']['bounds'] == {}, 'list_capabilities: an unbounded capability has bounds {}',
+             found['pat/tools'])
+        echo = {o['name']: o for o in found['pat/bnd']['operations']}['echo']
+        need(echo['input_schema']['properties']['text'] == {'type': 'string', 'enum': ['ok']},
+             'list_capabilities shows the narrowed input schema', echo['input_schema'])
+        raw = self.qraw_session()
+        status, value = raw.call('GET', '/adapter/v1/capabilities')
+        need(status == 200, 'GET /adapter/v1/capabilities', status, value)
+        listed = {e['address']: e for e in value['capabilities']}
+        need(all(set(e) == ENTRY_KEYS for e in value['capabilities']) and
+             listed.get('pat/ghcap', {}).get('bounds') == bounds['ghcap'] and listed['pat/tools']['bounds'] == {},
+             'GET /adapter/v1/capabilities entries gain bounds', listed.get('pat/ghcap'))
+        tools = {t['name']: t for t in self.s('qa')['consumer'].call('tools/list', {}).get('tools', [])}
+        need(cb.LIST_SENTENCE in tools['list_capabilities'].get('description', ''),
+             'the list_capabilities description gains the bounds sentence', tools['list_capabilities'].get('description'))
+        # call_capability on the gh capability.
+        gh.repo('ACME/api', stdout='[{"number": 3}]')   # the fake answers by the repo exactly as passed
+        view, _ = self.ok_call('qa', 'pat/ghcap', 'issue_list', {'repo': 'ACME/api'}, wait=15,
+                               rule='call_capability on a gh capability')
+        if view['state'] != 'succeeded':
+            view = self.final_view('qa', view['call_id'])
+        need(view['state'] == 'succeeded' and cb.text_of(view['result']) == '{"issues":[{"number": 3}]}',
+             'call_capability on a bounded gh capability: the issue_list result', view)
+        # Outside the bound: a rejected call view whose error is the text and whose note is the never-ran note
+        # (contract, Enforcement), and nothing run.
+        mark = gh.mark()
+        for address, operation, input in (('pat/ghcap', 'issue_create', {'repo': 'acme/web', 'title': 'x'}),
+                                          ('pat/bnd', 'echo', {'text': 'no'})):
+            failed, value, _ = self.cc('qa', address, operation, input, wait=15)
+            text = cb.out_of_bounds(bounds[address.split('/')[1]], input)
+            need(not failed, f'call_capability outside the bound ({address}): a call view, not a tool error', value)
+            if value.get('state') != 'rejected':
+                value = self.final_view('qa', value['call_id'])
+            need(value['state'] == 'rejected' and value['error'] == text and value['note'] == NEVER_RAN_NOTE,
+                 f'call_capability outside the bound ({address}): rejected with error the exact text and the '
+                 'never-ran note', value)
+        need(gh.starts(since=mark) == [] and not self.executions('fx', 'no'), 'calls outside the bound run nothing')
+        return ''
+
     def check_unanswered(self):
         self.hosts['p4'].stop()
         value = self.listing('qa')
@@ -2974,7 +3047,7 @@ def check_migration(original, replacement, label, baseline=None):
     approval tables, which later binaries add), credential records without the new fields, and user_version 17.
     Binaries since per-call approval migrate 17 on to the current version (host_service.SCHEMA_VERSION) and refuse
     19, which is reserved."""
-    from host_service import APPROVAL_TABLES, SCHEMA_VERSION, Host
+    from host_service import APPROVAL_TABLES, BUILTIN_TABLES, SCHEMA_VERSION, Host
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-migration-') as directory:
         host = Host(baseline or original, Path(directory) / 'host')
         try:
@@ -2994,7 +3067,7 @@ def check_migration(original, replacement, label, baseline=None):
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                    for table in (*APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
+                    for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
                         connection.execute(f'DROP TABLE {table}')
                     connection.execute(f'PRAGMA user_version = {VERSION - 1}')
                     connection.commit()

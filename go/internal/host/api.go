@@ -91,6 +91,7 @@ func Handler(store *Store) http.Handler {
 	localDirectoryRoutes(mux, store)
 	agentLookupRoutes(mux, store)
 	localSourceRoutes(mux, store)
+	localBuiltinRoutes(mux, store)
 	localCapabilityRoutes(mux, store)
 	localCallRoutes(mux, store)
 	localApprovalRoutes(mux, store)

@@ -73,6 +73,7 @@ type AdapterCapability struct {
 	Resources   []SnapshotResource `json:"resources"`
 	State       string             `json:"state"`
 	Unavailable []string           `json:"unavailable"`
+	Bounds      CapabilityBounds   `json:"bounds"`
 }
 
 // AdapterCapabilities is GET /adapter/v1/capabilities.
@@ -132,7 +133,7 @@ func (s *Store) AgentDiscover(ctx context.Context, agent, person, network string
 func adapterCapabilities(found []DiscoveredCapability, unanswered []Unanswered) AdapterCapabilities {
 	out := AdapterCapabilities{Capabilities: []AdapterCapability{}, Unanswered: unanswered}
 	for _, e := range found {
-		out.Capabilities = append(out.Capabilities, AdapterCapability{e.Address, e.HostID, e.Capability, e.Operations, e.Resources, e.State, e.Unavailable})
+		out.Capabilities = append(out.Capabilities, AdapterCapability{e.Address, e.HostID, e.Capability, e.Operations, e.Resources, e.State, e.Unavailable, e.Bounds})
 	}
 	sort.SliceStable(out.Capabilities, func(i, j int) bool {
 		a, b := out.Capabilities[i], out.Capabilities[j]
@@ -326,6 +327,13 @@ func callView(o OutboundCall, createdAt string, offset int64) (CallView, error) 
 	switch {
 	case o.SubmitState == submitRejected:
 		v.Error = o.Error
+		// The refusal is stored as "peer returned HTTP N: TEXT"; the view
+		// shows the refusal's text alone.
+		if o.Error != nil {
+			if head, text, ok := strings.Cut(*o.Error, ": "); ok && strings.HasPrefix(head, "peer returned HTTP ") && text != "" {
+				v.Error = &text
+			}
+		}
 	case o.Status != nil:
 		v.Error = o.Status.Error
 	}

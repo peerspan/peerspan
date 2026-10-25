@@ -54,8 +54,9 @@ type sourceServer struct {
 
 // sourcesListing is GET /v1/sources.
 type sourcesListing struct {
-	Agents []sourcesAgent `json:"agents"`
-	OpenTo []string       `json:"open_to"`
+	Agents  []sourcesAgent       `json:"agents"`
+	Builtin []builtinSourcesView `json:"builtin"`
+	OpenTo  []string             `json:"open_to"`
 }
 
 // readSources reads GET /v1/sources.
@@ -104,6 +105,8 @@ func askYes(errOut io.Writer, prompt string) bool {
 type attachSummary struct {
 	Servers []attachServer   `json:"servers"`
 	Errors  []discoveryError `json:"errors"`
+	// Builtin lists the built-in sources, in attach's output only.
+	Builtin *[]attachServer `json:"builtin,omitempty"`
 }
 
 type attachServer struct {
@@ -186,6 +189,22 @@ func attachSources(ctx context.Context, client host.Client, agentID, integration
 	}
 	summary, line := summarize(stored, errs)
 	fmt.Fprintln(errOut, line)
+	// Built-in discovery follows; a failure is reported, not fatal.
+	entries := []attachServer{}
+	summary.Builtin = &entries
+	if builtin, err := storeBuiltin(ctx, client); err != nil {
+		summary.Errors = append(summary.Errors, discoveryError{Source: "builtin", Error: "storing the built-in sources failed: " + err.Error()})
+	} else {
+		entries = summarizeBuiltin(builtin)
+		summary.Builtin = &entries
+		if len(builtin) > 0 {
+			var names []string
+			for _, b := range builtin {
+				names = append(names, "builtin/"+b.Name)
+			}
+			fmt.Fprintln(errOut, "Built-in sources: "+strings.Join(names, ", ")+".")
+		}
+	}
 	return summary
 }
 

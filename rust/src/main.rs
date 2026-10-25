@@ -1,6 +1,7 @@
 mod access;
 mod addressing;
 mod admin;
+mod builtin_discovery;
 mod capability_cli;
 mod cli;
 mod discovery;
@@ -41,6 +42,17 @@ pub(crate) fn program() -> &'static str {
 
 #[tokio::main]
 async fn main() {
+    // The hidden built-in source server, started by the daemon.
+    let raw: Vec<String> = env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    if raw.get(1).map(String::as_str) == Some("builtin-source") {
+        if let Err(error) = peerspan_host::gh::serve(&raw[2..]).await {
+            eprintln!("error: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let name = env::args_os()
         .next()
         .and_then(|arg| {

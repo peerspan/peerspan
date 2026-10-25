@@ -99,6 +99,9 @@ pub struct Snapshot {
     pub tools: Vec<ToolEntry>,
     pub resources: Vec<ResourceEntry>,
     pub taken_at: String,
+    /// For a built-in `gh` source: the credential's reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reach: Option<crate::gh::Reach>,
 }
 impl Snapshot {
     pub fn tool(&self, name: &str) -> Option<&ToolEntry> {
@@ -137,6 +140,9 @@ pub struct ServerRecord {
     #[serde(default)]
     pub health: Health,
     pub updated_at: String,
+    /// For a built-in source: its definition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<crate::builtin::BuiltinDefinition>,
 }
 
 #[derive(Deserialize)]
@@ -366,6 +372,10 @@ pub(crate) fn flat_snapshot(
                     .unwrap_or(json!([])),
             )?,
             taken_at,
+            reach: v
+                .get("reach")
+                .cloned()
+                .and_then(|r| serde_json::from_value(r).ok()),
         }),
         None => None,
     };
@@ -404,6 +414,7 @@ pub(crate) fn decode_server(agent: &str, text: &str) -> Result<ServerRecord, Err
         .unwrap_or_default();
     Ok(ServerRecord {
         agent_id: agent.to_owned(),
+        builtin: None,
         definition,
         workspace: v["workspace"].as_str().unwrap_or_default().to_owned(),
         shareable: v["shareable"].as_bool().unwrap_or(false),
@@ -435,6 +446,9 @@ pub(crate) fn server_record(
     agent: &str,
     name: &str,
 ) -> Result<Option<ServerRecord>, Error> {
+    if crate::builtin::is_builtin(agent) {
+        return crate::builtin::record(conn, name);
+    }
     conn.query_row(
         "SELECT record FROM tool_servers WHERE agent_id = ?1 AND name = ?2",
         params![agent, name],
@@ -445,6 +459,9 @@ pub(crate) fn server_record(
     .transpose()
 }
 pub(crate) fn server_records(conn: &Connection, agent: &str) -> Result<Vec<ServerRecord>, Error> {
+    if crate::builtin::is_builtin(agent) {
+        return crate::builtin::records(conn);
+    }
     let mut statement = conn
         .prepare("SELECT agent_id, record FROM tool_servers WHERE agent_id = ?1 ORDER BY name")?;
     decode_rows(&mut statement, [agent])
@@ -464,7 +481,20 @@ pub(crate) fn agent_names(conn: &Connection) -> Result<BTreeMap<String, String>,
     let rows = statement
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<BTreeMap<String, String>, _>>()?;
+    let mut rows = rows;
+    rows.insert(crate::builtin::AGENT.into(), crate::builtin::AGENT.into());
     Ok(rows)
+}
+/// Stores a source record: an agent's, or a built-in source's.
+fn save_server(conn: &Connection, r: &ServerRecord) -> Result<(), Error> {
+    if r.builtin.is_some() {
+        return crate::builtin::save(conn, r);
+    }
+    conn.execute(
+        "UPDATE tool_servers SET record = ?1 WHERE agent_id = ?2 AND name = ?3",
+        params![serde_json::to_string(r)?, r.agent_id, r.definition.name],
+    )?;
+    Ok(())
 }
 
 impl Store {
@@ -483,6 +513,8 @@ impl Store {
         let mut statement =
             conn.prepare("SELECT agent_id, record FROM tool_servers ORDER BY agent_id, name")?;
         let servers: Vec<ServerRecord> = decode_rows(&mut statement, [])?;
+        let mut servers = servers;
+        servers.extend(crate::builtin::records(conn)?);
         Ok(servers
             .into_iter()
             .filter(|s| s.shareable && s.snapshot.is_some())
@@ -554,6 +586,20 @@ impl Store {
         }
         if let Some(capability) = capability {
             apply_credential(capability, &mut args, &mut env, set);
+        }
+        if let Some(b) = &server.builtin {
+            // A built-in source runs this binary's own server, given the
+            // definition's `gh` and the state directory.
+            let state = self.state_directory().to_path_buf();
+            let exe = std::env::current_exe()
+                .map_err(|e| Error::Internal(anyhow::anyhow!("own executable: {e}")))?;
+            return Ok(Launch {
+                command: exe.display().to_string(),
+                args: crate::gh::server_args(&b.command, &state),
+                env,
+                cwd: crate::gh::work_dir(&state),
+                log: self.tool_log(instance),
+            });
         }
         Ok(Launch {
             command,
@@ -648,6 +694,7 @@ impl Store {
                 health: previous.map(|p| p.health.clone()).unwrap_or_default(),
                 updated_at: at.clone(),
                 definition: d.clone(),
+                builtin: None,
             };
             tx.execute(
                 "INSERT OR REPLACE INTO tool_servers VALUES (?1, ?2, ?3)",
@@ -703,27 +750,22 @@ impl Store {
                     return Ok(());
                 };
                 match outcome {
-                    Ok(s) => {
+                    Ok(mut s) => {
+                        fill_account(&mut s, r.builtin.as_ref().and_then(|b| b.account.clone()));
                         r.snapshot = Some(s);
                         r.snapshot_error = None;
                     }
                     Err(e) => r.snapshot_error = Some(e),
                 }
-                tx.execute(
-                    "UPDATE tool_servers SET record = ?1 WHERE agent_id = ?2 AND name = ?3",
-                    params![
-                        serde_json::to_string(&r)?,
-                        instance.agent_id,
-                        instance.server
-                    ],
-                )?;
+                save_server(&tx, &r)?;
             }
             Some(c) => {
                 let Some(mut r) = capability_record(&tx, c)? else {
                     return Ok(());
                 };
                 match outcome {
-                    Ok(s) => {
+                    Ok(mut s) => {
+                        fill_account(&mut s, self.builtin_account(&tx, &instance.server));
                         r.snapshot = Some(s);
                         r.snapshot_error = None;
                     }
@@ -767,14 +809,7 @@ impl Store {
             None => {
                 if let Some(mut r) = server_record(&tx, &instance.agent_id, &instance.server)? {
                     update(&mut r.health);
-                    tx.execute(
-                        "UPDATE tool_servers SET record = ?1 WHERE agent_id = ?2 AND name = ?3",
-                        params![
-                            serde_json::to_string(&r)?,
-                            instance.agent_id,
-                            instance.server
-                        ],
-                    )?;
+                    save_server(&tx, &r)?;
                 }
             }
             Some(c) => {
@@ -843,7 +878,12 @@ impl Store {
         if agent.is_some() && !matched {
             return Err(Error::NotFound);
         }
-        Ok(json!({"agents": out, "open_to": open_list(&conn)?}))
+        let builtin = if agent.is_some() {
+            Vec::new()
+        } else {
+            self.builtin_view(&conn)?
+        };
+        Ok(json!({"agents": out, "builtin": builtin, "open_to": open_list(&conn)?}))
     }
     /// One agent with its stored servers and their snapshots.
     fn agent_servers(&self, agent: &str) -> Result<Value, Error> {
@@ -923,6 +963,11 @@ impl Store {
                 .get(agent)
                 .cloned()
                 .unwrap_or_else(|| agent.to_owned());
+            let command = if crate::builtin::is_builtin(agent) {
+                "peerspan sources refresh --builtin".to_owned()
+            } else {
+                format!("peerspan sources refresh --agent {name}")
+            };
             let mut causes = Vec::new();
             if let Some(e) = error {
                 causes.push(format!("its latest snapshot failed: {e}"));
@@ -937,14 +982,10 @@ impl Store {
                 ));
             }
             if !causes.is_empty() {
-                out.push((
-                    format!("{name}/{label}"),
-                    causes.join("; "),
-                    format!("peerspan sources refresh --agent {name}"),
-                ));
+                out.push((format!("{name}/{label}"), causes.join("; "), command));
             }
         };
-        for s in &servers {
+        for s in servers.iter().chain(crate::builtin::records(&conn)?.iter()) {
             check(
                 &s.agent_id,
                 s.definition.name.clone(),
@@ -988,6 +1029,12 @@ pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
             Vec::new()
         };
         client.kill();
+        // A built-in gh source's credential reach is checked with the
+        // instance's environment.
+        let reach = match crate::gh::launch_target(&launch.args) {
+            Some((gh, state)) => Some(crate::gh::check_reach(&gh, &state, &launch.env).await),
+            None => None,
+        };
         let text = |v: &Value| v.as_str().map(str::to_owned);
         let tools = tools
             .iter()
@@ -1018,6 +1065,7 @@ pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
             tools,
             resources,
             taken_at: now(),
+            reach,
         })
     };
     let snapshot = tokio::time::timeout(SNAPSHOT_BOUND, work)
@@ -1030,7 +1078,7 @@ pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
 }
 
 /// Snapshots instances, 8 at a time, and stores each outcome.
-async fn snapshot_all(store: Arc<Store>, instances: Vec<Instance>) {
+pub(crate) async fn snapshot_all(store: Arc<Store>, instances: Vec<Instance>) {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(SNAPSHOT_PARALLEL));
     let mut set = tokio::task::JoinSet::new();
     for instance in instances {
@@ -1126,6 +1174,14 @@ pub(crate) fn open_to_host(conn: &Connection, host: &str) -> Result<bool, Error>
         [host],
         |r| r.get(0),
     )?)
+}
+/// A failed reach check names the definition's account.
+fn fill_account(snapshot: &mut Snapshot, account: Option<String>) {
+    if let Some(r) = snapshot.reach.as_mut()
+        && r.account.is_none()
+    {
+        r.account = account;
+    }
 }
 /// Applies a capability's own credential: its `args` replace the source's,
 /// and its whole `env_file` is applied last.

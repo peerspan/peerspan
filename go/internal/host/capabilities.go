@@ -86,6 +86,7 @@ type capabilityRecord struct {
 	Operations []string             `json:"operations"`
 	Resources  CapabilityResources  `json:"resources"`
 	Credential CapabilityCredential `json:"credential"`
+	Bounds     CapabilityBounds     `json:"bounds"`
 	CreatedAt  string               `json:"created_at"`
 	AgentID    string               `json:"agent_id"`
 	Snapshot   *toolSnapshotState   `json:"snapshot,omitempty"`
@@ -112,11 +113,37 @@ type Capability struct {
 	Operations  []string             `json:"operations"`
 	Resources   CapabilityResources  `json:"resources"`
 	Credential  CapabilityCredential `json:"credential"`
-	Bounds      map[string]any       `json:"bounds"`
+	Bounds      CapabilityBounds     `json:"bounds"`
 	Approval    ApprovalRequirement  `json:"approval"`
 	State       string               `json:"state"`
 	Unavailable []string             `json:"unavailable"`
 	CreatedAt   string               `json:"created_at"`
+	// CredentialReach is the gh reach of the capability's credential: its
+	// own snapshot's, or its source's; null for other sources.
+	CredentialReach *GHReach `json:"credential_reach"`
+}
+
+// CapabilityCreated is the POST /v1/capabilities answer: the view and the
+// warnings of the gh bound check.
+type CapabilityCreated struct {
+	Capability
+	Warnings []string `json:"warnings"`
+}
+
+func (c CapabilityCreated) MarshalJSON() ([]byte, error) {
+	data, err := json.Marshal(c.Capability)
+	if err != nil {
+		return nil, err
+	}
+	warnings := c.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
+	list, err := json.Marshal(warnings)
+	if err != nil {
+		return nil, err
+	}
+	return append(append(data[:len(data)-1], []byte(`,"warnings":`)...), append(list, '}')...), nil
 }
 
 // Recipient is one principal a rule for a capability on this host names.
@@ -154,6 +181,7 @@ type CreateCapability struct {
 	Resources  CapabilityResources `json:"resources"`
 	EnvFile    *string             `json:"env_file"`
 	Args       []string            `json:"args"`
+	Bounds     json.RawMessage     `json:"bounds"`
 	// Policies claim the name: one signed policy per network in which this
 	// host is bound to its person, each with this host's rule for the name.
 	Policies []membership.Policy      `json:"policies"`
@@ -236,7 +264,17 @@ func (s *Store) capabilityView(ctx context.Context, q dbQuerier, c capabilityRec
 	if ops == nil {
 		ops = []string{}
 	}
-	return Capability{Name: c.Name, Source: c.Source, Operations: ops, Resources: c.Resources, Credential: c.Credential, Bounds: map[string]any{}, Approval: c.requirement(), State: state, Unavailable: unavailable, CreatedAt: c.CreatedAt}, nil
+	view := Capability{Name: c.Name, Source: c.Source, Operations: ops, Resources: c.Resources, Credential: c.Credential, Bounds: c.Bounds, Approval: c.requirement(), State: state, Unavailable: unavailable, CreatedAt: c.CreatedAt}
+	if c.Source.Agent == builtinAgent {
+		if c.ownInstance() {
+			if c.Snapshot != nil {
+				view.CredentialReach = c.Snapshot.Reach
+			}
+		} else if rec, err := readToolServer(ctx, q, builtinAgent, c.Source.Server); err == nil {
+			view.CredentialReach = rec.Reach
+		}
+	}
+	return view, nil
 }
 
 // recipients lists the principals of the rules for a capability on this
@@ -290,7 +328,10 @@ func (s *Store) boundElsewhere(ctx context.Context, q dbQuerier, name string) (b
 // 200.
 var errCapabilityExists = errors.New("the capability exists")
 
-func sameCapability(a capabilityRecord, b CreateCapability) bool {
+func sameCapability(a capabilityRecord, b CreateCapability, bounds CapabilityBounds) bool {
+	if !a.Bounds.equal(bounds) {
+		return false
+	}
 	ops := b.Operations
 	if ops == nil {
 		ops = []string{}
@@ -340,6 +381,10 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		}
 		seen[op] = true
 	}
+	bounds, err := parseBounds(r.Bounds)
+	if err != nil {
+		return Capability{}, err
+	}
 	if len(r.Operations) == 0 && !r.Resources.Set {
 		return Capability{}, fmt.Errorf("%w: a capability needs an operation or resources", ErrInvalid)
 	}
@@ -357,12 +402,16 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			r.approval.AgentSelf = *r.Approval.AgentSelf
 		}
 	}
-	var agentID string
-	if err := s.db.QueryRowContext(ctx, `SELECT id FROM agents WHERE name = ?`, r.Source.Agent).Scan(&agentID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Capability{}, fmt.Errorf("%w: no local agent %q", ErrNotFound, r.Source.Agent)
+	agentID := builtinAgent
+	if r.Source.Agent != builtinAgent {
+		if err := s.db.QueryRowContext(ctx, `SELECT id FROM agents WHERE name = ?`, r.Source.Agent).Scan(&agentID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Capability{}, fmt.Errorf("%w: no local agent %q", ErrNotFound, r.Source.Agent)
+			}
+			return Capability{}, err
 		}
-		return Capability{}, err
+	} else if r.Args != nil {
+		return Capability{}, fmt.Errorf("%w: a built-in source has no arguments to replace, so --arg is refused", ErrInvalid)
 	}
 	rec, err := readToolServer(ctx, s.db, agentID, r.Source.Server)
 	if errors.Is(err, ErrNotFound) {
@@ -372,7 +421,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		return Capability{}, err
 	}
 	if old, err := readCapability(ctx, s.db, r.Name); err == nil {
-		if !sameCapability(old, r) {
+		if !sameCapability(old, r, bounds) {
 			return Capability{}, fmt.Errorf("%w: a different capability %s exists on this host", ErrConflict, r.Name)
 		}
 		view, err := s.capabilityView(ctx, s.db, old)
@@ -397,7 +446,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			return Capability{}, fmt.Errorf("%w: env_file %s does not exist", ErrInvalid, *r.EnvFile)
 		}
 	}
-	c := capabilityRecord{Name: r.Name, Source: r.Source, Operations: r.Operations, Resources: r.Resources, Credential: CapabilityCredential{EnvFile: r.EnvFile, Args: r.Args}, AgentID: agentID, Approval: &r.approval}
+	c := capabilityRecord{Name: r.Name, Source: r.Source, Operations: r.Operations, Resources: r.Resources, Credential: CapabilityCredential{EnvFile: r.EnvFile, Args: r.Args}, Bounds: bounds, AgentID: agentID, Approval: &r.approval}
 	if c.Operations == nil {
 		c.Operations = []string{}
 	}
@@ -415,6 +464,14 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		}
 		at := timestamp(time.Now())
 		snap = toolSnapshotState{Tools: taken.Tools, Resources: taken.Resources, SnapshotAt: &at}
+		if spec.ghPath != "" {
+			var account *string
+			if rec.builtin != nil {
+				account = rec.builtin.Account
+			}
+			reach := s.checkReach(ctx, spec, account)
+			snap.Reach = &reach
+		}
 		c.Snapshot = &snap
 	}
 	for _, op := range c.Operations {
@@ -426,6 +483,9 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		if _, ok := snapshotResource(snap, uri); !ok {
 			return Capability{}, fmt.Errorf("%w: the source's snapshot has no resource %q", ErrInvalid, uri)
 		}
+	}
+	if err := checkBoundsAtCreate(bounds, c.Source.Agent == builtinAgent, c.Operations, snap); err != nil {
+		return Capability{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -697,7 +757,7 @@ func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, 
 func localCapabilityRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("POST /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		var req CreateCapability
-		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "policies", "catalogs?", "approval?") {
+		if !decode(w, r, &req, "name", "source", "operations?", "resources?", "env_file?", "args", "bounds", "policies", "catalogs?", "approval?") {
 			return
 		}
 		c, err := store.CreateCapability(r.Context(), req)
@@ -705,7 +765,11 @@ func localCapabilityRoutes(mux *http.ServeMux, store *Store) {
 		if errors.Is(err, errCapabilityExists) {
 			status, err = http.StatusOK, nil
 		}
-		respond(w, status, c, err)
+		created := CapabilityCreated{Capability: c, Warnings: []string{}}
+		if err == nil && status == http.StatusCreated {
+			created.Warnings = store.boundWarnings(r.Context(), c.Name)
+		}
+		respond(w, status, created, err)
 	})
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		list, err := store.Capabilities(r.Context(), r.URL.Query().Get("lookup") == "true")

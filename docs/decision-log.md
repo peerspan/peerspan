@@ -394,6 +394,8 @@ These points were left open or contradictory in the proposal and were settled by
 #### CAP-16D: resource bounds and the `gh` source
 
 - **Source:** [capabilities-slice3-bounds-sources-proposal.md, Owner decisions needed](capabilities-slice3-bounds-sources-proposal.md#owner-decisions-needed), decisions 1–17 (proposal [PR #75](https://github.com/peerspan/peerspan-internal/pull/75)).
+- **Contract section:** [Resource bounds and the `gh` source](capabilities-contract.md#resource-bounds-and-the-gh-source-slice-3).
+- **Implemented in:** [PR #80](https://github.com/peerspan/peerspan-internal/pull/80).
 
 ##### CAP-16D.1. Where bounds live
 
@@ -496,6 +498,21 @@ These points were left open or contradictory in the proposal and were settled by
 - **Options:** (a) warn when a bound repository is not visible to the credential; (b) refuse; (c) no check.
 - **Chosen (the recommendation):** Recommendation: (a).
 - **Reason given:** A typo is caught early, but a repository the credential cannot see yet, or a network failure, does not block setup.
+
+##### CAP-16D, settled by the implementer (not owner decisions)
+
+These points were left open by the proposal and were settled by the implementer in [PR #80](https://github.com/peerspan/peerspan-internal/pull/80), choosing what fits the proposal best. They are not owner decisions; the owner may revisit them. Each is specified in the contract section above.
+
+- **CAP-16D.impl1. Discovery's edge cases.** When `gh` is too old, its version cannot be read, or no usable `github.com` account is found, discovery sends one definition `gh` with `account` null and `authenticated` false, so `sources` shows why. Definitions carry an `authenticated` field, which the proposal's example lacks, so the daemon can give `not_authenticated`. When no account is active, the first is `gh`. The discovery commands run without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, and `GITHUB_ENTERPRISE_TOKEN` in their environment, besides ignoring `GH_TOKEN` entries.
+- **CAP-16D.impl2. The bound warning runs in the daemon.** The proposal says the CLI runs `repo_view`; only the daemon holds the credential, so it runs the check after creating the capability and returns `warnings` in the `POST /v1/capabilities` response, which the CLI prints.
+- **CAP-16D.impl3. The reach check's details.** A 10-second timeout; the error texts; the `token_type` names `oauth`, `classic`, `fine_grained`, `app`, and `unknown`; and a "not checked yet" sentence before the first check. The capability view gains `credential_reach`.
+- **CAP-16D.impl4. Bounds details.** A bound on a capability without tool operations is refused; `gh` `repo` bound values must be `OWNER/REPO` or `OWNER/*`; entries within a combination are ordered by name in the texts; the `out_of_bounds` text's `GOT` lists every bound name, in order of first appearance.
+- **CAP-16D.impl5. The review and `shares` wording.** The review keeps its existing line layout rather than the proposal's aligned columns. The bounded `gh` reach statement says "The credential reaches more than the bound." before the reach sentence, the no-bound statements end with "No resource bound.", and `shares` uses `Recipients` in place of the principal.
+- **CAP-16D.impl6. Execution details.** `--arg` is refused for a built-in source. The call's deadline is enforced by the daemon's existing cancellation rather than passed to the server. Texts the proposal did not give: `gh could not be started.` and `gh failed with exit status N.` (empty standard error); an unknown tool is JSON-RPC `-32602`. Result text copies `gh`'s JSON output byte for byte, and each invalid UTF-8 byte becomes one U+FFFD.
+- **CAP-16D.impl7. Output shapes.** `attach`'s `sources` gains `builtin`, and `sources refresh` adds one element for built-in discovery.
+- **CAP-16D.impl8. Database version.** 21, the next after machine linking's version 19 and per-call approval's version 20 (PRs #63, #68, and #78, which merged while this PR was open). A version 21 binary migrates databases at versions 0 to 20 and refuses anything above 21.
+- **CAP-16D.impl9. Clarifications from conformance.** An out-of-bounds refusal through agent tools is a `rejected` call view with the refusal's text and the never-ran note, as slice 2 gives any refused submission; the `sources` line names the discovered account and version, `unknown` when null; a 200 repeat of `capability create` has `warnings` `[]`; a recheck between `capability remove` and `capability create` rejects every queued call of the capability.
+- **CAP-16D.impl10. Approval on a built-in source.** A capability on `builtin/NAME` may require per-call approval; since there is no source agent, no approval notice is created and the call waits for `peerspan approvals` only (found in review).
 
 ### CONV: conversations (2026-10-25)
 

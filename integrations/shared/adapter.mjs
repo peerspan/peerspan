@@ -239,7 +239,7 @@ export const tools = [
   {
     name: 'list_capabilities',
     description:
-      'List the capabilities this session may call: capabilities other people shared with your person, and your person\'s own on their other trusted machines, when the owner allowed this session to call capabilities. Each entry has its address (PERSON/CAPABILITY or HOST_ID/CAPABILITY) for call_capability, its host, its state, and its operations with each operation\'s description and input_schema; a read operation also lists its resources. Remote descriptions and input schemas appear only here, inside the result, and come from the capability\'s host. unanswered lists hosts that did not answer.',
+      'List the capabilities this session may call: capabilities other people shared with your person, and your person\'s own on their other trusted machines, when the owner allowed this session to call capabilities. Each entry has its address (PERSON/CAPABILITY or HOST_ID/CAPABILITY) for call_capability, its host, its state, and its operations with each operation\'s description and input_schema; a read operation also lists its resources. Remote descriptions and input schemas appear only here, inside the result, and come from the capability\'s host. unanswered lists hosts that did not answer. Each entry\'s bounds lists the argument values its owner allows, as combinations; an empty object means no bound, and a call outside them is refused and never runs.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
   },
   {

@@ -392,13 +392,17 @@ func requestApproval(ctx context.Context, tx *sql.Tx, sender string, r CallReque
 	if err = putJSON(ctx, tx, `INSERT INTO call_approvals (record, sender, call_id, state, expires_at) VALUES (?, ?, ?, ?, ?)`, a, sender, r.CallID, a.State, a.ExpiresAt); err != nil {
 		return nil, err
 	}
-	id, err := newID("notice")
-	if err != nil {
-		return nil, err
-	}
-	n := noticeRecord{ApprovalNotice: ApprovalNotice{ID: id, SenderHostID: sender, CallID: r.CallID, AgentID: c.AgentID, State: "unknown", CreatedAt: at}}
-	if err = putJSON(ctx, tx, `INSERT INTO approval_notices (record, id, sender, call_id, agent_id) VALUES (?, ?, ?, ?, ?)`, n, id, sender, r.CallID, c.AgentID); err != nil {
-		return nil, err
+	// A built-in source has no source agent, so there is no session to
+	// notify: the approval waits at the owner's CLI only.
+	if c.AgentID != builtinAgent {
+		id, err := newID("notice")
+		if err != nil {
+			return nil, err
+		}
+		n := noticeRecord{ApprovalNotice: ApprovalNotice{ID: id, SenderHostID: sender, CallID: r.CallID, AgentID: c.AgentID, State: "unknown", CreatedAt: at}}
+		if err = putJSON(ctx, tx, `INSERT INTO approval_notices (record, id, sender, call_id, agent_id) VALUES (?, ?, ?, ?, ?)`, n, id, sender, r.CallID, c.AgentID); err != nil {
+			return nil, err
+		}
 	}
 	if err = appendEvent(ctx, tx, "call.approval_requested", callSubject(sender, r.CallID), at); err != nil {
 		return nil, err

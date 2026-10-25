@@ -54,6 +54,16 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 			}
 		}
 	}
+	builtin, err := sourceRecords(ctx, tx, builtinAgent)
+	if err != nil {
+		return st, err
+	}
+	for _, srv := range builtin {
+		st.Sources++
+		if found := causes(srv.toolSnapshotState); len(found) > 0 {
+			attend("capability_failing", builtinAgent+"/"+srv.Name, strings.Join(found, "; "), "peerspan sources refresh --builtin")
+		}
+	}
 	capabilities, err := records[capabilityRecord](ctx, tx, `SELECT record FROM capabilities ORDER BY name`)
 	if err != nil {
 		return st, err

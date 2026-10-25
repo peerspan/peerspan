@@ -12,7 +12,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
-from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
+from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
 from adapter_outbound import route, send, wait_for
 from peer_messaging import PeerHost, timestamp
 
@@ -874,7 +874,7 @@ def migration(original, replacement, label):
             )
             wait_for(lambda: sql(a, "SELECT record FROM outbound_replies"))
             a.stop(crash=True)
-            for table in [*APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
+            for table in [*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
                 sql(a, "DROP TABLE " + table)
             sql(a, "DROP TABLE access_blocks")
             sql(a, "DROP TABLE network_statements")

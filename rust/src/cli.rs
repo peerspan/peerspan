@@ -279,6 +279,9 @@ pub enum Command {
         /// Guided share: self-access calls from your agents need no approval
         #[arg(long)]
         no_agent_self_approval: bool,
+        /// Guided share: a resource bound, KEY=VALUE[,KEY=VALUE...]; repeat for alternatives
+        #[arg(long = "bound", value_name = "KEY=VALUE")]
+        bound: Vec<String>,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -476,6 +479,9 @@ pub enum SourcesCommand {
     Refresh {
         #[arg(long, value_name = "NAME")]
         agent: Option<String>,
+        /// Only the built-in sources, such as gh
+        #[arg(long)]
+        builtin: bool,
     },
     /// Let one of your trusted machines call this host's sources directly
     OpenTo {
@@ -522,6 +528,9 @@ pub enum CapabilityCommand {
         /// Arguments replacing the source's; repeat for each
         #[arg(long = "arg", value_name = "A", allow_hyphen_values = true)]
         args: Vec<String>,
+        /// A resource bound, KEY=VALUE[,KEY=VALUE...]; repeat for alternatives
+        #[arg(long = "bound", value_name = "KEY=VALUE")]
+        bound: Vec<String>,
         /// The person key that signs the name's claims
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,

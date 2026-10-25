@@ -317,6 +317,7 @@ fn awaiting(s: &Stored) -> bool {
 }
 
 /// What a call reaches on this host.
+#[allow(clippy::large_enum_variant)]
 enum Target {
     Capability(CapabilityRecord),
     /// A source called as an implicit capability `AGENT/SERVER`.
@@ -338,6 +339,9 @@ impl Target {
 }
 /// The agent ID of a local agent named `name`.
 fn agent_id(conn: &Connection, name: &str) -> Result<Option<String>, Error> {
+    if name == crate::builtin::AGENT {
+        return Ok(Some(crate::builtin::AGENT.into()));
+    }
     Ok(conn
         .query_row("SELECT id FROM agents WHERE name = ?1", [name], |r| {
             r.get(0)
@@ -597,6 +601,14 @@ fn resolve_target(conn: &Connection, r: &CallRequest) -> Result<Target, Error> {
         let present = present_resources(&record, now.snapshot.as_ref());
         if uri().is_none_or(|u| !present.iter().any(|p| p.uri == u)) {
             return Err(Error::NotFound);
+        }
+    }
+    // The bound, last in step 2: tool operations only.
+    let combinations = record.combinations();
+    if !combinations.is_empty() && r.operation != READ {
+        let gh = crate::capabilities::on_gh(conn, &record)?;
+        if !crate::bounds::passes(&combinations, &r.input, gh) {
+            return Err(crate::bounds::refusal(&combinations, &r.input));
         }
     }
     Ok(Target::Capability(record))
@@ -1131,12 +1143,18 @@ impl Store {
                 record.approval.covers(op, now.snapshot.as_ref())
                     && (by_policy || record.approval.agent_self)
             };
+            let combinations = record.combinations();
+            let gh = crate::capabilities::on_gh(&conn, &record)?;
             let mut operations: Vec<Value> = record
                 .operations
                 .iter()
                 .map(|op| {
                     let mut o = tool_operation(now.snapshot.as_ref(), op);
                     o["approval"] = json!(needs(op));
+                    if !combinations.is_empty() && !o["input_schema"].is_null() {
+                        o["input_schema"] =
+                            crate::bounds::narrow(&o["input_schema"], &combinations, gh);
+                    }
                     o
                 })
                 .collect();
@@ -1159,6 +1177,7 @@ impl Store {
                 "state": now.state(),
                 "unavailable": now.unavailable,
                 "via": via,
+                "bounds": crate::bounds::to_value(&combinations),
             }));
         }
         // Sources opened to a trusted sender.
@@ -1199,6 +1218,7 @@ impl Store {
                     "state": "available",
                     "unavailable": [],
                     "via": self_via,
+                    "bounds": {},
                 }));
             }
         }
@@ -1526,7 +1546,8 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     };
     live.active
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let outcome = send(&live, &request, &cancel).await;
+    let builtin = crate::builtin::is_builtin(&instance.agent_id);
+    let outcome = send(&live, &request, &cancel, builtin).await;
     live.active
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut used) = live.used.lock() {
@@ -1563,7 +1584,7 @@ type Outcome = (
 /// Sends the call and waits for whichever comes first: the response, the
 /// instance ending, a cancellation, or the deadline. A cancellation or the
 /// deadline sends `notifications/cancelled`.
-async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify) -> Outcome {
+async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool) -> Outcome {
     // A tool operation is `tools/call`; `read` is `resources/read`.
     let tool = r.operation != READ;
     let (method, params) = if tool {
@@ -1588,6 +1609,10 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify) -> Outcome {
                 } else {
                     (Some("succeeded"), None, Some((result, text)), None)
                 }
+            }
+            // A built-in source reports output over its limit this way.
+            Ok(Reply::Error { code, .. }) if builtin && code == crate::gh::TOO_LARGE_CODE => {
+                (Some("failed"), Some("result_too_large"), None, None)
             }
             Ok(Reply::Error { code, message }) => {
                 let auth = crate::sources::auth_like(&message).then(|| message.clone());

@@ -64,7 +64,7 @@ import threading
 import time
 
 from coordination import Coordinator, wait_for
-from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
+from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
 from peer_messaging import fixture_context, set_probe, timestamp, wire
 from persons import Agent, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent
 from policy import PolicyHost, crafted, edit_start, edits_map, policy_lines, policy_of, send, show, sign_edit
@@ -295,7 +295,7 @@ def check(coord_binary, first_binary, second_binary, sender_binary, label):
                 with sqlite3.connect(host.state / 'host.db') as db:
                     db.execute('DROP TABLE policy_deliveries')
                     db.execute('DROP TABLE directory_sends')
-                    for table in (*APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
+                    for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                         db.execute('DROP TABLE ' + table)
                     db.execute('PRAGMA user_version = 11')
                 host.start()
@@ -1063,7 +1063,7 @@ def check_edits(coord_binary, first_binary, second_binary, sender_binary, label)
             kept = mine(alice)
             alice.stop()
             with sqlite3.connect(alice.state / 'host.db') as db:
-                for table in (*APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES):
+                for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES):
                     db.execute('DROP TABLE ' + table)
                 db.execute('PRAGMA user_version = 16')
             alice.start()

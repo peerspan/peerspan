@@ -891,6 +891,7 @@ fn addressed(
                 "state": e["state"],
                 "unavailable": e["unavailable"],
                 "via": e["via"],
+                "bounds": e.get("bounds").filter(|b| b.is_object()).cloned().unwrap_or_else(|| json!({})),
             }));
         }
     }
@@ -1070,6 +1071,7 @@ pub(crate) async fn agent_view(
                 "resources": e["resources"],
                 "state": e["state"],
                 "unavailable": e["unavailable"],
+                "bounds": e["bounds"],
             })
         })
         .collect();

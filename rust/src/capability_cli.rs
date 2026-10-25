@@ -44,6 +44,7 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             args,
             approval,
             no_agent_self_approval,
+            bound,
             network,
             person_key,
         } => {
@@ -57,6 +58,7 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             let guided = Guided {
                 approval: approval.clone(),
                 no_agent_self: *no_agent_self_approval,
+                bound: bound.clone(),
                 from: from.clone(),
                 operations: operations.clone(),
                 resources: resources.clone(),
@@ -528,7 +530,13 @@ async fn sources_view(local: &Local<'_>) -> anyhow::Result<Value> {
 async fn source_of(local: &Local<'_>, given: &str) -> anyhow::Result<(String, String, Value)> {
     let view = sources_view(local).await?;
     let mut found = Vec::new();
-    for a in view["agents"].as_array().into_iter().flatten() {
+    let builtin = json!({"agent": {"name": "builtin"}, "servers": view["builtin"]});
+    for a in view["agents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(std::iter::once(&builtin))
+    {
         let agent = a["agent"]["name"].as_str().unwrap_or_default();
         for s in a["servers"].as_array().into_iter().flatten() {
             let server = s["name"].as_str().unwrap_or_default();
@@ -545,7 +553,7 @@ async fn source_of(local: &Local<'_>, given: &str) -> anyhow::Result<(String, St
         1 => Ok(found.remove(0)),
         0 => bail!("no source {given} on this host; see peerspan sources"),
         _ => bail!(
-            "several agents have {given}; give AGENT/SERVER: {}",
+            "several sources are named {given}; give AGENT/SERVER: {}",
             found
                 .iter()
                 .map(|(a, s, _)| format!("{a}/{s}"))
@@ -571,35 +579,24 @@ async fn sources(
                 return Ok(Some(view));
             }
             print!("{}", readable_sources(&view));
+            if crate::builtin_discovery::find_gh().is_none() {
+                println!(
+                    "GitHub CLI (gh) not found on PATH; install gh 2.81.0 or later and run peerspan sources refresh to use it as a source."
+                );
+            }
             crate::exit(0)
         }
-        Some(SourcesCommand::Refresh { agent }) => {
-            let host = local.get("/v1/host".into()).await?["id"]
-                .as_str()
-                .context("invalid daemon response")?
-                .to_owned();
-            let agents = local.get("/v1/agents".into()).await?;
-            let mut out = Vec::new();
-            for (id, integration, workspace) in crate::integration::attach_agents(&host)? {
-                let name = agents
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|a| a["id"].as_str() == Some(id.as_str()))
-                    .and_then(|a| a["name"].as_str())
-                    .unwrap_or_default()
-                    .to_owned();
-                if agent.as_deref().is_some_and(|a| a != name && a != id) {
-                    continue;
-                }
-                let found =
-                    crate::discovery::refresh(socket, &id, &integration, &workspace).await?;
-                out.push(json!({"agent": {"id": id, "name": name}, "sources": found}));
+        Some(SourcesCommand::Refresh { agent, builtin }) => {
+            if *builtin && agent.is_some() {
+                bail!("sources refresh takes --builtin or --agent, not both");
             }
-            if out.is_empty()
-                && let Some(a) = agent
-            {
-                bail!("no attach profile on this host for agent {a}");
+            let mut out = Vec::new();
+            if !*builtin {
+                out = agents_refresh(local, socket, agent.as_deref()).await?;
+            }
+            if agent.is_none() {
+                let found = crate::builtin_discovery::refresh(socket).await;
+                out.push(json!({"agent_id": null, "agent": "builtin", "workspace": null, "sources": found}));
             }
             Ok(Some(Value::Array(out)))
         }
@@ -628,6 +625,41 @@ async fn sources(
     }
 }
 
+/// `sources refresh` for each attached agent, or one.
+async fn agents_refresh(
+    local: &Local<'_>,
+    socket: &Path,
+    agent: Option<&str>,
+) -> anyhow::Result<Vec<Value>> {
+    let host = local.get("/v1/host".into()).await?["id"]
+        .as_str()
+        .context("invalid daemon response")?
+        .to_owned();
+    let agents = local.get("/v1/agents".into()).await?;
+    let mut out = Vec::new();
+    for (id, integration, workspace) in crate::integration::attach_agents(&host)? {
+        let name = agents
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|a| a["id"].as_str() == Some(id.as_str()))
+            .and_then(|a| a["name"].as_str())
+            .unwrap_or_default()
+            .to_owned();
+        if agent.is_some_and(|a| a != name && a != id) {
+            continue;
+        }
+        let found = crate::discovery::refresh(socket, &id, &integration, &workspace).await?;
+        out.push(json!({"agent": {"id": id, "name": name}, "sources": found}));
+    }
+    if out.is_empty()
+        && let Some(a) = agent
+    {
+        bail!("no attach profile on this host for agent {a}");
+    }
+    Ok(out)
+}
+
 /// `OP[,OP...]`.
 fn list_of(text: &str) -> Vec<String> {
     text.split(',')
@@ -636,6 +668,127 @@ fn list_of(text: &str) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
+/// `--bound` values: each `KEY=VALUE[,KEY=VALUE...]` is one combination.
+fn bounds_of(flags: &[String]) -> anyhow::Result<Option<Value>> {
+    if flags.is_empty() {
+        return Ok(None);
+    }
+    let mut combinations = Vec::new();
+    for flag in flags {
+        let mut c = serde_json::Map::new();
+        for part in flag.split(',') {
+            let Some((key, value)) = part.split_once('=') else {
+                bail!("--bound {flag:?}: each part is KEY=VALUE");
+            };
+            if key.is_empty() {
+                bail!("--bound {flag:?}: a name is empty");
+            }
+            if c.insert(key.to_owned(), json!(value)).is_some() {
+                bail!("--bound {flag:?}: {key} is given twice");
+            }
+        }
+        combinations.push(Value::Object(c));
+    }
+    Ok(Some(json!({"arguments": combinations})))
+}
+/// Prints a create response's warnings to stderr.
+fn print_warnings(created: &Value) {
+    for w in created["warnings"].as_array().into_iter().flatten() {
+        eprintln!("warning: {}", w.as_str().unwrap_or_default());
+    }
+}
+/// The reach statement of the review and `shares`.
+fn reach_statement(principal: &str, gh: bool, bounds: &Value, sentence: &str) -> String {
+    let combinations = peerspan_host::bounds::of_record(bounds);
+    if combinations.is_empty() {
+        if gh {
+            return format!(
+                "{principal} can use these operations with the credentials they run with on this host. {sentence} No resource bound."
+            );
+        }
+        return format!(
+            "{principal} can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, {principal} can too. No resource bound."
+        );
+    }
+    let allowed = peerspan_host::bounds::allowed(&combinations);
+    if gh {
+        format!(
+            "{principal} can use these operations only where {allowed}; Peerspan refuses other calls. The credential reaches more than the bound. {sentence}"
+        )
+    } else {
+        format!(
+            "{principal} can use these operations only where {allowed}; Peerspan refuses other calls. Arguments Peerspan does not check can still reach anything the credentials they run with on this host can reach."
+        )
+    }
+}
+/// The review's bounds block, when the capability has a bound.
+fn bounds_block(record: &Value, source: &Value, gh: bool) -> Vec<String> {
+    let combinations = peerspan_host::bounds::of_record(&record["bounds"]);
+    if combinations.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![format!(
+        "Bounds: {}",
+        peerspan_host::bounds::allowed(&combinations)
+    )];
+    if gh && combinations.iter().all(|c| c.contains_key("repo")) {
+        out.push(
+            "  Every gh operation names its repository in repo, so Peerspan checks every call."
+                .into(),
+        );
+    } else {
+        let names = peerspan_host::bounds::names(&combinations);
+        let mut parts = Vec::new();
+        for op in record["operations"].as_array().into_iter().flatten() {
+            let op = op.as_str().unwrap_or_default();
+            let schema = source["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|t| t["name"].as_str() == Some(op))
+                .map(|t| t["input_schema"]["properties"].clone())
+                .unwrap_or(Value::Null);
+            let mut others: Vec<&String> = schema
+                .as_object()
+                .into_iter()
+                .flat_map(|m| m.keys())
+                .filter(|k| !names.contains(k))
+                .collect();
+            others.sort();
+            if !others.is_empty() {
+                parts.push(format!(
+                    "{op}: {}",
+                    others
+                        .iter()
+                        .map(|k| k.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+        if parts.is_empty() {
+            out.push("  Peerspan checks every argument of these operations.".into());
+        } else {
+            out.push(format!("  Not checked by Peerspan: {}.", parts.join("; ")));
+        }
+    }
+    if !record["resources"].is_null() {
+        out.push(
+            "  The bound does not apply to read, which is limited to the capability's resources."
+                .into(),
+        );
+    }
+    out
+}
+/// Asks one question exactly as given and reads a line.
+fn ask_line(question: &str) -> anyhow::Result<String> {
+    eprint!("{question}");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(line.trim().to_owned())
+}
+
 /// `all`, or `URI[,URI...]`.
 fn resources_of(text: Option<&str>) -> Value {
     match text {
@@ -649,6 +802,7 @@ fn resources_of(text: Option<&str>) -> Value {
 struct Guided {
     approval: Option<String>,
     no_agent_self: bool,
+    bound: Vec<String>,
     from: Option<String>,
     operations: Option<String>,
     resources: Option<String>,
@@ -689,10 +843,12 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
             resources,
             env_file,
             args,
+            bound,
             person_key,
             approval,
             no_agent_self_approval,
         } => {
+            let bounds = bounds_of(bound)?;
             let (agent, server, _) = source_of(local, from).await?;
             let env_file = env_file
                 .as_ref()
@@ -715,9 +871,14 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
                     "agent_self": !no_agent_self_approval,
                 });
             }
-            create_claimed(local, person_key.as_deref(), body, None)
+            if let Some(b) = bounds {
+                body["bounds"] = b;
+            }
+            let created = create_claimed(local, person_key.as_deref(), body, None)
                 .await?
-                .0
+                .0;
+            print_warnings(&created);
+            created
         }
         CapabilityCommand::Approval {
             name,
@@ -1047,7 +1208,22 @@ async fn share(
                 None if terminal => prompt("Capability name", Some(&server))?,
                 None => server.clone(),
             };
-            let body = create_body(
+            let mut bounds = bounds_of(&guided.bound)?;
+            if bounds.is_none() && terminal {
+                let words: Vec<String> = if source["adapter"].as_str() == Some("gh") {
+                    ask_line("Limit which repositories? Enter OWNER/REPO, several separated by spaces, or leave empty for no limit: ")?
+                        .split_whitespace()
+                        .map(|w| format!("repo={w}"))
+                        .collect()
+                } else {
+                    ask_line("Limit by argument values? Enter KEY=VALUE[,KEY=VALUE] combinations separated by spaces, or leave empty for no limit: ")?
+                        .split_whitespace()
+                        .map(str::to_owned)
+                        .collect()
+                };
+                bounds = bounds_of(&words)?;
+            }
+            let mut body = create_body(
                 &cap_name,
                 &agent,
                 &server,
@@ -1056,8 +1232,10 @@ async fn share(
                 guided.env_file.clone(),
                 &guided.args,
             );
-            let mut body = body;
             body["approval"] = requirement.clone();
+            if let Some(b) = &bounds {
+                body["bounds"] = b.clone();
+            }
             let preview = json!({
                 "approval": requirement,
                 "name": cap_name,
@@ -1065,6 +1243,8 @@ async fn share(
                 "operations": body["operations"],
                 "resources": body["resources"],
                 "credential": {"env_file": body["env_file"], "args": body.get("args")},
+                "bounds": bounds.clone().unwrap_or_else(|| json!({})),
+                "draft": true,
             });
             (preview, Some(body))
         }
@@ -1155,6 +1335,10 @@ async fn share(
         Value::String(all) => eprintln!("Resources: {all} (read)"),
         list => eprintln!("Resources: {} (read)", list_text(list)),
     }
+    let gh = source_view["adapter"].as_str() == Some("gh");
+    for line in bounds_block(&record, &source_view, gh) {
+        eprintln!("{line}");
+    }
     for line in approval_review(&record, &cap, &read_only) {
         eprintln!("{line}");
     }
@@ -1206,8 +1390,20 @@ async fn share(
                 .join(", ")
         );
     }
+    // A draft with its own credential has not been checked yet.
+    let reach = if record["draft"] == true {
+        if record["credential"]["env_file"].is_string() {
+            Value::Null
+        } else {
+            source_view["reach"].clone()
+        }
+    } else {
+        record["credential_reach"].clone()
+    };
+    let sentence = peerspan_host::gh::sentence(Some(&reach), source_view["account"].as_str());
     eprintln!(
-        "{shown} can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, {shown} can too."
+        "{}",
+        reach_statement(&shown, gh, &record["bounds"], &sentence)
     );
     agent_review(&principal, &persons, &me, current.as_ref());
     if !yes {
@@ -1228,7 +1424,7 @@ async fn share(
     if let Some(body) = draft {
         // The guided share creates the capability with its claims: the
         // share in this network, the claim in the others.
-        let (_, shared) = create_claimed(
+        let (created, shared) = create_claimed(
             local,
             person_key,
             body,
@@ -1239,6 +1435,7 @@ async fn share(
             }),
         )
         .await?;
+        print_warnings(&created);
         let policy = local
             .get(format!(
                 "/v1/networks/{}/policy?person={}",
@@ -1650,6 +1847,7 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
         .to_owned();
     let capabilities = local.get("/v1/capabilities?lookup=true".into()).await?;
     let status = local.get("/v1/status".into()).await?;
+    let sources = sources_view(local).await.unwrap_or(Value::Null);
     let mut entries = Vec::new();
     for c in capabilities["capabilities"]
         .as_array()
@@ -1679,7 +1877,26 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
                 r
             })
             .collect();
+        let builtin = (c["source"]["agent"].as_str() == Some("builtin"))
+            .then(|| {
+                sources["builtin"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|s| s["name"] == c["source"]["server"])
+                    .cloned()
+            })
+            .flatten();
+        let gh = builtin
+            .as_ref()
+            .is_some_and(|b| b["adapter"].as_str() == Some("gh"));
+        let sentence = peerspan_host::gh::sentence(
+            Some(&c["credential_reach"]),
+            builtin.as_ref().and_then(|b| b["account"].as_str()),
+        );
         entries.push(json!({
+            "bounds": c["bounds"],
+            "reach": reach_statement("Recipients", gh, &c["bounds"], &sentence),
             "capability": name,
             "host": host,
             "source": c["source"],
@@ -1866,7 +2083,15 @@ async fn call(
                 )
                 .await?
             }
-            None => discover(local, Some(owner), network.as_deref()).await?,
+            None => {
+                // A host ID is not a person: list every entry and match by host.
+                discover(
+                    local,
+                    (!owner.starts_with("host_")).then_some(owner),
+                    network.as_deref(),
+                )
+                .await?
+            }
         };
         // The entry at this address: by address, else by host, else the
         // only one with that capability.
@@ -2020,6 +2245,44 @@ fn readable_sources(view: &Value) -> String {
             }
         }
     }
+    let builtin = view["builtin"].as_array().cloned().unwrap_or_default();
+    if !builtin.is_empty() {
+        out += "builtin\n";
+    }
+    for s in builtin {
+        out += &format!(
+            "  builtin/{}  gh {}  account {}  {}\n",
+            s["name"].as_str().unwrap_or_default(),
+            s["version"].as_str().unwrap_or("unknown"),
+            s["account"].as_str().unwrap_or("unknown"),
+            match s["reason"].as_str() {
+                Some(r) => format!("not usable: {r}"),
+                None => "usable".into(),
+            }
+        );
+        if let Some(e) = s["snapshot_error"].as_str() {
+            out += &format!("    snapshot failed: {e}\n");
+        }
+        for t in s["tools"].as_array().into_iter().flatten() {
+            out += &format!(
+                "    tool {}{}\n",
+                t["name"].as_str().unwrap_or_default(),
+                if t["read_only"] == true {
+                    " (read-only)"
+                } else {
+                    " (can change things)"
+                }
+            );
+        }
+        let caps = list_text(&s["capabilities"]);
+        if !caps.is_empty() {
+            out += &format!("    capabilities: {caps}\n");
+        }
+        out += &format!(
+            "    reach: {}\n",
+            peerspan_host::gh::sentence(Some(&s["reach"]), s["account"].as_str())
+        );
+    }
     let open = list_text(&view["open_to"]);
     out += &format!(
         "Open to: {}\n",
@@ -2032,8 +2295,17 @@ fn readable_sources(view: &Value) -> String {
     out
 }
 fn readable_capability(c: &Value) -> String {
+    let combinations = peerspan_host::bounds::of_record(&c["bounds"]);
+    let bounds = if combinations.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "  bounds: {}",
+            peerspan_host::bounds::allowed(&combinations)
+        )
+    };
     format!(
-        "{} from {}/{}: {}{} ({}) approval: {} {}",
+        "{} from {}/{}: {}{} ({}) approval: {} {}{bounds}",
         c["name"].as_str().unwrap_or_default(),
         c["source"]["agent"].as_str().unwrap_or_default(),
         c["source"]["server"].as_str().unwrap_or_default(),
@@ -2064,6 +2336,17 @@ fn readable_shares(value: &Value) -> String {
                 .map(|s| format!(" ({s})"))
                 .unwrap_or_default()
         );
+        if let Some(reach) = e["reach"].as_str() {
+            let combinations = peerspan_host::bounds::of_record(&e["bounds"]);
+            out += &format!(
+                "  bounds: {}\n  reach: {reach}\n",
+                if combinations.is_empty() {
+                    "none".to_owned()
+                } else {
+                    peerspan_host::bounds::allowed(&combinations)
+                }
+            );
+        }
         for r in e["recipients"].as_array().into_iter().flatten() {
             let mark = match r["agent_state"].as_str() {
                 None => "",
@@ -2125,6 +2408,13 @@ fn readable_discover(value: &Value) -> String {
             c["address"].as_str().unwrap_or_default(),
             ops.join(", ")
         );
+        let combinations = peerspan_host::bounds::of_record(&c["bounds"]);
+        if !combinations.is_empty() {
+            out += &format!(
+                "    limited to {}\n",
+                peerspan_host::bounds::allowed(&combinations)
+            );
+        }
     }
     for u in value["unanswered"].as_array().into_iter().flatten() {
         out += &format!(

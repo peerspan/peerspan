@@ -404,8 +404,11 @@ var errUnavailableCapability = &codedError{status: http.StatusConflict, code: "u
 // instance that serves the call.
 func (s *Store) resolveCallTarget(ctx context.Context, q dbQuerier, r CallRequest) (instanceTarget, error) {
 	if agent, server, ok := r.sourceCall(); ok {
-		var agentID string
-		err := q.QueryRowContext(ctx, `SELECT id FROM agents WHERE name = ?`, agent).Scan(&agentID)
+		agentID := builtinAgent
+		var err error
+		if agent != builtinAgent {
+			err = q.QueryRowContext(ctx, `SELECT id FROM agents WHERE name = ?`, agent).Scan(&agentID)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return instanceTarget{}, fmt.Errorf("%w: no source %s", ErrNotFound, r.Capability)
 		}
@@ -460,6 +463,9 @@ func (s *Store) resolveCallTarget(ctx context.Context, q dbQuerier, r CallReques
 		if !found {
 			return instanceTarget{}, fmt.Errorf("%w: %s has no resource with that uri", ErrNotFound, r.Capability)
 		}
+	} else if err := checkBounds(c.Bounds, c.Source.Agent == builtinAgent, r.Input); err != nil {
+		// A bound is the capability check's last step: nothing runs.
+		return instanceTarget{}, err
 	}
 	return instanceTarget{agentID: c.AgentID, server: c.Source.Server, own: c.credential()}, nil
 }
@@ -1000,6 +1006,9 @@ type ListedCapability struct {
 	State       string             `json:"state"`
 	Unavailable []string           `json:"unavailable"`
 	Via         []ToolVia          `json:"via"`
+	// Bounds is the capability's resource bound, {} for none, for a source,
+	// and for a host that predates bounds.
+	Bounds CapabilityBounds `json:"bounds"`
 }
 
 // Listing kinds.
@@ -1129,9 +1138,11 @@ func (s *Store) ListCapabilities(ctx context.Context, sender, network string) ([
 		if err != nil {
 			return nil, err
 		}
-		entry := ListedCapability{Kind: ListedKindCapability, Capability: c.Name, Operations: []ListedOperation{}, Resources: []SnapshotResource{}, State: state, Unavailable: unavailable, Via: via}
+		entry := ListedCapability{Kind: ListedKindCapability, Capability: c.Name, Operations: []ListedOperation{}, Resources: []SnapshotResource{}, State: state, Unavailable: unavailable, Via: via, Bounds: c.Bounds}
 		for _, op := range c.Operations {
-			entry.Operations = append(entry.Operations, toolOperation(snap, op))
+			listed := toolOperation(snap, op)
+			listed.InputSchema = narrowSchema(listed.InputSchema, c.Bounds, c.Source.Agent == builtinAgent)
+			entry.Operations = append(entry.Operations, listed)
 		}
 		if c.Resources.Set {
 			entry.Resources = readURIs(c, snap)
@@ -1161,11 +1172,16 @@ func (s *Store) ListCapabilities(ctx context.Context, sender, network string) ([
 		if err != nil {
 			return nil, err
 		}
+		// Built-in sources are listed as builtin/NAME, beside the agents'.
+		agents = append(agents, localAgent{id: builtinAgent, name: builtinAgent})
 		for _, a := range agents {
 			if !open {
 				break
 			}
-			servers, err := records[toolServerRecord](ctx, tx, `SELECT record FROM tool_servers WHERE agent_id = ? ORDER BY name`, a.id)
+			if a.name == builtinAgent && a.id != builtinAgent {
+				continue // an agent named builtin: the name means the built-in sources
+			}
+			servers, err := sourceRecords(ctx, tx, a.id)
 			if err != nil {
 				return nil, err
 			}

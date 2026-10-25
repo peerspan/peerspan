@@ -70,6 +70,13 @@ Once per run: the adopted v2 test vector (and the v1 vector) built with this sui
 verified with ssh-keygen [Policy v2], and migration from version 15 to the current 17 in each direction
 [Migration].
 
+Slice 3 item D (resource bounds and the built-in `gh` source) runs from conformance/capability_bounds.py, in a
+topology of its own per pairing, after the slice 1 sections and before the slice 2 ones, with a fake `gh`
+(fixtures/gh/gh.py); once per run, migration from version 20 to 21 (with `--baseline18`, from a real version 18
+state, and a version 18 receiver for the compatibility case). `--skip-bounds` skips it; `--bounds-only` runs only it.
+The agent-facing cases of item D (list_capabilities bounds and call_capability on gh) run in the slice 2 section
+"bounds and gh (slice 3)". The CLI never sees this machine's own `gh` (see path_without_gh).
+
 Slice 2 (agent tools) runs from conformance/capability_agents.py, in a topology of its own per pairing, after
 the slice 1 sections: opt-in, listing, calls, agent rules and repeats, the queued window, running calls, the rate
 limit, results, call updates and pending work, revocation, a person whose label contains `/` (the slice 1 CLI case
@@ -111,7 +118,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import LINKING_TABLES, APPROVAL_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
+from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
@@ -134,6 +141,9 @@ SERVER_KEYS = {'name', 'transport', 'command', 'args', 'env', 'url', 'source', '
                'auth_error_at', 'capabilities'}
 RECORD_KEYS = {'name', 'source', 'operations', 'resources', 'credential', 'bounds', 'state', 'unavailable',
                'created_at', 'approval'}
+# Slice 3 (Resource bounds: The capability view): the view adds credential_reach, and the POST response warnings.
+VIEW_KEYS = RECORD_KEYS | {'credential_reach'}
+CREATED_KEYS = VIEW_KEYS | {'warnings'}
 RECIPIENT_KEYS = {'network_id', 'principal', 'label'}
 CAP_RULE_KEYS = {'host', 'capability', 'principals', 'max_input_bytes', 'allow_disconnected', 'max_calls_per_hour'}
 POLICY_V2_ORDER = ['format', 'network_id', 'person_public_key', 'version', 'issued_at', 'valid_until', 'rules',
@@ -143,7 +153,7 @@ POLICY_V2_ORDER = ['format', 'network_id', 'person_public_key', 'version', 'issu
 SHARE_KEYS = {'policy', 'capability', 'principal', 'recipient', 'created'}
 UNSHARE_KEYS = {'policy', 'capability', 'principal', 'recipient', 'removed'}
 TRUST_KEYS = {'policy', 'host', 'trusted', 'changed'}
-PEER_ENTRY_KEYS = {'kind', 'capability', 'operations', 'resources', 'state', 'unavailable', 'via'}
+PEER_ENTRY_KEYS = {'kind', 'capability', 'operations', 'resources', 'state', 'unavailable', 'via', 'bounds'}
 # Per-call approval (slice 3) adds `approval` to capability records, operations, status records, and status counts.
 OPERATION_KEYS = {'name', 'description', 'input_schema', 'read_only', 'approval'}
 RESOURCE_KEYS = {'uri', 'name', 'description', 'mime_type'}
@@ -153,7 +163,7 @@ OUTBOUND_KEYS = {'peer_host_id', 'target', 'network_id', 'request', 'submit_stat
                  'cancel_state', 'attempts', 'next_attempt_at', 'error', 'status_queries'}
 DISCOVER_KEYS = {'agents', 'capabilities', 'unanswered'}
 DISCOVER_ENTRY_KEYS = {'address', 'host_id', 'kind', 'capability', 'operations', 'resources', 'state',
-                       'unavailable', 'via'}
+                       'unavailable', 'via', 'bounds'}
 CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running', 'approvals_pending'}
 FINAL = {'succeeded', 'failed', 'rejected', 'expired', 'cancelled', 'uncertain'}
 LAPSED = 'authorization lapsed before start'
@@ -272,6 +282,32 @@ def cap_rule(host, capability, principals, max_input_bytes=65536, allow_disconne
             'allow_disconnected': allow_disconnected, 'max_calls_per_hour': max_calls_per_hour}
 
 
+# --- the machine's own GitHub CLI ------------------------------------------------------------------------------
+
+# Built-in source discovery (slice 3) runs `gh` from the CLI's PATH. The CLI never sees this machine's own `gh`, nor
+# its token variables: a directory on PATH that holds `gh` is replaced by a shadow directory linking everything else
+# in it. The slice 3 cases (capability_bounds.py) put their fake `gh` first on PATH themselves.
+GH_ENV = {'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST', 'GH_CONFIG_DIR'}
+_SHADOWS = {}
+
+
+def path_without_gh(path):
+    parts = []
+    for directory in path.split(os.pathsep):
+        if directory and os.access(os.path.join(directory, 'gh'), os.X_OK):
+            if directory not in _SHADOWS:
+                import atexit
+                shadow = tempfile.mkdtemp(prefix='peerspan-path-without-gh-')
+                atexit.register(shutil.rmtree, shadow, True)
+                for name in os.listdir(directory):
+                    if name != 'gh':
+                        os.symlink(os.path.join(directory, name), os.path.join(shadow, name))
+                _SHADOWS[directory] = shadow
+            directory = _SHADOWS[directory]
+        parts.append(directory)
+    return os.pathsep.join(parts)
+
+
 # --- hosts ----------------------------------------------------------------------------------------------------
 
 class CapHost(DirectoryHost):
@@ -282,8 +318,9 @@ class CapHost(DirectoryHost):
     def environment(self, sock=DEFAULT, env=None):
         e = super().environment(sock, None)
         for name in list(e):
-            if name == 'CODEX_HOME' or name.startswith('FX_'):
+            if name == 'CODEX_HOME' or name.startswith('FX_') or name in GH_ENV:
                 e.pop(name)
+        e['PATH'] = path_without_gh(e.get('PATH', ''))
         e.update(env or {})
         return e
 
@@ -774,8 +811,8 @@ class Pairing:
     def servers(self, agent, host='p1'):
         """The SERVER entries of one agent in GET /v1/sources (`sources --json`), by server name."""
         view = self.sources_view(host)
-        need(isinstance(view, dict) and set(view) == {'agents', 'open_to'} and isinstance(view['agents'], list),
-             'GET /v1/sources is {agents: [AGENT], open_to}', str(view)[:400])
+        need(isinstance(view, dict) and set(view) == {'agents', 'builtin', 'open_to'} and
+             isinstance(view['agents'], list), 'GET /v1/sources is {agents: [AGENT], builtin, open_to}', str(view)[:400])
         names = [a['agent']['name'] for a in view['agents']]
         need(names == sorted(names), 'agents sorted by agent name', names)
         for a in view['agents']:
@@ -1222,8 +1259,9 @@ class Pairing:
 
         def attach_servers(name):
             out = self.attached[name][1]
-            need(isinstance(out.get('sources'), dict) and set(out['sources']) == {'servers', 'errors'},
-                 'attach adds sources: {servers, errors}', name, out)
+            need(isinstance(out.get('sources'), dict) and set(out['sources']) == {'servers', 'errors', 'builtin'} and
+                 out['sources']['builtin'] == [], 'attach adds sources: {servers, errors, builtin} (no gh on PATH: '
+                 'builtin [])', name, out)
             for x in out['sources']['servers']:
                 need(set(x) == ATTACH_SERVER_KEYS, 'attach servers are {name, transport, shareable, reason, '
                      'missing_env, tools, read_only_tools, snapshot_error}', x)
@@ -1376,7 +1414,7 @@ class Pairing:
         need(not failures, 'setup: capability create', *failures)
         for name in ('work', 'docs', 'budget', 'narrow'):
             status, record = self.base[name]
-            need(status == 201 and set(record) == RECORD_KEYS, 'POST /v1/capabilities returns 201 with the record',
+            need(status == 201 and set(record) == CREATED_KEYS, 'POST /v1/capabilities returns 201 with the record',
                  name, status, record)
         status, work = self.base['work']
         need(work['name'] == 'work' and work['source'] == {'agent': 'cc', 'server': 'fx'} and
@@ -1509,7 +1547,7 @@ class Pairing:
         names = [c['name'] for c in listed]
         need(names == sorted(names) and {'work', 'docs', 'clitools'} <= set(names), 'sorted by name', names)
         for c in listed:
-            need(set(c) == RECORD_KEYS | {'recipients'} and all(set(r) == RECIPIENT_KEYS for r in c['recipients']),
+            need(set(c) == VIEW_KEYS | {'recipients'} and all(set(r) == RECIPIENT_KEYS for r in c['recipients']),
                  'each record with its recipients [{network_id, principal, label}]', c)
         work = next(c for c in listed if c['name'] == 'work')
         need({(r['network_id'], r['principal']) for r in work['recipients']} ==
@@ -3593,7 +3631,7 @@ def check_migration(original, replacement, label):
                 # Version 20 (per-call approval) and 18 (agent tools, slice 2) tables, when the binaries have them,
                 # go first: they refer to received_calls and outbound_calls.
                 connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                for table in (*APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
+                for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
                     connection.execute(f'DROP TABLE IF EXISTS {table}')
                 for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                     connection.execute(f'DROP TABLE {table}')
@@ -3677,6 +3715,12 @@ def main():
                         'migration')
     parser.add_argument('--agent-section', action='append', help='run only this agent tool section (by name, such '
                         'as "results"); repeatable')
+    parser.add_argument('--skip-bounds', action='store_true', help='skip the slice 3 resource bounds and gh source '
+                        'cases (capability_bounds.py)')
+    parser.add_argument('--bounds-only', action='store_true', help='run only the slice 3 resource bounds and gh source '
+                        'cases and their migration')
+    parser.add_argument('--bounds-section', action='append', help='run only this bounds and gh section (by name, such '
+                        'as "gh execution"); repeatable')
     parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1): the '
                         'version 17 to 18 migration opens its state, and the agent tool cases use it as a serving '
                         'host that predates wait (required for them)')
@@ -3690,9 +3734,18 @@ def main():
     parser.add_argument('--approval-section', action='append', help='run only this approval section (by name, such as '
                         '"decisions"); repeatable')
     parser.add_argument('--baseline18', type=Path, help='a version 18 peerspan-host (built from main before per-call '
-                        'approval, such as ef86f06): the version 18 to 20 migration opens its state, and the approval '
-                        'cases use it for their older-peer section')
+                        'approval, such as ef86f06): the version 18 to 21 migrations open its state, the approval '
+                        'cases use it for their older-peer section, and the bounds cases serve a capability from it '
+                        '(compatibility)')
     args = parser.parse_args()
+    if args.skip_bounds and args.bounds_only:
+        parser.error('--skip-bounds and --bounds-only exclude each other')
+    if args.bounds_only and (args.agents_only or args.approval_only):
+        parser.error('--bounds-only excludes --agents-only and --approval-only')
+    if args.bounds_only:
+        args.skip_agents, args.skip_approval = True, True
+    if args.agents_only or args.approval_only:
+        args.skip_bounds = True
     if args.approval_only:
         args.agents_only, args.skip_agents = True, True
     approval = not args.skip_approval and not args.vector_only
@@ -3731,25 +3784,34 @@ def main():
             parser.error(f'pairing {pairing} needs --rust')
     import capability_agents
     import capability_approval
+    import capability_bounds
     available = [name for name, binary in binaries.items() if binary]
     if not args.skip_migration:
         for first in available:
             for second in available:
-                if not args.agents_only:
+                if not args.agents_only and not args.bounds_only:
                     failures += once(f'migration {first}→{second}', check_migration, binaries[first],
                                      binaries[second], f'{first} state opened by {second}')
+                if not args.skip_bounds:
+                    failures += once(f'migration 20→21 {first}→{second} (bounds)', capability_bounds.check_migration,
+                                     binaries[first], binaries[second], f'{first} state opened by {second}')
                 if not args.skip_agents:
                     failures += once(f'migration 17→18 {first}→{second}', capability_agents.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}')
                 if approval:
-                    failures += once(f'migration 18→20 {first}→{second}', capability_approval.check_migration,
+                    failures += once(f'migration 18→21 {first}→{second}', capability_approval.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}')
-                    failures += once(f'migration 19→20 {first}→{second}', capability_approval.check_migration,
+                    failures += once(f'migration 19→21 {first}→{second}', capability_approval.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}', None,
                                      19)
+        if args.baseline18 and not args.skip_bounds:
+            for second in available:
+                failures += once(f'migration 18→21 baseline→{second} (bounds)', capability_bounds.check_migration,
+                                 binaries[second], binaries[second], f'version 18 baseline state opened by {second}',
+                                 args.baseline18.resolve())
         if args.baseline18 and approval:
             for second in available:
-                failures += once(f'migration 18→20 baseline→{second}', capability_approval.check_migration,
+                failures += once(f'migration 18→21 baseline→{second}', capability_approval.check_migration,
                                  binaries[second], binaries[second], f'version 18 baseline state opened by {second}',
                                  args.baseline18.resolve())
         if args.baseline17 and not args.skip_agents:
@@ -3761,8 +3823,12 @@ def main():
         cli, _, daemon = pairing.partition('/')
         label = f'{cli} CLI, {daemon} daemon'
         results = []
-        if not args.agents_only:
+        if not args.agents_only and not args.bounds_only:
             results += run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label)
+        if not args.skip_bounds:
+            results += capability_bounds.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label,
+                                                     args.bounds_section,
+                                                     args.baseline18.resolve() if args.baseline18 else None)
         if not args.skip_agents:
             results += capability_agents.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
                                                      args.node.resolve(), label,

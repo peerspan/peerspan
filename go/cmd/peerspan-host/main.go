@@ -43,6 +43,14 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if len(os.Args) > 1 && os.Args[1] == "builtin-source" {
+		// The hidden built-in source server, started by the daemon.
+		if err := runBuiltinSource(ctx, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		var code exitStatus
 		if errors.As(err, &code) {
@@ -874,4 +882,14 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		first = errors.Join(first, <-results)
 	}
 	return first
+}
+
+// runBuiltinSource runs builtin-source gh --gh PATH --state DIR: the gh
+// adapter's MCP server on standard input and output, logging to standard
+// error.
+func runBuiltinSource(ctx context.Context, args []string) error {
+	if len(args) != 5 || args[0] != "gh" || args[1] != "--gh" || args[3] != "--state" {
+		return errors.New("usage: builtin-source gh --gh PATH --state DIR")
+	}
+	return host.RunGHServer(ctx, os.Stdin, os.Stdout, os.Stderr, args[2], args[4])
 }

@@ -16,6 +16,8 @@ Options (each also accepted as NAME=VALUE, such as `log=PATH`):
   --page-size N     paginate tools/list and resources/list with `nextCursor`, N entries per page
   --generate N      adds N generated read-only tools `gen_0000` ... (for pagination)
   --canon 1         adds the read-only tool `canon` (left out by default, so other suites' tool counts stand)
+  --bounded 1       adds the read-only tools `list_issues`, `search_issues`, `get_repo`, `get_count`, and `no_repo`,
+                    which take owner/repo style arguments and return their arguments (for resource bounds, slice 3)
 
 Control keys (all optional):
   exit_on_start     exit with status 3 before reading anything (a start failure)
@@ -70,14 +72,14 @@ RESOURCES = [
 
 def parse(argv):
     options = {'log': os.environ.get('FIXTURE_LOG'), 'control': None, 'labels': [], 'page_size': 0, 'generate': 0,
-               'canon': False}
+               'canon': False, 'bounded': False}
     # Each option is also accepted as NAME=VALUE (log=PATH, label=NAME, ...), so that a profile's `--arg`
     # values never have to start with a hyphen.
     expanded = []
     for item in argv:
         name, equals, value = item.partition('=')
         if equals and not item.startswith('-') and name in ('log', 'control', 'label', 'page-size', 'generate',
-                                                                'canon'):
+                                                                'canon', 'bounded'):
             expanded += ['--' + name, value]
         else:
             expanded.append(item)
@@ -98,6 +100,8 @@ def parse(argv):
             options['generate'] = int(value)
         elif flag == '--canon':
             options['canon'] = value not in ('0', '', None)
+        elif flag == '--bounded':
+            options['bounded'] = value not in ('0', '', None)
         else:
             sys.stderr.write(f'fixture: unknown argument {flag!r}\n')
             i += 1
@@ -190,6 +194,20 @@ def tools():
     if OPTIONS['canon']:
         entries.append(tool('canon', 'Returns a result with unsorted keys, escapes, and non-ASCII text' + padding,
                             {'repeat': {'type': 'integer'}}))
+    if OPTIONS.get('bounded'):
+        entries += [
+            tool('list_issues', 'Lists issues; owner and repo name the repository' + padding,
+                 {'owner': {'type': 'string'}, 'repo': {'type': 'string', 'description': 'The repository name'},
+                  'state': {'type': 'string'}, 'labels': {'type': 'array'}}),
+            tool('search_issues', 'Searches issues; query is free-form' + padding,
+                 {'owner': {'type': 'string'}, 'repo': {'type': 'string'}, 'query': {'type': 'string'},
+                  'sort': {'type': 'string'}}),
+            tool('get_repo', 'Shows a repository; only owner and repo' + padding,
+                 {'owner': {'type': 'string'}, 'repo': {'type': 'string'}}),
+            tool('get_count', 'repo is an integer here' + padding,
+                 {'owner': {'type': 'string'}, 'repo': {'type': 'integer'}}),
+            tool('no_repo', 'Has owner but no repo' + padding, {'owner': {'type': 'string'}}),
+        ]
     entries += [tool(f'from_{label}', f'Present when started with --label {label}' + padding)
                 for label in OPTIONS['labels']]
     entries += [tool(f'gen_{n:04d}', f'Generated tool {n}' + padding) for n in range(c.get('generate') or OPTIONS['generate'])]
@@ -292,7 +310,8 @@ def execute(request_id, name, arguments, cancelled):
             text = json.dumps(response, separators=(',', ':'), ensure_ascii=False)
             send_raw(text.replace(json.dumps(NUMBERS_SENTINEL), CANON_NUMBERS))
             return
-        elif name in ('typed', 'flags'):
+        elif name in ('typed', 'flags') or (OPTIONS.get('bounded') and name in (
+                'list_issues', 'search_issues', 'get_repo', 'get_count', 'no_repo')):
             reply = text_result(json.dumps(arguments, sort_keys=True))
         elif name == 'read':
             reply = text_result('the tool named read')

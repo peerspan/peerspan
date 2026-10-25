@@ -5,7 +5,7 @@ Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; 
 - **Background.** The [remote tools proposal](remote-tools-proposal.md) and [credentials for shared tools](tool-credentials.md) give the background. Their MCP-server sharing model is superseded.
 - **What it builds on.** The [task contract](task-contract.md) for call records, retry, and polling; owner access policy in the [coordination contract](coordination-contract.md); and `attach`, self access, and status in the [launch contract](launch-contract.md).
 
-Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Its designs are in four proposals, and each item's section is added here when it is implemented; [sharing with one agent](#sharing-with-one-agent-slice-3) and [per-call approval](#per-call-approval-slice-3) are specified:
+Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Its designs are in four proposals, and each item's section is added here when it is implemented; [sharing with one agent](#sharing-with-one-agent-slice-3), [per-call approval](#per-call-approval-slice-3), and [resource bounds and the `gh` source](#resource-bounds-and-the-gh-source-slice-3) are specified:
 - remote MCP servers and OAuth ([proposal](capabilities-slice3-remote-proposal.md));
 - approval of each call ([proposal](capabilities-slice3-approval-proposal.md));
 - sharing with one agent, and `call --from-agent` ([proposal](capabilities-slice3-agent-shares-proposal.md));
@@ -27,7 +27,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-
 
 | Term | Meaning |
 | --- | --- |
-| **Source** | Something this host can operate. In slice 1, an MCP server from an attached agent's configuration, identified as `AGENT/SERVER`. |
+| **Source** | Something this host can operate. In slice 1, an MCP server from an attached agent's configuration, identified as `AGENT/SERVER`. From slice 3, also a [built-in source](#built-in-sources) such as `builtin/gh`. |
 | **Snapshot** | The tools and resources a source reported when the host last listed them. |
 | **Capability** | The owner's named, host-local definition of one use case. It binds a source, selected operations, and the credential context that serves calls. |
 | **Operation** | One thing a capability lets a caller do. It is either a selected MCP tool, named as the tool, or `read`, which reads one of the capability's selected resources. |
@@ -47,7 +47,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-
 
 ## Sources
 
-A **source** is an MCP server found in the configuration of an attached agent's harness, which this host can run. It is identified on this host as `AGENT/SERVER`, for example `claude-laptop/github`. Other source types, such as a `gh` adapter Peerspan ships, come in later slices.
+A **source** is an MCP server found in the configuration of an attached agent's harness, which this host can run. It is identified on this host as `AGENT/SERVER`, for example `claude-laptop/github`. Slice 3 adds [built-in sources](#built-in-sources), starting with the `gh` adapter Peerspan ships.
 
 `attach` discovers sources after its session setup succeeds. `peerspan sources refresh [--agent NAME]` repeats discovery for each `attach` profile on this host, or for one agent. Both run in the CLI, which has the user's environment and the project directory. The CLI sends the result to the daemon.
 
@@ -150,7 +150,7 @@ A capability record is:
   - With both fields null, calls run on the source's own instance, with the source's environment.
   - With `env_file` or `args`, the capability has its own instance. The whole `env_file` is applied, and `args` replaces the source's arguments (the narrower-credential use case).
   - `env_file` is absolute, must exist when the capability is created, and is read each time the instance starts.
-- **`bounds`** is reserved for optional resource bounds, and is always `{}` in slice 1.
+- **`bounds`** is `{}`, or an optional [resource bound](#resource-bounds) from slice 3.
 - **`state`** is `available` or `unavailable`. `unavailable` lists the operations that cannot run now, or `source` when the source itself is gone.
 
 | CLI | Local API | Behavior |
@@ -1137,7 +1137,7 @@ The peer status record (`POST /peer/v1/calls`, `GET /peer/v1/calls/{id}`, `POST 
 
 ### Persistence
 
-Database version 20 adds the following. Version 19 is machine linking. Version 20 binaries migrate every version from 0 to 19 up to 20, and refuse anything above 20.
+Database version 20 adds the following. Version 19 is machine linking. Version 20 binaries migrate every version from 0 to 19 up to 20, and refuse anything above 20. [Resource bounds](#persistence-3) add version 21, which binaries from then on migrate to.
 
 ```sql
 CREATE TABLE call_approvals (sender TEXT NOT NULL, call_id TEXT NOT NULL, state TEXT NOT NULL, expires_at TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(sender, call_id), FOREIGN KEY(sender, call_id) REFERENCES received_calls(sender, call_id));
@@ -1204,9 +1204,301 @@ PRAGMA user_version = 20;
   - the claim route answering 409 before verification, `null` when there is nothing, and working without `calls` on the credential; `forwarded` idempotent and 404 for another credential;
   - no event in a session of another agent.
 - **Status:** `approvals_pending`, and item 18 present while an approval is pending and gone once it is decided.
-- **Migration:** a version 18 database from `--baseline18` migrating to 20 with its capabilities reading `approval` `none`; a database at version 19 migrating to 20; a database at version 21 refused.
+- **Migration:** a version 18 database from `--baseline18` migrating to 20 with its capabilities reading `approval` `none`; a database at version 19 migrating to 20 (to the current version, 21, once resource bounds landed); a database above the current version refused.
 
 `conformance/live_capability_agents.py` adds one live run per harness, separately from deterministic conformance: Bob sets `capability approval github-issues all`; Alice's agent calls `list_issues`, gets `awaiting_approval`, and tells Alice it is waiting; Bob's Claude Code session receives the notice and tells Bob without approving; Bob runs `peerspan approve` at a terminal; Alice's agent receives the `call_update` and answers with the issues.
+
+## Resource bounds and the `gh` source (slice 3)
+
+Item D of slice 3, settled in [owner decision 16](#owner-decisions) by accepting the [proposal](capabilities-slice3-bounds-sources-proposal.md) in full. It adds optional resource bounds on capabilities, built-in sources, and the first built-in source, `gh`, which runs the GitHub CLI. Where this section differs from the sections above, this section applies. Behavior is the same in Go and Rust hosts, in every CLI and daemon pairing. Policy v2, its test vector, and coordinators are unchanged.
+
+### Built-in sources
+
+A **built-in source** is an adapter Peerspan ships and detects on the host, not tied to any agent. Each binary has an internal registry of built-in adapters; this slice registers only `gh`. There is no plugin interface.
+
+- **Address.** A built-in source is `builtin/NAME`, for example `builtin/gh`. Its capability records keep `source: {agent, server}`, with `agent` `builtin` and `server` the source name, so every path keyed by agent and server works unchanged.
+- **The reserved agent name.** `attach --name builtin` exits 1 before anything changes, with an error saying the name `builtin` is reserved. An agent named `builtin` that already exists on a host keeps working, but a built-in source whose name equals one of that agent's tool servers is listed with `shareable: false` and the reason `name`.
+- **Raw sources.** For the person's own machines, a built-in source is addressed `PERSON/builtin/NAME` or `HOST_ID/builtin/NAME`, and is listed and called as any source under [Sources for the person's own machines](#sources-for-the-persons-own-machines): kind `source`, `capability` `builtin/NAME`, behind the same two-sided gate.
+- **`SOURCE` in `capability create --from` and `share --from`.** `builtin/NAME` names a built-in source. A bare `NAME` resolves when exactly one source with that name exists among the agents' sources and the built-in sources; with several, the CLI exits 1 and lists the qualified names.
+- **Own credentials.** `--env-file` works as for any source. `--arg` is refused for a built-in source with 400, because the adapter has no arguments to replace.
+- **Per-call approval.** A capability on a built-in source may require approval as any capability. A built-in source has no source agent, so no approval notice is created: the call waits for the owner's decision through `peerspan approvals` only.
+
+### Discovering `gh`
+
+Built-in discovery runs in the CLI, where the user's `PATH` and `gh` login are:
+- at every `attach`, after its MCP source discovery;
+- at `sources refresh` without `--agent`, after the agents' discovery;
+- at `sources refresh --builtin`, which runs only built-in discovery. `--builtin` with `--agent` exits 1.
+
+**Steps:**
+1. **Find it.** Search the CLI's `PATH` entries in order for a regular file named `gh` with execute permission, skipping empty and relative entries. The first match, as an absolute path, is the definition's `command`. If there is none, discovery sends no `gh` definitions, which removes earlier ones.
+2. **Version.** Run `gh --version`. The version is `X.Y.Z` from the first line of standard output when it starts with `gh version X.Y.Z` (three decimal numbers). A non-zero exit, a timeout, or no match leaves the version null.
+3. **Too old or unknown.** With a null version or one below 2.81.0 (compared numerically), discovery sends one definition `gh` with `account` null and `authenticated` false, and runs nothing else.
+4. **Accounts.** Run `gh auth status --json hosts`. Its standard output is `{"hosts": {HOST: [{state, active, host, login, tokenSource, gitProtocol}, ...]}}`. Only the entries under `github.com` are used, and entries whose `tokenSource` is `GH_TOKEN` or `GITHUB_TOKEN` are ignored. A non-zero exit, a timeout, output that does not parse, or no remaining entry yields one definition `gh` with `account` null and `authenticated` false.
+5. **One source per account.** The remaining entry with `active: true` is source `gh`; when none is active, the first remaining entry is. Each other entry is `gh-LOGIN`: `gh-` followed by the login lowercased, with every character outside `[a-z0-9_-]` replaced by `-`, cut to 63 characters. A later entry whose name repeats an earlier one is dropped. `authenticated` is true when the entry's `state` is `success`.
+6. **Capture the token.** For each authenticated account, run `gh auth token --hostname github.com --user LOGIN`. Standard output with surrounding whitespace removed, when the exit is 0 and it is not empty, is the token: the definition's `env` is `{"GH_TOKEN": {"source": "captured"}}` and `values` maps the source name to `{"env.GH_TOKEN": TOKEN}`. Otherwise, and for every account that is not authenticated, `env` is `{"GH_TOKEN": {"source": "missing", "variables": ["GH_TOKEN"]}}`.
+
+Each command runs with the CLI's environment, minus `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, and `GITHUB_ENTERPRISE_TOKEN`, plus `GH_PROMPT_DISABLED=1` and `GH_NO_UPDATE_NOTIFIER=1`, with a 10-second timeout after which the process is killed. Its output is never printed or logged. A token appears only in `values`, which the daemon stores in `tool_values` with `agent_id` `builtin`; it never appears in definitions, listings, output, logs, or activity.
+
+**The definition:**
+
+```json
+{
+  "name": "gh",
+  "adapter": "gh",
+  "command": "/usr/bin/gh",
+  "version": "2.102.0",
+  "host": "github.com",
+  "account": "bob",
+  "authenticated": true,
+  "env": {"GH_TOKEN": {"source": "captured"}},
+  "disabled": false
+}
+```
+
+**The local route.**
+
+| CLI | Local API | Behavior |
+| --- | --- | --- |
+| (from `attach` and `sources refresh`) | `PUT /v1/builtin-sources` with `{sources, values}` | Replaces every built-in source definition and the stored values with `agent_id` `builtin` in one transaction, records `sources.discovered` with subject `builtin`, then snapshots each shareable source and each capability with its own credential built on a built-in source. It returns `{builtin: [SERVER]}`, as in `GET /v1/sources`, once the snapshots finish. |
+
+- **Request shape.** `values` may be absent. Each element of `sources` has exactly `name`, `adapter`, `command`, `version`, `host`, `account`, `authenticated`, `env`, and `disabled`; an unknown or missing field is 400. `adapter` is `gh`. `command` is an absolute path. `version` and `account` are strings or null. `host` is `github.com`. `name` follows the server label rules of `PUT /v1/agents/{agent_id}/tool-servers`, and names are distinct. `env` entries have the shapes defined for tool servers. In `values`, only `env.NAME` fields for `literal` or `captured` entries are accepted. At most 100 sources. Any other shape is 400.
+- **Shareable.** The daemon computes `shareable` and `reason`. Reasons, in precedence order: `name` (the name does not match the server name pattern, or an agent named `builtin` has a tool server with this name), `version` (null or below 2.81.0), `not_authenticated` (`authenticated` false), and `missing_env` (an `env` entry is `missing`).
+- **Following discovery.** As for agents' sources: a dropped built-in source's capabilities remain and become `unavailable`, instances started from a changed definition or changed values take no new calls, and the previous snapshot stays until a new one succeeds.
+
+**Listing.** `GET /v1/sources` gains `builtin: [SERVER]` beside `agents`, sorted by name; with `?agent=`, `builtin` is `[]`. A built-in `SERVER` has the fields of an agent's `SERVER`, with `transport` `stdio`, `command` the `gh` path, `args` `[]`, `url` null, and `source` `builtin`, plus `adapter`, `version`, `host`, `account`, `authenticated`, and `reach` (below; null before the first snapshot).
+
+**`sources` text output** lists the built-in sources after the agents, under a line `builtin`, each as `  builtin/NAME  gh VERSION  account LOGIN  usable` or `not usable: REASON`, where `VERSION` and `LOGIN` are the definition's `version` and `account` (the discovered account, not the reach's), each `unknown` when null, followed by its tools as for other sources and a line `    reach: SENTENCE` with the [reach sentence](#the-reach-sentence). When the CLI's `PATH` has no `gh`, the text output ends with the line `GitHub CLI (gh) not found on PATH; install gh 2.81.0 or later and run peerspan sources refresh to use it as a source.` `--json` is unchanged apart from `builtin`.
+
+**`attach` and `sources refresh` output.** `attach`'s `sources` object gains `builtin: [ENTRY]`, where `ENTRY` has the shape of an element of its `servers`. `sources refresh` adds to its JSON list one element `{agent_id: null, agent: "builtin", workspace: null, sources: {servers: [ENTRY], errors: []}}` for built-in discovery; with `--builtin` the list holds only that element. A failure to store built-in sources is reported in `errors`, and does not fail `attach`.
+
+### Running a built-in source
+
+**The instance.** The daemon starts a built-in source as any stdio source, through [Running servers](#running-servers): instances, concurrency, idle stop, start failures, call records, cancellation, and uncertainty are unchanged. Its command is the daemon's own executable with the hidden subcommand `peerspan builtin-source gh`, which is given the definition's `command` and the state directory. Its working directory is `STATE/builtin/gh/work`. Its environment is built as for any source: the daemon's `PATH` and `HOME`, the stored `GH_TOKEN`, then `GH_TOKEN` from the environment file, then a capability's whole `env_file`. Its standard error goes to `STATE/tool-logs/builtin/NAME.log`, or `NAME@CAPABILITY.log` for a capability's own instance.
+
+**The server.** It answers `initialize` with `serverInfo.name` `peerspan-gh` and `capabilities` `{"tools": {}}`, so `resources/list` is never called and built-in sources have no resources. `tools/list` returns the [ten operations](#gh-operations) in the table's order, in one page. `ping` answers `{}`. An unknown method is JSON-RPC error `-32601`, and `tools/call` for an unknown tool is `-32602` with the message `Unknown tool: NAME`. It handles several `tools/call` requests at once. Its log has one line per call, naming the operation, the exit code or `timeout` or `cancelled`, and the duration, and never arguments, standard input, output, or the token.
+
+**Snapshot and reach.** A snapshot is taken as for an MCP source. After `tools/list` succeeds, the daemon checks the credential's reach: it runs `COMMAND api --include --hostname github.com user` with the [gh environment](#the-gh-process) built from the instance's environment, in `STATE/builtin/gh/work`, with a 10-second timeout. It stores `reach: {account, host, token_type, scopes, checked_at, error}` with the snapshot, never the token:
+- **`token_type`** comes from the prefix of `GH_TOKEN` in that environment: `gho_` is `oauth`, `ghp_` is `classic`, `github_pat_` is `fine_grained`, `ghu_` or `ghs_` is `app`, and anything else, or no token, is `unknown`.
+- **On success** (exit 0, then an HTTP status line, header lines, an empty line, and a JSON object body with a string `login`; lines end in `\n` or `\r\n`): `account` is that `login`, `scopes` is the value of the `X-OAuth-Scopes` header (name matched case-insensitively) split on `,` with each scope trimmed and empty ones dropped, or null when the header is absent, and `error` is null.
+- **On failure:** `account` is the definition's account, `scopes` is null, and `error` is one of `gh exited with status N`, `gh did not finish within 10 seconds`, `gh could not be started`, or `gh returned output Peerspan could not read`.
+- `host` is `github.com` and `checked_at` is the check's time. A failed reach check does not fail the snapshot. A failed snapshot keeps the previous `reach`.
+- A capability with its own credential gets its own `reach` from its own snapshot.
+
+<a id="the-reach-sentence"></a>**The reach sentence**, used by `sources`, the review, and `shares`, takes the first row that applies. `LOGIN` is the reach's `account`, else the definition's, else `unknown`; `HOST` is `github.com`; `SCOPES` is the scopes joined with `, `.
+
+| Reach | Sentence |
+| --- | --- |
+| null (never checked) | `Peerspan could not check the reach of the gh account LOGIN on HOST (not checked yet). Assume everything the account can reach.` |
+| `error` set | `Peerspan could not check the reach of the gh account LOGIN on HOST (ERROR). Assume everything the account can reach.` |
+| `scopes` contains `repo` | `The gh account LOGIN on HOST (token scopes: SCOPES) can read and change every repository LOGIN can, public and private.` |
+| `scopes` contains `public_repo` | `The gh account LOGIN on HOST (token scopes: SCOPES) can read public repositories and change public repositories LOGIN can.` |
+| `token_type` `oauth` or `classic`, `scopes` not null | `The gh account LOGIN on HOST (token scopes: SCOPES) can read public repositories only.`, with `none` for `SCOPES` when the list is empty |
+| otherwise | `The gh account LOGIN on HOST uses a token that states no scopes, so Peerspan cannot tell which repositories it reaches. Assume every repository it was granted.` |
+
+<a id="gh-operations"></a>
+### `gh` operations
+
+| Operation | Read-only | `gh` arguments, in order | Result text |
+| --- | --- | --- | --- |
+| `issue_list` | yes | `issue list --repo=R --state=S --limit=N`, `--label=L` per label, `--assignee=A`, `--author=A`, `--milestone=M`, `--json=F` | `{"issues":OUT}` |
+| `issue_view` | yes | `issue view N --repo=R`, `--comments` when `comments`, `--json=F` | `{"issue":OUT}` |
+| `pr_list` | yes | `pr list --repo=R --state=S --limit=N`, `--base=B`, `--head=H`, `--label=L` per label, `--author=A`, `--draft` when `draft`, `--json=F` | `{"pull_requests":OUT}` |
+| `pr_view` | yes | `pr view N --repo=R`, `--comments` when `comments`, `--json=F` | `{"pull_request":OUT}` |
+| `pr_diff` | yes | `pr diff N --repo=R --color=never`, `--name-only` when `name_only` | `{"diff":TEXT}` or `{"files":[PATH,...]}` |
+| `pr_checks` | yes | `pr checks N --repo=R --json=F` | `{"checks":OUT}` |
+| `repo_view` | yes | `repo view R --json=F` | `{"repository":OUT}` |
+| `issue_create` | no | `issue create --repo=R --title=T --body-file=-`, `--label=L` per label, `--assignee=A` per assignee | `{"number":N,"url":URL}` |
+| `issue_comment` | no | `issue comment N --repo=R --body-file=-` | `{"url":URL}` |
+| `pr_comment` | no | `pr comment N --repo=R --body-file=-` | `{"url":URL}` |
+
+- **Arguments.** Optional flags appear only when their input property is given (a boolean only when true), in the order listed. `S` and `N` in lists are always passed, with their defaults when not given. Every value is passed in one element as `--flag=value`, so a value starting with `-` never becomes a flag. Positional values are only the decimal `number` and, for `repo_view`, the validated `repo`. `--jq` and `--template` are never passed.
+- **`F`**, fixed per operation:
+  - `issue_list`: `number,title,state,author,labels,assignees,milestone,createdAt,updatedAt,url`
+  - `issue_view`: `number,title,state,stateReason,body,author,labels,assignees,milestone,createdAt,updatedAt,closedAt,url`, with `,comments` appended when `comments` is true
+  - `pr_list`: `number,title,state,isDraft,author,baseRefName,headRefName,labels,createdAt,updatedAt,url`
+  - `pr_view`: `number,title,state,isDraft,body,author,baseRefName,headRefName,mergeable,reviewDecision,additions,deletions,changedFiles,files,labels,createdAt,updatedAt,mergedAt,url`, with `,comments,reviews` appended when `comments` is true
+  - `pr_checks`: `name,state,bucket,workflow,link,startedAt,completedAt`
+  - `repo_view`: `nameWithOwner,description,url,visibility,isArchived,defaultBranchRef,homepageUrl,primaryLanguage,stargazerCount,forkCount,pushedAt,updatedAt`
+- **Annotations.** Read-only operations have `readOnlyHint: true`. The others have `readOnlyHint: false`, `destructiveHint: false`, and `idempotentHint: false`.
+
+**Input schemas.** Each is `{"type": "object", "properties": {...}, "required": [...], "additionalProperties": false}`, with these properties, required ones marked `*`:
+
+| Operation | Properties |
+| --- | --- |
+| `issue_list` | `repo`*, `state` (`open`, `closed`, `all`), `limit`, `label`, `assignee`, `author`, `milestone` |
+| `issue_view` | `repo`*, `number`*, `comments` |
+| `pr_list` | `repo`*, `state` (`open`, `closed`, `merged`, `all`), `limit`, `base`, `head`, `label`, `author`, `draft` |
+| `pr_view` | `repo`*, `number`*, `comments` |
+| `pr_diff` | `repo`*, `number`*, `name_only` |
+| `pr_checks` | `repo`*, `number`* |
+| `repo_view` | `repo`* |
+| `issue_create` | `repo`*, `title`*, `body`, `label` (array), `assignee` (array) |
+| `issue_comment` | `repo`*, `number`*, `body`* |
+| `pr_comment` | `repo`*, `number`*, `body`* |
+
+| Property | Schema | Rule enforced by the server |
+| --- | --- | --- |
+| `repo` | `{"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$"}` | matches the pattern, and does not end in `/.` or `/..` |
+| `number` | `{"type": "integer", "minimum": 1, "maximum": 2147483647}` | a JSON number with a whole value in range |
+| `state` | `{"type": "string", "enum": [...], "default": "open"}` | one of the enum |
+| `limit` | `{"type": "integer", "minimum": 1, "maximum": 100, "default": 30}` | as `number`, 1 to 100 |
+| `label`, and `assignee` for `issue_create` | `{"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 256}, "maxItems": 10}` | 0 to 10 strings |
+| `assignee` (lists), `author`, `milestone`, `base`, `head` | `{"type": "string", "minLength": 1, "maxLength": 256}` | a string |
+| `draft`, `comments`, `name_only` | `{"type": "boolean"}`, with `"default": false` for `comments` and `name_only` | a boolean |
+| `title` | `{"type": "string", "minLength": 1, "maxLength": 256}` | a string |
+| `body` | `{"type": "string", "maxLength": 65536}` | 0 to 65,536 bytes, without U+0000 |
+
+Every string other than `body`, including array items, is 1 to 256 bytes with no character below U+0020 and no U+007F. `repo` has no `HOST/` prefix, and `number` is only an integer, because `gh` also accepts a URL or a branch in that position.
+
+Descriptions are identical in both implementations. Tools: `issue_list` "List issues in a GitHub repository."; `issue_view` "Show one issue of a GitHub repository, with its comments when comments is true."; `pr_list` "List pull requests in a GitHub repository."; `pr_view` "Show one pull request of a GitHub repository, with its comments and reviews when comments is true."; `pr_diff` "Show the diff of a pull request, or with name_only the names of the changed files."; `pr_checks` "Show the status checks of a pull request."; `repo_view` "Show a GitHub repository."; `issue_create` "Create an issue in a GitHub repository."; `issue_comment` "Add a comment to an issue."; `pr_comment` "Add a comment to a pull request." Properties: `repo` "The repository, as OWNER/REPO."; `number` "The issue or pull request number."; `state` "Which items to list."; `limit` "At most this many items."; `label` "Only items with all of these labels." in lists and "Labels to add." in `issue_create`; `assignee` "Only items assigned to this login." in lists and "Logins to assign." in `issue_create`; `author` "Only items opened by this login."; `milestone` "Only issues in this milestone."; `base` "Only pull requests into this base branch."; `head` "Only pull requests from this head branch."; `draft` "Only draft pull requests."; `comments` "Include comments." for `issue_view` and "Include comments and reviews." for `pr_view`; `name_only` "Return only the names of the changed files."; `title` "The issue title."; `body` "The text, in Markdown."
+
+### Executing a `gh` call
+
+For each `tools/call`, the server:
+1. **Validates** the arguments (absent means `{}`) against the operation's schema and the rules above: unknown properties, missing required ones, types, ranges, enums, lengths, and patterns. A failure returns a tool result with `isError: true` and the text `Invalid arguments for OPERATION: DETAIL`, where the wording of `DETAIL` is not shared, and runs nothing.
+2. **Builds the arguments** from the table.
+3. **Runs `gh`** directly, never through a shell, as below.
+4. **Returns** a `CallToolResult` `{"content": [{"type": "text", "text": TEXT}]}`, or with `"isError": true` for the errors below.
+
+<a id="the-gh-process"></a>**The `gh` process.**
+- **Executable:** the definition's `command`, an absolute path, never looked up on a `PATH`.
+- **Working directory:** `STATE/builtin/gh/work`, created empty with mode 0700 when missing, so `gh` never infers a repository from a checkout.
+- **Environment, exactly:** `PATH` and `HOME` from the instance's environment when set; `GH_TOKEN` from the instance's environment when set and not empty; `GH_HOST=github.com`; `GH_CONFIG_DIR=STATE/builtin/gh/config` (created with mode 0700 when missing), so the user's aliases, extensions, and stored accounts are not used; `GH_PROMPT_DISABLED=1`; `GH_NO_UPDATE_NOTIFIER=1`; `GH_NO_EXTENSION_UPDATE_NOTIFIER=1`; `GH_SPINNER_DISABLED=1`; `NO_COLOR=1`; `GH_PAGER=cat`; and `GH_TELEMETRY=0`. Nothing else, not even variables of a capability's `env_file` other than `GH_TOKEN`.
+- **Standard input:** for the three writes, `body` (empty when absent for `issue_create`), then closed; for the others, closed at once.
+- **Limits:** standard output is read up to 1,000,000 bytes; one more byte kills the process. The last 65,536 bytes of standard error are kept.
+- **Timeout:** 120 seconds. Killing means `SIGTERM` to the process and its process group, then `SIGKILL` 2 seconds later if it is still running. A call's deadline is enforced by the daemon, which sends `notifications/cancelled` as for any source.
+- **Cancellation:** on `notifications/cancelled` for a request, the server kills that request's `gh` process the same way, and sends no response for it. The daemon already makes such a call `uncertain`, so a write that may have reached GitHub is never repeated.
+
+**Outcomes**, in this order:
+- **Not started** (the executable cannot be run): `isError` with the text `gh could not be started.`
+- **Output over the limit:** a JSON-RPC error, not a tool result, with code `-32002` and the message `gh output exceeded 1000000 bytes.`
+- **Timeout:** `isError` with the text `gh did not finish within 120 seconds.`
+- **Exit 4**, which `gh` uses when authentication is required: a JSON-RPC error with code `-32001` and the message `gh is not authenticated for github.com. The owner runs gh auth login, then peerspan sources refresh.` The call is `failed` with `jsonrpc_error`, and since the message matches the authentication pattern, `auth_error_at` is set and status item 14 reports it.
+- **`pr_checks` with exit 0, 1, or 8** (`gh` uses 1 when checks failed and 8 when they are pending) and standard output that is a JSON array: success.
+- **Any other non-zero exit:** `isError` with the text `gh failed: STDERR`, where `STDERR` is the last 2,048 bytes of standard error, started at a UTF-8 character boundary, with trailing whitespace removed. With nothing left, the text is `gh failed with exit status N.`
+- **Exit 0:** the result text below. Output it cannot be built from is `isError` with the text `gh returned output Peerspan could not read.`
+
+**Result text.** `OUT` is standard output with surrounding ASCII whitespace removed, copied byte for byte, and must be a JSON array for `issue_list`, `pr_list`, and `pr_checks`, and a JSON object for `issue_view`, `pr_view`, and `repo_view`. `pr_diff` returns standard output as `TEXT`, or with `name_only` the lines of standard output, each without a trailing `\r`, empty lines dropped. For the writes, `URL` is the last line of standard output, trimmed, that starts with `https://`, and `issue_create`'s `number` is the decimal last path segment of `URL` after removing any `#` fragment. Strings and objects that are not copied byte for byte are encoded as [the call view's result text](#adapter-routes): no whitespace, keys sorted, and strings escaped only as specified there. A byte of standard output or error that is not part of valid UTF-8 becomes U+FFFD, one per byte.
+
+**The daemon's one rule.** For a source whose `agent` is `builtin`, a JSON-RPC error with code `-32002` makes the call `failed` with `result_too_large`, and no result is stored (`result` and `result_bytes` are null). Every other answer maps to call states as for any source. Diffs over the limit therefore fail; `name_only` is the fallback.
+
+**Left out:** free-form search (`--search` on lists, `gh search`), closing, editing, merging, reviewing, labels on existing items, workflow runs, releases, and `gh api`.
+
+### Resource bounds
+
+A capability's `bounds` is `{}`, meaning no bound, or `{"arguments": [COMBINATION, ...]}`, a list of 1 to 16 **combinations**. Each combination is an object mapping 1 to 4 argument names to one string value each. A record without `bounds` reads as `{}`.
+- **Names** match `[A-Za-z_][A-Za-z0-9_]{0,63}`. **Values** are 1 to 256 bytes of UTF-8 with no character below U+0020 and no U+007F.
+- **Order.** Within a combination, entries are ordered by name, in byte order, wherever they are listed or written into text.
+- **Resources are not bounded.** A bound applies to tool operations only; `read` stays limited by the capability's resources.
+
+**Setting a bound.**
+
+| CLI | Local API |
+| --- | --- |
+| `capability create NAME --from SOURCE … [--bound KEY=VALUE[,KEY=VALUE…]]…` | `POST /v1/capabilities` gains optional `bounds`: absent, `{}`, or `{"arguments": [...]}`. |
+| guided `share --with PRINCIPAL [… --bound …]` | the same body when it creates the capability |
+
+- **`--bound`** may repeat; each one is a combination, in the order given. Its value is split on `,`, and each part at its first `=`. A part without `=`, an empty name, or a name given twice in one flag exits 1 before anything is sent. A value cannot contain `,`.
+- **The guided share** asks at a terminal, after the operations and resources and only when `--bound` is not given: for a `gh` source, `Limit which repositories? Enter OWNER/REPO, several separated by spaces, or leave empty for no limit: `, where each word becomes the combination `{repo: WORD}`; for another source, `Limit by argument values? Enter KEY=VALUE[,KEY=VALUE] combinations separated by spaces, or leave empty for no limit: `, where each word is read as a `--bound` value. An empty answer is no bound. Without a terminal, only `--bound` sets one.
+- **Checks at create**, after the existing ones, each refusing with 400 and storing nothing:
+  - a malformed `bounds` (wrong shape, counts, names, or values) is `invalid`;
+  - for a `gh` source, a `repo` value that is neither a valid `repo` argument nor `OWNER/*`, with `OWNER` matching `^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`, is `invalid` with the error `A gh repository bound is OWNER/REPO or OWNER/*.`;
+  - a bound on a capability without tool operations is `invalid` with the error `A bound applies to tool operations, and the capability has none.`;
+  - for each operation in `operations` order and each name in order of first appearance (the first combination's names, then each later combination's new names), the operation's tool in the snapshot that create checks against must have an `input_schema` whose `properties` has the name with `type` exactly `"string"`. The first that does not is refused with `{"code": "bound_unenforceable", "error": TEXT}`, where `TEXT` is exactly `Operation OPERATION has no string argument KEY, so Peerspan cannot check this bound for it. Leave the operation out, or narrow the credential instead (--env-file).` A property need not be required.
+- **Records stay immutable.** An identical repeat, including equal `bounds` (combinations in the same order, each with the same entries), returns 200; a different record, including different `bounds`, returns 409. A bound is changed by `capability remove` and `capability create` again. Bounds are per capability, so different scopes for different recipients take different capabilities.
+- **Warnings for `gh`.** After creating (201) a capability on a `gh` source with a bound, the daemon runs `repo_view`'s `gh` arguments, with the [gh environment](#the-gh-process) of the capability's credential and a 10-second timeout each, for each distinct exact `repo` value in order of first appearance, skipping `OWNER/*`. A non-zero exit, a timeout, or a failure to start adds `REPO is not visible to this credential` to the response's `warnings`. The checks run one after another and share a 40-second budget, each check's timeout cut to what is left, so the response comes within the CLI's request timeout; a repository the budget leaves no time for is not checked and gets no warning. The create is not refused. The `POST /v1/capabilities` response is the capability view plus `warnings`, always present: on 201 the check's warnings, `[]` when there are none, and on a 200 repeat always `[]`, since a repeat runs no check. The CLI prints each as `warning: TEXT` to stderr.
+
+**Matching.** A call passes a bound when, for at least one combination, every name in it is present at the top level of the call's `input` with a string value that matches:
+- by exact byte equality, by default;
+- for the `repo` argument of a `gh` source, by ASCII case-insensitive equality, and a bound value `OWNER/*` matches any value with a non-empty part after its first `/` whose part before it equals `OWNER`, ignoring ASCII case.
+
+A call that omits a bound argument does not match. Peerspan never fills in or changes a value.
+
+**Enforcement.** [Authorization](#authorization) step 2 gains a final check, at submission and at the recheck before start: when the capability has a bound and the operation is not `read`, the input must pass it. Otherwise the receiver answers 403 `{"code": "out_of_bounds", "error": TEXT, "bounds": BOUNDS}`, with the capability's `bounds`, and runs nothing:
+- `TEXT` is exactly `This capability is limited to calls where ALLOWED. The call has GOT. Nothing was run.`
+- `ALLOWED` is the combinations joined by ` or `, each as its entries `KEY is VALUE` joined by ` and `: `repo is acme/api or repo is acme/web`.
+- `GOT` is every name in order of first appearance, joined by ` and `, each as `KEY "VALUE"` with the value encoded as a JSON string under the result text rules, `no KEY` when absent, or `a non-string KEY`: `repo "acme/infra"`.
+- At submission it is a final `rejected` for `call`, and for agent tools a `rejected` call view whose `error` is `TEXT` and whose `note` is the never-ran note, as for any refused submission under slice 2's Submitting. At the recheck, a call queued under a removed and recreated capability with a narrower bound is `rejected` with `authorization lapsed before start`. A recheck that falls between the `capability remove` and the `capability create` finds no capability, so it rejects every call queued for it, inside the new bound or not. Refused calls are not counted against `max_calls_per_hour`.
+- Raw sources, including the implicit capability `AGENT/SERVER` and `builtin/NAME`, have no bounds.
+
+**Listings.** Each entry of `GET /peer/v1/capabilities`, `discover --json` (`GET /v1/discover`), and `GET /adapter/v1/capabilities` gains `bounds`: the capability's `bounds`, or `{}` for a source and for an entry from a host that predates this slice. For a bounded capability's tool operations, `GET /peer/v1/capabilities` narrows each `input_schema` (the stored snapshot is unchanged):
+- when every combination has exactly one entry, all with the same name, and no value is a `gh` `OWNER/*`, that property becomes exactly `{"type": "string", "enum": [VALUES]}`, the distinct values in combination order;
+- otherwise, each property named in a combination has `Limited by the owner: ALLOWED.` appended to its `description` after one space, or as its whole `description` when it has none;
+- a property the schema no longer declares is left alone.
+
+**The capability view.** `GET /v1/capabilities`, `capability show`, and the `POST /v1/capabilities` response show `bounds` from the record, and gain `credential_reach`: for a capability on a `gh` source, the `reach` of its own snapshot when it has its own credential, else of the source, or null when there is none; for any other source, null. `capability list` text adds `  bounds: ALLOWED` to a bounded capability's line.
+
+### The review and `shares`
+
+**The review**, which `share` prints to stderr before confirmation, changes in two places.
+
+After the operations and resources lines, a bounded capability gets a bounds block:
+- `Bounds: ALLOWED`;
+- then one line: for a `gh` source whose every combination names `repo`, `  Every gh operation names its repository in repo, so Peerspan checks every call.`; otherwise `  Not checked by Peerspan: OP: NAME, NAME; OP: NAME.`, listing for each operation in the capability's order its top-level `input_schema` properties other than the bound names, sorted in byte order, leaving out operations with none, or `  Peerspan checks every argument of these operations.` when no operation has any. The schemas are those in the source's snapshot as `sources` lists it;
+- when the capability has resources, a further line `  The bound does not apply to read, which is limited to the capability's resources.`
+
+The reach statement becomes one of these lines, where `SENTENCE` is the [reach sentence](#the-reach-sentence) of the capability's `credential_reach`. For a guided share that will create a capability with its own credential, `SENTENCE` uses a null reach, since the credential has not been checked yet.
+
+| Source | Bound | Reach statement |
+| --- | --- | --- |
+| `gh` | yes | `PRINCIPAL can use these operations only where ALLOWED; Peerspan refuses other calls. The credential reaches more than the bound. SENTENCE` |
+| other | yes | `PRINCIPAL can use these operations only where ALLOWED; Peerspan refuses other calls. Arguments Peerspan does not check can still reach anything the credentials they run with on this host can reach.` |
+| `gh` | no | `PRINCIPAL can use these operations with the credentials they run with on this host. SENTENCE No resource bound.` |
+| other | no | `PRINCIPAL can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, PRINCIPAL can too. No resource bound.` |
+
+The `(can change things)` marks for a `gh` source follow its annotations, which are Peerspan's own and accurate.
+
+**`shares`.** Each capability in `--json` gains `reach`, the reach statement above with `Recipients` as `PRINCIPAL`; `bounds` comes from the record. The text output adds two lines under each capability: `  bounds: ALLOWED` or `  bounds: none`, and `  reach: STATEMENT`.
+
+**`discover`** text adds `    limited to ALLOWED` under a bounded capability's line.
+
+### Status
+
+- **Counts.** `capabilities.sources` counts built-in sources too.
+- **Item 14** covers built-in sources as it covers other sources, with the subject `builtin/NAME` and the command `peerspan sources refresh --builtin`.
+- The **activity kinds** are the existing ones: `sources.discovered` with subject `builtin`, and `sources.snapshot_failed` with subject `builtin/NAME`.
+
+### Shared adapter
+
+`list_capabilities` returns each entry's `bounds` as the daemon gives it. Its description gains the sentence: `Each entry's bounds lists the argument values its owner allows, as combinations; an empty object means no bound, and a call outside them is refused and never runs.`
+
+### Persistence
+
+Database version 21 adds the following. Version 19 is machine linking and version 20 is [per-call approval](#per-call-approval-slice-3). Version 21 binaries migrate every version from 0 to 20 up to 21, and refuse anything above 21.
+
+```sql
+CREATE TABLE builtin_sources (name TEXT PRIMARY KEY, record TEXT NOT NULL);
+PRAGMA user_version = 21;
+```
+
+- **Migration** to 21 creates the table and sets the version, in the same transaction as any earlier version's migration. Older binaries reject version 21.
+- **Records.** `builtin_sources.record` holds the definition, `shareable`, `reason`, `missing_env`, the snapshot with its health fields, and `reach`. Values are rows of `tool_values` with `agent_id` `builtin`; that table has no foreign key to `agents`. Capability records gain only the populated `bounds`, and a capability's own snapshot may hold `reach`.
+- **Peers.** A caller older than this slice ignores `bounds` and sees `out_of_bounds` as an ordinary 403. A receiver older than this slice has no bounds and no built-in sources, so nothing it serves changes.
+
+### Verification
+
+`conformance/capabilities.py` gains these cases, written from this section by an author independent of both implementations. They run across all four Go/Rust CLI and daemon pairings with `--probe`, the Go coordinator, and OpenSSH; the `list_capabilities` cases also need `--node`. They use a fake `gh`, and the fixture MCP server for bounds on MCP sources (extended as needed with tools that take string, non-string, and free-form arguments).
+
+**The fake `gh`** is an executable script named `gh` in a directory placed on the CLI's `PATH` and absent from the daemon's. The daemon runs it with only the variables listed for the gh process, so the script finds its control file and log by a path written into it, not through the environment. It:
+- answers `--version`, `auth status --json hosts`, `auth token --hostname github.com --user LOGIN`, `api --include --hostname github.com user`, and each operation's arguments with canned output chosen per test, including several accounts, an unauthenticated one, `GH_TOKEN` entries, tokens of each prefix, and responses with and without `X-OAuth-Scopes`;
+- records each invocation: its arguments, the names of its environment variables and the values of those other than `GH_TOKEN`, a digest of `GH_TOKEN`, its working directory, and its standard input;
+- can exit 1, 4, or 8, sleep, ignore `SIGTERM`, write more than 1,000,000 bytes, and write invalid UTF-8.
+
+It covers:
+- **Discovery:** `gh` absent (no built-in sources, earlier ones removed, and the `sources` hint line); each `shareable: false` reason, in precedence order, including `name` for an agent named `builtin` with a tool server `gh`; a version below 2.81.0 and an unparseable one; `gh` and `gh-LOGIN` naming, lowercasing and replacement, the first account when none is active, and `GH_TOKEN` entries ignored; the discovery commands' environment, with the four token variables removed and the two `GH_` variables set; the absolute `command` used by the daemon although its `PATH` lacks the script; `sources refresh` with and without `--builtin`, `--builtin` with `--agent` refused, and `attach`'s `builtin` output; `attach --name builtin` refused.
+- **Token capture:** the token in `tool_values` with `agent_id` `builtin` and nowhere in definitions, `sources --json`, `capability show`, the review, logs, or activity; a failed `auth token` giving `missing_env`; the environment file and a capability's `env_file` overriding the stored `GH_TOKEN`.
+- **Reach:** `reach` for each token type, the scopes header present, absent, and empty, a failing check with each error text, and the matching sentence in `sources`, the review, and `shares`; a capability with its own `GH_TOKEN` getting its own reach in `credential_reach`.
+- **Operations:** `tools/list` names, order, read-only marks, annotations, and schemas, as seen in `sources --json`; for each operation, the exact arguments with and without each optional property and the defaults, the result text, standard input for writes and none otherwise, the working directory, and the exact environment; invalid arguments for each rule, running nothing; injection attempts: values starting with `-`, a URL or branch in `number`, `HOST/` in `repo`, `/..` endings, control characters, and unknown properties.
+- **Execution:** exit 1 with the `gh failed` text and the 2,048-byte tail, and with empty standard error; exit 4 as `jsonrpc_error` with the message and item 14; `pr_checks` exits 1 and 8 as success; output over 1,000,000 bytes as `failed` with `result_too_large` and no stored result; a `pr_diff` with invalid UTF-8; unreadable output; the 120-second timeout with a process that ignores `SIGTERM` killed 2 seconds later; cancellation of a running write killing the process, the call `uncertain`, and no second invocation; the server's log holding no arguments, bodies, results, or token.
+- **Bounds on `gh` and on an MCP source:** `--bound` parsing and its refusals; combinations versus independent values (`owner=acme,repo=api` and `owner=beta,repo=web` refusing `acme/web`); `bound_unenforceable` with its text for a missing and a non-string argument; the `gh` matcher's case-insensitivity and `OWNER/*`, other wildcards refused; a bound without tool operations refused; repeat and conflict with bounds; `out_of_bounds` with its exact text and `bounds` for a different value, an absent argument, and a non-string one, with nothing executed and nothing counted against the budget; `read` unaffected; rejection at the recheck after remove and recreate with a narrower bound; raw sources unbounded; the `warnings` for a repository the credential cannot see, and none for `OWNER/*`.
+- **Display:** `bounds` in `capability list` and `show`, `discover`, `GET /peer/v1/capabilities`, and `list_capabilities`; narrowed schemas by `enum` and by description; the review's bounds block and each reach statement; `shares` text and `--json`; the guided share's prompts for `gh` and for MCP sources at a terminal.
+- **Calls through capabilities on `gh`:** a full call by policy and by self, from the CLI and through `call_capability`, and a raw `builtin/gh` source call from a trusted host it is open to.
+- **Status:** built-in sources in the counts, and item 14 with its subject and command.
+- **Migration:** a database at version 20 migrating to 21; with `--baseline18`, a version 18 database migrating to 21; a database at version 22 refused.
+- **Compatibility:** when a version 18 build is given (`--baseline18`), a receiver at version 18 serving capabilities without `bounds`, listed with `bounds` `{}` by `discover`.
+
+`conformance/live_capability_agents.py` gains one run against a real test repository with a real `gh`, through all three harnesses: a bounded `gh` capability lists issues in the bound repository, and a call for another repository is refused with the `out_of_bounds` text.
 
 ## Owner decisions
 

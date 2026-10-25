@@ -37,6 +37,10 @@ func runSources(ctx context.Context, client host.Client, args []string, fs *pfla
 	if fs.Lookup("agent") != nil {
 		agentName, _ = fs.GetString("agent")
 	}
+	builtinOnly := false
+	if fs.Lookup("builtin") != nil {
+		builtinOnly, _ = fs.GetBool("builtin")
+	}
 	sub := ""
 	if len(args) > 1 {
 		sub = args[1]
@@ -78,8 +82,14 @@ func runSources(ctx context.Context, client host.Client, args []string, fs *pfla
 		for _, a := range locals {
 			names[a.ID] = a.Name
 		}
+		if builtinOnly && agentName != "" {
+			return errors.New("sources refresh takes --builtin or --agent, not both")
+		}
 		results := []map[string]any{}
 		for _, p := range profiles {
+			if builtinOnly {
+				break
+			}
 			if p.Workspace == "" || names[p.AgentID] == "" || (agentName != "" && names[p.AgentID] != agentName && p.AgentID != agentName) {
 				continue
 			}
@@ -93,6 +103,18 @@ func runSources(ctx context.Context, client host.Client, args []string, fs *pfla
 		}
 		if agentName != "" && len(results) == 0 {
 			return fmt.Errorf("no attach profile on this host records agent %s", agentName)
+		}
+		if agentName == "" {
+			// Built-in discovery runs without --agent, and alone with --builtin.
+			summary := attachSummary{Servers: []attachServer{}, Errors: []discoveryError{}}
+			builtin, err := storeBuiltin(ctx, client)
+			if err != nil {
+				summary.Errors = append(summary.Errors, discoveryError{Source: "builtin", Error: "storing the built-in sources failed: " + err.Error()})
+			} else {
+				summary.Servers = summarizeBuiltin(builtin)
+			}
+			fmt.Fprintf(errOut, "builtin: %d built-in sources\n", len(summary.Servers))
+			results = append(results, map[string]any{"agent_id": nil, "agent": "builtin", "workspace": nil, "sources": summary})
 		}
 		return printJSON(out, results)
 	case "open-to", "close-to":
@@ -155,8 +177,43 @@ func printSources(out io.Writer, listing sourcesListing) {
 			}
 		}
 	}
+	if len(listing.Builtin) > 0 {
+		fmt.Fprintln(out, "builtin")
+	}
+	for _, s := range listing.Builtin {
+		state := "usable"
+		if !s.Shareable {
+			state = "not usable: " + deref(s.Reason)
+		}
+		account := "unknown"
+		if s.Account != nil {
+			account = *s.Account
+		}
+		version := "unknown"
+		if s.Version != nil {
+			version = *s.Version
+		}
+		fmt.Fprintf(out, "  builtin/%s  gh %s  account %s  %s\n", s.Name, version, account, state)
+		if s.SnapshotError != nil {
+			fmt.Fprintf(out, "    snapshot failed: %s\n", *s.SnapshotError)
+		}
+		for _, t := range s.Tools {
+			mark := "can change things"
+			if t.ReadOnly {
+				mark = "read-only"
+			}
+			fmt.Fprintf(out, "    tool %s (%s)\n", t.Name, mark)
+		}
+		if len(s.Capabilities) > 0 {
+			fmt.Fprintf(out, "    capabilities: %s\n", strings.Join(s.Capabilities, ", "))
+		}
+		fmt.Fprintf(out, "    reach: %s\n", reachSentence(s.Reach, s.Account))
+	}
 	if len(listing.OpenTo) > 0 {
 		fmt.Fprintf(out, "Open to: %s\n", strings.Join(listing.OpenTo, ", "))
+	}
+	if findGH() == "" {
+		fmt.Fprintln(out, ghHint)
 	}
 }
 
@@ -173,9 +230,11 @@ type capabilityRecord struct {
 		EnvFile *string  `json:"env_file"`
 		Args    []string `json:"args"`
 	} `json:"credential"`
-	State       string   `json:"state"`
-	Unavailable []string `json:"unavailable"`
-	Approval    struct {
+	State           string                `json:"state"`
+	Unavailable     []string              `json:"unavailable"`
+	Bounds          host.CapabilityBounds `json:"bounds"`
+	CredentialReach *host.GHReach         `json:"credential_reach"`
+	Approval        struct {
 		Operations json.RawMessage `json:"operations"`
 		AgentSelf  *bool           `json:"agent_self"`
 	} `json:"approval"`
@@ -196,8 +255,22 @@ func resolveSource(listing sourcesListing, given string) (sourcesAgent, sourceSe
 	}
 	var matches []sourcesAgent
 	for _, a := range listing.Agents {
+		if agent == "builtin" {
+			break // builtin/NAME names a built-in source
+		}
 		if (agent == "" || a.Agent.Name == agent) && a.server(server) != nil {
 			matches = append(matches, a)
+		}
+	}
+	if agent == "" || agent == "builtin" {
+		builtin := sourcesAgent{}
+		builtin.Agent.ID, builtin.Agent.Name = "builtin", "builtin"
+		for _, b := range listing.Builtin {
+			builtin.Servers = append(builtin.Servers, b.sourceServer)
+		}
+		builtin.fill()
+		if builtin.server(server) != nil {
+			matches = append(matches, builtin)
 		}
 	}
 	switch len(matches) {
@@ -225,6 +298,7 @@ type capabilitySpec struct {
 	// given); noAgentSelf sends agent_self false.
 	approval    string
 	noAgentSelf bool
+	bounds      host.CapabilityBounds
 }
 
 // approvalOperations is the JSON operations of an approval mode given on
@@ -365,6 +439,9 @@ func createBody(listing sourcesListing, spec capabilitySpec) (map[string]any, er
 	if approval := spec.approvalRequest(); approval != nil {
 		body["approval"] = approval
 	}
+	if spec.bounds.Set() {
+		body["bounds"] = spec.bounds
+	}
 	return body, nil
 }
 
@@ -399,6 +476,11 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 			}
 		}
 		spec.noAgentSelf, _ = fs.GetBool("no-agent-self-approval")
+		boundValues, _ := fs.GetStringArray("bound")
+		var err error
+		if spec.bounds, err = parseBounds(boundValues); err != nil {
+			return err
+		}
 		if spec.source == "" {
 			return errors.New("capability create needs --from SOURCE")
 		}
@@ -415,6 +497,7 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		if err != nil {
 			return err
 		}
+		printWarnings(errOut, data)
 		return printJSON(out, data)
 	case "list":
 		asJSON, _ := fs.GetBool("json")
@@ -440,7 +523,11 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 				fmt.Fprintf(out, "  resources: %s", c.Resources)
 			}
 			fmt.Fprintf(out, "  approval: %s", c.approvalText())
-			fmt.Fprintf(out, "  recipients: %d\n", len(c.Recipients))
+			fmt.Fprintf(out, "  recipients: %d", len(c.Recipients))
+			if c.Bounds.Set() {
+				fmt.Fprintf(out, "  bounds: %s", host.BoundsAllowedText(c.Bounds))
+			}
+			fmt.Fprintln(out)
 		}
 		return nil
 	case "show":
@@ -578,7 +665,7 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 }
 
 // review is what share prints before asking for confirmation.
-func printReview(errOut io.Writer, address string, c capabilityRecord, server sourceServer, principal, recipientExtra, limitChange string) {
+func printReview(errOut io.Writer, address string, c capabilityRecord, server sourceServer, principal, recipientExtra, limitChange string, reach *host.GHReach, account *string) {
 	fmt.Fprintf(errOut, "Capability: %s\n", address)
 	fmt.Fprintf(errOut, "Source: %s/%s, from %s\n", c.Source.Agent, c.Source.Server, server.Source)
 	fmt.Fprintln(errOut, "Operations:")
@@ -593,6 +680,9 @@ func printReview(errOut io.Writer, address string, c capabilityRecord, server so
 	}
 	if string(c.Resources) != "" && string(c.Resources) != "null" {
 		fmt.Fprintf(errOut, "  read, over resources: %s\n", c.Resources)
+	}
+	for _, line := range boundsBlock(c, server) {
+		fmt.Fprintln(errOut, line)
 	}
 	printApprovalReview(errOut, c, server)
 	if c.Credential.EnvFile != nil || c.Credential.Args != nil {
@@ -609,7 +699,18 @@ func printReview(errOut io.Writer, address string, c capabilityRecord, server so
 	if limitChange != "" {
 		fmt.Fprint(errOut, limitChange)
 	}
-	fmt.Fprintf(errOut, "%s can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, %s can too.\n", principal, principal)
+	fmt.Fprintln(errOut, reachStatement(principal, c, reach, account))
+}
+
+// printWarnings prints a create answer's warnings to stderr.
+func printWarnings(errOut io.Writer, data []byte) {
+	var created struct {
+		Warnings []string `json:"warnings"`
+	}
+	_ = json.Unmarshal(data, &created)
+	for _, w := range created.Warnings {
+		fmt.Fprintln(errOut, "warning: "+w)
+	}
 }
 
 // confirmShare asks Share? at a terminal, or takes --yes; otherwise it
@@ -647,6 +748,11 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 		}
 	}
 	spec.noAgentSelf, _ = fs.GetBool("no-agent-self-approval")
+	boundValues, _ := fs.GetStringArray("bound")
+	var err error
+	if spec.bounds, err = parseBounds(boundValues); err != nil {
+		return spec, sourcesListing{}, err
+	}
 	yes, _ := fs.GetBool("yes")
 	listing, err := readSources(ctx, client, "/v1/sources")
 	if err != nil {
@@ -666,6 +772,11 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 				if s.Shareable {
 					choices = append(choices, a.Agent.Name+"/"+s.Name)
 				}
+			}
+		}
+		for _, b := range listing.Builtin {
+			if b.Shareable {
+				choices = append(choices, "builtin/"+b.Name)
 			}
 		}
 		if len(choices) == 0 {
@@ -719,6 +830,11 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 	if !fs.Changed("resources") && len(server.Resources) > 0 {
 		if askYes(errOut, fmt.Sprintf("Include its %d resources?", len(server.Resources))) {
 			spec.resources = "all"
+		}
+	}
+	if !fs.Changed("bound") {
+		if spec.bounds, err = askBounds(errOut, agent.Agent.Name == "builtin"); err != nil {
+			return spec, listing, err
 		}
 	}
 	if spec.name == "" {
@@ -813,6 +929,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		} else {
 			c.Approval.Operations = json.RawMessage(`"none"`)
 		}
+		c.Bounds = spec.bounds
 	} else {
 		name = args[1]
 		if c, err = call[capabilityRecord](ctx, client, "GET", "/v1/capabilities/"+url.PathEscape(name)); err != nil {
@@ -885,11 +1002,26 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 			label = p.Member
 		}
 	}
+	// The reach: the capability's credential's, or for a new capability the
+	// source's, unchecked when it will have its own credential.
+	var reach *host.GHReach
+	var account *string
+	if b := builtinSource(listing, c.Source.Server); b != nil && c.Source.Agent == "builtin" {
+		account = b.Account
+		switch {
+		case !guided:
+			reach = c.CredentialReach
+		case spec.envFile == "":
+			reach = b.Reach
+		}
+	} else if !guided {
+		reach = c.CredentialReach
+	}
 	recipientText, recipientExtra := given, ""
 	if recipient != nil {
 		recipientText, recipientExtra = recipient.Address, recipientLines(o, recipient)
 	}
-	printReview(errOut, label+"/"+name, c, server, recipientText, recipientExtra, limitChange)
+	printReview(errOut, label+"/"+name, c, server, recipientText, recipientExtra, limitChange, reach, account)
 	printAgentReview(errOut, o, principal)
 	if err = confirmShare(errOut, yes); err != nil {
 		return err
@@ -911,10 +1043,11 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 				return err
 			}
 		} else {
-			_, signed, err := createWithClaims(ctx, client, keyPath, name, createSpec, network, principal, calls)
+			created, signed, err := createWithClaims(ctx, client, keyPath, name, createSpec, network, principal, calls)
 			if err != nil {
 				return err
 			}
+			printWarnings(errOut, created)
 			var policy any
 			if p, ok := signed[network]; ok {
 				policy = p
@@ -1228,6 +1361,10 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 	if err != nil {
 		return err
 	}
+	listing, err := readSources(ctx, client, "/v1/sources")
+	if err != nil {
+		return err
+	}
 	capabilities := []map[string]any{}
 	for _, raw := range list.Capabilities {
 		var entry map[string]any
@@ -1259,6 +1396,11 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 			}
 		}
 		entry["unshare"] = commands
+		var account *string
+		if b := builtinSource(listing, c.Source.Server); b != nil {
+			account = b.Account
+		}
+		entry["reach"] = reachStatement("Recipients", c, c.CredentialReach, account)
 		capabilities = append(capabilities, entry)
 	}
 	rules := []map[string]any{}
@@ -1313,6 +1455,12 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 			}
 			fmt.Fprintf(out, "  shared with %s in %s; undo: %s\n", label, r.NetworkID, command)
 		}
+		bounds := "none"
+		if c.Bounds.Set() {
+			bounds = host.BoundsAllowedText(c.Bounds)
+		}
+		fmt.Fprintf(out, "  bounds: %s\n", bounds)
+		fmt.Fprintf(out, "  reach: %s\n", entry["reach"])
 	}
 	for _, r := range rules {
 		if r["this_host"] == true {
@@ -1415,6 +1563,9 @@ func runDiscover(ctx context.Context, client host.Client, args []string, fs *pfl
 			line += fmt.Sprintf("  only for your %s %s", noun, strings.Join(agents, ", "))
 		}
 		fmt.Fprintln(out, line)
+		if c.Bounds.Set() {
+			fmt.Fprintf(out, "    limited to %s\n", host.BoundsAllowedText(c.Bounds))
+		}
 	}
 	for _, u := range d.Unanswered {
 		fmt.Fprintf(out, "did not answer: %s (%s)\n", u.HostID, u.Error)

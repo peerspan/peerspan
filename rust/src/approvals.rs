@@ -301,6 +301,11 @@ pub(crate) fn create(
             serde_json::to_string(&stored)?
         ],
     )?;
+    // A built-in source has no source agent, so there is no session to
+    // notify: the approval waits at the owner's CLI only.
+    if crate::builtin::is_builtin(agent_id) {
+        return Ok(());
+    }
     let notice = StoredNotice {
         notice: Notice {
             id: new_id("notice")?,

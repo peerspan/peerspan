@@ -149,6 +149,8 @@ type toolServerRecord struct {
 	Reason     *string  `json:"reason"`
 	MissingEnv []string `json:"missing_env"`
 	toolSnapshotState
+	// builtin is set for a built-in source read through readToolServer.
+	builtin *builtinRecord
 }
 
 // toolSnapshotState is a source's or capability's own snapshot and health.
@@ -161,6 +163,8 @@ type toolSnapshotState struct {
 	// latest JSON-RPC error that suggests authentication.
 	StartFailedAt *string `json:"start_failed_at"`
 	AuthErrorAt   *string `json:"auth_error_at"`
+	// Reach is a gh credential's reach, for built-in gh sources.
+	Reach *GHReach `json:"reach,omitempty"`
 }
 
 func (r toolServerRecord) MarshalJSON() ([]byte, error) {
@@ -245,8 +249,9 @@ type AgentSources struct {
 
 // SourcesListing is GET /v1/sources.
 type SourcesListing struct {
-	Agents []AgentSources `json:"agents"`
-	OpenTo []string       `json:"open_to"`
+	Agents  []AgentSources      `json:"agents"`
+	Builtin []BuiltinSourceView `json:"builtin"`
+	OpenTo  []string            `json:"open_to"`
 }
 
 // toolState serializes discovery and snapshots per agent.
@@ -403,6 +408,13 @@ func validateToolServers(r PutToolServers) error {
 }
 
 func readToolServer(ctx context.Context, q dbQuerier, agent, name string) (toolServerRecord, error) {
+	if agent == builtinAgent {
+		b, err := readBuiltin(ctx, q, name)
+		if err != nil {
+			return toolServerRecord{}, err
+		}
+		return b.asToolServer(), nil
+	}
 	return readJSON[toolServerRecord](q.QueryRowContext(ctx, `SELECT record FROM tool_servers WHERE agent_id = ? AND name = ?`, agent, name))
 }
 
@@ -528,13 +540,19 @@ type snapshotTarget struct {
 // capabilities with their own credential built on them, concurrently, and
 // records each outcome.
 func (s *Store) snapshotAgent(ctx context.Context, agentID string) error {
-	servers, err := records[toolServerRecord](ctx, s.db, `SELECT record FROM tool_servers WHERE agent_id = ? ORDER BY name`, agentID)
+	servers, err := sourceRecords(ctx, s.db, agentID)
 	if err != nil {
 		return err
 	}
 	capabilities, err := records[capabilityRecord](ctx, s.db, `SELECT record FROM capabilities ORDER BY name`)
 	if err != nil {
 		return err
+	}
+	accounts := map[string]*string{}
+	for _, srv := range servers {
+		if srv.builtin != nil {
+			accounts[srv.Name] = srv.builtin.Account
+		}
 	}
 	var targets []snapshotTarget
 	for _, srv := range servers {
@@ -558,6 +576,10 @@ func (s *Store) snapshotAgent(ctx context.Context, agentID string) error {
 			spec, err := s.toolLaunch(ctx, s.db, agentID, t.server, t.own)
 			if err == nil {
 				snaps[i], err = takeSnapshot(context.WithoutCancel(ctx), spec)
+			}
+			if err == nil && spec.ghPath != "" {
+				reach := s.checkReach(context.WithoutCancel(ctx), spec, accounts[t.server])
+				snaps[i].Reach = &reach
 			}
 			results[i] = err
 		}()
@@ -587,17 +609,13 @@ func (s *Store) recordSnapshot(ctx context.Context, agentID string, t snapshotTa
 			return
 		}
 		state.Tools, state.Resources, state.SnapshotAt, state.SnapshotError = snap.Tools, snap.Resources, &now, nil
+		if snap.Reach != nil {
+			state.Reach = snap.Reach
+		}
 	}
 	if t.own == nil {
-		rec, err := readToolServer(ctx, tx, agentID, t.server)
-		if errors.Is(err, ErrNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		update(&rec.toolSnapshotState)
-		if err = putJSON(ctx, tx, `UPDATE tool_servers SET record = ? WHERE agent_id = ? AND name = ?`, rec, agentID, t.server); err != nil {
+		found, err := updateSourceState(ctx, tx, agentID, t.server, update)
+		if err != nil || !found {
 			return err
 		}
 		if failure != nil {
@@ -721,6 +739,11 @@ func (s *Store) toolLaunch(ctx context.Context, q dbQuerier, agentID, server str
 			spec.Args[i] = v
 		}
 	}
+	if agentID == builtinAgent {
+		if err := s.builtinLaunch(rec, &spec); err != nil {
+			return launchSpec{}, err
+		}
+	}
 	env := map[string]string{}
 	var order []string
 	set := func(name, value string) {
@@ -757,7 +780,7 @@ func (s *Store) toolLaunch(ctx context.Context, q dbQuerier, agentID, server str
 		}
 	}
 	if own != nil {
-		if own.args != nil {
+		if own.args != nil && agentID != builtinAgent {
 			spec.Args = append([]string{}, own.args...)
 		}
 		if own.envFile != nil {
@@ -1006,8 +1029,15 @@ func localSourceRoutes(mux *http.ServeMux, store *Store) {
 			respond(w, 0, nil, err)
 			return
 		}
+		builtin := []BuiltinSourceView{}
+		if agent == "" {
+			if builtin, err = store.builtinSources(r.Context()); err != nil {
+				respond(w, 0, nil, err)
+				return
+			}
+		}
 		open, err := openList(r.Context(), store.db)
-		respond(w, http.StatusOK, SourcesListing{Agents: agents, OpenTo: open}, err)
+		respond(w, http.StatusOK, SourcesListing{Agents: agents, Builtin: builtin, OpenTo: open}, err)
 	})
 	mux.HandleFunc("POST /v1/sources/open-to", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
