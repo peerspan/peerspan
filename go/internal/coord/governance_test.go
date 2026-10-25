@@ -195,7 +195,7 @@ func TestStatementsMigrationFromVersion2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`DROP TABLE statements; ALTER TABLE members DROP COLUMN admission; DROP TABLE registrations; DROP TABLE relay_usage; DROP TABLE successors; PRAGMA user_version = 2;`); err != nil {
+	if _, err = db.Exec(`DROP TABLE statements; ALTER TABLE members DROP COLUMN admission; DROP TABLE registrations; DROP TABLE relay_usage; DROP TABLE successors; DROP TABLE link_frames; DROP TABLE link_polls; DROP TABLE link_mailboxes; DROP TABLE link_operations; DROP TABLE link_objects; DROP TABLE link_features; DROP TABLE link_rates; PRAGMA user_version = 2;`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -205,7 +205,7 @@ func TestStatementsMigrationFromVersion2(t *testing.T) {
 	}
 	defer s.Close()
 	var version, tables int
-	if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 6 {
+	if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 7 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'statements'`).Scan(&tables); err != nil || tables != 1 || s.Identity() != identity {

@@ -85,7 +85,7 @@ PRAGMA user_version = 4;
 
 // schemaVersion is the newest database version this build opens; Open
 // upgrades older ones.
-const schemaVersion = 6
+const schemaVersion = 7
 
 var (
 	errInvalid   = errors.New("invalid request")
@@ -292,6 +292,11 @@ func Open(ctx context.Context, dir string) (_ *Server, err error) {
 	}
 	if version < 6 {
 		if _, err = tx.ExecContext(ctx, successorsSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 7 {
+		if _, err = tx.ExecContext(ctx, linkingSchema); err != nil {
 			return nil, err
 		}
 	}
@@ -573,6 +578,7 @@ func (s *Server) Handler() http.Handler {
 	s.policyRoutes(mux)
 	s.limitRoutes(mux)
 	s.moveRoutes(mux)
+	s.linkingRoutes(mux)
 	return s.observe(mux, s.notifyChanges(mux))
 }
 

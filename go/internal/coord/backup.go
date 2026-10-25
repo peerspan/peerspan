@@ -95,6 +95,47 @@ func checkDB(ctx context.Context, path string) (Identity, int, error) {
 	if err != nil {
 		return Identity{}, 0, fmt.Errorf("not a coordinator database: %w", err)
 	}
+	if version >= 7 {
+		// A partial schema-7 file must not be accepted as a complete backup.
+		for _, columns := range []string{
+			"locator,request_id,creator,source_ip,created_at,expires_at,state,next_sequence FROM link_mailboxes",
+			"locator,request_id,sequence,role,writer_public_key,frame_id,body FROM link_frames",
+			"request_id,network_id,manifest_id,host_public_key,result FROM link_operations",
+			"network_id,proof_id,kind,body FROM link_objects",
+			"network_id,feature_id,proposal,feature,active FROM link_features",
+			"category,source,window,count FROM link_rates",
+			"locator,host_id,next_at FROM link_polls",
+		} {
+			rows, queryErr := db.QueryContext(ctx, "SELECT "+columns+" LIMIT 0")
+			if queryErr != nil {
+				return Identity{}, 0, fmt.Errorf("incomplete coordinator linking state")
+			}
+			if err = rows.Close(); err != nil {
+				return Identity{}, 0, err
+			}
+		}
+		rows, queryErr := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
+		if queryErr != nil {
+			return Identity{}, 0, queryErr
+		}
+		broken := rows.Next()
+		err = rows.Err()
+		closeErr := rows.Close()
+		if broken || err != nil || closeErr != nil {
+			return Identity{}, 0, fmt.Errorf("incomplete coordinator linking references")
+		}
+		var incomplete int
+		if err = db.QueryRowContext(ctx, `SELECT count(*) FROM link_mailboxes m WHERE
+ m.next_sequence < 2 OR m.expires_at - m.created_at != 300 OR
+ m.state NOT IN ('open','expired','deleted') OR
+ (m.state='deleted' AND EXISTS(SELECT 1 FROM link_frames f WHERE f.locator=m.locator)) OR
+ (m.state!='deleted' AND (
+   (SELECT count(*) FROM link_frames f WHERE f.locator=m.locator) != m.next_sequence-1 OR
+   (SELECT COALESCE(min(sequence),0) FROM link_frames f WHERE f.locator=m.locator) != 1 OR
+   (SELECT COALESCE(max(sequence),0) FROM link_frames f WHERE f.locator=m.locator) != m.next_sequence-1))`).Scan(&incomplete); err != nil || incomplete != 0 {
+			return Identity{}, 0, fmt.Errorf("incomplete coordinator linking frame history")
+		}
+	}
 	return identities[len(identities)-1].identity, version, nil
 }
 

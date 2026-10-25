@@ -1,0 +1,305 @@
+{
+  "checked_on": "2026-10-25",
+  "source_commit": "fab995f49e69d0413bd653a52a66b529134c8ca5",
+  "scope": "Coordinator schema7 mailbox transport, cleanup/limits, crash barriers and backup frame continuity. Does not claim host ceremony or complete milestone readiness.",
+  "suite_authorship": "Separate author used accepted public runtime contract and independent TLS clients without implementation access. Implementer retained exact tests. No assertions, timeouts or retries weakened.",
+  "conformance": {
+    "suite": "conformance/linking_mailboxes.py",
+    "conformance_commit": "8b104a4",
+    "binary": "/tmp/peerspan-link-runtime-coord",
+    "current_binary_sha256": "28a59dcaa03753c3542b05a3e4730dd468032685c02fd6feefdda569b6d19a51",
+    "result": "all twelve sections passed across targeted independent runs",
+    "sections_authenticated_requests": {
+      "transport": 22,
+      "strict": 37,
+      "terminal": 14,
+      "per_ip_rates": 78,
+      "open_limits": 261,
+      "frame_limits": 71,
+      "crash_and_backup": 13,
+      "global_creation": 1004,
+      "global_polls": 12124,
+      "global_writes": 12005,
+      "retained_limit": 4100,
+      "global_bytes": 517
+    },
+    "total_authenticated_requests": 30246,
+    "resource_rerun_session": 90076,
+    "resource_rerun_total": 16622,
+    "limits_and_assertions": "unchanged; no transparent retries",
+    "initial_resource_attempt": "global_creation and global_polls passed; other three transport errors superseded by clean exact rerun"
+  },
+  "language_checks": {
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go GOMAXPROCS=4 go -C go vet ./internal/... ./cmd/..."
+    },
+    "go_race": {
+      "passed": false,
+      "coordinator_passed": true,
+      "coordinator_seconds": 10.23,
+      "all_other_packages_passed": true,
+      "failure": "Only unchanged TestPathDiscoveryChecks packet routing assertion at go/internal/host/peer_path_test.go:157; host180.777s. Entire host/disco source unchanged by mailbox PR. Prior independently reproduced baseline failures retained in docs/results/linking-readers.json.",
+      "execution_session": 40919,
+      "output_retention": "Tool execution output; no separate logfile retained."
+    }
+  },
+  "legacy_initial_attempts": [
+    {
+      "suite": "coordination",
+      "exit_code": 0,
+      "seconds": 83.55,
+      "log": "/tmp/peerspan-mailbox-gates/coordination.log"
+    },
+    {
+      "suite": "revocation",
+      "exit_code": 0,
+      "seconds": 84.85,
+      "log": "/tmp/peerspan-mailbox-gates/revocation.log"
+    },
+    {
+      "suite": "persons",
+      "exit_code": 0,
+      "seconds": 149.98,
+      "log": "/tmp/peerspan-mailbox-gates/persons.log"
+    },
+    {
+      "suite": "admins",
+      "exit_code": 0,
+      "seconds": 97.58,
+      "log": "/tmp/peerspan-mailbox-gates/admins.log"
+    },
+    {
+      "suite": "policy",
+      "exit_code": 1,
+      "seconds": 180.72,
+      "log": "/tmp/peerspan-mailbox-gates/policy.log"
+    },
+    {
+      "suite": "relay",
+      "exit_code": 1,
+      "seconds": 30.43,
+      "log": "/tmp/peerspan-mailbox-gates/relay.log"
+    },
+    {
+      "suite": "nat_lab",
+      "exit_code": 1,
+      "seconds": 54.61,
+      "log": "/tmp/peerspan-mailbox-gates/nat_lab.log"
+    },
+    {
+      "suite": "launch_service",
+      "exit_code": 1,
+      "seconds": 179.19,
+      "log": "/tmp/peerspan-mailbox-gates/launch_service.log"
+    },
+    {
+      "suite": "coord_ops",
+      "exit_code": 1,
+      "seconds": 35.82,
+      "log": "/tmp/peerspan-mailbox-gates/coord_ops.log"
+    }
+  ],
+  "targeted_followups": [
+    {
+      "section": "launch_service_migration",
+      "result": "pass",
+      "seconds": 1.02
+    },
+    {
+      "section": "coord_ops_deployment",
+      "result": "pass",
+      "seconds": 0.41
+    },
+    {
+      "section": "policy_rust_rust",
+      "result": "fail",
+      "seconds": 148.6
+    },
+    {
+      "section": "relay_Go_Go",
+      "result": "pass",
+      "seconds": 26.29
+    },
+    {
+      "section": "relay_Go_Rust",
+      "result": "pass",
+      "seconds": 28.18
+    },
+    {
+      "section": "relay_Rust_Go",
+      "result": "pass",
+      "seconds": 19.94
+    },
+    {
+      "section": "relay_Rust_Rust",
+      "result": "pass",
+      "seconds": 34.72
+    },
+    {
+      "section": "nat_cone_rust_rust",
+      "result": "pass",
+      "seconds": 17.48
+    },
+    {
+      "section": "nat_symmetric_Go_Go",
+      "result": "pass",
+      "seconds": 32.61
+    },
+    {
+      "section": "nat_symmetric_Go_Rust",
+      "result": "pass",
+      "seconds": 36.74
+    },
+    {
+      "section": "nat_symmetric_Rust_Go",
+      "result": "pass",
+      "seconds": 37.7
+    },
+    {
+      "section": "nat_symmetric_Rust_Rust",
+      "result": "pass",
+      "seconds": 37.33
+    },
+    {
+      "section": "nat_udp_blocked_Go_Go",
+      "result": "pass",
+      "seconds": 40.48
+    },
+    {
+      "section": "nat_udp_blocked_Go_Rust",
+      "result": "pass",
+      "seconds": 43.08
+    },
+    {
+      "section": "nat_udp_blocked_Rust_Go",
+      "result": "fail",
+      "seconds": 17.77
+    },
+    {
+      "section": "nat_udp_blocked_Rust_Rust",
+      "result": "pass",
+      "seconds": 40.83
+    }
+  ],
+  "isolated_remaining_risks": [
+    {
+      "section": "policy_rust_rust_isolated_current",
+      "result": "pass",
+      "seconds": 81.78
+    },
+    {
+      "section": "nat_udp_blocked_Rust_Go_baseline",
+      "result": "pass",
+      "seconds": 41.25
+    },
+    {
+      "section": "nat_udp_blocked_Rust_Go_isolated_current",
+      "result": "pass",
+      "seconds": 41.3
+    }
+  ],
+  "legacy_summary": {
+    "coordination_revocation_persons_admins": "All four creator/joiner pairings pass.",
+    "policy": "Go/Go,Go/Rust,Rust/Go initially pass. Rust/Rust lapsed-policy CLI timed out in two initial attempts; unchanged schema6 baseline passed69.99s and isolated same current source passed81.78s. Original failures retained.",
+    "relay": "All four pairings pass targeted full relay scenarios after initial setup/shutdown timeout.",
+    "nat": "Cone and symmetric all four pairings pass. UDPblocked all four pass across initial and targeted isolated runs; Rust/Go reverse503 resolved in exact isolated current41.30s and schema6 baseline41.25s. Original failure retained.",
+    "launch_service": "All four CLI/daemon service/status/default/limits pairs pass. All coordinator limit checks pass; schema migration expected6 mechanically updated to7 by independent author and targeted migration passes.",
+    "coord_ops": "Ops listener, metrics, live backups, refusals, restore/keep working, WAL preservation and logs pass. Python3.12 lacked PyYAML for deployment-file check; systemPython3.11 has PyYAML and targeted unchanged deployment check passes.",
+    "coord_successor": "Initial all-four-pairing matrix passes every section except one Go/Go bob TLS proxy timeout. Exact full Go/Go scenario then passes both unchanged schema6 baseline120.95s and current mailbox coordinator118.03s. No assertions/timeouts changed; original failure retained."
+  },
+  "remaining": [
+    "End-to-end approved machine linking, host typed providers, CLI/up and installed acceptance are subsequent milestone slices"
+  ],
+  "successor_isolation": [
+    {
+      "source": "baseline",
+      "passed": true,
+      "seconds": 120.95,
+      "sections": [
+        [
+          "Go/Go setup",
+          true,
+          "alice and frank run Go; bob, carol, dave, erin run Go"
+        ],
+        [
+          "Go/Go address change with the same key",
+          true,
+          "switch times {'alice': 1.0, 'bob': 1.1}; notified in 0.2s"
+        ],
+        [
+          "Go/Go key change with --previous-listen",
+          true,
+          "switch times {'address change: hosts switch within two sync intervals': {'alice': 1.0, 'bob': 1.1}, 'key change: running hosts switch': {'alice': 1.4, 'bob': 1.8}, 'key change: a host stopped during the change follows on restart': {'carol': 0.2}, 'key change: a join with an invite issued before the change ends pinned to the new identity': {'dave': 1.4}}"
+        ],
+        [
+          "Go/Go two successors while stopped",
+          true,
+          "followed in 0.4s; identity_hosts {0: 1.0, 1: 0.0, 2: 6.0}"
+        ],
+        [
+          "Go/Go unreachable new address",
+          true,
+          "switch times {'alice': 0.5, 'bob': 0.5, 'carol': 0.5, 'dave': 0.5, 'erin': 0.5, 'frank': 0.9}"
+        ],
+        [
+          "Go/Go invalid chain via stand-in (alice, Go)",
+          true,
+          "10 invalid chains ignored; pending, empty chain, and a two-step switch"
+        ],
+        [
+          "Go/Go invalid chain via stand-in (bob, Go)",
+          true,
+          "10 invalid chains ignored; pending, empty chain, and a two-step switch"
+        ]
+      ]
+    },
+    {
+      "source": "current",
+      "passed": true,
+      "seconds": 118.03,
+      "sections": [
+        [
+          "Go/Go setup",
+          true,
+          "alice and frank run Go; bob, carol, dave, erin run Go"
+        ],
+        [
+          "Go/Go address change with the same key",
+          true,
+          "switch times {'alice': 1.0, 'bob': 1.1}; notified in 0.2s"
+        ],
+        [
+          "Go/Go key change with --previous-listen",
+          true,
+          "switch times {'address change: hosts switch within two sync intervals': {'alice': 1.0, 'bob': 1.1}, 'key change: running hosts switch': {'alice': 1.9, 'bob': 1.9}, 'key change: a host stopped during the change follows on restart': {'carol': 0.1}, 'key change: a join with an invite issued before the change ends pinned to the new identity': {'dave': 0.8}}"
+        ],
+        [
+          "Go/Go two successors while stopped",
+          true,
+          "followed in 0.3s; identity_hosts {0: 1.0, 1: 0.0, 2: 6.0}"
+        ],
+        [
+          "Go/Go unreachable new address",
+          true,
+          "switch times {'alice': 0.9, 'bob': 0.9, 'carol': 1.0, 'dave': 1.0, 'erin': 1.0, 'frank': 1.0}"
+        ],
+        [
+          "Go/Go invalid chain via stand-in (alice, Go)",
+          true,
+          "10 invalid chains ignored; pending, empty chain, and a two-step switch"
+        ],
+        [
+          "Go/Go invalid chain via stand-in (bob, Go)",
+          true,
+          "10 invalid chains ignored; pending, empty chain, and a two-step switch"
+        ]
+      ]
+    }
+  ],
+  "final_rebase": {
+    "base": "73fde8e5efb81c64bdfe263e34ce19908379559e",
+    "coordinator_source_unchanged": true,
+    "check": "git diff fab995f -- go/internal/coord was empty after rebase; main merged contracts retained"
+  }
+}

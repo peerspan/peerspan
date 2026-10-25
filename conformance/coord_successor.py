@@ -18,7 +18,7 @@ Sections, run once:
   `--new-key`; `--new-key` with the same address; the printed `{sequence, id, public_key, address,
   successor}`; each successor a strict object with exactly the six fields, sequences from 1, signed by the
   previous identity's key over the contract's lines, forming a valid chain; `info` reporting the latest key
-  with every identity in order; database version 6;
+  with every identity in order; database version 7;
 - serving: `--previous-listen` refused with exit 2 and no start line for the latest identity, a later or
   nonexistent sequence, and a negative one; the `start` line's `previous_listen` (empty without the flag);
   each listener presenting its identity's key; `successors` on register, join, and sync (the chain from the
@@ -585,7 +585,7 @@ class CoordinatorChecks:
              "info's id and public_key are the latest identity's", info)
         with sqlite3.connect(f'file:{state / "coord.db"}?mode=ro', uri=True) as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-        need(version == 6, 'the coordinator database moves to version 6', version)
+        need(version == 7, 'the coordinator database moves to version 7 for linking transport', version)
         return f'{len(expected)} identities'
 
     def check_serving(self):
