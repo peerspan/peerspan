@@ -118,6 +118,10 @@ reports the selected current epoch while keeping the original feature ID. A
 known person without a matching historical admission label makes the transcript
 `invalid`; a person entirely unknown still needs its ordinary admission proof.
 
+Fully signed historical coordinator descriptors follow the separate
+[original-pin checks](linking-coordinator-history-checks.md); first operations
+retain their exact actual coordinator pin.
+
 ## Public interface and support boundary
 
 Existing probe request and success shapes are unchanged. `catalog_facts`,

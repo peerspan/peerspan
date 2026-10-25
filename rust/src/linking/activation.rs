@@ -850,12 +850,7 @@ impl<'a> Verifier<'a> {
         let device = text(&req, "device_public_key")?.to_owned();
         let (_, req, rid, _) =
             self.packet(&raw_field(body, "request")?, "request", id, &host, &device)?;
-        check(
-            host != device
-                && s(&req, "coordinator_address") == s(&self.network, "coordinator_address")
-                && s(&req, "coordinator_public_key") == s(&self.network, "coordinator_public_key"),
-            "invalid",
-        )?;
+        check(host != device, "invalid")?;
         let expected_id = format!(
             "link_{}",
             hash(&lines(&[
@@ -900,9 +895,11 @@ impl<'a> Verifier<'a> {
                     || s(&req, "expected_person_public_key") == person),
             "invalid",
         )?;
-        check(
-            object(offer.get("network").ok_or_else(|| problem("invalid"))?)? == &self.network,
-            "invalid",
+        operation_descriptor(
+            object(offer.get("network").ok_or_else(|| problem("invalid"))?)?,
+            &req,
+            &self.network,
+            historical,
         )?;
         let (operation_root, operation_epoch) = self.epoch_root(&offer, "epoch")?;
         check(historical || operation_epoch == self.epoch, "invalid")?;
@@ -1246,4 +1243,27 @@ pub(super) fn probe_catalog_facts(o: &Obj, stored: bool) -> Value {
 
 pub(super) fn probe_access(o: &Obj, stored: bool) -> Value {
     policy::probe_access(o, stored)
+}
+
+// Original signed descriptors remain evidence; historical transport is not authority.
+fn operation_descriptor(
+    network: &Obj,
+    request: &Obj,
+    current: &Obj,
+    historical: bool,
+) -> Result<()> {
+    fields(
+        network,
+        "network_id name genesis_root_public_key coordinator_address coordinator_public_key",
+        &[],
+    )?;
+    check(key(text(network, "coordinator_public_key")?), "invalid")?;
+    crate::membership::split_host_port(text(network, "coordinator_address")?)?;
+    for field in ["network_id", "name", "genesis_root_public_key"] {
+        check(text(network, field)? == text(current, field)?, "invalid")?;
+    }
+    for field in ["coordinator_address", "coordinator_public_key"] {
+        check(text(request, field)? == text(network, field)?, "invalid")?;
+    }
+    check(historical || network == current, "invalid")
 }

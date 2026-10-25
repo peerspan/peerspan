@@ -39,6 +39,9 @@ current-epoch authority and attestations while preserving historical transcripts
 and the exact activated feature.
 The [fixed stored-catalog entry points](linking-stored-checks.md) accept complete
 bounded public snapshots while preserving the original state-free API budgets.
+[Historical descriptor verification](linking-coordinator-history-checks.md) keeps
+complete old transcripts verifiable under their own coordinator pins, while new
+operations remain pinned to the actual current connection.
 These checks expose verified facts;
 they do not apply actions or enable runtime writers. Standalone invitations,
 durable high-water persistence, freshness and propagation remain pending;

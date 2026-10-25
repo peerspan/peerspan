@@ -676,7 +676,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
-	if host == device || scalar(req, "coordinator_address") != scalar(v.network, "coordinator_address") || scalar(req, "coordinator_public_key") != scalar(v.network, "coordinator_public_key") {
+	if host == device {
 		return bad("invalid")
 	}
 	expectedID := "link_" + digest(message("peerspan-link-request-id-v1", scalar(req, "coordinator_public_key"), host, device, scalar(req, "request_nonce")))
@@ -711,7 +711,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		return bad("invalid")
 	}
 	network, e := parse(offer["network"])
-	if e != nil || !equivalent(network, v.network) {
+	if e != nil || !operationDescriptor(network, req, v.network, historical) {
 		return bad("invalid")
 	}
 	operationRoot, operationEpoch, e := v.epochRoot(offer, "epoch")

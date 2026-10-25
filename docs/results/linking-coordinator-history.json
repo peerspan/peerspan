@@ -1,0 +1,47 @@
+{
+  "checked_on": "2026-10-25",
+  "base_commit": "2200598",
+  "scope": "Verify fully signed historical activations under their exact original coordinator descriptor while preserving first-operation actual pins and present authority. No transport pin-selection or runtime migration claim.",
+  "contract": "docs/linking-coordinator-history-checks.md",
+  "suite_authorship": "Independent author used contract and public signers without implementation access.",
+  "conformance": {
+    "passed": true,
+    "checks_per_mode": 17,
+    "modes": [
+      "normal",
+      "stored"
+    ],
+    "checks_per_implementation": 34,
+    "regression_checks_per_implementation": 3131,
+    "regression_passed": true,
+    "fixture_signatures_reproduced": 199,
+    "command": "python3 conformance/linking_history_pins.py --go-probe /tmp/peerspan-coordinator-evidence-go --rust-probe /tmp/peerspan-coordinator-evidence-rust"
+  },
+  "language_checks": {
+    "go_vet": true,
+    "rust_fmt": true,
+    "rust_clippy": true,
+    "clippy_log": "/tmp/peerspan-coordinator-evidence-clippy.log",
+    "both_probe_and_host_builds": true
+  },
+  "shared_final_integration_gate": {
+    "source_branch": "codex/linking-coordinator-evidence",
+    "all14_probe_checks_per_implementation": 3245,
+    "all14_probes_passed": true,
+    "go_race_passed": false,
+    "rust_full_tests_passed": true,
+    "status": "Final composed reader-stack gates complete. Full Rust passed; full Go failed only the documented unchanged discovery assertion. No runtime readiness claim.",
+    "go_log": "/tmp/peerspan-coordinator-evidence-go-race.log",
+    "rust_log": "/tmp/peerspan-coordinator-evidence-rust-tests.log",
+    "go_failure": "Only unchanged TestPathDiscoveryChecks packet routing at go/internal/host/peer_path_test.go:157; host 358.972 seconds. All other tests/packages passed. Existing baseline evidence: docs/results/linking-readers.json. No host/disco source changes.",
+    "rust_library_passed": 138,
+    "rust_library_ignored": 2,
+    "rust_library_seconds": 169.3,
+    "rust_main_passed": 10,
+    "rust_integration_passed": 6
+  },
+  "remaining": [
+    "Independent current coordinator move/successor following and durable freshness/prefix",
+    "Runtime writers, ceremony, signer selection and installed acceptance"
+  ]
+}
