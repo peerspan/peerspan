@@ -102,7 +102,7 @@ references (`dc_`, `ar_`, `rr_`, `lp_`, `lf_`) from decoded objects, never from 
 coordinator's asserted index. Catalog kinds are `rotation`, `admin_delegation`,
 `admin_removal`, `person_admission`, `person_membership`, `host_membership`,
 `host_admission`, `host_binding`, `host_unbinding`, `host_leave`,
-`host_revocation`, `invite_revocation`, `person_removal`, `group`, `policy`,
+`host_revocation`, `invite_revocation`, `person_removal`, `attestation`, `group`, `policy`,
 `feature`, `join_ack`, `certificate`, `device_revocation`, `checkpoint`,
 `person_record`, `root_record`, `activation`, and `invite_redemption`.
 Legacy kinds contain their existing public statement shape; new kinds contain

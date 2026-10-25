@@ -304,7 +304,8 @@ class Author(RecordAuthor):
             for label, edits in (("network", {"network_id": "net_" + "0" * 64}), ("epoch", {"epoch": 1})):
                 changed = dict(record, **edits)
                 self.oracle.resign("person_record", changed, self.person)
-                self.add("strict/" + kind + "/" + label, self.catalog_with([changed]), code="invalid")
+                self.add("strict/" + kind + "/" + label, self.catalog_with([changed]),
+                         code="proof_required" if label == "epoch" else "invalid")
             for label, unsigned in (("unknown", dict(payload(record), extra=True)),
                                      ("null", dict(payload(record), network_id=None))):
                 changed = self.record(kind, unsigned=unsigned)

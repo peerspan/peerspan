@@ -9,6 +9,7 @@ import (
 type inviteHalf struct {
 	host, legacy, kept                        bool
 	person, cert, key, label, expires, record string
+	epoch                                     uint64
 }
 type redemption struct {
 	object Object
@@ -111,6 +112,10 @@ func (v *activationVerifier) readInvite(body []byte, host bool) (inviteHalf, err
 		kind = "peerspan-person-invite-v1"
 	}
 	if _, envelope := o["format"]; envelope {
+		h.epoch, e = num(o, "epoch")
+		if e != nil {
+			return bad()
+		}
 		h.person, h.cert = scalar(o, "person_public_key"), scalar(o, "certificate_id")
 		if !key(h.person) || h.cert != "root" && !identifier(h.cert, "dc_") {
 			return bad()
@@ -153,19 +158,24 @@ func (v *activationVerifier) readInvite(body []byte, host bool) (inviteHalf, err
 			if e != nil {
 				return bad()
 			}
-			if epoch != 0 {
-				return inviteHalf{}, pathError("upgrade_required")
+			if epoch >= uint64(len(v.roots)) {
+				return inviteHalf{}, pathError("proof_required")
 			}
-			parts = append(parts, "0")
+			h.epoch = epoch
+			parts = append(parts, strconv.FormatUint(epoch, 10))
 		}
 		parts = append(parts, scalar(o, "invite_public_key"), scalar(o, "member"), scalar(o, "invite_expires_at"))
 		m, sig := message(parts...), scalar(o, "signature")
-		h.kept, e = v.legacyAuthority(m, sig)
+		if host {
+			h.kept, e = v.legacyAuthority(m, sig)
+		} else {
+			h.kept, e = v.legacyGrant(o, "invite_epoch", m, sig)
+		}
 		if e != nil {
 			return inviteHalf{}, e
 		}
 		h.legacy, h.person = true, "-"
-		if rootSignature(v.root, m, sig) != nil {
+		if !v.anyRootSignature(m, sig) {
 			pub, ok := membership.SSHSIGKey(sig)
 			if !ok {
 				return bad()
@@ -220,7 +230,12 @@ func (v *activationVerifier) readRedemption(p catalogProof) (redemption, error) 
 
 func (v *activationVerifier) redemptionHalf(id string, h inviteHalf) (bool, error) {
 	if h.legacy {
-		return h.kept && !v.history.invites[h.key], nil
+		kept := h.kept
+		if h.host && h.person == "-" {
+			p := v.proofs[id]
+			kept = kept || v.attested[scalar(p.object, "host_public_key")] == h.label
+		}
+		return kept && !v.history.invites[h.key], nil
 	}
 	if !v.history.delegated[h.person] {
 		return false, pathError("forbidden")
@@ -348,6 +363,11 @@ func (v *activationVerifier) redemptionRecord(id string) error {
 			}
 		} else {
 			person := scalar(r.object, "person_public_key")
+			// Retain the verified invitation's original epoch, never the
+			// selected tip. Historical root evidence does not admit currently.
+			if valid[i] || h.legacy && h.person == "-" && !v.history.invites[h.key] {
+				v.historicalPersons[historicalLabel{person, h.epoch, h.label}] = true
+			}
 			if valid[i] {
 				if old, exists := v.persons[person]; exists && old != h.label {
 					return pathError("state_conflict")

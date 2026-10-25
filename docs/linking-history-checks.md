@@ -2,7 +2,7 @@
 
 This extends the [catalog/activation verifier](linking-activation-checks.md)
 accepted in [PR #46](https://github.com/peerspan/peerspan-internal/pull/46).
-It remains stateless, at epoch zero, without runtime routes, mutation,
+It remains stateless, with verified epochs from the [root-chain extension](linking-root-checks.md), without runtime routes, mutation,
 persistence, freshness or writer-readiness claims. The existing activation
 probe request/success shapes and 512 KiB decoded bound remain unchanged.
 
@@ -139,7 +139,7 @@ state, including restrictions discovered later in dependency traversal.
 
 ## Remaining support boundary
 
-Root rotation/nonzero epochs, policies/groups and high-water handling,
+Policies/groups and high-water handling,
 other ordinary person envelopes, standalone live invitation tokens and durable feature activation/
 durable freshness remain required before writers. These known unsupported
 formats return `upgrade_required`; unknown kinds remain `invalid`.
@@ -183,3 +183,7 @@ transaction and coordination contracts, without reading either implementation:
   reject existing live membership, an elapsed request interval, or unusable
   owner/admin authority. Reusing historical work must never return first-operation
   success; pair historical success controls with first-operation rejections.
+
+Verified root rotation and nonzero-epoch catalogs now follow the
+[root-chain checks](linking-root-checks.md), including current attestations
+and historical transcript preservation.

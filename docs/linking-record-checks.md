@@ -29,8 +29,8 @@ Ordinary unbinding/removal/revocation follows the
 remain `upgrade_required` and need subsequent catalog work. Completed invitation/redemption history follows the
 [redemption checks](linking-redemption-checks.md).
 Unknown or malformed registry entries are `invalid` under the existing reader.
-This slice remains genesis-only; a supported ordinary grant's epoch/network
-must match the pinned context (`invalid` on mismatch).
+A supported ordinary grant's network must match the pinned context. Its signed
+epoch must exist in the verified lineage under the [root checks](linking-root-checks.md).
 
 ## Resolution and durable authority
 
@@ -173,3 +173,7 @@ python3 conformance/linking_records.py \
 
 Recorded checks and the supported scope are in the
 [implementation results](results/linking-records.json).
+
+Verified root rotation and nonzero-epoch catalogs now follow the
+[root-chain checks](linking-root-checks.md), including current attestations
+and historical transcript preservation.

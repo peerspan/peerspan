@@ -14,7 +14,7 @@ import (
 const MaxActivation = 512 << 10
 
 // ActivationContext contains caller-pinned facts, never coordinator assertions.
-// Epoch zero is the only supported epoch. Verification is first or historical.
+// The epoch selects the verified chain tip. Verification is first or historical.
 type ActivationContext struct {
 	Network                                                      []byte
 	Epoch                                                        uint64
@@ -51,6 +51,10 @@ type activationVerifier struct {
 	ctx                catalogContext
 	network            Object
 	net, root, feature string
+	epoch              uint64
+	roots              []string
+	attested           map[string]string
+	historicalPersons  map[historicalLabel]bool
 	state              *PathState
 	proofs             map[string]catalogProof
 	semantics          map[string]Object
@@ -69,17 +73,6 @@ type activationVerifier struct {
 }
 
 func scalar(o Object, k string) string { s, _ := text(o, k); return s }
-func zeroEpoch(o Object) bool          { n, e := num(o, "epoch"); return e == nil && n == 0 }
-func genesisEpoch(o Object) error {
-	n, e := num(o, "epoch")
-	if e != nil {
-		return pathError("invalid")
-	}
-	if n != 0 {
-		return pathError("upgrade_required")
-	}
-	return nil
-}
 func equivalent(a, b Object) bool {
 	var x, y any
 	da, _ := json.Marshal(a)
@@ -135,9 +128,6 @@ func newCatalogVerifier(network []byte, epoch uint64, knownFeature string, now t
 	if knownFeature != "-" && !identifier(knownFeature, "lf_") {
 		return nil, pathError("invalid")
 	}
-	if epoch != 0 {
-		return nil, pathError("upgrade_required")
-	}
 	n, e := parse(network)
 	if e != nil || fields(n, "network_id name genesis_root_public_key coordinator_address coordinator_public_key") != nil {
 		return nil, pathError("invalid")
@@ -147,7 +137,7 @@ func newCatalogVerifier(network []byte, epoch uint64, knownFeature string, now t
 	if e != nil || !key(root) || !key(scalar(n, "coordinator_public_key")) || membership.NetworkID(pub) != net || !membership.ValidLabel(scalar(n, "name")) || !membership.ValidCoordinatorAddress(scalar(n, "coordinator_address")) {
 		return nil, pathError("invalid")
 	}
-	v := &activationVerifier{ctx: catalogContext{KnownFeatureID: knownFeature, Now: now}, network: n, net: net, root: root, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}, evidence: map[string]catalogProof{}}
+	v := &activationVerifier{ctx: catalogContext{KnownFeatureID: knownFeature, Now: now}, network: n, net: net, root: root, epoch: epoch, roots: []string{root}, proofs: map[string]catalogProof{}, semantics: map[string]Object{}, activations: map[string][]byte{}, busy: map[string]bool{}, done: map[string]ActivationEvidence{}, admins: map[string]bool{}, persons: map[string]string{}, hosts: map[string]string{}, activeRecords: map[string]bool{}, evidence: map[string]catalogProof{}}
 	v.state = &PathState{NetworkID: net, Persons: map[string]PersonState{}, Hosts: map[string]bool{}, Bindings: map[string]string{}, Certificates: map[string][]byte{}, ActivatedCertificates: map[string]bool{}, RevokedDevices: map[DeviceKey]bool{}}
 	v.redemptions, v.inlineInvites, v.inviteUses = map[string]bool{}, map[string]bool{}, map[string]string{}
 	return v, nil
@@ -373,9 +363,7 @@ func (v *activationVerifier) catalog(body []byte) error {
 		}
 		last = id
 		switch kind {
-		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption", "policy", "group":
-		case "rotation":
-			return pathError("upgrade_required")
+		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption", "policy", "group", "rotation", "attestation":
 		default:
 			return pathError("invalid")
 		}
@@ -489,9 +477,6 @@ func (v *activationVerifier) record(raw []byte, kind, operation, person, cert, s
 	if e != nil || scalar(o, "network_id") != v.net || scalar(o, "kind") != kind || scalar(o, "operation_id") != operation {
 		return SignedObject{}, nil, pathError("invalid")
 	}
-	if !zeroEpoch(o) {
-		return SignedObject{}, nil, pathError("invalid")
-	}
 	typ := "person_record"
 	if person == "-" {
 		typ = "root_record"
@@ -501,6 +486,9 @@ func (v *activationVerifier) record(raw []byte, kind, operation, person, cert, s
 	r, e := Read(typ, raw, signer, "-")
 	if e != nil {
 		return SignedObject{}, nil, pathError("invalid")
+	}
+	if _, _, e := v.epochRoot(o, "epoch"); e != nil {
+		return SignedObject{}, nil, e
 	}
 	p, e := parse(r.Payload)
 	if e != nil {
@@ -573,6 +561,12 @@ func (v *activationVerifier) renewalProof(id, kind, person, host string, depth i
 		if scalar(o, "host_public_key") != host {
 			return pathError("invalid")
 		}
+		if p.kind == "root_record" {
+			epoch, _ := num(p.object, "epoch")
+			if epoch != v.epoch && v.attested[host] != scalar(o, "member") {
+				return pathError("forbidden")
+			}
+		}
 		if kind == "peerspan-host-bind-v1" && scalar(o, "person_public_key") != person {
 			return pathError("invalid")
 		}
@@ -585,10 +579,14 @@ func (v *activationVerifier) renewalProof(id, kind, person, host string, depth i
 		return nil
 	}
 	if kind == "peerspan-host-admit-v1" && p.kind == "host_admission" && scalar(p.object, "host_public_key") == host && scalar(p.object, "member") == v.persons[person] {
-		valid, e := v.legacyAuthority(message("peerspan-host-admit-v1", v.net, "0", host, scalar(p.object, "member"), scalar(p.object, "admitted_at")), scalar(p.object, "signature"))
+		epoch, _ := num(p.object, "epoch")
+		m := message("peerspan-host-admit-v1", v.net, strconv.FormatUint(epoch, 10), host, scalar(p.object, "member"), scalar(p.object, "admitted_at"))
+		sig := scalar(p.object, "signature")
+		valid, e := v.legacyGrant(p.object, "epoch", m, sig)
 		if e != nil {
 			return e
 		}
+		valid = valid || v.attested[host] == scalar(p.object, "member") && v.anyRootSignature(m, sig)
 		if !valid {
 			return pathError("forbidden")
 		}
@@ -707,12 +705,21 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	if e != nil || !equivalent(network, v.network) {
 		return bad("invalid")
 	}
-	if !zeroEpoch(offer) {
+	operationRoot, operationEpoch, e := v.epochRoot(offer, "epoch")
+	if e != nil {
+		return ActivationEvidence{}, e
+	}
+	if !historical && operationEpoch != v.epoch {
 		return bad("invalid")
 	}
 	if scalar(offer, "feature_id") != v.feature || scalar(offer, "request_packet_id") != rid {
 		return bad("invalid")
 	}
+	personLabel := v.persons[person]
+	if historical {
+		personLabel = ""
+	}
+
 	required := uint64(6)
 	if mode == "renew" {
 		required = 4
@@ -762,17 +769,18 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
-	if scalar(selection, "person_public_key") != person || scalar(sel, "owner_offer_id") != oid || scalar(sel, "network_id") != v.net || !zeroEpoch(sel) || scalar(sel, "feature_id") != v.feature || scalar(sel, "person_public_key") != person {
+	if scalar(selection, "person_public_key") != person || scalar(sel, "owner_offer_id") != oid || scalar(sel, "network_id") != v.net || !epochIs(sel, operationEpoch) || scalar(sel, "feature_id") != v.feature || scalar(sel, "person_public_key") != person {
 		return bad("invalid")
 	}
 	commit, com, mid, e := v.checkedPacket(a["commit"], "commit", id, host, device)
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
-	if scalar(commit, "person_public_key") != person || scalar(com, "mode") != mode || scalar(com, "request_packet_id") != rid || scalar(com, "owner_offer_id") != oid || scalar(com, "selection_id") != sid || scalar(com, "network_id") != v.net || !zeroEpoch(com) || scalar(com, "feature_id") != v.feature || scalar(com, "person_public_key") != person || scalar(com, "certificate_id") != cid || scalar(com, "expires_at") != scalar(req, "expires_at") {
+	if scalar(commit, "person_public_key") != person || scalar(com, "mode") != mode || scalar(com, "request_packet_id") != rid || scalar(com, "owner_offer_id") != oid || scalar(com, "selection_id") != sid || scalar(com, "network_id") != v.net || !epochIs(com, operationEpoch) || scalar(com, "feature_id") != v.feature || scalar(com, "person_public_key") != person || scalar(com, "certificate_id") != cid || scalar(com, "expires_at") != scalar(req, "expires_at") {
 		return bad("invalid")
 	}
 	var binding, admission []byte
+	currentAdmission := true
 	if mode == "new" {
 		if scalar(req, "renewed_certificate_id") != "-" || scalar(offer, "membership_proof_id") != "-" || scalar(offer, "binding_proof_id") != "-" || absent(a["administrator"]) || absent(offer["binding_record"]) || absent(com["binding_record"]) {
 			return bad("invalid")
@@ -782,7 +790,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 			return bad("invalid")
 		}
 		ap, ac := scalar(admin, "person_public_key"), scalar(admin, "certificate_id")
-		signer := v.root
+		signer := operationRoot
 		if ac == "network_root" {
 			if ap != "-" {
 				return bad("invalid")
@@ -806,8 +814,16 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if e != nil {
 			return ActivationEvidence{}, e
 		}
-		if scalar(p, "host_public_key") != host || scalar(p, "member") != v.persons[person] || scalar(com, "admission_record_id") != ar.ID {
+		admissionObject, _ := parse(admission)
+		admissionEpoch, _ := num(admissionObject, "epoch")
+		if historical && v.historicalLabel(person, operationEpoch, scalar(p, "member")) {
+			personLabel = scalar(p, "member")
+		}
+		if admissionEpoch != operationEpoch || scalar(p, "host_public_key") != host || scalar(p, "member") != personLabel || scalar(com, "admission_record_id") != ar.ID {
 			return bad("invalid")
+		}
+		if ac == "network_root" && operationEpoch != v.epoch {
+			currentAdmission = v.attested[host] == scalar(p, "member")
 		}
 		if historical {
 			o, _ := parse(admission)
@@ -820,7 +836,9 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if e != nil {
 			return ActivationEvidence{}, e
 		}
-		if scalar(p, "host_public_key") != host || scalar(p, "person_public_key") != person {
+		bindingObject, _ := parse(binding)
+		bindingEpoch, _ := num(bindingObject, "epoch")
+		if bindingEpoch != operationEpoch || scalar(p, "host_public_key") != host || scalar(p, "person_public_key") != person {
 			return bad("invalid")
 		}
 		if historical {
@@ -842,7 +860,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if e = v.hostActivations(host, depth); e != nil {
 			return ActivationEvidence{}, e
 		}
-		if admitted := v.state.Hosts[host]; admitted && (!historical || v.hosts[host] != v.persons[person]) {
+		if admitted := v.state.Hosts[host]; admitted && (!historical || currentAdmission && v.hosts[host] != personLabel) {
 			return bad("state_conflict")
 		}
 		if bound, ok := v.state.Bindings[host]; ok && bound != "-" && (!historical || bound != person && !v.history.unbound[bindingPair{person, host}]) {
@@ -880,8 +898,10 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	// Publish facts only after every transcript check. Recursive ancestors are
 	// independently complete. The caller never sees this scratch state on error.
 	if mode == "new" {
-		v.state.Hosts[host] = true
-		v.hosts[host] = v.persons[person]
+		v.state.Hosts[host] = v.state.Hosts[host] || currentAdmission
+		if currentAdmission {
+			v.hosts[host] = personLabel
+		}
 		if e = v.addBinding(host, person); e != nil {
 			return ActivationEvidence{}, e
 		}

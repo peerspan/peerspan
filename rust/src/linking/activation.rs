@@ -1,4 +1,4 @@
-//! Derive path facts from signed genesis catalogs and complete activations.
+//! Derive path facts from signed catalogs and complete activations.
 //! This module has no storage/transport integration and cannot commit a link.
 use super::*;
 use serde::Serialize;
@@ -24,10 +24,12 @@ pub use policy::{
 };
 #[path = "redemptions.rs"]
 mod redemptions;
+#[path = "roots.rs"]
+mod roots;
 
 pub const MAX_ACTIVATION: usize = 512 << 10;
 
-/// Independently pinned caller context. Only genesis epoch zero is supported.
+/// Independently pinned caller context. The epoch selects the verified root-chain tip.
 pub struct ActivationContext<'a> {
     pub network: &'a [u8],
     pub epoch: u64,
@@ -82,6 +84,10 @@ struct Verifier<'a> {
     network: Obj,
     net: String,
     root: String,
+    epoch: u64,
+    roots: Vec<String>,
+    attested: BTreeMap<String, String>,
+    historical_persons: BTreeSet<(String, u64, String)>,
     feature: String,
     state: PathState,
     proofs: BTreeMap<String, Proof>,
@@ -123,9 +129,6 @@ fn obj(b: &[u8]) -> Result<Obj> {
 }
 fn s<'a>(o: &'a Obj, k: &str) -> &'a str {
     text(o, k).unwrap_or("")
-}
-fn epoch_zero(o: &Obj) -> bool {
-    num(o, "epoch").is_ok_and(|n| n == 0)
 }
 fn absent_value(v: Option<&Value>) -> bool {
     v.and_then(Value::as_str) == Some("-")
@@ -273,7 +276,6 @@ impl<'a> Verifier<'a> {
             known_feature_id == "-" || ident(known_feature_id, "lf_"),
             "invalid",
         )?;
-        check(epoch == 0, "upgrade_required")?;
         let network = obj(network_bytes)?;
         fields(
             &network,
@@ -304,7 +306,11 @@ impl<'a> Verifier<'a> {
             },
             network,
             net,
-            root: root_key,
+            root: root_key.clone(),
+            epoch,
+            roots: vec![root_key],
+            attested: BTreeMap::new(),
+            historical_persons: BTreeSet::new(),
             feature: String::new(),
             state,
             proofs: BTreeMap::new(),
@@ -529,10 +535,7 @@ impl<'a> Verifier<'a> {
                 | "device_revocation" | "admin_removal" | "person_membership"
                 | "host_membership" | "host_unbinding" | "host_leave" | "host_revocation"
                 | "invite_revocation" | "person_removal" | "join_ack" | "checkpoint"
-                | "invite_redemption" | "policy" | "group" => {}
-                "rotation" => {
-                    return Err(problem("upgrade_required"));
-                }
+                | "invite_redemption" | "policy" | "group" | "rotation" | "attestation" => {}
                 _ => return Err(problem("invalid")),
             }
             self.index(kind, &b)?;
@@ -644,7 +647,6 @@ impl<'a> Verifier<'a> {
                 && s(&o, "operation_id") == operation,
             "invalid",
         )?;
-        check(epoch_zero(&o), "invalid")?;
         let typ = if person == "-" {
             "root_record"
         } else {
@@ -655,6 +657,7 @@ impl<'a> Verifier<'a> {
             "person_record"
         };
         let r = read(typ, body, signer, "-")?;
+        self.epoch_root(&o, "epoch")?;
         let p = obj(r.payload.as_ref().ok_or_else(|| problem("invalid"))?)?;
         Ok((r, p))
     }
@@ -697,6 +700,14 @@ impl<'a> Verifier<'a> {
             )?;
             let (_, o) = p_obj(&p.object)?;
             check(s(&o, "host_public_key") == host, "invalid")?;
+            if p.kind == "root_record" && num(&p.object, "epoch")? != self.epoch {
+                check(
+                    self.attested
+                        .get(host)
+                        .is_some_and(|label| label == s(&o, "member")),
+                    "forbidden",
+                )?;
+            }
             if kind == "peerspan-host-bind-v1" {
                 check(s(&o, "person_public_key") == person, "invalid")?;
             }
@@ -722,18 +733,22 @@ impl<'a> Verifier<'a> {
             return Ok(());
         }
         if kind == "peerspan-host-admit-v1" && p.kind == "host_admission" {
+            let message = lines(&[
+                "peerspan-host-admit-v1",
+                &self.net,
+                &num(&p.object, "epoch")?.to_string(),
+                s(&p.object, "host_public_key"),
+                s(&p.object, "member"),
+                s(&p.object, "admitted_at"),
+            ]);
+            let sig = text(&p.object, "signature")?;
             check(
-                self.legacy_authority(
-                    &lines(&[
-                        "peerspan-host-admit-v1",
-                        &self.net,
-                        "0",
-                        s(&p.object, "host_public_key"),
-                        s(&p.object, "member"),
-                        s(&p.object, "admitted_at"),
-                    ]),
-                    s(&p.object, "signature"),
-                )?,
+                self.legacy_grant(&p.object, "epoch", &message, sig)?
+                    || self
+                        .attested
+                        .get(host)
+                        .is_some_and(|label| label == s(&p.object, "member"))
+                        && self.any_root_signature(&message, sig),
                 "forbidden",
             )?;
         }
@@ -857,11 +872,17 @@ impl<'a> Verifier<'a> {
             object(offer.get("network").ok_or_else(|| problem("invalid"))?)? == &self.network,
             "invalid",
         )?;
-        check(epoch_zero(&offer), "invalid")?;
+        let (operation_root, operation_epoch) = self.epoch_root(&offer, "epoch")?;
+        check(historical || operation_epoch == self.epoch, "invalid")?;
         check(
             s(&offer, "feature_id") == self.feature && s(&offer, "request_packet_id") == rid,
             "invalid",
         )?;
+        let mut person_label = if historical {
+            None
+        } else {
+            self.persons.get(&person).cloned()
+        };
         let required = if mode == "renew" { 4 } else { 6 };
         let path = self.actor(&person, &issuer, required, historical, depth)?;
         let (_, offer, oid, offer_raw) = self.packet(
@@ -923,7 +944,7 @@ impl<'a> Verifier<'a> {
             s(&selection, "person_public_key") == person
                 && s(&sel, "owner_offer_id") == oid
                 && s(&sel, "network_id") == self.net
-                && epoch_zero(&sel)
+                && num(&sel, "epoch")? == operation_epoch
                 && s(&sel, "feature_id") == self.feature
                 && s(&sel, "person_public_key") == person,
             "invalid",
@@ -937,7 +958,7 @@ impl<'a> Verifier<'a> {
                 && s(&com, "owner_offer_id") == oid
                 && s(&com, "selection_id") == sid
                 && s(&com, "network_id") == self.net
-                && epoch_zero(&com)
+                && num(&com, "epoch")? == operation_epoch
                 && s(&com, "feature_id") == self.feature
                 && s(&com, "person_public_key") == person
                 && s(&com, "certificate_id") == cid
@@ -945,6 +966,7 @@ impl<'a> Verifier<'a> {
             "invalid",
         )?;
         let mut completed_records = Vec::new();
+        let mut current_admission = true;
         if mode == "new" {
             check(
                 s(&req, "renewed_certificate_id") == "-"
@@ -960,7 +982,7 @@ impl<'a> Verifier<'a> {
             let ac = text(admin, "certificate_id")?.to_owned();
             let signer = if ac == "network_root" {
                 check(ap == "-", "invalid")?;
-                self.root.clone()
+                operation_root
             } else {
                 self.actor(&ap, &ac, 8, historical, depth)?
                     .signer_public_key
@@ -981,15 +1003,24 @@ impl<'a> Verifier<'a> {
             let admission = raw_field(&adm_raw, "admission_record")?;
             let (ar, p) =
                 self.record(&admission, "peerspan-host-admit-v1", id, &ap, &ac, &signer)?;
+            if historical && self.historical_label(&person, operation_epoch, s(&p, "member")) {
+                person_label = Some(s(&p, "member").into());
+            }
             check(
-                s(&p, "host_public_key") == host
-                    && self
-                        .persons
-                        .get(&person)
+                num(&obj(&admission)?, "epoch")? == operation_epoch
+                    && s(&p, "host_public_key") == host
+                    && person_label
+                        .as_ref()
                         .is_some_and(|label| label == s(&p, "member"))
                     && s(&com, "admission_record_id") == ar.id,
                 "invalid",
             )?;
+            if ac == "network_root" && operation_epoch != self.epoch {
+                current_admission = self
+                    .attested
+                    .get(&host)
+                    .is_some_and(|label| label == s(&p, "member"));
+            }
             if historical {
                 self.historical_record(&ar, &obj(&admission)?, 8, depth)?;
             }
@@ -1003,7 +1034,9 @@ impl<'a> Verifier<'a> {
                 &path.signer_public_key,
             )?;
             check(
-                s(&p, "host_public_key") == host && s(&p, "person_public_key") == person,
+                num(&obj(&binding)?, "epoch")? == operation_epoch
+                    && s(&p, "host_public_key") == host
+                    && s(&p, "person_public_key") == person,
                 "invalid",
             )?;
             if historical {
@@ -1023,7 +1056,8 @@ impl<'a> Verifier<'a> {
             self.host_activations(&host, depth)?;
             check(
                 (self.state.hosts.get(&host) != Some(&true)
-                    || (historical && self.hosts.get(&host) == self.persons.get(&person)))
+                    || (historical
+                        && (!current_admission || self.hosts.get(&host) == person_label.as_ref())))
                     && self.state.bindings.get(&host).is_none_or(|bound| {
                         bound == "-"
                             || (historical
@@ -1083,14 +1117,15 @@ impl<'a> Verifier<'a> {
         // Facts become visible only after all transcript checks. All recursive
         // ancestors are independently complete; errors discard the scratch state.
         if mode == "new" {
-            self.state.hosts.insert(host.clone(), true);
-            self.hosts.insert(
-                host.clone(),
-                self.persons
-                    .get(&person)
-                    .ok_or_else(|| problem("proof_required"))?
-                    .clone(),
-            );
+            *self.state.hosts.entry(host.clone()).or_default() |= current_admission;
+            if current_admission {
+                self.hosts.insert(
+                    host.clone(),
+                    person_label
+                        .clone()
+                        .ok_or_else(|| problem("proof_required"))?,
+                );
+            }
             self.add_binding(&host, &person)?;
             self.restrict_state();
             for raw in completed_records {

@@ -3,6 +3,7 @@ package linking
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/peerspan/peerspan/go/internal/membership"
@@ -53,7 +54,14 @@ func (v *activationVerifier) loadWithdrawals() error {
 			return pathError("invalid")
 		}
 		if v2 {
-			if _, e = Read("admin_removal_v2", p.body, v.root, "-"); e != nil {
+			valid := false
+			for _, root := range v.roots {
+				if _, e = Read("admin_removal_v2", p.body, root, "-"); e == nil {
+					valid = true
+					break
+				}
+			}
+			if !valid {
 				return pathError("invalid")
 			}
 		} else {
@@ -63,7 +71,7 @@ func (v *activationVerifier) loadWithdrawals() error {
 				}
 			}
 			m := message(append([]string{"peerspan-admin-remove-v1", v.net, scalar(o, "person_public_key"), boolText(revoke), scalar(o, "removed_at")}, kept...)...)
-			if rootSignature(v.root, m, scalar(o, "signature")) != nil {
+			if !v.anyRootSignature(m, scalar(o, "signature")) {
 				return pathError("invalid")
 			}
 		}
@@ -100,8 +108,8 @@ func boolText(b bool) string {
 // A valid but withdrawn legacy signature is different from a forged signature.
 // Only the former can be ignored as superseded authority in a catalog snapshot.
 func (v *activationVerifier) legacyAuthority(m []byte, sig string) (bool, error) {
-	if rootSignature(v.root, m, sig) == nil {
-		return true, nil
+	if v.anyRootSignature(m, sig) {
+		return rootSignature(v.root, m, sig) == nil, nil
 	}
 	pub, ok := membership.SSHSIGKey(sig)
 	if !ok || membership.EncodeKey(pub) == v.root {
@@ -167,7 +175,11 @@ func (v *activationVerifier) loadRestrictions() error {
 			}
 		} else {
 			var e error
-			valid, e = v.legacyAuthority(m, scalar(o, "signature"))
+			if v.anyRootSignature(m, scalar(o, "signature")) {
+				valid = true
+			} else {
+				valid, e = v.legacyAuthority(m, scalar(o, "signature"))
+			}
 			if e != nil {
 				return e
 			}
@@ -218,6 +230,13 @@ func (v *activationVerifier) addBinding(host, person string) error {
 }
 
 func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
+	v.historicalPersons = map[historicalLabel]bool{}
+	if e := v.loadRoots(); e != nil {
+		return e
+	}
+	if e := v.loadAttestations(); e != nil {
+		return e
+	}
 	v.history = historyFacts{delegated: map[string]bool{}, withdrawals: map[string]adminWithdrawal{}, persons: map[string]bool{}, hosts: map[string]bool{}, invites: map[string]bool{}, unbound: map[bindingPair]bool{}}
 	ids := v.orderedProofs()
 	for _, id := range ids {
@@ -229,16 +248,19 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 		if fields(o, "network_id epoch person_public_key delegated_at signature") != nil || scalar(o, "network_id") != v.net || !key(scalar(o, "person_public_key")) {
 			return pathError("invalid")
 		}
-		if e := genesisEpoch(o); e != nil {
+		root, epoch, e := v.epochRoot(o, "epoch")
+		if e != nil {
 			return e
 		}
 		if _, e := stamp(scalar(o, "delegated_at")); e != nil {
 			return pathError("invalid")
 		}
-		if rootSignature(v.root, message("peerspan-admin-delegate-v1", v.net, "0", scalar(o, "person_public_key"), scalar(o, "delegated_at")), scalar(o, "signature")) != nil {
+		if rootSignature(root, message("peerspan-admin-delegate-v1", v.net, strconv.FormatUint(epoch, 10), scalar(o, "person_public_key"), scalar(o, "delegated_at")), scalar(o, "signature")) != nil {
 			return pathError("invalid")
 		}
-		v.admins[scalar(o, "person_public_key")] = true
+		if epoch == v.epoch {
+			v.admins[scalar(o, "person_public_key")] = true
+		}
 		v.history.delegated[scalar(o, "person_public_key")] = true
 	}
 	if e := v.loadWithdrawals(); e != nil {
@@ -271,8 +293,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 				if fields(o, "network_id epoch "+field+" member admitted_at signature") != nil {
 					return pathError("invalid")
 				}
-				if e = genesisEpoch(o); e != nil {
-					return e
+				epoch, err := num(o, "epoch")
+				if err != nil {
+					return pathError("invalid")
 				}
 				if _, e = stamp(scalar(o, "admitted_at")); e != nil {
 					return pathError("invalid")
@@ -281,7 +304,7 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 				if person {
 					domain = "peerspan-person-admit-v1"
 				}
-				valid, e = v.legacyAuthority(message(domain, v.net, "0", k, label, scalar(o, "admitted_at")), scalar(o, "signature"))
+				valid, e = v.legacyGrant(o, "epoch", message(domain, v.net, strconv.FormatUint(epoch, 10), k, label, scalar(o, "admitted_at")), scalar(o, "signature"))
 			} else {
 				valid, e = v.legacyMembership(p, person)
 				if e == nil {
@@ -297,6 +320,17 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 				return e
 			}
 			if person {
+				if strings.HasSuffix(p.kind, "admission") {
+					epoch, _ := num(o, "epoch")
+					if valid || rootSignature(v.roots[epoch], message("peerspan-person-admit-v1", v.net, strconv.FormatUint(epoch, 10), k, label, scalar(o, "admitted_at")), scalar(o, "signature")) == nil {
+						v.historicalPersons[historicalLabel{k, epoch, label}] = true
+					}
+				} else {
+					epoch, _ := num(o, "invite_epoch")
+					if valid || rootSignature(v.roots[epoch], message("peerspan-person-invite-v1", v.net, strconv.FormatUint(epoch, 10), scalar(o, "invite_public_key"), label, scalar(o, "invite_expires_at")), scalar(o, "invite_signature")) == nil {
+						v.historicalPersons[historicalLabel{k, epoch, label}] = true
+					}
+				}
 				if valid {
 					if old, ok := v.persons[k]; ok && old != label {
 						return pathError("state_conflict")
@@ -317,17 +351,22 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 				v.state.Hosts[k] = v.state.Hosts[k] || valid
 			}
 		case "feature":
-			r, e := Read("feature", p.body, v.root, "-")
+			proposal, e := parse(o["proposal"])
 			if e != nil {
 				return pathError("invalid")
 			}
-			proposal, e := parse(o["proposal"])
-			if e != nil || scalar(proposal, "network_id") != v.net {
-				return pathError("invalid")
-			}
-			if e = genesisEpoch(proposal); e != nil {
+			root, _, e := v.epochRoot(proposal, "epoch")
+			if e != nil {
 				return e
 			}
+			r, e := Read("feature", p.body, root, "-")
+			if e != nil {
+				return pathError("invalid")
+			}
+			if scalar(proposal, "network_id") != v.net {
+				return pathError("invalid")
+			}
+
 			if v.feature != "" && v.feature != r.ID {
 				return pathError("state_conflict")
 			}
@@ -429,8 +468,8 @@ func (v *activationVerifier) legacyMembership(p catalogProof, person bool) (bool
 		if e != nil {
 			return false, pathError("invalid")
 		}
-		if n != 0 {
-			return false, pathError("upgrade_required")
+		if n >= uint64(len(v.roots)) {
+			return false, pathError("proof_required")
 		}
 	}
 	expires, e := stamp(scalar(o, "invite_expires_at"))
@@ -445,10 +484,17 @@ func (v *activationVerifier) legacyMembership(p catalogProof, person bool) (bool
 	parts := []string{"peerspan-invite-v1", v.net, invite, scalar(o, "member"), scalar(o, "invite_expires_at")}
 	domain := "peerspan-member-v1"
 	if person {
-		parts = []string{"peerspan-person-invite-v1", v.net, "0", invite, scalar(o, "member"), scalar(o, "invite_expires_at")}
+		epoch, _ := num(o, "invite_epoch")
+		parts = []string{"peerspan-person-invite-v1", v.net, strconv.FormatUint(epoch, 10), invite, scalar(o, "member"), scalar(o, "invite_expires_at")}
 		domain = "peerspan-person-member-v1"
 	}
-	valid, e := v.legacyAuthority(message(parts...), scalar(o, "invite_signature"))
+	var valid bool
+	if person {
+		valid, e = v.legacyGrant(o, "invite_epoch", message(parts...), scalar(o, "invite_signature"))
+	} else {
+		valid, e = v.legacyAuthority(message(parts...), scalar(o, "invite_signature"))
+		valid = valid || v.attested[scalar(o, "host_public_key")] == scalar(o, "member") && v.anyRootSignature(message(parts...), scalar(o, "invite_signature"))
+	}
 	if e != nil {
 		return false, e
 	}
@@ -838,6 +884,13 @@ func (v *activationVerifier) settleHistory() error {
 				o, _ := parse(entry.body)
 				typ := "root_record"
 				signer := v.root
+				if _, ok := o["person_public_key"]; !ok {
+					var e error
+					signer, _, e = v.epochRoot(o, "epoch")
+					if e != nil {
+						return e
+					}
+				}
 				if _, ok := o["person_public_key"]; ok {
 					typ = "person_record"
 					person, cert := scalar(o, "person_public_key"), scalar(o, "certificate_id")

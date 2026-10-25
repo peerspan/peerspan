@@ -19,7 +19,8 @@ verification. The network ID must derive from the genesis root. Pins must match
 the signed owner descriptor and request coordinator; no discovery value supplies
 authority. Caller host must equal the request host even in historical mode.
 
-This slice supports epoch **0**, and these catalog kinds:
+The original slice supported epoch **0**; the [root-chain extension](linking-root-checks.md)
+now verifies nonzero epochs, rotations and attestations. Its initial catalog kinds are:
 
 - `admin_delegation`, `person_admission`, `host_admission`, `host_binding`:
   legacy genesis proofs, with exact canonical messages and signatures. Root
@@ -51,15 +52,14 @@ Completed `invite_redemption` evidence follows the
 retention and host join coverage.
 
 The remaining *known* unsupported catalog kinds fail closed with `upgrade_required`:
-rotation. Legacy and ordinary policies/groups follow the
-[access-state checks](linking-policy-checks.md); they establish no membership
-facts. Unsupported epochs and
-other ordinary records also return `upgrade_required`. Unknown kinds are `invalid`.
+other unsupported ordinary records. Legacy and ordinary policies/groups follow
+the [access-state checks](linking-policy-checks.md); they establish no membership
+facts. Unknown kinds are `invalid`.
 This deliberate support boundary means this is not yet a general v1 mutation
 verifier and must not advertise writer readiness or `linking_version: 1`.
-An offer or record epoch that differs from the pinned verification epoch is a
-context mismatch (`invalid`); unsupported caller/bootstrap epochs require an
-upgrade. Malformed numeric fields remain `invalid`.
+Current first operations must match the selected epoch. Historical transcripts
+and ordinary records use verified chain epochs under the [root checks](linking-root-checks.md).
+Malformed numeric fields remain `invalid`.
 
 The catalog has strict format, network, sorted/distinct `pf_` IDs and at most
 4,096 entries. Verify each ID from kind and **exact decoded body bytes**.
@@ -185,5 +185,5 @@ A separate suite author works only from these contracts and published fixtures:
   strict fields/types/JSON/Base64/size/depth and continued stream framing.
 - Existing signed-object reader and exact-path suites remain regression gates.
 
-Persistence, freshness/high-water, rotations, retention, coordinator fan-out,
+Persistence, freshness/high-water, coordinator fan-out,
 recovery, ceremony commands and installed `up` acceptance remain subsequent work.

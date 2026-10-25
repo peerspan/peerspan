@@ -21,14 +21,14 @@ and supplies no signature, grant, consumption or admission.
 
 Consumed invites are inline ordinary person envelopes of the exact matching
 host/person-invite kind, or the exact legacy public invite shapes. Envelopes
-must name the pinned network/epoch zero and operation `-`, have scope 8, and
+must name the pinned network, a verified chain epoch and operation `-`, have scope 8, and
 verify their strict original-person/device signature. Legacy signatures retain
 their actual root/person-administrator domain; a device cannot impersonate a
 legacy person signer. Both halves in `member/admit` must agree on invite key,
 label, expiry, network and exact issuer person/certificate (network root is a
 distinct authority). `joined_at <= invite_expires_at`; an asserted earlier
-timestamp never establishes past issuer authority. Legacy nonzero invite epochs
-remain unsupported; envelope context mismatches are `invalid`.
+timestamp never establishes past issuer authority. Nonzero invite epochs follow the [root-chain checks](linking-root-checks.md);
+network and operation context mismatches are `invalid`.
 
 Only invites inline in a completed public redemption are supported here.
 Standalone ordinary invite envelopes and private authorized-invite tokens remain
@@ -124,8 +124,7 @@ time or committed outcome. The future writer must enforce current issuer and
 invite time bounds, host-key caller/feature proof or person-only current member,
 explicit admit/skip conflicts, single-use transactions and stored retries. No
 historical result authorizes a fresh redemption. Policy/group selection follows
-the [access-state checks](linking-policy-checks.md). Root rotation,
-durable high-water/feature/freshness, storage/maps/propagation and ceremony remain.
+the [access-state checks](linking-policy-checks.md). durable high-water/feature/freshness, storage/maps/propagation and ceremony remain.
 
 A separate author uses contracts/public vectors and independent signers, without
 either implementation:
@@ -150,3 +149,7 @@ python3 conformance/linking_redemptions.py \
 
 Recorded commands, results and limitations are in the
 [implementation results](results/linking-redemptions.json).
+
+Verified root rotation and nonzero-epoch catalogs now follow the
+[root-chain checks](linking-root-checks.md), including current attestations
+and historical transcript preservation.

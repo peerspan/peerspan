@@ -195,7 +195,7 @@ class Author:
                 ("known_feature", {"known_feature_id": self.data["feature_id"]}, None),
                 ("wrong_known_feature", {"known_feature_id": "lf_" + "0" * 64}, "state_conflict"),
                 ("no_expected_person", {"expected_person_public_key": "-"}, None),
-                ("unsupported_epoch", {"epoch": 1}, "upgrade_required")):
+                ("unsupported_epoch", {"epoch": 1}, "proof_required")):
             self.add("context/" + name, code=code, **context)
         for field, value in (("network_id", "net_" + "0" * 64),
                               ("name", "different"), ("genesis_root_public_key", self.other),
@@ -272,7 +272,8 @@ class Author:
                 ("commit", "network_id", "net_" + "0" * 64), ("commit", "epoch", 1)):
             transcript = Transcript(self, self.base)
             self.add("signed/" + role + "/" + field,
-                     activation=transcript.finish({role: {field: value}}), code="invalid")
+                     activation=transcript.finish({role: {field: value}}),
+                     code="proof_required" if role == "owner" and field == "epoch" else "invalid")
         for field, value in (("host_public_key", self.other), ("device_public_key", self.root),
                               ("person_public_key", self.other), ("request_id", "link_" + "0" * 64)):
             transcript = Transcript(self, self.base)
@@ -426,7 +427,7 @@ class Author:
             sort_catalog(catalog)
             newly_supported = {"admin_removal", "person_membership", "host_membership", "host_unbinding",
                                "host_leave", "host_revocation", "invite_revocation", "person_removal",
-                               "join_ack", "checkpoint", "invite_redemption", "policy", "group"}
+                               "join_ack", "checkpoint", "invite_redemption", "policy", "group", "rotation"}
             self.add("catalog/unsupported/" + kind, catalog=catalog,
                      code="invalid" if kind == "unknown_kind" or kind in newly_supported else "upgrade_required")
         for kind in ("person_record", "root_record"):

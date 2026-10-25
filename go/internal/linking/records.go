@@ -161,6 +161,8 @@ func (v *activationVerifier) ordinaryRecord(id string) error {
 			return pathError("state_conflict")
 		}
 		v.persons[person] = label
+		epoch, _ := num(p.object, "epoch")
+		v.historicalPersons[historicalLabel{person, epoch, label}] = true
 		v.state.Persons[person] = PersonState{Admitted: true, Administrator: v.admins[person]}
 	default:
 		v.applyOrdinaryRestriction(g, scalar(p.object, "kind"))

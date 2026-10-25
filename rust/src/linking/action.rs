@@ -68,6 +68,8 @@ pub fn verify_action_authority(
         )?;
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
         check(ctx.known_feature_id != "-", "upgrade_required")?;
+        v.catalog(catalog)?;
+        v.load_roots()?;
         let o = obj(action)?;
         check(
             s(&o, "network_id") == v.net && s(&o, "person_public_key") == ctx.person_public_key,
@@ -78,7 +80,7 @@ pub fn verify_action_authority(
             check(
                 s(&o, "certificate_id") == ctx.certificate_id
                     && s(&o, "operation_id") == "-"
-                    && epoch_zero(&o),
+                    && num(&o, "epoch")? == v.epoch,
                 "invalid",
             )?;
             action_scope(kind)?
@@ -89,7 +91,6 @@ pub fn verify_action_authority(
             )?;
             4
         };
-        v.catalog(catalog)?;
         v.bootstrap(true)?;
         v.revocations()?;
         let path = v.authority(ctx.person_public_key, ctx.certificate_id, required, 0)?;

@@ -1,0 +1,162 @@
+{
+  "checked_on": "2026-10-25",
+  "base_commit": "d3701db0c551b83864b6215efc33c2fe396d5b6e",
+  "scope": "Stateless exact signed root chains, current-epoch roles/admissions and attestations, historical operation epochs and labels, root-rotation-safe feature identity, exact selected renewal authority. No durable prefix/freshness or runtime writer claim.",
+  "contract": "docs/linking-root-checks.md",
+  "suite_authorship": "A separate author used accepted contracts, public vectors and independent signing helpers without inspecting either implementation. Added linking_roots.py and changed only parent-approved root-lineage support expectations in existing suites, preserving invalid for self-inconsistent envelope/payload epochs. No vectors changed. Five focused cases additionally verify policy/group integration across root epochs, including inactive old-root maxima without fallback and historical admission prerequisites. Six additional independently authored bot-review regressions verify original admission epochs from completed redemptions, stale-root inactive labels, and later-epoch/skip/excluded-admin non-evidence. Three further exact-reference regressions keep excluded administrator legacy admissions/invitations forbidden despite independent current attestation, with stale-root positive control.",
+  "conformance": {
+    "passed": true,
+    "implementations": [
+      "go",
+      "rust"
+    ],
+    "total_checks_per_implementation": 3062,
+    "public_signatures_independently_reproduced": 199,
+    "suites": {
+      "readers": {
+        "checks_per_implementation": 1093,
+        "command": "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "paths": {
+        "checks_per_implementation": 331,
+        "command": "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "activations": {
+        "checks_per_implementation": 248,
+        "command": "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "history": {
+        "checks_per_implementation": 113,
+        "command": "python3 conformance/linking_history.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "features": {
+        "checks_per_implementation": 172,
+        "command": "python3 conformance/linking_features.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "actions": {
+        "checks_per_implementation": 313,
+        "command": "python3 conformance/linking_actions.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "records": {
+        "checks_per_implementation": 176,
+        "command": "python3 conformance/linking_records.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "restrictions": {
+        "checks_per_implementation": 179,
+        "command": "python3 conformance/linking_restrictions.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "redemptions": {
+        "checks_per_implementation": 218,
+        "command": "python3 conformance/linking_redemptions.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "roots": {
+        "checks_per_implementation": 73,
+        "command": "python3 conformance/linking_roots.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      },
+      "policy_state": {
+        "checks_per_implementation": 146,
+        "command": "python3 conformance/linking_policy_state.py --go-probe /tmp/peerspan-root-chain-go --rust-probe /tmp/peerspan-root-chain-rust"
+      }
+    }
+  },
+  "language_checks": {
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    },
+    "go_race": {
+      "passed": false,
+      "log": "/tmp/peerspan-root-chain-p2-go-race-permitted.log",
+      "failure": "Only unchanged TestPathDiscoveryChecks packet-routing assertion at go/internal/host/peer_path_test.go:157; host package 258.297 seconds.",
+      "other_tests_and_packages": "All other tests and packages passed.",
+      "source_check": "git diff --quiet d3701db -- go/internal/host go/internal/disco passed; complete host/disco packages are unchanged.",
+      "baseline": "docs/results/linking-readers.json documents the same failure on unchanged merged baseline; pre-redemption-fix full Go gate also passed. No unrelated fix or optional rerun loop."
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "log": "/tmp/peerspan-root-chain-p2-rust-tests-permitted.log",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "note": "Local sockets permitted, sequential tests, default Tokio workers; final source after both review fixes.",
+      "library_seconds": 91.87
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-root-chain-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-root-chain-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "Full stored-snapshot verification budgets; historical coordinator-move descriptor handling",
+    "Durable feature activation, snapshot freshness, chain-prefix/high-water state, reader-version mutation/map gates and storage/maps/propagation/recovery",
+    "First-redemption and atomic operation-specific writers, linking ceremony, signer discovery/renewal and up integration",
+    "Existing Go discovery timing flake documented above"
+  ],
+  "initial_language_checks": {
+    "go_race": {
+      "passed": false,
+      "command": "flock /tmp/peerspan-full-language-gates.lock bash -c \"XDG_CONFIG_HOME=/tmp/peerspan-root-chain-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...\"",
+      "failure": "TestPathDiscoveryChecks: packet routing assertion at go/internal/host/peer_path_test.go:157; host package duration 191.796 seconds.",
+      "other_tests_and_packages": "All other tests and packages passed.",
+      "baseline_evidence": "docs/results/linking-readers.json records packet-routing/own-pong failures in 4 of 5 isolated runs on unmodified merged baseline 64d8cdc22e5ee32911937190d22495e76d5f50e8. git diff --quiet 7b04b7049c4cd0b7662c7b62f9fd61cfa6eb8473 -- go/internal/host go/internal/disco confirms those entire packages are unchanged by this slice."
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "flock /tmp/peerspan-full-language-gates.lock bash -c \"env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-root-chain-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml\"",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_seconds": 60.16,
+      "note": "Full runtime suites serialized across workstreams by flock; Rust uses sequential tests and default Tokio workers. Two ignored tests are opt-in connectivity helpers."
+    },
+    "base_commit": "7b04b7049c4cd0b7662c7b62f9fd61cfa6eb8473"
+  },
+  "pre_redemption_fix_language_checks": {
+    "base_commit": "1596b38a683b998b3f5155adbb63e109e95e36d3",
+    "go_race": {
+      "passed": true,
+      "host_package_seconds": 163.427,
+      "log": "/tmp/peerspan-root-chain-integrated-go-race.log"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_seconds": 88.13,
+      "log": "/tmp/peerspan-root-chain-integrated-rust-tests.log"
+    }
+  },
+  "sandbox_attempts": {
+    "go_race": {
+      "passed": false,
+      "log": "/tmp/peerspan-root-chain-p2-go-race.log",
+      "reason": "Restricted sandbox denied local TCP/UDP/Unix socket operations; this was an environment failure, followed by the permitted attempt recorded above."
+    },
+    "rust_full_tests": {
+      "passed": false,
+      "log": "/tmp/peerspan-root-chain-p2-rust-tests.log",
+      "library_passed": 126,
+      "library_failed": 12,
+      "library_ignored": 2,
+      "reason": "Restricted sandbox denied local socket operations; permitted rerun passed as recorded above."
+    }
+  }
+}

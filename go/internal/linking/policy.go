@@ -61,12 +61,12 @@ func accessKind(kind string) bool {
 }
 
 type accessCandidate struct {
-	key          string
-	group        bool
-	selection    AccessSelection
-	person, cert string
-	payload      Object
-	root         bool
+	key           string
+	group         bool
+	selection     AccessSelection
+	person, cert  string
+	payload       Object
+	root, oldRoot bool
 }
 
 // Legacy policy storage uses int64 versions. Only its shape/message helpers are
@@ -174,8 +174,9 @@ func (v *activationVerifier) accessCandidate(id string, p catalogProof) (accessC
 		if e != nil {
 			return c, pathError("invalid")
 		}
-		if c.group && rootSignature(v.root, m, sig) == nil {
+		if c.group && v.anyRootSignature(m, sig) {
 			c.root = true
+			c.oldRoot = rootSignature(v.root, m, sig) != nil
 		} else {
 			c.person = scalar(c.payload, "person_public_key")
 			if c.group {
@@ -200,7 +201,7 @@ func (v *activationVerifier) accessCandidate(id string, p catalogProof) (accessC
 		if e := v.ensurePerson(c.person); e != nil {
 			return c, e
 		}
-		if _, known := v.persons[c.person]; !known {
+		if !v.historicalAdmissionKnown(c.person) {
 			return c, pathError("proof_required")
 		}
 		if c.cert != "root" && !v.state.ActivatedCertificates[c.cert] {
@@ -237,6 +238,11 @@ func (v *activationVerifier) validateAccessCandidates() error {
 }
 
 func (v *activationVerifier) accessStatus(c *accessCandidate) error {
+	if c.oldRoot {
+		c.selection.Active = false
+		c.selection.Code = "forbidden"
+		return nil
+	}
 	if !c.root {
 		scope := uint64(1)
 		if c.group {

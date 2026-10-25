@@ -270,7 +270,7 @@ class Author(HistoryAuthor):
             self.add("first/circular_" + kind, catalog=self.with_proofs(self.catalog, [(kind, obj)]), code="forbidden")
         for kind in ("rotation", "policy", "group", "invite_redemption"):
             self.add("unsupported/" + kind, catalog=self.with_proofs(self.catalog, [(kind, {})]),
-                     code="invalid" if kind in ("invite_redemption", "policy", "group") else "upgrade_required")
+                     code="invalid" if kind in ("invite_redemption", "policy", "group", "rotation") else "upgrade_required")
         self.add("unsupported/unknown_kind", catalog=self.with_proofs(self.catalog, [("unknown-kind", {})]), code="invalid")
 
     def strict_inputs(self):
@@ -310,8 +310,8 @@ class Author(HistoryAuthor):
                 obj[field] = {} if isinstance(obj[field], list) else []
                 self.add("shape/" + container + "/type_" + field, feature, code="invalid")
         for field, value in (("epoch", 1),):
-            self.add("context/nonzero_pinned_epoch", **{field: value}, code="upgrade_required")
-        self.add("context/nonzero_signed_proposal_epoch", self.complete(epoch=1), code="upgrade_required")
+            self.add("context/nonzero_pinned_epoch", **{field: value}, code="proof_required")
+        self.add("context/nonzero_signed_proposal_epoch", self.complete(epoch=1), code="proof_required")
         self.add("context/signed_proposal_network_mismatch", self.complete(network="net_" + "0" * 64), code="invalid")
         descriptor = dict(self.data["network"], name="different-caller-pin")
         self.add_request("context/standalone_proposal_has_no_signed_name", dict(good, network_base64=b64(wire(descriptor))),
@@ -325,7 +325,7 @@ class Author(HistoryAuthor):
         bootstrap_catalog = self.without(self.catalog, lambda kind, obj: kind == "host_admission"
                                         and obj["host_public_key"] == self.host_a)
         self.add("context/nonzero_signed_bootstrap_epoch", catalog=self.with_proofs(bootstrap_catalog,
-                 [("host_admission", bootstrap)]), code="upgrade_required")
+                 [("host_admission", bootstrap)]), code="proof_required")
         self.add("context/malformed_feature_id", known_feature_id="lf_bad", code="invalid")
         for label, mutate in (("wrong_network_id", lambda n: n.update(network_id="net_" + "0" * 64)),
                                ("wrong_genesis_root", lambda n: n.update(genesis_root_public_key=self.person)),

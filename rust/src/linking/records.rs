@@ -176,6 +176,11 @@ impl Verifier<'_> {
                     "state_conflict",
                 )?;
                 self.persons.insert(person.into(), label.into());
+                self.historical_persons.insert((
+                    person.into(),
+                    num(&p.object, "epoch")?,
+                    label.into(),
+                ));
                 self.state.persons.insert(
                     person.into(),
                     PersonState {

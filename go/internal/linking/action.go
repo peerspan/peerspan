@@ -59,6 +59,12 @@ func VerifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 	if ctx.KnownFeatureID == "-" {
 		return bad("upgrade_required")
 	}
+	if e = v.catalog(catalog); e != nil {
+		return ActionAuthority{}, e
+	}
+	if e = v.loadRoots(); e != nil {
+		return ActionAuthority{}, e
+	}
 	o, e := parse(action)
 	if e != nil || scalar(o, "network_id") != v.net || scalar(o, "person_public_key") != ctx.PersonPublicKey {
 		return bad("invalid")
@@ -66,7 +72,7 @@ func VerifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 	kind := scalar(o, "kind")
 	required := uint64(4)
 	if actionKind == "person_record" {
-		if scalar(o, "certificate_id") != ctx.CertificateID || scalar(o, "operation_id") != "-" || !zeroEpoch(o) {
+		if scalar(o, "certificate_id") != ctx.CertificateID || scalar(o, "operation_id") != "-" || !epochIs(o, v.epoch) {
 			return bad("invalid")
 		}
 		required = actionScope(kind)
@@ -75,9 +81,6 @@ func VerifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 		}
 	} else if scalar(o, "issuer_certificate_id") != ctx.CertificateID {
 		return bad("invalid")
-	}
-	if e = v.catalog(catalog); e != nil {
-		return ActionAuthority{}, e
 	}
 	if e = v.bootstrap(true); e != nil {
 		return ActionAuthority{}, e

@@ -94,7 +94,7 @@ sorted, and no state appears on error.
 Completed invitation/redemption evidence follows the
 [redemption checks](linking-redemption-checks.md). Policies/groups follow the
 [access-state checks](linking-policy-checks.md). Standalone
-live invitation tokens, root rotation/nonzero epochs,
+live invitation tokens,
 high-water/freshness rules and durable feature/storage/maps/propagation remain
 pending. Other ordinary kinds still return `upgrade_required`. The network-root
 companion remains restricted to complete linking admissions. These stateless
@@ -128,3 +128,7 @@ python3 conformance/linking_restrictions.py \
 
 Recorded commands, results and limitations are in the
 [implementation results](results/linking-restrictions.json).
+
+Verified root rotation and nonzero-epoch catalogs now follow the
+[root-chain checks](linking-root-checks.md), including current attestations
+and historical transcript preservation.

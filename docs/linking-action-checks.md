@@ -17,7 +17,7 @@ policy/group selection and caller-pinned high-water handling. Other ordinary
 catalog kinds, durable high-water persistence and propagation remain required
 before writers. The current
 catalog input retains the [activation/history support boundary](linking-activation-checks.md),
-including epoch zero. A candidate action is supplied separately and cannot
+with verified current epochs from the [root-chain extension](linking-root-checks.md). A candidate action is supplied separately and cannot
 establish its own membership, binding, activation or administrator authority.
 
 ## Pins and reader gate

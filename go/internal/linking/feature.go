@@ -6,7 +6,7 @@ import (
 )
 
 // FeatureContext pins verified local state. Catalog presence never supplies the
-// previously persisted feature ID. Only epoch zero is currently supported.
+// previously persisted feature ID. Its epoch selects the verified root-chain tip.
 type FeatureContext struct {
 	Network        []byte
 	Epoch          uint64
@@ -32,21 +32,39 @@ func VerifyFeature(ctx FeatureContext, catalog, feature []byte) (FeatureEvidence
 	if e != nil {
 		return FeatureEvidence{}, e
 	}
-	r, e := Read("feature", feature, v.root, "-")
+	if e = v.catalog(catalog); e != nil {
+		return FeatureEvidence{}, e
+	}
+	if e = v.loadRoots(); e != nil {
+		return FeatureEvidence{}, e
+	}
+	o, e := parse(feature)
+	if e != nil {
+		return bad("invalid")
+	}
+	proposal, e := parse(o["proposal"])
+	if e != nil {
+		return bad("invalid")
+	}
+	root, proposalEpoch, e := v.epochRoot(proposal, "epoch")
+	if e != nil {
+		return FeatureEvidence{}, e
+	}
+	r, e := Read("feature", feature, root, "-")
 	if e != nil {
 		return bad("invalid")
 	}
 	if ctx.KnownFeatureID != "-" && ctx.KnownFeatureID != r.ID {
 		return bad("state_conflict")
 	}
-	if e = v.catalog(catalog); e != nil {
-		return FeatureEvidence{}, e
-	}
 	if _, e = v.index("feature", feature); e != nil {
 		return FeatureEvidence{}, e
 	}
 	first := ctx.KnownFeatureID == "-"
 	if first {
+		if proposalEpoch != v.epoch {
+			return bad("invalid")
+		}
 		// A pending linking operation cannot justify the roster of the reader
 		// upgrade that must precede that very operation.
 		for _, p := range v.proofs {
@@ -65,8 +83,7 @@ func VerifyFeature(ctx FeatureContext, catalog, feature []byte) (FeatureEvidence
 	if !first {
 		return FeatureEvidence{v.net, r.ID, ctx.Epoch, "already_enabled"}, nil
 	}
-	o, _ := parse(feature) // Read verified the complete strict shape.
-	proposal, _ := parse(o["proposal"])
+
 	issued, _ := stamp(scalar(proposal, "issued_at"))
 	if ctx.Now.Before(issued) || !ctx.Now.Before(issued.Add(24*time.Hour)) {
 		return bad("expired")

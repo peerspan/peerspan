@@ -448,7 +448,7 @@ class Author(RecordAuthor):
         value["invite_epoch"] = 1
         value["signature"] = b64(self.signers[self.root].raw(lines("peerspan-person-invite-v1", self.network, 1,
                                       value["invite_public_key"], value["member"], value["invite_expires_at"])))
-        self.add("context/legacy_nonzero_epoch", self.catalog([legacy]), code="upgrade_required")
+        self.add("context/legacy_nonzero_epoch", self.catalog([legacy]), code="proof_required")
         for field, value in (("network_id", "net_" + "0" * 64), ("epoch", 1), ("operation_id", self.cert_b["request_id"])):
             malformed = self.redemption("person", "admit")
             malformed["person_invite"][field] = value

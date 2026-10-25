@@ -29,15 +29,24 @@ pub fn verify_feature(
             "invalid",
         )?;
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
-        let r = read("feature", feature, &v.root, "-")?;
+        v.catalog(catalog)?;
+        v.load_roots()?;
+        let feature_object = obj(feature)?;
+        let proposal = object(
+            feature_object
+                .get("proposal")
+                .ok_or_else(|| problem("invalid"))?,
+        )?;
+        let (proposal_root, proposal_epoch) = v.epoch_root(proposal, "epoch")?;
+        let r = read("feature", feature, &proposal_root, "-")?;
         check(
             ctx.known_feature_id == "-" || ctx.known_feature_id == r.id,
             "state_conflict",
         )?;
-        v.catalog(catalog)?;
         v.index("feature", feature)?;
         let first = ctx.known_feature_id == "-";
         if first {
+            check(proposal_epoch == v.epoch, "invalid")?;
             // The roster for the reader upgrade cannot depend on a linking
             // operation that needs that very upgrade to be enabled already.
             check(

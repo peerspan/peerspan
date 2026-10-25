@@ -12,7 +12,8 @@ management-action APIs accept these catalog kinds without treating them as grant
 The caller pins the descriptor, selected epoch, persisted feature ID (a known
 `lf_` ID is required), current time, and prior policy/group high-water state.
 The currently supported root/epoch rules remain those of the catalog verifier;
-root-chain support can extend those rules independently.
+the [root-chain checks](linking-root-checks.md) define historical root recognition
+and admission evidence across rotations.
 
 Catalog kinds `policy` and `group` contain exact legacy signed JSON. Ordinary
 `person_record` supports `peerspan-policy-v1`, `peerspan-policy-v2` and
@@ -142,3 +143,11 @@ fixture signers, without inspecting either implementation:
   unbinding, pending activation, exact proof IDs and checkpoint non-revival.
 - Prior-row sorting/duplicates/types/extra fields, strict encoding/size/framing,
   feature pin gates and existing linking suites as regressions.
+
+After a verified rotation, a legacy group signed by an older root remains a
+structurally verified but inactive (`forbidden`) maximum; retain its version/hash
+and never fall back to an older current-root definition. A newer usable current
+root definition can supersede it. Historical person admission evidence, including
+a valid old-root grant, is sufficient to recognize policy-version observations;
+a bare removal/delegation or withdrawn inert grant is not admission evidence.
+These facts never restore current role or person/path authority.

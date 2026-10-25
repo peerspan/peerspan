@@ -146,7 +146,12 @@ impl Verifier<'_> {
             check(sorted(&kept) && (!revoke || kept.is_empty()), "invalid")?;
             stamp(text(o, "removed_at")?)?;
             if v2 {
-                read("admin_removal_v2", &p.body, &self.root, "-")?;
+                check(
+                    self.roots
+                        .iter()
+                        .any(|key| read("admin_removal_v2", &p.body, key, "-").is_ok()),
+                    "invalid",
+                )?;
             } else {
                 check(kept.iter().all(|s| ident(s, "")), "invalid")?;
                 let mut parts = vec![
@@ -157,7 +162,10 @@ impl Verifier<'_> {
                     text(o, "removed_at")?,
                 ];
                 parts.extend(kept.iter().copied());
-                root(&self.root, &lines(&parts), text(o, "signature")?)?;
+                check(
+                    self.any_root_signature(&lines(&parts), text(o, "signature")?),
+                    "invalid",
+                )?;
             }
             let person = text(o, "person_public_key")?.to_owned();
             let version_key = (person.clone(), revoke);
@@ -188,8 +196,8 @@ impl Verifier<'_> {
         Ok(())
     }
     pub(super) fn legacy_authority(&self, m: &[u8], sig: &str) -> Result<bool> {
-        if root(&self.root, m, sig).is_ok() {
-            return Ok(true);
+        if self.any_root_signature(m, sig) {
+            return Ok(root(&self.root, m, sig).is_ok());
         }
         let person = crate::persons::sshsig_signer(sig).ok_or_else(|| problem("invalid"))?;
         check(person != self.root, "invalid")?;
@@ -261,7 +269,8 @@ impl Verifier<'_> {
                 raw(text(o, subject)?, &m, text(o, "signature")?)?;
                 true
             } else {
-                self.legacy_authority(&m, text(o, "signature")?)?
+                self.any_root_signature(&m, text(o, "signature")?)
+                    || self.legacy_authority(&m, text(o, "signature")?)?
             };
             if !valid {
                 continue;
@@ -323,6 +332,9 @@ impl Verifier<'_> {
         Ok(())
     }
     pub(super) fn bootstrap(&mut self, check_host_features: bool) -> Result<()> {
+        self.historical_persons.clear();
+        self.load_roots()?;
+        self.load_attestations()?;
         let proofs: Vec<_> = self.proofs.values().cloned().collect();
         for p in &proofs {
             if p.kind != "admin_delegation" {
@@ -338,20 +350,22 @@ impl Verifier<'_> {
                 s(o, "network_id") == self.net && key(s(o, "person_public_key")),
                 "invalid",
             )?;
-            check(num(o, "epoch")? == 0, "upgrade_required")?;
+            let (epoch_root, epoch) = self.epoch_root(o, "epoch")?;
             stamp(text(o, "delegated_at")?)?;
             root(
-                &self.root,
+                &epoch_root,
                 &lines(&[
                     "peerspan-admin-delegate-v1",
                     &self.net,
-                    "0",
+                    &epoch.to_string(),
                     text(o, "person_public_key")?,
                     text(o, "delegated_at")?,
                 ]),
                 text(o, "signature")?,
             )?;
-            self.admins.insert(s(o, "person_public_key").into());
+            if epoch == self.epoch {
+                self.admins.insert(s(o, "person_public_key").into());
+            }
             self.history
                 .delegated
                 .insert(s(o, "person_public_key").into());
@@ -379,15 +393,24 @@ impl Verifier<'_> {
                             &format!("network_id epoch {field} member admitted_at signature"),
                             &[],
                         )?;
-                        check(num(o, "epoch")? == 0, "upgrade_required")?;
+                        let epoch = num(o, "epoch")?;
                         stamp(text(o, "admitted_at")?)?;
                         let domain = if person {
                             "peerspan-person-admit-v1"
                         } else {
                             "peerspan-host-admit-v1"
                         };
-                        self.legacy_authority(
-                            &lines(&[domain, &self.net, "0", &k, &label, text(o, "admitted_at")?]),
+                        self.legacy_grant(
+                            o,
+                            "epoch",
+                            &lines(&[
+                                domain,
+                                &self.net,
+                                &epoch.to_string(),
+                                &k,
+                                &label,
+                                text(o, "admitted_at")?,
+                            ]),
                             text(o, "signature")?,
                         )?
                     } else {
@@ -401,6 +424,47 @@ impl Verifier<'_> {
                         valid
                     };
                     if person {
+                        if p.kind.ends_with("admission") {
+                            let (key, epoch) = self.epoch_root(o, "epoch")?;
+                            if valid
+                                || root(
+                                    &key,
+                                    &lines(&[
+                                        "peerspan-person-admit-v1",
+                                        &self.net,
+                                        &epoch.to_string(),
+                                        &k,
+                                        &label,
+                                        text(o, "admitted_at")?,
+                                    ]),
+                                    text(o, "signature")?,
+                                )
+                                .is_ok()
+                            {
+                                self.historical_persons
+                                    .insert((k.clone(), epoch, label.clone()));
+                            }
+                        } else {
+                            let (key, epoch) = self.epoch_root(o, "invite_epoch")?;
+                            if valid
+                                || root(
+                                    &key,
+                                    &lines(&[
+                                        "peerspan-person-invite-v1",
+                                        &self.net,
+                                        &epoch.to_string(),
+                                        text(o, "invite_public_key")?,
+                                        &label,
+                                        text(o, "invite_expires_at")?,
+                                    ]),
+                                    text(o, "invite_signature")?,
+                                )
+                                .is_ok()
+                            {
+                                self.historical_persons
+                                    .insert((k.clone(), epoch, label.clone()));
+                            }
+                        }
                         if valid {
                             check(
                                 self.persons.get(&k).is_none_or(|old| old == &label),
@@ -423,10 +487,10 @@ impl Verifier<'_> {
                     }
                 }
                 "feature" => {
-                    let r = read("feature", &p.body, &self.root, "-")?;
                     let proposal = object(o.get("proposal").ok_or_else(|| problem("invalid"))?)?;
+                    let (epoch_root, _) = self.epoch_root(proposal, "epoch")?;
+                    let r = read("feature", &p.body, &epoch_root, "-")?;
                     check(s(proposal, "network_id") == self.net, "invalid")?;
-                    check(num(proposal, "epoch")? == 0, "upgrade_required")?;
                     check(
                         self.feature.is_empty() || self.feature == r.id,
                         "state_conflict",
@@ -527,9 +591,11 @@ impl Verifier<'_> {
         )?;
         let invite = text(o, "invite_public_key")?;
         check(key(invite), "invalid")?;
-        if person {
-            check(num(o, "invite_epoch")? == 0, "upgrade_required")?;
-        }
+        let invite_epoch = if person {
+            self.epoch_root(o, "invite_epoch")?.1.to_string()
+        } else {
+            String::new()
+        };
         check(
             stamp(text(o, "joined_at")?)? <= stamp(text(o, "invite_expires_at")?)?,
             "invalid",
@@ -538,7 +604,7 @@ impl Verifier<'_> {
             vec![
                 "peerspan-person-invite-v1",
                 &self.net,
-                "0",
+                &invite_epoch,
                 invite,
                 text(o, "member")?,
                 text(o, "invite_expires_at")?,
@@ -552,7 +618,21 @@ impl Verifier<'_> {
                 text(o, "invite_expires_at")?,
             ]
         };
-        let valid = self.legacy_authority(&lines(&parts), text(o, "invite_signature")?)?;
+        let valid = if person {
+            self.legacy_grant(
+                o,
+                "invite_epoch",
+                &lines(&parts),
+                text(o, "invite_signature")?,
+            )?
+        } else {
+            self.legacy_authority(&lines(&parts), text(o, "invite_signature")?)?
+                || self
+                    .attested
+                    .get(s(o, "host_public_key"))
+                    .is_some_and(|label| label == s(o, "member"))
+                    && self.any_root_signature(&lines(&parts), text(o, "invite_signature")?)
+        };
         let domain = if person {
             "peerspan-person-member-v1"
         } else {
@@ -937,7 +1017,7 @@ impl Verifier<'_> {
                             },
                         )
                     } else {
-                        ("root_record", self.root.clone())
+                        ("root_record", self.epoch_root(&o, "epoch")?.0)
                     };
                     let r = read(typ, &raw, &signer, "-")?;
                     self.historical_record(&r, &o, scope, 0)?;

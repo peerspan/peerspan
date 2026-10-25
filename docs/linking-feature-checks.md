@@ -3,8 +3,8 @@
 This part of UP-06c.2c checks the upgrade gate from the
 [transaction contract](machine-linking-transactions.md#2-feature-activation-and-upgraded-readers).
 It verifies a complete feature against signed catalog evidence before a future
-caller persists activation. Both Go and Rust support genesis epoch zero here,
-using the catalog and history rules already implemented. No daemon/coordinator
+caller persists activation. Both Go and Rust use verified
+root-chain epochs under the [root checks](linking-root-checks.md). No daemon/coordinator
 route, acknowledgment writer, storage migration, or `enable-linking` CLI ships
 in this slice. A valid host signature asserts reader support; this checker
 cannot inspect a remote binary or prove its migration actually ran.
@@ -18,9 +18,9 @@ and all encodings, catalog limits and strict signed-object checks follow the
 [activation checks](linking-activation-checks.md).
 
 The input is a catalog plus a separate complete `{proposal, acknowledgments}`
-feature object. Recompute the `lf_` identity, verify the genesis root's raw or
+feature object. Recompute the `lf_` identity, verify the proposal epoch's root raw or
 SSHSIG proposal signature and every roster host's raw acknowledgment. The
-proposal's network and epoch must match the pins; all roster keys and
+proposal's network must match the pins; first activation must use the current epoch; all roster keys and
 acknowledgments are sorted, distinct, nonempty and exact. A claimed protocol
 version, a `join_ack`, or a pending link supplies no missing acknowledgment.
 
@@ -74,11 +74,9 @@ snapshot freshness or enable writers.
 Errors use the activation checker's `invalid`, `expired`, `state_conflict`,
 `forbidden`, `proof_required` (with exact dependency IDs where available), and
 `upgrade_required` shapes. Multiple simultaneous faults have no precedence.
-Unknown kinds are `invalid`; nonzero pinned or feature-proposal/bootstrap epochs
-remain `upgrade_required`, as in existing feature catalog evidence. This differs
-from an operation packet or record mismatching its selected epoch (`invalid`).
-Root rotation, ordinary envelopes/delegated redemptions,
-policy/group high-water handling and durable freshness remain subsequent work.
+Unknown kinds are `invalid`. Selected and signed epochs follow the
+[root-chain checks](linking-root-checks.md), including historical features surviving
+rotation. Policy/group high-water handling and durable freshness remain subsequent work.
 
 ## Conformance transport
 

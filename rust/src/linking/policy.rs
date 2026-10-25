@@ -70,6 +70,7 @@ struct Candidate {
     cert: String,
     payload: Obj,
     root: bool,
+    old_root: bool,
 }
 fn legacy_policy_message(p: &Obj, kind: &str) -> Result<Vec<u8>> {
     record_payload(kind, p)?;
@@ -97,6 +98,7 @@ impl Verifier<'_> {
             cert: "root".into(),
             payload: Obj::new(),
             root: false,
+            old_root: false,
         };
         let m;
         let mut record_id = "-".to_owned();
@@ -162,8 +164,9 @@ impl Verifier<'_> {
                 legacy_policy_message(&c.payload, kind)?
             };
             let sig = text(o, "signature")?;
-            if c.group && root(&self.root, &m, sig).is_ok() {
+            if c.group && self.any_root_signature(&m, sig) {
                 c.root = true;
+                c.old_root = root(&self.root, &m, sig).is_err();
             } else {
                 c.person = if c.group {
                     let signer =
@@ -179,7 +182,7 @@ impl Verifier<'_> {
         check(s(&c.payload, "network_id") == self.net, "invalid")?;
         if !c.root {
             self.ensure_person(&c.person)?;
-            check(self.persons.contains_key(&c.person), "proof_required")?;
+            check(self.historical_admission_known(&c.person), "proof_required")?;
             if c.cert != "root" && !self.state.activated_certificates.contains(&c.cert) {
                 let cert = self.structural(&c.cert, &c.person)?;
                 self.activate(&cert.request, true, 0)?;
@@ -224,6 +227,11 @@ impl Verifier<'_> {
     }
 
     fn access_status(&self, c: &mut Candidate) -> Result<()> {
+        if c.old_root {
+            c.selection.active = false;
+            c.selection.code = "forbidden".into();
+            return Ok(());
+        }
         if !c.root {
             let scope = if c.group { 8 } else { 1 };
             if let Err(e) = evaluate_path(&self.state, &c.person, &c.cert, scope, self.ctx.now) {

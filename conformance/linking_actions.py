@@ -390,7 +390,7 @@ class Author(HistoryAuthor):
                 self.add_request("outer/" + label + "_" + field, dict(good, **{field: value}), error("invalid"))
         self.add_request("outer/unknown", dict(good, extra=1), error("invalid"))
         self.add_request("outer/unsupported_action_kind", dict(good, action_kind="root_record"), error("invalid"))
-        self.add_request("outer/nonzero_pinned_epoch", dict(good, epoch=1), error("upgrade_required"))
+        self.add_request("outer/nonzero_pinned_epoch", dict(good, epoch=1), error("proof_required"))
         for field in ("network_base64", "catalog_base64", "action_base64"):
             raw = unb64(good[field])
             for label, changed in (("bad_base64", "!"), ("extra_padding", good[field] + "="),

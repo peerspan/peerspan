@@ -11,6 +11,7 @@ pub(super) struct InviteHalf {
     pub(super) label: String,
     expires: String,
     record: String,
+    epoch: u64,
 }
 
 pub(super) struct Redemption {
@@ -141,6 +142,7 @@ impl Verifier<'_> {
             label: String::new(),
             expires: String::new(),
             record: String::new(),
+            epoch: 0,
         };
         let kind = if host {
             "peerspan-invite-v1"
@@ -148,6 +150,7 @@ impl Verifier<'_> {
             "peerspan-person-invite-v1"
         };
         if o.contains_key("format") {
+            h.epoch = num(&o, "epoch")?;
             h.person = text(&o, "person_public_key")?.into();
             h.cert = text(&o, "certificate_id")?.into();
             check(
@@ -186,9 +189,14 @@ impl Verifier<'_> {
             )?;
             check(s(&o, "network_id") == self.net, "invalid")?;
             let mut parts = vec![kind, self.net.as_str()];
+            let invite_epoch = if !host {
+                h.epoch = self.epoch_root(&o, "invite_epoch")?.1;
+                h.epoch.to_string()
+            } else {
+                String::new()
+            };
             if !host {
-                check(num(&o, "invite_epoch")? == 0, "upgrade_required")?;
-                parts.push("0");
+                parts.push(&invite_epoch);
             }
             parts.extend([
                 text(&o, "invite_public_key")?,
@@ -197,9 +205,13 @@ impl Verifier<'_> {
             ]);
             let m = lines(&parts);
             let sig = text(&o, "signature")?;
-            h.kept = self.legacy_authority(&m, sig)?;
+            h.kept = if host {
+                self.legacy_authority(&m, sig)?
+            } else {
+                self.legacy_grant(&o, "invite_epoch", &m, sig)?
+            };
             h.legacy = true;
-            h.person = if root(&self.root, &m, sig).is_ok() {
+            h.person = if self.any_root_signature(&m, sig) {
                 "-".into()
             } else {
                 crate::persons::sshsig_signer(sig).ok_or_else(|| problem("invalid"))?
@@ -268,7 +280,14 @@ impl Verifier<'_> {
 
     pub(super) fn redemption_half(&mut self, id: &str, h: &InviteHalf) -> Result<bool> {
         if h.legacy {
-            return Ok(h.kept && !self.invite_revoked(&h.key));
+            let attested = h.host
+                && h.person == "-"
+                && self.proofs.get(id).is_some_and(|p| {
+                    self.attested
+                        .get(s(&p.object, "host_public_key"))
+                        .is_some_and(|label| label == &h.label)
+                });
+            return Ok((h.kept || attested) && !self.invite_revoked(&h.key));
         }
         let (kept, withdrawn) = self.redemption_admin_kept(&h.person, &h.record, id)?;
         if !kept {
@@ -393,6 +412,12 @@ impl Verifier<'_> {
                 }
             } else {
                 let person = text(&r.object, "person_public_key")?;
+                // Cache the signed invitation epoch, not the selected root tip.
+                // Historical root labels confer no current admission.
+                if valid || h.legacy && h.person == "-" && !self.invite_revoked(&h.key) {
+                    self.historical_persons
+                        .insert((person.into(), h.epoch, h.label.clone()));
+                }
                 let administrator = self.admins.contains(person);
                 if valid {
                     check(

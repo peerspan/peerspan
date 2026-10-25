@@ -427,7 +427,8 @@ class Author(ActionAuthor):
             for label, edits in (("wrong_network", {"network_id": "net_" + "0" * 64}), ("wrong_epoch", {"epoch": 1})):
                 changed = dict(original, **edits)
                 self.oracle.resign("person_record", changed, self.person)
-                self.add("strict/" + kind + "/" + label, self.catalog_with([changed]), code="invalid")
+                self.add("strict/" + kind + "/" + label, self.catalog_with([changed]),
+                         code="proof_required" if label == "wrong_epoch" and kind == "host-bind-v1" else "invalid")
             unknown = self.record(kind, unsigned=dict(payload(original), unknown=True))
             self.add("strict/" + kind + "/unknown_payload", self.catalog_with([unknown]), code="invalid")
             forged = dict(original, signature=self.signers[self.quinn].sshsig(message("person_record", original)))
@@ -449,7 +450,7 @@ class Author(ActionAuthor):
             for label, value in (("null", None), ("wrong_type", [])):
                 self.add_request("outer/" + label + "_" + field, dict(good, **{field: value}), error("invalid"))
         self.add_request("outer/unknown_field", dict(good, extra=1), error("invalid"))
-        self.add_request("outer/nonzero_epoch", dict(good, epoch=1), error("upgrade_required"))
+        self.add_request("outer/nonzero_epoch", dict(good, epoch=1), error("proof_required"))
         for field in ("network_base64", "catalog_base64"):
             raw = unb64(good[field])
             for label, value in (("bad_alphabet", "!"), ("extra_padding", good[field] + "="), ("whitespace", good[field] + "\n")):
