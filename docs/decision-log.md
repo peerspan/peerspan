@@ -1,0 +1,921 @@
+# Owner decision log
+
+The owner's decisions about Peerspan's design, in one place, with the options each choice was made from. It is a record for auditing and reviewing the codebase. The owner makes the decisions; this log only records them, and the contract or proposal it links to stays the specification.
+
+## How to use it
+
+- **One entry per decision.** Each entry has a stable ID, which never changes or gets reused. Cite it in reviews, commits, and other documents ("per CONV-9").
+- **What an entry records:** its date and area; the question; every option that was proposed; the choice; the reason given; the proposal it came from and the contract section that specifies it; and, when known, the PR that recorded it and the PRs that implement it. An entry's heading states the question, as the source titles it. Entries in a group share the fields given under the group's heading.
+- **Wording is copied, not paraphrased.** Options and reasons are quoted from the source document as written. When the source records no options, the entry says "options not recorded"; it never reconstructs them. When options survive only in git history, the entry names the commit.
+- **IDs** are `AREA-N`. Where the source numbers its decisions, `N` is the source's number (CAP-15 is decision 15 of the capabilities contract; CAP-16B.3 is decision 3 of the slice 3 item B proposal). Where it does not, entries are numbered here in the source's order.
+- **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
+- **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
+
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations.
+
+Contents:
+- [Full entries](#full-entries), with options:
+  - [CAP-16: capabilities slice 3](#cap-16-capabilities-slice-3-2026-10-25) (2026-10-25)
+  - [CONV: conversations](#conv-conversations-2026-10-25) (2026-10-25)
+  - [LIVE-5: protocol_version from every adapter](#live-5-protocol_version-from-every-adapter-2026-10-25) (2026-10-25)
+  - [LAUNCH-34: the `attach --no-start` sign-in check](#launch-34-the-attach---no-start-sign-in-check-2026-10-24) (2026-10-24)
+  - [CAP-15: call timing](#cap-15-call-timing-2026-10-23) (2026-10-23)
+- [Index of earlier decisions](#index-of-earlier-decisions)
+
+## Full entries
+
+### CAP-16: capabilities slice 3 (2026-10-25)
+
+- **Date:** 2026-10-25.
+- **Area:** capabilities, roadmap milestone 10, slice 3.
+- **Decision:** slice 3 covers four items, each designed in its own proposal. The owner accepted every recommendation in each proposal's "Owner decisions needed" list, so each proposal's recommended design is the design for its item.
+- **Recorded in:** [decision 16](capabilities-contract.md#owner-decisions) of the capabilities contract ([PR #77](https://github.com/peerspan/peerspan-internal/pull/77)), and each proposal's status line.
+- **Contract section:** none yet. Each item's contract section is added when it is implemented, and follows its proposal.
+- **Implementing PRs** (open on 2026-10-25): item B [#78](https://github.com/peerspan/peerspan-internal/pull/78), item C [#79](https://github.com/peerspan/peerspan-internal/pull/79), item D [#80](https://github.com/peerspan/peerspan-internal/pull/80). Item A: none yet.
+
+Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
+
+#### CAP-16A: remote MCP servers and OAuth
+
+- **Source:** [capabilities-slice3-remote-proposal.md, Owner decisions needed](capabilities-slice3-remote-proposal.md#owner-decisions-needed), decisions 1–12 (proposal [PR #74](https://github.com/peerspan/peerspan-internal/pull/74)).
+
+##### CAP-16A.1. Credential modes in slice 3
+
+- **Options:** (a) OAuth only; (b) OAuth plus static headers from harness configuration; (c) (b) plus public servers with no auth.
+- **Chosen (the recommendation):** Recommend (c).
+- **Reason given:** Headers are how GitHub's remote server works without DCR, and public servers cost nothing extra.
+
+##### CAP-16A.2. Client registration methods
+
+- **Options:** (a) DCR plus `--client-id`; (b) (a) plus CIMD, with a client metadata document Peerspan hosts at a fixed HTTPS URL; (c) CIMD first, DCR fallback.
+- **Chosen (the recommendation):** Recommend (a) now, (b) once Peerspan has a public domain.
+- **Reason given:** CIMD needs a stable HTTPS URL, and the public domain is not settled; DCR covers Linear, Notion, Atlassian, and Sentry today. The specification now deprecates DCR, so CIMD should follow soon.
+
+##### CAP-16A.3. Client name shown at providers
+
+- **Options:** (a) `Peerspan`; (b) `Peerspan (HOST_LABEL)`; (c) set by the owner at sign-in.
+- **Chosen (the recommendation):** Recommend (b).
+- **Reason given:** It tells the person which machine to revoke at the provider; the cost is sending the host label to the provider. With CIMD it is fixed per document, so it becomes `Peerspan`.
+
+##### CAP-16A.4. The deprecated HTTP+SSE transport
+
+- **Options:** (a) not supported, reason `sse`; (b) supported when the harness says `sse` or when `POST initialize` returns 400, 404, or 405.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** The providers above serve Streamable HTTP; (b) adds a second client for a deprecated transport. Revisit if live testing finds a needed SSE-only server.
+
+##### CAP-16A.5. Headless sign-in
+
+- **Options:** (a) loopback listener plus pasting the final URL; (b) (a) plus completing a headless host's sign-in from another trusted machine of the same person, over a new peer route; (c) OAuth device flow (RFC 8628) where offered.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** It works over SSH with nothing new; (b) needs a new peer route and trust rule, and (c) is not part of MCP authorization and few MCP servers offer it.
+
+##### CAP-16A.6. Separate sign-ins per capability
+
+- **Options:** (a) one sign-in per source, shared by its capabilities; (b) a capability may have its own sign-in (`capability login NAME`), with its own instance, like `--env-file` today.
+- **Chosen (the recommendation):** Recommend (b).
+- **Reason given:** It is the OAuth form of the narrower credential: another account, fewer scopes, or a narrower consent-screen choice. It adds one key column and two commands.
+
+##### CAP-16A.7. Tokens at rest
+
+- **Options:** (a) plain in the host database, as `tool_values`; (b) encrypted with a key in a separate 0600 file in the state directory; (c) the OS keychain where present (macOS Keychain, Secret Service), else (a).
+- **Chosen (the recommendation):** Recommend (a) for slice 3, with (c) considered with macOS support.
+- **Reason given:** (b) protects only against copies of the database alone, such as backups; (c) fails on headless Linux without a session bus, which is a main case.
+
+##### CAP-16A.8. Calls after an HTTP error
+
+- **Options:** (a) never resend a call; 401 and 4xx are `failed`, 5xx and dropped connections `uncertain`; (b) after a 401, refresh and resend once, since the server refused before running it; (c) treat 5xx as `failed`.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** It keeps "never sent twice" exact; proactive refresh makes 401 rare.
+
+##### CAP-16A.9. Claude Code `headersHelper`
+
+- **Options:** (a) not shareable, reason `headers_helper`; (b) run the helper in the CLI at discovery and capture its output as literal headers; (c) run it in the daemon before each instance starts.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** (b) captures a token that may be short-lived, and (c) runs an arbitrary owner command for every peer's call, which is the same reach as stdio servers but invisible in the review.
+
+##### CAP-16A.10. HTTP client environment
+
+- **Options:** (i) TLS roots: (a) system store (Go default; Rust adds `rustls-native-certs`); (b) bundled Mozilla roots (`webpki-roots`) in Rust. (ii) Proxies: (a) ignore `HTTPS_PROXY` in both; (b) honor it in both.
+- **Chosen (the recommendation):** Recommend system roots and ignoring proxies for slice 3.
+- **Reason given:** System roots honor corporate CAs the same way in Go and Rust; proxy support can come when someone needs it, and must be identical in both hosts.
+
+##### CAP-16A.11. Live acceptance providers
+
+- **Options:** Linear, Notion, Atlassian, or Sentry for OAuth with DCR; GitHub with a PAT header for headers.
+- **Chosen (the recommendation):** Recommend Linear (DCR) and GitHub (PAT header), both with a free test account.
+- **Reason given:** It needs the owner to provide the accounts.
+
+##### CAP-16A.12. A lapsed sign-in at the receiver
+
+- **Options:** (a) a new `unavailable` marker `auth`, refused at submission with 409 `unavailable`; (b) accept calls and fail them at start with `auth_required`.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** A caller learns at once, nothing is persisted, and it matches how a missing source is handled.
+
+##### CAP-16A.add1. A remote server with no sign-in in the share review
+
+- **Date:** 2026-10-25, the owner's addition to item A after accepting it.
+- **Question:** what the share review says about a remote server that asks for no sign-in (allowed by CAP-16A.1, option (c)).
+- **Options:** not offered as a choice; the owner added the requirement.
+- **Decision:** keep no-sign-in servers. The share review states plainly that such a server asks for no sign-in and serves anyone who can reach it, and that sharing extends that reach to the recipients through this host. The proposed review line: `Credential: none. AGENT/SERVER (URL_HOST) asks for no sign-in, so it serves anyone who can reach it. Sharing it lets the people you share with use the selected operations through this host, including when the server is only reachable from here (a local, home, VPN, or company network).`
+- **Reason given:** not recorded beyond the line itself: a server reachable only from the owner's network becomes reachable to recipients through the owner's host.
+- **Source:** [PR #81](https://github.com/peerspan/peerspan-internal/pull/81), open on 2026-10-25. It adds the line to the proposal's review section and notes it in decision 16. Until it merges, the proposal and decision 16 on main do not contain it.
+
+#### CAP-16B: approval of each call
+
+- **Source:** [capabilities-slice3-approval-proposal.md, Owner decisions needed](capabilities-slice3-approval-proposal.md#owner-decisions-needed), decisions 1–12 (proposal [PR #72](https://github.com/peerspan/peerspan-internal/pull/72)).
+
+##### CAP-16B.1. Where the requirement lives
+
+- **Options:**
+  - (a) On the capability record, host-local, unsigned, not visible to coordination.
+  - (b) As a fourth bound in the policy's capability rule (`none`, `changing`, or `all`), signed and visible to coordination; no per-operation list, since the policy never names operations.
+  - (c) Both: the policy flag as a floor the person sets everywhere, the record for operation lists.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** It only narrows, needs no signing or format break, applies offline at once, and can name operations; a policy flag can only be per capability anyway.
+
+##### CAP-16B.2. Where the person approves
+
+- **Options:**
+  - (a) Only on the serving host, through its local CLI.
+  - (b) Also from any of the person's trusted machines, through a new peer route authorized by self access.
+  - (c) Also from a future dashboard.
+- **Chosen (the recommendation):** Recommend (a) for this slice, (b) as a follow-up.
+- **Reason given:** (b) makes approval authority follow `trusted_hosts`, which any holder of the person key can grant itself; that deserves its own review.
+
+##### CAP-16B.3. How strong the approval act is
+
+- **Options:**
+  - (a) A terminal prompt; `approve` refuses without a terminal and has no `--yes`.
+  - (b) Like `share`: a prompt, or `--yes` without a terminal.
+  - (c) A person-key signature over `(sender, call_id, input_sha256)`, through ssh-agent.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** It keeps the person's agent from approving through its shell by accident, without key prompts for every call. (c) stops only processes that cannot reach the ssh-agent, and the agent usually can.
+
+##### CAP-16B.4. Which calls are covered
+
+- **Options:**
+  - (a) Policy calls per the requirement; self calls with an agent origin too unless `agent_self` is false; self calls without origin never.
+  - (b) Policy calls only; everything under self access is exempt.
+  - (c) Every call, including the person's own CLI from trusted machines.
+- **Chosen (the recommendation):** Recommend (a), with `agent_self` true by default.
+- **Reason given:** The person's own agent on another machine using write tools is a main reason to want approval; the person typing at their own CLI is not.
+
+##### CAP-16B.5. How the caller sees it on the wire
+
+- **Options:**
+  - (a) `state` stays `queued`, with a new `approval` object; callers derive `awaiting_approval` locally.
+  - (b) A new wire state `awaiting_approval`, with an upgrade gate: the receiver uses it only for callers that announce support, for example with a request field.
+  - (c) A new wire state for everyone.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** (c) breaks every v18 caller, whose validation rejects unknown states, so their calls never resolve. (b) works but adds a negotiation for no gain over (a).
+
+##### CAP-16B.6. Whether to notify the person's agent session
+
+- **Options:**
+  - (a) A notice event to the capability's source agent, as specified.
+  - (b) To every attached agent session on the serving host.
+  - (c) No agent notice in this slice; status and activity only.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** The person is most often in an agent session; the source agent is the natural one and avoids spamming every session.
+
+##### CAP-16B.7. What the notice and listing show of the input
+
+- **Options:**
+  - (a) The notice carries no input; the CLI shows it.
+  - (b) The notice carries an escaped preview.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** Input is caller-written text; in the owner's agent context it becomes a channel for a caller to instruct the owner's agent.
+
+##### CAP-16B.8. Remembering approvals
+
+- **Options:**
+  - (a) Each approval covers one call only.
+  - (b) `approve --for 30m` also approves later calls from the same caller to the same operation for a window.
+  - (c) `approve --same-input` approves later calls with an identical input hash.
+- **Chosen (the recommendation):** Recommend (a) now; consider (b) after real use.
+- **Reason given:** (b) and (c) turn approval back into short standing permission, which needs its own review of scope and revocation.
+
+##### CAP-16B.9. Per recipient
+
+- **Options:**
+  - (a) The requirement applies to every recipient of the capability.
+  - (b) The record also holds `approval_exempt: [principals]`, recipients who never need approval.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** Two capabilities on the same source, one with approval, already serve "trusted Bob, approved Carol" without new syntax; (b) can follow C's principal forms later.
+
+##### CAP-16B.10. How long a call may wait
+
+- **Options:**
+  - (a) Until the call's deadline, at most 15 minutes, as for every call.
+  - (b) Raise the deadline limit for calls to operations that need approval, for example to 24 hours.
+- **Chosen (the recommendation):** Recommend (a) for this slice.
+- **Reason given:** (b) changes the receiver's deadline check, which older receivers enforce with 400, and the caller's daemon does not know before submitting whether approval is needed except from the advisory listing. The design notes approval "fails while the owner is away"; (a) accepts that, and the caller sees `approval_timeout` clearly.
+
+##### CAP-16B.11. Default for new capabilities
+
+- **Options:**
+  - (a) `none` unless chosen; the guided share asks when write tools are selected, defaulting to yes at the prompt.
+  - (b) `changing` by default everywhere.
+  - (c) `none`, with no prompt.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** It keeps existing scripts and records unchanged while steering the interactive path, where write tools are chosen, toward approval.
+
+##### CAP-16B.12. Pending limit per caller
+
+- **Options:**
+  - (a) 20 pending approvals per rule identity and caller, fixed.
+  - (b) A per-rule or per-capability setting.
+- **Chosen (the recommendation):** Recommend (a).
+- **Reason given:** It stops one caller from flooding the owner's list; `max_calls_per_hour` already bounds volume.
+
+#### CAP-16C: sharing with one agent
+
+- **Source:** [capabilities-slice3-agent-shares-proposal.md, Owner decisions needed](capabilities-slice3-agent-shares-proposal.md#owner-decisions-needed), decisions 1–15 (proposal [PR #73](https://github.com/peerspan/peerspan-internal/pull/73)).
+
+##### CAP-16C.1. How Bob's host finds Alice's agent ID
+
+- **Options:**
+  - (a) A new peer route that answers one exact name or ID to any member of the network, with the directory as fallback for older hosts.
+  - (b) The directory only. It works only when Alice already lets Bob's host reach that agent, which is usually not the case.
+  - (c) No lookup. Alice reads `agent:HOST_ID/AGENT_ID` from `peerspan agents` and sends it to Bob.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It is the only option where `--with alice/claude-laptop` works in the common case, and it discloses only that an exact name exists.
+
+##### CAP-16C.2. What the stored principal names
+
+- **Options:**
+  - (a) Host ID and agent ID, the existing `agent:` form; the share does not follow the agent to another machine.
+  - (b) A new form naming the person and the agent name (for example `agent-name:PERSON_ID/NAME`), which follows moves. The sending host would have to assert the agent's name in `origin`, the format and test vector change, and names would start to authorize.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It keeps "nothing authorizes by name" and needs no format change. Moves are rare, and re-sharing is one command.
+
+##### CAP-16C.3. A host unbound from the person it was shared as
+
+- **Options:**
+  - (a) Keep milestone 6 matching (host and agent only). `shares` shows `unbound`, or labels the agent with the host's new person.
+  - (b) Add the person to the principal (for example `agent:HOST_ID/AGENT_ID@PERSON_ID`), so the share stops when the host's person changes. This is a format change.
+  - (c) Keep the format, store the person at `share` time on the sharing host, and add a status attention item when the host's person differs.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Unbinding is rare, signed, and deliberate, and `shares` makes it visible. (b) is the safe choice if the owner sees this as a real risk.
+
+##### CAP-16C.4. A bare `--with` value containing one `/`
+
+- **Options:**
+  - (a) It is always an agent address. A person label with `/` is given as `person:LABEL`.
+  - (b) Try a person label first, then an agent address.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** One reading, matching capability addresses. (b) makes the meaning depend on who exists.
+
+##### CAP-16C.5. Sharing with the owner's own agents
+
+- **Options:**
+  - (a) Allowed for agents on the owner's other hosts, with a note when that host is trusted; refused with `local` for agents on this host.
+  - (b) Refused for all of the owner's own agents, since self access covers trusted machines.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It is how one agent on an untrusted machine gets one capability.
+
+##### CAP-16C.6. How `shares` labels agent recipients
+
+- **Options:**
+  - (a) A live lookup by agent ID when `shares` runs (up to 5 seconds), showing gone agents.
+  - (b) Store the name at `share` time in a new table (a schema bump); fast and offline, but stale and present only on the host that shared.
+  - (c) Show IDs, with only the person taken from the network map.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** No schema change, and it shows when an agent is gone. Names never change, so a lookup is accurate.
+
+##### CAP-16C.7. One match while some of the person's hosts did not answer
+
+- **Options:**
+  - (a) Go ahead, and list the unanswered hosts in the review.
+  - (b) Refuse until every host answers.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Names are unique per person, `attach` already works this way, and an offline laptop should not block sharing.
+
+##### CAP-16C.8. Which agents `call --from-agent` may act as
+
+- **Options:**
+  - (a) Any agent registered on this host.
+  - (b) Only agents with an `attach` profile.
+  - (c) Only agents whose credential has `calls`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It matches `message send --from-agent`; the owner already controls every local agent, and the receiver cannot tell the difference.
+
+##### CAP-16C.9. Whether the agent sees calls made as it
+
+- **Options:**
+  - (a) No: owner's records only.
+  - (b) Yes: visible to `call_status` and `pending_work`, with a `call_update` event.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** The owner made the call and follows it; injecting it into a live session would confuse the agent.
+
+##### CAP-16C.10. `--from-agent` with a source address
+
+- **Options:**
+  - (a) Refused, since agents cannot call sources.
+  - (b) Allowed, carrying the origin.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** `--from-agent` should show exactly what the agent can do.
+
+##### CAP-16C.11. The recipient's default `discover`
+
+- **Options:**
+  - (a) List agent-only shares with `for_agents`, and refuse `call` without the flag with an `agent_only` error that names the flag.
+  - (b) Keep them hidden; only `discover --from-agent` shows them.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Alice can see what her agents were given, and the error tells her how to use it.
+
+##### CAP-16C.12. `--from-session`
+
+- **Options:**
+  - (a) Accept it, as `message send` does.
+  - (b) Omit it.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It is cheap, keeps parity, and lets an owner reproduce an adapter call exactly.
+
+##### CAP-16C.13. How `--from-agent` names the agent
+
+- **Options:**
+  - (a) An agent ID or a local agent name.
+  - (b) An ID only, as `send --from-agent` takes today.
+- **Chosen (the recommendation):** Recommendation: (a), and accept names in `send`/`task --from-agent` too, later or in this slice.
+- **Reason given:** (none beyond the recommendation)
+
+##### CAP-16C.14. `allow` and `deny` (message and task access)
+
+- **Options:**
+  - (a) Accept `PERSON/AGENT` and `HOST_ID/AGENT` with the same resolver, in this slice.
+  - (b) Leave them at `agent:HOST/AGENT` for now.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** The resolver is shared, and one recipient syntax everywhere is easier to explain. It adds `launch_onboarding.py` cases.
+
+##### CAP-16C.15. Principals for agents that are gone
+
+- **Options:**
+  - (a) Show them in `shares` with their state, and never remove them automatically.
+  - (b) Remove them at the next policy edit.
+  - (c) Add a status attention item.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** An unanswered host may come back, and silent removal by a signing tool is surprising. `shares` already shows the state and the `unshare` command.
+
+#### CAP-16D: resource bounds and the `gh` source
+
+- **Source:** [capabilities-slice3-bounds-sources-proposal.md, Owner decisions needed](capabilities-slice3-bounds-sources-proposal.md#owner-decisions-needed), decisions 1–17 (proposal [PR #75](https://github.com/peerspan/peerspan-internal/pull/75)).
+
+##### CAP-16D.1. Where bounds live
+
+- **Options:** (a) per capability, set at create, local only; (b) per share, in a local table keyed by network, capability, and principal; (c) per share, in policy v2 as a new capability-rule line.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It needs no policy change, keeps repository names away from coordination, and one capability per scope is easy to explain. (c) puts argument values in front of the coordinator and changes the format again.
+
+##### CAP-16D.2. How MCP tools are bounded
+
+- **Options:** (a) generic argument combinations checked against the snapshot schema; (b) no MCP bounds in this slice, `gh` only; (c) Peerspan-shipped profiles for popular MCP servers, such as GitHub's `owner` and `repo`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It works for any server with structured arguments and is honest about what it checks. Profiles (c) can be added later as source matchers, but identifying which server a definition is takes guessing.
+
+##### CAP-16D.3. Operations whose schema does not declare the bound argument
+
+- **Options:** (a) refuse at create with `bound_unenforceable`; (b) allow them and mark them unbounded in the review.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** A bounded capability with unbounded operations would be misread as bounded.
+
+##### CAP-16D.4. Showing bounds to recipients
+
+- **Options:** (a) show `bounds` in `discover` and `list_capabilities`, and narrow input schemas; (b) hide them, so callers learn only from refusals.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Callers and agents need the allowed values to make valid calls, and the values go only to authorized principals on the peer path.
+
+##### CAP-16D.5. Wildcards in `gh` repository bounds
+
+- **Options:** (a) exact names plus `OWNER/*`; (b) exact names only; (c) general glob patterns.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** "Everything in our organization" is common, and `OWNER/*` is easy to state and check. General globs make the review harder to read.
+
+##### CAP-16D.6. A call that omits a bound argument
+
+- **Options:** (a) refuse it with `out_of_bounds`; (b) fill in the value when the bound allows exactly one.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Peerspan never changes a call's input, and the narrowed schema already tells callers what to send.
+
+##### CAP-16D.7. How the `gh` adapter runs
+
+- **Options:** (a) a built-in stdio MCP server subcommand in each binary, run through the existing instance machinery; (b) a separate executor inside each daemon with its own call path; (c) one shared implementation in the Node adapter.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Calls, cancellation, uncertainty, concurrency, and logs need no new code, apart from mapping one JSON-RPC error code to `result_too_large`. (c) would make sources depend on Node.
+
+##### CAP-16D.8. The built-in source address
+
+- **Options:** (a) `builtin/NAME`, with `builtin` refused as a new agent name; (b) a separate address form, such as `@gh`, which every address parser must learn; (c) a bare `gh`, which collides with MCP servers named `gh`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It fits every existing parser and record that uses `AGENT/SERVER`.
+
+##### CAP-16D.9. Which `gh` accounts become sources
+
+- **Options:** (a) every `github.com` account, `gh` for the active one and `gh-LOGIN` for others; (b) the active `github.com` account only; (c) every account on every host, including GitHub Enterprise.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** People with work and personal accounts need to pick one. Enterprise hosts need `GH_ENTERPRISE_TOKEN` and host-qualified names, so they can follow later.
+
+##### CAP-16D.10. Where the `gh` token comes from at call time
+
+- **Options:** (a) captured at discovery with `gh auth token` and stored in `tool_values`; (b) `gh` reads the user's own store (keyring or `hosts.yml`) at call time.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It matches the decision for `${VAR}` values, and works when the daemon cannot reach the desktop keyring. The cost is the same as today: after `gh auth refresh` or a new login, the owner runs `peerspan sources refresh`, and status item 14 says so.
+
+##### CAP-16D.11. The operation set and names
+
+- **Options:** (a) the ten operations above, named after the `gh` command (`issue_list`); (b) read-only operations only in this slice; (c) a larger set including close, merge, review, and workflow runs.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It covers the CLI experience's issue example and common pull-request reading, and three low-risk writes that the review marks. Merges and closes deserve per-call approval (B) first.
+
+##### CAP-16D.12. Free-form search and large diffs
+
+- **Options:** Options for search: (a) left out; (b) allowed, refusing queries with `repo:`, `org:`, `user:`, or `owner:` qualifiers. Options for diffs over 1,000,000 bytes: (a) fail with `result_too_large`; (b) truncate with `truncated: true` in the result.
+- **Chosen (the recommendation):** Recommendation: (a) for both.
+- **Reason given:** Search filtering is easy to get wrong, and failing matches every other source; `name_only` gives a usable fallback.
+
+##### CAP-16D.13. Changing a bound
+
+- **Options:** (a) remove and create again; (b) a new `capability update` that re-signs nothing but changes the record.
+- **Chosen (the recommendation):** Recommendation: (a) for this slice.
+- **Reason given:** Records are immutable today, and an update command needs its own rules for running and queued calls.
+
+##### CAP-16D.14. The minimum `gh` version
+
+- **Options:** (a) 2.81.0, for `gh auth status --json`; (b) an older version, parsing the text output of `gh auth status`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** The text output is not a stable interface, and 2.81.0 is a year old.
+
+##### CAP-16D.15. Telemetry when Peerspan runs `gh`
+
+- **Options:** (a) set `GH_TELEMETRY=0`; (b) leave `gh`'s default. The private `GH_CONFIG_DIR` means the user's own `gh` setting does not apply either way.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Calls made for a peer should not report usage on the owner's behalf without being asked.
+
+##### CAP-16D.16. How general the source-type mechanism is
+
+- **Options:** (a) an internal registry of built-in adapters, with `gh` the only one now; (b) a public plugin interface for third-party adapters.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** A third-party adapter can already be an MCP server, which is a source today. A plugin interface would add a second way to do the same thing.
+
+##### CAP-16D.17. Checking `gh` bound repositories at create
+
+- **Options:** (a) warn when a bound repository is not visible to the credential; (b) refuse; (c) no check.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** A typo is caught early, but a repository the credential cannot see yet, or a network failure, does not block setup.
+
+### CONV: conversations (2026-10-25)
+
+- **Date:** 2026-10-25.
+- **Area:** conversations, launch-plan track 3. On 2026-10-16 the owner tabled the track to follow the interface track; on 2026-10-25 the owner chose to start it, designed for the CLI and the agents' Peerspan tools, with a later UI addable without protocol changes.
+- **Decision:** the owner accepted every recommendation in the proposal's "Owner decisions needed" list (21 decisions), so the proposal's recommended design is the design for conversations.
+- **Source:** [conversations-proposal.md, Owner decisions needed](conversations-proposal.md#owner-decisions-needed) (proposal [PR #76](https://github.com/peerspan/peerspan-internal/pull/76)).
+- **Recorded in:** this log and the proposal's status line ([PR #82](https://github.com/peerspan/peerspan-internal/pull/82)).
+- **Contract section:** none yet; added when conversations are implemented. Not yet a roadmap milestone.
+- **Implementing PRs:** none yet.
+
+Every entry below was decided by accepting the proposal's recommendation, quoted under "Chosen".
+
+#### CONV-1. Which permission authorizes a post
+
+- **Options:**
+  - (a) `message.append`, unchanged: whoever may message an agent may talk to it in a conversation.
+  - (b) A new policy action `conversation.post`, separate from messages.
+  - (c) A new action that `message.append` implies, so owners can later grant conversations without messages.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** A post is a message with context; (b) and (c) change the policy format, test vectors, and coordinators for a distinction no one has asked for yet.
+
+#### CONV-2. Whether being in a conversation lets participants reach each other
+
+- **Options:**
+  - (a) No: each recipient's policy governs every author; unreachable pairs are shown and their posts refused for that target.
+  - (b) Yes: an authorized invite implies permission from every participant.
+  - (c) Opt-in: an owner rule letting "participants of conversations my agent is in" post to it.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** (b) lets one person introduce strangers to someone else's agent, against the owner-decides model; (c) can come later.
+
+#### CONV-3. Who orders membership changes
+
+- **Options:**
+  - (a) The creator's host, as home, for the conversation's life.
+  - (b) Any participant's host, with a merged roster (add and remove sets) and no single authority.
+  - (c) (a), with handing home to another participant later.
+- **Chosen (the recommendation):** Recommendation: (a) now, (c) later.
+- **Reason given:** One authority makes adds and removes simple and auditable; posting does not depend on it.
+
+#### CONV-4. Who may add and remove participants
+
+- **Options:**
+  - (a) The creator only.
+  - (b) Any participant may add; only the creator removes.
+  - (c) Any participant may add or remove.
+- **Chosen (the recommendation):** Recommendation: (a) in slice 1.
+- **Reason given:** It keeps "who brought this person in" obvious; (b) can follow once rosters are seen in use.
+
+#### CONV-5. Whether an agent must accept being added
+
+- **Options:**
+  - (a) No: an invite that passes the agent owner's `message.append` check joins it, and it can leave.
+  - (b) The agent accepts with a tool before posts arrive.
+  - (c) The agent's owner accepts.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** The owner already allowed this sender to message the agent; an extra model turn adds cost, not control.
+
+#### CONV-6. How people take part
+
+- **Options:**
+  - (a) A person takes part from one bound host, after an explicit `join`, and receives posts from any joined participant not blocked.
+  - (b) As (a), but posts to a person also need a policy rule naming the author.
+  - (c) People can read and post, but cannot be invited; only agents are participants in slice 1.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Joining is the person's own consent, and they can leave or block; policy rules today name agents, not people.
+
+#### CONV-7. Who may invite a person
+
+- **Options:**
+  - (a) Any member host of a shared network that is not blocked, held as pending, at most 20 per sender, expiring after 7 days.
+  - (b) Only principals the person lists in a new local allow list.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** An invite carries only a title and note, and nothing reaches the person until they join.
+
+#### CONV-8. What a late joiner sees
+
+- **Options:**
+  - (a) Posts from when they joined, plus the inviter's note.
+  - (b) Earlier posts, each served by its author's host only if that author's owner allows history for late joiners (a setting per conversation or per host).
+  - (c) All earlier posts, by default.
+- **Chosen (the recommendation):** Recommendation: (a) in slice 1, (b) in slice 2.
+- **Reason given:** Earlier posts were written for the earlier participants; (c) would share them without their authors' consent.
+
+#### CONV-9. How posts are ordered
+
+- **Options:**
+  - (a) Lamport clock plus per-author `seq`, display order `(clock, author, seq)`.
+  - (b) Vector clocks, showing concurrency explicitly.
+  - (c) Each host's arrival order.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Same order on every host once complete, replies after what they answer, and a fixed-size field; (b) grows with participants for little visible gain.
+
+#### CONV-10. What a receiving session gets each turn
+
+- **Options:**
+  - (a) The new post with a header, and a window (10 posts, 16 KiB) only on the first event and on catch-up.
+  - (b) A window with every event.
+  - (c) The new post only, always.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** The session already holds earlier events in its context; repeating them each turn costs tokens, while (c) leaves a new session lost.
+
+#### CONV-11. How to bound back-and-forth between agents
+
+- **Options:**
+  - (a) 60 posts per author per conversation per hour, `addressed_to`, and "you need not answer every post" guidance; not counted against `max_sends_per_hour`.
+  - (b) As (a), and also counted against `max_sends_per_hour`.
+  - (c) Turn-taking: one post per author until someone else posts.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It stops runaway loops without throttling a busy legitimate conversation; (c) breaks multi-step work.
+
+#### CONV-12. Messages and replies
+
+- **Options:**
+  - (a) Keep both unchanged beside conversations; no migration.
+  - (b) Reimplement messages as two-participant conversations and migrate records.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** One-shot ask-and-answer stays useful and tested; migration risks working behavior for no user gain.
+
+#### CONV-13. Tasks
+
+- **Options:**
+  - (a) Slice 1: an optional, informational `about` task link. Slice 2: a task thread between submitter and receiver, authorized by the task itself.
+  - (b) Task threads in slice 1.
+  - (c) No link between conversations and tasks.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Threads need their own authorization rule (like replies to accepted work), which deserves its own review.
+
+#### CONV-14. How long posts are kept
+
+- **Options:**
+  - (a) Until the owner runs `conversation forget`.
+  - (b) Pruned automatically, for example 90 days after the last post.
+- **Chosen (the recommendation):** Recommendation: (a) for now, matching messages, which have no deletion; revisit with the UI.
+- **Reason given:** (none beyond the recommendation)
+
+#### CONV-15. Which agents get the conversation tools
+
+- **Options:**
+  - (a) Sessions with directory access (every `attach` session), refusing otherwise with `no_directory`.
+  - (b) A new `attach --conversations` opt-in, like `--calls`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Conversations use the same addressing and authorization as `send --to`; a second prompt adds friction without new reach.
+
+#### CONV-16. Telling an author about undelivered posts
+
+- **Options:**
+  - (a) One `conversation_undelivered` event per final failure.
+  - (b) Nothing; failures show only in views and `conversation_history`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** An agent should know a participant missed its post; successes stay silent.
+
+#### CONV-17. How long the author's host keeps pushing
+
+- **Options:**
+  - (a) 24 hours, then the recipient fetches on sync.
+  - (b) 1 hour, as agent sends.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** Conversations last longer than one request, and sync covers anything later.
+
+#### CONV-18. Participants on the same host
+
+- **Options:**
+  - (a) Allowed: a post to a local participant is delivered locally, under self access.
+  - (b) Refused with `local`, as sends by address are.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** A person with Claude Code and Codex on one laptop is the simplest useful conversation, and nothing crosses a trust boundary.
+
+#### CONV-19. Closing
+
+- **Options:**
+  - (a) The creator can close; a closed conversation is read-only.
+  - (b) No close; only leaving.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It gives the design's "close" operation and a clear end for agents.
+
+#### CONV-20. Command names
+
+- **Options:**
+  - (a) `peerspan conversations` and `peerspan conversation start|show|say|watch|add|remove|join|decline|leave|close|read|forget`, in the root help beside `send` and `task`.
+  - (b) Shorter top-level verbs, such as `peerspan talk` and `peerspan say`.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** It matches `capability` and `calls`, and stays clear as subcommands grow.
+
+#### CONV-21. First slice scope
+
+- **Options:**
+  - (a) Agents and people together, as in [Slices](conversations-proposal.md#slices).
+  - (b) Agents only first; people from the CLI in the next slice.
+- **Chosen (the recommendation):** Recommendation: (a).
+- **Reason given:** The CLI is the only human surface today, and people in the conversation are the multiplayer case worth proving first.
+
+### LIVE-5: protocol_version from every adapter (2026-10-25)
+
+- **Date:** 2026-10-25.
+- **Area:** live delivery, adapters (Claude Code, Codex, OpenCode).
+- **Background:** the capability live test ([PR #54](https://github.com/peerspan/peerspan-internal/pull/54)) found the adapter connection's `protocol_version` was `2025-11-25` for Claude Code but null for the Codex and OpenCode sidecars, and the contract did not say whether they must report it.
+- **Decision:** first, Codex and OpenCode integrations must report a version, as Claude Code does. The owner then chose among the options in LIVE-5.1 to LIVE-5.4, taking the recommendation in each case.
+- **Source:** [live-delivery-proposal.md, Decisions](live-delivery-proposal.md#decisions), "Settled with the owner on 2026-10-25". The repo records only the chosen options; the alternatives below are recorded here from the owner's decision.
+- **Contract section:** [live delivery contract, Doctor](live-delivery-contract.md#doctor) (`mcp_protocol`).
+- **Recorded and implemented in:** [PR #66](https://github.com/peerspan/peerspan-internal/pull/66).
+
+#### LIVE-5.1. The value OpenCode reports
+
+- **Options:**
+  - O1: `opencode-plugin-<server version>` in `protocol_version`.
+  - O2: a fixed `opencode-plugin`.
+  - O3: a separate new field, keeping `protocol_version` MCP-only (needs a migration).
+- **Chosen:** O1, the recommendation. As recorded: "OpenCode: it has no MCP session with Peerspan, so it reports `opencode-plugin-VERSION`, the server version from `GET /global/health`, rather than a separate field."
+
+#### LIVE-5.2. How Codex attributes the value, and when it reports it
+
+- **Options:**
+  - C2: `mcp.mjs` sends `protocol_version` with each `POST /tool`, accepted only from the selected thread.
+  - C1: report at MCP initialize through a new tool-socket route, which is not attributable to a thread.
+- **Chosen:** C2, the recommendation. As recorded: "Codex: `mcp.mjs` sends its negotiated MCP revision with each `POST /tool`. The sidecar accepts it only from calls whose `_meta.threadId` is the selected thread."
+
+#### LIVE-5.3. A value that arrives late
+
+- **Options:**
+  - R1: the adapter reconnects as soon as the value changes, before its next daemon request.
+  - R2: wait for the 5-second renewal.
+- **Chosen:** R1, the recommendation. As recorded: "Reporting: the adapter connects again as soon as the value changes, before its next daemon request." PR #66 adds: "so the daemon has it before `POST /adapter/v1/ready`."
+
+#### LIVE-5.4. What doctor checks
+
+- **Options:**
+  - Scope the `2026-07-28` failure to Claude Code only; a missing value is not a doctor failure.
+  - Also fail a verified agent that never reported a version.
+- **Chosen:** the first, the recommendation. As recorded: "Doctor: the `2026-07-28` failure applies to the Claude Code harness (`claude-code`) only, and a missing value is not a failure."
+
+### LAUNCH-34: the attach --no-start sign-in check (2026-10-24)
+
+- **Date:** 2026-10-24/25, while fixing the capability live test.
+- **Area:** launch, `attach`; the capability live test (`conformance/live_capability_agents.py`).
+- **Question:** `attach claude --no-start` runs Claude Code's readiness checks, which require a sign-in. The live test's pretend person, Bob, had a temporary HOME with no Claude login, so setup failed before any harness ran. Should attach keep requiring a sign-in with `--no-start`?
+- **Options:**
+  - (a) Keep: attach checks that Claude Code is signed in even with `--no-start`, and the live test gives its pretend person a login.
+  - (b) Loosen: with `--no-start`, a missing sign-in is only a warning.
+- **Chosen:** (a). The live test links the operator's Claude login (`~/.claude/.credentials.json`) into Bob's HOME; Bob never starts Claude Code.
+- **Reason given:** not recorded in the repo.
+- **Source:** [PR #54](https://github.com/peerspan/peerspan-internal/pull/54) description and commit `5853778`, and the comments in `conformance/live_capability_agents.py`. The options are recorded here from the owner's decision; the repo records only the outcome.
+- **Contract section:** none; `attach` behavior is unchanged. See [Attach launches](launch-contract.md#attach-launches) for `attach`.
+- **Implemented in:** [PR #54](https://github.com/peerspan/peerspan-internal/pull/54).
+
+### CAP-15: call timing (2026-10-23)
+
+- **Date:** 2026-10-23.
+- **Area:** capabilities, agent capability tools (slice 2).
+- **Question:** how `call_capability` learns a call's result, and how long it may wait. Before this decision the tool waited up to `wait` seconds (default 30, at most 60), and the adapter and the caller's daemon checked status once a second for a call's first 60 seconds.
+- **Options:**
+  - Results: the owner chose "option 1", held requests instead of 1-second polling. The other options are not preserved in the repo.
+  - Limit: the owner chose "option A", a fixed 15-second wait limit as one daemon constant, configurable in a release. The other options are not preserved in the repo.
+  - Searched: the contract's history (`git log -p -S` on `docs/capabilities-contract.md`, from `564768b` "Record decision 15: a 15-second call wait and held status requests") and the PR #42 description. Both record only the chosen design.
+- **Chosen,** as the contract records it:
+  - "**Wait limit.** `call_capability` returns within 15 seconds of being called, everything included, and answers `queued` or `running` when the call has not finished; the result then arrives as a `call_update` event. An agent may ask for less, never more. The limit is one constant in the daemon, changed in a release; the adapter and the tool description do not repeat it. An owner setting for it may be added later."
+  - "**Results without polling.** The caller's daemon holds a status request open at the serving host (`GET /peer/v1/calls/{id}?wait=10`), and the adapter's call request is held open at the daemon, so a result arrives as soon as it exists instead of on a once-a-second check. A push from the serving host to the caller may be added later; hosts that predate the held request are polled every second as before."
+- **Possible later:** an owner setting for the limit, and a push from the serving host to the caller.
+- **Reason given:** not recorded beyond the decision text ("so a result arrives as soon as it exists instead of on a once-a-second check").
+- **Source and contract section:** [capabilities contract, decision 15](capabilities-contract.md#owner-decisions); specified under [Adapter routes](capabilities-contract.md#adapter-routes) ("Results without polling", "The wait limit"). It supersedes the waiting parts of CAP-13 and CAP-14.
+- **Recorded and implemented in:** [PR #42](https://github.com/peerspan/peerspan-internal/pull/42) (contract, adapter, Go, Rust, and the agent tools suite).
+
+## Index of earlier decisions
+
+Owner decisions recorded across the docs before this log, oldest first within each area. Each row gives the decision in one line; the linked section is the record. "Options" quotes the options where a source records them, including earlier versions of a proposal in git history; otherwise it says "options not recorded".
+
+Not included: the [peer messaging proposal](peer-messaging-proposal.md#decisions-still-to-validate)'s "Decisions still to validate" and the [connectivity evaluation](connectivity-evaluation.md#admission-and-the-current-decision), which record open questions and an engineering evaluation, not owner decisions; and the `mesh-new` system design and `docs-internal` documents, which are outside this repository.
+
+### Roadmap and access model
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| ROAD-1 | 2026-10-05 | The production roadmap's working sequence of milestones. | Options not recorded here; the decisions behind it are in the `mesh-new` system design under "Enrollment and reachability decisions". | [Roadmap, status](production-roadmap.md) |
+| ROAD-2 | 2026-10-07 | Order: milestone 6 (delegation), then 2c (direct propagation), then 7 (launch readiness). | Options not recorded. | [Roadmap](production-roadmap.md) |
+| ACC-1 | 2026-10-06 | Membership, ownership, and access are separate: administrators decide which hosts belong, whoever runs a host owns it and its agents, and only an agent's owner decides access to it. Membership and administration grant no access. Network-wide guardrails remain a future decision. | Options not recorded. | [Access model](access-model.md) |
+
+### Person identity (milestone 2b)
+
+Settled on 2026-10-06; the decisions replace the original recommendations where they differ. The original proposal (`9e0267a`) listed a recommendation and alternatives for seven of the ten questions.
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| PI-1 | 2026-10-06 | Person keys are `ssh-ed25519` only, signed in OpenSSH `SSHSIG` format through `ssh-agent`; `--person-key PATH` falls back to a key file. Hardware security keys out of scope. | At `9e0267a`, "Where person keys live": recommended "CLI-held key file outside host state; `ssh-agent` signing as a follow-up"; alternatives "Held by one designated host daemon; hardware keys from the start". The decision made `ssh-agent` primary. | [Decisions](person-identity-proposal.md#decisions) |
+| PI-2 | 2026-10-06 | Administrators admit hosts, as today; persons are an optional layer they also admit. | At `9e0267a`: recommended "Persons, who then bind their own hosts"; alternative "Keep admitting hosts, with persons optional on top". The decision took the alternative. | [Decisions](person-identity-proposal.md#decisions) |
+| PI-3 | 2026-10-06 | Join flows, for persons and hosts alike: a one-time invite token, or an administrator admitting a public key directly, plus a non-secret network descriptor. | Options not recorded. | [Decisions](person-identity-proposal.md#decisions) |
+| PI-4 | 2026-10-06 | Host binding is valid with the person's signature and the host's own submission; no administrator step. | Options not recorded. | [Decisions](person-identity-proposal.md#decisions) |
+| PI-5 | 2026-10-06 | A root rotation re-signs person admissions; person removal and host unbinding are signed, sticky, and permanent. | Options not recorded. | [Decisions](person-identity-proposal.md#decisions) |
+| PI-6 | 2026-10-06 | Groups are defined and versioned by administrators; owners choose whether to grant to a group or to named persons. | At `9e0267a`: recommended "Administrator-defined, versioned; owners choose whether to grant to groups"; alternative "Owner-defined groups only (no administrator influence on access at all, more toil)". | [Decisions](person-identity-proposal.md#decisions) |
+| PI-7 | 2026-10-06 | Policy validity is chosen by the owner per policy, 1–90 days, default 7, re-signed automatically while the key is available. | At `9e0267a`: recommended "7 days, re-signed automatically while the person key is available"; alternatives "Longer (more outage tolerance, slower withdrawal); no expiry (rely on local revocation only)". | [Decisions](person-identity-proposal.md#decisions) |
+| PI-8 | 2026-10-06 | Disconnected use needs `allow_disconnected` on a policy rule and ends at `valid_until`; manual host grants unchanged. | At `9e0267a`: recommended "Bounded by `valid_until`"; alternative "Allow manual host grants to keep longer disconnected validity, as today". | [Decisions](person-identity-proposal.md#decisions) |
+| PI-9 | 2026-10-06 | A request names the policy owner and version; the receiver checks its newest verified copy. | At `9e0267a`: recommended "Request names policy owner and version"; alternative "Keep `grant_id`, with policies materialized into local grants on each host". | [Decisions](person-identity-proposal.md#decisions) |
+| PI-10 | 2026-10-06 | The root key is kept offline after delegation, used only to delegate or revoke administrators and to rotate. | At `9e0267a`: recommended "kept offline, used only to delegate administrators and rotate"; alternative "Stays on the creator's host, as today". | [Decisions](person-identity-proposal.md#decisions) |
+
+### QUIC and relays (milestones 3 and 4)
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| QR-1 | 2026-10-06 | The peer transport moves to QUIC before relays are built. | For the relay carrier: "a TCP splice of the existing peer TLS (recommended) or moving the peer transport to QUIC now. The decision was to move to QUIC now." The proposal's table also lists "WireGuard as the only transport" as the alternative. | [How this design was reached](quic-relay-proposal.md#how-this-design-was-reached), [Decisions to settle](quic-relay-proposal.md#decisions-to-settle) |
+| QR-2 | 2026-10-06 | The relay runs inside `peerspan-coord`. | Options not recorded. | [Status](quic-relay-proposal.md) |
+| QR-3 | 2026-10-06 | Only network members may use the relay. | Options not recorded. | [Status](quic-relay-proposal.md) |
+
+The proposal's other rows (application protocol over QUIC, relay carrier, cutover, coordinator API, dependencies) list a recommendation and an alternative, but the proposal does not record an owner decision on them.
+
+### Coordination
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| COORD-1 | 2026-10-07 | Delegated administrators do everything except govern the root; only the root delegates or removes administrators and rotates. | Options not recorded. | [Administrators and groups](coordination-contract.md#administrators-and-groups) |
+| COORD-2 | 2026-10-07 | Removing an administrator keeps what they admitted, unless the removal says otherwise. | Options not recorded. | [Administrators and groups](coordination-contract.md#administrators-and-groups) |
+| COORD-3 | 2026-10-07 | The root can go offline by rotating to an SSH key. | Options not recorded. | [Administrators and groups](coordination-contract.md#administrators-and-groups) |
+| COORD-4 | 2026-10-07 | `network create` makes the creator's person the first administrator. | Options not recorded. | [Administrators and groups](coordination-contract.md#administrators-and-groups) |
+| COORD-5 | 2026-10-07 | A request is authorized by a manual grant or by the target agent owner's policy; a host-local block list overrides both. | Options not recorded. | [Owner access policy](coordination-contract.md#owner-access-policy) |
+| COORD-6 | 2026-10-07 | Daemons renew policies by asking the owner's `ssh-agent`, and never hold the key (except a CLI-generated key). | Options not recorded. | [Owner access policy](coordination-contract.md#owner-access-policy) |
+| COORD-7 | 2026-10-07 | Every member sees every policy. | Options not recorded. | [Owner access policy](coordination-contract.md#owner-access-policy) |
+| COORD-8 | 2026-10-07 | An owner's hosts also pass policies to each other directly (roadmap 2c). | Options not recorded. | [Owner access policy](coordination-contract.md#owner-access-policy) |
+| COORD-9 | 2026-10-08 | Only the owner's own hosts receive policies directly, by push plus periodic sync; block lists stay host-local. | Options not recorded. | [Direct propagation](coordination-contract.md#direct-propagation) |
+| COORD-10 | 2026-10-18 | A policy edit that loses to a concurrent one is kept by its host and re-applied on top of the winner; the coordinator is not involved. See also CAP-11. | Options not recorded. | [Concurrent edits](coordination-contract.md#concurrent-edits) |
+
+### Delegation (milestone 6)
+
+Settled on 2026-10-07. The original proposal (`8174492`) listed a recommendation and alternatives for each.
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| DEL-1 | 2026-10-07 | The final receiver checks originator and sender. | At `8174492`: recommended "Originator and sender"; alternatives "Originator only, with the sender as a conduit. Sender only, with the chain merely informational." | [Decisions](delegation-proposal.md#decisions) |
+| DEL-2 | 2026-10-07 | Host-asserted agent origin now; agent keys come with isolated runtimes. | At `8174492`: recommended as decided; alternative "Per-agent keys now, which adds little under one OS account". | [Decisions](delegation-proposal.md#decisions) |
+| DEL-3 | 2026-10-07 | Only where the receiving owner's rule includes `task.delegate`, and the incoming link allows further delegation. | At `8174492`: recommended as decided; alternative "Any authorized recipient may delegate within the chain". | [Decisions](delegation-proposal.md#decisions), [chain contract](delegation-chain-contract.md#who-may-delegate-decision-3) |
+| DEL-4 | 2026-10-07 | Maximum chain depth: 3 hops past the originator. | At `8174492`: recommended as decided; alternatives "Configurable per rule; unlimited, bounded by expiry". | [Decisions](delegation-proposal.md#decisions) |
+| DEL-5 | 2026-10-07 | Chain format: Peerspan's own minimal line-encoded links with Ed25519 host signatures. | At `8174492`: recommended "Own minimal line-encoded links"; alternative "Biscuit tokens (a Datalog policy language, plus a library dependency in each language)". | [Decisions](delegation-proposal.md#decisions) |
+| DEL-6 | 2026-10-07 | Cancellation propagates downstream best-effort; each hop reports the outcome. | At `8174492`: recommended as decided; alternative "Cancellation only at the immediate receiver". | [Decisions](delegation-proposal.md#decisions), [chain contract](delegation-chain-contract.md#cancellation-decision-6) |
+| DEL-7 | 2026-10-07 | Text input and results up to 64 KiB, plus input and result artifacts (pulled by hash, 100 MiB each, 1 GiB per task, 10 GiB per host, kept 7 days), off unless a rule sets `max_artifact_bytes`. | At `8174492`: recommended "Bounded text results (64 KiB) first; artifacts and streaming later"; alternative "Large results and artifacts in milestone 6". The decision included artifacts in milestone 6. | [Decisions](delegation-proposal.md#decisions) |
+| DEL-8 | 2026-10-07 | Milestone 6 scope: agent origin, tasks with artifacts, delegation chains, and live acceptance; tools and conversations later. | At `8174492`: recommended "Tasks and chains; tools and conversations later on the same envelope"; alternative "Include remote tools now". | [Decisions](delegation-proposal.md#decisions) |
+
+### Launch readiness (milestone 7)
+
+The proposal's numbered references (1) to (5) point to its own sections; the proposal records no alternatives for them.
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| LAUNCH-1 | 2026-10-08 | Onboarding targets a small team (3 to 10); the same commands cover solo and pair use. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-2 | 2026-10-08 | A hosted default coordinator built into the CLI, overridable for self-hosting. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-3 | 2026-10-08 | The daemon is installed as a user service; foreground `run` stays. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-4 | 2026-10-08 | Low-level commands stay, hidden behind `help advanced`. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-5 | 2026-10-08 | Addressing through a directory derived from authorization, with `person/agent` names; explicit routes stay as an advanced option. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-6 | 2026-10-08 | Expiries optional everywhere, with defaults; sessions renew while live, reversing the quick start's no-renewal rule. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-7 | 2026-10-08 | Name `peerspan` (originally `capsule`), with `peerspan-host` as an alias. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-8 | 2026-10-08 | `attach` registers the agent if needed. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-9 | 2026-10-08 | `allow` defaults to messages and tasks; files and delegation are opt-in. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-10 | 2026-10-08 | `allow` without `--agent` covers all of the owner's agents through `*`. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-11 | 2026-10-08 | Self access: everything, up to 1 GiB of artifacts, with no policy. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-12 | 2026-10-08 | Hosted limits: modest caps as configurable `peerspan-coord` flags, returning 429. | Options not recorded. | [Decisions](launch-proposal.md#decisions) |
+| LAUNCH-13 | 2026-10-09 | Agent names are unique per person across their hosts; `attach` picks a suffixed name when the default is taken rather than failing. | Options not recorded. | [Decisions](launch-proposal.md#decisions), [Slice 4](launch-contract.md#slice-4-directory-and-addressing) |
+| LAUNCH-14 | 2026-10-09 | `attach` sessions may reach any agent in the directory, at most 100 sends and delegations per hour by default. | Options not recorded. | [Decisions](launch-proposal.md#decisions), [Slice 4](launch-contract.md#slice-4-directory-and-addressing) |
+| LAUNCH-15 | 2026-10-09 | The directory shows whether an agent has a connected session. | Options not recorded. | [Decisions](launch-proposal.md#decisions), [Slice 4](launch-contract.md#slice-4-directory-and-addressing) |
+| LAUNCH-16 | 2026-10-08 | Builds take the hosted coordinator from build-time variables until the hosted instance exists. | Options not recorded. | [Slice 2](launch-contract.md#slice-2-service-and-coordinator) |
+| LAUNCH-17 | 2026-10-08 | `install` always enables systemd lingering on Linux. | The proposal's first version left open "Whether `install` should offer to enable systemd lingering"; options not otherwise recorded. | [Slice 2](launch-contract.md#slice-2-service-and-coordinator) |
+| LAUNCH-18 | 2026-10-08 | The installed daemon listens for peers on UDP port 7401 on all interfaces by default. | Options not recorded. | [Slice 2](launch-contract.md#slice-2-service-and-coordinator) |
+| LAUNCH-19 | 2026-10-09 | `network create` and `join` generate a person key when none is found. | Revised the same day from "failing without one"; options not otherwise recorded. | [Slice 3](launch-contract.md#slice-3-team-onboarding) |
+| LAUNCH-20 | 2026-10-09 | `allow` sets a principal's access for an agent scope, rather than adding to it. | Options not recorded beyond "rather than adding to it". | [Slice 3](launch-contract.md#slice-3-team-onboarding) |
+| LAUNCH-21 | 2026-10-09 | Self access works while out of sync with coordination. | Options not recorded. | [Slice 3](launch-contract.md#slice-3-team-onboarding) |
+| LAUNCH-22 | 2026-10-09 | `deny` without `--agent` removes the principal from every rule. | Options not recorded. | [Slice 3](launch-contract.md#slice-3-team-onboarding) |
+| LAUNCH-23 | 2026-10-09 | Each machine in the scripted acceptance run is a temporary Linux user on one host, with a real systemd user service. | Options not recorded. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-24 | 2026-10-09 | The scripted run executes exactly the commands the quick start documents, and fails if any other step is needed. | Options not recorded. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-25 | 2026-10-09 | The live run has three Claude Code sessions use the directory and a two-link delegation, with no routes. | Options not recorded. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-26 | 2026-10-09 | The live run uses the operator's existing Claude Code login for all three sessions, with each person's Peerspan state isolated. | Options not recorded. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-27 | 2026-10-09 | `attach` launches the session itself. | Options not recorded. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-28 | 2026-10-09 | The coordinator pushes change notifications, so hosts learn of joins and policies at once rather than at the next 30-second sync. | Options not recorded; decided after the first acceptance runs failed on that latency. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-29 | 2026-10-09 | An agent's delegation by address may allow onward hops, opt-in per task. | Options not recorded. | [Slice 5](launch-contract.md#slice-5-acceptance) |
+| LAUNCH-30 | 2026-10-14 | A host's directory learns of another host's session connecting or disconnecting when it happens, not at the next 5-minute refresh. | See LAUNCH-33. | [Slice 6](launch-contract.md#slice-6-presence-notifications) |
+| LAUNCH-31 | 2026-10-14 | The host whose presence changed announces it through the coordinator relay, so hosts without `--peer-listen` are told too. | Options not recorded. | [Slice 6](launch-contract.md#slice-6-presence-notifications) |
+| LAUNCH-32 | 2026-10-14 | The announcement is only a signal: receivers refresh that one host through the existing peer route, and the coordinator carries no agent names, sessions, or authorizations. | Options not recorded. | [Slice 6](launch-contract.md#slice-6-presence-notifications) |
+| LAUNCH-33 | 2026-10-14 | Presence by announcement, not by timed refresh. | "a timed refresh of stale entries was rejected in favour of this." | [Slice 6](launch-contract.md#slice-6-presence-notifications) |
+| LAUNCH-34 | 2026-10-24 | `attach --no-start` keeps checking that Claude Code is signed in. | Full entry above. | [LAUNCH-34](#launch-34-the-attach---no-start-sign-in-check-2026-10-24) |
+
+### Hosted coordinator (milestone 8)
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| HC-1 | 2026-10-09 | Cerebral Systems runs one `peerspan-coord` on one cloud VM with a static address, as a systemd service. | Options not recorded. | [Decisions](hosted-coordinator-proposal.md#decisions) |
+| HC-2 | 2026-10-09 | A coordinator move is part of this milestone. | Options not recorded. | [Decisions](hosted-coordinator-proposal.md#decisions) |
+| HC-3 | 2026-10-09 | Key custody: on disk in the database, continuous encrypted backups, and an offline encrypted copy held by the owner, with a tested restore. | Options not recorded. | [Decisions](hosted-coordinator-proposal.md#decisions) |
+| HC-4 | 2026-10-09 | A loopback health and metrics endpoint, and structured logs without payloads or keys. | Options not recorded. | [Decisions](hosted-coordinator-proposal.md#decisions) |
+| HC-5 | 2026-10-10 | Move authority: both. The operator's coordinator-signed successor moves every hosted network; a move signed by the network root or a delegated administrator moves one network and always takes precedence. | Options not recorded beyond the answer "both". | [Decisions](hosted-coordinator-proposal.md#decisions) |
+| HC-6 | 2026-10-10 | Repair: any member host re-submits signed statements a coordinator lacks, with no administrator needed. | Options not recorded. | [Decisions](hosted-coordinator-proposal.md#decisions) |
+| HC-7 | 2026-10-10 | Launch: Hetzner Cloud; a DNS name the owner provides; a runbook plus an install script over SSH, no infrastructure as code yet; the owner runs every outward-facing step with their own credentials; port 443 for TCP and UDP. | Options not recorded. | [Slice 4](hosted-coordinator-contract.md#slice-4-launch) |
+| HC-8 | 2026-10-11 | The install script also supports Ubuntu 24.04, uses ufw when active, and takes `--no-firewall`, so the coordinator can share a VM. | Options not recorded. | [Slice 4](hosted-coordinator-contract.md#slice-4-launch) |
+
+### Live delivery (milestone 9)
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| LIVE-1 | 2026-10-10 | Readiness: a handshake at launch, costing one brief model turn. | Alternative named: "heuristics alone". | [Decisions](live-delivery-proposal.md#decisions) |
+| LIVE-2 | 2026-10-10 | Orphans: the same agent's new session adopts running tasks. | Options not recorded. | [Decisions](live-delivery-proposal.md#decisions) |
+| LIVE-3 | 2026-10-10 | Redelivery: work the model provably never saw goes to the next session. | Options not recorded. | [Decisions](live-delivery-proposal.md#decisions) |
+| LIVE-4 | 2026-10-10 | Deadline: agent sends wait 1 hour, as CLI sends and delegations do. | Options not recorded. | [Decisions](live-delivery-proposal.md#decisions) |
+| LIVE-5 | 2026-10-25 | Codex and OpenCode adapters report `protocol_version`. | Full entry above. | [LIVE-5](#live-5-protocol_version-from-every-adapter-2026-10-25) |
+
+### Remote tools and credentials (milestone 10, before the capability model)
+
+Settled on 2026-10-16 for the MCP-specific proposal. The shareable-capability model (RT-12) supersedes RT-10 and CRED-2 and CRED-4; the entries stay as history. The proposal's first version (`c796a56`) listed "Open decisions" with a proposed answer and an alternative; they are quoted where they match.
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| RT-1 | 2026-10-16 | Discovery, not registration: servers come from the harness configuration; the only explicit step is sharing. | At `c796a56`, "What a capability is": "Host-registered MCP servers (proposed), or also session tools from the start." The decision dropped registration. | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-2 | 2026-10-16 | Read-only by default without a narrower credential, with the reach stated. | See CRED-4. | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-3 | 2026-10-16 | `${VAR}` secrets are captured at `attach`. | "A per-user environment file is the alternative." | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-4 | 2026-10-16 | The first time a server is shared, `allow` shows the credential's reach and the owner confirms it once. | See CRED-4. | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-5 | 2026-10-16 | Policy v2 is a clean break, with coordinators upgraded first. | At `c796a56`: "Policy v2 as a clean break (proposed), or a separate capability policy statement." | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-6 | 2026-10-16 | Self access covers tools only from hosts the person marks trusted, listed in the signed policy; `join` and `network create` ask, defaulting to no. Replaces the proposed `allow self --tools` opt-in. | At `c796a56`, "Self access": "Excluded from capabilities unless allowed (proposed), or covered like everything else." | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-7 | 2026-10-16 | Calls are persisted and asynchronous only. | At `c796a56`: "Persisted asynchronous calls with a 60-second wait in the MCP tool (proposed), or a synchronous route for short calls as well." | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-8 | 2026-10-16 | Server, profile, and tool names in policy being visible to coordination is accepted for now. | At `c796a56`: "Accept this, or hash the names in signed rules." | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-9 | 2026-10-16 | Default budget: 100 calls per hour per caller and rule. | At `c796a56`: "For example, 100 calls per hour per caller and capability, like the session send cap." | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-10 | 2026-10-16 | One thing to share: the server. Superseded by RT-12. | Options not recorded. | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-11 | 2026-10-16 | The environment file is scoped to each server: a server receives only the variables its own definition names. | Options not recorded. | [Decisions](remote-tools-proposal.md#decisions) |
+| RT-12 | 2026-10-16 | The public unit is the shareable capability: one coherent use case with defined operations or resources and stated credential reach, backed by an MCP server or a bounded CLI operation; a resource restriction is optional. | Options not recorded; it replaced whole-server sharing (RT-10). | [Status](remote-tools-proposal.md), [capabilities contract](capabilities-contract.md) |
+| CRED-1 | 2026-10-16 | Shared servers are discovered from harness configuration at `attach`; they start unshared. | Options not recorded. | [Decisions](tool-credentials.md#decisions) |
+| CRED-2 | 2026-10-16 | Without a narrower credential a share covers read-only tools; write tools need a narrower credential or approval of each call. Replaced under the capability model. | The analysis lists five ways to narrow a share, under [Narrowing what a credential can reach](tool-credentials.md#narrowing-what-a-credential-can-reach): "A narrower credential for each share, enforced by the provider (primary)", "Argument rules, enforced by Peerspan (secondary)", "Profiles for popular servers (convenience)", "Approval of each call (fallback)", "Isolated runtimes (later)". | [Decisions](tool-credentials.md#decisions) |
+| CRED-3 | 2026-10-16 | `${VAR}` secrets are captured at `attach`; a per-user environment file is an alternative whose values take precedence. | Options as stated in the decision. | [Decisions](tool-credentials.md#decisions) |
+| CRED-4 | 2026-10-16 | The first time a server is shared, `allow` states the credential's reach and the owner confirms it once. Replaced under the capability model by a review at every share (CAP-4). | At `95e4eaf`, "Is read-only too permissive as a default?": "share nothing until tools are named, even read-only ones; require a narrower credential before any write tool, with no approval route; require the owner to confirm the stated reach once per server." The last was chosen. | [Decisions](tool-credentials.md#decisions) |
+| CRED-5 | 2026-10-16, extended 2026-10-17 | Trust is per machine; on 2026-10-17 extended to raw sources behind the serving machine's local open list (CAP-6). | Options not recorded. | [Decisions](tool-credentials.md#decisions) |
+
+### Capabilities (milestone 10, slices 1 and 2)
+
+The first contract version (`fbd2b7c`) listed decisions 1 to 9 as "Owner review points", each with a single proposed answer and no alternatives.
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| CAP-0.1 | 2026-10-16 | Sources are discovered from harness configuration, never registered. | Options not recorded. | [Contract, overview](capabilities-contract.md) |
+| CAP-0.2 | 2026-10-16 | The unit people share is a named capability, created explicitly or through the guided share. | Options not recorded. | [Contract, overview](capabilities-contract.md) |
+| CAP-0.3 | 2026-10-16 | `${VAR}` values are captured at `attach`; a per-user environment file overrides them, filtered to the names each definition uses. | Options not recorded. | [Contract, overview](capabilities-contract.md) |
+| CAP-0.4 | 2026-10-16 | The policy makes a clean break to `peerspan-policy-v2`; capability names in policy are visible to coordination. | Options not recorded. | [Contract, overview](capabilities-contract.md) |
+| CAP-0.5 | 2026-10-16 | Calls are persisted and asynchronous only. | Options not recorded. | [Contract, overview](capabilities-contract.md) |
+| CAP-0.6 | 2026-10-16 | Self access covers capabilities only from hosts the person has marked trusted, per network. | Options not recorded. | [Contract, overview](capabilities-contract.md) |
+| CAP-1 | 2026-10-17 | An MCP tool operation keeps the tool's name; resources are read through one `read` operation. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-2 | 2026-10-17 | Write tools may be selected; the review marks them `(can change things)`; a narrower credential is optional. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-3 | 2026-10-17, revised 2026-10-18 | Each capability rule names its serving host; revised so names are claimed in the person's policy at creation. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-4 | 2026-10-17 | Every `share` shows the review and asks for confirmation; `--yes` skips it. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-5 | 2026-10-17 | `capability remove` also withdraws the capability's shares, signing every affected policy before deleting the record. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-6 | 2026-10-17 | Trusted machines may call raw sources, gated also by the serving machine's local open list; sources are never shared with others. | At `fbd2b7c` the proposed answer was "Self access covers capabilities only, never raw sources"; the owner decided otherwise. No other options recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-7 | 2026-10-17 | `--KEY VALUE` options fill top-level scalar input properties; `call`'s own flags win on a clash. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-8 | 2026-10-17 | After `unshare`, running calls finish and queued ones are refused at start. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-9 | 2026-10-17 | `agent register --capability` is renamed `--label`, with `--capability` kept as an alias. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-10 | 2026-10-18 | Capability names are claimed in the person's signed policy at creation; creating a capability needs the person key. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-11 | 2026-10-18 | Concurrent policy edits are re-applied; a withdrawal wins over a concurrent addition. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-12 | 2026-10-19 | A name no policy binds that the person has on several hosts is 409 `ambiguous` with candidates, not 404. | Options as stated: 409 `ambiguous`, "not 404". | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-13 | 2026-10-19 | Agent capability tools (slice 2): four generic tools, opt-in per agent at `attach`, `max_calls_per_hour` default 100, self access, waiting (superseded by CAP-15), 64 KiB inline results, uncertain-call guidance. | Options not recorded, except "four generic MCP tools ... rather than one MCP tool per remote operation". | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-14 | 2026-10-20 | Slice 2 details: re-attaching, optional `call_id`, tools always listed, calls followed across sessions; waiting superseded by CAP-15. | Options not recorded. | [Owner decisions](capabilities-contract.md#owner-decisions) |
+| CAP-15 | 2026-10-23 | Call timing: a 15-second wait limit and held status requests. | Full entry above. | [CAP-15](#cap-15-call-timing-2026-10-23) |
+| CAP-16 | 2026-10-25 | Slice 3: every recommendation of the four proposals accepted. | Full entries above. | [CAP-16](#cap-16-capabilities-slice-3-2026-10-25) |
+
+### Guided setup and machine linking
+
+| ID | Date | Decision | Options | Source |
+| --- | --- | --- | --- | --- |
+| GS-1 | 2026-10-23 | Prioritize guided setup (`peerspan up`) and defer release repository variables; the proposal was accepted in [PR #38](https://github.com/peerspan/peerspan-internal/pull/38). | Options not recorded. | [Guided setup, status](guided-setup-proposal.md) |
+| ML-1 | 2026-10-23 | UP-06a, delegated signing and pairing primitives, accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41). | Options not recorded in this repository; the UP-05 design is in `docs-internal`. | [Machine linking contract, status](machine-linking-contract.md) |
+| ML-2 | 2026-10-23 | UP-06b, transactions, persistence and recovery, accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43). | Options not recorded. | [Machine linking transactions, status](machine-linking-transactions.md) |

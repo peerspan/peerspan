@@ -33,7 +33,7 @@ Machine linking is under development. Go and Rust have signed-object, certificat
 | [rust/](rust/) | Rust host daemon and CLI; recommended first install. |
 | [go/](go/) | Go host daemon and CLI, shared coordinator, and test probes. |
 | [integrations/](integrations/) | Claude Code, Codex, and OpenCode adapters. |
-| [docs/](docs/) | Quick start, contracts, proposals, and recorded results. |
+| [docs/](docs/) | Quick start, contracts, proposals, and recorded results. The [owner decision log](docs/decision-log.md) lists every owner decision with the options proposed. |
 | [conformance/](conformance/) | Shared checks for both hosts and mixed pairings. |
 | [scripts/](scripts/) and [deploy/](deploy/) | Release packaging and coordinator deployment. |
 | [legacy/](legacy/) | Earlier prototype, retained as history. |

@@ -1,6 +1,6 @@
 # Conversations
 
-Status: **Proposed — owner decisions pending.** Nothing here is decided or implemented. The choices the owner has to make are listed under [Owner decisions needed](#owner-decisions-needed). Where this text says "is" or "does", it describes the recommended design, not a settled one.
+Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [CONV-1 to CONV-21](decision-log.md#conv-conversations-2026-10-25) in the owner decision log. The recommended design below is the design for conversations; it is not yet implemented, and its contract section is added when it is.
 
 This is launch-plan track 3, "Conversations" (`docs-internal`, `docs/launch-plan.md`). The owner tabled it on 2026-10-16 to follow the interface track. On 2026-10-25 the owner chose to start it now, designed for the surfaces that exist today: the `peerspan` CLI and the agents' Peerspan tools in Claude Code, Codex, and OpenCode. A later UI (local web UI, tray, or TUI, undecided) must be addable without changing the protocol, so [What a later UI needs](#what-a-later-ui-needs) lists what it would use.
 

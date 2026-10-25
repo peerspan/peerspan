@@ -790,6 +790,8 @@ Before each harness's run Bob shares again. The report records each harness's ve
 
 ## Owner decisions
 
+Every owner decision, with the options proposed, is also in the [owner decision log](decision-log.md).
+
 Settled with the owner on 2026-10-17.
 1. **Operations.** An MCP tool operation keeps the tool's name, as the server gives it. Owners cannot rename operations, and Peerspan-defined operations come with adapters. Resources are read through one `read` operation, and a tool named `read` cannot be selected in slice 1.
 2. **Write tools.** They may be selected when creating a capability. The review marks them `(can change things)` and states the credential's reach. A narrower credential is optional, not required; argument rules are later work.
