@@ -12,8 +12,10 @@ now supplies admission and binding history; the
 [restriction resolver](linking-restriction-checks.md) adds ordinary unbinding,
 person removal and host/invite revocation; the
 [redemption resolver](linking-redemption-checks.md) supplies completed invitation
-history. Other ordinary catalog kinds, policy/group high-water
-handling and durable propagation remain required before writers. The current
+history. The [access-state selector](linking-policy-checks.md) adds exact signed
+policy/group selection and caller-pinned high-water handling. Other ordinary
+catalog kinds, durable high-water persistence and propagation remain required
+before writers. The current
 catalog input retains the [activation/history support boundary](linking-activation-checks.md),
 including epoch zero. A candidate action is supplied separately and cannot
 establish its own membership, binding, activation or administrator authority.

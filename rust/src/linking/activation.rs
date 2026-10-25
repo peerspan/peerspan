@@ -16,6 +16,12 @@ pub use action::{ActionAuthority, ActionContext, ActionInvalidation, verify_acti
 #[path = "records.rs"]
 mod records;
 pub use records::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
+#[path = "policy.rs"]
+mod policy;
+pub use policy::{
+    AccessContext, AccessHighWater, AccessSelection, AccessState, GroupAccess, GroupHighWater,
+    PolicyAccess, PolicyHighWater, verify_access_state,
+};
 #[path = "redemptions.rs"]
 mod redemptions;
 
@@ -360,7 +366,9 @@ impl<'a> Verifier<'a> {
                 nested_record(&Value::Object(o.clone()))?;
                 check(
                     s(&o, "operation_id") != "-"
-                        || (kind == "person_record" && records::ordinary_scope(s(&o, "kind")) != 0),
+                        || (kind == "person_record"
+                            && (records::ordinary_scope(s(&o, "kind")) != 0
+                                || policy::access_kind(s(&o, "kind")))),
                     "upgrade_required",
                 )?;
                 let (b, _) = p_obj(&o)?;
@@ -521,8 +529,8 @@ impl<'a> Verifier<'a> {
                 | "device_revocation" | "admin_removal" | "person_membership"
                 | "host_membership" | "host_unbinding" | "host_leave" | "host_revocation"
                 | "invite_revocation" | "person_removal" | "join_ack" | "checkpoint"
-                | "invite_redemption" => {}
-                "rotation" | "group" | "policy" => {
+                | "invite_redemption" | "policy" | "group" => {}
+                "rotation" => {
                     return Err(problem("upgrade_required"));
                 }
                 _ => return Err(problem("invalid")),
@@ -1162,4 +1170,8 @@ pub(super) fn probe_action(o: &Obj) -> Value {
 
 pub(super) fn probe_catalog_facts(o: &Obj) -> Value {
     records::probe_catalog_facts(o)
+}
+
+pub(super) fn probe_access(o: &Obj) -> Value {
+    policy::probe_access(o)
 }

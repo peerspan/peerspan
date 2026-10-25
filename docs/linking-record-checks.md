@@ -24,9 +24,9 @@ Resolve exact `ar_` and `pf_` IDs from original signed bytes. Ordinary records
 need no link-operation ID; operation-bound records still require their exact
 complete activation. The network-root companion remains restricted to linking.
 Ordinary unbinding/removal/revocation follows the
-[restriction checks](linking-restriction-checks.md). Other ordinary kinds remain
-`upgrade_required`: policies/groups and standalone live invitations need
-subsequent catalog work. Completed invitation/redemption history follows the
+[restriction checks](linking-restriction-checks.md). Policies/groups follow the
+[access-state checks](linking-policy-checks.md). Standalone live invitations
+remain `upgrade_required` and need subsequent catalog work. Completed invitation/redemption history follows the
 [redemption checks](linking-redemption-checks.md).
 Unknown or malformed registry entries are `invalid` under the existing reader.
 This slice remains genesis-only; a supported ordinary grant's epoch/network

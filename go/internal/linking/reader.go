@@ -1047,6 +1047,9 @@ func Probe(data []byte) any {
 	if kind, _ := text(o, "kind"); kind == "action_authorization" {
 		return actionProbe(o)
 	}
+	if kind, _ := text(o, "kind"); kind == "access_state" {
+		return accessStateProbe(o)
+	}
 	if kind, _ := text(o, "kind"); kind == "catalog_facts" {
 		return catalogFactsProbe(o)
 	}

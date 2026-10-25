@@ -92,7 +92,8 @@ its effect is visible in derived membership and authorization. Arrays remain
 sorted, and no state appears on error.
 
 Completed invitation/redemption evidence follows the
-[redemption checks](linking-redemption-checks.md). Policies/groups, standalone
+[redemption checks](linking-redemption-checks.md). Policies/groups follow the
+[access-state checks](linking-policy-checks.md). Standalone
 live invitation tokens, root rotation/nonzero epochs,
 high-water/freshness rules and durable feature/storage/maps/propagation remain
 pending. Other ordinary kinds still return `upgrade_required`. The network-root

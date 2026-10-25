@@ -173,7 +173,7 @@ func (v *activationVerifier) ordinaryRecord(id string) error {
 func (v *activationVerifier) ordinaryRecords() error {
 	for _, id := range v.orderedProofs() {
 		p := v.proofs[id]
-		if p.kind == "person_record" && scalar(p.object, "operation_id") == "-" {
+		if p.kind == "person_record" && scalar(p.object, "operation_id") == "-" && !accessKind(scalar(p.object, "kind")) {
 			if e := v.ordinaryRecord(id); e != nil {
 				return e
 			}

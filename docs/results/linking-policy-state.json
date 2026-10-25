@@ -1,0 +1,132 @@
+{
+  "checked_on": "2026-10-25",
+  "base_commit": "7b04b7049c4cd0b7662c7b62f9fd61cfa6eb8473",
+  "scope": "Stateless genesis catalog validation and exact policy/group access-state selection with caller-pinned monotonic u64 version/message-hash high-water, known unusable authority inactive, and no fallback. No persistence, freshness, permission decision, map/writer/readiness or ceremony claim.",
+  "contract": "docs/linking-policy-checks.md",
+  "suite_authorship": "Separate author used accepted contracts, public vectors and independent signing helpers without either implementation. Added 146 policy/group cases; owner authorized malformed policy/group objects changing from unsupported to invalid in activation/feature suites and removing six newly supported ordinary-policy/group unsupported expectations. No vectors changed.",
+  "conformance": {
+    "passed": true,
+    "implementations": [
+      "go",
+      "rust"
+    ],
+    "total_checks_per_implementation": 2989,
+    "public_signatures_independently_reproduced": 199,
+    "suites": {
+      "readers": {
+        "checks_per_implementation": 1093,
+        "commands": [
+          "python3 conformance/linking_readers.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_readers.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "paths": {
+        "checks_per_implementation": 331,
+        "commands": [
+          "python3 conformance/linking_paths.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_paths.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "activations": {
+        "checks_per_implementation": 248,
+        "commands": [
+          "python3 conformance/linking_activations.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_activations.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "history": {
+        "checks_per_implementation": 113,
+        "commands": [
+          "python3 conformance/linking_history.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_history.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "features": {
+        "checks_per_implementation": 172,
+        "commands": [
+          "python3 conformance/linking_features.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_features.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "actions": {
+        "checks_per_implementation": 313,
+        "commands": [
+          "python3 conformance/linking_actions.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_actions.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "records": {
+        "checks_per_implementation": 176,
+        "commands": [
+          "python3 conformance/linking_records.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_records.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "restrictions": {
+        "checks_per_implementation": 179,
+        "commands": [
+          "python3 conformance/linking_restrictions.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_restrictions.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "redemptions": {
+        "checks_per_implementation": 218,
+        "commands": [
+          "python3 conformance/linking_redemptions.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_redemptions.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      },
+      "policy_state": {
+        "checks_per_implementation": 146,
+        "commands": [
+          "python3 conformance/linking_policy_state.py --go-probe /tmp/peerspan-link-policy-go",
+          "python3 conformance/linking_policy_state.py --rust-probe /tmp/peerspan-link-policy-rust"
+        ]
+      }
+    }
+  },
+  "language_checks": {
+    "go_vet": {
+      "passed": true,
+      "command": "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go vet ./internal/... ./cmd/..."
+    },
+    "go_race": {
+      "passed": true,
+      "command": "flock /tmp/peerspan-full-language-gates.lock: XDG_CONFIG_HOME=/tmp/peerspan-link-policy-go-config GOMAXPROCS=4 GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go test -race -p 1 ./internal/... ./cmd/...",
+      "host_seconds": 167.511
+    },
+    "rust_fmt": {
+      "passed": true,
+      "command": "cargo fmt --check --manifest-path rust/Cargo.toml"
+    },
+    "rust_full_tests": {
+      "passed": true,
+      "command": "flock /tmp/peerspan-full-language-gates.lock: env -u TOKIO_WORKER_THREADS XDG_CONFIG_HOME=/tmp/peerspan-link-policy-rust-config RUST_TEST_THREADS=1 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo test --locked --manifest-path rust/Cargo.toml",
+      "library_passed": 138,
+      "library_ignored": 2,
+      "main_passed": 10,
+      "integration_passed": 6,
+      "library_seconds": 79.85,
+      "note": "Serialized full language runtime gates with flock; Rust test threads=1, default Tokio workers. Ignored tests are opt-in connectivity helpers."
+    },
+    "rust_clippy": {
+      "passed": true,
+      "command": "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    }
+  },
+  "builds": [
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-policy-go ./cmd/peerspan-link-probe",
+    "GOCACHE=/tmp/peerspan-link-readers-cache/go go -C go build -o /tmp/peerspan-link-policy-host-go ./cmd/peerspan-host",
+    "CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/tmp/peerspan-link-reader-rust-target cargo build --locked --manifest-path rust/Cargo.toml --bin peerspan-link-probe --bin peerspan-host; copied unique policy probe/host binaries before shared target reuse"
+  ],
+  "unchanged_fixture_sha256": {
+    "machine-linking-v1.json": "a412cf177d3d98ba6de023e9a5c0b83f731826d672df899ac942aa8ac3769b23",
+    "machine-linking-transactions-v1.json": "a495eb6d6d574b04a357f4c775199879c37699741eb6e8426ad00a6f2a170d64",
+    "machine-linking-invite-redemptions-v1.json": "5ca2c0ac88bddaeffb97c59ff4b5db886e0d834bf10799cd4513c1bea2cec9e5"
+  },
+  "remaining": [
+    "Root-chain/nonzero epoch integration, including historical admission recognition and inactive historical-root group high-water",
+    "Durable feature/freshness and high-water storage, verified v2 maps/sticky propagation/recovery",
+    "First-redemption/current writer transactions, linking ceremony, typed device providers and up integration"
+  ]
+}

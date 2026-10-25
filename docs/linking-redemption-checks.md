@@ -123,7 +123,8 @@ It cannot prove a first route's caller, prior consumption, freshness, receipt
 time or committed outcome. The future writer must enforce current issuer and
 invite time bounds, host-key caller/feature proof or person-only current member,
 explicit admit/skip conflicts, single-use transactions and stored retries. No
-historical result authorizes a fresh redemption. Policies/groups, root rotation,
+historical result authorizes a fresh redemption. Policy/group selection follows
+the [access-state checks](linking-policy-checks.md). Root rotation,
 durable high-water/feature/freshness, storage/maps/propagation and ceremony remain.
 
 A separate author uses contracts/public vectors and independent signers, without

@@ -215,7 +215,7 @@ func (v *activationVerifier) index(kind string, body []byte) (string, error) {
 		if nestedRecord(body) != nil {
 			return "", pathError("invalid")
 		}
-		if scalar(o, "operation_id") == "-" && (kind != "person_record" || ordinaryScope(scalar(o, "kind")) == 0) {
+		if scalar(o, "operation_id") == "-" && (kind != "person_record" || ordinaryScope(scalar(o, "kind")) == 0 && !accessKind(scalar(o, "kind"))) {
 			return "", pathError("upgrade_required")
 		}
 		b, _, e := payload(o)
@@ -373,8 +373,8 @@ func (v *activationVerifier) catalog(body []byte) error {
 		}
 		last = id
 		switch kind {
-		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption":
-		case "rotation", "group", "policy":
+		case "admin_delegation", "person_admission", "host_admission", "host_binding", "feature", "certificate", "activation", "person_record", "root_record", "device_revocation", "admin_removal", "person_membership", "host_membership", "host_unbinding", "host_leave", "host_revocation", "invite_revocation", "person_removal", "join_ack", "checkpoint", "invite_redemption", "policy", "group":
+		case "rotation":
 			return pathError("upgrade_required")
 		default:
 			return pathError("invalid")

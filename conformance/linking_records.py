@@ -434,7 +434,8 @@ class Author(ActionAuthor):
             self.add("strict/" + kind + "/forged_signature", self.catalog_with([forged]), code="invalid")
         self.add("strict/binding_requires_exact_host_consent", self.catalog_with([dict(record, host_signature=b64(b"\0" * 64))]), code="invalid")
         for kind in self.payloads:
-            if kind not in (*KINDS, "host-unbind-v1", "person-remove-v1", "revoke-host-v1", "revoke-invite-v1"):
+            if kind not in (*KINDS, "host-unbind-v1", "person-remove-v1", "revoke-host-v1", "revoke-invite-v1",
+                            "policy-v1", "policy-v2", "group-v1"):
                 self.add("unsupported/ordinary_" + kind, self.catalog_with([self.record(kind)]), code="upgrade_required")
         self.add("gate/conflicting_known_feature", known_feature_id="lf_" + "0" * 64, code="state_conflict")
         good = self.request(catalog)

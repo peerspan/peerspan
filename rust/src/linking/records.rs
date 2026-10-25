@@ -195,7 +195,11 @@ impl Verifier<'_> {
         let ids: Vec<_> = self
             .proofs
             .iter()
-            .filter(|(_, p)| p.kind == "person_record" && s(&p.object, "operation_id") == "-")
+            .filter(|(_, p)| {
+                p.kind == "person_record"
+                    && s(&p.object, "operation_id") == "-"
+                    && !super::policy::access_kind(s(&p.object, "kind"))
+            })
             .map(|(id, _)| id.clone())
             .collect();
         for id in ids {

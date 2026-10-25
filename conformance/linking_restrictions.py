@@ -316,7 +316,7 @@ class Author(RecordAuthor):
             self.add("strict/" + kind + "/host_consent_forbidden", self.catalog_with([dict(record, host_signature=b64(b"\0" * 64))]), code="invalid")
         wrong_owner = self.record("host-unbind-v1", unsigned=dict(self.payloads["host-unbind-v1"], person_public_key=self.quinn))
         self.add("strict/unbinding_owner_mismatch", self.catalog_with([wrong_owner]), code="invalid")
-        unsupported = ("policy-v1", "policy-v2", "invite-v1", "person-invite-v1", "group-v1")
+        unsupported = ("invite-v1", "person-invite-v1")
         for kind in unsupported:
             self.add("unsupported/" + kind, self.catalog_with([self.record(kind)]), code="upgrade_required")
         good = self.request(self.catalog_with([self.record("host-unbind-v1")]))

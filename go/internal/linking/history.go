@@ -371,6 +371,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	if e := v.redemptionRecords(); e != nil {
 		return e
 	}
+	if e := v.validateAccessCandidates(); e != nil {
+		return e
+	}
 	roster := map[string]bool{}
 	for _, id := range ids {
 		p := v.proofs[id]

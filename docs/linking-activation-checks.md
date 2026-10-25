@@ -51,7 +51,9 @@ Completed `invite_redemption` evidence follows the
 retention and host join coverage.
 
 The remaining *known* unsupported catalog kinds fail closed with `upgrade_required`:
-rotation, policy and group. Unsupported epochs and
+rotation. Legacy and ordinary policies/groups follow the
+[access-state checks](linking-policy-checks.md); they establish no membership
+facts. Unsupported epochs and
 other ordinary records also return `upgrade_required`. Unknown kinds are `invalid`.
 This deliberate support boundary means this is not yet a general v1 mutation
 verifier and must not advertise writer readiness or `linking_version: 1`.

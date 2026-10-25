@@ -17,6 +17,11 @@ pub use activation::{ActivationContext, ActivationEvidence, MAX_ACTIVATION, veri
 pub use activation::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
 pub use activation::{FeatureContext, FeatureEvidence, verify_feature};
 
+pub use activation::{
+    AccessContext, AccessHighWater, AccessSelection, AccessState, GroupAccess, GroupHighWater,
+    PolicyAccess, PolicyHighWater, verify_access_state,
+};
+
 pub const MAX_OBJECT: usize = 1 << 20;
 pub const MAX_PAYLOAD: usize = 256 << 10;
 const MAX_DEPTH: usize = 64;
@@ -895,6 +900,9 @@ pub fn probe(data: &[u8]) -> Value {
         }
         if text(o, "kind")? == "action_authorization" {
             return Ok(activation::probe_action(o));
+        }
+        if text(o, "kind")? == "access_state" {
+            return Ok(activation::probe_access(o));
         }
         if text(o, "kind")? == "catalog_facts" {
             return Ok(activation::probe_catalog_facts(o));

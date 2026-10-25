@@ -470,6 +470,7 @@ impl Verifier<'_> {
         )?;
         self.ordinary_records()?;
         self.redemption_records()?;
+        self.validate_access_candidates()?;
         let mut roster = BTreeSet::new();
         for p in &proofs {
             if p.kind == "feature" {
@@ -944,5 +945,11 @@ impl Verifier<'_> {
             }
         }
         Ok(())
+    }
+}
+
+impl Verifier<'_> {
+    pub(super) fn access_admin_known(&self, person: &str) -> bool {
+        self.history.delegated.contains(person)
     }
 }
