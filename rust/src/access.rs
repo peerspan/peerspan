@@ -446,6 +446,47 @@ pub(crate) async fn top_principal(
     ))
 }
 
+/// A `--with` value of `share` and `unshare`, or the PRINCIPAL of `allow`
+/// and `deny`: an agent address (`PERSON/AGENT` or `HOST_ID/AGENT`)
+/// resolved through the daemon's lookup route, syncing the network once
+/// when the person or host is not known yet, or any other principal.
+/// Returns the principal and, for an agent address, the lookup's answer.
+pub(crate) async fn recipient(
+    local: &Local<'_>,
+    network: &str,
+    given: &str,
+) -> anyhow::Result<(String, Option<Value>)> {
+    match peerspan_host::agent_lookup::split_agent_address(given) {
+        Err(e) => bail!(e),
+        Ok(None) => Ok((top_principal(local, network, given).await?, None)),
+        Ok(Some(_)) => {
+            let path = format!(
+                "/v1/agent-lookup?address={}&network={}",
+                encoded(given),
+                encoded(network)
+            );
+            let found = match local.get(path.clone()).await {
+                Err(e)
+                    if e.downcast_ref::<DaemonError>().is_some_and(|d| {
+                        d.code == "unknown_person" || d.code == "unknown_host"
+                    }) =>
+                {
+                    local
+                        .post(format!("/v1/networks/{}/sync", encoded(network)), json!({}))
+                        .await?;
+                    local.get(path).await?
+                }
+                other => other?,
+            };
+            let principal = found["principal"]
+                .as_str()
+                .context("invalid daemon response")?
+                .to_owned();
+            Ok((principal, Some(found)))
+        }
+    }
+}
+
 /// Whether two rules have the same actions, as sets, and the same bounds.
 fn same_settings(a: &Rule, b: &Rule) -> bool {
     a.max_message_bytes == b.max_message_bytes
@@ -532,7 +573,7 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
                 persons::person_id(&signer.public_key())
             )
         })?;
-    let principal = top_principal(&local, network, given).await?;
+    let (principal, _) = recipient(&local, network, given).await?;
     let _ = me;
     let editor = Editor::new(&local, network, &signer).await?;
     let mut attempt = 0;

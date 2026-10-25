@@ -175,9 +175,10 @@ type capabilityRecord struct {
 	State       string   `json:"state"`
 	Unavailable []string `json:"unavailable"`
 	Recipients  []struct {
-		NetworkID string  `json:"network_id"`
-		Principal string  `json:"principal"`
-		Label     *string `json:"label"`
+		NetworkID  string  `json:"network_id"`
+		Principal  string  `json:"principal"`
+		Label      *string `json:"label"`
+		AgentState *string `json:"agent_state"`
 	} `json:"recipients"`
 }
 
@@ -291,7 +292,7 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		return printJSON(out, data)
 	case "list":
 		asJSON, _ := fs.GetBool("json")
-		data, err := client.Call(ctx, "GET", "/v1/capabilities", nil)
+		data, err := client.Call(ctx, "GET", "/v1/capabilities?lookup=true", nil)
 		if err != nil {
 			return err
 		}
@@ -316,7 +317,7 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		}
 		return nil
 	case "show":
-		data, err := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(args[2]), nil)
+		data, err := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(args[2])+"?lookup=true", nil)
 		if err != nil {
 			return err
 		}
@@ -435,7 +436,7 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 }
 
 // review is what share prints before asking for confirmation.
-func printReview(errOut io.Writer, address string, c capabilityRecord, server sourceServer, principal string, limitChange string) {
+func printReview(errOut io.Writer, address string, c capabilityRecord, server sourceServer, principal, recipientExtra, limitChange string) {
 	fmt.Fprintf(errOut, "Capability: %s\n", address)
 	fmt.Fprintf(errOut, "Source: %s/%s, from %s\n", c.Source.Agent, c.Source.Server, server.Source)
 	fmt.Fprintln(errOut, "Operations:")
@@ -461,6 +462,7 @@ func printReview(errOut io.Writer, address string, c capabilityRecord, server so
 		fmt.Fprintf(errOut, "Credentials: the source's own environment on this host\n")
 	}
 	fmt.Fprintf(errOut, "Recipient: %s\n", principal)
+	fmt.Fprint(errOut, recipientExtra)
 	if limitChange != "" {
 		fmt.Fprint(errOut, limitChange)
 	}
@@ -587,16 +589,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		return err
 	}
 	defer o.signer.Close()
-	principal, err := resolveTopPrincipal(o.persons, given)
-	if errors.Is(err, host.ErrNotFound) {
-		if _, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil); err != nil {
-			return err
-		}
-		if o.persons, err = personsOf(ctx, client, network); err != nil {
-			return err
-		}
-		principal, err = resolveTopPrincipal(o.persons, given)
-	}
+	principal, recipient, err := resolveRecipient(ctx, client, o, network, given)
 	if err != nil {
 		return err
 	}
@@ -714,7 +707,12 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 			label = p.Member
 		}
 	}
-	printReview(errOut, label+"/"+name, c, server, given, limitChange)
+	recipientText, recipientExtra := given, ""
+	if recipient != nil {
+		recipientText, recipientExtra = recipient.Address, recipientLines(o, recipient)
+	}
+	printReview(errOut, label+"/"+name, c, server, recipientText, recipientExtra, limitChange)
+	printAgentReview(errOut, o, principal)
 	if err = confirmShare(errOut, yes); err != nil {
 		return err
 	}
@@ -743,7 +741,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 			if p, ok := signed[network]; ok {
 				policy = p
 			}
-			return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "created": true})
+			return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "recipient": recipient.view(), "created": true})
 		}
 	}
 	if !changed {
@@ -751,7 +749,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		if o.current != nil {
 			policy = o.current
 		}
-		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "created": false})
+		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "recipient": recipient.view(), "created": false})
 	}
 	data, _, err := o.edit(ctx, client, false, func(body *membership.PolicyBody) (bool, error) {
 		return shareRule(body, identity.ID, name, principal, calls), nil
@@ -759,7 +757,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 	if err != nil {
 		return err
 	}
-	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "created": false})
+	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "recipient": recipient.view(), "created": false})
 }
 
 // shareRule adds principal to this host's rule for name, usually its claim,
@@ -931,16 +929,32 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 		return err
 	}
 	defer o.signer.Close()
-	principal, err := resolveTopPrincipal(o.persons, given)
+	var rule *membership.CapabilityRule
+	if o.current != nil {
+		body := o.body()
+		if i := hostRule(body.CapabilityRules, identity.ID, name); i >= 0 {
+			rule = &body.CapabilityRules[i]
+		}
+	}
+	principal, recipient, err := resolveRecipient(ctx, client, o, network, given)
 	if err != nil {
+		// A gone agent can always be removed by its principal.
+		var failure *host.ClientError
+		if errors.As(err, &failure) && (failure.Code == "unknown" || failure.Code == "unknown_host") {
+			fmt.Fprintln(errOut, "error:", err)
+			agentFallback(ctx, client, errOut, o, rule, name, network, given)
+			return exitStatus(1)
+		}
 		return err
 	}
 	removed := 0
+	var after membership.CapabilityRule
 	data, _, err := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
 		removed = 0
 		// The rule stays as a claim when its last principal goes.
 		if i := hostRule(body.CapabilityRules, identity.ID, name); i >= 0 && contains(body.CapabilityRules[i].Principals, principal) {
 			body.CapabilityRules[i].Principals = without(body.CapabilityRules[i].Principals, []string{principal})
+			after = body.CapabilityRules[i]
 			removed++
 		}
 		return removed > 0, nil
@@ -953,10 +967,23 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 		if o.current != nil {
 			policy = o.current
 		}
-		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "removed": 0, "note": "the rule for " + name + " on this host does not name " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
+		note := "the rule for " + name + " on this host does not name " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"
+		if recipient != nil {
+			note = "the rule for " + name + " on this host does not name " + principal + ". Access through a group or everyone is unaffected."
+			if p, ok := hostPerson(o.persons, recipient.HostID); ok && recipient.PersonID != nil {
+				note = "the rule for " + name + " on this host does not name " + principal + ". Access through person:" + p.Member + ", a group, or everyone is unaffected."
+			}
+		}
+		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "recipient": recipient.view(), "removed": 0, "note": note})
 	}
 	fmt.Fprintf(errOut, "%s's future calls to %s are denied. Calls already running finish, and queued calls are refused when they would start.\n", given, name)
-	return printJSON(out, map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "removed": removed})
+	result := map[string]any{"policy": json.RawMessage(data), "capability": name, "principal": principal, "recipient": recipient.view(), "removed": removed}
+	if strings.HasPrefix(principal, "person:") {
+		if note := agentsLeftNote(ctx, client, o, after, name, network, principal); note != "" {
+			result["note"] = note
+		}
+	}
+	return printJSON(out, result)
 }
 
 // runShares lists this host's capabilities with their recipients, and every
@@ -966,7 +993,7 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 	asJSON, _ := fs.GetBool("json")
 	list, err := call[struct {
 		Capabilities []json.RawMessage `json:"capabilities"`
-	}](ctx, client, "GET", "/v1/capabilities")
+	}](ctx, client, "GET", "/v1/capabilities?lookup=true")
 	if err != nil {
 		return err
 	}
@@ -987,9 +1014,25 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		var c capabilityRecord
 		_ = json.Unmarshal(raw, &c)
 		commands := []string{}
-		for _, r := range c.Recipients {
+		recipients, _ := entry["recipients"].([]any)
+		for i, r := range c.Recipients {
+			command := fmt.Sprintf("peerspan unshare %s --with %s --network %s", c.Name, r.Principal, r.NetworkID)
+			if r.AgentState != nil {
+				// An agent found on its host is removed by its host's address,
+				// HOST_ID/NAME, which names exactly that agent.
+				if *r.AgentState == "found" {
+					if address := removalAddress(r.Principal, r.Label); address != "" {
+						command = fmt.Sprintf("peerspan unshare %s --with %s --network %s", c.Name, address, r.NetworkID)
+					}
+				}
+				if i < len(recipients) {
+					if m, ok := recipients[i].(map[string]any); ok {
+						m["unshare"] = command
+					}
+				}
+			}
 			if network == "" || r.NetworkID == network {
-				commands = append(commands, fmt.Sprintf("peerspan unshare %s --with %s --network %s", c.Name, r.Principal, r.NetworkID))
+				commands = append(commands, command)
 			}
 		}
 		entry["unshare"] = commands
@@ -1028,12 +1071,24 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 			credential = "its own environment file " + deref(c.Credential.EnvFile)
 		}
 		fmt.Fprintf(out, "%s  from %s/%s  %s  operations: %s  credentials: %s\n", c.Name, c.Source.Agent, c.Source.Server, c.State, strings.Join(c.Operations, ", "), credential)
-		for _, r := range c.Recipients {
+		commands, _ := entry["unshare"].([]string)
+		for i, r := range c.Recipients {
 			label := r.Principal
 			if r.Label != nil {
 				label = *r.Label
 			}
-			fmt.Fprintf(out, "  shared with %s in %s; undo: peerspan unshare %s --with %s --network %s\n", label, r.NetworkID, c.Name, r.Principal, r.NetworkID)
+			if r.AgentState != nil {
+				if *r.AgentState == "found" {
+					label += " (agent)"
+				} else {
+					label += " (agent, gone)"
+				}
+			}
+			command := fmt.Sprintf("peerspan unshare %s --with %s --network %s", c.Name, r.Principal, r.NetworkID)
+			if network == "" && i < len(commands) {
+				command = commands[i]
+			}
+			fmt.Fprintf(out, "  shared with %s in %s; undo: %s\n", label, r.NetworkID, command)
 		}
 	}
 	for _, r := range rules {
@@ -1055,6 +1110,39 @@ func runDiscover(ctx context.Context, client host.Client, args []string, fs *pfl
 	}
 	if network != "" {
 		query.Set("network", network)
+	}
+	if fromAgent, _ := fs.GetString("from-agent"); fromAgent != "" {
+		agent, err := localAgentID(ctx, client, fromAgent)
+		if err != nil {
+			return err
+		}
+		query.Set("from_agent", agent)
+		data, err := client.Call(ctx, "GET", "/v1/discover?"+query.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return printJSON(out, data)
+		}
+		var list host.AdapterCapabilities
+		if err = json.Unmarshal(data, &list); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Capabilities %s may call:\n", fromAgent)
+		if len(list.Capabilities) == 0 {
+			fmt.Fprintln(out, "  none")
+		}
+		for _, c := range list.Capabilities {
+			var names []string
+			for _, op := range c.Operations {
+				names = append(names, op.Name)
+			}
+			fmt.Fprintf(out, "  %s  %s  %s\n", c.Address, c.State, strings.Join(names, ", "))
+		}
+		for _, u := range list.Unanswered {
+			fmt.Fprintf(out, "did not answer: %s (%s)\n", u.HostID, u.Error)
+		}
+		return nil
 	}
 	data, err := client.Call(ctx, "GET", "/v1/discover?"+query.Encode(), nil)
 	if err != nil {
@@ -1083,7 +1171,23 @@ func runDiscover(ctx context.Context, client host.Client, args []string, fs *pfl
 		for _, op := range c.Operations {
 			names = append(names, op.Name)
 		}
-		fmt.Fprintf(out, "  %s  %s  %s\n", c.Address, c.State, strings.Join(names, ", "))
+		line := fmt.Sprintf("  %s  %s  %s", c.Address, c.State, strings.Join(names, ", "))
+		if c.ForAgents != nil {
+			var agents []string
+			for _, a := range c.ForAgents {
+				if a.Name != nil {
+					agents = append(agents, *a.Name)
+				} else {
+					agents = append(agents, a.AgentID)
+				}
+			}
+			noun := "agent"
+			if len(agents) > 1 {
+				noun = "agents"
+			}
+			line += fmt.Sprintf("  only for your %s %s", noun, strings.Join(agents, ", "))
+		}
+		fmt.Fprintln(out, line)
 	}
 	for _, u := range d.Unanswered {
 		fmt.Fprintf(out, "did not answer: %s (%s)\n", u.HostID, u.Error)

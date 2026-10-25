@@ -5,7 +5,7 @@ Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; 
 - **Background.** The [remote tools proposal](remote-tools-proposal.md) and [credentials for shared tools](tool-credentials.md) give the background. Their MCP-server sharing model is superseded.
 - **What it builds on.** The [task contract](task-contract.md) for call records, retry, and polling; owner access policy in the [coordination contract](coordination-contract.md); and `attach`, self access, and status in the [launch contract](launch-contract.md).
 
-Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)) and is not yet specified here; its designs are in four proposals:
+Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Each item is specified here as it is implemented; [sharing with one agent](#sharing-with-one-agent-slice-3) is. The designs are in four proposals:
 - remote MCP servers and OAuth ([proposal](capabilities-slice3-remote-proposal.md));
 - approval of each call ([proposal](capabilities-slice3-approval-proposal.md));
 - sharing with one agent, and `call --from-agent` ([proposal](capabilities-slice3-agent-shares-proposal.md));
@@ -251,8 +251,8 @@ It then states the reach: `PRINCIPAL can use these operations with the credentia
 - **The person key.** On an untrusted machine they print that any host holding the person key can mark itself trusted.
 
 **Outputs.**
-- `share` prints `{policy, capability, principal, created}`, where `created` says whether the guided share created the capability.
-- `unshare` prints `{policy, capability, principal, removed}`, plus `note` when `removed` is 0.
+- `share` prints `{policy, capability, principal, recipient, created}`, where `created` says whether the guided share created the capability. `recipient` (slice 3, [Sharing with an agent](#sharing-with-an-agent)) is null unless `--with` was an agent address.
+- `unshare` prints `{policy, capability, principal, recipient, removed}`, with `recipient` as for `share`, plus `note` when `removed` is 0 (or, from slice 3, when agent shares remain after removing a person; [Unsharing an agent](#unsharing-an-agent)).
 - `trust` and `untrust` print `{policy, host, trusted, changed}`.
 
 ### Authorization
@@ -597,8 +597,8 @@ The setting belongs to the adapter credential, as `directory` does.
 - **Origin.** Every call an adapter makes carries `origin: {agent_id, session_id}`, the session's agent and session, as adapter sends do. Owner CLI calls carry none. The outbound record stores it in `request`, and the receiver stores it with the request, shown by `calls received`.
 - **Agent principals.** A capability rule may name `agent:HOST_ID/AGENT_ID`, as policy rules may (`share NAME --with agent:HOST_ID/AGENT_ID`, and `unshare` likewise). It matches only calls from that authenticated host whose `origin.agent_id` is that agent. Other principals match as before, whatever the origin.
 - **Listing.** In `GET /peer/v1/capabilities`, each `via` entry of kind `policy` gains `from_agent`. A rule whose only matching principals are `agent:` principals for the caller host appears once per such agent, with `from_agent` set to that agent ID; a rule with any other matching principal appears once, with `from_agent` null. Self entries have no `from_agent`. Within one network, the entry with `from_agent` null comes first, then by agent ID. A capability is listed when at least one entry applies. An entry from a host that predates this slice has no `from_agent` and reads as null.
-- **Owner views are unchanged.** `GET /v1/discover` and `call` ignore `via` entries whose `from_agent` is not null (the remaining policy entries keep `from_agent: null` in `discover` JSON), and omit capabilities left with none, so the owner CLI never cites a rule it cannot use without an origin. There is no `call --from-agent`: an owner tests an agent-only share from that agent.
-- **Naming the agent.** `share` and `unshare` take an agent only as `agent:HOST_ID/AGENT_ID` in this slice.
+- **Owner views are unchanged.** `GET /v1/discover` and `call` ignore `via` entries whose `from_agent` is not null (the remaining policy entries keep `from_agent: null` in `discover` JSON), and omit capabilities left with none, so the owner CLI never cites a rule it cannot use without an origin. Slice 3 lists agent-only capabilities in `discover` with `for_agents`, refuses `call` on them with `agent_only`, and adds `call --from-agent` ([The recipient's `discover`](#the-recipients-discover), [Calling as an agent](#calling-as-an-agent)).
+- **Naming the agent.** `share` and `unshare` took an agent only as `agent:HOST_ID/AGENT_ID` in this slice; slice 3 adds `PERSON/AGENT` and `HOST_ID/AGENT` ([Agent addresses](#agent-addresses)).
 - **Budget.** Agent calls count against `max_calls_per_hour` of the receiver's rule exactly as owner calls do: per rule identity and caller, where the caller is the sender's bound person, or else its host ID.
 
 ### Adapter routes
@@ -787,6 +787,169 @@ PRAGMA user_version = 18;
 - after Bob runs `unshare github-issues --with person:ALICE`, the next call is refused with the `not_found` text, nothing is executed on Bob's host, and the model's answer says it can no longer reach the capability.
 
 Before each harness's run Bob shares again. The report records each harness's version, the adapter connection's `protocol_version` on Alice's host (the negotiated MCP revision for Claude Code and Codex, `opencode-plugin-VERSION` for OpenCode; [live delivery contract](live-delivery-contract.md#doctor)), which must be non-null for every harness, and the model's tool calls and answers, without claiming model behavior from notification acknowledgements alone.
+
+## Sharing with one agent (slice 3)
+
+Slice 3, item C, as designed in its [proposal](capabilities-slice3-agent-shares-proposal.md) and accepted in [decision 16](#owner-decisions). An owner names one agent of another person as `PERSON/AGENT`, the CLI turns it into the existing `agent:HOST_ID/AGENT_ID` principal, and `shares` labels such principals by asking their hosts. An owner can also call, and list capabilities, as one of their own agents. Where this section differs from the slices above, it applies.
+
+Unchanged: the policy statement, its JSON, and its test vector; coordinator handling and propagation; `agent:` matching under [Agent origin and agent principals](#agent-origin-and-agent-principals) (host and agent ID only, never the person or the name); the adapter and its four MCP tools; the database schema. The only new state is an in-memory label cache in the daemon.
+
+### Agent addresses
+
+`share`, the guided `share --with`, and `unshare` accept these forms for `--with`, beside the principal forms they already take:
+
+| Form | Example | Meaning |
+| --- | --- | --- |
+| `PERSON/AGENT` | `alice/claude-laptop` | The agent named `AGENT` on one of the hosts bound to the person `PERSON` in the selected network. `PERSON` is a person label or person ID, resolved as other person arguments are. |
+| `HOST_ID/AGENT` | `host_3f…/claude-laptop` | The agent named `AGENT` on that host. It also reaches hosts without a bound person, and persons whose label contains `/`. |
+| `agent:HOST_ID/AGENT_ID` | as before | Used as given, with no lookup. |
+
+**Parsing.** For a value with no `KIND:` prefix (`person:`, `group:`, `agent:`) that is not `everyone` or `network`:
+- **No `/`.** A person label or ID, as before.
+- **Exactly one `/`.** An agent address, always; it is never read as a person label. The left part is a host ID when it is `host_` followed by 64 lowercase hex digits, and a person otherwise. A person whose label contains `/` is named `person:LABEL` or by person ID.
+- **Two or more `/`.** Refused with exit 1 before anything is signed: `invalid recipient "a/b/c": use PERSON/AGENT, HOST_ID/AGENT, or person:LABEL for a label that contains /`.
+- **The name.** `AGENT` must be an [addressable name](launch-contract.md#names-and-addresses) (1 to 64 of `a-z 0-9 . _ -`, starting with a letter or digit). Otherwise exit 1: `invalid agent name "X"`.
+
+`allow` and `deny` take the same forms, with the same resolver ([launch contract](launch-contract.md#principals-and-sizes)).
+
+### Resolving an agent address
+
+The CLI resolves an agent address before it shows the review, through the local route `GET /v1/agent-lookup?address=A&network=N`; the CLI sends no peer traffic itself. `N` is the network the share is written to: `--network`, or the host's only network. The daemon takes these steps:
+1. **Hosts to ask.**
+   - For `HOST_ID/AGENT`: that host, which must be a current, unrevoked member of `N`; otherwise 404 `{code: "unknown_host", error}` with the text `unknown host HOST_ID in network N`.
+   - For `PERSON/AGENT`: the person is resolved in `N`'s map as other person arguments are. A person that matches no current person is 404 `{code: "unknown_person", error}`; a label matching several persons is 400 `{code: "invalid", error}`, naming the candidates. The hosts are the current, unrevoked members of `N` bound to that person.
+2. **This host.** When one of those hosts is this host and this host has an agent whose name is exactly `AGENT`, the lookup is refused with 400 `{code: "local", error}`: `ADDRESS is on this host, and a host never calls itself. Share with an agent on another machine.` When this host is among them without such an agent, it is skipped and not asked.
+3. **Asking.** Each other host is asked with the [lookup route](#the-lookup-route) by `name`, at most 8 at once, each within 5 seconds, over the usual peer transport, relay included.
+   - A host that answers 404 without a JSON `code` predates the route. For that host only, an agent with that name in this host's cached directory entries for `N` counts as its answer; without one, the host is listed in `unanswered` with the error `unsupported`.
+   - A host that does not answer, or answers anything else, is listed in `unanswered` with a short error, such as `timeout`.
+4. **Result.**
+   - **One match**, whatever the others answered: 200 with `{principal, host_id, agent_id, person_id, address, unanswered}`. `principal` is `agent:HOST_ID/AGENT_ID`; `person_id` is the host's bound person in `N`, or null; `address` is `PERSON_LABEL/AGENT` when the host is bound to a person whose label contains no `/`, otherwise `HOST_ID/AGENT`. `unanswered` lists the hosts that did not answer, possibly `[]`.
+   - **Several matches:** 409 `{code: "ambiguous", error, matches: [{address, network_id}]}`, where each `address` is `HOST_ID/AGENT`, sorted.
+   - **None:** 404 `{code: "unknown", error, unanswered}`. The text is `PERSON has no agent named AGENT on the hosts that answered.` (for `HOST_ID/AGENT`, `HOST_ID has no agent named AGENT.`), followed, when `unanswered` is not empty, by ` Not answered: HOST_ID (ERROR), …. Try again when it is online, or use agent:HOST_ID/AGENT_ID.`
+   - `unanswered` entries are `{host_id, error}`, sorted by host ID.
+5. **Syncing.** On `unknown_person` or `unknown_host`, the CLI syncs the network once (`POST /v1/networks/{id}/sync`) and asks again before failing, as `allow` does for person labels.
+
+Other refusals of the route: a missing `address`, or one that is not an agent address under [Parsing](#agent-addresses), is 400 `{code: "invalid", error}`; a network this host does not belong to is 404. The CLI prints the daemon's `error` text and exits 1, with nothing signed.
+
+### The lookup route
+
+`GET /peer/v1/networks/{network_id}/agent-lookup?name=NAME`, or `?agent_id=AGENT_ID`, with exactly one of the two.
+- **Who may ask.** Callers that are current, unrevoked members of that network, as for the [agents route](launch-contract.md#peer-route). Any other caller gets 403. A network this host does not belong to is 404 `{code: "not_found", error}`.
+- **Answer.** When allowed, always 200 with `{agent: {agent_id, name}}` or `{agent: null}`.
+  - `name` matches a registered agent of this host whose name is exactly `NAME` and is addressable. A non-addressable `NAME` matches nothing.
+  - `agent_id` matches any registered agent of this host, and returns its name, or null for `name` when the name is not addressable.
+  - Answering 200 with `agent: null` keeps 404 without `code` meaning "route not supported".
+- **Disclosure.** It says only whether an agent with that exact name or ID exists on this host: no connection state, no authorizations, never a list.
+- **Bounds.** Neither or both parameters, an empty value, any other parameter, or a query string longer than 256 bytes is 400 `{code: "invalid", error}`. The response is at most 4 KiB, and callers, `peerspan-peer-probe` included, accept at most 4 KiB from this route.
+
+### Sharing with an agent
+
+**The review.** For an agent principal, the review keeps every line it has today, with these changes. Lines are compared after trimming leading and trailing whitespace; `PERSON` below is the host's bound person's label in the selected network.
+- **Recipient.** The recipient is the resolved `address` for an agent address, or the principal as given for the `agent:` form. For an agent address, the next line is `agent AGENT_ID on host HOST_ID, bound to PERSON`, or `agent AGENT_ID on host HOST_ID, not bound to a person` for a host without a bound person.
+- **Not checked.** When `unanswered` is not empty, a line `Not checked: HOST_ID (ERROR), HOST_ID (ERROR)` follows, in `unanswered` order. Without unanswered hosts there is no such line.
+- **Reach.** The reach sentence uses the same recipient text in place of `PRINCIPAL`.
+- **The agent paragraph.** After the reach sentence, for every `agent:` principal, including the `agent:` form, three lines:
+  1. `Only calls that HOST_ID says come from this agent are allowed.`
+  2. For a host bound to a person: `That host makes the claim itself: PERSON, and any program that can run peerspan as PERSON on that machine, can call as this agent. PERSON's other machines and other agents, and other people, cannot.` For a host without one: `That host makes the claim itself: anyone, and any program, that can run peerspan as that host's owner can call as this agent. Other machines, other agents, and other people cannot.`
+  3. `The share stays with this agent on this machine. If the agent is set up again on another machine, share it again.`
+- **Trusted own agent.** When the host is bound to the signing person in the selected network and is in `trusted_hosts` of that person's current policy for it, one more line: `This machine is trusted, so this agent already reaches all your capabilities through self access. This share matters only if you untrust it.`
+
+Then `Share? [y/N] ` as before. Sharing with an agent on another host of the signing person is allowed; only an agent on this host is refused (`local`).
+
+**Output.** `share` prints `{policy, capability, principal, recipient, created}`. `recipient` is `{address, host_id, agent_id, person_id}` from the lookup for an agent address, and null for every other form, the `agent:` form included. Sharing again with an agent already in the rule signs nothing, as for any principal, and still prints `recipient`.
+
+### Agent recipients in listings
+
+**Labels and states.** Each `agent:HOST_ID/AGENT_ID` recipient has a `label` and an `agent_state`. The state is, in this precedence:
+1. `host_gone`: `HOST_ID` is not a current, unrevoked member of the recipient's network;
+2. `unanswered`: the host did not answer the lookup by `agent_id` (any non-200 answer, including a host that predates the route, unless its cached directory entries list that agent ID, which then count as `found`);
+3. `not_found`: the host answered `agent: null`;
+4. `unbound`: the host answered with the agent, but is not bound to any person in that network;
+5. `found`: the host answered with the agent, and is bound to a person.
+
+`label` is `PERSON/NAME` when the host is currently bound to a person whose label contains no `/`, otherwise `HOST_ID/NAME`, where `NAME` is the agent's addressable name from the latest answer that found it during the daemon's life. It is null when no such name is known. The person is always the host's **current** person from the network map; no person is stored with a share, so if the host is later bound to someone else, the label names the new person.
+
+**`GET /v1/capabilities` and `GET /v1/capabilities/{name}`.** Each recipient whose principal is `agent:` gains `agent_state`; its `label` follows the rule above. Other recipients are unchanged, `{network_id, principal, label}`. Without a query, the daemon sends no peer traffic: it uses its cache of the last lookup of each agent, recomputes `host_gone`, `unbound`, and the person part of `label` from the current map, and reports `unanswered` for an agent it has not looked up since it started. With `?lookup=true`, it first looks up every agent recipient by `agent_id` on its host, at most 8 hosts at once, each within 5 seconds, skipping hosts that are `host_gone`, and updates the cache.
+
+**`shares`, `capability list`, and `capability show`** use `?lookup=true`.
+- The overall layout of `shares --json` is not shared, but each recipient object of a capability on this host whose principal is `agent:` is exactly `{network_id, principal, label, agent_state, unshare}`, where `unshare` is the command that removes it: `peerspan unshare NAME --with HOST_ID/AGENT_NAME --network NETWORK_ID` when `agent_state` is `found` and `label` is not null, where `AGENT_NAME` is the part of `label` after its last `/`, and `peerspan unshare NAME --with agent:HOST_ID/AGENT_ID --network NETWORK_ID` otherwise. The command uses the host's address rather than `label`: `HOST_ID/AGENT_NAME` names exactly that agent even when the person has an agent of the same name on another host, and it is always safe to paste into a shell.
+- The readable layout marks agent recipients, for example `alice/claude-laptop (agent)` and, for any state other than `found`, `carol/codex-desk (agent, gone)`. Its wording is not shared.
+
+Principals of agents that are gone are never removed automatically. Each still uses one of the rule's 64 principal slots.
+
+### Unsharing an agent
+
+`unshare NAME --with ADDRESS` resolves an agent address as `share` does and removes the resulting principal. Its output is `{policy, capability, principal, recipient, removed}`, plus `note` as below; `recipient` is as for `share`, so it is null for every form other than an agent address, in `unshare` as in `share`.
+- **When resolution fails** with `unknown` or `unknown_host`, the command exits 1 with nothing signed. Its stderr gives the resolver's error and then, for each `agent:` principal of the capability's rule for this host in the selected network whose host is one of the address's hosts (that host for `HOST_ID/AGENT`; for `PERSON/AGENT`, the hosts bound to the person and every host that is no longer a member of the network, whose binding left with it), a line containing `peerspan unshare NAME --with agent:HOST_ID/AGENT_ID --network NETWORK_ID`. So a gone agent can always be removed.
+- **Nothing removed.** With `removed: 0` for an agent address, `note` is `the rule for NAME on this host does not name PRINCIPAL. Access through person:PERSON, a group, or everyone is unaffected.`, where `PERSON` is the host's bound person's label; for a host without one, the middle reads `Access through a group or everyone is unaffected.`
+- **Agents left after a person.** When `unshare --with PERSON` (or `person:PERSON`) removes the person and the rule still names `agent:` principals whose hosts are bound to that person in the selected network, the output adds `note`, with one sentence per such principal, in rule order, joined by a space: `LABEL still has its own share. Run peerspan unshare NAME --with ADDRESS --network NETWORK_ID to remove it.` `LABEL` is the agent's `label` from a lookup by `agent_id` and `ADDRESS` its `HOST_ID/AGENT_NAME`, as for the `unshare` command in `shares`; when the agent is not `found` or has no label, both are the principal.
+
+### The recipient's `discover`
+
+**Agent-only capabilities.** In `GET /v1/discover` and `discover`, a capability whose every `via` entry has a non-null `from_agent` is now listed instead of omitted. Such an entry keeps all its `via` entries, and gains `for_agents: [{agent_id, name}]`, one per distinct `from_agent` in `via` order, where `name` is that local agent's name, or null when this host has no such agent. Capabilities with at least one `via` entry whose `from_agent` is null are listed as before: only those `via` entries, and no `for_agents` key. The readable line for an agent-only capability says `only for your agent NAME` (or `agents NAME, NAME`).
+
+**`call` without `--from-agent`.** Address resolution in `call` and `POST /v1/calls` without `origin` matches over the same entries as `discover`, agent-only ones included. When the resolved entry is agent-only, the call is refused before anything is persisted with 403 `{code: "agent_only", error, for_agents}`, with the text `ADDRESS is shared only with your agent NAME. Add --from-agent NAME to call as that agent.` With several agents, it reads `your agents NAME, NAME` and names the first in `--from-agent`. An agent whose name is null is named by its ID.
+
+**`discover --from-agent AGENT`** shows the capabilities that agent's `list_capabilities` would show. `GET /v1/discover?from_agent=AGENT_ID` returns exactly the object of [`GET /adapter/v1/capabilities`](#adapter-routes) for that agent, `{capabilities: [ENTRY], unanswered}`, without `agents` and without sources. With `person` or `network`, the hosts asked and the entries kept are narrowed as in `discover`; with neither, the object equals what the agent's `list_capabilities` returns at the same moment. It does not need `calls` on any credential. An unknown agent ID is 404.
+
+### Calling as an agent
+
+**Syntax.** `call ADDRESS OPERATION [...] [--from-agent AGENT [--from-session SESSION_ID]]`, and `discover [PERSON] [--network ID] [--json] [--from-agent AGENT]`.
+- **`AGENT`** is the ID of an agent registered on this host, or else the exact name of one. The CLI resolves it with `GET /v1/agents` before anything else: an ID that matches is used; otherwise a name matching exactly one agent is used; a name matching several, which unique names make unreachable today, is refused, `several agents on this host are named AGENT; give the agent ID`; none is refused, `no agent AGENT on this host`. Each refusal exits 1 with nothing persisted.
+- **`--from-session`** names one of that agent's sessions. Without `--from-agent` it is refused with exit 1: `--from-session needs --from-agent`. `discover` does not take it.
+- **Own flags.** `--from-agent` and `--from-session` are `call`'s own flags, like `--input`, `--deadline`, `--wait`, and `--network`: a tool property with one of those names must be given in `--input`.
+- **Who.** The owner may act as any agent registered on this host, whether or not it has an `attach` profile or `calls` on a credential.
+
+**`POST /v1/calls`** accepts optional `origin: {agent_id, session_id}`, where `session_id` may be absent. It is checked before anything else, as for `message send`: an unknown agent ID, or a session that is not one of that agent's sessions, is 404 before anything is persisted. With `origin`, the call is made as that agent:
+1. **Sources.** An address with two `/` names a source, and is refused with 400 `{code: "source", error}`: `Agents cannot call sources; call them without --from-agent.`
+2. **Resolution** uses the agent's view: the entries of kind `capability` that have a `via` entry of kind `self`, or of kind `policy` with `from_agent` null or this agent, as `GET /adapter/v1/capabilities` keeps them; errors are as for `call`.
+3. **Citation.** The first of the resolved entry's `via` entries that apply to this agent, self first, then policy entries in listed order; with `network`, the first such entry from that network.
+4. **The request** to the receiver carries `origin: {agent_id, session_id}`, with `session_id` omitted when not given.
+5. **Records.** The outbound record stores `origin` in `request`, and has `adapter_id: null`. That pair, an origin with no adapter, marks an owner call made as an agent. The receiver stores and shows `origin` as for any call.
+6. **Limits.** No `adapter_calls` row is written, so the call does not count against the agent's `max_calls_per_hour`. The receiver counts it in the rule's budget as usual, per rule identity and caller.
+7. **The agent does not see it.** No call-update notification is created; it is not in `pending_work` or `session pending`; and the agent's `call_status` and `call_cancel` answer `not_recorded`. The owner follows it with `calls inspect`, `calls list`, and `calls cancel`.
+8. **Output and exit codes** are as for `call`.
+
+### Verification
+
+`conformance/capability_agents.py` gains these cases, written from this section by an author independent of both implementations, across all four Go/Rust CLI and daemon pairings, with `--probe`, the Go coordinator, OpenSSH, and `--node` where an adapter is used:
+- **Forms:**
+  - `share --with PERSON/AGENT` and `--with HOST_ID/AGENT` storing the same `agent:HOST_ID/AGENT_ID` principal;
+  - `agent:HOST_ID/AGENT_ID` stored as given, with `recipient` null;
+  - a value with two `/` refused with the `invalid recipient` text, and a non-addressable agent name refused with `invalid agent name`, each signing nothing;
+  - a person whose label contains `/` shared with through `person:LABEL`, and that person's agent through `HOST_ID/AGENT`.
+- **Resolution:**
+  - an agent the caller's directory does not list (no rule lets the caller reach it) found through the lookup route;
+  - `unknown` with `unanswered` naming a stopped host, and the not-answered text;
+  - one match while another host of the person is stopped: the share goes ahead, the review has the `Not checked:` line, and the lookup's `unanswered` lists the host;
+  - `ambiguous` with `matches` when two hosts of the person each have an agent with the name;
+  - `local` for an agent on this host, through `PERSON/AGENT` and `HOST_ID/AGENT`;
+  - `unknown_host` for a host ID that is not a member;
+  - a host that predates the route (simulated with a probe-served 404, or an older build) resolved from the directory cache, and `unknown` listing it as `unsupported` when the cache lacks the agent;
+  - the local route's JSON shapes for each outcome.
+- **Lookup route:** by `name` and by `agent_id`; 200 with `agent: null` for an unknown name or ID, and for a non-addressable name; by `agent_id` for an agent with a non-addressable name returning `name: null`; 403 for a caller that is not a member; 404 with `code` for a network the host is not in; 400 for neither or both parameters and for a query over 256 bytes.
+- **Review and output:** the recipient line and the `agent … on host …` line, bound and unbound; the reach sentence with the address; the three agent-paragraph lines; the trusted-own-agent line for an agent on a trusted host of the signer, and its absence for an untrusted one; `recipient` in `share` JSON; a repeat signing nothing.
+- **Authorization:** the shared agent's adapter calls accepted; another agent on the same host refused; an agent with the same name on another host of the same person refused.
+- **`shares`:**
+  - `found` with `PERSON/NAME`, `unanswered` for a stopped host, `not_found` after the fixture deletes the agent's record on its host while that daemon is stopped, `host_gone` after the host is revoked, and `unbound` after the host is unbound; the label using the host's current person;
+  - the `unshare` command for each state, by `HOST_ID/AGENT_NAME` for `found` (also when the person has an agent of that name on another host) and by principal otherwise; the note after `unshare --with PERSON` naming `--network`;
+  - `GET /v1/capabilities` without `lookup` sending no lookup (observed with a stopped host: it answers at once) and reporting cached states.
+- **`unshare`:** by `PERSON/AGENT`, with `recipient`; the fallback listing with each `agent:` command when the agent's host is stopped, and when it was revoked; the `removed: 0` note for an agent address; the note after `unshare --with PERSON` naming the agent shares that remain.
+- **Recipient views:**
+  - `for_agents` in default `discover` for an agent-only capability, with the agent's name, and none on capabilities the owner can call;
+  - `call` without `--from-agent` refused with 403 `agent_only` and its text, persisting nothing;
+  - `discover --from-agent` by ID and by name equal to the agent's `list_capabilities`, including an agent-only capability and excluding sources.
+- **`call --from-agent`:**
+  - by agent ID and by agent name, with and without `--from-session`;
+  - an unknown agent, an unknown session, and another agent's session, each refused before persisting; `--from-session` without `--from-agent` refused. (A name shared by two agents cannot be created, since names are unique within a host; its refusal stays as defensive behavior and is not a case.)
+  - a source address refused with `source`;
+  - `origin` stored on both hosts, and `adapter_id` null in the outbound record;
+  - not counted against the agent's `max_calls_per_hour` (with `--max-calls-per-hour 1`, owner calls as the agent do not block the agent's own call), and counted in the receiver's rule budget (429 `limit` after `max_calls_per_hour` calls);
+  - invisible to the agent: `call_status` answers `not_recorded`, `pending_work` does not list it, and no `call_update` event arrives.
+- **Replaced slice 2 case.** "`discover` unchanged by `agent:` rules" now reads: capabilities the owner can call keep only their `from_agent: null` entries, and agent-only ones are listed with `for_agents`.
+- **Unchanged:** the policy v2 test vector.
+
+`conformance/launch_onboarding.py` gains the `allow` and `deny` cases listed in the [launch contract](launch-contract.md#verification-2).
 
 ## Owner decisions
 

@@ -236,7 +236,7 @@ pub struct Candidate {
     agent: Option<PeerAgent>,
 }
 
-fn coded(status: u16, code: &'static str, message: String, extra: Value) -> Error {
+pub(crate) fn coded(status: u16, code: &'static str, message: String, extra: Value) -> Error {
     Error::Coded {
         status,
         code,
@@ -360,6 +360,29 @@ fn parts(to: &str) -> Result<(&str, &str), Error> {
 }
 
 impl Store {
+    /// An agent in this host's cached directory entries of `host` in
+    /// `network`, by name or by agent ID: its ID and name.
+    pub(crate) fn cached_directory_agent(
+        &self,
+        network: &str,
+        host: &str,
+        by_name: bool,
+        value: &str,
+    ) -> Option<(String, String)> {
+        let cache = self.directory_cache().ok()?;
+        let entry = cache.networks.get(network)?.hosts.get(host)?;
+        entry
+            .agents
+            .iter()
+            .find(|a| {
+                if by_name {
+                    a.name == value
+                } else {
+                    a.agent_id == value
+                }
+            })
+            .map(|a| (a.agent_id.clone(), a.name.clone()))
+    }
     pub(crate) fn directory_cache(&self) -> Result<std::sync::MutexGuard<'_, Cache>, Error> {
         self.agent_directory
             .lock()
@@ -508,7 +531,7 @@ impl Store {
     }
 
     /// The network a directory request names, or this host's only network.
-    fn directory_network(&self, given: Option<String>) -> Result<String, Error> {
+    pub(crate) fn directory_network(&self, given: Option<String>) -> Result<String, Error> {
         let networks = self.networks()?;
         match given {
             Some(id) => {

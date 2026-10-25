@@ -1210,6 +1210,7 @@ async fn call(
                 .as_str()
                 .unwrap_or("request failed")
                 .to_owned(),
+            code: value["code"].as_str().unwrap_or_default().to_owned(),
         }
         .into());
     }
@@ -1339,6 +1340,7 @@ async fn failure(response: hyper::Response<hyper::body::Incoming>) -> anyhow::Er
             .as_str()
             .unwrap_or("request failed")
             .to_owned(),
+        code: value["code"].as_str().unwrap_or_default().to_owned(),
     }
     .into()
 }

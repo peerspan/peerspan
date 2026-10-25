@@ -42,6 +42,13 @@ Sections, per pairing (contract Verification bullets in brackets):
 - unanswered [Listing: `unanswered` with a stopped host].
 Once per run (from capabilities.py): migration from version 17 to 18 [Migration].
 
+Slice 3, item C (sharing with one agent), is in SharePairing below, written from the contract's "Sharing with one
+agent (slice 3)" section and its Verification list, in a topology of its own per pairing (see its docstring), with
+sections: lookup route [Lookup route]; forms [Forms]; authorization [Authorization]; resolution [Resolution, with
+`--old` for a host that predates the route]; review and output [Review and output]; recipient views [Recipient
+views]; call --from-agent [`call --from-agent`]; states [`shares`]; unshare [`unshare`]. The listing section above
+carries the replaced slice 2 case for `discover`.
+
 Where the contract is silent, the suite takes the narrowest reading or makes no assertion; such spots are marked
 "Q:" and soft results are NOTE lines.
 """
@@ -55,6 +62,7 @@ import subprocess
 import tempfile
 import time
 import traceback
+import urllib.parse
 
 from coordination import Coordinator, wait_for
 from host_service import UnixHTTPConnection, stop_all
@@ -360,6 +368,20 @@ class AgentPairing:
         status, body = self.hosts[host].call('PUT', f'/v1/agents/{self.aid[agent]}/tool-servers',
                                              {'workspace': str(self.root), 'servers': definitions, 'values': {}})
         need(status == 200, 'setup: PUT /v1/agents/{agent_id}/tool-servers', host, agent, status, body)
+
+    def ok_call(self, name, address, operation, input=None, wait=None, call_id=None, rule='call_capability'):
+        """call_capability, calling again with the same call_id after a lost response (the contract's recovery for
+        it; the shared machine can stall past the adapter's timeout)."""
+        call_id = call_id or cid()
+        for attempt in range(3):
+            failed, value, elapsed = self.cc(name, address, operation, input, wait, call_id)
+            lost = failed and isinstance(value, dict) and 'code' not in value and \
+                str(value.get('recovery', '')).startswith('Check call_status')
+            if not lost:
+                break
+        need(not failed, f'{rule}: not a tool error', value)
+        check_view(value, rule)
+        return value, elapsed
 
     def create(self, host, name, source, operations):
         code, out, stdout, stderr = self.hosts[host].outcome('capability', 'create', name, '--from', source,
@@ -999,15 +1021,22 @@ class AgentPairing:
         need(status == 200 and selfs and all('from_agent' not in v for v in selfs),
              'self entries have no from_agent', status, selfs[:3])
 
-        # discover and the owner's call ignore agent: entries.
+        # discover: capabilities the owner can call keep only their from_agent null entries; agent-only ones are
+        # listed with for_agents (slice 3 replaced the slice 2 case "discover unchanged by agent: rules").
         status, body = self.hosts['q1'].call('GET', f'/v1/discover?person=pat')
         need(status == 200, 'GET /v1/discover', status, body)
         names = {e['capability']: e for e in body['capabilities']}
-        need('agentonly' not in names and 'mixed' in names and 'tools' in names,
-             'discover omits capabilities left with no via entry whose from_agent is null', sorted(names))
-        need(all(v.get('from_agent') is None for e in body['capabilities'] for v in e['via']),
-             'discover ignores via entries whose from_agent is not null', names.get('mixed'))
-        need(all('from_agent' in v for e in body['capabilities'] for v in e['via'] if v.get('kind') == 'policy'),
+        need('agentonly' in names and 'mixed' in names and 'tools' in names,
+             'discover lists agent-only capabilities too (slice 3)', sorted(names))
+        need(names['agentonly'].get('for_agents') == [{'agent_id': qa_id, 'name': 'qa'}] and
+             [v.get('from_agent') for v in names['agentonly']['via']] == [qa_id],
+             'an agent-only capability keeps its via entries and gains for_agents', names['agentonly'])
+        callable_ = [e for n, e in names.items() if n != 'agentonly']
+        need(all(v.get('from_agent') is None for e in callable_ for v in e['via']) and
+             all('for_agents' not in e for e in callable_),
+             'capabilities the owner can call keep only their from_agent null entries, without for_agents',
+             names.get('mixed'))
+        need(all('from_agent' in v for e in callable_ for v in e['via'] if v.get('kind') == 'policy'),
              'the remaining policy entries keep from_agent: null in discover JSON', names.get('mixed'))
         before = self.count('q1', 'outbound_calls')
         code, out, stdout, stderr = self.hosts['q1'].outcome('call', 'pat/agentonly', 'echo', '--input',
@@ -1946,11 +1975,948 @@ class AgentPairing:
                 agent.stop()
 
 
+
+# --- slice 3: sharing with one agent ------------------------------------------------------------------------------
+
+LOOKUP_OK_KEYS = {'principal', 'host_id', 'agent_id', 'person_id', 'address', 'unanswered'}
+SHARE3_KEYS = {'policy', 'capability', 'principal', 'recipient', 'created'}
+UNSHARE3_KEYS = {'policy', 'capability', 'principal', 'recipient', 'removed'}
+RECIPIENT_KEYS = {'address', 'host_id', 'agent_id', 'person_id'}
+AGENT_RECIPIENT_KEYS = {'network_id', 'principal', 'label', 'agent_state'}
+SHARES_AGENT_KEYS = AGENT_RECIPIENT_KEYS | {'unshare'}
+LINE_SAME_MACHINE = ('The share stays with this agent on this machine. If the agent is set up again on another machine, '
+                     'share it again.')
+LINE_TRUSTED = ('This machine is trusted, so this agent already reaches all your capabilities through self access. '
+                'This share matters only if you untrust it.')
+LINE_UNBOUND_CLAIM = ('That host makes the claim itself: anyone, and any program, that can run peerspan as that host\'s '
+                      'owner can call as this agent. Other machines, other agents, and other people cannot.')
+TRY_AGAIN = 'Try again when it is online, or use agent:HOST_ID/AGENT_ID.'
+SOURCE_AS_AGENT = 'Agents cannot call sources; call them without --from-agent.'
+SHARE_SECTIONS = ('shares: lookup route', 'shares: forms', 'shares: authorization', 'shares: resolution',
+                  'shares: review and output', 'shares: recipient views', 'shares: call --from-agent',
+                  'shares: states', 'shares: unshare')
+
+
+def claim_line(host_id, person):
+    return (f'That host makes the claim itself: {person}, and any program that can run peerspan as {person} on that '
+            f'machine, can call as this agent. {person}\'s other machines and other agents, and other people, cannot.')
+
+
+def lines_of(text):
+    return [line.strip() for line in text.replace('\r', '').split('\n')]
+
+
+def walk(value):
+    """Every dict inside value, depth first."""
+    if isinstance(value, dict):
+        yield value
+        for v in value.values():
+            yield from walk(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from walk(v)
+
+
+class SharePairing(AgentPairing):
+    """Capabilities slice 3, item C (sharing with one agent), in a topology of its own per CLI/daemon pairing.
+
+    - pat (the sharer): p1 (trusted; the source srv/fx and every capability; local agent `plocal`; in team and
+      other), p2 (trusted; agent `pown`; in team and other), p3 (untrusted; agent `puntr`).
+    - quinn (the recipient): q1 (trusted; MCP sessions `qa` and `qlim` (--max-calls-per-hour 1), raw sessions of
+      `qb` and `qx`, registered `qhid` and `QBad` (not addressable)), q2 (a raw session of another `qx`, `qgone`,
+      and the source `q2srv/fx`, opened to q1), q3 (`qoff`), q4 (`qrev`, revoked later), q5 (`qunb`, unbound from
+      quinn later and bound to rhea), and o1, a host built before this slice (`--old`: agents `oldvis`, which quinn
+      lets pat reach, so p1's directory lists it, and `oldhid`, which it does not).
+    - `ops/sam` (a label containing `/`): s1 (agent `sagent`). rhea: r1. n2 joins without a person (`nagent`).
+      n1 is not a member of team.
+    Networks: team (all members but n1), other (p1 only), and side (q3 and n1)."""
+
+    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None, old=None):
+        super().__init__(label, cli_binary, daemon_binary, coord_binary, node, root, only)
+        self.old = old
+
+    # --- helpers -------------------------------------------------------------------------------------------
+
+    def start_coordinator(self):
+        """Start the coordinator, retrying when it is slow to listen (the shared machine stalls for seconds)."""
+        for attempt in range(3):
+            try:
+                return self.coord.start()['public_key']
+            except AssertionError:
+                if attempt == 2:
+                    raise
+                if self.coord.process is not None:
+                    self.coord.process.kill()
+                    self.coord.process.wait()
+                time.sleep(5)
+
+    def section(self, name, function):
+        if self.only and name not in self.only:
+            return None
+        return super().section(name, function)
+
+    def ok_call(self, name, address, operation, input=None, wait=None, call_id=None, rule='call_capability'):
+        """call_capability, calling again with the same call_id after a lost response (the contract's recovery for
+        it; the shared machine can stall past the adapter's timeout)."""
+        call_id = call_id or cid()
+        for attempt in range(3):
+            failed, value, elapsed = self.cc(name, address, operation, input, wait, call_id)
+            lost = failed and isinstance(value, dict) and 'code' not in value and \
+                str(value.get('recovery', '')).startswith('Check call_status')
+            if not lost:
+                break
+        need(not failed, f'{rule}: not a tool error', value)
+        check_view(value, rule)
+        return value, elapsed
+
+    def create(self, host, name, source, operations):
+        code, out, stdout, stderr = self.hosts[host].outcome('capability', 'create', name, '--from', source,
+                                                             '--operations', ','.join(operations), timeout=300)
+        need(code == 0, f'setup: capability create {name} on {host}', code, stderr[-400:])
+
+    def lookup(self, address, host='p1', net=None):
+        query = urllib.parse.urlencode({'address': address, 'network': net or self.team})
+        return self.hosts[host].call('GET', f'/v1/agent-lookup?{query}')
+
+    def peer_lookup(self, target, caller, net=None, raw_query=None, **params):
+        query = raw_query if raw_query is not None else urllib.parse.urlencode(params)
+        return wire(self.hosts[target], fixture_context(self.hosts[caller]), 'GET',
+                    f'/peer/v1/networks/{net or self.team}/agent-lookup?{query}')
+
+    def principal_of(self, host, agent):
+        return f'agent:{self.ids[host]}/{self.aid[agent]}'
+
+    def rule_principals(self, name, net=None, host='p1'):
+        p = self.policy(host, net)
+        for r in (p or {}).get('capability_rules') or []:
+            if r['capability'] == name and r['host'] == self.ids[host]:
+                return list(r['principals'])
+        return None
+
+    def share3(self, name, recipient, host='p1', net=None, expect=True, per_hour=None):
+        """`share NAME --with RECIPIENT --yes`: (exit code, output, stderr, whether a version was signed)."""
+        before = self.version(host, net)
+        args = ['share', name, '--with', recipient, '--yes', '--network', net or self.team]
+        if per_hour:
+            args += ['--calls-per-hour', str(per_hour)]
+        code, out, stdout, stderr = self.hosts[host].outcome(*args)
+        after = self.version(host, net)
+        if code == 0:
+            need(isinstance(out, dict) and set(out) == SHARE3_KEYS, 'share prints {policy, capability, principal, '
+                 'recipient, created}', recipient, out)
+            need(after in (before, before + 1), 'share signs the next version or nothing', before, after)
+        else:
+            need(after == before, 'a refused share signs nothing', recipient, before, after, code, stderr[-600:])
+        if expect:
+            need(code == 0, f'share {name} --with {recipient}', code, stderr[-600:])
+        return code, out, stderr, after == before + 1
+
+    def share_tty(self, name, recipient, host='p1', net=None):
+        argv = ['share', name, '--with', recipient, '--network', net or self.team]
+        code, out, tty, stdout, seen = self.hosts[host].at_terminal(*argv, answer='y', prompt=caps.SHARE_PROMPT,
+                                                                    timeout=90)
+        need(code == 0 and seen and isinstance(out, dict), f'share {name} --with {recipient} at a terminal, '
+             'answering y', code, tty[-800:])
+        return out, tty
+
+    def _unshare3(self, name, recipient, host, net):
+        code, out, stdout, stderr = self.hosts[host].outcome('unshare', name, '--with', recipient, '--network',
+                                                             net or self.team)
+        return code, out, stderr
+
+    def refused(self, code, stderr, text, rule):
+        need(code != 0 and text in caps.squash(stderr), f'{rule}: exit non-zero with "{text}"', code, stderr[-600:])
+
+    def directory(self, host='p1', net=None):
+        status, body = self.hosts[host].call('POST', f'/v1/directory/refresh?network={net or self.team}', {})
+        need(status == 200, 'POST /v1/directory/refresh', status, body)
+        return body
+
+    def capability_recipients(self, name, host='p1', lookup=False):
+        path = f'/v1/capabilities/{name}' + ('?lookup=true' if lookup else '')
+        status, body = self.hosts[host].call('GET', path)
+        need(status == 200 and isinstance(body, dict), f'GET {path}', status, body)
+        return body.get('recipients') or []
+
+    def shares_entry(self, out, name, principal):
+        """The agent recipient for `principal` under capability NAME anywhere in `shares --json`."""
+        for d in walk(out):
+            if d.get('name') == name or d.get('capability') == name:
+                for r in walk(d):
+                    if r is not d and r.get('principal') == principal and 'agent_state' in r:
+                        return r, d
+        return None, None
+
+    def members(self, net=None):
+        return {m['host_id']: m for m in self.hosts['p1'].cli('network', 'members', net or self.team)}
+
+    def sync_until(self, condition, message, hosts=('p1',), net=None, timeout=90):
+        def done():
+            for n in hosts:
+                self.hosts[n].run('network', 'sync', net or self.team)
+            return condition()
+        return wait_for(done, timeout=timeout, message=message)
+
+    def delete_agent(self, host, agent_id):
+        """The fixture removes an agent's record while its daemon is stopped (no delete command exists)."""
+        h = self.hosts[host]
+        h.stop()
+        connection = sqlite3.connect(h.state / 'host.db')
+        try:
+            deleted = 0
+            tables = [r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+            for table in tables:
+                columns = {r[1] for r in connection.execute(f'PRAGMA table_info({table})')}
+                if {'id', 'name', 'owner'} <= columns:
+                    deleted += connection.execute(f'DELETE FROM {table} WHERE id = ?', (agent_id,)).rowcount
+            connection.commit()
+        finally:
+            connection.close()
+        need(deleted == 1, 'fixture: the agent record deleted', host, agent_id, deleted)
+        h.logs.close()
+        h.logs = tempfile.TemporaryFile()
+        h.start()
+
+    def call_as(self, host, address, *flags, text=None, wait='30s'):
+        """`call ADDRESS echo` with flags: (exit code, output, stderr, marker)."""
+        text = text or marker('as')
+        code, out, stdout, stderr = self.hosts[host].outcome('call', address, 'echo', '--input',
+                                                             json.dumps({'text': text}), '--wait', wait, *flags,
+                                                             timeout=120)
+        return code, out, stderr, text
+
+    # --- setup -----------------------------------------------------------------------------------------------
+
+    def run(self):
+        root = self.root
+        (root / 'keys').mkdir()
+        for name in ('pat', 'quinn', 'sam', 'rhea'):
+            self.keys[name] = ssh_key(root / 'keys', name)
+            (root / f'agent-{name}').mkdir()
+            self.agents[name] = Agent(root / f'agent-{name}')
+            self.agents[name].add(self.keys[name][0])
+        self.pat, self.quinn, self.sam, self.rhea = (person_id(self.keys[n][2]) for n in ('pat', 'quinn', 'sam',
+                                                                                          'rhea'))
+        self.fixture = Fixture(root / 'fixture')
+        self.claude = ClaudeFixture(root / 'claude')
+        self.coord_key = self.start_coordinator()
+        persons = {'p1': 'pat', 'p2': 'pat', 'p3': 'pat', 'q1': 'quinn', 'q2': 'quinn', 'q3': 'quinn', 'q4': 'quinn',
+                   'q5': 'quinn', 's1': 'sam', 'r1': 'rhea', 'n1': None, 'n2': None}
+        for name, person in persons.items():
+            self.host(name, person)
+        if self.old:
+            self.host('o1', 'quinn', self.old, self.old)
+            persons['o1'] = 'quinn'
+        self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
+        ids, h = self.ids, self.hosts
+
+        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
+                                *self.coordinator_flags())['id']
+        joins = [('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--trusted',)),
+                 ('q2', 'quinn', ('--untrusted',)), ('q3', 'quinn', ('--untrusted',)),
+                 ('q4', 'quinn', ('--untrusted',)), ('q5', 'quinn', ('--untrusted',)),
+                 ('s1', 'ops/sam', ('--untrusted',)), ('r1', 'rhea', ('--untrusted',)), ('n2', 'nobody', ('--no-person',))]
+        if 'o1' in h:
+            joins.append(('o1', 'quinn', ('--untrusted',)))
+        for name, label, flags in joins:
+            token = self.invite(label, self.team)
+            for attempt in range(4):
+                # A join is retried with the same invite when the coordinator was too slow to answer (load).
+                result = h[name].run('join', token, *flags)
+                slow = 'coordination unavailable' in result.stderr or 'deadline exceeded' in result.stderr
+                if result.returncode == 0 or not slow or attempt == 3:
+                    break
+                time.sleep(5)
+                if self.team in json.dumps(h[name].call('GET', '/v1/networks')[1]):
+                    break
+            need(self.team in json.dumps(h[name].call('GET', '/v1/networks')[1]), f'setup: {name} joins team as '
+                 f'{label}', result.stderr[-500:])
+        self.other = h['p1'].cli('network', 'create', 'other', '--as', 'pat', '--trusted',
+                                 *self.coordinator_flags())['id']
+        label_of = {'pat': self.pat, 'quinn': self.quinn, 'sam': self.sam, 'rhea': self.rhea, None: None}
+        expected = {ids[n]: label_of[p] for n, p in persons.items() if n != 'n1'}
+
+        def bound():
+            for n in persons:
+                if n != 'n1':
+                    h[n].run('network', 'sync', self.team)
+            seen = {m['host_id']: m['person_id'] for m in h['p1'].cli('network', 'members', self.team)}
+            return seen == expected
+        wait_for(bound, timeout=120, message='every member of team bound as expected')
+        h['p1'].run('network', 'sync', self.other)
+        # side: q3 and n1, so n1 is a known host to q3 but not a member of team.
+        self.side = h['q3'].cli('network', 'create', 'side', '--as', 'quinn', '--untrusted',
+                                *self.coordinator_flags())['id']
+        token = h['q3'].cli('network', 'invite', '--network', self.side, '--member', 'stranger', '--expires-in',
+                            '1h')['token']
+        h['n1'].cli('join', token, '--no-person')
+        for n in ('q3', 'n1'):
+            h[n].run('network', 'sync', self.side)
+
+        # Agents.
+        for host, name, owner in (('p1', 'srv', 'pat'), ('p1', 'plocal', 'pat'), ('p2', 'pown', 'pat'),
+                                  ('p3', 'puntr', 'pat'), ('q1', 'qb', 'quinn'), ('q1', 'qx', 'quinn'),
+                                  ('q1', 'qhid', 'quinn'), ('q1', 'QBad', 'quinn'), ('q2', 'qgone', 'quinn'),
+                                  ('q2', 'q2srv', 'quinn'), ('q3', 'qoff', 'quinn'), ('q4', 'qrev', 'quinn'),
+                                  ('q5', 'qunb', 'quinn'), ('s1', 'sagent', 'ops/sam'), ('n2', 'nagent', 'n2'),
+                                  *([('o1', 'oldvis', 'quinn'), ('o1', 'oldhid', 'quinn')] if 'o1' in h else [])):
+            self.register(host, name, owner)
+        self.put_servers('p1', 'srv', {'fx': self.fixture.args('fx')})
+        self.put_servers('q2', 'q2srv', {'fx': self.fixture.args('q2fx')})
+        status, body = h['q2'].call('POST', '/v1/sources/open-to', {'host_id': ids['q1']})
+        need(status in (200, 201), 'setup: q2 opens its sources to q1', status, body)
+        self.raw, self.raw_setups = {}, {}
+        self.aid['qx@q2'] = h['q2'].cli('agent', 'register', '--name', 'qx', '--owner', 'quinn')['id']
+        for host, name, agent_id in (('q1', 'qb', self.aid['qb']), ('q1', 'qx', self.aid['qx']),
+                                     ('q2', 'qx', self.aid['qx@q2'])):
+            self.raw[(host, name)], setup = self.raw_setup(host, agent_id)
+            self.raw_setups[(host, name)] = setup
+            self.raw[(host, name)].session_id = setup['credential']['adapter']['session_id']
+
+        for name in ('forms', 'forms2', 'auth', 'auth2', 'rev', 'ao', 'budget', 'lim', 'both', 'pub', 'st', 'un',
+                     'un2'):
+            self.create('p1', name, 'srv/fx', ['echo', 'sleep'])
+
+        for host, name, flags in (('q1', 'qa', ('--calls',)),
+                                  ('q1', 'qlim', ('--calls', '--max-calls-per-hour', '1'))):
+            self.session(host, name, *flags)
+
+        # quinn lets pat reach oldvis on o1 (so p1's directory lists it), and nothing else of quinn's.
+        if 'o1' in h:
+            h['q1'].cli('allow', 'pat', '--agent', 'oldvis', '--network', self.team)
+        self.sync_all_policies()
+
+        self.section('shares: lookup route', self.check_lookup_route)
+        self.section('shares: forms', self.check_forms)
+        self.section('shares: authorization', self.check_share_authorization)
+        self.section('shares: resolution', self.check_resolution)
+        self.section('shares: review and output', self.check_review)
+        self.section('shares: recipient views', self.check_recipient_views)
+        self.section('shares: call --from-agent', self.check_from_agent)
+        self.section('shares: states', self.check_states)
+        self.section('shares: unshare', self.check_unshare3)
+        if self.setup_notes:
+            print(f'NOTE {self.label} agent shares setup: ' + ' | '.join(self.setup_notes), flush=True)
+
+    def sync_all_policies(self):
+        live = [n for n in self.hosts if n not in ('n1',) and self.hosts[n].process and
+                self.hosts[n].process.poll() is None]
+        for person, owner_host in ((self.pat, 'p1'), (self.quinn, 'q1')):
+            v = self.version(owner_host, person=person)
+            if v:
+                self.synced(v, *[n for n in live if n != owner_host], person=person)
+
+    # --- the lookup route ------------------------------------------------------------------------------------
+
+    def check_lookup_route(self):
+        ids, aid = self.ids, self.aid
+        want = {'agent': {'agent_id': aid['qhid'], 'name': 'qhid'}}
+        status, body = self.peer_lookup('q1', 'p1', name='qhid')
+        need(status == 200 and body == want, 'the lookup route by name: 200 {agent: {agent_id, name}}', status, body)
+        status, body = self.peer_lookup('q1', 'p1', agent_id=aid['qhid'])
+        need(status == 200 and body == want, 'the lookup route by agent_id', status, body)
+        for params, rule in (({'name': 'nosuch'}, 'an unknown name'),
+                             ({'agent_id': 'agent_' + secrets.token_hex(16)}, 'an unknown agent ID'),
+                             ({'name': 'QBad'}, 'a non-addressable name')):
+            status, body = self.peer_lookup('q1', 'p1', **params)
+            need(status == 200 and body == {'agent': None}, f'the lookup route: 200 with agent null for {rule}',
+                 status, body)
+        status, body = self.peer_lookup('q1', 'p1', agent_id=aid['QBad'])
+        need(status == 200 and body == {'agent': {'agent_id': aid['QBad'], 'name': None}},
+             'the lookup route by agent_id for a non-addressable name returns name null', status, body)
+        status, body = self.peer_lookup('q3', 'n1', name='qoff')
+        need(status == 403, 'the lookup route: 403 for a caller that is not a member of that network', status, body)
+        status, body = self.peer_lookup('q3', 'n1', net=self.side, name='qoff')
+        need(status == 200 and body == {'agent': {'agent_id': aid['qoff'], 'name': 'qoff'}},
+             'the same caller is answered in a network it is a member of', status, body)
+        status, body = self.peer_lookup('q1', 'p1', net=self.other, name='qhid')
+        need(status == 404 and isinstance(body, dict) and body.get('code') == 'not_found',
+             'the lookup route: 404 {code: "not_found"} for a network the host is not in', status, body)
+        for query, rule in (('', 'neither parameter'),
+                            (urllib.parse.urlencode({'name': 'qhid', 'agent_id': aid['qhid']}), 'both parameters'),
+                            ('name=' + 'a' * 260, 'a query over 256 bytes')):
+            status, body = self.peer_lookup('q1', 'p1', raw_query=query)
+            need(status == 400 and isinstance(body, dict) and body.get('code') == 'invalid',
+                 f'the lookup route: 400 invalid for {rule}', status, body)
+        return ''
+
+    # --- forms ------------------------------------------------------------------------------------------------
+
+    def check_forms(self):
+        ids, aid = self.ids, self.aid
+        qhid = self.principal_of('q1', 'qhid')
+        directory = self.directory('p1')
+        need(not any(a.get('agent_id') == aid['qhid'] for a in directory['agents']),
+             'setup: p1\'s directory does not list qhid (no rule lets p1 reach it)', directory['agents'])
+        code, out, _, signed = self.share3('forms', 'quinn/qhid')
+        need(signed and out['principal'] == qhid and qhid in self.rule_principals('forms'),
+             'share --with PERSON/AGENT stores agent:HOST_ID/AGENT_ID, found through the lookup route although the '
+             'directory does not list it', out)
+        need(out['recipient'] == {'address': 'quinn/qhid', 'host_id': ids['q1'], 'agent_id': aid['qhid'],
+                                  'person_id': self.quinn}, 'recipient {address, host_id, agent_id, person_id}',
+             out['recipient'])
+        code, out, _, signed = self.share3('forms', f"{ids['q1']}/qhid")
+        need(not signed and out['principal'] == qhid and self.rule_principals('forms').count(qhid) == 1,
+             'share --with HOST_ID/AGENT stores the same principal; a repeat signs nothing', out)
+        need(out['recipient'] == {'address': 'quinn/qhid', 'host_id': ids['q1'], 'agent_id': aid['qhid'],
+                                  'person_id': self.quinn}, 'a repeat still prints recipient, the address resolved to '
+             'PERSON/AGENT', out['recipient'])
+        code, out, _, signed = self.share3('forms', f'{self.quinn}/qhid')
+        need(not signed and out['principal'] == qhid, 'PERSON may be a person ID', out)
+        qb = self.principal_of('q1', 'qb')
+        code, out, _, signed = self.share3('forms', qb)
+        need(signed and out['principal'] == qb and out['recipient'] is None and qb in self.rule_principals('forms'),
+             'agent:HOST_ID/AGENT_ID stored as given, with recipient null', out)
+        code, out, _, signed = self.share3('forms', 'quinn')
+        need(out['recipient'] is None, 'recipient is null for other forms', out)
+        before = self.version('p1')
+        code, out, stderr, _ = self.share3('forms', 'quinn/a/b', expect=False)
+        self.refused(code, stderr, 'invalid recipient "quinn/a/b": use PERSON/AGENT, HOST_ID/AGENT, or person:LABEL '
+                     'for a label that contains /', 'two / refused')
+        code, out, stderr, _ = self.share3('forms', 'quinn/Bad_Name', expect=False)
+        self.refused(code, stderr, 'invalid agent name "Bad_Name"', 'a non-addressable agent name refused')
+        need(self.version('p1') == before, 'the refusals sign nothing')
+        # A person whose label contains /: person:LABEL, and that person's agent through HOST_ID/AGENT.
+        code, out, _, signed = self.share3('forms2', 'person:ops/sam')
+        need(out['principal'] == 'person:' + self.sam and out['recipient'] is None,
+             'person:LABEL reaches a person whose label contains /', out)
+        code, out, _, signed = self.share3('forms2', f"{ids['s1']}/sagent")
+        need(out['principal'] == self.principal_of('s1', 'sagent') and out['recipient'] == {
+            'address': f"{ids['s1']}/sagent", 'host_id': ids['s1'], 'agent_id': self.aid['sagent'],
+            'person_id': self.sam}, 'HOST_ID/AGENT reaches that person\'s agent, addressed HOST_ID/AGENT', out)
+        code, out, stderr, _ = self.share3('forms2', 'ops/sam', expect=False)
+        need(code != 0, 'a bare value with one / is an agent address, never a person label (ops/sam: no person ops)',
+             code, out)
+        return ''
+
+    # --- authorization ----------------------------------------------------------------------------------------
+
+    def check_share_authorization(self):
+        ids = self.ids
+        self.share3('auth', 'quinn/qa')
+        self.share3('auth2', self.principal_of('q1', 'qx'))
+        self.sync_all_policies()
+        view, _ = self.ok_call('qa', 'pat/auth', 'echo', {'text': marker('auth')})
+        need(view['state'] == 'succeeded', 'the shared agent\'s adapter calls are accepted', view)
+        status, value = self.raw[('q1', 'qb')].call('POST', '/adapter/v1/calls', {
+            'call_id': cid(), 'address': 'pat/auth', 'operation': 'echo', 'input': {'text': marker('authb')}})
+        need(status == 404 and value.get('code') == 'not_found', 'another agent on the same host is refused',
+             status, value)
+        status, value = self.raw[('q1', 'qx')].call('POST', '/adapter/v1/calls', {
+            'call_id': cid(), 'address': 'pat/auth2', 'operation': 'echo', 'input': {'text': marker('authx')},
+            'wait': 15})
+        need(status == 200 and value.get('state') == 'succeeded', 'qx on q1 calls auth2', status, value)
+        # The same name on quinn's other host.
+        agent = {'id': self.aid['qx@q2']}
+        raw2, setup = self.raw[('q2', 'qx')], self.raw_setups[('q2', 'qx')]
+        text = marker('authx2')
+        status, value = raw2.call('POST', '/adapter/v1/calls', {
+            'call_id': cid(), 'address': 'pat/auth2', 'operation': 'echo', 'input': {'text': text}})
+        need(status == 404 and value.get('code') == 'not_found' and not self.executions('fx', text),
+             'an agent with the same name on another host of the same person is refused', status, value)
+        # And through the peer route with that origin, from q2.
+        body = {'call_id': cid(), 'capability': 'auth2', 'operation': 'echo', 'input': {'text': text},
+                'deadline': timestamp(300), 'origin': {'agent_id': agent['id'], 'session_id': setup['credential'][
+                    'adapter']['session_id']},
+                'policy': {'person_id': self.pat, 'network_id': self.team, 'version': self.version('p1')}}
+        status, record = wire(self.hosts['p1'], fixture_context(self.hosts['q2']), 'POST', '/peer/v1/calls', body)
+        need(status in (403, 404) and not self.executions('fx', text), 'the receiver refuses q2\'s qx', status, record)
+        return ''
+
+    # --- resolution -------------------------------------------------------------------------------------------
+
+    def check_resolution(self):
+        ids, aid = self.ids, self.aid
+        notes = []
+        # One match, the JSON shape.
+        status, body = self.lookup('quinn/qhid')
+        need(status == 200 and set(body) == LOOKUP_OK_KEYS, 'GET /v1/agent-lookup: 200 {principal, host_id, agent_id, '
+             'person_id, address, unanswered}', status, body)
+        need(body['principal'] == self.principal_of('q1', 'qhid') and body['host_id'] == ids['q1'] and
+             body['agent_id'] == aid['qhid'] and body['person_id'] == self.quinn and body['address'] == 'quinn/qhid',
+             'the lookup\'s fields', body)
+        need(all(set(u) == {'host_id', 'error'} for u in body['unanswered']), 'unanswered entries {host_id, error}',
+             body['unanswered'])
+        # ambiguous: qx on q1 and q2.
+        status, body = self.lookup('quinn/qx')
+        want = sorted([f"{ids['q1']}/qx", f"{ids['q2']}/qx"])
+        need(status == 409 and isinstance(body, dict) and set(body) == {'code', 'error', 'matches'} and
+             body['code'] == 'ambiguous' and [m['address'] for m in body['matches']] == want and
+             all(set(m) == {'address', 'network_id'} and m['network_id'] == self.team for m in body['matches']),
+             '409 {code: "ambiguous", error, matches: [{address, network_id}]}, HOST_ID/AGENT sorted', status, body)
+        code, out, stderr, _ = self.share3('rev', 'quinn/qx', expect=False)
+        need(code != 0, 'share refuses an ambiguous address, signing nothing', code)
+        # local, through PERSON/AGENT and HOST_ID/AGENT.
+        for address in ('pat/plocal', f"{ids['p1']}/plocal"):
+            status, body = self.lookup(address)
+            text = (f'{address} is on this host, and a host never calls itself. Share with an agent on another '
+                    'machine.')
+            need(status == 400 and isinstance(body, dict) and set(body) == {'code', 'error'} and
+                 body['code'] == 'local' and body['error'] == text, f'400 local for {address}, with its text',
+                 status, body)
+            code, out, stderr, _ = self.share3('rev', address, expect=False)
+            self.refused(code, stderr, text, f'share --with {address} refused as local')
+        # unknown_host, unknown_person, invalid.
+        stranger = ids['n1']
+        status, body = self.lookup(f'{stranger}/qa')
+        need(status == 404 and isinstance(body, dict) and set(body) == {'code', 'error'} and
+             body['code'] == 'unknown_host' and body['error'] == f'unknown host {stranger} in network {self.team}',
+             '404 unknown_host for a host ID that is not a member', status, body)
+        code, out, stderr, _ = self.share3('rev', f'{stranger}/qa', expect=False)
+        self.refused(code, stderr, f'unknown host {stranger} in network {self.team}', 'share: unknown_host')
+        status, body = self.lookup('nobody/qa')
+        need(status == 404 and isinstance(body, dict) and body.get('code') == 'unknown_person',
+             '404 unknown_person for a label matching no person', status, body)
+        for bad in ('quinn/a/b', 'quinn', 'quinn/Bad_Name'):
+            status, body = self.lookup(bad)
+            need(status == 400 and isinstance(body, dict) and body.get('code') == 'invalid',
+                 f'400 invalid for {bad!r}, not an agent address', status, body)
+        status, body = self.hosts['p1'].call('GET', f'/v1/agent-lookup?network={self.team}')
+        need(status == 400 and isinstance(body, dict) and body.get('code') == 'invalid', '400 invalid without address',
+             status, body)
+
+        # A host predating the route (o1): the directory cache answers for it.
+        if 'o1' in self.hosts:
+            directory = self.directory('p1')
+            need(any(a.get('agent_id') == aid['oldvis'] for a in directory['agents']),
+                 'setup: p1\'s directory lists oldvis', directory['agents'])
+            status, body = self.lookup('quinn/oldvis')
+            need(status == 200 and body.get('principal') == self.principal_of('o1', 'oldvis') and
+                 not any(u['host_id'] == ids['o1'] for u in body['unanswered']),
+                 'a host that answers 404 without code: its directory entry counts as its answer', status, body)
+            status, body = self.lookup(f"{ids['o1']}/oldhid")
+            need(status == 404 and isinstance(body, dict) and body.get('code') == 'unknown' and
+                 body.get('unanswered') == [{'host_id': ids['o1'], 'error': 'unsupported'}],
+                 'without a directory entry: unknown, listing the old host as unsupported', status, body)
+            want = (f"{ids['o1']} has no agent named oldhid. Not answered: {ids['o1']} (unsupported). " + TRY_AGAIN)
+            need(body.get('error') == want, 'the HOST_ID/AGENT unknown text with the not-answered part', body, want)
+        else:
+            notes.append('no --old host: the older-host cases skipped')
+
+        # A stopped host of the person.
+        q3 = self.hosts['q3']
+        q3.stop()
+        try:
+            status, body = self.lookup('quinn/nosuch')
+            need(status == 404 and isinstance(body, dict) and set(body) == {'code', 'error', 'unanswered'} and
+                 body['code'] == 'unknown', '404 {code: "unknown", error, unanswered}', status, body)
+            un = body['unanswered']
+            need([u['host_id'] for u in un] == sorted(u['host_id'] for u in un) and
+                 any(u['host_id'] == ids['q3'] for u in un), 'unanswered names the stopped host, sorted by host ID',
+                 un)
+            want = ('quinn has no agent named nosuch on the hosts that answered. Not answered: ' +
+                    ', '.join(f"{u['host_id']} ({u['error']})" for u in un) + '. ' + TRY_AGAIN)
+            need(body['error'] == want, 'the unknown text, with the not-answered part', body['error'], want)
+            code, out, stderr, _ = self.share3('rev', 'quinn/nosuch', expect=False)
+            self.refused(code, stderr, 'quinn has no agent named nosuch on the hosts that answered.',
+                         'share: unknown, with nothing signed')
+            need(f"Not answered: {ids['q3']}" in caps.squash(stderr) or f"{ids['q3']} (" in caps.squash(stderr),
+                 'share prints the not-answered text', stderr[-600:])
+            # One match with the stopped host unanswered: the share goes ahead and the review lists it.
+            status, body = self.lookup('quinn/qhid')
+            need(status == 200 and any(u['host_id'] == ids['q3'] for u in body['unanswered']),
+                 'one match while a host is stopped: 200, unanswered lists it', status, body)
+            out, tty = self.share_tty('rev', 'quinn/qhid')
+            checked = [line for line in lines_of(tty) if line.startswith('Not checked: ')]
+            need(len(checked) == 1 and f"{ids['q3']} (" in checked[0], 'the review has the Not checked: line naming '
+                 'the stopped host', checked, tty[-1200:])
+            need(out['principal'] == self.principal_of('q1', 'qhid'), 'the share goes ahead', out)
+        finally:
+            q3.start()
+        return '; '.join(notes)
+
+    # --- review and output --------------------------------------------------------------------------------
+
+    def review_has(self, tty, recipient, host, agent, person, trusted, unchecked=()):
+        lines = lines_of(tty)
+        hid = self.ids[host]
+        bound = (f'agent {self.aid[agent]} on host {hid}, bound to {person}' if person else
+                 f'agent {self.aid[agent]} on host {hid}, not bound to a person')
+        need(bound in lines, 'the review\'s agent … on host … line', bound, tty[-1500:])
+        at = lines.index(bound)
+        previous = [line for line in lines[:at] if line][-1]
+        need(previous.endswith(recipient), 'the recipient line names the resolved address, followed by the agent line',
+             previous, recipient)
+        reach = (f'{recipient} can use these operations with the credentials they run with on this host. Anything '
+                 f'those credentials can reach through them, {recipient} can too.')
+        need(reach in caps.squash(tty), 'the reach sentence uses the address', reach, tty[-1500:])
+        paragraph = [f'Only calls that {hid} says come from this agent are allowed.',
+                     claim_line(hid, person) if person else LINE_UNBOUND_CLAIM, LINE_SAME_MACHINE]
+        for line in paragraph:
+            need(line in lines, 'the agent paragraph line', line, tty[-1500:])
+        need(lines.index(paragraph[0]) < lines.index(paragraph[1]) < lines.index(paragraph[2]),
+             'the agent paragraph in order', tty[-1500:])
+        need((LINE_TRUSTED in lines) == trusted, 'the trusted-own-agent line ' + ('present' if trusted else 'absent'),
+             tty[-1500:])
+        checked = [line for line in lines if line.startswith('Not checked:')]
+        if unchecked:
+            need(len(checked) == 1 and all(f'{u} (' in checked[0] for u in unchecked),
+                 'the Not checked: line lists the hosts that did not answer', unchecked, checked)
+        else:
+            need(not checked, 'no Not checked: line when every host answered', checked)
+
+    def check_review(self):
+        ids, aid = self.ids, self.aid
+        # o1 predates the lookup route and its directory entries lack qb, so it is not checked (unsupported).
+        old = [ids['o1']] if 'o1' in ids else []
+        out, tty = self.share_tty('rev', 'quinn/qb')
+        self.review_has(tty, 'quinn/qb', 'q1', 'qb', 'quinn', False, old)
+        if old:
+            need(f"Not checked: {ids['o1']} (unsupported)" in lines_of(tty), 'an old host is not checked: unsupported',
+                 tty[-1200:])
+        need(out['recipient'] == {'address': 'quinn/qb', 'host_id': ids['q1'], 'agent_id': aid['qb'],
+                                  'person_id': self.quinn}, 'recipient in share JSON', out)
+        out, tty = self.share_tty('rev', 'pat/pown')
+        self.review_has(tty, 'pat/pown', 'p2', 'pown', 'pat', True)
+        need(out['recipient']['person_id'] == self.pat, 'an agent on another host of the signer may be shared with',
+             out)
+        out, tty = self.share_tty('rev', 'pat/puntr')
+        self.review_has(tty, 'pat/puntr', 'p3', 'puntr', 'pat', False)
+        out, tty = self.share_tty('rev', f"{ids['n2']}/nagent")
+        self.review_has(tty, f"{ids['n2']}/nagent", 'n2', 'nagent', None, False)
+        need(out['recipient'] == {'address': f"{ids['n2']}/nagent", 'host_id': ids['n2'], 'agent_id': aid['nagent'],
+                                  'person_id': None}, 'recipient for a host without a person: HOST_ID/AGENT, '
+             'person_id null', out)
+        # The agent: form: the paragraph too.
+        principal = self.principal_of('q1', 'qhid')
+        out, tty = self.share_tty('forms2', principal)
+        lines = lines_of(tty)
+        for line in (f"Only calls that {ids['q1']} says come from this agent are allowed.",
+                     claim_line(ids['q1'], 'quinn'), LINE_SAME_MACHINE):
+            need(line in lines, 'the agent paragraph for the agent: form', line, tty[-1500:])
+        need(out['recipient'] is None, 'recipient null for the agent: form', out)
+        # A repeat signs nothing and still prints recipient.
+        code, out, _, signed = self.share3('rev', 'quinn/qb')
+        need(not signed and out['recipient']['agent_id'] == aid['qb'], 'a repeat signs nothing, with recipient', out)
+        return ''
+
+    # --- recipient views ------------------------------------------------------------------------------------
+
+    def check_recipient_views(self):
+        aid, q1 = self.aid, self.hosts['q1']
+        self.share3('ao', 'quinn/qa')
+        self.share3('both', 'quinn/qa')
+        self.share3('both', 'quinn')
+        self.share3('pub', 'quinn')
+        self.sync_all_policies()
+        status, body = q1.call('GET', '/v1/discover')
+        need(status == 200, 'GET /v1/discover', status, body)
+        by = {e['address']: e for e in body['capabilities']}
+        need('pat/ao' in by and by['pat/ao'].get('for_agents') == [{'agent_id': aid['qa'], 'name': 'qa'}],
+             'default discover lists an agent-only capability with for_agents [{agent_id, name}]', by.get('pat/ao'))
+        need(all(v.get('from_agent') == aid['qa'] for v in by['pat/ao']['via']) and by['pat/ao']['via'],
+             'an agent-only entry keeps its via entries', by['pat/ao']['via'])
+        for name in ('pat/both', 'pat/pub'):
+            need(name in by and 'for_agents' not in by[name] and
+                 all(v.get('from_agent') is None for v in by[name]['via']),
+                 'capabilities the owner can call: only from_agent null entries, and no for_agents', by.get(name))
+        code, out, stdout, stderr = q1.outcome('discover')
+        need(code == 0 and 'only for your agent qa' in stdout, 'the readable line says only for your agent NAME',
+             code, stdout[-800:])
+        # call without --from-agent.
+        text = 'pat/ao is shared only with your agent qa. Add --from-agent qa to call as that agent.'
+        before = self.count('q1', 'outbound_calls')
+        code, out, stderr, _ = self.call_as('q1', 'pat/ao')
+        self.refused(code, stderr, text, 'call on an agent-only capability without --from-agent')
+        status, value = q1.call('POST', '/v1/calls', {'target': 'pat/ao', 'operation': 'echo',
+                                                      'input': {'text': 'x'}})
+        need(status == 403 and isinstance(value, dict) and value.get('code') == 'agent_only' and
+             value.get('error') == text and value.get('for_agents') == [{'agent_id': aid['qa'], 'name': 'qa'}],
+             '403 {code: "agent_only", error, for_agents}', status, value)
+        need(self.count('q1', 'outbound_calls') == before, 'agent_only persists nothing')
+        # discover --from-agent equals list_capabilities.
+        source_seen = wait_for(lambda: any(e.get('kind') == 'source' for e in
+                                           (q1.call('GET', '/v1/discover')[1] or {}).get('capabilities', [])),
+                               timeout=90, message='q1\'s discover lists q2\'s source (self access)')
+        need(source_seen, 'setup: a source in the owner\'s discover')
+        listing = self.listing('qa')
+        status, mine = q1.call('GET', f"/v1/discover?from_agent={aid['qa']}")
+        need(status == 200 and isinstance(mine, dict) and set(mine) == {'capabilities', 'unanswered'},
+             'GET /v1/discover?from_agent=: {capabilities, unanswered}, without agents', status, mine)
+        need(mine['capabilities'] == listing['capabilities'],
+             'discover --from-agent equals the agent\'s list_capabilities', mine, listing)
+        need(any(e['address'] == 'pat/ao' for e in mine['capabilities']) and
+             not any(e['address'].count('/') > 1 for e in mine['capabilities']),
+             'including the agent-only capability, excluding sources', [e['address'] for e in mine['capabilities']])
+        for given in (aid['qa'], 'qa'):
+            code, out, stdout, stderr = q1.outcome('discover', '--from-agent', given, '--json')
+            need(code == 0 and isinstance(out, dict) and out.get('capabilities') == listing['capabilities'],
+                 f'discover --from-agent {given} --json equals list_capabilities', code, stderr[-300:], out)
+        status, value = q1.call('GET', '/v1/discover?from_agent=agent_' + secrets.token_hex(16))
+        need(status == 404, 'discover?from_agent= with an unknown agent ID: 404', status, value)
+        return ''
+
+    # --- call --from-agent ----------------------------------------------------------------------------------
+
+    def check_from_agent(self):
+        ids, aid, q1 = self.ids, self.aid, self.hosts['q1']
+        qa = self.s('qa')
+        notes = []
+        code, out, stderr, text = self.call_as('q1', 'pat/ao', '--from-agent', aid['qa'])
+        need(code == 0 and caps.dig(out, 'status', 'state') == 'succeeded', 'call --from-agent AGENT_ID', code,
+             stderr[-400:], out)
+        by_id = out
+        code, out, stderr, text = self.call_as('q1', 'pat/ao', '--from-agent', 'qa', '--from-session',
+                                               qa['session_id'])
+        need(code == 0 and caps.dig(out, 'status', 'state') == 'succeeded', 'call --from-agent NAME --from-session',
+             code, stderr[-400:], out)
+        with_session = out
+        code, out, stderr, _ = self.call_as('q1', 'pat/ao', '--from-agent', 'qa')
+        need(code == 0 and caps.dig(out, 'status', 'state') == 'succeeded', 'call --from-agent NAME', code,
+             stderr[-400:])
+        # Records.
+        for record, session in ((by_id, None), (with_session, qa['session_id'])):
+            call_id = record['request']['call_id']
+            local = self.inspect('q1', 'p1', call_id)
+            origin = local['request'].get('origin') or {}
+            need(origin.get('agent_id') == aid['qa'] and origin.get('session_id') == session and
+                 'adapter_id' in local and local['adapter_id'] is None,
+                 'the outbound record stores origin in request, with adapter_id null', local)
+            received = self.received('p1', call_id)
+            need(received is not None and (received['request'].get('origin') or {}).get('agent_id') == aid['qa'] and
+                 (received['request'].get('origin') or {}).get('session_id') == session,
+                 'the receiver stores origin', received)
+        # Refusals before persisting.
+        before = self.count('q1', 'outbound_calls')
+        for flags, text, rule in ((('--from-agent', 'nosuch'), 'no agent nosuch on this host', 'an unknown agent'),
+                                  (('--from-session', qa['session_id']), '--from-session needs --from-agent',
+                                   '--from-session without --from-agent')):
+            code, out, stderr, _ = self.call_as('q1', 'pat/ao', *flags)
+            self.refused(code, stderr, text, rule)
+        for session, rule in (('session_' + secrets.token_hex(16), 'an unknown session'),
+                              (self.raw[('q1', 'qb')].session_id, 'another agent\'s session')):
+            code, out, stderr, _ = self.call_as('q1', 'pat/ao', '--from-agent', 'qa', '--from-session', session)
+            need(code != 0, f'{rule} refused', code, stderr[-300:])
+            status, value = q1.call('POST', '/v1/calls', {'target': 'pat/ao', 'operation': 'echo', 'input': {},
+                                                          'origin': {'agent_id': aid['qa'], 'session_id': session}})
+            need(status == 404, f'POST /v1/calls with {rule}: 404', status, value)
+        status, value = q1.call('POST', '/v1/calls', {'target': 'pat/ao', 'operation': 'echo', 'input': {},
+                                                      'origin': {'agent_id': 'agent_' + secrets.token_hex(16)}})
+        need(status == 404, 'POST /v1/calls with an unknown origin agent: 404', status, value)
+        # A source.
+        source = f"{ids['q2']}/q2srv/fx"
+        code, out, stderr, _ = self.call_as('q1', source, '--from-agent', 'qa')
+        self.refused(code, stderr, SOURCE_AS_AGENT, 'a source address with --from-agent')
+        status, value = q1.call('POST', '/v1/calls', {'target': source, 'operation': 'echo', 'input': {},
+                                                      'origin': {'agent_id': aid['qa']}})
+        need(status == 400 and isinstance(value, dict) and value.get('code') == 'source' and
+             value.get('error') == SOURCE_AS_AGENT, 'POST /v1/calls with origin and a source: 400 source', status,
+             value)
+        need(self.count('q1', 'outbound_calls') == before, 'every refusal persists nothing')
+
+        # Not counted against the agent's limit; counted in the receiver's rule budget.
+        self.share3('lim', 'quinn/qlim')
+        self.share3('budget', 'quinn/qa', per_hour=2)
+        self.sync_all_policies()
+        for i in range(2):
+            code, out, stderr, _ = self.call_as('q1', 'pat/lim', '--from-agent', 'qlim')
+            need(code == 0, 'an owner call as qlim', code, stderr[-300:])
+        adapter = self.s('qlim')['adapter_id']
+        need(self.count('q1', 'adapter_calls', 'WHERE adapter_id = ?', (adapter,)) == 0,
+             'no adapter_calls row for owner calls as the agent')
+        view, _ = self.ok_call('qlim', 'pat/lim', 'echo', {'text': marker('lim')})
+        need(view['state'] == 'succeeded', 'owner calls as the agent do not block its own call (limit 1)', view)
+        for i in range(2):
+            code, out, stderr, _ = self.call_as('q1', 'pat/budget', '--from-agent', 'qa')
+            need(code == 0, f'budget call {i + 1} of 2', code, stderr[-300:])
+        code, out, stderr, text = self.call_as('q1', 'pat/budget', '--from-agent', 'qa')
+        need(code == 1 and isinstance(out, dict) and out.get('submit_state') == 'rejected' and
+             not self.executions('fx', text),
+             'the receiver counts owner calls as the agent in the rule budget: the third is refused (429 limit)',
+             code, out)
+        self.soft('429' in str(out.get('error')), 'the refused call\'s error is the receiver\'s 429', out)
+
+        # Invisible to the agent.
+        since = time.time()
+        code, out, stderr, text = self.call_as('q1', 'pat/ao', '--from-agent', 'qa', '--from-session',
+                                               qa['session_id'])
+        call_id = out['request']['call_id']
+        need(code == 0, 'a call as qa with its session', code, stderr[-300:])
+        failed, value = self.status('qa', call_id)
+        need(not failed and value.get('state') == 'not_recorded', 'call_status answers not_recorded', value)
+        failed, value = self.tool(qa['consumer'], 'call_cancel', {'call_id': call_id})
+        need(not failed and value.get('state') == 'not_recorded', 'call_cancel answers not_recorded', value)
+        pending = self.pending('qa')
+        need(not any(c['call_id'] == call_id for c in pending['calls']), 'pending_work does not list it', pending)
+        time.sleep(5)
+        need(not self.events_for('qa', call_id, since), 'no call_update event arrives')
+        need(not db_rows(self.hosts['q1'], 'SELECT 1 FROM call_update_notifications WHERE call_id = ?', (call_id,)),
+             'no call-update notification is created')
+        return '; '.join(notes)
+
+    # --- shares states ----------------------------------------------------------------------------------------
+
+    def agent_recipient(self, name, principal, lookup=False):
+        for r in self.capability_recipients(name, lookup=lookup):
+            if r.get('principal') == principal:
+                return r
+        raise Failure(f'GET /v1/capabilities/{name}: no recipient {principal}')
+
+    def expect_state(self, out, name, principal, state, label):
+        entry, _ = self.shares_entry(out, name, principal)
+        need(entry is not None and set(entry) == SHARES_AGENT_KEYS, 'shares --json: each agent recipient is '
+             '{network_id, principal, label, agent_state, unshare}', name, principal, entry)
+        need(entry['agent_state'] == state and entry['label'] == label and entry['network_id'] == self.team,
+             f'shares: agent_state {state} with label {label}', entry)
+        host_id = principal[len('agent:'):].split('/')[0]
+        by = f"{host_id}/{label.rsplit('/', 1)[1]}" if state == 'found' and label else principal
+        want = f'peerspan unshare {name} --with {by} --network {self.team}'
+        need(entry['unshare'] == want, f'shares: the unshare command for {state}', entry['unshare'], want)
+        return entry
+
+    def shares_json(self):
+        code, out, stdout, stderr = self.hosts['p1'].outcome('shares', '--json', '--network', self.team, timeout=120)
+        need(code == 0 and out is not None, 'shares --json', code, stderr[-400:])
+        return out
+
+    def check_states(self):
+        ids, aid, h = self.ids, self.aid, self.hosts
+        targets = {'qa': 'q1', 'qoff': 'q3', 'qgone': 'q2', 'qrev': 'q4', 'qunb': 'q5'}
+        for agent in targets:
+            self.share3('st', f'quinn/{agent}')
+        principal = {a: f'agent:{ids[host]}/{aid[a]}' for a, host in targets.items()}
+        # qx is on q1 and on q2: shared by principal, its removal command names q1's address.
+        principal['qx'] = self.principal_of('q1', 'qx')
+        self.share3('st', principal['qx'])
+        out = self.shares_json()
+        for agent in targets:
+            self.expect_state(out, 'st', principal[agent], 'found', f'quinn/{agent}')
+        entry = self.expect_state(out, 'st', principal['qx'], 'found', 'quinn/qx')
+        need(f"--with {ids['q1']}/qx " in entry['unshare'], 'the unshare command names HOST_ID/AGENT_NAME even when '
+             'the person has an agent of that name on another host', entry)
+        r = self.agent_recipient('st', principal['qa'])
+        need(set(r) == AGENT_RECIPIENT_KEYS and r['agent_state'] == 'found' and r['label'] == 'quinn/qa',
+             'GET /v1/capabilities/{name}: {network_id, principal, label, agent_state} from the cache', r)
+        plain = [x for x in self.capability_recipients('st') if not x['principal'].startswith('agent:')]
+        need(all(set(x) == {'network_id', 'principal', 'label'} for x in plain), 'other recipients unchanged', plain)
+
+        # unanswered, not_found, host_gone, unbound.
+        h['q3'].stop()
+        self.delete_agent('q2', aid['qgone'])
+        h['p1'].cli('network', 'revoke', '--network', self.team, '--host', ids['q4'])
+        h['q1'].cli('network', 'unbind', '--network', self.team, '--host', ids['q5'])
+        self.sync_until(lambda: ids['q4'] not in self.members() and
+                        self.members().get(ids['q5'], {}).get('person_id') is None,
+                        'q4 revoked and q5 unbound, in p1\'s map', hosts=('p1', 'q1', 'q5'))
+        out = self.shares_json()
+        self.expect_state(out, 'st', principal['qoff'], 'unanswered', 'quinn/qoff')
+        self.expect_state(out, 'st', principal['qgone'], 'not_found', 'quinn/qgone')
+        entry, _ = self.shares_entry(out, 'st', principal['qrev'])
+        need(entry and entry['agent_state'] == 'host_gone' and entry['unshare'] ==
+             f"peerspan unshare st --with {principal['qrev']} --network {self.team}",
+             'shares: host_gone after revocation, unshare by principal', entry)
+        self.expect_state(out, 'st', principal['qunb'], 'unbound', f"{ids['q5']}/qunb")
+        self.expect_state(out, 'st', principal['qa'], 'found', 'quinn/qa')
+
+        # Without lookup: no peer traffic (a stopped host answers at once) and the cached states.
+        started = time.monotonic()
+        r = self.agent_recipient('st', principal['qoff'])
+        elapsed = time.monotonic() - started
+        need(elapsed < 3 and r['agent_state'] == 'unanswered', 'GET /v1/capabilities without lookup answers at once '
+             'with the cached state', elapsed, r)
+        need(self.agent_recipient('st', principal['qgone'])['agent_state'] == 'not_found' and
+             self.agent_recipient('st', principal['qa'])['agent_state'] == 'found', 'cached states reported')
+
+        # The label uses the host's current person: q5 bound to rhea.
+        h['q5'].cli('network', 'bind', '--network', self.team, sock=self.agents['rhea'].socket)
+        self.sync_until(lambda: self.members().get(ids['q5'], {}).get('person_id') == self.rhea,
+                        'q5 bound to rhea in p1\'s map', hosts=('p1', 'q5'))
+        out = self.shares_json()
+        self.expect_state(out, 'st', principal['qunb'], 'found', 'rhea/qunb')
+        return ''
+
+    # --- unshare ---------------------------------------------------------------------------------------------
+
+    def check_unshare3(self):
+        ids, aid = self.ids, self.aid
+        # By PERSON/AGENT, with recipient.
+        self.share3('un', 'quinn/qa')
+        before = self.version('p1')
+        code, out, stderr = self._unshare3('un', 'quinn/qa', 'p1', None)
+        need(code == 0 and isinstance(out, dict) and set(out) == UNSHARE3_KEYS and out['removed'] == 1 and
+             out['principal'] == self.principal_of('q1', 'qa') and self.version('p1') == before + 1,
+             'unshare --with PERSON/AGENT: {policy, capability, principal, recipient, removed}', code, out,
+             stderr[-300:])
+        need(out['recipient'] == {'address': 'quinn/qa', 'host_id': ids['q1'], 'agent_id': aid['qa'],
+                                  'person_id': self.quinn}, 'unshare prints recipient', out)
+        # removed: 0 for an agent address.
+        code, out, stderr = self._unshare3('un', 'quinn/qa', 'p1', None)
+        principal = self.principal_of('q1', 'qa')
+        need(code == 0 and out['removed'] == 0 and out.get('note') ==
+             f'the rule for un on this host does not name {principal}. Access through person:quinn, a group, or '
+             'everyone is unaffected.' and self.version('p1') == before + 1,
+             'removed: 0 for an agent address: the note, nothing signed', out)
+        code, out, stderr = self._unshare3('un', f"{ids['n2']}/nagent", 'p1', None)
+        need(code == 0 and out['removed'] == 0 and out.get('note') ==
+             f"the rule for un on this host does not name {self.principal_of('n2', 'nagent')}. Access through a group "
+             'or everyone is unaffected.', 'the removed: 0 note for a host without a person', out)
+
+        # The fallback listing: a stopped host (q3 is still stopped) and a revoked one (q4).
+        problems = []
+        for address, agent, host in (('quinn/qoff', 'qoff', 'q3'), ('quinn/qrev', 'qrev', 'q4'),
+                                     (f"{ids['q4']}/qrev", 'qrev', 'q4')):
+            before = self.version('p1')
+            code, out, stderr = self._unshare3('st', address, 'p1', None)
+            command = f"peerspan unshare st --with agent:{ids[host]}/{aid[agent]} --network {self.team}"
+            listed = sorted(set(re.findall(r'peerspan unshare st --with (agent:\S+)', stderr)))
+            if not (code != 0 and self.version('p1') == before and command in stderr):
+                problems.append((address, code, f'expected agent:{ids[host]}/{aid[agent]}', 'listed', listed,
+                                 stderr[:300]))
+        for agent, host in (('qoff', 'q3'), ('qrev', 'q4')):
+            code, out, stderr = self._unshare3('st', f'agent:{ids[host]}/{aid[agent]}', 'p1', None)
+            need(code == 0 and out['removed'] == 1, 'the listed command removes the gone agent', code, out)
+
+        # The note after unshare --with PERSON.
+        for recipient in ('quinn', 'quinn/qb', 'quinn/qhid'):
+            self.share3('un2', recipient)
+        rule = self.rule_principals('un2')
+        agents = [p for p in rule if p.startswith('agent:')]
+        labels = {self.principal_of('q1', 'qb'): ('quinn/qb', f"{ids['q1']}/qb"),
+                  self.principal_of('q1', 'qhid'): ('quinn/qhid', f"{ids['q1']}/qhid")}
+        want = ' '.join(f'{labels[p][0]} still has its own share. Run peerspan unshare un2 --with {labels[p][1]} '
+                        f'--network {self.team} to remove it.' for p in agents)
+        code, out, stderr = self._unshare3('un2', 'quinn', 'p1', None)
+        need(code == 0 and set(out) == UNSHARE3_KEYS | {'note'} and out['recipient'] is None,
+             'unshare --with PERSON: {policy, capability, principal, recipient, removed, note}, recipient null', out)
+        need(code == 0 and out['removed'] == 1 and out.get('note') == want,
+             'unshare --with PERSON: the note naming the agent shares that remain, in rule order', out, want)
+        need(not problems, 'unshare --with an address that fails to resolve (host stopped, host revoked): exit 1, '
+             'nothing signed, and the agent: command for the address\'s hosts listed (for PERSON/AGENT, the hosts '
+             'bound to the person, current members or not)', *problems)
+        return ''
+
+
+def run_share_pairing(coord_binary, cli_binary, daemon_binary, node, label, only=None, old=None):
+    if only and not any(name in SHARE_SECTIONS for name in only):
+        return []
+    with tempfile.TemporaryDirectory(prefix='peerspan-agent-shares-') as temporary:
+        pairing = SharePairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only, old)
+        started = time.monotonic()
+        try:
+            pairing.run()
+        except Exception:
+            detail = traceback.format_exc(limit=6)
+            pairing.results.append(('shares: setup', False, detail))
+            print(f'FAIL {label} [agent tools: shares: setup]: {detail}', flush=True)
+            if pairing.setup_notes:
+                print(f'NOTE {label} agent shares setup: ' + ' | '.join(pairing.setup_notes), flush=True)
+        finally:
+            try:
+                pairing.close()
+            except Exception as error:
+                pairing.results.append(('shares: shutdown', False, repr(error)))
+        print(f'---- {label} agent shares: {sum(ok for _, ok, _ in pairing.results)}/{len(pairing.results)} sections '
+              f'passed in {time.monotonic() - started:.0f}s', flush=True)
+        return [(f'agent tools: {name}', ok, detail) for name, ok, detail in pairing.results]
+
+
 def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None, only=None, other=None,
                 baseline17=None):
     global INTEGRATIONS
     if integrations:
         INTEGRATIONS = Path(integrations)
+    if only and all(name in SHARE_SECTIONS for name in only):
+        return []
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-') as temporary:
         pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only, other,
                                baseline17)

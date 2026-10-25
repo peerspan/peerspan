@@ -74,7 +74,8 @@ Slice 2 (agent tools) runs from conformance/capability_agents.py, in a topology 
 the slice 1 sections: opt-in, listing, calls, agent rules and repeats, the queued window, running calls, the rate
 limit, results, call updates and pending work, revocation, a person whose label contains `/` (the slice 1 CLI case
 added with slice 2), and `unanswered`; and once per run, migration from version 17 to 18 (with `--baseline17`,
-from a real version 17 state as well). It needs `--node` for the shared adapter (`--skip-agents` skips it;
+from a real version 17 state as well). Slice 3's sharing with one agent runs from the same module in a third
+topology per pairing (sections named "shares: ..."; `--old` gives it a host built before slice 3). It needs `--node` for the shared adapter (`--skip-agents` skips it;
 `--agents-only` runs only it).
 
 Where the contract is silent, the suite takes the narrowest reading or makes no assertion; those spots are marked
@@ -131,8 +132,10 @@ RECIPIENT_KEYS = {'network_id', 'principal', 'label'}
 CAP_RULE_KEYS = {'host', 'capability', 'principals', 'max_input_bytes', 'allow_disconnected', 'max_calls_per_hour'}
 POLICY_V2_ORDER = ['format', 'network_id', 'person_public_key', 'version', 'issued_at', 'valid_until', 'rules',
                    'capability_rules', 'trusted_hosts', 'edits', 'signature']
-SHARE_KEYS = {'policy', 'capability', 'principal', 'created'}
-UNSHARE_KEYS = {'policy', 'capability', 'principal', 'removed'}
+# `recipient` was added with capabilities slice 3; it is null unless --with is an agent address (PERSON/AGENT or
+# HOST_ID/AGENT), which this slice 1 suite never uses.
+SHARE_KEYS = {'policy', 'capability', 'principal', 'recipient', 'created'}
+UNSHARE_KEYS = {'policy', 'capability', 'principal', 'recipient', 'removed'}
 TRUST_KEYS = {'policy', 'host', 'trusted', 'changed'}
 PEER_ENTRY_KEYS = {'kind', 'capability', 'operations', 'resources', 'state', 'unavailable', 'via'}
 OPERATION_KEYS = {'name', 'description', 'input_schema', 'read_only'}
@@ -576,8 +579,9 @@ class Pairing:
         else:
             code, out, stdout, stderr = h.outcome(*argv, piped=piped)
         if code == 0:
-            need(isinstance(out, dict) and set(out) == SHARE_KEYS, 'share prints {policy, capability, principal, '
-                 'created}', args, out)
+            need(isinstance(out, dict) and set(out) == SHARE_KEYS and out['recipient'] is None,
+                 'share prints {policy, capability, principal, recipient, created}, recipient null for these forms',
+                 args, out)
             after = self.version(host, net)
             need(after in (before, before + 1) and out['policy'].get('version') == after,
                  'share signs the next version (or nothing when unchanged) and prints the policy', before, after)
@@ -590,13 +594,14 @@ class Pairing:
     def unshare(self, name, label, net=None, host='p1'):
         before = self.version(host, net)
         out = self.hosts[host].cli('unshare', name, '--with', label, '--network', net or self.team)
+        need(out.get('recipient', 0) is None, 'unshare prints recipient, null for a non-agent principal', out)
         if out.get('removed') == 0:
             need(set(out) == UNSHARE_KEYS | {'note'} and isinstance(out['note'], str) and out['note'].strip() and
                  self.version(host, net) == before,
                  'unshare removing nothing: {policy, capability, principal, removed: 0, note}, signing nothing', out)
         else:
             need(set(out) == UNSHARE_KEYS and self.version(host, net) == before + 1,
-                 'unshare prints {policy, capability, principal, removed} and signs the next version', out)
+                 'unshare prints {policy, capability, principal, recipient, removed} and signs the next version', out)
         return out
 
     def claim_policies(self, host, name):
@@ -3669,6 +3674,9 @@ def main():
     parser.add_argument('--baseline17', type=Path, help='a version 17 peerspan-host (milestone 10 slice 1): the '
                         'version 17 to 18 migration opens its state, and the agent tool cases use it as a serving '
                         'host that predates wait (required for them)')
+    parser.add_argument('--old', type=Path, help='a peerspan-host built before capabilities slice 3 (for example from '
+                        'main before it): the agent share cases (slice 3) run it as a host that predates the agent '
+                        'lookup route; without it those cases are skipped')
     args = parser.parse_args()
     if not args.skip_agents and not args.vector_only and not args.node:
         parser.error('--node is required for the agent tool cases (or pass --skip-agents)')
@@ -3727,6 +3735,9 @@ def main():
                                                      args.agent_section,
                                                      binaries['Rust' if daemon == 'Go' else 'Go'],
                                                      args.baseline17.resolve() if args.baseline17 else None)
+            results += capability_agents.run_share_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
+                                                           args.node.resolve(), label, args.agent_section,
+                                                           args.old.resolve() if args.old else None)
         for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')

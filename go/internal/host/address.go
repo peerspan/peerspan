@@ -41,12 +41,20 @@ type codedError struct {
 	// server (404) or to several (409).
 	unanswered []Unanswered
 	candidates []string
+	// forAgents names the agents an agent-only capability is for.
+	forAgents []ForAgent
 }
 
 func (e *codedError) Error() string { return e.message }
 
 func (e *codedError) body() any {
 	switch {
+	case e.forAgents != nil:
+		return struct {
+			Code      string     `json:"code"`
+			Error     string     `json:"error"`
+			ForAgents []ForAgent `json:"for_agents"`
+		}{e.code, e.message, e.forAgents}
 	case e.unanswered != nil:
 		return struct {
 			Code       string       `json:"code"`

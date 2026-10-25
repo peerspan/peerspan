@@ -95,8 +95,10 @@ type Store struct {
 	tasks     taskWork      // the in-memory task poll schedule
 	limits    coordinatorLimits
 	directory directoryState // the in-memory agent directory per network
-	returns   liveReturns    // ended authorizations whose items were returned
-	moves     moveState      // move lookups and repair imports per network
+	// agentLabels caches lookups of agent recipients, for shares.
+	agentLabels agentLabelCache
+	returns     liveReturns // ended authorizations whose items were returned
+	moves       moveState   // move lookups and repair imports per network
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
 	toolState     toolState   // discovery and snapshot serialization per agent

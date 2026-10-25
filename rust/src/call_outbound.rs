@@ -53,6 +53,9 @@ pub struct SubmitCall {
     pub network: Option<String>,
     #[serde(default)]
     pub call_id: Option<String>,
+    /// Makes the call as one of this host's agents (`call --from-agent`).
+    #[serde(default)]
+    pub origin: Option<crate::peer_store::Origin>,
 }
 
 /// The submitter's local record of an outbound call.
@@ -601,6 +604,9 @@ struct PersonHost {
 /// Who a listing is for: the owner CLI, or an attached agent's adapter.
 #[derive(Clone)]
 pub(crate) enum Viewer {
+    /// The owner. Capabilities whose every via entry is for one agent are
+    /// kept with all those entries (slice 3); others keep only the entries
+    /// for no agent.
     Owner,
     Agent(String),
 }
@@ -622,11 +628,12 @@ impl Viewer {
         if matches!(self, Viewer::Agent(_)) && entry["kind"] != "capability" {
             return None;
         }
+        let all_for_agents = matches!(self, Viewer::Owner) && agent_only(&entry);
         let via: Vec<Value> = entry["via"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|v| applies(v))
+            .filter(|v| all_for_agents || applies(v))
             .cloned()
             .map(|mut v| {
                 // A policy entry from a host that predates `from_agent`
@@ -651,6 +658,67 @@ impl Viewer {
             .filter_map(|e| self.visible(e))
             .collect()
     }
+}
+
+/// Whether every via entry of a listed entry is for one agent.
+pub(crate) fn agent_only(entry: &Value) -> bool {
+    let via = entry["via"].as_array().cloned().unwrap_or_default();
+    !via.is_empty() && via.iter().all(|v| v["from_agent"].is_string())
+}
+
+/// The local agents an agent-only entry is for, in via order:
+/// `[{agent_id, name}]`, with a null name for an agent not on this host.
+async fn for_agents(store: &Arc<Store>, entry: &Value) -> Result<Vec<Value>, Error> {
+    let mut ids: Vec<String> = Vec::new();
+    for v in entry["via"].as_array().into_iter().flatten() {
+        if let Some(a) = v["from_agent"].as_str()
+            && !ids.iter().any(|x| x == a)
+        {
+            ids.push(a.to_owned());
+        }
+    }
+    blocking(store.clone(), move |s| {
+        let conn = s.connection()?;
+        ids.iter()
+            .map(|id| {
+                let name: Option<String> = conn
+                    .query_row("SELECT name FROM agents WHERE id = ?1", [id], |r| r.get(0))
+                    .optional()?;
+                Ok(json!({"agent_id": id, "name": name}))
+            })
+            .collect()
+    })
+    .await
+}
+
+/// 403 `agent_only` for an owner call to a capability shared only with
+/// some of this host's agents.
+async fn agent_only_error(store: &Arc<Store>, address: &str, entry: &Value) -> Error {
+    let agents = match for_agents(store, entry).await {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let names: Vec<String> = agents
+        .iter()
+        .map(|a| {
+            a["name"]
+                .as_str()
+                .or(a["agent_id"].as_str())
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect();
+    let noun = if names.len() > 1 { "agents" } else { "agent" };
+    crate::directory::coded(
+        403,
+        "agent_only",
+        format!(
+            "{address} is shared only with your {noun} {}. Add --from-agent {} to call as that agent.",
+            names.join(", "),
+            names.first().cloned().unwrap_or_default()
+        ),
+        json!({"for_agents": agents}),
+    )
 }
 
 /// The distinct hosts of bindings, sorted.
@@ -920,9 +988,18 @@ async fn discover(
         }
     }
     let agents = reachable_agents(&store, person.as_deref(), network.as_deref()).await?;
+    let mut capabilities = addressed(found, &all, &persons, &bindings);
+    for c in &mut capabilities {
+        if c["kind"] == "capability" && agent_only(c) {
+            let agents = for_agents(&store, c).await?;
+            if let Some(object) = c.as_object_mut() {
+                object.insert("for_agents".into(), json!(agents));
+            }
+        }
+    }
     Ok(json!({
         "agents": agents,
-        "capabilities": addressed(found, &all, &persons, &bindings),
+        "capabilities": capabilities,
         "unanswered": unanswered,
     }))
 }
@@ -935,19 +1012,37 @@ pub(crate) async fn agent_capabilities(
     store: &Arc<Store>,
     agent: &str,
 ) -> Result<(Vec<Value>, Vec<Value>), Error> {
-    let persons = blocking(store.clone(), |s| s.person_hosts(None, None)).await?;
+    agent_view(store, agent, None, None).await
+}
+
+/// The capabilities an agent may call, as `GET /adapter/v1/capabilities`
+/// lists them, narrowed by person and network when given.
+pub(crate) async fn agent_view(
+    store: &Arc<Store>,
+    agent: &str,
+    person: Option<String>,
+    network: Option<String>,
+) -> Result<(Vec<Value>, Vec<Value>), Error> {
+    let (p, n) = (person.clone(), network.clone());
+    let persons = blocking(store.clone(), move |s| {
+        s.person_hosts(p.as_deref(), n.as_deref())
+    })
+    .await?;
     let hosts = unique_hosts(&persons);
-    let bindings = blocking(store.clone(), |s| s.capability_bindings(None)).await?;
+    let n = network.clone();
+    let all = blocking(store.clone(), move |s| s.person_hosts(None, n.as_deref())).await?;
+    let n = network.clone();
+    let bindings = blocking(store.clone(), move |s| s.capability_bindings(n.as_deref())).await?;
     let viewer = Viewer::Agent(agent.to_owned());
     let mut found = Vec::new();
     let mut unanswered = Vec::new();
-    for (host, outcome) in listings(store, hosts, None).await {
+    for (host, outcome) in listings(store, hosts, network.as_deref()).await {
         match outcome {
             Ok(entries) => found.push((host, viewer.filter(entries))),
             Err(error) => unanswered.push(json!({"host_id": host, "error": error})),
         }
     }
-    let mut entries: Vec<Value> = addressed(found, &persons, &persons, &bindings)
+    let mut entries: Vec<Value> = addressed(found, &all, &persons, &bindings)
         .into_iter()
         .map(|e| {
             json!({
@@ -1084,6 +1179,12 @@ fn ambiguous(forms: Vec<String>) -> Error {
 /// `POST /v1/calls`: resolves the address, cites what its listing
 /// reported, persists the call, and submits it.
 async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, Error> {
+    if let Some(origin) = r.origin.clone() {
+        blocking(store.clone(), move |s| {
+            s.check_local_origin(&*s.connection()?, &origin)
+        })
+        .await?;
+    }
     if r.operation.is_empty() {
         return Err(Error::Invalid("give an operation".into()));
     }
@@ -1109,8 +1210,25 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
             ));
         }
     }
+    // An owner call made as one of this host's agents takes that agent's
+    // view and carries its origin.
+    if r.origin.is_some() && r.target.matches('/').count() >= 2 {
+        return Err(crate::directory::coded(
+            400,
+            "source",
+            "Agents cannot call sources; call them without --from-agent.".into(),
+            json!({}),
+        ));
+    }
     let address = parse_address(&r.target)?;
-    let (peer, entry) = resolve(&store, &address, r.network.as_deref(), &Viewer::Owner).await?;
+    let viewer = match &r.origin {
+        Some(o) => Viewer::Agent(o.agent_id.clone()),
+        None => Viewer::Owner,
+    };
+    let (peer, entry) = resolve(&store, &address, r.network.as_deref(), &viewer).await?;
+    if r.origin.is_none() && agent_only(&entry) {
+        return Err(agent_only_error(&store, &r.target, &entry).await);
+    }
     let (network_id, policy, self_access) = cite(&store, &entry, r.network.as_deref()).await?;
     let deadline = match r.deadline.filter(|d| !d.is_empty()) {
         Some(d) => d,
@@ -1125,7 +1243,7 @@ async fn create_call(store: Arc<Store>, r: SubmitCall) -> Result<OutboundCall, E
         operation: r.operation,
         input,
         deadline,
-        origin: None,
+        origin: r.origin,
         policy,
         self_access,
     };
@@ -1444,6 +1562,8 @@ struct DiscoverQuery {
     person: Option<String>,
     #[serde(default)]
     network: Option<String>,
+    #[serde(default)]
+    from_agent: Option<String>,
 }
 pub(crate) fn local_routes() -> Router<Arc<Store>> {
     Router::new()
@@ -1494,6 +1614,35 @@ async fn discover_route(
     query: Result<Query<DiscoverQuery>, QueryRejection>,
 ) -> Result<Json<Value>, Error> {
     let Query(q) = query.map_err(|_| Error::Invalid("invalid query".into()))?;
+    if let Some(agent) = q.from_agent {
+        // discover --from-agent: exactly what that agent's
+        // list_capabilities shows, narrowed by person and network.
+        let id = agent.clone();
+        blocking(store.clone(), move |s| {
+            let known: bool = s.connection()?.query_row(
+                "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            if known {
+                Ok(())
+            } else {
+                Err(crate::directory::coded(
+                    404,
+                    "not_found",
+                    format!("no agent {id} on this host"),
+                    json!({}),
+                ))
+            }
+        })
+        .await?;
+        let person = q.person.filter(|p| !p.is_empty());
+        let network = q.network.filter(|n| !n.is_empty());
+        let (capabilities, unanswered) = agent_view(&store, &agent, person, network).await?;
+        return Ok(Json(
+            json!({"capabilities": capabilities, "unanswered": unanswered}),
+        ));
+    }
     Ok(Json(discover(store, q.person, q.network).await?))
 }
 

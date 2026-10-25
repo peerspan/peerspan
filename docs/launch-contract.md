@@ -331,7 +331,8 @@ Every other command that signs as a person, such as `allow`, `deny`, `invite`, `
 - `network`;
 - `group:NAME`;
 - `person:PERSON`, or a bare `PERSON`, where PERSON is a person ID or label, resolved as `access allow` does today;
-- `agent:HOST/AGENT`, unchanged.
+- `agent:HOST/AGENT`, unchanged;
+- in `allow` and `deny` only, an agent address `PERSON/AGENT` or `HOST_ID/AGENT` (capabilities slice 3, [decision 16](capabilities-contract.md#owner-decisions)). It is parsed and resolved exactly as for `share --with` under [Agent addresses](capabilities-contract.md#agent-addresses) and [Resolving an agent address](capabilities-contract.md#resolving-an-agent-address), in the selected network, and becomes `agent:HOST_ID/AGENT_ID`. A bare value with exactly one `/` is always an agent address, never a person label; one with two or more `/` is refused. Every resolver refusal (`invalid`, `local`, `unknown_person`, `unknown_host`, `ambiguous`, `unknown`) exits 1 with the resolver's text and signs nothing. The output's `principal` is the resolved `agent:` principal.
 
 A label matching no current person, or more than one, is an error, as is a person ID that is not a current person. `invite`, `allow`, `deny`, `block`, and `unblock` accept `--person-key PATH` like other signing commands.
 
@@ -413,6 +414,7 @@ Blocks do not apply.
   - the set semantics: moving a principal between rules of a scope, sharing a rule with identical settings, dropping empty rules, and leaving other scopes alone;
   - flag dependencies (`--delegate` or `--files` with `--no-tasks` refused).
 - **`deny`:** with and without `--agent`, `removed` counts, the zero-removal note and no new version, and access through a group still working afterwards.
+- **Agent addresses in `allow` and `deny`** (capabilities slice 3): `allow PERSON/AGENT` and `allow HOST_ID/AGENT` writing the same `agent:HOST_ID/AGENT_ID` principal, for an agent the caller's directory does not list; the resulting rule letting that agent send a message while another agent of its host is refused; `deny PERSON/AGENT` removing it; a bare value with two `/` and a non-addressable agent name refused; `local` for an agent on this host; `unknown` naming a stopped host in its not-answered text; a person whose label contains `/` still reached as `person:LABEL`.
 - **`*` rules:** authorizing a message and a task to any agent; a named rule overriding `*` for its agent in both directions; `agent register` refusing `*`.
 - **Self access:**
   - messages, tasks, delegation, and artifacts between two hosts of one person with no policy;

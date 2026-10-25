@@ -24,6 +24,8 @@ const LIMIT: u64 = 1 << 20;
 pub struct DaemonError {
     pub status: u16,
     pub message: String,
+    /// The error body's `code`, or empty.
+    pub code: String,
 }
 impl std::fmt::Display for DaemonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -225,6 +225,7 @@ func callOutcome(out host.OutboundCall) int {
 // and ADDRESS OPERATION.
 type callArgs struct {
 	state, input, deadline, wait, network string
+	fromAgent, fromSession                string
 	inputGiven                            bool
 	options                               [][2]string
 	positional                            []string
@@ -269,6 +270,10 @@ func parseCallArgs(args []string) (callArgs, error) {
 			c.wait = value
 		case "network":
 			c.network = value
+		case "from-agent":
+			c.fromAgent = value
+		case "from-session":
+			c.fromSession = value
 		default:
 			if key == "" {
 				return c, errors.New("an option needs a name")
@@ -341,7 +346,7 @@ func buildInput(input string, options [][2]string, schema json.RawMessage) (json
 
 // operationSchema finds an operation's input schema in the listing of the
 // address's host or person.
-func operationSchema(ctx context.Context, client host.Client, address, operation, network string) (json.RawMessage, error) {
+func operationSchema(ctx context.Context, client host.Client, address, operation, network string, origin *host.Origin) (json.RawMessage, error) {
 	left, capability, found := strings.Cut(address, "/")
 	if !found {
 		return nil, fmt.Errorf("invalid address %q", address)
@@ -353,6 +358,29 @@ func operationSchema(ctx context.Context, client host.Client, address, operation
 	byHost := strings.HasPrefix(left, "host_")
 	if !byHost {
 		query.Set("person", left)
+	}
+	if origin != nil {
+		// A call as an agent takes the schema from that agent's view.
+		query.Set("from_agent", origin.AgentID)
+		list, err := call[host.AdapterCapabilities](ctx, client, "GET", "/v1/discover?"+query.Encode())
+		if err != nil {
+			return nil, err
+		}
+		var found []host.AdapterCapability
+		for _, e := range list.Capabilities {
+			if (byHost && e.Capability == capability && e.HostID == left) || (!byHost && e.Address == address) {
+				found = append(found, e)
+			}
+		}
+		if len(found) != 1 {
+			return nil, fmt.Errorf("%s does not name exactly one capability; --KEY options need its input schema", address)
+		}
+		for _, op := range found[0].Operations {
+			if op.Name == operation {
+				return op.InputSchema, nil
+			}
+		}
+		return nil, fmt.Errorf("%s has no operation %s", address, operation)
 	}
 	d, err := call[host.Discovery](ctx, client, "GET", "/v1/discover?"+query.Encode())
 	if err != nil {
@@ -384,6 +412,17 @@ func runCall(ctx context.Context, client host.Client, c callArgs, out io.Writer)
 		return errors.New("call takes ADDRESS OPERATION")
 	}
 	address, operation := c.positional[0], c.positional[1]
+	if c.fromSession != "" && c.fromAgent == "" {
+		return errors.New("--from-session needs --from-agent")
+	}
+	var origin *host.Origin
+	if c.fromAgent != "" {
+		agent, err := localAgentID(ctx, client, c.fromAgent)
+		if err != nil {
+			return err
+		}
+		origin = &host.Origin{AgentID: agent, SessionID: c.fromSession}
+	}
 	wait, err := parseWait(c.wait)
 	if err != nil {
 		return fmt.Errorf("--wait: %w", err)
@@ -402,7 +441,7 @@ func runCall(ctx context.Context, client host.Client, c callArgs, out io.Writer)
 	if c.inputGiven || len(c.options) > 0 {
 		var schema json.RawMessage
 		if len(c.options) > 0 {
-			if schema, err = operationSchema(ctx, client, address, operation, c.network); err != nil {
+			if schema, err = operationSchema(ctx, client, address, operation, c.network, origin); err != nil {
 				return err
 			}
 		}
@@ -410,7 +449,7 @@ func runCall(ctx context.Context, client host.Client, c callArgs, out io.Writer)
 			return err
 		}
 	}
-	body := host.SubmitCall{Target: address, Operation: operation, Input: input, Deadline: deadline, Network: c.network}
+	body := host.SubmitCall{Target: address, Operation: operation, Input: input, Deadline: deadline, Network: c.network, Origin: origin}
 	data, err := client.Call(ctx, "POST", "/v1/calls", body)
 	if err != nil {
 		return err

@@ -393,18 +393,7 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 		return err
 	}
 	defer o.signer.Close()
-	principal, err := resolveTopPrincipal(o.persons, given)
-	if errors.Is(err, host.ErrNotFound) {
-		// A person admitted moments ago may not have reached this host yet:
-		// sync the network once and resolve again.
-		if _, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil); err != nil {
-			return err
-		}
-		if o.persons, err = personsOf(ctx, client, network); err != nil {
-			return err
-		}
-		principal, err = resolveTopPrincipal(o.persons, given)
-	}
+	principal, _, err := resolveRecipient(ctx, client, o, network, given)
 	if err != nil {
 		return err
 	}

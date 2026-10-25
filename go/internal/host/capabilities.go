@@ -120,6 +120,8 @@ type Recipient struct {
 	NetworkID string  `json:"network_id"`
 	Principal string  `json:"principal"`
 	Label     *string `json:"label"`
+	// AgentState is set only for agent: principals.
+	AgentState *string `json:"agent_state,omitempty"`
 }
 
 // CapabilityWithRecipients is a capability with its recipients.
@@ -500,7 +502,7 @@ func (s *Store) checkClaims(ctx context.Context, r CreateCapability) ([]membersh
 
 // Capabilities lists this host's capabilities, sorted by name, with their
 // recipients.
-func (s *Store) Capabilities(ctx context.Context) ([]CapabilityWithRecipients, error) {
+func (s *Store) Capabilities(ctx context.Context, lookup bool) ([]CapabilityWithRecipients, error) {
 	list, err := records[capabilityRecord](ctx, s.db, `SELECT record FROM capabilities ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -517,11 +519,24 @@ func (s *Store) Capabilities(ctx context.Context) ([]CapabilityWithRecipients, e
 		}
 		out = append(out, CapabilityWithRecipients{view, recipients})
 	}
+	// Agent recipients are labelled together, so each host is asked once.
+	// Non-nil, so capabilities without recipients keep "recipients": [].
+	all := []Recipient{}
+	for _, c := range out {
+		all = append(all, c.Recipients...)
+	}
+	if err = s.labelAgentRecipients(ctx, all, lookup); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		n := len(out[i].Recipients)
+		out[i].Recipients, all = all[:n:n], all[n:]
+	}
 	return out, nil
 }
 
 // CapabilityOf is one capability with its recipients.
-func (s *Store) CapabilityOf(ctx context.Context, name string) (CapabilityWithRecipients, error) {
+func (s *Store) CapabilityOf(ctx context.Context, name string, lookup bool) (CapabilityWithRecipients, error) {
 	c, err := readCapability(ctx, s.db, name)
 	if err != nil {
 		return CapabilityWithRecipients{}, err
@@ -531,6 +546,9 @@ func (s *Store) CapabilityOf(ctx context.Context, name string) (CapabilityWithRe
 		return CapabilityWithRecipients{}, err
 	}
 	recipients, err := s.recipients(ctx, s.db, name)
+	if err == nil {
+		err = s.labelAgentRecipients(ctx, recipients, lookup)
+	}
 	return CapabilityWithRecipients{view, recipients}, err
 }
 
@@ -611,11 +629,11 @@ func localCapabilityRoutes(mux *http.ServeMux, store *Store) {
 		respond(w, status, c, err)
 	})
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
-		list, err := store.Capabilities(r.Context())
+		list, err := store.Capabilities(r.Context(), r.URL.Query().Get("lookup") == "true")
 		respond(w, http.StatusOK, map[string]any{"capabilities": list}, err)
 	})
 	mux.HandleFunc("GET /v1/capabilities/{name}", func(w http.ResponseWriter, r *http.Request) {
-		c, err := store.CapabilityOf(r.Context(), r.PathValue("name"))
+		c, err := store.CapabilityOf(r.Context(), r.PathValue("name"), r.URL.Query().Get("lookup") == "true")
 		respond(w, http.StatusOK, c, err)
 	})
 	mux.HandleFunc("DELETE /v1/capabilities/{name}", func(w http.ResponseWriter, r *http.Request) {

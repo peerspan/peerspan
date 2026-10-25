@@ -3,7 +3,7 @@
 //! `discover`, `call`, and the trust question of `join` and `network
 //! create`. Signing stays here; the daemon never sees the person key.
 use crate::{
-    access::{EDIT_ATTEMPTS, Editor, at, edit_conflict, failed, top_principal},
+    access::{EDIT_ATTEMPTS, Editor, at, edit_conflict, failed, recipient},
     admin::Local,
     cli::{CapabilityCommand, Command, SourcesArgs, SourcesCommand, encoded, resolved},
 };
@@ -112,6 +112,23 @@ pub async fn command(command: &Command, directory: &Path) -> anyhow::Result<Opti
             person,
             network,
             json,
+            from_agent: Some(agent),
+        } => {
+            let id = local_agent_id(&local, agent).await?;
+            let value = discover_as(&local, &id, person.as_deref(), network.as_deref()).await?;
+            if *json {
+                value
+            } else {
+                println!("Capabilities {agent} may call:");
+                print!("{}", readable_discover(&value));
+                crate::exit(0)
+            }
+        }
+        Command::Discover {
+            person,
+            network,
+            json,
+            from_agent: None,
         } => {
             let value = discover(&local, person.as_deref(), network.as_deref()).await?;
             if *json {
@@ -624,7 +641,7 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
                 .0
         }
         CapabilityCommand::List { json } => {
-            let value = local.get("/v1/capabilities".into()).await?;
+            let value = local.get("/v1/capabilities?lookup=true".into()).await?;
             if !*json {
                 for c in value["capabilities"].as_array().into_iter().flatten() {
                     println!("{}", readable_capability(c));
@@ -635,7 +652,7 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
         }
         CapabilityCommand::Show { name } => {
             local
-                .get(format!("/v1/capabilities/{}", encoded(name)))
+                .get(format!("/v1/capabilities/{}?lookup=true", encoded(name)))
                 .await?
         }
         CapabilityCommand::Remove {
@@ -808,7 +825,8 @@ async fn share(
 ) -> anyhow::Result<Value> {
     let terminal = std::io::stdin().is_terminal();
     let signer = PersonSigner::open(person_key).map_err(failed)?;
-    let principal = top_principal(local, network, with).await?;
+    let (principal, found) = recipient(local, network, with).await?;
+    let recipient_view = recipient_object(found.as_ref());
     let host = local.get("/v1/host".into()).await?["id"]
         .as_str()
         .context("invalid daemon response")?
@@ -997,7 +1015,21 @@ async fn share(
         Some(file) => eprintln!("Credentials: the capability's environment file {file}"),
         None => eprintln!("Credentials: the source's own environment on this host"),
     }
-    eprintln!("Recipient: {with} ({principal})");
+    let persons = local
+        .get(format!("/v1/networks/{}/persons", encoded(network)))
+        .await
+        .unwrap_or(Value::Null);
+    let shown = match &found {
+        Some(f) => f["address"].as_str().unwrap_or(with).to_owned(),
+        None => with.to_owned(),
+    };
+    match &found {
+        Some(f) => {
+            eprintln!("Recipient: {shown}");
+            recipient_lines(f, &persons);
+        }
+        None => eprintln!("Recipient: {shown} ({principal})"),
+    }
     if let (Some((old, new)), Some(r)) = (limit_change, &existing) {
         // Recipients by label where the principal resolves to one, as in
         // `shares`, falling back to the principal.
@@ -1028,8 +1060,9 @@ async fn share(
         );
     }
     eprintln!(
-        "{with} can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, {with} can too."
+        "{shown} can use these operations with the credentials they run with on this host. Anything those credentials can reach through them, {shown} can too."
     );
+    agent_review(&principal, &persons, &me, current.as_ref());
     if !yes {
         if !terminal {
             bail!("confirm the review above at a terminal, or give --yes");
@@ -1041,7 +1074,7 @@ async fn share(
     if unchanged {
         // Already shared this way: nothing is signed.
         return Ok(
-            json!({"policy": current, "capability": cap, "principal": principal, "created": false}),
+            json!({"policy": current, "capability": cap, "principal": principal, "recipient": recipient_view, "created": false}),
         );
     }
     let mut created_now = false;
@@ -1070,7 +1103,7 @@ async fn share(
             .unwrap_or(Value::Null);
         if shared {
             return Ok(
-                json!({"policy": policy, "capability": cap, "principal": principal, "created": true}),
+                json!({"policy": policy, "capability": cap, "principal": principal, "recipient": recipient_view, "created": true}),
             );
         }
         // An identical capability existed already, or this host has no
@@ -1118,7 +1151,103 @@ async fn share(
         Some(p) => p,
         None => json!(start),
     };
-    Ok(json!({"policy": policy, "capability": cap, "principal": principal, "created": created_now}))
+    Ok(
+        json!({"policy": policy, "capability": cap, "principal": principal, "recipient": recipient_view, "created": created_now}),
+    )
+}
+
+/// The `HOST_ID/NAME` address that removes a found agent recipient, from
+/// its principal and label (`PERSON/NAME` or `HOST_ID/NAME`), or `None`
+/// when the label names no agent.
+fn removal_address(principal: &str, label: Option<&str>) -> Option<String> {
+    let (host, _) = principal.strip_prefix("agent:")?.split_once('/')?;
+    let name = label?.rsplit('/').next()?;
+    peerspan_host::directory::addressable(name).then(|| format!("{host}/{name}"))
+}
+
+/// The `recipient` object of `share` and `unshare` output: from the lookup
+/// for an agent address, null otherwise.
+fn recipient_object(found: Option<&Value>) -> Value {
+    match found {
+        Some(f) => json!({
+            "address": f["address"],
+            "host_id": f["host_id"],
+            "agent_id": f["agent_id"],
+            "person_id": f["person_id"],
+        }),
+        None => Value::Null,
+    }
+}
+
+/// The person (`person_id`, `member`) a host is bound to among a network's
+/// persons, if any.
+fn host_person<'a>(persons: &'a Value, host: &str) -> Option<&'a Value> {
+    persons.as_array().into_iter().flatten().find(|p| {
+        p["hosts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|h| h.as_str() == Some(host))
+    })
+}
+
+/// The review's lines under the recipient for an agent address.
+fn recipient_lines(found: &Value, persons: &Value) {
+    let host = found["host_id"].as_str().unwrap_or_default();
+    let agent = found["agent_id"].as_str().unwrap_or_default();
+    match host_person(persons, host).filter(|_| !found["person_id"].is_null()) {
+        Some(p) => eprintln!(
+            "  agent {agent} on host {host}, bound to {}",
+            p["member"].as_str().unwrap_or_default()
+        ),
+        None => eprintln!("  agent {agent} on host {host}, not bound to a person"),
+    }
+    let unanswered: Vec<String> = found["unanswered"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|u| {
+            format!(
+                "{} ({})",
+                u["host_id"].as_str().unwrap_or_default(),
+                u["error"].as_str().unwrap_or_default()
+            )
+        })
+        .collect();
+    if !unanswered.is_empty() {
+        eprintln!("Not checked: {}", unanswered.join(", "));
+    }
+}
+
+/// The review's agent paragraph for an `agent:` principal, and the note
+/// for the signer's own agent on a trusted host.
+fn agent_review(principal: &str, persons: &Value, me: &str, current: Option<&Policy>) {
+    let Some((host, _)) = principal
+        .strip_prefix("agent:")
+        .and_then(|p| p.split_once('/'))
+    else {
+        return;
+    };
+    eprintln!("Only calls that {host} says come from this agent are allowed.");
+    let person = host_person(persons, host);
+    match person.and_then(|p| p["member"].as_str()) {
+        Some(label) => eprintln!(
+            "That host makes the claim itself: {label}, and any program that can run peerspan as {label} on that machine, can call as this agent. {label}'s other machines and other agents, and other people, cannot."
+        ),
+        None => eprintln!(
+            "That host makes the claim itself: anyone, and any program, that can run peerspan as that host's owner can call as this agent. Other machines, other agents, and other people cannot."
+        ),
+    }
+    eprintln!(
+        "The share stays with this agent on this machine. If the agent is set up again on another machine, share it again."
+    );
+    if person.is_some_and(|p| p["person_id"].as_str() == Some(me))
+        && current.is_some_and(|c| c.trusted_hosts().iter().any(|h| h == host))
+    {
+        eprintln!(
+            "This machine is trusted, so this agent already reaches all your capabilities through self access. This share matters only if you untrust it."
+        );
+    }
 }
 fn list_text(v: &Value) -> String {
     v.as_array()
@@ -1138,17 +1267,36 @@ async fn unshare(
     with: &str,
 ) -> anyhow::Result<Value> {
     let signer = PersonSigner::open(person_key).map_err(failed)?;
-    let principal = top_principal(local, network, with).await?;
     let host = local.get("/v1/host".into()).await?["id"]
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
+    let persons = local
+        .get(format!("/v1/networks/{}/persons", encoded(network)))
+        .await
+        .unwrap_or(Value::Null);
+    let (principal, found) = match recipient(local, network, with).await {
+        Ok(r) => r,
+        Err(e)
+            if e.downcast_ref::<crate::integration::DaemonError>()
+                .is_some_and(|d| d.code == "unknown" || d.code == "unknown_host") =>
+        {
+            // A gone agent can always be removed by its principal.
+            eprintln!("error: {e}");
+            agent_fallback(local, network, &persons, &host, name, with, &signer).await;
+            std::process::exit(1);
+        }
+        Err(e) => return Err(e),
+    };
+    let recipient_view = recipient_object(found.as_ref());
     let mut removed = 0;
+    let mut left: Vec<String> = Vec::new();
     let (current, policy) = edit_policy(local, network, &signer, |content| {
         removed = 0;
         for r in content.capability_rules.iter_mut() {
             if r.host == host && r.capability == name && r.principals.contains(&principal) {
                 r.principals.retain(|p| *p != principal);
+                left = r.principals.clone();
                 removed += 1;
             }
         }
@@ -1157,18 +1305,193 @@ async fn unshare(
     })
     .await?;
     let Some(policy) = policy else {
+        let note = match &found {
+            None => format!(
+                "{principal} is not in the share of {name}; access through a group or everyone is unaffected, and block stops a person at once"
+            ),
+            Some(f) => {
+                let person = host_person(&persons, f["host_id"].as_str().unwrap_or_default())
+                    .filter(|_| !f["person_id"].is_null())
+                    .and_then(|p| p["member"].as_str());
+                match person {
+                    Some(label) => format!(
+                        "the rule for {name} on this host does not name {principal}. Access through person:{label}, a group, or everyone is unaffected."
+                    ),
+                    None => format!(
+                        "the rule for {name} on this host does not name {principal}. Access through a group or everyone is unaffected."
+                    ),
+                }
+            }
+        };
         return Ok(json!({
             "policy": current,
             "capability": name,
             "principal": principal,
+            "recipient": recipient_view,
             "removed": 0,
-            "note": format!("{principal} is not in the share of {name}; access through a group or everyone is unaffected, and block stops a person at once"),
+            "note": note,
         }));
     };
     eprintln!(
         "{principal}'s future calls to {name} are denied. Calls already running finish; queued calls are refused when they would start."
     );
-    Ok(json!({"policy": policy, "capability": name, "principal": principal, "removed": removed}))
+    let mut out = json!({"policy": policy, "capability": name, "principal": principal, "recipient": recipient_view, "removed": removed});
+    if let Some(person) = principal.strip_prefix("person:") {
+        let note = agents_left_note(local, network, &persons, person, &left, name).await;
+        if !note.is_empty() {
+            out["note"] = json!(note);
+        }
+    }
+    Ok(out)
+}
+
+/// After a failed agent resolution in `unshare`: the rule's agent
+/// principals on the address's hosts, each with its command.
+async fn agent_fallback(
+    local: &Local<'_>,
+    network: &str,
+    persons: &Value,
+    host: &str,
+    name: &str,
+    with: &str,
+    signer: &PersonSigner,
+) {
+    let Ok(Some((left, _))) = peerspan_host::agent_lookup::split_agent_address(with) else {
+        return;
+    };
+    let hosts: Vec<String> = if left.starts_with("host_") {
+        vec![left.to_owned()]
+    } else {
+        persons
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| {
+                p["person_id"].as_str() == Some(left)
+                    || p["member"]
+                        .as_str()
+                        .is_some_and(|m| m.eq_ignore_ascii_case(left))
+            })
+            .map(|p| {
+                p["hosts"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|h| h.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    // A host no longer in the network may have been the person's: its
+    // binding is gone with it.
+    let members: Vec<String> = local
+        .get(format!("/v1/networks/{}/members", encoded(network)))
+        .await
+        .ok()
+        .and_then(|m| m.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|m| m["host_id"].as_str().map(str::to_owned))
+        .collect();
+    let by_person = !left.starts_with("host_");
+    let me = persons::person_id(&signer.public_key());
+    let Ok(policy) = local
+        .get(format!(
+            "/v1/networks/{}/policy?person={}",
+            encoded(network),
+            encoded(&me)
+        ))
+        .await
+    else {
+        return;
+    };
+    let mut lines = Vec::new();
+    for r in policy["capability_rules"].as_array().into_iter().flatten() {
+        if r["host"].as_str() != Some(host) || r["capability"].as_str() != Some(name) {
+            continue;
+        }
+        for p in r["principals"].as_array().into_iter().flatten() {
+            let Some(p) = p.as_str() else { continue };
+            if let Some((h, _)) = p.strip_prefix("agent:").and_then(|x| x.split_once('/'))
+                && (hosts.iter().any(|x| x == h) || (by_person && !members.iter().any(|x| x == h)))
+            {
+                lines.push(format!(
+                    "  {p}: peerspan unshare {name} --with {p} --network {network}"
+                ));
+            }
+        }
+    }
+    if !lines.is_empty() {
+        eprintln!(
+            "Agent shares of {name} on those hosts:\n{}",
+            lines.join("\n")
+        );
+    }
+}
+
+/// `unshare --with PERSON`'s note for the agents on that person's hosts
+/// that still have their own share.
+async fn agents_left_note(
+    local: &Local<'_>,
+    network: &str,
+    persons: &Value,
+    person: &str,
+    left: &[String],
+    name: &str,
+) -> String {
+    let Some(p) = persons
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["person_id"].as_str() == Some(person))
+    else {
+        return String::new();
+    };
+    let hosts: Vec<&str> = p["hosts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let agents: Vec<&String> = left
+        .iter()
+        .filter(|x| {
+            x.strip_prefix("agent:")
+                .and_then(|x| x.split_once('/'))
+                .is_some_and(|(h, _)| hosts.contains(&h))
+        })
+        .collect();
+    if agents.is_empty() {
+        return String::new();
+    }
+    let view = local
+        .get(format!("/v1/capabilities/{}?lookup=true", encoded(name)))
+        .await
+        .unwrap_or(Value::Null);
+    agents
+        .iter()
+        .map(|principal| {
+            let found = view["recipients"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|r| {
+                    r["network_id"].as_str() == Some(network)
+                        && r["principal"].as_str() == Some(principal.as_str())
+                        && r["agent_state"] == "found"
+                })
+                .and_then(|r| {
+                    let label = r["label"].as_str()?;
+                    Some((label.to_owned(), removal_address(principal, Some(label))?))
+                });
+            let (label, address) =
+                found.unwrap_or_else(|| (principal.to_string(), principal.to_string()));
+            format!(
+                "{label} still has its own share. Run peerspan unshare {name} --with {address} --network {network} to remove it."
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `shares`: every capability here and every capability rule in this
@@ -1178,7 +1501,7 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
-    let capabilities = local.get("/v1/capabilities".into()).await?;
+    let capabilities = local.get("/v1/capabilities?lookup=true".into()).await?;
     let status = local.get("/v1/status".into()).await?;
     let mut entries = Vec::new();
     for c in capabilities["capabilities"]
@@ -1194,9 +1517,16 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
             .filter(|r| network.is_none_or(|n| r["network_id"].as_str() == Some(n)))
             .map(|r| {
                 let mut r = r.clone();
+                // An agent found on its host is removed by its host's
+                // address, HOST_ID/NAME, which names exactly that agent.
+                let principal = r["principal"].as_str().unwrap_or_default().to_owned();
+                let with = match r["agent_state"].as_str() {
+                    Some("found") => removal_address(&principal, r["label"].as_str())
+                        .unwrap_or_else(|| principal.clone()),
+                    _ => principal.clone(),
+                };
                 r["unshare"] = json!(format!(
-                    "peerspan unshare {name} --with {} --network {}",
-                    r["principal"].as_str().unwrap_or_default(),
+                    "peerspan unshare {name} --with {with} --network {}",
                     r["network_id"].as_str().unwrap_or_default()
                 ));
                 r
@@ -1273,6 +1603,43 @@ async fn discover(
     local.get(path).await
 }
 
+/// `discover --from-agent`: what that agent's `list_capabilities` shows.
+async fn discover_as(
+    local: &Local<'_>,
+    agent: &str,
+    person: Option<&str>,
+    network: Option<&str>,
+) -> anyhow::Result<Value> {
+    let mut path = format!("/v1/discover?from_agent={}", encoded(agent));
+    if let Some(p) = person {
+        path.push_str(&format!("&person={}", encoded(p)));
+    }
+    if let Some(n) = network {
+        path.push_str(&format!("&network={}", encoded(n)));
+    }
+    local.get(path).await
+}
+
+/// `--from-agent`: an agent ID registered on this host, or else the exact
+/// name of one.
+async fn local_agent_id(local: &Local<'_>, given: &str) -> anyhow::Result<String> {
+    let agents = local.get("/v1/agents".into()).await?;
+    let list = agents.as_array().cloned().unwrap_or_default();
+    if list.iter().any(|a| a["id"].as_str() == Some(given)) {
+        return Ok(given.to_owned());
+    }
+    let named: Vec<&str> = list
+        .iter()
+        .filter(|a| a["name"].as_str() == Some(given))
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    match named.as_slice() {
+        [] => bail!("no agent {given} on this host"),
+        [one] => Ok((*one).to_owned()),
+        _ => bail!("several agents on this host are named {given}; give the agent ID"),
+    }
+}
+
 /// `call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T]
 /// [--wait D] [--network ID]`. `call`'s own flags always win; each other
 /// `--KEY VALUE` fills a scalar top-level property of the operation's
@@ -1286,6 +1653,7 @@ async fn call(
 ) -> anyhow::Result<Option<Value>> {
     let mut input: Option<serde_json::Map<String, Value>> = None;
     let (mut deadline, mut wait, mut network) = (None, None, None);
+    let (mut from_agent, mut from_session): (Option<String>, Option<String>) = (None, None);
     let mut keys: Vec<(String, String)> = Vec::new();
     let mut rest = options.iter();
     while let Some(flag) = rest.next() {
@@ -1314,15 +1682,43 @@ async fn call(
             "deadline" => deadline = Some(deadline_of(&value)?),
             "wait" => wait = Some(parse_wait(&value)?),
             "network" => network = Some(value),
+            "from-agent" => from_agent = Some(value),
+            "from-session" => from_session = Some(value),
             key => keys.push((key.to_owned(), value)),
         }
     }
+    if from_session.is_some() && from_agent.is_none() {
+        bail!("--from-session needs --from-agent");
+    }
+    let origin = match &from_agent {
+        Some(agent) => {
+            let id = local_agent_id(local, agent).await?;
+            let mut o = json!({"agent_id": id});
+            if let Some(s) = &from_session {
+                o["session_id"] = json!(s);
+            }
+            Some(o)
+        }
+        None => None,
+    };
     let mut body_input = input.clone().unwrap_or_default();
     if !keys.is_empty() {
         // The schema comes from the capability listing.
         let owner = address.split('/').next().unwrap_or_default();
         let capability = address.split_once('/').map(|(_, c)| c).unwrap_or_default();
-        let listing = discover(local, Some(owner), network.as_deref()).await?;
+        // A call as an agent takes the schema from that agent's view.
+        let listing = match &origin {
+            Some(o) => {
+                discover_as(
+                    local,
+                    o["agent_id"].as_str().unwrap_or_default(),
+                    (!owner.starts_with("host_")).then_some(owner),
+                    network.as_deref(),
+                )
+                .await?
+            }
+            None => discover(local, Some(owner), network.as_deref()).await?,
+        };
         // The entry at this address: by address, else by host, else the
         // only one with that capability.
         let entries: Vec<&Value> = listing["capabilities"]
@@ -1385,6 +1781,9 @@ async fn call(
     }
     if let Some(n) = &network {
         body["network"] = json!(n);
+    }
+    if let Some(o) = origin {
+        body["origin"] = o;
     }
     let wait = wait.unwrap_or(Duration::from_secs(60));
     let mut record = local.post("/v1/calls".into(), body).await?;
@@ -1501,8 +1900,13 @@ fn readable_shares(value: &Value) -> String {
                 .unwrap_or_default()
         );
         for r in e["recipients"].as_array().into_iter().flatten() {
+            let mark = match r["agent_state"].as_str() {
+                None => "",
+                Some("found") => " (agent)",
+                Some(_) => " (agent, gone)",
+            };
             out += &format!(
-                "  {}{}\n",
+                "  {}{mark}{}\n",
                 r["label"]
                     .as_str()
                     .or(r["principal"].as_str())
@@ -1528,8 +1932,22 @@ fn readable_discover(value: &Value) -> String {
             .flatten()
             .filter_map(|o| o["name"].as_str())
             .collect();
+        let only = match c["for_agents"].as_array() {
+            Some(agents) => {
+                let names: Vec<&str> = agents
+                    .iter()
+                    .filter_map(|a| a["name"].as_str().or(a["agent_id"].as_str()))
+                    .collect();
+                format!(
+                    "   only for your {} {}",
+                    if names.len() > 1 { "agents" } else { "agent" },
+                    names.join(", ")
+                )
+            }
+            None => String::new(),
+        };
         out += &format!(
-            "{} {}: {}\n",
+            "{} {}: {}{only}\n",
             c["kind"].as_str().unwrap_or_default(),
             c["address"].as_str().unwrap_or_default(),
             ops.join(", ")

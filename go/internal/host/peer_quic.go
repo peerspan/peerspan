@@ -564,6 +564,9 @@ func PeerStreamRequestLimit(ctx context.Context, conn *quic.Conn, address, metho
 // otherwise.
 func PeerResponseLimit(method, path string) int {
 	route, _, _ := strings.Cut(path, "?")
+	if method == http.MethodGet && strings.HasPrefix(route, "/peer/v1/networks/") && strings.HasSuffix(route, "/agent-lookup") {
+		return agentLookupMaxBody
+	}
 	if method == http.MethodGet && (route == "/peer/v1/capabilities" || (strings.HasPrefix(route, "/peer/v1/calls/") && !strings.Contains(strings.TrimPrefix(route, "/peer/v1/calls/"), "/"))) {
 		return peerToolsMaxBody
 	}

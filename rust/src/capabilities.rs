@@ -14,7 +14,7 @@ use crate::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State, rejection::BytesRejection},
+    extract::{Path, Query, State, rejection::BytesRejection},
     http::StatusCode,
     routing::get,
 };
@@ -682,16 +682,48 @@ pub(crate) fn local_routes() -> Router<Arc<Store>> {
             get(show_route).delete(remove_route),
         )
 }
-async fn list_route(State(store): State<Arc<Store>>) -> Result<Json<Value>, Error> {
-    Ok(Json(blocking(store, |s| s.capabilities_view()).await?))
+#[derive(Deserialize)]
+struct LookupQuery {
+    #[serde(default)]
+    lookup: Option<String>,
+}
+/// Labels the agent recipients of capability views, asking their hosts
+/// first with `lookup`.
+async fn label_views(store: &Arc<Store>, views: &mut [Value], lookup: bool) -> Result<(), Error> {
+    let mut all: Vec<Value> = Vec::new();
+    let mut counts = Vec::new();
+    for v in views.iter() {
+        let list = v["recipients"].as_array().cloned().unwrap_or_default();
+        counts.push(list.len());
+        all.extend(list);
+    }
+    crate::agent_lookup::label_agent_recipients(store, &mut all, lookup).await?;
+    let mut rest = all.into_iter();
+    for (v, n) in views.iter_mut().zip(counts) {
+        v["recipients"] = Value::Array(rest.by_ref().take(n).collect());
+    }
+    Ok(())
+}
+async fn list_route(
+    State(store): State<Arc<Store>>,
+    query: Query<LookupQuery>,
+) -> Result<Json<Value>, Error> {
+    let mut view = blocking(store.clone(), |s| s.capabilities_view()).await?;
+    if let Some(list) = view["capabilities"].as_array_mut() {
+        label_views(&store, list, query.lookup.as_deref() == Some("true")).await?;
+    }
+    Ok(Json(view))
 }
 async fn show_route(
     State(store): State<Arc<Store>>,
     Path(name): Path<String>,
+    query: Query<LookupQuery>,
 ) -> Result<Json<Value>, Error> {
-    Ok(Json(
-        blocking(store, move |s| s.capability_show(&name)).await?,
-    ))
+    let view = blocking(store.clone(), move |s| s.capability_show(&name)).await?;
+    let mut views = [view];
+    label_views(&store, &mut views, query.lookup.as_deref() == Some("true")).await?;
+    let [view] = views;
+    Ok(Json(view))
 }
 async fn remove_route(
     State(store): State<Arc<Store>>,

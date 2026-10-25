@@ -32,6 +32,12 @@ ssh-agents. Each pairing reports these sections separately:
   dependencies, and `access allow` replacing several rules;
 - deny: with and without `--agent`, `removed` counts, the zero-removal note
   with no new version, and group access still working; `access deny` still runs;
+- agent addresses (capabilities slice 3): `allow PERSON/AGENT` and
+  `HOST_ID/AGENT` writing the same `agent:` principal for an agent p1's
+  directory does not list, that agent's message accepted and another agent of
+  its host refused, `deny PERSON/AGENT`, two `/` and a non-addressable name
+  refused, `local`, `unknown` naming a stopped host, and `person:LABEL` for a
+  label containing `/`;
 - `*` rules: a message and a task to any agent, named rules overriding `*` in
   both directions, `deny --agent '*'`, and `agent register` refusing `*`;
 - block/unblock: by label, person ID, and host ID.
@@ -908,6 +914,97 @@ class Pairing:
         need(out['removed'] == 0, 'deny: removing again finds nothing (group access unaffected)', out)
         self.expect(rh, self.ids['p1'], reviewer, 'accepted', 'deny with removed 0 leaves group access')
 
+    def check_agent_addresses(self):
+        """Capabilities slice 3: agent addresses in allow and deny (launch contract, Principals and sizes)."""
+        P1 = self.ids['p1']
+        qh, Q = self.hosts['quinn'], self.ids['quinn']
+        qhide = qh.cli('agent', 'register', '--name', 'qhide', '--owner', 'quinn')
+        qhide2 = qh.cli('agent', 'register', '--name', 'qhide2', '--owner', 'quinn')
+        lx = self.p1.cli('agent', 'register', '--name', 'lx', '--owner', 'pat')
+        status, directory = self.p1.call('POST', f'/v1/directory/refresh?network={self.net}', {})
+        need(status == 200 and not any(a.get('agent_id') == qhide['id'] for a in directory['agents']),
+             'setup: p1\'s directory does not list qhide', status, directory)
+        principal = f"agent:{Q}/{qhide['id']}"
+        out, policy = self.allow('quinn/qhide', '--agent', 'lx')
+        need(out['principal'] == principal and scope(policy, 'lx') == Counter([setting([principal])]),
+             'allow PERSON/AGENT writes agent:HOST_ID/AGENT_ID, for an agent the directory does not list', out,
+             policy['rules'])
+        out, policy = self.allow(f'{Q}/qhide', '--agent', 'lx')
+        need(out['principal'] == principal and scope(policy, 'lx') == Counter([setting([principal])]),
+             'allow HOST_ID/AGENT writes the same principal', out, policy['rules'])
+        self.synced(policy['version'], qh)
+
+        def send_as(agent):
+            result = qh.run('message', 'send', '--peer', P1, '--agent', lx['id'], '--content', 'as an agent',
+                            '--from-agent', agent['id'])
+            try:
+                out = json.loads(result.stdout)
+            except ValueError:
+                # A send refused before anything is recorded exits non-zero without a record.
+                return {'state': None, 'exit': result.returncode, 'stderr': result.stderr[-300:]}
+            if out['state'] == 'unknown':
+                rid = out['request']['request_id']
+
+                def settled():
+                    o = qh.cli('message', 'retry', '--peer', P1, rid)
+                    return o if o['state'] != 'unknown' else None
+                out = wait_for(settled, timeout=30, message='message outcome')
+            return out
+        out = send_as(qhide)
+        need(out['state'] == 'accepted', 'the rule lets that agent send a message', out)
+        out = send_as(qhide2)
+        need(out['state'] != 'accepted', 'another agent of its host is refused', out)
+        out, policy = self.deny('quinn/qhide', '--agent', 'lx')
+        need(out['removed'] == 1 and not scope(policy, 'lx'), 'deny PERSON/AGENT removes it', out, policy['rules'])
+
+        def refused(value, text, rule):
+            before = self.version()
+            result = self.p1.run('allow', value, '--agent', 'lx', '--network', self.net)
+            need(result.returncode != 0 and text in ' '.join(result.stderr.split()), rule, value, result.stderr[-500:])
+            need(self.version() == before, f'{rule} (no new version)')
+            result = self.p1.run('deny', value, '--agent', 'lx', '--network', self.net)
+            need(result.returncode != 0 and self.version() == before, f'deny: {rule}', value, result.stderr[-500:])
+        refused('quinn/a/b', 'invalid recipient "quinn/a/b": use PERSON/AGENT, HOST_ID/AGENT, or person:LABEL for a '
+                'label that contains /', 'a bare value with two / refused')
+        refused('quinn/Not_Addressable', 'invalid agent name "Not_Addressable"', 'a non-addressable agent name refused')
+        for value in ('pat/origin', f'{P1}/origin'):
+            refused(value, f'{value} is on this host, and a host never calls itself. Share with an agent on another '
+                    'machine.', f'local for {value}')
+        # unknown, naming a stopped host of the person in the not-answered text.
+        p2 = self.p2
+        p2.stop()
+        try:
+            refused('pat/nosuch', 'pat has no agent named nosuch on the hosts that answered.', 'unknown')
+            result = self.p1.run('allow', 'pat/nosuch', '--agent', 'lx', '--network', self.net)
+            text = ' '.join(result.stderr.split())
+            need(f"Not answered: " in text and f"{self.ids['p2']} (" in text and
+                 'Try again when it is online, or use agent:HOST_ID/AGENT_ID.' in text,
+                 'unknown names the stopped host in its not-answered text', result.stderr[-600:])
+        finally:
+            p2.start()
+        # A person whose label contains / is still reached as person:LABEL.
+        root = self.root
+        self.keys['slash'] = ssh_key(root / 'keys', 'slash')
+        (root / 'agent-slash').mkdir()
+        self.agents['slash'] = Agent(root / 'agent-slash')
+        self.agents['slash'].add(self.keys['slash'][0])
+        sl = self.host('slash')
+        sl.sock = self.agents['slash'].socket
+        self.ids['slash'] = sl.start()['id']
+        token = self.p1.cli('invite', 'ops/slash', '--network', self.net)['token']
+        sl.cli('join', token)
+        slash = person_id(self.keys['slash'][2])
+
+        def bound():
+            self.p1.run('network', 'sync', self.net)
+            return any(m['person_id'] == slash for m in self.p1.cli('network', 'members', self.net))
+        wait_for(bound, timeout=60, message='ops/slash bound in p1\'s map')
+        out, policy = self.allow('person:ops/slash', '--agent', 'lx')
+        need(out['principal'] == 'person:' + slash, 'person:LABEL still reaches a person whose label contains /', out)
+        result = self.p1.run('allow', 'ops/slash', '--agent', 'lx', '--network', self.net)
+        need(result.returncode != 0, 'a bare ops/slash is an agent address (person ops), never the label', result.stdout)
+        self.deny('person:ops/slash', '--agent', 'lx')
+
     def check_star(self):
         P1, P2 = self.ids['p1'], self.ids['p2']
         qh, rh = self.hosts['quinn'], self.hosts['rhea']
@@ -1023,10 +1120,11 @@ class Pairing:
         self.section('self access', self.check_self_access)
         if self.section('allow', self.check_allow):
             self.section('deny', self.check_deny)
+            self.section('agent addresses', self.check_agent_addresses)
             self.section('* rules', self.check_star)
             self.section('block/unblock', self.check_block)
         else:
-            for name in ('deny', '* rules', 'block/unblock'):
+            for name in ('deny', 'agent addresses', '* rules', 'block/unblock'):
                 self.results.append((name, False, 'skipped: allow failed'))
                 print(f'SKIP {self.label} [{name}]: allow failed', flush=True)
 

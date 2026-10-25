@@ -4,6 +4,7 @@ pub mod adapter_outbound;
 pub mod adapter_setup;
 pub mod admins;
 pub mod agent_calls;
+pub mod agent_lookup;
 pub mod api;
 pub mod artifact;
 pub mod call_outbound;

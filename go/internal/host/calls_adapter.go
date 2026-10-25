@@ -98,6 +98,33 @@ func (s *Store) AdapterCapabilityList(ctx context.Context, auth AdapterAuth) (Ad
 	if err != nil {
 		return AdapterCapabilities{}, err
 	}
+	return adapterCapabilities(found, unanswered), nil
+}
+
+// AgentDiscover is discover --from-agent: what that agent's
+// list_capabilities shows, narrowed by person and network when given.
+func (s *Store) AgentDiscover(ctx context.Context, agent, person, network string) (AdapterCapabilities, error) {
+	var found int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM agents WHERE id = ?", agent).Scan(&found); err != nil {
+		return AdapterCapabilities{}, err
+	}
+	if found == 0 {
+		return AdapterCapabilities{}, fmt.Errorf("%w: no agent %s on this host", ErrNotFound, agent)
+	}
+	hosts, err := s.personHosts(ctx, person, network)
+	if err != nil {
+		return AdapterCapabilities{}, err
+	}
+	list, unanswered, err := s.discoverCapabilities(ctx, hosts, network, listingView{agent: agent, capabilitiesOnly: true})
+	if err != nil {
+		return AdapterCapabilities{}, err
+	}
+	return adapterCapabilities(list, unanswered), nil
+}
+
+// adapterCapabilities is the GET /adapter/v1/capabilities object, sorted by
+// address, then host ID.
+func adapterCapabilities(found []DiscoveredCapability, unanswered []Unanswered) AdapterCapabilities {
 	out := AdapterCapabilities{Capabilities: []AdapterCapability{}, Unanswered: unanswered}
 	for _, e := range found {
 		out.Capabilities = append(out.Capabilities, AdapterCapability{e.Address, e.HostID, e.Capability, e.Operations, e.Resources, e.State, e.Unavailable})
@@ -109,7 +136,7 @@ func (s *Store) AdapterCapabilityList(ctx context.Context, auth AdapterAuth) (Ad
 		}
 		return a.HostID < b.HostID
 	})
-	return out, nil
+	return out
 }
 
 // callsSession checks the credential, lease, and calls, in a transaction of

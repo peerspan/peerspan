@@ -291,8 +291,11 @@ pub enum Command {
         network: Option<String>,
         #[arg(long)]
         json: bool,
+        /// Show what this local agent (ID or name) may call
+        #[arg(long, value_name = "AGENT")]
+        from_agent: Option<String>,
     },
-    /// Call an operation: call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]
+    /// Call an operation: call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID] [--from-agent AGENT [--from-session ID]]
     Call {
         /// PERSON/CAPABILITY, HOST_ID/CAPABILITY, PERSON/AGENT/SERVER, or HOST_ID/AGENT/SERVER
         #[arg(value_name = "ADDRESS")]

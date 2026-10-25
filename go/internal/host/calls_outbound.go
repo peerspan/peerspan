@@ -42,6 +42,12 @@ type SubmitCall struct {
 	Deadline  string          `json:"deadline,omitempty"`
 	Network   string          `json:"network,omitempty"`
 	CallID    string          `json:"call_id,omitempty"`
+	// Origin makes the call as one of this host's agents.
+	Origin *Origin `json:"origin,omitempty"`
+}
+
+func sameOrigin(a, b *Origin) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }
 
 // OutboundCall is the local record of a submitted call.
@@ -190,6 +196,26 @@ type DiscoveredCapability struct {
 	Address string `json:"address"`
 	HostID  string `json:"host_id"`
 	ListedCapability
+	// ForAgents names the local agents an agent-only capability is for;
+	// nil for the others.
+	ForAgents []ForAgent `json:"for_agents,omitempty"`
+}
+
+// ForAgent is a local agent an agent-only capability is shared with.
+type ForAgent struct {
+	AgentID string  `json:"agent_id"`
+	Name    *string `json:"name"`
+}
+
+// agentOnly reports whether every via entry of a listed entry has
+// from_agent set.
+func agentOnly(e ListedCapability) bool {
+	for _, v := range e.Via {
+		if v.FromAgent == nil {
+			return false
+		}
+	}
+	return len(e.Via) > 0
 }
 
 func (e DiscoveredCapability) MarshalJSON() ([]byte, error) {
@@ -198,9 +224,10 @@ func (e DiscoveredCapability) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	head, err := json.Marshal(struct {
-		Address string `json:"address"`
-		HostID  string `json:"host_id"`
-	}{e.Address, e.HostID})
+		Address   string     `json:"address"`
+		HostID    string     `json:"host_id"`
+		ForAgents []ForAgent `json:"for_agents,omitempty"`
+	}{e.Address, e.HostID, e.ForAgents})
 	if err != nil {
 		return nil, err
 	}
@@ -367,6 +394,9 @@ func (s *Store) personHosts(ctx context.Context, person, network string) ([]pers
 type listingView struct {
 	agent            string
 	capabilitiesOnly bool
+	// agentOnly, in the owner's view, also keeps capabilities whose every
+	// via entry has from_agent set, with all those entries (slice 3).
+	agentOnly bool
 }
 
 func (v listingView) filter(listing []ListedCapability) []ListedCapability {
@@ -380,6 +410,9 @@ func (v listingView) filter(listing []ListedCapability) []ListedCapability {
 			if entry.FromAgent == nil || (v.agent != "" && *entry.FromAgent == v.agent) {
 				via = append(via, entry)
 			}
+		}
+		if len(via) == 0 && v.agent == "" && v.agentOnly {
+			via = e.Via
 		}
 		if len(via) == 0 {
 			continue
@@ -479,8 +512,52 @@ func (s *Store) Discover(ctx context.Context, person, network string) (Discovery
 		}
 		out.Agents = append(out.Agents, agents...)
 	}
-	out.Capabilities, out.Unanswered, err = s.discoverCapabilities(ctx, hosts, network, listingView{})
+	out.Capabilities, out.Unanswered, err = s.discoverCapabilities(ctx, hosts, network, listingView{agentOnly: true})
 	return out, err
+}
+
+// forAgents names the local agents an agent-only entry is for, in via
+// order.
+func (s *Store) forAgents(ctx context.Context, e ListedCapability) ([]ForAgent, error) {
+	locals, err := s.localAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []ForAgent{}
+	for _, v := range e.Via {
+		if v.FromAgent == nil || slices.ContainsFunc(out, func(f ForAgent) bool { return f.AgentID == *v.FromAgent }) {
+			continue
+		}
+		f := ForAgent{AgentID: *v.FromAgent}
+		for _, a := range locals {
+			if a.id == f.AgentID {
+				name := a.name
+				f.Name = &name
+			}
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// agentOnlyError refuses an owner call to an agent-only capability.
+func (s *Store) agentOnlyError(ctx context.Context, address string, e ListedCapability) error {
+	agents, err := s.forAgents(ctx, e)
+	if err != nil {
+		return err
+	}
+	names := make([]string, len(agents))
+	for i, a := range agents {
+		names[i] = a.AgentID
+		if a.Name != nil {
+			names[i] = *a.Name
+		}
+	}
+	noun := "agent"
+	if len(names) > 1 {
+		noun = "agents"
+	}
+	return &codedError{status: http.StatusForbidden, code: "agent_only", message: fmt.Sprintf("%s is shared only with your %s %s. Add --from-agent %s to call as that agent.", address, noun, strings.Join(names, ", "), names[0]), forAgents: agents}
 }
 
 // discoverCapabilities lists the capabilities, and sources, of the given
@@ -503,7 +580,13 @@ func (s *Store) discoverCapabilities(ctx context.Context, hosts []personHost, ne
 			if a.personal && a.binding.label != "" {
 				address = a.binding.label + "/" + e.Capability
 			}
-			out = append(out, DiscoveredCapability{Address: address, HostID: host, ListedCapability: e})
+			found := DiscoveredCapability{Address: address, HostID: host, ListedCapability: e}
+			if view.agent == "" && view.agentOnly && agentOnly(e) {
+				if found.ForAgents, err = s.forAgents(ctx, e); err != nil {
+					return nil, nil, err
+				}
+			}
+			out = append(out, found)
 		}
 	}
 	return out, unanswered, nil
@@ -746,6 +829,9 @@ func (s *Store) citeVia(ctx context.Context, via ToolVia, r *CallRequest) error 
 // PrepareCall resolves a call's address, chooses its citation from the
 // listing, and persists the outbound record before any submission.
 func (s *Store) PrepareCall(ctx context.Context, r SubmitCall) (OutboundCall, error) {
+	if err := s.checkLocalOrigin(ctx, r.Origin); err != nil {
+		return OutboundCall{}, err
+	}
 	if r.CallID == "" {
 		id, err := newID("call")
 		if err != nil {
@@ -778,16 +864,29 @@ func (s *Store) PrepareCall(ctx context.Context, r SubmitCall) (OutboundCall, er
 	}
 	// A repeated call ID returns its record without resolving again.
 	if old, err := readJSON[OutboundCall](s.db.QueryRowContext(ctx, `SELECT record FROM outbound_calls WHERE call_id = ? ORDER BY rowid LIMIT 1`, r.CallID)); err == nil {
-		if old.Target != r.Target || old.Request.Operation != request.Operation || !bytes.Equal(old.Request.Input, request.Input) || (r.Deadline != "" && old.Request.Deadline != request.Deadline) {
+		if old.Target != r.Target || old.Request.Operation != request.Operation || !bytes.Equal(old.Request.Input, request.Input) || (r.Deadline != "" && old.Request.Deadline != request.Deadline) || !sameOrigin(old.Request.Origin, r.Origin) {
 			return old, ErrConflict
 		}
 		return old, nil
 	} else if !errors.Is(err, ErrNotFound) {
 		return OutboundCall{}, err
 	}
-	peer, entry, err := s.resolveCapabilityAddress(ctx, r.Target, r.Network, listingView{})
+	// An owner call made as one of this host's agents (call --from-agent)
+	// takes that agent's view and carries its origin.
+	view := listingView{agentOnly: true}
+	if r.Origin != nil {
+		if strings.Count(r.Target, "/") >= 2 {
+			return OutboundCall{}, &codedError{status: http.StatusBadRequest, code: "source", message: "Agents cannot call sources; call them without --from-agent."}
+		}
+		view = listingView{agent: r.Origin.AgentID, capabilitiesOnly: true}
+		request.Origin = r.Origin
+	}
+	peer, entry, err := s.resolveCapabilityAddress(ctx, r.Target, r.Network, view)
 	if err != nil {
 		return OutboundCall{}, err
+	}
+	if r.Origin == nil && agentOnly(entry) {
+		return OutboundCall{}, s.agentOnlyError(ctx, r.Target, entry)
 	}
 	request.Capability = entry.Capability
 	listed := false
@@ -1252,12 +1351,18 @@ func (s *Store) SubmitOwnerCall(ctx context.Context, r SubmitCall) (OutboundCall
 
 func localCallRoutes(mux *http.ServeMux, store *Store) {
 	mux.HandleFunc("GET /v1/discover", func(w http.ResponseWriter, r *http.Request) {
-		result, err := store.Discover(r.Context(), r.URL.Query().Get("person"), r.URL.Query().Get("network"))
+		q := r.URL.Query()
+		if q.Has("from_agent") {
+			result, err := store.AgentDiscover(r.Context(), q.Get("from_agent"), q.Get("person"), q.Get("network"))
+			respond(w, http.StatusOK, result, err)
+			return
+		}
+		result, err := store.Discover(r.Context(), q.Get("person"), q.Get("network"))
 		respond(w, http.StatusOK, result, err)
 	})
 	mux.HandleFunc("POST /v1/calls", func(w http.ResponseWriter, r *http.Request) {
 		var req SubmitCall
-		if !decode(w, r, &req, "target?", "operation?", "input?", "deadline?", "network?", "call_id?") {
+		if !decode(w, r, &req, "target?", "operation?", "input?", "deadline?", "network?", "call_id?", "origin?") {
 			return
 		}
 		out, err := store.SubmitOwnerCall(r.Context(), req)

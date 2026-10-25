@@ -37,6 +37,13 @@ const MAX_BODY: usize = 1 << 20;
 const MAX_LARGE_RESPONSE: usize = 4 << 20;
 /// The response bound of a peer request.
 fn response_limit(method: &str, path: &str) -> usize {
+    let route = path.split('?').next().unwrap_or_default();
+    if method == "GET"
+        && route.starts_with("/peer/v1/networks/")
+        && route.ends_with("/agent-lookup")
+    {
+        return crate::agent_lookup::MAX_RESPONSE;
+    }
     let large = method == "GET"
         && (path == "/peer/v1/capabilities"
             || path.starts_with("/peer/v1/capabilities?")

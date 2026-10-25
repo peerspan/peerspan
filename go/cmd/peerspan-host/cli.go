@@ -201,7 +201,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("discover", "discover [PERSON]", "List reachable agents and usable capabilities", 0).Args = cobra.RangeArgs(0, 1)
 	// call ADDRESS OPERATION reads its own arguments: --KEY VALUE options
 	// name the operation's input properties.
-	callCommand := &cobra.Command{Use: "call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID]", Short: "Call an operation of a capability", DisableFlagParsing: true}
+	callCommand := &cobra.Command{Use: "call ADDRESS OPERATION [--input JSON] [--KEY VALUE ...] [--deadline T] [--wait D] [--network ID] [--from-agent AGENT [--from-session ID]]", Short: "Call an operation of a capability", DisableFlagParsing: true}
 	callCommand.RunE = func(cmd *cobra.Command, args []string) error {
 		c, err := parseCallArgs(args)
 		if err != nil {
@@ -443,6 +443,7 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "discover":
 		fs.String("network", "", "only this network")
 		fs.Bool("json", false, "print the discover object")
+		fs.String("from-agent", "", "show what this local agent (ID or name) may call")
 	case "calls list", "calls received":
 		fs.Int64("after", 0, "read calls after sequence")
 		fs.Int64("limit", 100, "maximum records, 1 to 1000")

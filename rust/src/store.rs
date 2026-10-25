@@ -100,6 +100,8 @@ pub struct Store {
     pub(crate) coordinator_limits: Mutex<BTreeMap<String, crate::network::CoordinatorLimits>>,
     /// The agent directory of every network, kept in memory.
     pub(crate) agent_directory: Mutex<crate::directory::Cache>,
+    /// Lookups of agent recipients, for `shares` labels.
+    pub(crate) agent_labels: Mutex<crate::agent_lookup::LabelCache>,
     /// Coordinator move lookups and repair imports, by network ID.
     pub(crate) coordinator_moves: Mutex<BTreeMap<String, crate::coordinator_move::Tracker>>,
     /// Running instances of shared MCP servers.
@@ -292,6 +294,7 @@ impl Store {
             edit_acks: Mutex::new(BTreeMap::new()),
             coordinator_limits: Mutex::new(BTreeMap::new()),
             agent_directory: Mutex::new(Default::default()),
+            agent_labels: Mutex::new(Default::default()),
             tool_pool: Default::default(),
             call_runner: Default::default(),
             call_timing: Default::default(),

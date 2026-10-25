@@ -231,6 +231,8 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
 #### CAP-16C: sharing with one agent
 
 - **Source:** [capabilities-slice3-agent-shares-proposal.md, Owner decisions needed](capabilities-slice3-agent-shares-proposal.md#owner-decisions-needed), decisions 1–15 (proposal [PR #73](https://github.com/peerspan/peerspan-internal/pull/73)).
+- **Contract section:** [Sharing with one agent (slice 3)](capabilities-contract.md#sharing-with-one-agent-slice-3), and agent addresses in `allow`/`deny` under [Principals and sizes](launch-contract.md#principals-and-sizes).
+- **Implemented in:** [PR #79](https://github.com/peerspan/peerspan-internal/pull/79).
 
 ##### CAP-16C.1. How Bob's host finds Alice's agent ID
 
@@ -356,6 +358,21 @@ Every entry below was decided by accepting the proposal's recommendation, quoted
   - (c) Add a status attention item.
 - **Chosen (the recommendation):** Recommendation: (a).
 - **Reason given:** An unanswered host may come back, and silent removal by a signing tool is surprising. `shares` already shows the state and the `unshare` command.
+
+##### CAP-16C, settled by the implementer (not owner decisions)
+
+These points were left open or contradictory in the proposal and were settled by the implementer in [PR #79](https://github.com/peerspan/peerspan-internal/pull/79), choosing what fits the proposal best. They are not owner decisions; the owner may revisit them. Each is specified in the contract section above.
+
+- **CAP-16C.impl1. A session of another agent in `call --from-session`.** The proposal said both "checked as for `message send`" (404) and "a session of another agent is 400". Settled: 404, as for `message send`.
+- **CAP-16C.impl2. Refusal codes of `GET /v1/agent-lookup`.** `invalid` (400), `local` (400), `unknown_person` (404), `unknown_host` (404), `ambiguous` (409), `unknown` (404). The CLI syncs the network once on `unknown_person` or `unknown_host`, as `allow` does for person labels.
+- **CAP-16C.impl3. A host that predates the lookup route, with no matching directory entry.** It is listed in `unanswered` with the error `unsupported`, rather than counted as answering "no agent".
+- **CAP-16C.impl4. How `shares` triggers the live lookup.** `GET /v1/capabilities` and `GET /v1/capabilities/{name}` take `?lookup=true`; `shares`, `capability list`, and `capability show` use it. Without it, the daemon uses its in-memory cache, and an agent not looked up since the daemon started reads `unanswered`.
+- **CAP-16C.impl5. Which recipients carry `agent_state`.** Only `agent:` recipients; other recipients keep exactly `{network_id, principal, label}`.
+- **CAP-16C.impl6. Where `for_agents` appears in `discover`.** Only on agent-only capabilities, which keep all their `via` entries. Capabilities the owner can call keep only their `from_agent: null` entries, as in slice 2.
+- **CAP-16C.impl7. `discover --from-agent` with PERSON or `--network`.** Accepted, narrowing as in `discover`; with neither, the output equals the agent's `list_capabilities`.
+- **CAP-16C.impl8. Which principals the `unshare` fallback lists for `PERSON/AGENT`.** Those on hosts bound to the person and on every host no longer in the network, since a revoked host's binding leaves with it.
+- **CAP-16C.impl9. The `shares --json` layout.** Not shared (Go and Rust already differ); each agent recipient object in it is exactly `{network_id, principal, label, agent_state, unshare}`, and the printed `unshare` command (in `shares` and in `unshare`'s note) uses `HOST_ID/AGENT_NAME` for a found agent, never the person's label, so it is unambiguous and shell-safe, and otherwise the raw principal.
+- **CAP-16C.impl10. Review wording.** The exact recipient, `Not checked:`, agent paragraph, and trusted-own-agent lines, including a wording for a host bound to no person; and dropping the unreachable "name shared by two agents" case from Verification (names are unique within a host), keeping its refusal as defensive behavior.
 
 #### CAP-16D: resource bounds and the `gh` source
 
