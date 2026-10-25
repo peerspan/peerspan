@@ -144,7 +144,11 @@ impl Verifier<'_> {
                 .ok_or_else(|| problem("invalid"))?;
             let kept = string_list(o, "kept")?;
             check(sorted(&kept) && (!revoke || kept.is_empty()), "invalid")?;
-            stamp(text(o, "removed_at")?)?;
+            if v2 {
+                stamp(text(o, "removed_at")?)?;
+            } else {
+                legacy_stamp(text(o, "removed_at")?)?;
+            }
             if v2 {
                 check(
                     self.roots
@@ -238,7 +242,7 @@ impl Verifier<'_> {
                             && key(s(o, "host_public_key")),
                         "invalid",
                     )?;
-                    stamp(text(o, "unbound_at")?)?;
+                    legacy_stamp(text(o, "unbound_at")?)?;
                     ssh(
                         text(o, "person_public_key")?,
                         &lines(&[
@@ -263,7 +267,7 @@ impl Verifier<'_> {
                 s(o, "network_id") == self.net && key(s(o, subject)),
                 "invalid",
             )?;
-            stamp(text(o, at)?)?;
+            legacy_stamp(text(o, at)?)?;
             let m = lines(&[domain, &self.net, text(o, subject)?, text(o, at)?]);
             let valid = if p.kind == "host_leave" {
                 raw(text(o, subject)?, &m, text(o, "signature")?)?;
@@ -351,7 +355,7 @@ impl Verifier<'_> {
                 "invalid",
             )?;
             let (epoch_root, epoch) = self.epoch_root(o, "epoch")?;
-            stamp(text(o, "delegated_at")?)?;
+            legacy_stamp(text(o, "delegated_at")?)?;
             root(
                 &epoch_root,
                 &lines(&[
@@ -395,7 +399,7 @@ impl Verifier<'_> {
                             &[],
                         )?;
                         let epoch = num(o, "epoch")?;
-                        stamp(text(o, "admitted_at")?)?;
+                        legacy_stamp(text(o, "admitted_at")?)?;
                         let domain = if person {
                             "peerspan-person-admit-v1"
                         } else {
@@ -521,7 +525,7 @@ impl Verifier<'_> {
                 s(o, "network_id") == self.net && key(person) && key(host),
                 "invalid",
             )?;
-            stamp(at)?;
+            legacy_stamp(at)?;
             let m = lines(&["peerspan-host-bind-v1", &self.net, person, host, at]);
             ssh(person, &m, text(o, "signature")?)?;
             raw(host, &m, text(o, "host_signature")?)?;
@@ -598,7 +602,7 @@ impl Verifier<'_> {
             String::new()
         };
         check(
-            stamp(text(o, "joined_at")?)? <= stamp(text(o, "invite_expires_at")?)?,
+            legacy_stamp(text(o, "joined_at")?)? <= legacy_stamp(text(o, "invite_expires_at")?)?,
             "invalid",
         )?;
         let parts = if person {

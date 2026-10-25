@@ -1,0 +1,356 @@
+{
+  "checked_on": "2026-10-25",
+  "base_main": "61e2d56",
+  "scope": "Verified coordinator linking feature negotiation, v2 maps/members/moves, complete signed-state projection and typed fresh writers, atomic linking outcomes/redemptions, reviewed root feature import, relay eligibility and saved-proof/outcome consistency. Host ceremony/CLI/up/installed acceptance remain separate milestone gates.",
+  "independent_authorship": "Contract and public independent signers only; author never read implementation. Implementer retained exact tests and narrow parent-approved compatibility/error amendments.",
+  "bounded_runtime": {
+    "scope": "Latest completed independent sections across precisely attributed immutable artifacts; these are not a claim of one coherent final binary run. Earlier coherent416 and first failure/fix records are retained below.",
+    "authenticated_requests_total": 435,
+    "suites": [
+      {
+        "path": "conformance/linking_coordinator.py",
+        "sections_passed": 10,
+        "failed": 0,
+        "authenticated_requests": 172,
+        "source": "8dcf0eae172818c4c68776271977a0381c45a10c",
+        "binary_sha256": "a55ffc58f232181d8c5b2507007390ee54a1b130fcd3ce84ce484d445b780e4f",
+        "result_file": "/tmp/peerspan-coordinator-legacybridge-gates/results.json"
+      },
+      {
+        "path": "conformance/linking_imports.py",
+        "sections_passed": 17,
+        "failed": 0,
+        "authenticated_requests": 200,
+        "source": "49874dd52081f843d9c980597db0f2c54d115f8c",
+        "binary_sha256": "640b1ed9da4f8c8c9d74559757d3eb072dc4a3e9656afcaf49de60d3d01eaf11",
+        "result_file": "/tmp/peerspan-coordinator-final-focused/results.json"
+      },
+      {
+        "path": "conformance/linking_backups.py",
+        "sections_passed": 5,
+        "failed": 0,
+        "authenticated_requests": 49,
+        "atomic_corruptions_refused": 36,
+        "source": "49874dd52081f843d9c980597db0f2c54d115f8c",
+        "binary_sha256": "640b1ed9da4f8c8c9d74559757d3eb072dc4a3e9656afcaf49de60d3d01eaf11",
+        "result_file": "/tmp/peerspan-coordinator-final-focused/results.json"
+      },
+      {
+        "path": "conformance/linking_mailboxes.py",
+        "selected_sections": [
+          "crash_and_backup"
+        ],
+        "sections_passed": 1,
+        "failed": 0,
+        "authenticated_requests": 13,
+        "source": "b4c23a87fce9a741b59f8f5d366b3164a0f96d71",
+        "binary_sha256": "1a4b242ac5ed24baa1b6f34ef26299d9e08a78cd9f1643a0ae63c275b0972cf7",
+        "result_file": "/tmp/peerspan-coordinator-coherent-inert2/results.json"
+      },
+      {
+        "path": "conformance/linking_backups.py",
+        "selected_sections": [
+          "equivalent_rotation_signatures"
+        ],
+        "sections_passed": 1,
+        "failed": 0,
+        "authenticated_requests": 1,
+        "atomic_corruptions_refused": 1,
+        "source": "359f7b7c6c153042757fabd0f97664228bcf15ee",
+        "binary_sha256": "3e480641be73a8516552b5bf9a1f2b57da91fed5ec7397cb5fbc929134f14047",
+        "suite_source": "e76cc50 integrated16115c8: forged proper-PF proof ADDED while every saved authorized reference remains intact",
+        "result_file": "/tmp/peerspan-link-successor-followups/results.json"
+      }
+    ]
+  },
+  "integration_evidence": {
+    "commit": "e64ebf4",
+    "go_coordinator_source_unchanged": true,
+    "shared_go_linking_source_unchanged": true,
+    "commands": [
+      "git diff --exit-code d6ea3b6 -- go/internal/coord",
+      "git diff --exit-code d6ea3b6 -- go/internal/linking"
+    ],
+    "rust_main_preserved_before_legacy_mirror": true
+  },
+  "legacy_time_compatibility": {
+    "contract": "docs/linking-legacy-time-checks.md",
+    "independent_suite": "conformance/linking_legacy_times.py",
+    "checks_per_implementation": 114,
+    "both_passed": true,
+    "fixed_fixture_signatures_reproduced": 199,
+    "existing_transport_regressions_per_implementation": 134,
+    "both_transport_passed": true,
+    "baseline_amendment": "Only coordinator_move/time_fraction and coordinator_successor/time_fraction now explicitly succeed; all other strict malformed/new-object expectations unchanged."
+  },
+  "static_gates": {
+    "go_build": true,
+    "go_vet_focused": true,
+    "rust_fmt": true,
+    "rust_clippy_all_targets": true,
+    "clippy_source": "701af59"
+  },
+  "review_findings": {
+    "current_authority_fresh_legacy_P1": "4086b8f; independent old/current root route cases pass",
+    "removed_person_labels_P2": "4086b8f; independent freed-label redemption passes",
+    "statement_person_label_conflict_P2": "f45cd7d; independent legacy/envelope/mixed-batch unchanged-state negatives pass",
+    "saved_redemption_snapshot_P2": "4e4802e; independent corruption cases pass",
+    "fresh_dependency_catalog_P1": "26ecc07; both redemption and operation fixed; independent11-request negative/no-partial/current-positive gate passes",
+    "fresh_admission_first_use_P1": "4d046fa; independent3sections/22requestsPASS, original bypasses reproduced; thread resolved"
+  },
+  "subsequent_successor_delta": {
+    "contract_commit": "15dfebd",
+    "source_commit": "2b4fa4c",
+    "binary": "/tmp/peerspan-link-network-coord-successors",
+    "sha256": "02e788747a4a23bd285a36ab7b0ceea91f0b784eda45bfe27e64a68ff979572a",
+    "status": "PASS:16 authenticated requests; actual same-key address and new-key CLI successors, both listeners, restart, exact independently verified original PF bytes",
+    "independent_source_commits": [
+      "3fd7f29",
+      "4234ba3"
+    ]
+  },
+  "full_language_gates": {
+    "source_at_start": "f999344",
+    "result_file": "/tmp/peerspan-coordinator-final-language-results.json",
+    "go_race": {
+      "result": "Only existing TestPathDiscoveryChecks at peer_path_test.go157 failed; coordinator19.807s and all remaining packages passed",
+      "log": "/tmp/peerspan-coordinator-final-go-race.log",
+      "seconds": 371.23
+    },
+    "rust": {
+      "result": "137 library passed; existing adapter_outbound send_status readiness failed at1119; isolated exact test then passed unchanged17.10s. Subsequent main10/integration6 passed. Two opt-in connectivity tests ignored. No assertions changed.",
+      "log": "/tmp/peerspan-coordinator-final-rust-tests.log",
+      "full_seconds": 350.87
+    },
+    "later_affected_gate": "Focused coordinator/linking race and full Go vet PASS on6368089; logs under final-regressions. Full-language earlier flakes retained."
+  },
+  "remaining": [
+    "Exact-head bot and root review before merging this coordinator PR",
+    "Go/Rust runtime and installed/up acceptance, followed by final documentation, remain separate host milestone gates"
+  ],
+  "fresh_dependency_catalog_P1": {
+    "contract": "a0e7a40",
+    "implementation": "26ecc07",
+    "independent_source": "0d350b5",
+    "binary": "/tmp/peerspan-link-network-coord-writerfix",
+    "sha256": "1a438cffd60ca44ef2e053e824cf12770bb43d91e6d3cf51811682a4a3bc0ed4",
+    "authenticated_requests": 11,
+    "result": "PASS: retired-root additions refused403 in fresh redemption and operation with no partial change/consumption; exact current-root retries succeed",
+    "affected_original_suites": "PASS on coherent final artifact: coordinator10/172 and imports8/130, plus backup and crash control =339requests"
+  },
+  "initial_feature_dependency_delta": {
+    "contract": "11b2963",
+    "implementation": "1e07721",
+    "independent_source": "2c5b5da",
+    "binary": "/tmp/peerspan-link-network-coord-featurefix",
+    "sha256": "f24cabd79cccbd12d3b87595c7948e9cb752de708e000371509d0892cbb05ccc",
+    "authenticated_requests": 12,
+    "result": "PASS: unrelated retired-root person/invite restrictions refused403 during initial current-root feature activation, including pending proposal/ack dependencies, unchanged prefeature public state; current-root positive activates201"
+  },
+  "membership_reconciliation_P2": {
+    "contract": "f6dfc91",
+    "implementation": "bbfb12c",
+    "binary": "/tmp/peerspan-link-network-coord-reconcile",
+    "sha256": "0ddffe46e01a1a077495d3d0005100233d6b63ac9162cbc78eabc6502fb4d5d3",
+    "result": "PASS two sections /17requests; fresh dependency removals free quota atomically before replacement for operation and redemption. Included in coherent390 runtime.",
+    "independent_source": "bde9dd4"
+  },
+  "legacy_regressions": {
+    "artifact": "68f01622567e3ec16fdc079473ee5ec446685c0aa3caac41f162644e76c41b1c",
+    "results": "/tmp/peerspan-coordinator-final-regressions/results.json",
+    "passed_all_four": [
+      "coordination",
+      "revocation",
+      "policy",
+      "relay",
+      "persons"
+    ],
+    "timing_failures_retained": {
+      "persons": "Original Rust/Go binding HTTP/shutdown timeout; baseline and exactcurrentisolatesPASS;remaining RustRust/onboardingPASS, all4complete",
+      "admins": "OriginalGoGojoin10s timeout; baseline+currentisolatesPASS;GoRust,RustGoPASS;RustRustallfunctionalassertionscompletebutshutdown8stimeout",
+      "nat_lab": "Cone/symmetricall4PASS;UDPblockedRustRustPASS;GoGo baselineandcurrent10sCLIcreatefail,GoRust/RustGo10sCLIfail",
+      "coord_successor": "AllmatrixsectionsPASShieldexcept2timingcases: GoRust standinRust invalidaddress timedout instead ofinvalidsuccessor; RustGo unreachablependingerror notyetset. Exactisolationspending."
+    },
+    "isolates": "/tmp/peerspan-coordinator-final-regressions/isolates.json",
+    "remaining": [
+      "Four coord_move combinations running separately",
+      "Exact baseline/current isolation for two successor timing failures and Rust/Rust admin cleanup",
+      "Remaining NAT UDP-blocked timing evidence; baseline Go/Go also fails unchanged10s CLI setup"
+    ],
+    "coord_ops": "PASS44.41s with system Python/PyYAML",
+    "scope": "Historical earlier regression runs, superseded for completion by latest_legacy_regressions below. First failures and original attributions are retained."
+  },
+  "prior_bounded_runtime": {
+    "binary": "/tmp/peerspan-link-network-coord-verifiedwriter",
+    "binary_source": "6368089",
+    "binary_sha256": "86aef42b4f6ac78af357c4a43a2dc06bffa8fac5b0fd5e99c8c1ea7c9d58b476",
+    "suites": [
+      {
+        "path": "conformance/linking_backups.py",
+        "source_commit": "3fd77b1",
+        "sections_passed": 3,
+        "failed": 0,
+        "atomic_corruptions_refused": 18,
+        "authenticated_requests": 24
+      },
+      {
+        "path": "conformance/linking_coordinator.py",
+        "source_commits": [
+          "0c86e12",
+          "9e51b73",
+          "eccc791"
+        ],
+        "sections_passed": 10,
+        "failed": 0,
+        "authenticated_requests": 172
+      },
+      {
+        "path": "conformance/linking_imports.py",
+        "source_commits": [
+          "397d77f",
+          "38ae503",
+          "3fd7f29",
+          "4234ba3",
+          "0d350b5",
+          "2c5b5da",
+          "bde9dd4",
+          "f5c61a5"
+        ],
+        "sections_passed": 14,
+        "failed": 0,
+        "authenticated_requests": 181
+      },
+      {
+        "path": "conformance/linking_mailboxes.py",
+        "source_commits": [
+          "6b4cd0d",
+          "ad2dc6c",
+          "8b104a4"
+        ],
+        "selected_sections": [
+          "crash_and_backup"
+        ],
+        "sections_passed": 1,
+        "failed": 0,
+        "authenticated_requests": 13
+      }
+    ],
+    "authenticated_requests_total": 390,
+    "scope": "Independent public coordinator route/backup evidence. Host ceremony and installed/up acceptance are separate gates. Large mailbox resource sections previously passed against mailbox runtime, not rerun here.",
+    "result_file": "/tmp/peerspan-coordinator-coherent-verifiedwriter/results.json"
+  },
+  "fresh_admission_first_use_P1": {
+    "contract": "6835c09",
+    "implementation": "4d046fa",
+    "independent_source": "f5c61a5",
+    "result": "All three bypasses reproduced on parent bbfb12c; corrected artifact refuses expired/revoked redemption and expired activation through fresh catalog publication,22requestsPASS; coherent390PASS.",
+    "binary": "/tmp/peerspan-link-network-coord-firstuse",
+    "sha256": "0ae519a73a6267606ef5b4546f9018633e7078c52a443a01093786f94c8cb253"
+  },
+  "atomic_binding_target_correction": {
+    "contract": "504f987",
+    "implementation": "7659b9b",
+    "result": "Full original suites exposed new initial-feature fresh-writer failure: new root-authorized person/host admission targets had been removed before original-person consent binding validation. Preserve pre-request issuer authority; independently validate each new admission target before binding-only use. Exact original suites unchanged, now390PASS.",
+    "failure_results": "/tmp/peerspan-coordinator-coherent-reconcile/results.json",
+    "prior_failure_scope": "Initial feature setup fails proof_required in coordinator/import/backup cases; subset delta fixtures had passed. No broad success claim made for that artifact."
+  },
+  "linked_host_selector_correction": {
+    "contract": "7dec2b0",
+    "implementation": "6368089",
+    "result": "Retain completed activation provenance for encountered linked hosts despite newer root membership renewal. Exact public rotation diagnostic previously failed selected-closure bootstrap; corrected helper succeeds. Independent active rotation runtime remains host gate."
+  },
+  "recent_regressions": {
+    "registered_members_and_issuer_provenance": "Missing exact membership/join PFs for post-feature legacy registrations and missing/forged/wrong-person historical issuer delegation now refuse backup/restore atomically. Complete expired and withdrawn history remains accepted.",
+    "inert_completed_admissions": "Aggregate completed withdrawn admissions are retained as non-authorizing provenance. First failed inert import onb4c23a8 retained; fixed49874dd passes all17 import sections. Selected renewals/current authority remain strict.",
+    "exact_rotation_alias": "PASS final359:1 positive import/1 atomic forged proper-PF alias corruption with all prior snapshot references retained (e76cc50). Positive aliases preserve every parsed field including exact signature; JSON whitespace/key order may differ. Strict final helper equals8d8; permissive121 reverted before merge.",
+    "prefeature_v2_sync": "PASS all4 revocation pairings9.02s after8dc registered-host bridge correction; coordinationall4 alsoPASS45.09s. First Rust-pair fork403 failures retained. LF-pinned andGETmap paths remain fully verified.",
+    "prefeature_v2_successors": "PASS signed successors after359f7b7: Go/Rust109.67s, Rust/Go110.30s, Rust/Rust107.57s, including both stand-in implementations. Legacy Go/Go passed the initial matrix; v1 behavior is unchanged. Exact format2 is unchanged. First missing-chain failures are retained.",
+    "independent_review": "Rust owner independently reviewed narrow prefeature bridges without findings; actual clean Codex receipts8dcf0ea6394727545 and16115c8b806394888211. Evidence-only final commit will require exact-head review."
+  },
+  "latest_static_gates": {
+    "source": "359f7b7c6c153042757fabd0f97664228bcf15ee",
+    "binary_sha256": "3e480641be73a8516552b5bf9a1f2b57da91fed5ec7397cb5fbc929134f14047",
+    "go_build": true,
+    "full_go_vet": true,
+    "seconds": 10.41,
+    "focused_coord_linking_race": {
+      "source": "8dcf0eae172818c4c68776271977a0381c45a10c",
+      "passed": true,
+      "seconds": 41.49
+    }
+  },
+  "runtime_environment": {
+    "isolated_runtime": "Runtime process/WAL fixtures use /dev/shm after observed disk fsync/jbd2 stalls; original on-disk failures retained, unchanged assertions and deadlines.",
+    "installed_runtime": "Actual installed acceptance uses normal on-disk user homes and real Linux systemd services; separate host milestone gate.",
+    "serialization": "Heavy runtime cases use shared flock with handoff between cases."
+  },
+  "latest_legacy_regressions": {
+    "attribution": "Per-row artifact sources and hashes are authoritative. These completed runs span frozen Go17/18, Rust22/23 and coordinator8dc/359; this is not one all-suites run on one binary.",
+    "results": "/tmp/peerspan-link-host-final-regressions/results.json",
+    "passed": [
+      "host_service (2 implementations)",
+      "peer_messaging (all4)",
+      "coordination (all4)",
+      "persons (all4 and onboarding)",
+      "admins (all4)",
+      "policy (all4)",
+      "policy_sync (all4 x two scenarios)",
+      "nat_lab (cone, symmetric and UDP-blocked all4)",
+      "launch_cli (all4)",
+      "launch_onboarding (all4)",
+      "launch_push (all4 and Node adapter)"
+    ],
+    "revocation": {
+      "passed": "all4",
+      "results": "/tmp/peerspan-coordinator-legacybridge-gates/results.json",
+      "seconds": 9.02,
+      "source": "8dcf0ea",
+      "first_failure": "Initial Rust pairings received coordinator403 before the host could reject a signed root fork; fixed only prefeature POST sync registered-host authorization."
+    },
+    "relay": {
+      "passed": "all4 unchanged bounded isolates",
+      "results": "/tmp/peerspan-link-host-relay-startup-isolates/results.json",
+      "first_failure": "Initial Go/Go coordinator startup: UDP49150 address already in use."
+    },
+    "successor": {
+      "passed": [
+        "Go/Go initial matrix",
+        "Go/Rust final",
+        "Rust/Go final",
+        "Rust/Rust final"
+      ],
+      "results": "/tmp/peerspan-link-successor-followups/results.json",
+      "maintenance": "Independent stand-in understands v1/v2 legacy routes and forwards the actual TLS/HTTP Host port. Invalid chains are injected only in legacy responses; all assertions and deadlines retained."
+    },
+    "move": {
+      "passed": [
+        "Go/Rust/Rust",
+        "Rust/Go/Go",
+        "Go/Go/Rust",
+        "Rust/Rust/Go bounded full combination after explicit Alice setup sync"
+      ],
+      "results": "/tmp/peerspan-link-successor-followups/results.json",
+      "setup_proof": "Rust no-feature delegate_admin and sign_delegation are byte-identical to main61e2d56 (SHA256015f8a98... and451b2a1a...); legacy stored_persons tail is unchanged. Optimized remote joins may finish before Alice background sync.",
+      "followup_results": "/tmp/peerspan-link-move-ordering-isolate/results.json",
+      "followup_seconds": 67.25,
+      "first_failure": "Rust/Rust/Go stopped before any move at delegate-admin: Quinn had joined remotely but Alice had not yet synced its local person projection. Explicit setup sync resolves the existing precondition without assertion/deadline changes."
+    },
+    "capabilities": {
+      "passed": [
+        "Go/Rust all21+13",
+        "Rust/Rust all21+13",
+        "Go/Go initial20+13 plus exact held-key claims/removal followup onGo18",
+        "Rust/Go initial20+13 plus exact tie-break-only followup77.09s"
+      ],
+      "go_removal_results": "/tmp/peerspan-link-go18-capability-removal/results.json",
+      "rust_go_tie_break_results": "/tmp/peerspan-link-rustgo-capability-tie-break/results.json",
+      "first_failures": "Go legacy explicit held other-person key refused untilGo18; Rust/Go completed tie-break assertions then coordinator restart address was already in use. Original logs retained; no repeat idle wait."
+    }
+  },
+  "final_source_equivalence": {
+    "runtime_source": "359f7b7c6c153042757fabd0f97664228bcf15ee",
+    "coordinator_and_shared_linking_unchanged": true,
+    "command": "git diff --exit-code 359f7b7 -- go/internal/coord go/internal/linking",
+    "after_runtime_changes": "Independent successor/alias fixtures, explicit move setup sync, and evidence only."
+  }
+}

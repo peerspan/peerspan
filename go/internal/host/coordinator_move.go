@@ -731,7 +731,7 @@ func (s *Store) mapLacks(ctx context.Context, network string, persisted persiste
 			return true, nil
 		}
 	}
-	servedPolicies := map[string]int64{}
+	servedPolicies := map[string]uint64{}
 	for _, p := range membership.DecodeRaw[membership.Policy](m.Policies) {
 		if membership.VerifyPolicy(network, p) == nil && p.Version > servedPolicies[p.PersonPublicKey] {
 			servedPolicies[p.PersonPublicKey] = p.Version

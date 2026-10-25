@@ -50,7 +50,11 @@ func (v *activationVerifier) loadWithdrawals() error {
 		if e != nil || !sorted(kept) || revoke && len(kept) > 0 {
 			return pathError("invalid")
 		}
-		if _, e = stamp(scalar(o, "removed_at")); e != nil {
+		parseTime := legacyStamp
+		if v2 {
+			parseTime = stamp
+		}
+		if _, e = parseTime(scalar(o, "removed_at")); e != nil {
 			return pathError("invalid")
 		}
 		if v2 {
@@ -150,7 +154,7 @@ func (v *activationVerifier) loadRestrictions() error {
 			if fields(o, "network_id person_public_key host_public_key unbound_at signature") != nil || scalar(o, "network_id") != v.net || !key(scalar(o, "person_public_key")) || !key(scalar(o, "host_public_key")) {
 				return pathError("invalid")
 			}
-			if _, e := stamp(scalar(o, "unbound_at")); e != nil {
+			if _, e := legacyStamp(scalar(o, "unbound_at")); e != nil {
 				return pathError("invalid")
 			}
 			if personSignature(scalar(o, "person_public_key"), message("peerspan-host-unbind-v1", v.net, scalar(o, "person_public_key"), scalar(o, "host_public_key"), scalar(o, "unbound_at")), scalar(o, "signature")) != nil {
@@ -164,7 +168,7 @@ func (v *activationVerifier) loadRestrictions() error {
 		if fields(o, "network_id "+subject+" "+at+" signature") != nil || scalar(o, "network_id") != v.net || !key(scalar(o, subject)) {
 			return pathError("invalid")
 		}
-		if _, e := stamp(scalar(o, at)); e != nil {
+		if _, e := legacyStamp(scalar(o, at)); e != nil {
 			return pathError("invalid")
 		}
 		m := message(domain, v.net, scalar(o, subject), scalar(o, at))
@@ -252,7 +256,7 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 		if e != nil {
 			return e
 		}
-		if _, e := stamp(scalar(o, "delegated_at")); e != nil {
+		if _, e := legacyStamp(scalar(o, "delegated_at")); e != nil {
 			return pathError("invalid")
 		}
 		if rootSignature(root, message("peerspan-admin-delegate-v1", v.net, strconv.FormatUint(epoch, 10), scalar(o, "person_public_key"), scalar(o, "delegated_at")), scalar(o, "signature")) != nil {
@@ -300,7 +304,7 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 				if err != nil {
 					return pathError("invalid")
 				}
-				if _, e = stamp(scalar(o, "admitted_at")); e != nil {
+				if _, e = legacyStamp(scalar(o, "admitted_at")); e != nil {
 					return pathError("invalid")
 				}
 				domain := "peerspan-host-admit-v1"
@@ -389,7 +393,7 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 		if fields(o, "network_id person_public_key host_public_key bound_at signature host_signature") != nil || scalar(o, "network_id") != v.net || !key(person) || !key(host) {
 			return pathError("invalid")
 		}
-		if _, e := stamp(at); e != nil {
+		if _, e := legacyStamp(at); e != nil {
 			return pathError("invalid")
 		}
 		m := message("peerspan-host-bind-v1", v.net, person, host, at)
@@ -402,6 +406,9 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	}
 	v.restrictState()
 	if v.feature == "" {
+		if v.featurePreparation {
+			return v.validateAccessCandidates()
+		}
 		return pathError("proof_required")
 	}
 	if v.ctx.KnownFeatureID != "-" && v.ctx.KnownFeatureID != v.feature {
@@ -475,11 +482,11 @@ func (v *activationVerifier) legacyMembership(p catalogProof, person bool) (bool
 			return false, pathError("proof_required")
 		}
 	}
-	expires, e := stamp(scalar(o, "invite_expires_at"))
+	expires, e := legacyStamp(scalar(o, "invite_expires_at"))
 	if e != nil {
 		return false, pathError("invalid")
 	}
-	joined, e := stamp(scalar(o, "joined_at"))
+	joined, e := legacyStamp(scalar(o, "joined_at"))
 	if e != nil || joined.After(expires) {
 		return false, pathError("invalid")
 	}
@@ -553,7 +560,7 @@ func (v *activationVerifier) actor(person, cert string, scope uint64, historical
 			return r, e
 		}
 	}
-	if !v.state.ActivatedCertificates[cert] {
+	if !v.state.ActivatedCertificates[cert] && !(v.projectHistory && v.inertCertificates[cert]) {
 		return r, pathError("invalid")
 	}
 	r.SignerPublicKey = c.device
@@ -605,6 +612,12 @@ func (v *activationVerifier) historicalRecord(r SignedObject, o Object, scope ui
 		return nil
 	}
 	return v.retained(r.ID, person, cert, depth+1)
+}
+
+func (v *activationVerifier) withdrawnActivationAdmission(id string, o Object) bool {
+	person := scalar(o, "person_public_key")
+	withdrawal, removed := v.history.withdrawals[person]
+	return v.projectHistory && v.history.delegated[person] && removed && (withdrawal.revoke || !withdrawal.v2 || !withdrawal.kept["record:"+id])
 }
 
 // retentionSubject verifies original signatures and structural authority only.
@@ -680,6 +693,10 @@ func (v *activationVerifier) retentionSubject(id string) (string, string, uint64
 }
 
 func (v *activationVerifier) checkpoint(p catalogProof, id, person, cert string, depth int) error {
+	return v.checkpointWithSignature(p, id, person, cert, depth, true)
+}
+
+func (v *activationVerifier) checkpointWithSignature(p catalogProof, id, person, cert string, depth int, signed bool) error {
 	o := p.object
 	issuer := scalar(o, "issuer_certificate_id")
 	signer := person
@@ -690,7 +707,7 @@ func (v *activationVerifier) checkpoint(p catalogProof, id, person, cert string,
 		}
 		signer = c.device
 	}
-	if _, e := Read("checkpoint", p.body, signer, "-"); e != nil {
+	if _, e := checkpointBody(o, signer, signed); e != nil {
 		return pathError("invalid")
 	}
 	records, e := stringsOf(o, "records")
@@ -909,6 +926,9 @@ func (v *activationVerifier) settleHistory() error {
 				r, e := Read(typ, entry.body, signer, "-")
 				if e != nil {
 					return pathError("invalid")
+				}
+				if v.projectHistory && (entry.scope == 8 && v.withdrawnActivationAdmission(r.ID, o) || v.inertRecords[r.ID]) {
+					continue
 				}
 				if e = v.historicalRecord(r, o, entry.scope, 0); e != nil {
 					return e

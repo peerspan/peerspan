@@ -290,10 +290,13 @@ func adminRequest(ctx context.Context, client host.Client, args []string, fs *pf
 		if err != nil {
 			return "", "", nil, err
 		}
-		version := int64(1)
+		version := uint64(1)
 		for _, g := range groups {
 			if g.Name == name {
-				version = g.Version + 1
+				version, err = membership.NextAccessVersion(g.Version)
+				if err != nil {
+					return "", "", nil, err
+				}
 			}
 		}
 		loaded, err := person.Load(personKey(fs))

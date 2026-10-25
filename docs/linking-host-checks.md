@@ -71,6 +71,18 @@ The 512 KiB state-free verification probes retain their existing bounds. Fixed
 stored-state verification entry points accept the full-map budget; an arbitrary
 caller-provided budget never relaxes signature or dependency rules.
 
+Public policy/group versions, policy/capability citations, edit version fields
+and delivery/status version views are u64 in both implementations. Their
+existing positive legacy JSON and signing lines remain unchanged. Refuse
+version progression at `2^64-1` before incrementing or signing; never wrap to
+zero. Generation refusal is HTTP 409 `quota_exceeded` with public error phrase
+`access version exhausted`; CLI-local preflight uses the same phrase. Check this
+before an edit reservation, signature or publication. Explicit signed payloads
+may jump to any strictly higher positive u64; CLI-generated updates use guarded
+prior-plus-one and edit reservations retain their existing exact-next-version
+rule. Existing policy/group, edit and delivery records retain JSON TEXT storage,
+so this requires no additional table or schema migration.
+
 Verifier versions are u64. Preserve the exact schema's INTEGER-affinity
 `link_highwater.version` column while supporting the full verified range. Encode
 `1..2^63-1` as positive SQLite INTEGER; encode `2^63..2^64-1` as an exact eight-byte
@@ -94,6 +106,46 @@ person; failure to find a live device returns repair, never creates a new person
 Pick the shortest usable renewal issuer path, then certificate ID, unless the
 user selected an exact issuer.
 
+### Local access views and peer propagation
+
+For an enveloped selected policy, `PolicyView` projects only its verified active
+unsigned payload fields, uses flat `signature: "-"`, retains `expires_soon`, and
+adds optional `authorization_base64`: canonical padded Base64 of the exact
+original signed envelope bytes. The existing already-unsigned `Group` view keeps
+`name, version, members, signer` and its existing member filtering, adding only
+optional `authorization_base64`; no new group signature/network/time fields.
+Legacy views omit the new field. Signed legacy Policy/Group wire types do not
+gain view metadata. Internal rule evaluation uses the independently verified selected
+payload. Exact public envelopes remain in `link_objects`; no projected unsigned
+view may be propagated as a legacy signed policy/group. An inactive highest
+selection never falls back to an older active body.
+
+Active upgraded peers use authenticated mTLS `GET` and `POST`
+`/peer/v1/networks/{network}/link-catalog`. GET has no body/query and returns
+exactly `{catalog}` with the full retained public catalog within the fixed
+16 MiB response cap. POST is exactly `{catalog}` within the fixed 1 MiB total
+mutation limit, and returns the same envelope with the verified full union
+within 16 MiB. Only a current independently verified network member can use
+these routes; absent active durable feature returns `upgrade_required`.
+Verify historical complete evidence and atomically append immutable exact
+objects, preserving all known restrictions, feature, operations and prior
+high-water. A draft cannot activate its signer. Replication does not authorize a
+fresh signature. Sufficient proof/delta batches carry large catalogs without
+raising the mutation limit. Old peer policy-array GET/POST return
+`upgrade_required` after durable activation; prefeature behavior stays unchanged.
+
+Existing `policy_deliveries.record` gains optional `catalog_base64` only for
+upgraded delivery rows; legacy rows omit it. Upgraded rows require canonical
+Base64 of the exact sufficient signed catalog, fixed before enqueueing. Their
+existing `policy` model may have `signature: "-"` solely for internal version and
+status fields. Every upgraded send/retry/repair dispatches the retained catalog
+exclusively; it never publishes that unsigned model through legacy policy-array
+routes. Existing retry and public delivery status semantics remain. Check the
+complete POST `{catalog}` against 1 MiB before enqueue/public mutation; an
+oversized sufficient closure fails atomically. Private persisted row parsing
+keeps its fixed 32 MiB bound. Both implementations preserve the optional field
+when opening each other's rows.
+
 ## Typed device management actions
 
 `POST /v1/networks/{id}/link-actions` is private local administration, with
@@ -101,14 +153,31 @@ exact request `{kind, payload_base64, certificate_id}`. `kind` is exactly one
 ordinary person-record kind in the accepted payload registry, or the explicit
 `device_revocation` variant below. Decode strict
 unsigned typed payload bytes; reject unknown kinds, fields, arbitrary messages
-and signature injection. `certificate_id: "auto"` resolves the current selected
+and signature injection. `ValidateActionPayload(kind, raw)` / Rust equivalent
+only checks the existing ordinary typed payload registry; it never verifies a
+signature or supplies authority. Providers check current path and typed
+preconditions before using a local private key, then verify the exact signed
+action before publication. `certificate_id: "auto"` resolves the current selected
 local device; an exact `dc_` requires its locally owned seed, same original
 person and fully usable exact path. Never silently replace the bound identity.
 Fresh pinned sync and current authority/preconditions are rechecked under the
 network lock before signing/publication. Verify scopes, role, expiry and
 self-invalidating delegated changes with the reusable action verifier.
 
-Response is exactly `{record_id, proof_id, record_base64, catalog, committed}`.
+The fixed-budget pre-sign helper `VerifyStoredActionIntent(ctx ActionContext,
+actionKind, catalog, payload)` returns `ActionAuthority` with `record_id: "-"`.
+For `person_record`, payload is exactly `{kind, payload_base64}` containing a
+strict ordinary unsigned payload. For `device_revocation`, it is the exact
+unsigned revocation object below. It uses the same current path, scopes,
+administrator role, expiry and self-invalidation preconditions as signed action
+verification, without claiming a signature or publication. Host-specific
+consent, fresh sync, mutation preconditions and access maxima remain additional
+gates. Signed action verification is mandatory after signing and before
+publication; intent verification cannot replace it.
+
+Every successful response is HTTP 200, including `committed: false` invitations
+and exact retries. Response is exactly `{record_id, proof_id, record_base64,
+catalog, committed}`.
 IDs derive from the exact signed record bytes. For ordinary published actions,
 post the exact catalog to v2 statements and atomically apply the verified result
 locally before returning `committed: true`. Preserve complete public record
@@ -134,6 +203,25 @@ original-person root or a currently live, unaffected and authorized strict devic
 ancestor for every retained record, with the union of those record scopes. Only a verified typed checkpoint writer
 or an exact external original-person signing workflow may perform this repair;
 cryptographic `Read` success or ordinary action fallback cannot authorize it.
+
+The explicit typed `link-actions` variant is `kind: "checkpoint"`. Its unsigned
+payload is exactly `{format, network_id, person_public_key,
+issuer_certificate_id, issued_at, records}`, the format-1 checkpoint without
+`signature`. `issued_at` is strict whole UTC seconds and records keep the existing
+sorted exact-ID rules. The payload's original person and issuer must equal the
+resolved owned local provider, including when outer `certificate_id` is `auto`.
+Fresh sync, the current local binding and the exact owned issuer seed are host
+gates. Before any signature, call `VerifyStoredCheckpointIntent` /
+`verify_stored_checkpoint_intent` with the same catalog context and unsigned
+bytes. This fixed stored-budget helper reuses the signed checkpoint's exact
+retention target/person, strict ancestor, current path and combined scope checks,
+skipping only the absent signature. It produces no signed ID, state or authority
+claim. Sign only the resulting fixed checkpoint message; signed
+`VerifyStoredCheckpoint` remains mandatory before publication. Success is HTTP
+200 with the existing result shape and exact signed checkpoint bytes:
+`record_id` is `"-"` under the existing checkpoint reader semantics and
+`proof_id` is the exact `pf_` for those bytes. Ordinary person-record/action
+fallback is forbidden.
 
 Live `invite-v1`/`person-invite-v1` grants have their strict scope-8/current-admin
 and expiry checks but are not unsupported standalone public catalog entries.
@@ -350,6 +438,15 @@ consent retires the request/code and deletes transport; stopping an approver rep
 never silently revokes a device/host or undoes committed authority. Terminal
 cleanup removes live code/secret/ciphertext while retaining public proof and
 operation tombstones, without promising secure erasure of backups/WAL.
+Successful local apply retains its strict public `link_pending` record
+indefinitely for status/resume, sets `secret` to SQL NULL and deletes its
+`link_frames` in that same atomic transaction. Exact public packet/ref fields
+remain; the operation result is the sole committed outcome. Cancelled/expired
+pre-final-consent requests retire secret/ciphertext immediately and retain their
+public tombstone through deadline plus 24 hours, after which it may be removed.
+Commit-persisted/finalizing public intent and operation tombstones survive expiry
+or an unknown-operation 404 until outcome is resolved. Terminal rows do not
+consume active-pending quota; durable operation bounds remain unchanged.
 
 Host barriers use the runtime foundation's opt-in environment controls:
 `host.request.after_commit`, `host.frame.after_commit`,
@@ -357,6 +454,81 @@ Host barriers use the runtime foundation's opt-in environment controls:
 `host.result.after_commit`. They occur after durable commit and before display,
 publish/submission or response. They contain only public request IDs. Both
 implementations honor the same barriers and test clock; production uses UTC.
+
+## Sufficient ceremony proof catalogs
+
+`SelectStoredProofCatalog(CatalogFactContext, full_catalog, seeds)` in Go and
+`select_stored_proof_catalog` in Rust select public dependencies from a verified
+stored snapshot. Each seed is exactly a public `{kind, body}` pair in the host
+language API: an accepted catalog kind or `packet`, with its original JSON bytes.
+Seeds must be complete strict public signed objects/packets, never unsigned
+persisted templates or standalone drafts. A signed owner packet may contain the
+accepted owner-signed binding draft whose host signature is still `-`. Seeds
+are dependency hints, never authority or catalog assertions. They are not
+inserted into the returned catalog; a pending target certificate remains inert.
+The complete source must pass the full stored network verifier before selection.
+Ceremony-local `lp_` references are not standalone catalog dependencies: follow
+a source activation when present, but missing local offer/request/selection
+packets remain the separate ceremony verifier's responsibility.
+The caller must separately verify the exact current offer/selection/activation,
+freshness, consent and transaction preconditions before signing or committing.
+
+Selection is a deterministic conservative fixed point, not a minimum-size proof:
+
+- Retain the complete signed root chain and durable feature. A feature roster's
+  unrelated hosts do not become dependency seeds merely by appearing in its
+  signed roster or embedded acknowledgments.
+- Follow exact proof and semantic references, including certificate parents,
+  original certificate activations, renewal membership/binding proofs, operation
+  activations, and referenced checkpoint records. Preserve each selected object's
+  exact bytes and derive its transport/semantic IDs independently.
+- For each encountered person retain original admission/membership alternatives,
+  recognized administrator delegations and withdrawals, and applicable retention
+  checkpoints. For each encountered host retain membership/admission, binding,
+  current attestation and feature-acknowledgment alternatives. Completed invite
+  redemptions supplying these facts retain their original signed invitations.
+  For an encountered linked host, retain its completed activation alternatives
+  even when a newer root admission or attestation supplies current membership;
+  those new statements do not replace the original feature participation proof.
+- Discover legacy SSHSIG issuers from the signature itself and include their
+  delegation/withdrawal evidence. Keep the complete signed kept list; including a
+  withdrawal does not require unrelated kept records unless an exact selected
+  record/checkpoint references them.
+- Retain every sticky person/host/device/invite restriction affecting any
+  encountered subject, including restrictions whose issuer requires further
+  original admission, certificate activation or retained-history dependencies.
+  Repeat dependency and restriction discovery until stable. Never hide a known
+  restriction to make a currently unusable path appear usable.
+- Unrelated policies, groups, certificates, activations and grants are omitted.
+  An exact reference may still pull an otherwise unrelated object into the
+  closure. Conservative alternatives for an encountered subject are permitted;
+  the selector cannot discard a restricting alternative to fit a byte limit.
+
+Seed bodies total at most 512 KiB, with at least one and at most 4,096 seeds.
+Conformance compares required/excluded proof IDs and exact source body bytes;
+no minimum subset or particular equivalent-byte alias is contractual.
+
+The returned entries are a subset of the source's original top-level entries.
+Nested references select their enclosing original activation/redemption, rather
+than creating new top-level entries from nested records.
+The returned format-1 catalog is sorted by independently derived proof ID and
+contains no duplicate or conflicting semantic identities. It must itself pass
+full stored network verification. Original signed bytes are never rebuilt or
+truncated. The fixed submitted-catalog limit is 1 MiB and 4,096 objects; an
+irreducible or conservative closure exceeding it returns `quota_exceeded` and
+no partial catalog. Missing exact dependencies return `proof_required`.
+The fixed stored-snapshot conformance adapter adds `kind: "proof_selection"`
+with exact fields `kind, network_base64, catalog_base64, seeds, epoch,
+known_feature_id, now`; `seeds` is a nonempty array of exact objects
+`{kind, body_base64}`. Success is exactly `{ok: true, catalog_base64}`. Failure
+uses the existing `{ok: false, code}` shape, additionally `required_ids` only
+for `proof_required`, with no partial output. This adapter is never a route.
+
+Operation request, result-packet/payload and encrypted mailbox/frame aggregate
+bounds are checked separately against the complete selected bytes before any
+network or local authority mutation. A large unrelated full-network snapshot
+must not force publishing that full snapshot; a genuinely oversized sufficient
+closure fails atomically.
 
 ## Verification
 

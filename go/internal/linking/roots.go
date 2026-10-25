@@ -21,7 +21,7 @@ func (v *activationVerifier) loadRoots() error {
 		if e != nil || epoch == 0 || fields(o, "network_id epoch previous_root_public_key root_public_key rotated_at signature") != nil || scalar(o, "network_id") != v.net || !key(scalar(o, "previous_root_public_key")) || !key(scalar(o, "root_public_key")) {
 			return pathError("invalid")
 		}
-		if _, e = stamp(scalar(o, "rotated_at")); e != nil {
+		if _, e = legacyStamp(scalar(o, "rotated_at")); e != nil {
 			return pathError("invalid")
 		}
 		if old, ok := rotations[epoch]; ok && !equivalent(old, o) {
@@ -107,7 +107,7 @@ func (v *activationVerifier) loadAttestations() error {
 		if e != nil {
 			return e
 		}
-		if _, e = stamp(scalar(o, "attested_at")); e != nil {
+		if _, e = legacyStamp(scalar(o, "attested_at")); e != nil {
 			return pathError("invalid")
 		}
 		if rootSignature(root, message("peerspan-attest-v1", v.net, strconv.FormatUint(epoch, 10), scalar(o, "host_public_key"), scalar(o, "member"), scalar(o, "attested_at")), scalar(o, "signature")) != nil {

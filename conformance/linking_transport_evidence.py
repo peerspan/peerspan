@@ -94,9 +94,9 @@ class Author(RootAuthor):
             for label, fields in (('address', {'address': 'not an address'}),
                                   ('key_length', {'public_key': b64(b'x' * 31)}),
                                   ('key_point', {'public_key': b64(bytes(32))}),
-                                  ('key_padding', {'public_key': original['public_key'].rstrip('=')}),
-                                  ('time_fraction', {time_field: NOW.replace('Z', '.0Z')})):
+                                  ('key_padding', {'public_key': original['public_key'].rstrip('=')})):
                 self.evidence('encoding/' + kind + '/' + label, [(kind, factory(**fields))], code='invalid')
+            self.evidence('encoding/' + kind + '/time_fraction', [(kind, factory(**{time_field: NOW.replace('Z', '.0Z')}))])
             self.evidence('alias/' + kind, [(kind, original), (kind, json.dumps(original, indent=2).encode())])
             self.evidence('conflict/' + kind, [(kind, original), (kind, factory(address='different.example:443'))], code='state_conflict')
             for label, address, code in (('opaque_underscore', 'coord_internal.example:443', None),

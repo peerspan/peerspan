@@ -17,6 +17,9 @@ Epochs are unsigned integers and must form a contiguous chain starting at one;
 the descriptor's genesis key is epoch zero. Root keys must be canonical. A different rotation at
 the same epoch is `state_conflict`; equivalent byte aliases are allowed. Bad
 shape, signature, predecessor or epoch zero is `invalid`.
+Here a byte alias retains every parsed field, including the exact signature;
+JSON whitespace or field ordering may differ. A different parsed signature is
+a different rotation object even when it signs the same rotation message.
 A missing intermediate rotation is `proof_required` with an empty required-ID
 list, since its exact transport ID cannot be derived from the missing bytes.
 

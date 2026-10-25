@@ -25,7 +25,7 @@ impl Verifier<'_> {
                     &[],
                 )?;
                 check(s(o, "network_id") == self.net, "invalid")?;
-                stamp(text(o, "moved_at")?)?;
+                legacy_stamp(text(o, "moved_at")?)?;
                 let message = lines(&[
                     "peerspan-coordinator-move-v1",
                     &self.net,
@@ -53,7 +53,7 @@ impl Verifier<'_> {
                     &[],
                 )?;
                 check(key(s(o, "previous_public_key")), "invalid")?;
-                stamp(text(o, "signed_at")?)?;
+                legacy_stamp(text(o, "signed_at")?)?;
                 let message = lines(&[
                     "peerspan-coordinator-successor-v1",
                     &sequence,

@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -11,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/peerspan/peerspan/go/internal/linking"
 	"github.com/peerspan/peerspan/go/internal/membership"
 	"github.com/peerspan/peerspan/go/internal/relay"
 	"github.com/peerspan/peerspan/go/internal/tlsid"
@@ -59,6 +62,9 @@ type cachedNetworks struct {
 	networks map[string]bool
 	fetched  time.Time
 }
+
+type relayPinKey struct{}
+type relayPin struct{ address, publicKey string }
 
 type relayConn struct {
 	id           relay.HostID
@@ -111,16 +117,69 @@ func (r *relayServer) networksOf(ctx context.Context, id relay.HostID) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	networks := map[string]bool{}
 	for rows.Next() {
 		var network string
 		if err = rows.Scan(&network); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		networks[network] = true
 	}
-	if err = rows.Err(); err != nil {
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	// Upgraded relay eligibility comes from complete signed state. A retained
+	// SQL reachability row cannot keep an expired or withdrawn grant alive.
+	tx, err := r.s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	for network := range networks {
+		feature, e := activeLinkFeature(ctx, tx, network)
+		if e != nil {
+			return nil, e
+		}
+		if feature == "-" {
+			continue
+		}
+		pin, ok := ctx.Value(relayPinKey{}).(relayPin)
+		if !ok {
+			delete(networks, network)
+			continue
+		}
+		n := linkNetwork{NetworkID: network, CoordinatorAddress: pin.address, CoordinatorPublicKey: pin.publicKey}
+		if e = tx.QueryRowContext(ctx, `SELECT name,root_public_key FROM networks WHERE id=?`, network).Scan(&n.Name, &n.GenesisRootPublicKey); e != nil {
+			return nil, e
+		}
+		c, e := linkCatalogOf(ctx, tx, network)
+		if e != nil {
+			return nil, e
+		}
+		at, e := linking.RuntimeNow(r.s.Now)
+		if e != nil {
+			return nil, e
+		}
+		catalog, _ := json.Marshal(c)
+		state, e := linking.VerifyStoredNetworkState(linkFactContext(n, c, feature, at), catalog)
+		if e != nil {
+			delete(networks, network)
+			continue
+		}
+		allowed := false
+		for _, member := range state.Members {
+			key, _ := membership.DecodeKey(member.HostPublicKey)
+			if membership.HostID(key) == id.String() {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			delete(networks, network)
+		}
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
@@ -158,6 +217,7 @@ func (r *relayServer) sharedNetwork(ctx context.Context, a, b relay.HostID) (str
 // serve runs one authenticated relay connection until it fails, goes idle,
 // is replaced, or ctx ends.
 func (r *relayServer) serve(ctx context.Context, conn *tls.Conn, sequence int64) {
+	ctx = context.WithValue(ctx, relayPinKey{}, relayPin{conn.LocalAddr().String(), r.s.identities[sequence].identity.PublicKey})
 	defer conn.Close()
 	public, err := tlsid.PeerKey(conn.ConnectionState())
 	if err != nil {

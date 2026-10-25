@@ -40,7 +40,7 @@ const (
 // host or the coordinator.
 type PolicyDelivery struct {
 	Target        string  `json:"target"`
-	Version       int64   `json:"version"`
+	Version       uint64  `json:"version"`
 	State         string  `json:"state"` // pending or delivered
 	Attempts      int64   `json:"attempts"`
 	NextAttemptAt *string `json:"next_attempt_at"`
@@ -57,7 +57,7 @@ type policyDeliveryRecord struct {
 // PolicyHead names a stored policy: what a sibling reports after a push.
 type PolicyHead struct {
 	PersonID string `json:"person_id"`
-	Version  int64  `json:"version"`
+	Version  uint64 `json:"version"`
 	SHA256   string `json:"sha256"`
 }
 
@@ -65,7 +65,7 @@ type PolicyHead struct {
 // policy and its deliveries.
 type PolicySyncStatus struct {
 	PersonID   string             `json:"person_id"`
-	Version    *int64             `json:"version"`
+	Version    *uint64            `json:"version"`
 	SHA256     *string            `json:"sha256"`
 	Deliveries []PolicyDelivery   `json:"deliveries"`
 	Edits      []PolicyEditStatus `json:"edits"`

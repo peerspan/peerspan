@@ -59,7 +59,7 @@ type StatusPerson struct {
 }
 
 type StatusPolicy struct {
-	Version    int64  `json:"version"`
+	Version    uint64 `json:"version"`
 	ValidUntil string `json:"valid_until"`
 }
 

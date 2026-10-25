@@ -40,7 +40,7 @@ func startSiblings(t *testing.T) siblingNet {
 	return n
 }
 
-func (n siblingNet) sign(t *testing.T, version int64, issued time.Time, rules ...membership.PolicyRule) membership.Policy {
+func (n siblingNet) sign(t *testing.T, version uint64, issued time.Time, rules ...membership.PolicyRule) membership.Policy {
 	t.Helper()
 	return must(membership.SignPolicy(n.pat, n.id, version, issued, 7*24*time.Hour, rules))
 }

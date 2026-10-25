@@ -99,16 +99,23 @@ func verifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 	if e != nil {
 		return bad("invalid")
 	}
-	invalidate := func() (ActionAuthority, error) {
-		return ActionAuthority{}, &ActionInvalidation{CertificateIDs: append([]string{}, path.CertificateIDs...)}
+	if e = validateActionEffects(ctx, actionKind, kind, o, r.Payload, v, path); e != nil {
+		return ActionAuthority{}, e
+	}
+	return ActionAuthority{actionKind, r.ID, v.net, v.feature, ctx.PersonPublicKey, ctx.CertificateID, required, path.NotAfter}, nil
+}
+
+func validateActionEffects(ctx ActionContext, actionKind, kind string, o Object, rawPayload []byte, v *activationVerifier, path SigningPath) error {
+	invalidate := func() error {
+		return &ActionInvalidation{CertificateIDs: append([]string{}, path.CertificateIDs...)}
 	}
 	if actionKind == "device_revocation" {
 		target, e := v.structural(scalar(o, "target_certificate_id"), ctx.PersonPublicKey)
 		if e != nil {
-			return ActionAuthority{}, e
+			return e
 		}
 		if target.device != scalar(o, "target_device_public_key") {
-			return bad("invalid")
+			return pathError("invalid")
 		}
 		for _, id := range path.CertificateIDs {
 			c, _ := pathCertificateFrom(id, v.state.Certificates[id]) // verified path
@@ -117,10 +124,10 @@ func verifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 			}
 		}
 		if ctx.CertificateID != "root" && !v.ancestor(ctx.CertificateID, target.id) {
-			return bad("forbidden")
+			return pathError("forbidden")
 		}
 	} else {
-		p, _ := parse(r.Payload) // Read verified the strict unsigned payload.
+		p, _ := parse(rawPayload) // Read verified the strict unsigned payload.
 		var expiry string
 		switch kind {
 		case "peerspan-policy-v1", "peerspan-policy-v2":
@@ -129,17 +136,17 @@ func verifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 			expiry = scalar(p, "invite_expires_at")
 			until, _ := stamp(expiry)
 			if !ctx.Now.Before(until) {
-				return bad("expired")
+				return pathError("expired")
 			}
 			if until.After(ctx.Now.Add(30 * 24 * time.Hour)) {
-				return bad("invalid")
+				return pathError("invalid")
 			}
 		}
 		if expiry != "" && path.NotAfter != "-" {
 			until, _ := stamp(expiry)
 			limit, _ := stamp(path.NotAfter)
 			if until.After(limit) {
-				return bad("forbidden")
+				return pathError("forbidden")
 			}
 		}
 		if ctx.CertificateID != "root" {
@@ -155,7 +162,81 @@ func verifyActionAuthority(ctx ActionContext, actionKind string, catalog, action
 			}
 		}
 	}
-	return ActionAuthority{actionKind, r.ID, v.net, v.feature, ctx.PersonPublicKey, ctx.CertificateID, required, path.NotAfter}, nil
+	return nil
+}
+
+// VerifyStoredActionIntent checks current typed preconditions before signing.
+// Its result cannot establish a signature, publication or mutation success.
+func VerifyStoredActionIntent(ctx ActionContext, actionKind string, catalog, intent []byte) (ActionAuthority, error) {
+	bad := func(code string) (ActionAuthority, error) { return ActionAuthority{}, pathError(code) }
+	if !verificationBudget(true, len(ctx.Network), len(catalog), len(intent)) || !key(ctx.PersonPublicKey) || ctx.CertificateID != "root" && !identifier(ctx.CertificateID, "dc_") || actionKind != "person_record" && actionKind != "device_revocation" {
+		return bad("invalid")
+	}
+	if ctx.KnownFeatureID == "-" {
+		return bad("upgrade_required")
+	}
+	o, e := parse(intent)
+	if e != nil {
+		return bad("invalid")
+	}
+	kind, required := "", uint64(4)
+	var rawPayload []byte
+	if actionKind == "person_record" {
+		if fields(o, "kind payload_base64") != nil {
+			return bad("invalid")
+		}
+		kind = scalar(o, "kind")
+		rawPayload, e = decode(scalar(o, "payload_base64"), MaxPayload)
+		if e != nil || ValidateActionPayload(kind, rawPayload) != nil {
+			return bad("invalid")
+		}
+		required = actionScope(kind)
+	} else {
+		if fields(o, "format network_id person_public_key target_device_public_key target_certificate_id issuer_certificate_id revoked_at") != nil || version(o, 1) != nil || publicFields(o) != nil || scalar(o, "person_public_key") != ctx.PersonPublicKey || scalar(o, "issuer_certificate_id") != ctx.CertificateID || !key(scalar(o, "target_device_public_key")) || !identifier(scalar(o, "target_certificate_id"), "dc_") {
+			return bad("invalid")
+		}
+	}
+	v, e := newCatalogVerifierWithBudget(ctx.Network, ctx.Epoch, ctx.KnownFeatureID, ctx.Now, true)
+	if e != nil {
+		return ActionAuthority{}, e
+	}
+	if e = v.catalog(catalog); e != nil {
+		return ActionAuthority{}, e
+	}
+	if e = v.bootstrap(true); e != nil {
+		return ActionAuthority{}, e
+	}
+	if e = v.revocations(); e != nil {
+		return ActionAuthority{}, e
+	}
+	if actionKind == "device_revocation" && scalar(o, "network_id") != v.net {
+		return bad("invalid")
+	}
+	if actionKind == "person_record" {
+		p, _ := parse(rawPayload)
+		if scalar(p, "network_id") != v.net {
+			return bad("invalid")
+		}
+		for _, field := range []string{"epoch", "invite_epoch"} {
+			if _, ok := p[field]; ok {
+				epoch, err := num(p, field)
+				if err != nil || epoch != v.epoch {
+					return bad("invalid")
+				}
+			}
+		}
+		if (kind == "peerspan-policy-v1" || kind == "peerspan-policy-v2" || kind == "peerspan-host-bind-v1" || kind == "peerspan-host-unbind-v1") && scalar(p, "person_public_key") != ctx.PersonPublicKey {
+			return bad("invalid")
+		}
+	}
+	path, e := v.authority(ctx.PersonPublicKey, ctx.CertificateID, required, 0)
+	if e != nil {
+		return ActionAuthority{}, e
+	}
+	if e = validateActionEffects(ctx, actionKind, kind, o, rawPayload, v, path); e != nil {
+		return ActionAuthority{}, e
+	}
+	return ActionAuthority{actionKind, "-", v.net, v.feature, ctx.PersonPublicKey, ctx.CertificateID, required, path.NotAfter}, nil
 }
 
 func actionProbe(o Object, stored bool) any {
@@ -204,4 +285,17 @@ func actionProbe(o Object, stored bool) any {
 	_ = json.Unmarshal(data, &out)
 	out["ok"] = true
 	return out
+}
+
+// ValidateActionPayload checks only the strict ordinary action payload registry.
+// It supplies no signature, authority, freshness or mutation authorization.
+func ValidateActionPayload(kind string, raw []byte) error {
+	if actionScope(kind) == 0 {
+		return pathError("invalid")
+	}
+	payload, e := parseLimit(raw, MaxPayload)
+	if e != nil || recordPayload(kind, payload) != nil {
+		return pathError("invalid")
+	}
+	return nil
 }

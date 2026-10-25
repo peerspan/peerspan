@@ -42,6 +42,20 @@ func (s *Server) moveRoutes(mux *http.ServeMux) {
 		if !decode(w, r, &req, "name", "root_public_key", "map") {
 			return
 		}
+		root, decodeErr := membership.DecodeKey(req.RootPublicKey)
+		if decodeErr != nil {
+			respondLink(w, 0, nil, linkFailure(400, "invalid"), "")
+			return
+		}
+		var active int
+		if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM link_features WHERE network_id=? AND active=1`, membership.NetworkID(root)).Scan(&active); err != nil {
+			respondLink(w, 0, nil, err, "")
+			return
+		}
+		if active > 0 {
+			respondLink(w, 0, nil, linkFailure(426, "upgrade_required"), "")
+			return
+		}
 		status, result, err := s.importNetwork(r.Context(), caller, sourceOf(r.RemoteAddr), req)
 		respond(w, status, result, err)
 		if err == nil && result.Added > 0 {

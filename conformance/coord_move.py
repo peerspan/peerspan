@@ -500,6 +500,9 @@ class Combo:
             self.joined[name] = True
         # carol's invite is issued before any move and names C1.
         self.carol_token = a.cli('invite', 'cara', '--network', self.net)['token']
+        # Delegation resolves the joined person from Alice's local signed map.
+        # Remote joins need not wait for Alice's next background sync.
+        a.cli('network', 'sync', self.net)
         a.cli('network', 'delegate-admin', '--network', self.net, '--person', 'quinn')
         self.watcher = self.raw_member(c1, 'watcher')
         self.victim = self.raw_member(c1, 'victim')

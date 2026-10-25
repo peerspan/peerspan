@@ -314,7 +314,34 @@ fn certificate(o: &Obj, k: &str) -> Result<SignedObject> {
     let id = format!("dc_{}", hash(&m));
     Ok(signed(m, id, None))
 }
+// Original signed legacy strings preserve their emitted UTC nanoseconds.
+fn legacy_stamp(value: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    if value.len() == 20 {
+        return stamp(value);
+    }
+    ensure!(
+        value.is_ascii()
+            && (22..=30).contains(&value.len())
+            && value.as_bytes()[19] == b'.'
+            && value.ends_with('Z'),
+        "invalid legacy time"
+    );
+    stamp(&format!("{}Z", &value[..19]))?;
+    ensure!(
+        value.as_bytes()[20..value.len() - 1]
+            .iter()
+            .all(u8::is_ascii_digit),
+        "invalid legacy fraction"
+    );
+    Ok(chrono::DateTime::parse_from_rfc3339(value)?.to_utc())
+}
 fn public_fields(p: &Obj) -> Result<()> {
+    public_fields_time(p, stamp)
+}
+fn public_fields_time(
+    p: &Obj,
+    parse_time: fn(&str) -> Result<chrono::DateTime<chrono::Utc>>,
+) -> Result<()> {
     for name in p.keys() {
         match name.as_str() {
             "network_id" => ensure!(ident(text(p, name)?, "net_"), "invalid network ID"),
@@ -333,7 +360,7 @@ fn public_fields(p: &Obj) -> Result<()> {
             "bound_at" | "unbound_at" | "admitted_at" | "removed_at" | "revoked_at"
             | "invite_expires_at" | "defined_at" | "issued_at" | "valid_until" | "created_at"
             | "expires_at" | "not_after" => {
-                stamp(text(p, name)?)?;
+                parse_time(text(p, name)?)?;
             }
             "member" => {
                 crate::membership::label(text(p, name)?).map_err(|_| anyhow!("invalid label"))?;
@@ -344,6 +371,13 @@ fn public_fields(p: &Obj) -> Result<()> {
     Ok(())
 }
 fn record_payload(kind: &str, p: &Obj) -> Result<()> {
+    record_payload_time(kind, p, stamp)
+}
+fn record_payload_time(
+    kind: &str,
+    p: &Obj,
+    parse_time: fn(&str) -> Result<chrono::DateTime<chrono::Utc>>,
+) -> Result<()> {
     let shape = match kind {
         "peerspan-host-bind-v1" => "network_id person_public_key host_public_key bound_at",
         "peerspan-host-unbind-v1" => "network_id person_public_key host_public_key unbound_at",
@@ -393,7 +427,7 @@ fn record_payload(kind: &str, p: &Obj) -> Result<()> {
             "invalid group members"
         );
     }
-    public_fields(p)?;
+    public_fields_time(p, parse_time)?;
     if kind.starts_with("peerspan-policy-") {
         let mut checked = p.clone();
         checked.insert("signature".into(), Value::from("-"));

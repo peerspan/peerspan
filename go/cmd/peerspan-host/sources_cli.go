@@ -541,7 +541,7 @@ type ownerContext struct {
 	// and seq the reserved edit number, 0 when the signer is not this
 	// host's person and the edit route does not apply.
 	current *membership.Policy
-	version int64
+	version uint64
 	seq     int64
 	// validFor, when set, is the signed duration instead.
 	validFor time.Duration
@@ -577,7 +577,7 @@ func loadOwner(ctx context.Context, client host.Client, network, keyPath string)
 // editStart is the edit route's answer.
 type editStart struct {
 	Policy  json.RawMessage `json:"policy"`
-	Version int64           `json:"version"`
+	Version uint64          `json:"version"`
 	Seq     int64           `json:"seq"`
 }
 
@@ -630,7 +630,11 @@ func (o *ownerContext) start(ctx context.Context, client host.Client) error {
 // this host's reserved number; keep keeps the starting point's duration,
 // otherwise it is valid for 7 days.
 func (o *ownerContext) next(network string, body membership.PolicyBody, keep bool) (membership.Policy, error) {
-	version, validFor := o.version+1, 7*24*time.Hour
+	version, err := membership.NextAccessVersion(o.version)
+	if err != nil {
+		return membership.Policy{}, err
+	}
+	validFor := 7 * 24 * time.Hour
 	if o.current != nil && keep {
 		issued, _ := membership.ParseTime(o.current.IssuedAt)
 		until, _ := membership.ParseTime(o.current.ValidUntil)

@@ -70,6 +70,36 @@ confer no current membership; an independent valid admission may still do so.
 Unknown/unrecognized administrator signatures are `forbidden`, malformed or bad
 signatures are `invalid`. New administrator actions always need a current role.
 
+Complete catalog projections retain fully signed completed activations after a
+recognized root withdrawal makes their administrator admission unusable. Those
+transcripts remain structural provenance, contributing no membership through the
+withdrawn admission. Their binding contributes no current binding when its owner
+path is unusable and no exact checkpoint retains that binding. Every original
+signature, structural certificate path and complete consent still verifies;
+malformed or incomplete transcripts are not ignored. This permits irreversible
+`revoke_admitted: true` to remove the affected grants while retaining policies'
+and groups' monotonic high-water evidence without granting a fallback policy.
+An independent usable admission and binding may still establish current facts.
+
+Selecting an exact activation or renewal membership proof for historical
+verification still requires its precise administrator keep authorization and
+checkpoint dimensions. Aggregate inert provenance cannot satisfy that selected
+proof, a first operation, signing authority or live membership.
+Records and certificates embedded in an already retained complete activation
+are existing evidence for fresh-merge classification. Re-index their exact
+original bytes from that prior activation; a virtual catalog expansion cannot
+turn them into newly submitted grants when a later restriction makes them inert.
+The direct `access_state` and `action_authorization` catalog interfaces apply
+the same structural-provenance rule. Independent current-root admission and
+current original-person binding of the old host do not activate the inert
+certificate, or its inert descendants. A selected policy signed by that
+certificate remains a retained inactive maximum with code `forbidden`; a new
+scope-1 policy action under it is also `forbidden`, independently of the lost
+administrator role. The projected activated-certificate IDs exclude these
+certificates. Exact selected historical activation remains `forbidden` without
+its precise retained authority. Malformed transcripts and missing structural
+dependencies still fail strictly rather than becoming inert evidence.
+
 ## Checkpoints and completed activations
 
 Supported checkpoints retain exact `ar_` binding/admission records from a

@@ -19,7 +19,7 @@ func TestPoliciesAreVersionedAndServedForCurrentPersons(t *testing.T) {
 	}
 	owner := membership.KeySigner{Key: pat}
 	rules := []membership.PolicyRule{{Agent: "reviewer", Principals: []string{membership.PrincipalNetwork}, Actions: []string{membership.PolicyActionMessage}, MaxMessageBytes: 10}}
-	sign := func(signer membership.PersonSigner, version int64, issued time.Time) membership.Policy {
+	sign := func(signer membership.PersonSigner, version uint64, issued time.Time) membership.Policy {
 		return must(membership.SignPolicy(signer, g.network, version, issued, 7*24*time.Hour, rules))
 	}
 	if _, err := g.s.submitPolicy(ctx, id(key(t)), g.network, sign(owner, 1, time.Now())); !errors.Is(err, errForbidden) {

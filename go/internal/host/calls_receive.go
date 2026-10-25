@@ -76,7 +76,7 @@ func validCallState(state string) bool {
 type CallPolicyCitation struct {
 	PersonID  string `json:"person_id"`
 	NetworkID string `json:"network_id"`
-	Version   int64  `json:"version"`
+	Version   uint64 `json:"version"`
 }
 
 func (c *CallPolicyCitation) UnmarshalJSON(data []byte) error {
@@ -497,7 +497,7 @@ func (s *Store) trustedSelf(ctx context.Context, q dbQuerier, sender, person, ne
 // matches the sender, in one network.
 type capabilityRuleCandidate struct {
 	network, person string
-	version         int64
+	version         uint64
 	rule            membership.CapabilityRule
 	until           time.Time
 	caller          string
@@ -514,7 +514,7 @@ type capabilityRuleCandidate struct {
 // sender, for one capability or all ("" capability). behind reports a
 // policy older than cited. A listing matches any origin, and records which
 // principals matched.
-func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, person string, cited int64, network, capability string, origin *Origin, now time.Time, listing bool) ([]capabilityRuleCandidate, bool, error) {
+func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, person string, cited uint64, network, capability string, origin *Origin, now time.Time, listing bool) ([]capabilityRuleCandidate, bool, error) {
 	own, err := membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, false, err
@@ -905,7 +905,7 @@ type ToolVia struct {
 	Kind      string  `json:"kind"`
 	NetworkID *string `json:"network_id"`
 	PersonID  *string `json:"person_id,omitempty"`
-	Version   *int64  `json:"version,omitempty"`
+	Version   *uint64 `json:"version,omitempty"`
 	// FromAgent, on a policy entry, is the agent of the sender whose agent:
 	// principals alone match the rule, or null when another principal
 	// does. A listing from a host that predates it reads as null.
@@ -919,7 +919,7 @@ func (v ToolVia) MarshalJSON() ([]byte, error) {
 		Kind      string  `json:"kind"`
 		NetworkID *string `json:"network_id"`
 		PersonID  *string `json:"person_id,omitempty"`
-		Version   *int64  `json:"version,omitempty"`
+		Version   *uint64 `json:"version,omitempty"`
 	}
 	p := plain{v.Kind, v.NetworkID, v.PersonID, v.Version}
 	if v.Kind != AuthorizationPolicy {

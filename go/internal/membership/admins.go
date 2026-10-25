@@ -153,7 +153,7 @@ type AdminRemoval struct {
 type GroupDefinition struct {
 	NetworkID string   `json:"network_id"`
 	Name      string   `json:"name"`
-	Version   int64    `json:"version"`
+	Version   uint64   `json:"version"`
 	DefinedAt string   `json:"defined_at"`
 	Members   []string `json:"members"`
 	Signature string   `json:"signature"`
@@ -189,7 +189,7 @@ func validKept(r AdminRemoval) bool {
 	return true
 }
 func (g GroupDefinition) Message() []byte {
-	return statement(append([]string{"peerspan-group-v1", g.NetworkID, g.Name, strconv.FormatInt(g.Version, 10), g.DefinedAt}, g.Members...)...)
+	return statement(append([]string{"peerspan-group-v1", g.NetworkID, g.Name, strconv.FormatUint(g.Version, 10), g.DefinedAt}, g.Members...)...)
 }
 
 func (d *AdminDelegation) UnmarshalJSON(data []byte) error {
@@ -263,7 +263,7 @@ func SignAdminRemoval(root StatementSigner, network, personPublicKey string, rev
 	r.Signature, err = root.SignStatement(r.Message())
 	return r, err
 }
-func SignGroup(signer StatementSigner, network, name string, version int64, members []string, at string) (GroupDefinition, error) {
+func SignGroup(signer StatementSigner, network, name string, version uint64, members []string, at string) (GroupDefinition, error) {
 	sorted, err := SortedMembers(members)
 	if err != nil {
 		return GroupDefinition{}, err

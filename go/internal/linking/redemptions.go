@@ -187,7 +187,11 @@ func (v *activationVerifier) readInvite(body []byte, host bool) (inviteHalf, err
 	if !key(h.key) || !membership.ValidLabel(h.label) {
 		return bad()
 	}
-	if _, e := stamp(h.expires); e != nil {
+	parseTime := stamp
+	if h.legacy {
+		parseTime = legacyStamp
+	}
+	if _, e := parseTime(h.expires); e != nil {
 		return bad()
 	}
 	return h, nil
@@ -206,7 +210,7 @@ func (v *activationVerifier) readRedemption(p catalogProof) (redemption, error) 
 		if e != nil {
 			return redemption{}, e
 		}
-		expires, _ := stamp(h.expires)
+		expires, _ := legacyStamp(h.expires)
 		if joined.After(expires) {
 			return redemption{}, pathError("invalid")
 		}
@@ -255,7 +259,7 @@ func (v *activationVerifier) redemptionHalf(id string, h inviteHalf) (bool, erro
 	if _, e := v.actor(h.person, h.cert, 8, true, 0); e != nil {
 		return false, e
 	}
-	expires, _ := stamp(h.expires)
+	expires, _ := legacyStamp(h.expires)
 	if !v.ctx.Now.Before(expires) || !v.recordPathLive(h.person, h.cert) {
 		if e := v.retainedRedemption(id, h); e != nil {
 			return false, e

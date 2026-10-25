@@ -20,6 +20,7 @@ func newCatalogVerifierWithBudget(network []byte, epoch uint64, feature string, 
 	v, e := newCatalogVerifier(network, epoch, feature, now)
 	if e == nil {
 		v.storedSnapshot = stored
+		v.projectHistory = true
 	}
 	return v, e
 }
@@ -90,6 +91,8 @@ func ProbeStoredSnapshot(body []byte) any {
 		return fail
 	}
 	switch scalar(o, "kind") {
+	case "proof_selection":
+		return proofSelectionProbe(o)
 	case "catalog_facts":
 		return catalogFactsProbe(o, true)
 	case "activation":

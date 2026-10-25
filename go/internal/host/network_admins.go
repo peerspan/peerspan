@@ -418,7 +418,7 @@ type SetGroup struct {
 // persons are omitted; signer is the signing key.
 type Group struct {
 	Name    string   `json:"name"`
-	Version int64    `json:"version"`
+	Version uint64   `json:"version"`
 	Members []string `json:"members"`
 	Signer  string   `json:"signer"`
 }
@@ -612,9 +612,12 @@ func (s *Store) SetGroup(ctx context.Context, id string, r SetGroup) (Group, err
 			}
 			ids = append(ids, p.PersonID)
 		}
-		version := int64(1)
+		version := uint64(1)
 		if previous, ok := g.storedGroup(r.Name); ok {
-			version = previous.Version + 1
+			version, err = membership.NextAccessVersion(previous.Version)
+			if err != nil {
+				return Group{}, err
+			}
 		}
 		if group, err = membership.SignGroup(membership.RawSigner{Key: root}, n.ID, r.Name, version, ids, timestamp(time.Now())); err != nil {
 			return Group{}, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -729,7 +732,7 @@ type RotationPlan struct {
 }
 type PlannedGroup struct {
 	Name    string   `json:"name"`
-	Version int64    `json:"version"`
+	Version uint64   `json:"version"`
 	Members []string `json:"members"`
 }
 type PlannedItem struct {

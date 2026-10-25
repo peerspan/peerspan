@@ -52,7 +52,7 @@ type policyEditRecord struct {
 	State         string             `json:"state"`
 	Start         *membership.Policy `json:"start"`
 	Signed        *membership.Policy `json:"signed"`
-	SignedVersion *int64             `json:"signed_version"`
+	SignedVersion *uint64            `json:"signed_version"`
 	Dropped       []string           `json:"dropped"`
 	ReservedAt    string             `json:"reserved_at"`
 	SignedAt      *string            `json:"signed_at"`
@@ -74,7 +74,7 @@ func (r policyEditRecord) startBody() membership.PolicyBody {
 // EditStart is GET /v1/networks/{id}/policy/edit.
 type EditStart struct {
 	Policy  *membership.Policy `json:"policy"`
-	Version int64              `json:"version"`
+	Version uint64             `json:"version"`
 	Seq     int64              `json:"seq"`
 }
 
@@ -82,7 +82,7 @@ type EditStart struct {
 type PolicyEditStatus struct {
 	Seq           int64    `json:"seq"`
 	State         string   `json:"state"`
-	SignedVersion *int64   `json:"signed_version"`
+	SignedVersion *uint64  `json:"signed_version"`
 	Dropped       []string `json:"dropped"`
 }
 
@@ -322,7 +322,7 @@ func (s *Store) EditStart(ctx context.Context, network string) (EditStart, error
 // the newest reservation, not lapsed, and the version the stored + 1. It
 // returns the reservation, or nil for a policy that is not an edit.
 func (s *Store) checkEdit(ctx context.Context, tx *sql.Tx, network, person string, stored *membership.Policy, p membership.Policy, now time.Time) (*policyEditRecord, error) {
-	seq, old, version := p.EditSeq(s.identity.ID), int64(0), int64(0)
+	seq, old, version := p.EditSeq(s.identity.ID), int64(0), uint64(0)
 	if stored != nil {
 		old, version = stored.EditSeq(s.identity.ID), stored.Version
 	}
@@ -347,7 +347,8 @@ func (s *Store) checkEdit(ctx context.Context, tx *sql.Tx, network, person strin
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM policy_edits WHERE network_id = ? AND person_id = ? AND json_extract(record, '$.state') = 'reserved'`, network, person).Scan(&newest); err != nil {
 		return nil, err
 	}
-	if rec.State != editReserved || seq != newest || p.Version != version+1 {
+	nextVersion, nextErr := membership.NextAccessVersion(version)
+	if nextErr != nil || rec.State != editReserved || seq != newest || p.Version != nextVersion {
 		return nil, errEditConflict
 	}
 	return &rec, nil
@@ -494,7 +495,12 @@ func (s *Store) ReapplyEdits(ctx context.Context, network string, logf func(stri
 			return err
 		}
 		body.Edits = edits
-		p, err := membership.SignPolicyV2(signer, network, stored.Version+1, now.Truncate(time.Second), until.Sub(issued), body)
+		nextVersion, err := membership.NextAccessVersion(stored.Version)
+		if err != nil {
+			signer.Close()
+			return err
+		}
+		p, err := membership.SignPolicyV2(signer, network, nextVersion, now.Truncate(time.Second), until.Sub(issued), body)
 		signer.Close()
 		if err != nil {
 			logf("re-applying policy edits for %s: %v", network, err)

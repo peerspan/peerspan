@@ -49,7 +49,9 @@ type catalogContext struct {
 }
 type activationVerifier struct {
 	storedSnapshot     bool
+	projectHistory     bool // retain complete but withdrawn provenance without granting facts
 	ctx                catalogContext
+	featurePreparation bool
 	network            Object
 	net, root, feature string
 	epoch              uint64
@@ -66,6 +68,7 @@ type activationVerifier struct {
 	persons, hosts     map[string]string // verified admission labels
 	activeRecords      map[string]bool   // exact authorized ordinary/activation proof IDs
 	inertRecords       map[string]bool   // valid ordinary grants excluded by root withdrawal
+	inertCertificates  map[string]bool   // complete structural provenance, never live activation
 	history            historyFacts
 	evidence           map[string]catalogProof // derived ar_/dr_ IDs, never asserted indexes
 	redemptions        map[string]bool
@@ -104,6 +107,8 @@ func verifyActivation(ctx ActivationContext, catalog, activation []byte, stored 
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
+	// Selecting an exact historical transcript keeps its strict retention gate.
+	v.projectHistory = ctx.Verification != "historical"
 	if e = v.catalog(catalog); e != nil {
 		return ActivationEvidence{}, e
 	}
@@ -461,6 +466,9 @@ func (v *activationVerifier) authority(person, cert string, scope uint64, depth 
 				return SigningPath{}, e
 			}
 		}
+		if v.inertCertificates[cert] {
+			return SigningPath{}, pathError("forbidden")
+		}
 	}
 	return EvaluatePath(v.state, person, cert, scope, v.ctx.Now)
 }
@@ -506,10 +514,20 @@ func (v *activationVerifier) record(raw []byte, kind, operation, person, cert, s
 	return r, p, nil
 }
 
-func (v *activationVerifier) renewalProof(id, kind, person, host string, depth int) error {
+func (v *activationVerifier) renewalProof(id, kind, person, host string, depth int, inert bool) error {
 	p, ok := v.proofs[id]
 	if !ok {
 		return pathError("proof_required", id)
+	}
+	if p.kind == "attestation" {
+		if kind != "peerspan-host-admit-v1" || scalar(p.object, "host_public_key") != host || !epochIs(p.object, v.epoch) {
+			return pathError("invalid")
+		}
+		label := scalar(p.object, "member")
+		if !v.state.Hosts[host] || v.attested[host] != label || v.persons[person] != label {
+			return pathError("forbidden")
+		}
+		return nil
 	}
 	if p.kind == "invite_redemption" {
 		if kind != "peerspan-host-admit-v1" || scalar(p.object, "host_public_key") != host {
@@ -549,18 +567,20 @@ func (v *activationVerifier) renewalProof(id, kind, person, host string, depth i
 			if e != nil {
 				return e
 			}
-			if !v.activeRecords[id] {
+			if !v.activeRecords[id] && !(inert && v.inertRecords[id]) {
 				return pathError("forbidden")
 			}
-			if e = v.historicalRecord(g.record, p.object, g.scope, depth); e != nil {
-				return e
+			if !(inert && v.inertRecords[id]) {
+				if e = v.historicalRecord(g.record, p.object, g.scope, depth); e != nil {
+					return e
+				}
 			}
 		} else {
 			if _, e := v.activate(operation, true, depth+1); e != nil {
 				return e
 			}
 		}
-		if !v.activeRecords[id] || scalar(p.object, "kind") != kind {
+		if !v.activeRecords[id] && !(inert && v.inertRecords[id]) || scalar(p.object, "kind") != kind {
 			return pathError("invalid")
 		}
 		_, o, e := payload(p.object)
@@ -737,6 +757,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	if e != nil {
 		return ActivationEvidence{}, e
 	}
+	inertOperation := historical && v.projectHistory && v.inertCertificates[issuer]
 	_, offer, oid, e := v.checkedPacket(a["owner"], "owner", id, path.SignerPublicKey, "-")
 	if e != nil {
 		return ActivationEvidence{}, e
@@ -790,6 +811,7 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 	}
 	var binding, admission []byte
 	currentAdmission := true
+	inactiveAdmission, currentBinding := false, true
 	if mode == "new" {
 		if scalar(req, "renewed_certificate_id") != "-" || scalar(offer, "membership_proof_id") != "-" || scalar(offer, "binding_proof_id") != "-" || absent(a["administrator"]) || absent(offer["binding_record"]) || absent(com["binding_record"]) {
 			return bad("invalid")
@@ -836,7 +858,10 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		}
 		if historical {
 			o, _ := parse(admission)
-			if e = v.historicalRecord(ar, o, 8, depth); e != nil {
+			inactiveAdmission = v.withdrawnActivationAdmission(ar.ID, o)
+			if inactiveAdmission {
+				currentAdmission = false
+			} else if e = v.historicalRecord(ar, o, 8, depth); e != nil {
 				return ActivationEvidence{}, e
 			}
 		}
@@ -853,7 +878,17 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if historical {
 			o, _ := parse(binding)
 			if e = v.historicalRecord(br, o, 2, depth); e != nil {
-				return ActivationEvidence{}, e
+				missing, ok := e.(*PathError)
+				if !(inactiveAdmission || inertOperation) || !ok || missing.Code != "proof_required" || len(missing.RequiredIDs) != 1 || missing.RequiredIDs[0] != br.ID {
+					return ActivationEvidence{}, e
+				}
+				// This binding cannot supply current facts. Its exact signed
+				// bytes and structural issuer path have still verified above.
+				currentBinding = false
+				if v.inertRecords == nil {
+					v.inertRecords = map[string]bool{}
+				}
+				v.inertRecords[br.ID] = true
 			}
 		}
 		draft, e := parse(offer["binding_record"])
@@ -889,16 +924,20 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if _, e = v.activate(old.request, true, depth+1); e != nil {
 			return ActivationEvidence{}, e
 		}
-		if !v.state.ActivatedCertificates[old.id] {
+		if !v.state.ActivatedCertificates[old.id] && !(historical && v.projectHistory && v.inertCertificates[old.id]) {
+			if v.inertCertificates[old.id] {
+				return bad("forbidden")
+			}
 			return bad("invalid")
 		}
-		if e = v.renewalProof(scalar(offer, "membership_proof_id"), "peerspan-host-admit-v1", person, host, depth); e != nil {
+		inertOperation = inertOperation || historical && v.projectHistory && v.inertCertificates[old.id]
+		if e = v.renewalProof(scalar(offer, "membership_proof_id"), "peerspan-host-admit-v1", person, host, depth, inertOperation); e != nil {
 			return ActivationEvidence{}, e
 		}
-		if e = v.renewalProof(scalar(offer, "binding_proof_id"), "peerspan-host-bind-v1", person, host, depth); e != nil {
+		if e = v.renewalProof(scalar(offer, "binding_proof_id"), "peerspan-host-bind-v1", person, host, depth, inertOperation); e != nil {
 			return ActivationEvidence{}, e
 		}
-		if !v.state.Hosts[host] || v.state.Bindings[host] != person {
+		if !inertOperation && (!v.state.Hosts[host] || v.state.Bindings[host] != person) {
 			return bad("forbidden")
 		}
 	} else {
@@ -911,11 +950,14 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 		if currentAdmission {
 			v.hosts[host] = personLabel
 		}
-		if e = v.addBinding(host, person); e != nil {
-			return ActivationEvidence{}, e
+		if currentBinding {
+			if e = v.addBinding(host, person); e != nil {
+				return ActivationEvidence{}, e
+			}
 		}
 		v.restrictState()
-		for _, raw := range [][]byte{binding, admission} {
+		for part, raw := range [][]byte{binding, admission} {
+			inactive := part == 0 && !currentBinding || part == 1 && inactiveAdmission
 			o, _ := parse(raw)
 			kind := "root_record"
 			if _, ok := o["person_public_key"]; ok {
@@ -923,12 +965,26 @@ func (v *activationVerifier) activate(id string, historical bool, depth int) (Ac
 			}
 			for pf, p := range v.proofs {
 				if p.kind == kind && equivalent(o, p.object) {
-					v.activeRecords[pf] = true
+					if inactive {
+						if v.inertRecords == nil {
+							v.inertRecords = map[string]bool{}
+						}
+						v.inertRecords[pf] = true
+					} else {
+						v.activeRecords[pf] = true
+					}
 				}
 			}
 		}
 	}
-	v.state.ActivatedCertificates[cid] = true
+	if inactiveAdmission || inertOperation {
+		if v.inertCertificates == nil {
+			v.inertCertificates = map[string]bool{}
+		}
+		v.inertCertificates[cid] = true
+	} else {
+		v.state.ActivatedCertificates[cid] = true
+	}
 	r := ActivationEvidence{RequestID: id, ManifestID: mid, CertificateID: cid, NetworkID: v.net, FeatureID: v.feature, PersonPublicKey: person, HostPublicKey: host, DevicePublicKey: device, Mode: mode}
 	v.done[id] = r
 	return r, nil

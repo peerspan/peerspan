@@ -62,9 +62,10 @@ PRAGMA user_version = 7;
 `
 
 type linkError struct {
-	status int
-	code   string
-	retry  int64
+	status      int
+	code        string
+	retry       int64
+	requiredIDs []string
 }
 
 func (e *linkError) Error() string              { return e.code }
@@ -88,8 +89,12 @@ func respondLink(w http.ResponseWriter, status int, value any, err error, reques
 			requestID = "-"
 		}
 		status = failure.status
+		required := failure.requiredIDs
+		if required == nil {
+			required = []string{}
+		}
 		value = map[string]any{"code": failure.code, "error": strings.ReplaceAll(failure.code, "_", " "), "details": map[string]any{
-			"request_id": requestID, "stage": "-", "required_ids": []string{}, "next": []string{},
+			"request_id": requestID, "stage": "-", "required_ids": required, "next": []string{},
 		}}
 	}
 	w.Header().Set("Content-Type", "application/json")

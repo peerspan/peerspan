@@ -36,7 +36,7 @@ PRAGMA user_version = 8;
 // the newest version the sender has verified.
 type PolicyCitation struct {
 	PersonID string `json:"person_id"`
-	Version  int64  `json:"version"`
+	Version  uint64 `json:"version"`
 }
 
 func (c *PolicyCitation) UnmarshalJSON(data []byte) error {
@@ -861,7 +861,12 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 			body := renewed.Body()
 			if body.Edits, err = s.retiredDropped(ctx, s.db, n.network, body.Edits); err == nil && len(body.Edits) != len(renewed.Edits) {
 				issued, until, _ := policyDuration(p)
-				renewed, err = membership.SignPolicyV2(signer, n.network, p.Version+1, now.Truncate(time.Second), until.Sub(issued), body)
+				nextVersion, nextErr := membership.NextAccessVersion(p.Version)
+				if nextErr != nil {
+					err = nextErr
+				} else {
+					renewed, err = membership.SignPolicyV2(signer, n.network, nextVersion, now.Truncate(time.Second), until.Sub(issued), body)
+				}
 			}
 		}
 		signer.Close()

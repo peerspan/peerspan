@@ -86,7 +86,7 @@ func signatureOf(statement json.RawMessage) string {
 	return s.Signature
 }
 
-func groupSubject(name string, version int64) string { return fmt.Sprintf("%s %020d", name, version) }
+func groupSubject(name string, version uint64) string { return fmt.Sprintf("%s %020d", name, version) }
 
 // groupsOf returns the newest valid definition per name.
 func groupsOf(ctx context.Context, tx *sql.Tx, chain membership.Chain) (map[string]membership.GroupDefinition, error) {

@@ -125,7 +125,7 @@ type Policy struct {
 	Format          int          `json:"format,omitempty"`
 	NetworkID       string       `json:"network_id"`
 	PersonPublicKey string       `json:"person_public_key"`
-	Version         int64        `json:"version"`
+	Version         uint64       `json:"version"`
 	IssuedAt        string       `json:"issued_at"`
 	ValidUntil      string       `json:"valid_until"`
 	Rules           []PolicyRule `json:"rules"`
@@ -196,7 +196,7 @@ func (p Policy) MarshalJSON() ([]byte, error) {
 		type v1 struct {
 			NetworkID       string       `json:"network_id"`
 			PersonPublicKey string       `json:"person_public_key"`
-			Version         int64        `json:"version"`
+			Version         uint64       `json:"version"`
 			IssuedAt        string       `json:"issued_at"`
 			ValidUntil      string       `json:"valid_until"`
 			Rules           []PolicyRule `json:"rules"`
@@ -208,7 +208,7 @@ func (p Policy) MarshalJSON() ([]byte, error) {
 		Format          int              `json:"format"`
 		NetworkID       string           `json:"network_id"`
 		PersonPublicKey string           `json:"person_public_key"`
-		Version         int64            `json:"version"`
+		Version         uint64           `json:"version"`
 		IssuedAt        string           `json:"issued_at"`
 		ValidUntil      string           `json:"valid_until"`
 		Rules           []PolicyRule     `json:"rules"`
@@ -286,7 +286,7 @@ func (p Policy) Message() []byte {
 	if p.Format == PolicyFormat2 {
 		header = "peerspan-policy-v2"
 	}
-	lines := []string{header, p.NetworkID, p.PersonPublicKey, strconv.FormatInt(p.Version, 10), p.IssuedAt, p.ValidUntil}
+	lines := []string{header, p.NetworkID, p.PersonPublicKey, strconv.FormatUint(p.Version, 10), p.IssuedAt, p.ValidUntil}
 	for _, r := range p.Rules {
 		bounds := strconv.FormatInt(r.MaxMessageBytes, 10) + " " + strconv.FormatBool(r.AllowDisconnected)
 		if r.MaxArtifactBytes != 0 {
@@ -476,7 +476,7 @@ func (p Policy) Body() PolicyBody {
 // SignPolicyV2 signs a format 2 policy as its owner. Rules, capability rules, and
 // their lists are copied in the given order, which the signature covers;
 // trusted hosts and edits are sorted.
-func SignPolicyV2(owner PersonSigner, network string, version int64, issued time.Time, validFor time.Duration, body PolicyBody) (Policy, error) {
+func SignPolicyV2(owner PersonSigner, network string, version uint64, issued time.Time, validFor time.Duration, body PolicyBody) (Policy, error) {
 	p := Policy{Format: PolicyFormat2, NetworkID: network, PersonPublicKey: EncodeKey(owner.PublicKey()), Version: version, IssuedAt: Timestamp(issued), ValidUntil: Timestamp(issued.Add(validFor))}
 	b := Policy{Rules: body.Rules, CapabilityRules: body.CapabilityRules, TrustedHosts: body.TrustedHosts, Edits: body.Edits}.Body()
 	p.Rules, p.CapabilityRules, p.TrustedHosts, p.Edits = b.Rules, b.CapabilityRules, b.TrustedHosts, b.Edits
@@ -520,7 +520,7 @@ func PolicyExpiresSoon(p Policy, now time.Time) bool {
 
 // SignPolicy signs a policy as its owner. Rules are copied; principals and
 // actions keep the given order, which the signature covers.
-func SignPolicy(owner PersonSigner, network string, version int64, issued time.Time, validFor time.Duration, rules []PolicyRule) (Policy, error) {
+func SignPolicy(owner PersonSigner, network string, version uint64, issued time.Time, validFor time.Duration, rules []PolicyRule) (Policy, error) {
 	p := Policy{NetworkID: network, PersonPublicKey: EncodeKey(owner.PublicKey()), Version: version, IssuedAt: Timestamp(issued), ValidUntil: Timestamp(issued.Add(validFor)), Rules: []PolicyRule{}}
 	for _, r := range rules {
 		r.Principals = append([]string{}, r.Principals...)
@@ -581,6 +581,18 @@ func slicesContains(list []string, x string) bool {
 // at version+1 with the same duration, issued at now. A renewal is always a
 // format 2 policy; a version 1 policy renews with no capability rules or trusted
 // hosts.
+// ErrAccessVersionExhausted identifies refusal before reservation or signing.
+var ErrAccessVersionExhausted = fmt.Errorf("%w: access version exhausted", ErrInvalid)
+
+// NextAccessVersion refuses progression beyond the largest signed wire version.
+// Version zero denotes an absent prior policy/group only, never a signed record.
+func NextAccessVersion(current uint64) (uint64, error) {
+	if current == ^uint64(0) {
+		return 0, ErrAccessVersionExhausted
+	}
+	return current + 1, nil
+}
+
 func Renewal(owner PersonSigner, current Policy, now time.Time) (Policy, error) {
 	issued, until, err := policyWindow(current)
 	if err != nil {
@@ -589,7 +601,11 @@ func Renewal(owner PersonSigner, current Policy, now time.Time) (Policy, error) 
 	if !owner.PublicKey().Equal(ed25519.PublicKey(mustKey(current.PersonPublicKey))) {
 		return Policy{}, fmt.Errorf("%w: renewing key is not the policy owner", ErrInvalid)
 	}
-	return SignPolicyV2(owner, current.NetworkID, current.Version+1, now, until.Sub(issued), CombineDuplicateRules(current.Body()))
+	next, err := NextAccessVersion(current.Version)
+	if err != nil {
+		return Policy{}, err
+	}
+	return SignPolicyV2(owner, current.NetworkID, next, now, until.Sub(issued), CombineDuplicateRules(current.Body()))
 }
 
 func mustKey(value string) []byte {

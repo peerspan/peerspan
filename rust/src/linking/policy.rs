@@ -73,7 +73,7 @@ struct Candidate {
     old_root: bool,
 }
 fn legacy_policy_message(p: &Obj, kind: &str) -> Result<Vec<u8>> {
-    record_payload(kind, p)?;
+    record_payload_time(kind, p, legacy_stamp)?;
     let mut normalized = p.clone();
     normalized.insert("signature".into(), json!("-"));
     if kind == "peerspan-policy-v2" {
@@ -144,7 +144,7 @@ impl Verifier<'_> {
             c.payload = o.clone();
             c.payload.remove("signature");
             m = if c.group {
-                record_payload("peerspan-group-v1", &c.payload)?;
+                record_payload_time("peerspan-group-v1", &c.payload, legacy_stamp)?;
                 let version = num(&c.payload, "version")?.to_string();
                 let mut parts = vec![
                     "peerspan-group-v1",
@@ -244,8 +244,8 @@ impl Verifier<'_> {
             }
         }
         if !c.group {
-            let issued = stamp(text(&c.payload, "issued_at")?)?;
-            let until = stamp(text(&c.payload, "valid_until")?)?;
+            let issued = legacy_stamp(text(&c.payload, "issued_at")?)?;
+            let until = legacy_stamp(text(&c.payload, "valid_until")?)?;
             if self.ctx.now < issued - chrono::Duration::minutes(5) || self.ctx.now >= until {
                 c.selection.active = false;
                 c.selection.code = "expired".into();

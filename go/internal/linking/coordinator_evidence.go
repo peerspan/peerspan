@@ -26,7 +26,7 @@ func (v *activationVerifier) coordinatorEvidence() error {
 			if fields(o, "network_id sequence address public_key moved_at signer signature") != nil || scalar(o, "network_id") != v.net {
 				return pathError("invalid")
 			}
-			if _, e := stamp(scalar(o, "moved_at")); e != nil {
+			if _, e := legacyStamp(scalar(o, "moved_at")); e != nil {
 				return pathError("invalid")
 			}
 			m := message("peerspan-coordinator-move-v1", v.net, n, scalar(o, "address"), scalar(o, "public_key"), scalar(o, "moved_at"))
@@ -51,7 +51,7 @@ func (v *activationVerifier) coordinatorEvidence() error {
 			if fields(o, "sequence previous_public_key address public_key signed_at signature") != nil || !key(scalar(o, "previous_public_key")) {
 				return pathError("invalid")
 			}
-			if _, e := stamp(scalar(o, "signed_at")); e != nil {
+			if _, e := legacyStamp(scalar(o, "signed_at")); e != nil {
 				return pathError("invalid")
 			}
 			m := message("peerspan-coordinator-successor-v1", n, scalar(o, "previous_public_key"), scalar(o, "address"), scalar(o, "public_key"), scalar(o, "signed_at"))

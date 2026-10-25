@@ -19,7 +19,7 @@ impl Verifier<'_> {
                     && key(s(o, "root_public_key")),
                 "invalid",
             )?;
-            stamp(text(o, "rotated_at")?)?;
+            legacy_stamp(text(o, "rotated_at")?)?;
             check(
                 rotations.get(&epoch).is_none_or(|old| old == o),
                 "state_conflict",
@@ -89,7 +89,7 @@ impl Verifier<'_> {
             )?;
             crate::membership::label(text(o, "member")?)?;
             let (key, epoch) = self.epoch_root(o, "epoch")?;
-            stamp(text(o, "attested_at")?)?;
+            legacy_stamp(text(o, "attested_at")?)?;
             root(
                 &key,
                 &lines(&[

@@ -69,10 +69,10 @@ type accessCandidate struct {
 	root, oldRoot bool
 }
 
-// Legacy policy storage uses int64 versions. Only its shape/message helpers are
-// reused: the verified uint64 version is substituted into the signed header.
+// Legacy shape/message helpers preserve the complete signed body. Substitute
+// the independently parsed uint64 version into the exact signed header.
 func legacyPolicyMessage(p Object, kind string) ([]byte, error) {
-	if e := recordPayload(kind, p); e != nil {
+	if e := recordPayloadTime(kind, p, legacyStamp); e != nil {
 		return nil, pathError("invalid")
 	}
 	normalized := Object{}
@@ -154,7 +154,7 @@ func (v *activationVerifier) accessCandidate(id string, p catalogProof) (accessC
 		kind := "peerspan-group-v1"
 		var e error
 		if c.group {
-			if recordPayload(kind, c.payload) != nil {
+			if recordPayloadTime(kind, c.payload, legacyStamp) != nil {
 				return c, pathError("invalid")
 			}
 			members, _ := stringsOf(c.payload, "members")
@@ -244,6 +244,11 @@ func (v *activationVerifier) accessStatus(c *accessCandidate) error {
 		return nil
 	}
 	if !c.root {
+		if v.inertCertificates[c.cert] {
+			c.selection.Active = false
+			c.selection.Code = "forbidden"
+			return nil
+		}
 		scope := uint64(1)
 		if c.group {
 			scope = 8
@@ -260,8 +265,8 @@ func (v *activationVerifier) accessStatus(c *accessCandidate) error {
 		}
 	}
 	if !c.group {
-		issued, _ := stamp(scalar(c.payload, "issued_at"))
-		until, _ := stamp(scalar(c.payload, "valid_until"))
+		issued, _ := legacyStamp(scalar(c.payload, "issued_at"))
+		until, _ := legacyStamp(scalar(c.payload, "valid_until"))
 		if v.ctx.Now.Before(issued.Add(-5*time.Minute)) || !v.ctx.Now.Before(until) {
 			c.selection.Active = false
 			c.selection.Code = "expired"

@@ -486,6 +486,9 @@ func record(o Object, signer string, root bool) (SignedObject, error) {
 	return SignedObject{Message: m, ID: "ar_" + digest(message("peerspan-authorized-record-v1", digest(m), a[3], ctx[2])), Payload: b}, nil
 }
 func recordPayload(kind string, p Object) error {
+	return recordPayloadTime(kind, p, stamp)
+}
+func recordPayloadTime(kind string, p Object, parseTime func(string) (time.Time, error)) error {
 	shapes := map[string]string{
 		"peerspan-host-bind-v1": "network_id person_public_key host_public_key bound_at", "peerspan-host-unbind-v1": "network_id person_public_key host_public_key unbound_at", "peerspan-host-admit-v1": "network_id epoch host_public_key member admitted_at", "peerspan-person-admit-v1": "network_id epoch person_public_key member admitted_at", "peerspan-person-remove-v1": "network_id person_public_key removed_at", "peerspan-revoke-host-v1": "network_id host_public_key revoked_at", "peerspan-revoke-invite-v1": "network_id invite_public_key revoked_at", "peerspan-invite-v1": "network_id invite_public_key member invite_expires_at", "peerspan-person-invite-v1": "network_id invite_epoch invite_public_key member invite_expires_at", "peerspan-group-v1": "network_id name version defined_at members",
 	}
@@ -512,7 +515,7 @@ func recordPayload(kind string, p Object) error {
 				}
 			}
 		}
-		if e := publicFields(p); e != nil {
+		if e := publicFieldsTime(p, parseTime); e != nil {
 			return e
 		}
 		validated := Object{}
@@ -563,9 +566,12 @@ func recordPayload(kind string, p Object) error {
 			}
 		}
 	}
-	return publicFields(p)
+	return publicFieldsTime(p, parseTime)
 }
 func publicFields(p Object) error {
+	return publicFieldsTime(p, stamp)
+}
+func publicFieldsTime(p Object, parseTime func(string) (time.Time, error)) error {
 	for k := range p {
 		switch k {
 		case "network_id":
@@ -588,7 +594,7 @@ func publicFields(p Object) error {
 			if e != nil {
 				return e
 			}
-			if _, e = stamp(s); e != nil {
+			if _, e = parseTime(s); e != nil {
 				return e
 			}
 		case "member":
@@ -621,10 +627,18 @@ func revocation(o Object, signer string) (SignedObject, error) {
 	return SignedObject{Message: m, ID: "dr_" + digest(m)}, nil
 }
 func checkpoint(o Object, signer string) (SignedObject, error) {
-	if fields(o, "format network_id person_public_key issuer_certificate_id issued_at records signature") != nil || version(o, 1) != nil {
+	return checkpointBody(o, signer, true)
+}
+
+func checkpointBody(o Object, signer string, signed bool) (SignedObject, error) {
+	required := "format network_id person_public_key issuer_certificate_id issued_at records"
+	if signed {
+		required += " signature"
+	}
+	if fields(o, required) != nil || version(o, 1) != nil {
 		return SignedObject{}, invalid()
 	}
-	a, e := texts(o, "network_id", "person_public_key", "issuer_certificate_id", "issued_at", "signature")
+	a, e := texts(o, "network_id", "person_public_key", "issuer_certificate_id", "issued_at")
 	if e != nil || !identifier(a[0], "net_") || !rootPerson(a[1], a[2], signer) {
 		return SignedObject{}, invalid()
 	}
@@ -641,8 +655,11 @@ func checkpoint(o Object, signer string) (SignedObject, error) {
 		}
 	}
 	m := message(append([]string{"peerspan-person-checkpoint-v1", a[0], a[1], a[2], a[3], strconv.Itoa(len(records))}, records...)...)
-	if e = personSignature(signer, m, a[4]); e != nil {
-		return SignedObject{}, e
+	if signed {
+		signature, e := text(o, "signature")
+		if e != nil || personSignature(signer, m, signature) != nil {
+			return SignedObject{}, invalid()
+		}
 	}
 	return SignedObject{Message: m}, nil
 }

@@ -114,11 +114,14 @@ type Server struct {
 	// Limits apply to new networks, joins, and relayed bytes; set before Serve.
 	Limits Limits
 	// Log receives the JSON log lines; set before Serve.
-	Log       *slog.Logger
-	metrics   *metrics
-	hosts     identityHosts
-	closeOnce sync.Once
-	closeErr  error
+	Log     *slog.Logger
+	metrics *metrics
+	hosts   identityHosts
+	// Admission negotiation and feature activation share a gate while the
+	// legacy handlers still own their transactions.
+	linkNetworkWrites sync.Mutex
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 func DefaultStateDir() (string, error) {
@@ -542,6 +545,15 @@ func (s *Server) Handler() http.Handler {
 		if !decode(w, r, &req, "name", "root_public_key", "membership", "address", "candidates") {
 			return
 		}
+		var active int
+		if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM link_features WHERE network_id=? AND active=1`, req.Membership.NetworkID).Scan(&active); err != nil {
+			respondLink(w, 0, nil, err, "")
+			return
+		}
+		if active > 0 {
+			respondLink(w, 0, nil, linkFailure(426, "upgrade_required"), "")
+			return
+		}
 		status, m, err := s.registerFrom(r.Context(), caller, sourceOf(r.RemoteAddr), req)
 		respond(w, status, s.withSuccessors(r, m), err)
 		if err == nil && status == http.StatusCreated {
@@ -579,7 +591,11 @@ func (s *Server) Handler() http.Handler {
 	s.limitRoutes(mux)
 	s.moveRoutes(mux)
 	s.linkingRoutes(mux)
-	return s.observe(mux, s.notifyChanges(mux))
+	s.linkFeatureRoutes(mux)
+	s.linkMapRoutes(mux)
+	s.linkOperationRoutes(mux)
+	s.linkMutationRoutes(mux)
+	return s.observe(mux, s.rejectLegacyLinking(s.notifyChanges(mux)))
 }
 
 // notifyChanges sends changed frames after every accepted change to a

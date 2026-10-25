@@ -135,6 +135,9 @@ func checkDB(ctx context.Context, path string) (Identity, int, error) {
    (SELECT COALESCE(max(sequence),0) FROM link_frames f WHERE f.locator=m.locator) != m.next_sequence-1))`).Scan(&incomplete); err != nil || incomplete != 0 {
 			return Identity{}, 0, fmt.Errorf("incomplete coordinator linking frame history")
 		}
+		if err = checkSavedLinkState(ctx, db); err != nil {
+			return Identity{}, 0, err
+		}
 	}
 	return identities[len(identities)-1].identity, version, nil
 }

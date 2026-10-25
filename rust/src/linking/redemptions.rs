@@ -224,7 +224,11 @@ impl Verifier<'_> {
             key(&h.key) && crate::membership::label(&h.label).is_ok(),
             "invalid",
         )?;
-        stamp(&h.expires)?;
+        if h.legacy {
+            legacy_stamp(&h.expires)?;
+        } else {
+            stamp(&h.expires)?;
+        }
         Ok(h)
     }
 
@@ -238,7 +242,7 @@ impl Verifier<'_> {
             let host = part == "host_invite";
             let h =
                 self.read_invite(p.object.get(part).ok_or_else(|| problem("invalid"))?, host)?;
-            check(joined <= stamp(&h.expires)?, "invalid")?;
+            check(joined <= legacy_stamp(&h.expires)?, "invalid")?;
             let (field, sig, domain) = if host {
                 (
                     "host_public_key",
@@ -304,7 +308,7 @@ impl Verifier<'_> {
             )?;
         }
         self.actor(&h.person, &h.cert, 8, true, 0)?;
-        if self.ctx.now >= stamp(&h.expires)? || !self.record_path_live(&h.person, &h.cert) {
+        if self.ctx.now >= legacy_stamp(&h.expires)? || !self.record_path_live(&h.person, &h.cert) {
             self.retained_redemption(id, h)?;
         }
         Ok(!self.invite_revoked(&h.key))

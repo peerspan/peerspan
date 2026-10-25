@@ -117,7 +117,7 @@ func TestOwnerAccessPolicy(t *testing.T) {
 		t.Fatalf("show before any policy: %v", err)
 	}
 
-	sign := func(version int64, issued time.Time, validFor time.Duration, rules ...membership.PolicyRule) membership.Policy {
+	sign := func(version uint64, issued time.Time, validFor time.Duration, rules ...membership.PolicyRule) membership.Policy {
 		t.Helper()
 		return must(membership.SignPolicy(pat, id, version, issued, validFor, rules))
 	}

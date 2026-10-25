@@ -369,7 +369,7 @@ class StandIn:
     responses with a chain this suite chooses. Relay connections are closed after the handshake; there is
     no STUN responder."""
 
-    ROUTES = re.compile(r'^/coord/v1/networks(/net_[0-9a-f]{64}/(members|sync))?$')
+    ROUTES = re.compile(r'^/coord/v[12]/networks(/net_[0-9a-f]{64}/(members|sync))?$')
 
     def __init__(self, directory, signer, client, upstream):
         self.signer, self.client, self.upstream = signer, client, upstream  # upstream: a callable -> port
@@ -453,9 +453,10 @@ class StandIn:
 
     def _forward(self, method, path, body):
         try:
-            raw = socket.create_connection(('127.0.0.1', self.upstream()), timeout=10)
+            port = self.upstream()
+            raw = socket.create_connection(('127.0.0.1', port), timeout=10)
             tls = self.client.context('http/1.1').wrap_socket(raw)
-            connection = http.client.HTTPConnection('127.0.0.1', timeout=10)
+            connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
             connection.sock = tls
             try:
                 connection.request(method, path, body or None, {'Content-Type': 'application/json'})
@@ -470,7 +471,7 @@ class StandIn:
                 value = json.loads(data)
             except json.JSONDecodeError:
                 value = None
-            if isinstance(value, dict):
+            if isinstance(value, dict) and 'format' not in value:
                 value['successors'] = self.chain
                 data = json.dumps(value).encode()
         return status, data
@@ -1061,7 +1062,7 @@ class Pairing:
             return self.record(name, net)
         eventually(lambda: sync()['last_sync_error'] is None and self.pinned(name, st.address, signer.b64, net), 60,
                    f'{name} registers and syncs through the stand-in', state)
-        need(any(p == '/coord/v1/networks' for _, p, _ in st.requests), 'the network registered through the stand-in',
+        need(any(p in ('/coord/v1/networks', '/coord/v2/networks') for _, p, _ in st.requests), 'the network registered through the stand-in',
              st.requests)
         other, link, extra_key = Key(self.keys), Key(self.keys), Key(self.keys)
         good = sign_successor(signer, 1, signer.b64, real_address, real_key)
