@@ -6,6 +6,8 @@ import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
 import { lostCallRecovery } from './adapter.mjs';
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const socketDirectory = () => `/tmp/peerspan-tools-${process.getuid()}`;
+// The daemon's protocol_version pattern.
+const protocolPattern = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 
 // macOS has a 104-byte sun_path, including its terminating NUL. Profiles
 // containing a full host ID commonly exceed it. Use a stable private path
@@ -60,6 +62,9 @@ async function reclaimSocket(socket) {
 
 export async function toolGateway(socket, callerSession, adapter, emit = () => {}) {
   await reclaimSocket(socket);
+  // The protocol revision the harness's MCP server negotiated, as sent with
+  // the latest accepted tool call that carried one.
+  let protocolVersion;
   const server = http.createServer(async (request, response) => {
     const reply = (status, value) => {
       response.writeHead(status, { 'Content-Type': 'application/json' });
@@ -82,6 +87,10 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
         reply(403, {});
         return;
       }
+      // Recorded before the call, so the adapter reports it before this
+      // call's daemon request (peerspan_ready included).
+      if (typeof value.protocol_version === 'string' && protocolPattern.test(value.protocol_version))
+        protocolVersion = value.protocol_version;
       const result = await adapter.callTool(value.name, value.arguments);
       reply(200, result);
       emit({
@@ -110,6 +119,7 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
   }
   return {
     socket,
+    protocolVersion: () => protocolVersion,
     ownsSocket: async () => {
       if (!server.listening) return false;
       try { return sameFile(owned, await lstat(socket)); }
@@ -122,7 +132,9 @@ export async function toolGateway(socket, callerSession, adapter, emit = () => {
       })
   };
 }
-export async function proxyTool(socket, callerSession, name, args) {
+// protocolVersion, when given, is the protocol revision the caller's MCP
+// server negotiated with the harness; the gateway reports it to the daemon.
+export async function proxyTool(socket, callerSession, name, args, protocolVersion) {
   // Allocate at the harness side of this extra hop so a lost gateway response
   // still leaves the caller with the exact ID the Peerspan host may have saved.
   // call_capability likewise allocates its call_id here.
@@ -148,7 +160,12 @@ export async function proxyTool(socket, callerSession, name, args) {
   try {
     return await new Promise((resolve, reject) => {
       const encoded = Buffer.from(
-        JSON.stringify({ caller_session: callerSession, name, arguments: input })
+        JSON.stringify({
+          caller_session: callerSession,
+          name,
+          arguments: input,
+          ...(typeof protocolVersion === 'string' && { protocol_version: protocolVersion })
+        })
       );
       const request = http.request(
         {

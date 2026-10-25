@@ -25,7 +25,12 @@ Roadmap milestone 9. The design and its settled decisions are in the [live deliv
 - **`claude_version`:** the executable's `--version` output, run with no other arguments, must parse as `X.Y.Z` and be at least **2.1.187**. Otherwise it fails, naming the minimum.
 - **`claude_account`:** from `claude auth status` (JSON), a warning when `apiProvider` is present and not `firstParty` ("channels are not available on this provider"), or when `subscriptionType` is `team` or `enterprise` ("an organization Owner must enable channels"). A warning is a passing check whose detail starts with `Warning: `, since helper checks are `ok` or `error`.
 - **`channel`:** `verified`, `unverified`, or `not running`. `unverified` fails with the item 13 message; `not running` passes, so `session start` can run the same checks before launching. Integration checks appear with the CLI's usual `harness/` prefix.
-- **`mcp_protocol`:** the adapter reports the protocol revision it negotiated in `POST /adapter/v1/connect` as `protocol_version`, and the daemon stores it. Doctor fails when it is `2026-07-28` or later. The adapter's MCP SDK stays on major version 1.
+- **`mcp_protocol`:** the adapter reports, as `protocol_version` in `POST /adapter/v1/connect`, the revision of the protocol through which the harness reaches Peerspan's tools, and the daemon stores the latest value reported. A connect without `protocol_version` leaves the stored value unchanged. The value depends on the integration (settled with the owner on 2026-10-25; see the [proposal's decisions](live-delivery-proposal.md#decisions)):
+  - **Claude Code:** the MCP revision `channel.mjs` negotiated with Claude Code in `initialize`; the first connect carries it.
+  - **Codex:** the MCP revision the Peerspan MCP server (`mcp.mjs`) negotiated with Codex in `initialize` (`2025-06-18` with Codex 0.160.0). `mcp.mjs` sends it as `protocol_version` in each `POST /tool` on the tool socket; the sidecar accepts it only from a call whose `_meta.threadId` is the selected thread, so it is known from the first tool call, normally `peerspan_ready`.
+  - **OpenCode:** OpenCode reaches the tools through its native plugin API, not MCP. The value is `opencode-plugin-VERSION`, where VERSION is the server version from `GET /global/health` that the sidecar checks before connecting; the first connect carries it.
+
+  Whenever the value differs from the one it last reported, the adapter connects again before its next daemon request, so the daemon stores it before `POST /adapter/v1/ready` records verification. Doctor's detail names the stored value, or says none has been reported yet; a missing value is not a failure. Doctor fails only when the harness is Claude Code (`claude-code`) and the value is a date of `2026-07-28` or later; for other harnesses it reports the value and passes. The adapter's MCP SDK stays on major version 1.
 
 `adapter_ready` now also requires `channel` `verified`.
 
@@ -61,7 +66,7 @@ The shared schema moves to version 14. It adds `channel_verified_at` and `protoc
   - verification surviving a daemon restart, and a new attachment starting unverified.
 - **Connected:** `connected` and `channel` in `GET /v1/directory` on another host, before and after verification, and item 13 after 120 seconds unverified.
 - **Doctor:** a fixture `claude` executable reporting versions below and at the minimum, and `auth status` accounts that trigger each warning.
-- **Protocol:** `protocol_version` recorded, and doctor failing a fixture adapter that reports `2026-07-28`.
+- **Protocol:** `protocol_version` recorded; doctor failing a fixture adapter of a `claude-code` session that reports `2026-07-28`, and passing a fixture adapter of another harness that reports it; a fixture adapter that connects without `protocol_version` and later learns one having it stored before `POST /adapter/v1/ready`, and keeping it across a later connect without the field.
 - **Launch:** the launch environment includes `MCP_PROTOCOL_NEGOTIATION=legacy`, and the instructions are at most 2,048 characters.
 - **Fatal stop:** a `disconnected` event and exit 1 on a replaced instance.
 - **Deadlines:** the default deadline of agent sends by address and through routes.

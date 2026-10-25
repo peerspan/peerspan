@@ -948,10 +948,12 @@ async fn inspect(p: &Profile, mut checks: Vec<Check>) -> Value {
                 checks.push(Check::new("channel", false, &format!("unverified: {}", peerspan_host::status::channel_unverified_detail(name))))
             }
         }
+        // Only Claude Code's channel delivery depends on the revision; a
+        // missing value is never a failure.
         checks.push(match connection["protocol_version"].as_str() {
-            None => Check::new("mcp_protocol", true, "The adapter has not reported its MCP protocol revision."),
-            Some(version) if protocol_too_new(version) => Check::new("mcp_protocol", false, &format!("The adapter negotiated MCP protocol revision {version}; revisions from {MCP_PROTOCOL_LIMIT} do not deliver channel events. Launch Claude Code with MCP_PROTOCOL_NEGOTIATION=legacy.")),
-            Some(version) => Check::new("mcp_protocol", true, &format!("The adapter negotiated MCP protocol revision {version}.")),
+            None => Check::new("mcp_protocol", true, "The adapter has not reported a protocol revision yet."),
+            Some(version) if p.harness.id == "claude-code" && protocol_too_new(version) => Check::new("mcp_protocol", false, &format!("The adapter negotiated MCP protocol revision {version}; revisions from {MCP_PROTOCOL_LIMIT} do not deliver channel events. Launch Claude Code with MCP_PROTOCOL_NEGOTIATION=legacy.")),
+            Some(version) => Check::new("mcp_protocol", true, &format!("The adapter reported protocol revision {version}.")),
         });
         let routes=call(p,Method::GET,&format!("/v1/adapters/{}/route-status",p.adapter_id),None).await?;
         for entry in routes.as_array().context("invalid daemon response")?{

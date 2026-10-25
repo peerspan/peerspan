@@ -41,8 +41,11 @@ started first, and its timers run while the other sections do; a status watcher 
   provider and team/enterprise subscriptions, none without `apiProvider`, `channel`
   (verified, unverified with the item 13 message, not running passing), integration checks with
   the `harness/` prefix, and `adapter_ready` requiring a verified channel;
-- protocol: the negotiated revision recorded as `protocol_version`, and doctor failing
-  `mcp_protocol` for a fixture adapter reporting `2026-07-28`;
+- protocol: the negotiated revision recorded as `protocol_version`; doctor failing `mcp_protocol` for a
+  fixture adapter of a `claude-code` session reporting `2026-07-28`, and passing (naming the value) for a
+  fixture adapter of another harness (the Python/file fixture integration) reporting it; a missing value
+  not failing; a fixture adapter that connects without `protocol_version` and later learns one having it
+  stored before `POST /adapter/v1/ready`, and keeping it across a later connect without the field;
 - launch: `session start` launching Claude with `MCP_PROTOCOL_NEGOTIATION=legacy`, and the MCP
   instructions at most 2,048 characters;
 - fatal stop: a replaced instance emits one `disconnected` event naming `peerspan attach claude`
@@ -127,6 +130,7 @@ from launch_directory import DirectoryHost
 from launch_onboarding import Failure, near, need, parse_time
 from peer_messaging import request_id, set_probe, timestamp
 from tasks import task_id
+from harness_setup import catalog as fixture_catalog
 
 REPO = Path(__file__).resolve().parents[1]
 INTEGRATIONS = REPO / 'integrations'
@@ -138,6 +142,8 @@ RESEND = 60
 ITEM13 = 120
 CLIENT_PROTOCOL = '2025-11-25'
 LATE_PROTOCOL = '2026-07-28'
+LEARNED_PROTOCOL = '2025-06-18'
+OTHER_HARNESS = 'file-fixture'
 NONCE = re.compile(r'[0-9a-fA-F]{32}')
 TASK_TOOLS_PREFIX = 'task_'
 # Slice 2.
@@ -914,7 +920,71 @@ class Pairing:
         need(code != 0 and report.get('adapter_ready') is False, 'doctor fails for a late MCP revision', code,
              report.get('adapter_ready'))
         need(check_named(report, 'channel')['status'] == 'ok', 'the fixture adapter\'s channel is verified', report)
-        return f'negotiated {s2.negotiated}'
+        # Doctor's 2026-07-28 failure applies to the claude-code harness only: a fixture adapter of another
+        # harness (the Python/file fixture integration) reporting it passes, and doctor names the value.
+        directory = self.profiles['otherproto']
+        raw = RawAdapter(self.a, self.secret(directory), protocol=LATE_PROTOCOL)
+        status, value = raw.connect()
+        need(status == 200, f'a {OTHER_HARNESS} fixture adapter connects reporting protocol_version 2026-07-28',
+             status, value)
+        status, value = raw.request('POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)})
+        need(200 <= status < 300, f'the {OTHER_HARNESS} fixture adapter verifies its channel', status, value)
+        fields = self.connection_object(raw.adapter['id'])
+        need(fields['protocol_version'] == LATE_PROTOCOL, f'protocol_version recorded for the {OTHER_HARNESS} adapter',
+             fields)
+        raw.connect()
+        code, report = self.doctor(directory)
+        need(report.get('harness') == OTHER_HARNESS, 'doctor reports the other harness', report.get('harness'))
+        check = check_named(report, 'mcp_protocol')
+        need(check['status'] == 'ok', 'mcp_protocol: for a harness other than claude-code, 2026-07-28 passes', check)
+        need(LATE_PROTOCOL in check.get('detail', ''), 'mcp_protocol: doctor\'s detail names the stored value', check)
+        need(code == 0 and report.get('adapter_ready') is True,
+             f'doctor passes for a {OTHER_HARNESS} adapter reporting 2026-07-28', code, report.get('checks'))
+
+        # A missing value is not a failure (a claude-code session whose adapter never reported one).
+        directory = self.profiles['noproto']
+        raw = RawAdapter(self.a, self.secret(directory), protocol=None)
+        status, value = raw.connect()
+        need(status == 200, 'a fixture adapter connects without protocol_version', status, value)
+        status, value = raw.request('POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)})
+        need(200 <= status < 300, 'the fixture adapter without protocol_version verifies its channel', status, value)
+        fields = self.connection_object(raw.adapter['id'])
+        need(fields['protocol_version'] is None, 'protocol_version null when none was reported', fields)
+        raw.connect()
+        code, report = self.doctor(directory)
+        check = check_named(report, 'mcp_protocol')
+        need(check['status'] == 'ok', 'mcp_protocol: a missing value is not a failure', check)
+        need(code == 0 and report.get('adapter_ready') is True, 'doctor passes when no protocol_version was reported',
+             code, report.get('checks'))
+
+        # A fixture adapter that connects without protocol_version and later learns one (as the Codex sidecar does
+        # from the first tool call) connects again with it, so it is stored before POST /adapter/v1/ready; a later
+        # connect without the field leaves it unchanged.
+        directory = self.profiles['learner']
+        raw = RawAdapter(self.a, self.secret(directory), protocol=None)
+        status, value = raw.connect()
+        need(status == 200, 'the learning fixture adapter connects without protocol_version', status, value)
+        fields = self.connection_object(raw.adapter['id'])
+        need(fields['protocol_version'] is None, 'protocol_version null before the adapter learns one', fields)
+        raw.protocol = LEARNED_PROTOCOL
+        status, value = raw.connect()
+        need(status == 200, 'the fixture adapter connects again with the protocol_version it learned', status, value)
+        fields = self.connection_object(raw.adapter['id'])
+        need(fields['protocol_version'] == LEARNED_PROTOCOL and fields['channel'] == 'unverified',
+             'the learned protocol_version is stored before POST /adapter/v1/ready', fields)
+        status, value = raw.request('POST', '/adapter/v1/ready', {'nonce': secrets.token_hex(16)})
+        need(200 <= status < 300, 'the learning fixture adapter verifies its channel', status, value)
+        raw.protocol = None
+        status, value = raw.connect()
+        need(status == 200, 'the fixture adapter connects again without protocol_version', status, value)
+        fields = self.connection_object(raw.adapter['id'])
+        need(fields['protocol_version'] == LEARNED_PROTOCOL and fields['channel'] == 'verified',
+             'a connect without protocol_version leaves the stored value unchanged', fields)
+        code, report = self.doctor(directory)
+        check = check_named(report, 'mcp_protocol')
+        need(check['status'] == 'ok' and LEARNED_PROTOCOL in check.get('detail', ''),
+             'mcp_protocol passes and names the stored value', check)
+        return f'negotiated {s2.negotiated}; {OTHER_HARNESS} passes at {LATE_PROTOCOL}; learned {LEARNED_PROTOCOL} kept'
 
     def check_launch(self):
         directory = self.profiles['launchy']
@@ -1116,7 +1186,7 @@ class Pairing:
         for word in ('provider', 'version', 'flag'):
             need(word in detail.lower(), f'item 13 message names the likely causes ({word})', detail)
         need(not [i for i in body['attention'] if i.get('kind') == 'channel_unverified'
-                  and i.get('subject') in ('eager', 'rawq', 'oldproto')], 'verified authorizations get no item 13',
+                  and i.get('subject') in ('eager', 'rawq', 'oldproto', 'noproto', 'learner', 'otherproto')], 'verified authorizations get no item 13',
              body['attention'])
         kinds = [i['kind'] for i in body['attention']]
         if 'agent_name_conflict' in kinds:
@@ -2110,7 +2180,8 @@ class Pairing:
             wait_for(lambda h=h: len(h.cli('network', 'members', self.net)) == 2, timeout=40,
                      message='both members known')
         self.agent = {n: self.register(self.a, n, 'alice')
-                      for n in ('quiet', 'eager', 'rawq', 'idle', 'launchy', 'oldproto', 'doomed')}
+                      for n in ('quiet', 'eager', 'rawq', 'idle', 'launchy', 'oldproto', 'doomed', 'noproto',
+                                'learner', 'otherproto')}
         self.agent['target'] = self.register(self.b, 'target', 'bob')
         self.a.cli('allow', 'bob', '--network', self.net)
         self.b.cli('allow', 'alice', '--network', self.net)
@@ -2122,10 +2193,17 @@ class Pairing:
                  timeout=40, message='bob\'s agent in alice\'s directory')
 
         self.fixtures, self.profiles, self.session_ids = {}, {}, {}
-        for name in ('quiet', 'eager', 'launchy', 'oldproto', 'doomed'):
+        for name in ('quiet', 'eager', 'launchy', 'oldproto', 'doomed', 'noproto', 'learner'):
             self.fixtures[name] = Fixture(self.root / 'fixtures' / name)
             self.profiles[name], out = self.profile(name, self.agent[name], self.fixtures[name])
             self.session_ids[name] = out['session_id']
+        # A session of another harness: the Python/file fixture integration.
+        bundles = fixture_catalog(self.root / 'other-integrations', identity=OTHER_HARNESS)
+        directory = self.root / 'profiles' / 'otherproto'
+        out = self.a.cli('session', 'setup', '--harness', OTHER_HARNESS, '--directory', str(directory), '--agent',
+                         self.agent['otherproto']['id'], '--integrations', str(bundles), '--expires-in', '2h')
+        need(out.get('session_id') and out.get('harness') == OTHER_HARNESS, 'session setup for otherproto', out)
+        self.profiles['otherproto'], self.session_ids['otherproto'] = directory, out['session_id']
 
         # Work waiting before the sessions start.
         self.queued_quiet = self.send_from_bob('quiet', 'held for quiet')

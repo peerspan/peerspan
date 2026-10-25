@@ -50,7 +50,9 @@ its dead private socket provides no new access.
 Codex supplies the caller's `threadId` in MCP metadata. Every call must match the
 selected conversation before reaching the sidecar's private tool socket. Other
 conversations may discover the server's tools but cannot exercise its attachment.
-Tokens and process-instance secrets remain in the sidecar; the MCP consumer
+The MCP server sends the protocol revision it negotiated with Codex along with each
+call, and the sidecar reports the selected thread's revision to the daemon as
+`protocol_version`. Tokens and process-instance secrets remain in the sidecar; the MCP consumer
 receives neither credentials nor access to Peerspan administration.
 
 Incoming messages and return replies enter Codex's durable user-message queue.

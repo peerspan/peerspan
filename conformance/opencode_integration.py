@@ -9,6 +9,7 @@ import signal
 import subprocess
 import tempfile
 import threading
+import urllib.request
 from claude_setup import invoke,snapshot,wait
 from codex_integration import Harness,ROOT
 from peer_messaging import PeerHost,timestamp
@@ -40,7 +41,13 @@ def check(client,receiver_binary,replacement,node,label):
             def route(peer,agent,grant):return{'name':'remote','peer_host_id':peer['id'],'target_agent_id':agent['id'],'grant_id':grant['id'],'max_messages':2}
             alpha=Backend(node,root/'alpha');beta=Backend(node,root/'beta');harnesses.extend([alpha,beta]);before=alpha.control('inspect')['session']
             left,right=root/'left',root/'right';setup(client,a,aa,left,node,[route(bi,ba,bg)],alpha);setup(client,b,ba,right,node,[route(ai,aa,ag)],beta)
-            alice=Harness(replacement,a,left);bob=Harness(client,b,right);harnesses.extend([alice,bob]);alice.verified();bob.verified()
+            alice=Harness(replacement,a,left);bob=Harness(client,b,right);harnesses.extend([alice,bob])
+            # Once the sidecar is ready, the connection shows opencode-plugin-VERSION, VERSION from GET /global/health.
+            for host,directory,backend in ((a,left,alpha),(b,right,beta)):
+                with urllib.request.urlopen(backend.server+'/global/health',timeout=10) as response:version=json.load(response)['version']
+                connection=host.cli('adapter','connection',json.loads((directory/'credential.json').read_text())['adapter']['id'])
+                assert connection.get('protocol_version')=='opencode-plugin-'+version,('protocol_version once the sidecar is ready',version,connection)
+            alice.verified();bob.verified()
             assert alpha.control('inspect')['session']==before
             assert alpha.control('wrong-session')['blocked'];assert alpha.control('deny')['blocked']
             alpha.input('destinations');destinations=alice.event('tool_result',tool='list_destinations');assert json.loads(destinations['content'][0]['text'])[0]['messages_remaining']==2
@@ -62,7 +69,7 @@ def check(client,receiver_binary,replacement,node,label):
             if paused:os.kill(paused.process.pid,signal.SIGCONT)
             for h in reversed(harnesses):h.stop()
             a.stop();b.stop()
-    print(label+': existing OpenCode session, plugin fencing/native permissions, exchange, read-only doctor, rotation/restart, budgets and uncertain handoff passed',flush=True)
+    print(label+': existing OpenCode session, protocol_version, plugin fencing/native permissions, exchange, read-only doctor, rotation/restart, budgets and uncertain handoff passed',flush=True)
 
 def main():
     parser=argparse.ArgumentParser()

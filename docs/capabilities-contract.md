@@ -786,7 +786,7 @@ PRAGMA user_version = 18;
 - both hosts recorded the call, with Alice's agent as `origin`;
 - after Bob runs `unshare github-issues --with person:ALICE`, the next call is refused with the `not_found` text, nothing is executed on Bob's host, and the model's answer says it can no longer reach the capability.
 
-Before each harness's run Bob shares again. The report records each harness's version, the negotiated MCP revision, and the model's tool calls and answers, without claiming model behavior from notification acknowledgements alone.
+Before each harness's run Bob shares again. The report records each harness's version, the adapter connection's `protocol_version` on Alice's host (the negotiated MCP revision for Claude Code and Codex, `opencode-plugin-VERSION` for OpenCode; [live delivery contract](live-delivery-contract.md#doctor)), which must be non-null for every harness, and the model's tool calls and answers, without claiming model behavior from notification acknowledgements alone.
 
 ## Owner decisions
 

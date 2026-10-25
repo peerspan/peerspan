@@ -1,7 +1,11 @@
 import { parseArgs } from 'node:util';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  InitializeRequestSchema,
+  ListToolsRequestSchema
+} from '@modelcontextprotocol/sdk/types.js';
 import { proxyTool } from '../shared/tools.mjs';
 import { tools, instructions } from '../shared/adapter.mjs';
 const { values } = parseArgs({
@@ -14,6 +18,14 @@ const server = new Server(
   { name: 'peerspan', version: '0.1.0' },
   { capabilities: { tools: {} }, instructions }
 );
+// The MCP revision negotiated with Codex, sent with each call of the
+// selected thread so the sidecar reports it as protocol_version.
+let negotiated;
+server.setRequestHandler(InitializeRequestSchema, async (request) => {
+  const result = await server._oninitialize(request);
+  negotiated = result.protocolVersion;
+  return result;
+});
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params._meta?.threadId !== values.thread)
@@ -28,7 +40,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       values.socket,
       values.thread,
       request.params.name,
-      request.params.arguments
+      request.params.arguments,
+      negotiated
     );
   } catch (error) {
     return { isError: true, content: [{ type: 'text', text: error.message }] };

@@ -88,7 +88,9 @@ export async function run(config, { emit = () => {} } = {}) {
       onFatal: (error) => {
         void close(error);
       },
-      reattach: 'peerspan attach codex'
+      reattach: 'peerspan attach codex',
+      // Sent by mcp.mjs with calls whose threadId is the selected thread.
+      protocolVersion: () => gateway?.protocolVersion()
     });
     if (closing) throw new Error('Attachment stopped during setup.');
     gateway = await toolGateway(config.tool_socket, config.thread_id, adapter, emit);

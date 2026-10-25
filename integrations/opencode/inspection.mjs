@@ -35,5 +35,9 @@ export async function inspect(client, config) {
     !tools.every((tool) => ids.includes(toolName(tool.name)))
   )
     throw new Error('The configured Peerspan plugin tools are not loaded.');
-  return session;
+  // OpenCode reaches the tools through its plugin API, not MCP. The server
+  // version is reported whole when it fits the daemon's protocol_version
+  // pattern, and otherwise as its X.Y.Z prefix.
+  const version = /^[0-9A-Za-z._-]{1,48}$/.test(health.version) ? health.version : match[0];
+  return { session, protocolVersion: 'opencode-plugin-' + version };
 }

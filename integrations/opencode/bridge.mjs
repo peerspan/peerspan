@@ -111,7 +111,7 @@ export async function run(config, { emit = () => {} } = {}) {
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
   try {
-    await inspect(client, config);
+    const { protocolVersion } = await inspect(client, config);
     if (closing) throw new Error('Attachment stopped during setup.');
     adapter = await configuredAdapter(config.socket, config.credential, {
       notify: async (event) => {
@@ -131,7 +131,8 @@ export async function run(config, { emit = () => {} } = {}) {
       onFatal: (error) => {
         void close(error);
       },
-      reattach: 'peerspan attach opencode'
+      reattach: 'peerspan attach opencode',
+      protocolVersion: () => protocolVersion
     });
     gateway = await toolGateway(config.tool_socket, config.session_id, adapter, emit);
     if (closing) throw new Error('Attachment stopped during setup.');

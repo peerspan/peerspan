@@ -671,8 +671,9 @@ export function createAdapter({
   leaseRenewMs = 5000,
   recoveryMs = 30000,
   helloRetryMs = 60000,
-  // The MCP protocol revision negotiated with the harness, when this process
-  // is the harness's MCP server; reported on connect.
+  // The revision of the protocol through which the harness reaches the tools
+  // (the negotiated MCP revision, or an integration-defined value); reported
+  // on connect, and connecting again whenever it changes.
   protocolVersion = () => undefined,
   // The command that attaches a fresh session, named in the disconnected event.
   reattach = 'peerspan attach HARNESS',
@@ -699,34 +700,47 @@ export function createAdapter({
   });
   // Set when the host refuses call-update claims to this credential.
   let callUpdates = true;
+  // The protocol revision the daemon last accepted from this instance.
+  let reported;
+  const negotiatedVersion = () => {
+    const value = protocolVersion();
+    return typeof value === 'string' ? value : undefined;
+  };
   async function ensureConnection() {
-    if (stop.signal.aborted) throw new AdapterError('Peerspan adapter has stopped.');
-    if (terminalError) throw terminalError;
-    if (connected && Date.now() - renewedAt < leaseRenewMs) return;
-    if (!connecting)
-      connecting = (async () => {
-        await reloadCredential();
-        const negotiated = protocolVersion();
-        const connection = await call('POST', '/adapter/v1/connect', {
-          instance_id: instanceId,
-          adapter_id: adapterId,
-          session_id: sessionId,
-          ...(typeof negotiated === 'string' && { protocol_version: negotiated })
+    for (;;) {
+      if (stop.signal.aborted) throw new AdapterError('Peerspan adapter has stopped.');
+      if (terminalError) throw terminalError;
+      // A changed revision is reported before the next daemon request, even
+      // while the lease is fresh.
+      const negotiated = negotiatedVersion();
+      const current = negotiated === undefined || negotiated === reported;
+      if (connected && current && Date.now() - renewedAt < leaseRenewMs) return;
+      if (!connecting)
+        connecting = (async () => {
+          await reloadCredential();
+          const negotiated = negotiatedVersion();
+          const connection = await call('POST', '/adapter/v1/connect', {
+            instance_id: instanceId,
+            adapter_id: adapterId,
+            session_id: sessionId,
+            ...(negotiated !== undefined && { protocol_version: negotiated })
+          });
+          if (
+            connection.session_id !== sessionId ||
+            connection.adapter_id !== adapterId ||
+            connection.state !== 'ready'
+          ) {
+            throw new AttachmentChanged('connection does not match the authorized attachment');
+          }
+          connected = true;
+          renewedAt = Date.now();
+          authorizationFailureAt = undefined;
+          if (negotiated !== undefined) reported = negotiated;
+        })().finally(() => {
+          connecting = undefined;
         });
-        if (
-          connection.session_id !== sessionId ||
-          connection.adapter_id !== adapterId ||
-          connection.state !== 'ready'
-        ) {
-          throw new AttachmentChanged('connection does not match the authorized attachment');
-        }
-        connected = true;
-        renewedAt = Date.now();
-        authorizationFailureAt = undefined;
-      })().finally(() => {
-        connecting = undefined;
-      });
-    await connecting;
+      await connecting;
+    }
   }
   async function scopedCall(method, path, body) {
     await ensureConnection();

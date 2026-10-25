@@ -62,6 +62,13 @@ Settled with the owner on 2026-10-10:
 - **Redelivery:** work the model provably never saw goes to the next session.
 - **Deadline:** agent sends wait 1 hour, as CLI sends and delegations do.
 
+Settled with the owner on 2026-10-25:
+- **Protocol revision for every integration.** Codex and OpenCode adapters report `protocol_version`, as Claude Code does ([`mcp_protocol`](live-delivery-contract.md#doctor)):
+  - **OpenCode:** it has no MCP session with Peerspan, so it reports `opencode-plugin-VERSION`, the server version from `GET /global/health`, rather than a separate field.
+  - **Codex:** `mcp.mjs` sends its negotiated MCP revision with each `POST /tool`. The sidecar accepts it only from calls whose `_meta.threadId` is the selected thread.
+  - **Reporting:** the adapter connects again as soon as the value changes, before its next daemon request.
+  - **Doctor:** the `2026-07-28` failure applies to the Claude Code harness (`claude-code`) only, and a missing value is not a failure.
+
 ## Open
 
 - An official-marketplace listing, or organization allowlisting through `allowedChannelPlugins`, for Peerspan's channel plugin. Either one removes the development-channel dialog and enables headless agents.

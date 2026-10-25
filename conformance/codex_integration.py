@@ -14,6 +14,8 @@ from claude_setup import invoke, snapshot, wait
 from peer_messaging import PeerHost, timestamp
 
 ROOT = Path(__file__).resolve().parents[1]
+# The MCP revision the fixture backend requests in initialize (fixtures/codex/backend.mjs), as Codex 0.160.0 does.
+REQUESTED_PROTOCOL = '2025-06-18'
 
 class Harness:
     def __init__(self, client, host, directory, prompt=None):
@@ -92,6 +94,12 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             bob=Harness(client,receiver,right); harnesses.append(bob)
             alice.verified(); bob.verified()
             before=json.loads((left/'credential.json').read_text()); original=before['adapter']
+            # The sidecar reports the MCP revision Codex negotiated with mcp.mjs, learned from the selected thread's
+            # first tool call (peerspan_ready) and stored before POST /adapter/v1/ready.
+            for host,directory in ((source,left),(receiver,right)):
+                adapter_id=json.loads((directory/'credential.json').read_text())['adapter']['id']
+                connection=host.cli('adapter','connection',adapter_id)
+                assert connection.get('protocol_version')==REQUESTED_PROTOCOL, ('protocol_version after peerspan_ready', connection)
             wait(lambda: source.cli('adapter','connection',original['id'])['state']=='ready')
             alice_backend.input('destinations'); destinations=alice.event('tool_result',tool='list_destinations'); assert destinations['success']
             assert json.loads(destinations['content'][0]['text'])[0]['messages_remaining']==2
@@ -136,7 +144,7 @@ def check(client, source_binary, receiver_binary, replacement, node, label):
             if paused: os.kill(paused.process.pid,signal.SIGCONT)
             for harness in reversed(harnesses): harness.stop()
             source.stop(); receiver.stop()
-    print(label+': Codex setup, tools, existing-thread queueing, replies, doctor, recovery and budgets passed',flush=True)
+    print(label+': Codex setup, protocol_version, tools, existing-thread queueing, replies, doctor, recovery and budgets passed',flush=True)
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('--go',type=Path,required=True); parser.add_argument('--rust',type=Path,required=True); parser.add_argument('--node',type=Path,required=True)

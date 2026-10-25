@@ -43,6 +43,10 @@ the shared tools with a `peerspan_` prefix: `peerspan_list_destinations`, `peers
 attaches it. The plugin uses OpenCode's trusted `context.sessionID` and honors
 native tool permission decisions. Model arguments cannot select another session.
 
+Because the tools use the plugin API rather than MCP, the sidecar reports
+`opencode-plugin-VERSION` (the server version from `/global/health`) as the
+adapter connection's `protocol_version`.
+
 OpenCode's MCP requests in this version omit caller session identity, so a plain
 MCP registration cannot safely fence multiple conversations. The native plugin
 provides that identity without relying on model-supplied IDs.

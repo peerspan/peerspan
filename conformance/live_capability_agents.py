@@ -45,9 +45,14 @@ For each harness the run checks that:
   call is refused with the `not_found` text, nothing more is executed on Bob's host (no further received call), and
   the model's answer says it can no longer reach the capability (a keyword check, recorded with the answer for
   review);
-- each turn completed (Claude Code exited 0; the Codex turn completed; the OpenCode turn has no error).
-Before each harness's run Bob shares again. The report records each harness's version, the negotiated MCP revision
-(the adapter connection's `protocol_version` on Alice's host, null when the adapter reported none), and the model's
+- each turn completed (Claude Code exited 0; the Codex turn completed; the OpenCode turn has no error);
+- the adapter connection on Alice's host reported a non-null `protocol_version` (`protocol_reported`): for Claude
+  Code and Codex a YYYY-MM-DD MCP revision, the one the adapter negotiated; for OpenCode, which reaches the tools
+  through its plugin API rather than MCP, `opencode-plugin-` followed by the server version recorded from
+  `GET /global/health` (live delivery contract, `mcp_protocol`).
+Before each harness's run Bob shares again. The report records each harness's version, the adapter connection's
+`protocol_version` on Alice's host (as `negotiated_protocol`, null when the adapter reported none, which fails
+`protocol_reported`), and the model's
 tool calls and answers, as parsed from Claude Code's JSON output, the Codex thread's turns, and the OpenCode
 session's messages; nothing about model behavior is inferred from notification acknowledgements. Tool calls are
 recognized by name (any name ending in list_capabilities or call_capability) with their arguments.
@@ -96,7 +101,8 @@ SECOND_PROMPT = ('Please list the open issues of the GitHub repository {repo} ag
                  'capability bob/github-issues directly, even if it is no longer listed. If the call fails or you '
                  'cannot reach it, say so plainly.')
 UNREACHABLE = re.compile(r'no longer|not available|unavailable|cannot|can[\'\u2019]t|can not|unable|not_found|not found|'
-                         r'unshared|no capability|isn[\'\u2019]t available|is not available|lost access|no access', re.I)
+                         r'unshared|no capability|isn[\'\u2019]t available|is not available|lost access|no access|unreachable|'
+                         r'(?:failed|fails|unable|could not|couldn[\'\u2019]t|cannot|can[\'\u2019]t) (?:to )?(?:reach|access)', re.I)
 
 
 class Person(DirectoryHost):
@@ -191,6 +197,18 @@ def version_of(command):
         return subprocess.run([command, '--version'], capture_output=True, text=True, timeout=30).stdout.strip()
     except OSError as error:
         return f'unavailable: {error}'
+
+
+def protocol_reported(harness, value, attachment):
+    """The adapter connection's protocol_version is non-null and has the integration's form: a YYYY-MM-DD MCP
+    revision for Claude Code and Codex, opencode-plugin-VERSION for OpenCode, VERSION being the server version
+    recorded from GET /global/health."""
+    if not isinstance(value, str) or not value:
+        return False
+    if harness == 'opencode':
+        version = (attachment or {}).get('version')
+        return bool(version) and value == f'opencode-plugin-{version}'
+    return re.fullmatch(r'\d{4}-\d{2}-\d{2}', value) is not None
 
 
 def wait_until(check, seconds, message):
@@ -597,6 +615,8 @@ class Run:
                 report['negotiated_protocol'] = connection.get('protocol_version')
             # Recorded as the daemon has it; null means the adapter reported no revision at connect.
             report.setdefault('negotiated_protocol', None)
+            report['checks']['protocol_reported'] = protocol_reported(harness, report['negotiated_protocol'],
+                                                                      driver.attachment)
 
             # Unshared: the next call is refused with the not_found text, and nothing more runs on Bob's host.
             self.bob.cli('unshare', 'github-issues', '--with', 'person:alice', '--network', self.net)

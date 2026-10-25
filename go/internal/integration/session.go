@@ -521,13 +521,15 @@ func inspect(ctx context.Context, p *Profile, checks []Check) Report {
 		}
 		check("channel", false, "unverified: "+host.ChannelUnverifiedDetail(name))
 	}
+	// Only Claude Code's channel delivery depends on the revision; a missing
+	// value is never a failure.
 	switch {
 	case conn.ProtocolVersion == nil:
-		check("mcp_protocol", true, "The adapter has not reported its MCP protocol revision.")
-	case protocolTooNew(*conn.ProtocolVersion):
+		check("mcp_protocol", true, "The adapter has not reported a protocol revision yet.")
+	case p.Harness.ID == "claude-code" && protocolTooNew(*conn.ProtocolVersion):
 		check("mcp_protocol", false, "The adapter negotiated MCP protocol revision "+*conn.ProtocolVersion+"; revisions from "+mcpProtocolLimit+" do not deliver channel events. Launch Claude Code with MCP_PROTOCOL_NEGOTIATION=legacy.")
 	default:
-		check("mcp_protocol", true, "The adapter negotiated MCP protocol revision "+*conn.ProtocolVersion+".")
+		check("mcp_protocol", true, "The adapter reported protocol revision "+*conn.ProtocolVersion+".")
 	}
 	var routes []host.RouteStatus
 	if err := call(ctx, p, "GET", "/v1/adapters/"+p.AdapterID+"/route-status", nil, &routes); err != nil {

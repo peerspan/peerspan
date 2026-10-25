@@ -6,6 +6,8 @@ import { WebSocketServer } from '../../../integrations/codex/node_modules/ws/wra
 import { Client } from '../../../integrations/codex/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js';
 import { StdioClientTransport } from '../../../integrations/codex/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js';
 import { createInterface } from 'node:readline';
+// The MCP revision this fixture requests in initialize, as Codex 0.160.0 does.
+const REQUESTED_PROTOCOL = '2025-06-18';
 const [socket, threadId] = process.argv.slice(2),
   server = http.createServer(),
   wsServer = new WebSocketServer({ server });
@@ -60,9 +62,17 @@ async function refresh() {
   for (const [name, entry] of entries) {
     if (consumers.has(name)) continue;
     const client = new Client({ name: 'codex-fixture', version: '0.160.0' });
-    await client.connect(
-      new StdioClientTransport({ command: entry.command, args: entry.args, stderr: 'ignore' })
-    );
+    const transport = new StdioClientTransport({ command: entry.command, args: entry.args, stderr: 'ignore' });
+    // Request REQUESTED_PROTOCOL rather than the SDK's latest revision, as real Codex does.
+    const send = transport.send.bind(transport);
+    transport.send = (message, options) =>
+      send(
+        message.method === 'initialize'
+          ? { ...message, params: { ...message.params, protocolVersion: REQUESTED_PROTOCOL } }
+          : message,
+        options
+      );
+    await client.connect(transport);
     consumers.set(name, client);
   }
 }
