@@ -1140,3 +1140,21 @@ bans. Complete evidence omitting a required ban is forbidden; genuinely missing
 exact evidence is proof_required. Discarded: treating every restrictive catalog
 object as active, forgetting admitted bans after a withdrawal, and conflating a
 complete invalid prepared choice with a missing proof.
+
+## Coordinator-free known-source serialization compatibility (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: compare strictly
+decoded descriptor/source-state fields and exact legacy catalog proof-body
+tuples when independently reconstructed LOCAL state is checked against a frozen
+proposal. Preserve all original endorsed source/descriptor bytes, declared
+hashes, signatures, nonce, key and consent. This allows Go/Rust reopening to
+survive harmless JSON wrapper order/escaping differences without changing any
+authority fact. Actual local root/feature/history must independently verify;
+the existing all-known-host/restriction/floor/operation coverage rules remain.
+
+Discarded: treating local JSON serialization as a new authority pin, normalizing
+signed proof bodies or proposed source bytes, replacing declared hashes,
+ignoring historical coordinator pins, floating-point maxima, dropping new
+proof aliases or omitted local facts, and recreating/re-signing a proposal to
+hide a representation difference. The exception is compatibility of local
+representations only; it does not create semantic signed-object hashes.

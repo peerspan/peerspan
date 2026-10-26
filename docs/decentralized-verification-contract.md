@@ -221,6 +221,15 @@ feature before it is unioned/compared with the incoming complete proof. A root
 or catalog asserted only by that incoming proof is never substituted for the
 local current-root pin.
 
+Strict decoded local-known descriptor/source-state compatibility and exact
+catalog-body tuple comparison follow the migration contract's known-source
+rule. A separately materialized local wrapper can differ in object-key order,
+whitespace or accepted string escaping without changing its exact decoded
+pins/facts. Keep the proposed original bytes and declared hashes unchanged;
+never substitute a typed/reserialized proof body or incoming-only root for the
+independently verified local evidence. This is not semantic hashing of signed
+objects or permission to omit a known local floor/host/restriction.
+
 Other fields model the private durable fence, known unresolved operations and
 adoption pin. Absent individual pins/bytes are `"-"`; an actual legacy epoch is
 a JSON u64 number and permits0. Public complete evidence cannot invent these
@@ -649,6 +658,7 @@ Verification sections choose the exact isolated cause/error for each vector.
 | M01 migration | Before/after legacy linking; successor root without genesis private key; owned/unbound and unavailable roster hosts; exact authenticated source floors/restrictions; staged grants remain inert outside complete migration. |
 | M02 adoption | Same keys and original-person approval; no silent scope increase; missing local acknowledgment; all-host prepared-hash mismatch; root final commit; competing complete proposals; late context origin with expired prepared grants. |
 | M03 fence | Acknowledgment survives restart; no timeout abort/new network-derived work/positive old publication; restrictions and independent manual actions retain their own rules; failure preserves all state except named guard metadata. |
+| M05 source compatibility | Reopen/resume an unchanged frozen proposal across Go/Rust with accepted object-key/whitespace/string-escape differences, including valid labels containing `<`, `>` and `&`; same nonce/keys/approved review/templates/signatures/source hashes and exact exported original bytes. Changed legacy coordinator pin/new context/root/high-water/host/max/restriction or original proof body/alias is never equal; omitted local facts still block. Duplicate/unknown fields, unsorted/duplicate arrays and full-u64 loss refuse. |
 | S03 additive storage allocation | Genuine schema21 and merged remote MCP/OAuth22 open into DEC23 with exact old rows/keys/files/product views. Actual22 adds exactly17 DEC tables, all4 language directions;21 additionally receives the existing OAuth22 migration's changes. Restart preserves state; old22 binary refuses23; future24 and stopped-copy malformed DEC objects/extra generated columns refuse without mutation. Pre23 reserved DEC names, including historical experimental DEC22 state, refuse rather than being silently repaired or reinterpreted. |
 
 The eventual pure suite uses only fixture-owned keys and public signing codecs.

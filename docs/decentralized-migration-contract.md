@@ -116,6 +116,54 @@ that no local floor/restriction/member is omitted or lowered. The proposal
 cannot lower even an inactive/expired local maximum. Preserve the exact source
 and snapshot for future receivers, not another host's unsigned admitted bit.
 
+### Known-source compatibility and exact endorsed bytes
+
+Preserve the exact original proposed legacy descriptor, source catalog,
+source-state snapshot, new descriptor, signed templates and all hashes and
+signatures. Reopening with another implementation never normalizes, replaces,
+re-hashes or re-signs those stored proposed bytes. Independently reconstructed
+LOCAL views are compatibility evidence, not a replacement source envelope.
+
+After strict bounded parsing and independent verification of the actual local
+legacy root/feature/history, compare local-known representations as follows:
+
+- Legacy descriptors compare all FIVE exact decoded fields: network_id, name,
+  genesis_root_public_key, coordinator_address and coordinator_public_key.
+  The old coordinator pins remain historical context identity and cannot be
+  dropped merely because the target is coordinator-free.
+- New descriptors compare format, protocol, network_id, name and
+  genesis_root_public_key, plus their independently derived context ID. The
+  proposed exact bytes remain fixed even when an ordinary local descriptor's
+  serialization differs.
+- Source-state snapshots compare EVERY strict field and typed row in section2,
+  including exact root high-water, host set, all maxima and exact restriction
+  provenance/targets. Preserve full-u64 values, literal `-` and every mandatory
+  array's ordering/uniqueness. Do not coerce numbers through floating point.
+- Legacy catalog wrappers compare their complete sorted sets of declared
+  kind/proof-ID/exact decoded original-body tuples. Compare original proof
+  bodies BYTE FOR BYTE, never by typed reserialization: their exact proof IDs,
+  hashes and signed messages remain unchanged. A different signed alias is a
+  different tuple, not an equivalent replacement.
+
+This tolerates ONLY accepted JSON object-key order, insignificant wrapper
+whitespace and equivalent JSON string escaping. It permits no string trimming,
+Unicode normalization, case folding, duplicate/unknown fields, malformed
+encoding, array permutation, missing evidence or semantic field change.
+An otherwise unchanged frozen local proposal may resume across these harmless
+serialization differences with its exact original nonce/keys/review/approval/
+templates/signatures/source hashes. Exact export likewise returns the retained
+original source, not the locally rematerialized representation.
+
+This comparison does not demand that a participant's local catalog equal the
+entire proposed source. The existing independently verified union/coverage
+rules still detect omitted local hosts, restrictions, higher floors, forks and
+unresolved potentially committed operations. New/different proof tuples must
+pass those same rules; they are never silently discarded to manufacture
+equality with a proposal. A genuine changed frozen local source conflicts or
+requires the existing exact proof repair; it never inherits old consent for
+changed source bytes. Hash equality is still exact wherever a signed proposal,
+acknowledgment, prepared catalog or final commit actually declares that hash.
+
 Reissue active stable-person/host bans in the prepared catalog under the
 proposed root's ordinary target power. For a migrated admitted owner, that
 original person explicitly ratifies its known stable-device bans under the

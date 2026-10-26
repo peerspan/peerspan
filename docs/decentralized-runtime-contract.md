@@ -973,6 +973,15 @@ evidence import preserves those fixed source bytes; changed source/prepared
 identity conflicts. It never manufactures consent, acknowledgment/fence,
 authority or adoption. No caller-supplied provenance is a trusted prior row.
 
+For local-known compatibility and same-proposal resume, use the migration
+contract's strict decoded descriptor/source-state and exact catalog-body tuple
+comparisons. Do not compare hashes of an independently reserialized local
+wrapper with the original endorsed source hash. The original proposed bytes,
+nonce, keys, source hashes, approved review and every fixed template/signature
+remain exact across Go/Rust reopening; genuine changed facts still fail their
+ordinary coverage/conflict/repair checks. No semantic comparison applies to
+the original signed proof body or a declared source/prepared/commit hash.
+
 Owner-local evidence GET exports exact original public proposal/source/prepared/
 acknowledgment/commit bytes in the peer evidence shape, at most32MiB with every
 inner bound unchanged. Unknown later proof fields retain that shape's `-`
