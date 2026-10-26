@@ -953,7 +953,7 @@ fence with no timeout abort. No secret/root seed appears in these responses.
 | POST /v2/networks/{id}/migration/review | `{proposal_id,approve}` |200 review wrapper for exact source/proposal/roster/new context |
 | POST /v2/networks/{id}/migration/host-lease | `{proposal_id,host_lease_base64,approve}` |200 exact host-membership preparation wrapper below; own unbound host only |
 | POST /v2/networks/{id}/migration/link | `{proposal_id}` |201 flat LINK_VIEW plus display_code for this explicit local staged requester creation; exact retry200 |
-| POST /v2/networks/{id}/migration/evidence | `{proposal,source_catalog_base64,source_state_base64,catalog,acknowledgments,commit}` |200 review wrapper; exact same evidence fields as peer exchange, proposal required, commit `"-"` or exact statement |
+| POST /v2/networks/{id}/migration/evidence | `{proposal_base64,source_catalog_base64,source_state_base64,prepared_catalog_base64,acknowledgments_base64,commit_base64}` |200 review wrapper; exact same evidence fields as peer exchange; proposal_base64 required, commit_base64 `"-"` or canonical Base64 of the exact statement |
 | POST /v2/networks/{id}/migration/acknowledgment | `{proposal_id,prepared_catalog_sha256,approve}` |200 review wrapper, exact own host/device ack after complete prepared review |
 | POST /v2/networks/{id}/migration/commit | `{proposal_id,prepared_catalog_sha256,acknowledgment_ids,signature_format,approve}` |200 review wrapper, only current legacy root's exact final commit slot |
 | POST /v2/networks/{id}/migration/adopt | `{proposal_id,commit_id,approve}` |200 `{migration,network}`; network null until adoption, else NETWORK_VIEW |
@@ -1129,9 +1129,19 @@ attachment; it does not ordinary-link-apply the old stage.
 
 Known source participant hosts can exchange staged public evidence on GET/POST
 `/peer/v2/networks/{id}/migration`. GET returns exactly
-`{proposal,source_catalog_base64,source_state_base64,catalog,acknowledgments,commit}`,
-where unknown proof fields are `"-"`; POST takes that same exact body, whole
-20MiB, and returns the current same shape. The actual TLS key must be a known
+`{proposal_base64,source_catalog_base64,source_state_base64,prepared_catalog_base64,acknowledgments_base64,commit_base64}`,
+where unknown byte fields are `"-"` and acknowledgments_base64 is always an
+array. POST takes that same exact body, whole20MiB, and returns the current same
+shape. Every present string is strict canonical standard Base64 of the EXACT
+original decoded component, including JSON spelling/whitespace. Decode each
+component under the migration contract's handoff bounds; preserve those bytes
+through every read, storage, file/client handoff and export. Sort ACK strings by
+the independently decoded roster host key. The wire wrapper may be reserialized
+without changing any component. Reject old inline fields, unknown/duplicate
+fields, noncanonical Base64, malformed/wrong-kind decoded objects and changed
+declared hashes. Do not deserialize and then reserialize a component before
+hashing or storage. Full composite M construction keeps its existing schema.
+Owner-local evidence GET/POST and peer GET/POST use this one carrier. The actual TLS key must be a known
 unrevoked admitted source host under independently verified local legacy/source
 evidence, not recent coordinator sync or a submitted proposal's unsigned roster.
 The explicit migration fence permits ONLY this narrow state exchange, not fresh
@@ -1369,6 +1379,15 @@ The independent author derives runtime cases after this contract is pinned:
   its ordinary bounds and admin8 stays forbidden without its separate role.
   Ordinary original7 still cannot issue15; increased/different/unapproved old
   profiles cannot invoke the cutover-only rule.
+- Exact evidence carrier survives Go/Rust/client outer JSON reserialization,
+  key order/whitespace and accepted string escaping with identical decoded
+  proposal/source/prepared/ACK/commit bytes and prepared hash. Changed decoded
+  prepared bytes still conflict with an ACK/commit's exact hash. Reject old
+  inline fields, duplicate/unknown fields and noncanonical Base64 before any
+  approval/fence/adoption. Verify proposal/source remain mandatory on first
+  import, unknown fields use literal '-' only where specified and ACK array
+  order follows actual decoded host keys. Complete-M schema and inner/whole
+  bounds stay unchanged; export after adoption returns the original bytes.
 - Owner-local exact public migration evidence export/reimport: read repeats
   preserve every DB/clock/private-file hash, first signed proposal bytes are
   available without a daemon key export, and import supplies no local approval,

@@ -1182,3 +1182,23 @@ ignoring historical coordinator pins, floating-point maxima, dropping new
 proof aliases or omitted local facts, and recreating/re-signing a proposal to
 hide a representation difference. The exception is compatibility of local
 representations only; it does not create semantic signed-object hashes.
+
+
+## Coordinator-free exact migration evidence carrier (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: encode every
+exact public migration component as canonical standard Base64 in one shared
+owner-local/peer/file evidence carrier. Preserve original decoded proposal,
+source/state/prepared catalogs, ordered ACKs and commit across ordinary JSON
+clients and Go/Rust handoff. Keep all signed hashes, complete-M schema, existing
+records and consent/fence/adoption checks. This resolves the independent
+contract-only author's observed specification gap: reserializing an inline
+catalog object could otherwise change the bytes bound by prepared_catalog_sha256.
+No runtime failure or successful interoperability is claimed by this decision.
+
+Discarded: an implicit JSON canonicalization scheme, semantic replacement of
+an exact prepared hash, requiring clients to preserve raw nested JSON slices,
+fixing only the catalog while other original proof bytes remain exposed to
+reserialization, redundant inline-plus-Base64 copies, copying private keys, and
+new persistence schema. Standard JSON tools may transform the outer carrier;
+the bounded decoded public components retain their exact original bytes.

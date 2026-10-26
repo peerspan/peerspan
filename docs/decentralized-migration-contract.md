@@ -391,6 +391,41 @@ this initial protocol never truncates a known roster. An oversized proof returns
 `quota_exceeded`, never a truncated successful migration. Missing exact source,
 acknowledgments or bootstrap dependencies returns `proof_required`.
 
+### Exact owner-local and peer evidence handoff
+
+The runtime's public file and owner-local/peer GET/POST evidence carrier is
+exactly:
+
+```text
+{proposal_base64,source_catalog_base64,source_state_base64,
+ prepared_catalog_base64,acknowledgments_base64:[BASE64,...],commit_base64}
+```
+
+Each present byte string is strict canonical standard Base64, preserving the
+EXACT original decoded bytes. Bounds apply before allocation and after decoding:
+proposal/each ACK/commit at most1MiB each, source catalog512KiB, source-state
+256KiB, prepared catalog1MiB, at most4096 ACKs and the unchanged whole request
+20MiB/owner response32MiB caps. The complete1MiB M bound still applies before an
+irreversible approval/fence. Framing overhead cannot increase an inner bound.
+Unknown proposal/prepared/commit fields are literal `"-"`; before a proposal
+exists all byte fields are `"-"` and the ACK array is empty. Owner-local GET
+before a real signed proposal remains404. First owner-local POST requires the
+exact signed proposal and both source fields; those cannot be unknown once the
+proposal exists. ACK array entries are present original signed statements,
+sorted uniquely by independently decoded roster host key, never `"-"` holes.
+
+Parse every decoded component under its existing typed schema and validate
+source/prepared hashes against the original decoded bytes. Retain those exact
+bytes, including JSON spelling/whitespace, through storage, export, retries,
+client/file handoff and cross-language reopening. Outer carrier JSON key order,
+whitespace and accepted string escaping may change. Old inline fields,
+unknown/duplicate fields and noncanonical Base64 are invalid. A changed decoded
+component never becomes compatible by reserialization or semantic comparison;
+ordinary exact hash/source/operation checks and error classifications apply.
+The full composite body above, statement identities/signatures, approval and
+fence rules and existing shared records remain unchanged. Carrier decoding
+creates no consent, authority, trust provenance, signer or adoption.
+
 Validation phases are explicit: verify old source against durable prior state;
 verify current legacy root/proposal and exact roster; derive the inert new
 initial root; structurally verify the exact roster-bound prepared transcripts

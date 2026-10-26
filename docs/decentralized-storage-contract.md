@@ -849,6 +849,13 @@ snapshot/proposal, not recalculated from a later smaller catalog. Prepared
 catalog and final commit pin the exact one proposal/hash. publication_started
 is a monotonic local transport flag, never proof of global adoption.
 
+The shared public evidence carrier uses those same six Base64 byte fields for
+proposal/source catalog/source state/prepared catalog/ACK array/commit, without
+this record's private control fields. Boundary decoding and export preserve the
+original decoded component bytes; an outer JSON roundtrip does not rewrite the
+stored proposal, catalogs, hashes, review, nonce, templates or signatures. No new
+record, column or version is added for the carrier.
+
 Before publishing its signed local acknowledgment, the host atomically fixes
 its exact approval, acknowledgment and fenced=true. The fence blocks the
 migration contract's new legacy management/enrollment/final signing **and**
