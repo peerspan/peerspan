@@ -334,6 +334,16 @@ new hard ancestor ceiling. Extending/replacing an expired/narrowed P/H/B uses
 its normal current root/admin/owner permissions and fresh consent; this exception
 cannot widen identity, scopes or the frozen ancestry deadline.
 
+For this exception, unchanged current P/H means independently authorized and
+not replaced by the ceremony, rather than identical to the renewed D's
+historical P/H references. Previously authorized current replacements still
+require their full exact current paths. A cold verifier establishes independence
+from ordinary operation_id `"-"` proofs or complete earlier-operation provenance,
+not an asserted remote local-admission history. P/H whose authorization comes
+from the ceremony itself need its current root/admin stage. A new binding independently needs
+owner scope2 and target-host consent; an unchanged binding does not. Old D is
+stable renewal identity/scope history, never authority to approve those changes.
+
 An expired target can prove possession and request renewal, but its expired
 lease cannot authorize issuance. A fresh authorized ancestor must approve the
 exact stable person, host, device, scopes and new deadline. An exact submitted

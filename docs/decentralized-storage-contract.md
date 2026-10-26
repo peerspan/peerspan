@@ -394,7 +394,7 @@ The exact record is:
  root_state_id,person_public_key,host_public_key,device_public_key,
  scopes,not_after,created_at,expires_at,
  templates:[{slot_id,object_type,template_base64}],
- signatures:[{slot_id,role,signature}],completed,terminal}
+ signatures:[{slot_id,role,signature}],completed,terminal,result_base64}
 ```
 
 provider is exactly
@@ -409,6 +409,20 @@ ordered by slot_id then role. This permits several same-kind migration leases
 without ambiguous object_type lookup. A filled signature/template never changes.
 completed means all required typed signatures are durably fixed, not published
 or globally applied. terminal is `-`, applied, cancelled or expired.
+
+result_base64 is `-` except an applied create, action or root_transition intent,
+where it is canonical Base64 of that exact original successful runtime response
+wrapper, fixed atomically with the local application. Decode and validate the
+kind's exact response shape and agreement with the fixed operation ID, review,
+typed signed objects and committed=true. Retain its original bytes; retries do
+not reconstruct it from mutable network/provider/catalog/delivery state. It is
+a historical response, not a current authority assertion. Other intent kinds,
+including prepare-only policy_claim, cannot use this field to fabricate an
+applied action, participant outcome or migration adoption. The independent
+32MiB whole private-record limit still applies before committing anything.
+Selected: explicit exact completed-response storage in the existing intent.
+Discarded: changing a completed response by reconstructing current summaries,
+or inserting non-link outcomes into the participant-only dec_operations table.
 
 approved_at is `-` before approval, then the actual guarded local review time.
 An explicit permitted re-review may advance it for the same unchanged intent;

@@ -286,6 +286,14 @@ network/context/root, complete ordinary proofs, original provider, policy/maxima
 outboxes and one `network.created` event. `committed` becomes true; return the
 same stored result on exact retry without replacing keys or resetting time.
 
+The applied create/action result is a historical exact response, retained in
+the intent's result_base64 and returned byte-for-byte by completed GET/retry.
+Its embedded network/catalog/delivery summaries describe that local commit,
+not current authority or delivery. Current views use their separate read routes.
+Returning the historical result signs/applies nothing, changes no provider,
+admission, timestamp or clock, and emits no second event. This distinction also
+applies to the completed ordinary-action wrapper in section4.
+
 `GET /v2/network-creations/{creation_id}` returns the same shape read-only.
 `POST /v2/network-creations/{creation_id}/approve` requires exact
 `{context_id,root_state_id,person_public_key,host_public_key,approve}` and returns

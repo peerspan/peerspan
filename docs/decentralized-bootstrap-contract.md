@@ -413,6 +413,22 @@ Recommended order:
    administrator packet and administrator_offer_id are both literal `"-"`.
    No fresh scope8 is required merely to reference those current leases. Any
    person/host lease change requires the full current root/admin stage.
+   Here unchanged means the exact independently authorized current P/H facts
+   selected for reuse; this ceremony does not issue or replace them.
+   It does not require equality to the older renewed D's historical P/H IDs.
+   A separately authorized renewal of P/H before this ceremony may already have
+   made new generations current. Their exact current complete paths, stable
+   person/host/device identity and all known restrictions remain mandatory.
+   A cold verifier may establish that independence from complete ordinary
+   operation_id `"-"` P/H proofs or complete earlier-operation provenance under
+   the bounded cold-ancestry rules. No remote local-admission marker or claimed
+   signing timestamp is trusted. P/H whose only authorization comes from this
+   same ceremony do not qualify for the skip.
+   Selected: reuse already independently authorized current admission facts.
+   Discarded: requiring a redundant fresh scope8 approval solely because an
+   expired historical D names an older independently renewed P/H generation.
+   A new B remains separately subject to owner scope2 and target-host consent;
+   the administrator skip neither authorizes nor forbids that binding change.
 5. **Owner finalization:** current selected owner verifies the exact admin grant
    and signs `{selection_id,administrator_offer_id,root_state_id,person_lease_id,
    host_lease_id,binding_lease,device_lease}`. Binding's owner signature covers
