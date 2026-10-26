@@ -335,6 +335,14 @@ retry returns the same fixed statement/transcript; it never re-signs with a
 later timestamp. Refusal preserves identity and outcome and must not generate
 a replacement original person or fall back to an original key silently.
 
+As specified by the bootstrap contract's complete-consent dependency rule, a
+cold receiver can learn the earlier operation's independently current P/H/B
+even when its target D has expired. Full exact consent remains required, each
+component needs its own current authority path, and the expired D gains no new
+admission/head/maximum or issuer power. The explicit selected-ceremony ancestry
+exception is not permission to use unrelated newly supplied ordinary grants as
+issuers in the same projection.
+
 ### Current heads, retained descendants and portable admission
 
 A current authority selection is the unique resolved maximal head of each

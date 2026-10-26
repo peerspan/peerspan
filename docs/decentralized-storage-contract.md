@@ -236,6 +236,14 @@ Activation admission record is exactly:
  basis:{kind:"current"|"retention"|"migration",evidence_ids:[ID]}}
 ```
 
+The activation record preserves verified complete-consent provenance. It does
+not admit all nested statements or prove their current usability. Each such
+statement has its own independently established admission basis; an expired
+previously unadmitted target D acquires no admission/head/maximum from this
+record. Its independently live P/H/B may be admitted under the bootstrap
+contract's exact complete-activation dependency rule. No activation record
+alone establishes a selected signer, participant outcome or past global commit.
+
 Arrays are sorted unique exact dependency/retention/migration IDs. The admitted
 statement must retain a complete valid proof alias. An ordinary ds_ reference
 may resolve through another complete alias with exactly the same ds_; an

@@ -145,6 +145,12 @@ not create extra semantic heads. `migration_proposal_id` is `"-"` or the pinned
 complete migration's exact proposal ID. `clock_guard` is `"-"` or the prior
 whole-second UTC local guard. Arrays are present even when empty.
 
+`admitted_activation_ids` records verified complete-consent provenance, not
+admission or current usability of every statement in an operation. Every
+statement still needs its own admission basis and current authority checks.
+An activation marker cannot manufacture earlier statement admission, a
+globally trusted commit time, a local participant outcome or a selected signer.
+
 Stream keys are unambiguous tuples, rather than a slash-delimited parse:
 `["root"]`, `["admin",PERSON]`, `["person",PERSON]`, `["host",HOST]`,
 `["binding",HOST]`, `["device",PERSON,DEVICE]`, `["policy",PERSON]`,
@@ -335,6 +341,16 @@ grant-as-issuer fixed point or invent prior acceptance. The explicit local
 genesis, same-operation complete activation/migration and portable-retention
 exceptions retain their exact separate consent/provenance rules.
 
+The bootstrap contract's complete-activation DAG exception permits a cold
+receiver to verify the exact selected components and actual packet issuer
+ancestry, including complete ancestor activations, in dependency order. It
+does not extend to an unrelated ordinary statement. Evaluate each selected
+component's own current path independently: an expired target D is inert when
+first learned and supplies no head/maximum or issuer power, while independently
+live P/H/B may be admitted. An already admitted expired D keeps its prior
+history under the normal rule. Complete consent is required on either path;
+no timestamp or activation marker substitutes for a current issuer path.
+
 Selected: inert complete unauthorized candidates in an untrusted state union,
 with explicit action denials and separately admitted prior authority. This lets
 unrelated valid restrictive updates progress. Discarded: rejecting an otherwise
@@ -482,6 +498,14 @@ Later learning beyond300s is distinct from fresh honest local signing; no
 participant/helper timestamp is a globally trusted commit time. A known exact
 operation cannot be replaced with another manifest or become a new application.
 
+This operation's success requires current usability of its selected D. The
+projection operation can instead learn complete consent and independently
+current components of an earlier activation whose D is expired, under the
+bootstrap contract's narrow DAG rule; that does not make this operation succeed.
+For a new binding, the nested owner-finalization draft has both canonical
+signature entries and the host signature literal `"-"`. That placeholder is
+invalid in a standalone public binding or its manifest-pinned final proof.
+
 Success is exactly:
 
 ```text
@@ -562,6 +586,7 @@ Verification sections choose the exact isolated cause/error for each vector.
 | T01 clock | Exactly300s rollback versus301s; guard restart/migration continuity; remote future times cannot move guard; read/status no writes; advance guard/authority between intent and final authoritative transaction. |
 | A01 typed actions | Exact actor/scope/path; no fallback from selected broken device; wrong target; self-invalidating action returns authority_would_be_invalidated; an action requiring Alice's missing selected body fails proof_required; a valid literal max-u64 payload is distinct from the runtime default-increment exhaustion gate; preserve capabilities78/80 and independent resource-owner permissions. |
 | B01 activation | Every absent/reordered/wrong-context required stage and exact allowed renewal skip; unchanged P/H/B renewal needs no unrelated admin8 or binding2 authority but keeps its exact complete binding proof/ceilings; changed admission/binding requires the full applicable approvals; new/renew identity pins; two separate requester consents; pending self-person target exception only; complete exact late learning with live versus expired/withdrawn parents. |
+| B03 consent and cold ancestry | Exact nested binding host-placeholder role/key/format versus omitted or completed host role; ordinary binding placeholder invalid; complete ancestor activation DAG learns independently live P/H/B despite expired old target D, without admitting that D or changing its heads/maxima; current selected issuer and all portable retention still required; unrelated same-pass ordinary grants remain inert; a new pure activation/application still requires usable selected D. |
 | B02 retry | Same request/manifest exact outcome; conflicting immutable tuple; proof aliases; earlier operation cannot replace later selected provider/root/maxima; helper outcome never replaces consent. |
 | M01 migration | Before/after legacy linking; successor root without genesis private key; owned/unbound and unavailable roster hosts; exact authenticated source floors/restrictions; staged grants remain inert outside complete migration. |
 | M02 adoption | Same keys and original-person approval; no silent scope increase; missing local acknowledgment; all-host prepared-hash mismatch; root final commit; competing complete proposals; late context origin with expired prepared grants. |

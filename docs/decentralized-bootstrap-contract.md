@@ -417,6 +417,11 @@ Recommended order:
    and signs `{selection_id,administrator_offer_id,root_state_id,person_lease_id,
    host_lease_id,binding_lease,device_lease}`. Binding's owner signature covers
    exact person+host+issuer ancestors; its target-host signature is pending.
+   The new binding draft has the full canonical sorted `host` and `issuer`
+   signature entries, with the exact target-host public key/format and literal
+   `signature:"-"` in the host entry; the issuer entry has its actual signature.
+   Only this nested typed pending binding permits that placeholder. Omitting
+   the host entry or supplying a completed host signature here is invalid.
    Device lease names the exact target device/scopes and every required parent.
    For RENEW with an unchanged current complete binding, binding_lease is its
    exact ds_ string rather than a new envelope: no scope2 is needed merely to
@@ -540,6 +545,46 @@ activation's own proof ID or a later outcome; this avoids a self-reference.
 An object in that list must match the exact supplied original body. A catalog
 may include additional independently valid proof aliases/current restrictions,
 but cannot substitute them for an exact manifest-pinned original proof.
+
+### Complete consent and current component authority
+
+Complete exact consent provenance and current device usability are separate.
+Verify all seven applicable stages, exact nested bytes and target signatures
+before using an operation-bound component. A cold receiver may verify the
+complete dependency DAG of earlier activations needed by the selected issuer
+path, without inventing earlier local admission or a trusted past commit time.
+This explicit ceremony exception covers only the manifest-selected P/H/B/D,
+the actual packets' exact issuer references, and their full required ancestry
+and complete ancestor activations. Resolve that finite DAG in dependency order;
+cycles or missing required consent fail. It does not authorize unrelated
+ordinary grants or a general same-batch grant-as-issuer fixed point.
+
+Each selected component still requires its own CURRENT complete issuer,
+parent, retention, restriction, scope and expiry checks before admission.
+For example, an earlier operation's expired target D does not prevent learning
+its independently current P/H/B. That expired D is not newly admitted, added
+to heads/maxima, or usable as an issuer; a previously admitted D retains only
+its contracted durable history. Complete consent never revives an expired
+issuer, supplies missing retained ancestry, or proves past admission from a
+timestamp. The component's current authority must be established independently
+of any activation marker. This permits an original owner to renew a target
+using the unchanged independently current P/H/B without treating the expired
+old D as an issuer.
+
+A newly successful participant application and the pure `activation` verifier
+still require the selected new D to be currently usable. Historical exact
+outcome reads remain read-only. Learning complete consent provenance alone
+does not install a selected signer, create a participant outcome, or claim
+current activation success.
+
+Selected: reusable exact consent with independent current component checks and
+a bounded activation dependency DAG. Discarded: requiring the old target D to
+remain active before learning its live parents; admitting every component
+because a complete transcript exists; enabling unrelated same-pass issuance.
+Selected for the nested binding draft: fixed role/key/format slots with the
+host signature `"-"`, matching the final envelope's shape. Discarded: omitted
+host roles or a precompleted binding inside owner finalization, which obscure
+the exact signature supplied by the separate requester final commit.
 
 An outcome is a host-signed packet whose payload is exactly
 `{context_id,request_id,manifest_id,activation_id,activation_sha256,
