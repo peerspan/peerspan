@@ -580,6 +580,97 @@ class World:
             "scopes": scopes, "not_after": UNTIL}
         return ActivationFixture(body, request_id, manifest_id, activation_id, manifest, packets, source, [d], d, expected)
 
+    def delegated_device_renewal(self, old: ActivationFixture, issuer: ActivationFixture, *,
+                                 issuer_host: str, issuer_device_key: str,
+                                 additional_proof_objects: list[PublicObject] | None = None) -> ActivationFixture:
+        """Complete unchanged-P/H/B renewal; fixture does not assume ancestry.
+
+        The chosen issuer signs honestly with its own fixture key. Whether it
+        is a strict ancestor of the OLD target is an independent public oracle.
+        Target scope4 fits either an ancestor15 or an unrelated sibling4.
+        """
+        now = "2026-10-26T12:00:03Z"
+        person = old.source_objects[1]
+        host, binding, old_device = old.new_objects
+        subject = json.loads(old_device.payload)["subject"]
+        issuer_subject = json.loads(issuer.device.payload)["subject"]
+        if subject["host_public_key"] != self.keys.public("host-c") or subject["device_public_key"] != self.keys.public("device-c"):
+            raise ValueError("renewal fixture expects the exact owned C target")
+        if issuer_subject["host_public_key"] != self.keys.public(issuer_host) or issuer_subject["device_public_key"] != self.keys.public(issuer_device_key):
+            raise ValueError("renewal issuer signer must match its own host/device")
+        request_payload = {"mode": "renew", "host_public_key": subject["host_public_key"],
+            "device_public_key": subject["device_public_key"],
+            "request_nonce": b64(bytes.fromhex(sha(lines("independent-strict-ancestor-renewal-v1", old_device.statement_id)))),
+            "expected_network_id": self.descriptor["network_id"], "expected_context_id": self.context_id,
+            "expected_person_public_key": self.keys.public("alice"), "migration_proposal_id": "-",
+            "renewed_device_lease_id": old_device.statement_id, "created_at": now, "expires_at": "2026-10-26T12:05:03Z"}
+        request_id = "link_"+sha(lines("peerspan-decentralized-request-id-v1", sha(raw_json(request_payload))))
+        request = self.packet("request", request_payload, request_id, writer="host-c", signer="device-c", context_id="-")
+        owner = self.packet("owner", {"request_packet_id": request.packet_id, "descriptor": self.descriptor,
+            "root_state_id": self.genesis.statement_id, "person_lease_id": person.statement_id,
+            "issuer_lease_ids": sorted([person.statement_id, issuer.device.statement_id]), "mode": "renew", "member": "Alice",
+            "host_public_key": subject["host_public_key"], "device_public_key": subject["device_public_key"],
+            "scopes": 4, "not_after": UNTIL, "renewed_device_lease_id": old_device.statement_id},
+            request_id, writer=issuer_host, signer=issuer_device_key, person="alice",
+            issuer_id=issuer.device.statement_id, signature_format="ed25519")
+        selection = self.packet("selection", {"request_packet_id": request.packet_id, "owner_offer_id": owner.packet_id,
+            "context_id": self.context_id, "person_public_key": self.keys.public("alice"),
+            "host_public_key": subject["host_public_key"], "device_public_key": subject["device_public_key"], "selected_at": now},
+            request_id, writer="host-c", signer="device-c", person="alice")
+        payload = self.lease_payload("device_lease", host="host-c", device="device-c", sequence=2,
+            predecessors=[old_device.statement_id], operation_id=request_id, issued_at=now, not_before=now,
+            issuer={"kind": "device", "person_public_key": self.keys.public("alice")}, parents=[
+                {"role": "issuer_device", "id": issuer.device.statement_id},
+                {"role": "issuer_person", "id": person.statement_id},
+                {"role": "subject_person", "id": person.statement_id},
+                {"role": "subject_host", "id": host.statement_id},
+                {"role": "subject_binding", "id": binding.statement_id}])
+        payload["subject"]["scopes"] = 4
+        device = self.statement("device_lease", payload, [("issuer", issuer_device_key, "ed25519")])
+        finalization = self.packet("owner_finalization", {"selection_id": selection.packet_id,
+            "administrator_offer_id": "-", "root_state_id": self.genesis.statement_id, "person_lease_id": person.statement_id,
+            "host_lease_id": host.statement_id, "binding_lease": binding.statement_id, "device_lease": json.loads(device.body)},
+            request_id, writer=issuer_host, signer=issuer_device_key, person="alice",
+            issuer_id=issuer.device.statement_id, signature_format="ed25519")
+        history = old.source_objects+old.new_objects+issuer.source_objects+issuer.new_objects+[
+            PublicObject("activation", self.context_id, b"", old.body, ""),
+            PublicObject("activation", self.context_id, b"", issuer.body, "")]+list(additional_proof_objects or [])
+        source = sorted({o.proof_id:o for o in history}.values(), key=lambda o:o.proof_id)
+        statements = {o.statement_id:o for o in source+[device] if o.statement_id}
+        reached, todo = set(), [person.statement_id, host.statement_id, binding.statement_id, device.statement_id]
+        while todo:
+            identifier = todo.pop()
+            if identifier in reached:
+                continue
+            reached.add(identifier)
+            item = json.loads(statements[identifier].payload)
+            refs = [item.get("root_state_id", "-"), item.get("ratifies", "-"), item.get("target", {}).get("statement_id", "-")]
+            refs += [p["id"] for p in item.get("parents", [])]
+            for field in ("predecessors", "resolves", "retained_statement_ids", "kept_statement_ids"):
+                refs += item.get(field, [])
+            todo += [r for r in refs if r != "-"]
+        manifest = raw_json({"format": 1, "context_id": self.context_id, "request_id": request_id,
+            "request_packet_id": request.packet_id, "owner_offer_id": owner.packet_id, "selection_id": selection.packet_id,
+            "administrator_offer_id": "-", "owner_finalization_id": finalization.packet_id,
+            "root_state_id": self.genesis.statement_id, "person_lease_id": person.statement_id, "host_lease_id": host.statement_id,
+            "binding_lease_id": binding.statement_id, "device_lease_id": device.statement_id, "binding_proof_id": binding.proof_id,
+            "device_proof_id": device.proof_id, "ancestor_statement_ids": sorted(reached-{device.statement_id}),
+            "proof_ids": sorted({o.proof_id for o in source+[device]})})
+        manifest_id = "dm_"+sha(lines("peerspan-decentralized-manifest-v1", sha(manifest)))
+        commit = self.packet("commit", {"manifest_base64": b64(manifest), "binding_host_signature": "-", "committed_at": now},
+            request_id, writer="host-c", signer="device-c", person="alice")
+        packets = {p.role:p for p in [request, owner, selection, finalization, commit]}
+        body = raw_json({"format": 1, "context_id": self.context_id, "administrator": "-",
+                         **{role:json.loads(p.body) for role,p in packets.items()}})
+        activation_id = "da_"+sha(lines("peerspan-decentralized-activation-v1", self.context_id,
+            request_id, manifest_id, commit.packet_id))
+        expected = {"request_id": request_id, "context_id": self.context_id, "mode": "renew",
+            "person_public_key": self.keys.public("alice"), "host_public_key": subject["host_public_key"],
+            "device_public_key": subject["device_public_key"], "renewed_device_lease_id": old_device.statement_id,
+            "owner_offer_id": owner.packet_id, "selection_id": selection.packet_id, "administrator_offer_id": "-",
+            "scopes": 4, "not_after": UNTIL}
+        return ActivationFixture(body, request_id, manifest_id, activation_id, manifest, packets, source, [device], device, expected)
+
     def unbound_migration(self, *, nonce_name: str = "unbound-migration",
                           source_state_size: int | None = None,
                           host_not_after: str = UNTIL) -> MigrationFixture:

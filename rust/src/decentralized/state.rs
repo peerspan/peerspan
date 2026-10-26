@@ -1185,11 +1185,24 @@ impl Projection {
         dependent: &str,
         path: &mut BTreeSet<String>,
     ) -> Result<Power> {
+        self.cover_branches(current, old, dependent, path, &mut BTreeMap::new())
+    }
+    fn cover_branches(
+        &self,
+        current: &str,
+        old: &str,
+        dependent: &str,
+        path: &mut BTreeSet<String>,
+        checked: &mut BTreeMap<String, Power>,
+    ) -> Result<Power> {
         if current == old {
             return Ok(Power::unlimited());
         }
         let s = self.catalog.get(current)?;
         check(!path.contains(current))?;
+        if let Some(power) = checked.get(current) {
+            return Ok(power.clone());
+        }
         let current_power = if lease(&s.kind) {
             Some(self.active_inner(current, path, true)?)
         } else {
@@ -1217,12 +1230,18 @@ impl Projection {
                 require(stamp(end)? > stamp(s.issued_at()?)?, "forbidden")?;
             }
         }
-        let mut found = None;
+        let mut found: Option<Power> = None;
         for p in ids(&s.payload, "predecessors", "ds_")? {
             if self.descends(&p, old, &mut BTreeSet::new())? {
-                let power = self.cover(&p, old, dependent, path)?;
-                found = Some(power);
-                break;
+                // A resolver cannot revive a contribution dropped by any
+                // relevant branch. Cache shared ancestors instead of expanding
+                // every distinct path through the signed DAG.
+                let power = self.cover_branches(&p, old, dependent, path, checked)?;
+                if let Some(previous) = &mut found {
+                    previous.intersect(&power);
+                } else {
+                    found = Some(power);
+                }
             }
         }
         path.remove(current);
@@ -1230,6 +1249,7 @@ impl Projection {
         if let Some(current_power) = current_power {
             power.intersect(&current_power);
         }
+        checked.insert(current.into(), power.clone());
         Ok(power)
     }
     fn time(&self, s: &Statement) -> Result<()> {

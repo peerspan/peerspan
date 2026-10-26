@@ -2212,6 +2212,98 @@ def imported_resolver_cases(w: World) -> list[Case]:
     return cases
 
 
+def fork_retention_cases(w: World) -> list[Case]:
+    """A root resolver cannot revive an old H omitted on either fork branch.
+
+    All protocol ID arrays stay sorted. Independently chosen branch keys make
+    the dropping branch sort before/after the keeping one; this varies the
+    actual verified DAG, never its canonical wire ordering.
+    """
+    now = "2026-10-26T12:00:03Z"
+    host = w.statement("host_lease", w.lease_payload("host_lease"),
+        [("issuer", "root", "ed25519"), ("host", "host-a", "ed25519")])
+    host_stream = ["host", w.keys.public("host-a")]
+
+    def branch(key: str, keep: bool) -> PublicObject:
+        return w.statement("root_state", {"epoch": 1, "predecessors": [w.genesis.statement_id],
+            "resolves": [], "migration_proposal_id": "-", "root_public_key": w.keys.public(key),
+            "issued_at": "2026-10-26T12:00:01Z",
+            "retained_statement_ids": [host.statement_id] if keep else []},
+            [("issuer", "root", "ed25519"), ("new_root", key, "ed25519")])
+
+    result = []
+    for mode in ("kept_branch_sorts_first", "dropping_branch_sorts_first", "all_branches_keep"):
+        keep_key = "fork-retention-keep-"+mode
+        kept = branch(keep_key, True)
+        other = None
+        for index in range(32):
+            other_key = "fork-retention-other-"+mode+"-"+str(index)
+            candidate = branch(other_key, mode == "all_branches_keep")
+            ordered = kept.statement_id < candidate.statement_id
+            if mode == "all_branches_keep" or ordered == (mode == "kept_branch_sorts_first"):
+                other = candidate
+                break
+        if other is None:
+            raise RuntimeError("independent root-branch key search exceeded32 candidates")
+        branch_ids = sorted([kept.statement_id, other.statement_id])
+        resolver = w.statement("root_state", {"epoch": 2, "predecessors": branch_ids,
+            "resolves": branch_ids, "migration_proposal_id": "-",
+            "root_public_key": w.keys.public("fork-retention-resolver-"+mode),
+            "issued_at": "2026-10-26T12:00:02Z", "retained_statement_ids": [host.statement_id]},
+            [("root_branch:"+kept.statement_id, keep_key, "ed25519"),
+             ("root_branch:"+other.statement_id, other_key, "ed25519"),
+             ("new_root", "fork-retention-resolver-"+mode, "ed25519")])
+        before = [w.genesis, host, kept, other]
+        prior = w.prior(before, [maximum(["root"], 1, [kept, other]), maximum(host_stream, 1, [host])],
+                        root_ids=branch_ids, clock_guard="2026-10-26T12:00:01Z")
+        after = w.prior(before+[resolver], [maximum(["root"], 2, [resolver]), maximum(host_stream, 1, [host])],
+                        root_ids=[resolver.statement_id], clock_guard=now)
+        result.append(Case("fork_retention/"+mode, {"format": 1, "kind": "projection",
+            "descriptor_base64": b64(w.descriptor_bytes), "prior": prior,
+            "candidate_catalog_base64": b64(w.catalog([resolver])), "now": now, "operation": "fresh"},
+            {"ok": True, "context_id": w.context_id, "decision_time": now,
+             "root": {"head_ids": [resolver.statement_id], "maximum": 2, "selected_id": resolver.statement_id,
+                      "conflicted": False, "code": "-", "required_ids": []},
+             "streams": [stream_row(host_stream, 1, [host], code="-" if mode == "all_branches_keep" else "forbidden")],
+             "restrictions": [], "inert_statement_ids": [], "next_prior": after},
+             oracle_pin="7c5a483aa01d87a5d3715bc8fef902f4839ba214"))
+    return result
+
+
+def retained_renewal_ancestor_cases(w: World) -> list[Case]:
+    """Later root retention cannot turn a sibling into an old target ancestor."""
+    parent = w.original_link(scopes=15)
+    target = w.original_link(owner_host="host-b", owner_device=parent,
+        target_host="host-c", target_device="device-c", scopes=4, created_at="2026-10-26T12:00:01Z")
+    sibling = w.original_link(target_host="host-d", target_device="device-d", scopes=4,
+                              created_at="2026-10-26T12:00:01Z")
+    shared = sibling.source_objects+sibling.new_objects+[
+        PublicObject("activation", w.context_id, b"", sibling.body, "")]
+    cases = []
+    for issuer, host, key, valid, name in [
+        (parent, "host-b", "device-b", True, "strict_ancestor4_renewal_survives_exact_later_root_carrying"),
+        (sibling, "host-d", "device-d", False, "later_root_cannot_turn_scope4_sibling_into_renewal_ancestor")]:
+        renewal = w.delegated_device_renewal(target, issuer, issuer_host=host, issuer_device_key=key,
+                                             additional_proof_objects=shared)
+        objects = unique_objects(renewal.source_objects+renewal.new_objects+[
+            PublicObject("activation", w.context_id, b"", renewal.body, "")])
+        finite = sorted({o.statement_id for o in objects if o.kind in {
+            "person_lease", "host_lease", "binding_lease", "device_lease", "admin_lease", "policy", "group"}})
+        root = w.statement("root_state", {"epoch": 1, "predecessors": [w.genesis.statement_id], "resolves": [],
+            "migration_proposal_id": "-", "root_public_key": w.keys.public("next-root"),
+            "issued_at": "2026-10-26T12:00:04Z", "retained_statement_ids": finite},
+            [("issuer", "root", "ed25519"), ("new_root", "next-root", "ed25519")])
+        observed = copy.copy(renewal)
+        observed.source_objects = renewal.source_objects+[root]
+        expected, bounds = activation_observation(w, observed)
+        cases.append(Case("retained_renewal_ancestor/"+name, {"format": 1, "kind": "activation",
+            "descriptor_base64": b64(w.descriptor_bytes), "prior": "-",
+            "catalog_base64": b64(w.catalog(unique_objects(objects+[root]))), "activation_base64": b64(renewal.body),
+            "now": "2026-10-26T12:00:05Z", "expected": renewal.expected}, expected if valid else error("forbidden"),
+            array_bounds=bounds if valid else None, oracle_pin="7c5a483aa01d87a5d3715bc8fef902f4839ba214"))
+    return cases
+
+
 def migration_root_transition_conflict_cases(w: World) -> list[Case]:
     result = []
     for case in migration_action_conflict_cases(w):
@@ -2235,6 +2327,8 @@ GROUPS = {"descriptor": descriptor_cases, "statement": statement_cases, "catalog
           "portable_original_issuer": portable_original_issuer_cases,
           "current_retained_issuer": current_retained_issuer_cases,
           "imported_resolver": imported_resolver_cases,
+          "fork_retention": fork_retention_cases,
+          "retained_renewal_ancestor": retained_renewal_ancestor_cases,
           "ceremony_scope": ceremony_scope_cases,
           "fixed_retention_time": fixed_retention_time_cases,
           "reversible_barriers": reversible_barrier_cases,
