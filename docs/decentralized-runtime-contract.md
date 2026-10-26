@@ -191,6 +191,14 @@ exactly `{context_id,members:[{host_public_key,member,person_public_key,
 Only independently current member facts appear; unbound member person/binding/
 device fields are `"-"`. Missing and inactive CURRENT facts are not guessed from transport hints;
 NETWORK_VIEW still retains its separately identified own historical tuple.
+`device_lease_id` is the unique independently current D matching this exact
+host/person/binding, or `"-"` when there are zero or multiple such devices.
+`not_after` is the H/P/B membership-path ceiling (H alone when unbound), not
+the deadline of an arbitrary device. This display never selects a local provider.
+Selected: report an unambiguous matching device only. Discarded: choosing across
+different device streams by sequence/hash or implying that a host has only one
+authorized device. Those choices invent a relationship the signed state does
+not establish.
 All these reads use one coherent stored snapshot and write nothing.
 
 `GET /v2/networks/{id}/provider` returns200 PROVIDER_VIEW when the actual

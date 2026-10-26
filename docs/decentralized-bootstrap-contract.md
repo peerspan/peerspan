@@ -767,7 +767,13 @@ TLS must prove a well-formed Ed25519 client host key on this isolated listener.
 Create/append frame writer must equal that actual TLS key, and create's first
 frame must have role request. Outer signatures prove resource-client possession,
 never network authority. GET/DELETE can use another actual host key only with
-the exact capability. Optional operator credentials use exactly one
+the exact capability. An otherwise well-formed frame with a valid signature
+whose writer differs from the actual TLS host returns403 forbidden and changes
+no stored state. Malformed keys/signatures remain400 invalid. Selected:
+distinguish a proven but unauthorized resource writer from malformed content.
+Discarded: accepting a valid signature from another TLS writer or reporting
+that possession mismatch as a syntax error.
+Optional operator credentials use exactly one
 `X-Peerspan-Resource-Token: BASE64` header: canonical standard Base64 of an
 operator-issued UTF-8 token of at most 1024 decoded bytes, no CR/LF/NUL. Omit it
 for anonymous resources; duplicate/noncanonical/oversized header is400 invalid.
