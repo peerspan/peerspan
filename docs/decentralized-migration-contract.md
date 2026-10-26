@@ -100,6 +100,15 @@ legacy catalog kind; unused target fields are `-`. Its exact original proof
 must be present in the source catalog and pass the retained-history rules.
 Missing restriction proof is repair, never permission to forget the deny.
 
+Classify inherited restrictions through the verified retained-history rules and
+the endorsed admitted-restrictions snapshot. Mere presence of correctly signed
+but inactive, unkept withdrawn-administrator bytes in the source catalog does
+not require a new stable-key ban. Previously locally admitted stable-key bans
+remain sticky. If all exact source/prepared evidence is present but an applicable
+required ban is omitted, refuse forbidden. If its exact required original proof
+is absent, refuse proof_required with that proof ID; never infer permission to
+omit the ban from missing evidence.
+
 The root proposal and all host acknowledgments endorse this exact snapshot for
 the new context. This is a new trust decision about inherited floors, not proof
 that its numbers were globally committed in the past. Each acknowledger checks

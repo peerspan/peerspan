@@ -1124,3 +1124,19 @@ both implementations. Discarded: calling one atomic approve/sign/seal transactio
 three durable boundaries, a generic requester signing provider, reconstructing
 consent from an incoming packet, exposing owned requester signing slots, changing
 templates on resume, or silently repairing unshipped older pending shapes.
+
+## Coordinator-free legacy status and restriction classification (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: retain the exact
+existing NetworkStatus response fields for a legacy network and add explicit
+mode legacy_history and migration_required true. Reads stay local and preserve
+historical nullable fields without claiming present coordinator authority.
+Discarded: a fabricated DEC NETWORK_VIEW, silently dropping the legacy network,
+or using last-sync as a new authority credential.
+
+Inherited migration bans come from verified applicable legacy restrictions and
+endorsed admitted history, preserving previously admitted sticky stable-key
+bans. Complete evidence omitting a required ban is forbidden; genuinely missing
+exact evidence is proof_required. Discarded: treating every restrictive catalog
+object as active, forgetting admitted bans after a withdrawal, and conflating a
+complete invalid prepared choice with a missing proof.

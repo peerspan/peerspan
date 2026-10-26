@@ -1059,6 +1059,18 @@ capability/task/approval/service/profile fields, with NETWORK_VIEW entries for
 DEC networks and explicit legacy history/migration entries for old contexts.
 No coordinator connected/last-sync label is projected as new-mode authority.
 
+A legacy network entry is exactly
+`{mode:"legacy_history",migration_required:true,id,name,coordinator,last_sync_at,
+last_sync_error,members,person,policy,policy_deliveries_pending}`. The nine
+preexisting NetworkStatus fields retain their current types: id/name/coordinator
+are strings; last_sync_at/last_sync_error are string or null; members and
+policy_deliveries_pending are nonnegative integers; person is null or exactly
+`{id,label}` with string id and string-or-null label; policy is null or exactly
+`{version,valid_until}` with fullu64 version and timestamp valid_until. These
+nullable public response fields do not relax strict request/private-state
+parsing. They report retained local legacy history and migration need, without
+remote fetching or treating the old coordinator/last-sync as current authority.
+
 Status is read-only over one coherent snapshot/decision time and performs no
 remote request, key generation, signature or guard advance. Existing attention
 ordering remains; DEC entries use the existing four attention fields
