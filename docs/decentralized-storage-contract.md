@@ -632,6 +632,19 @@ saturation stays saturated rather than wrapping. A full future state is a new
 coalesced delivery only if its exact validated monotonic union preserves all
 held proof/restriction obligations, never a mutated partially acknowledged body.
 
+Across all local DEC networks, the outbox has independently inclusive ceilings
+of4096 rows,512MiB summed exact decoded body bytes, and1GiB summed UTF-8 record
+bytes. Preflight the entire prospective target set plus all existing unresolved
+deliveries before signing/application, and recheck inside the final transaction.
+Exceeding any ceiling is409 quota_exceeded with no partial public-state commit
+or partial target set. A transport failure never frees a delivery slot. Only
+actual acknowledged retirement or the validated exact monotonic coalescing above
+can reclaim capacity; retained public proof obligations remain independently
+durable. Finite fanout can therefore refuse a large publication even when one
+body fits its20MiB wire cap. Selected: bounded whole-host delivery storage and
+an explicit atomic refusal. Discarded: unbounded per-target duplication, silent
+eviction of unknown deliveries, or committing only part of a restrictive change.
+
 Local public change, restrictive admission, heads/maxima and target deliveries
 commit together before attempted transport. There is no required remote
 coordinator acknowledgment or last-sync flag. A receiver acknowledgment is

@@ -108,6 +108,15 @@ disk failure can make this optional carrier unavailable; it cannot renew or
 withdraw participant authority. Relay connections/queues are ephemeral and
 clients reconnect using the fixed independent TLS pin.
 
+This operator additionally bounds summed exact stored FRAME body bytes to512MiB,
+with409 quota_exceeded before an overflowing mutation. Ciphertext and raw-body
+limits apply independently; deleting/expiring a record releases both atomically.
+This accounts for retained original JSON whitespace and envelope overhead that
+the fixed256MiB decoded-ciphertext ceiling alone cannot bound tightly. Ordinary
+maximal ciphertext remains representable. Selected: a finite operator disk
+budget for exact portable frames. Discarded: normalizing signed frame bytes,
+unbounded whitespace storage, or silently truncating accepted content.
+
 The helper uses separate internal resource storage; it never opens or upgrades
 the host's schema22 database. No public contract depends on its SQL table layout.
 Resource expiry/deletion frees ciphertext within the pinned tombstone rules;

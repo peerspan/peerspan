@@ -424,6 +424,9 @@ Recommended order:
    the bounded cold-ancestry rules. No remote local-admission marker or claimed
    signing timestamp is trusted. P/H whose only authorization comes from this
    same ceremony do not qualify for the skip.
+   Omitting the mandatory administrator stage in that case is400 invalid,
+   an incomplete applicable-stage transcript; a supplied but independently
+   unauthorized administrator instead has its actual authority denial.
    Selected: reuse already independently authorized current admission facts.
    Discarded: requiring a redundant fresh scope8 approval solely because an
    expired historical D names an older independently renewed P/H generation.

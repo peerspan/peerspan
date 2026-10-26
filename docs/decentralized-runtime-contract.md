@@ -396,6 +396,10 @@ Commit valid local restrictions, conflict heads and their delivery markers
 before any remote attempt. Positive local grants/policies likewise have a local
 atomic commit; no coordinator acknowledgment is required. Do not let a new
 batch's positive admission establish issuer authority for another fresh grant.
+The storage contract's whole-host outbox row/decoded-byte/record-byte ceilings
+apply to the entire proposed fanout before signing/apply and again in the final
+transaction. Capacity failure is quota_exceeded, without partial authority or
+delivery changes; the per-message wire cap is not an aggregate storage promise.
 Local publication failure preserves the committed exact proof/outbox; response
 committed true may have delivery pending and does not claim peer receipt.
 A failed pre-sign/apply operation commits none of those facts; only the shared
