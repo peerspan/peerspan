@@ -21,6 +21,12 @@ func coordDB(t *testing.T, n *testNet) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	// The live coordinator can still be publishing/syncing while a fixture
+	// replaces its statements. Wait for its writer as production clients do.
+	db.SetMaxOpenConns(1)
+	if _, err = db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 

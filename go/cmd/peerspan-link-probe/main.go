@@ -9,14 +9,22 @@ import (
 	"io"
 	"os"
 
+	"github.com/peerspan/peerspan/go/internal/decentralized"
 	"github.com/peerspan/peerspan/go/internal/linking"
 )
 
 func main() {
+	dec := flag.Bool("decentralized-verify", false, "verify coordinator-free public protocol evidence")
 	stored := flag.Bool("stored-snapshot", false, "verify complete stored catalog snapshots")
 	flag.Parse()
-	if flag.NArg() != 0 {
+	if flag.NArg() != 0 || *stored && *dec {
 		os.Exit(2)
+	}
+	if *dec {
+		if decentralized.RunProbe(os.Stdin, os.Stdout) != nil {
+			os.Exit(1)
+		}
+		return
 	}
 	limit := 2 << 20
 	if *stored {

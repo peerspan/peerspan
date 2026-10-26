@@ -342,6 +342,18 @@ func policyWindow(p Policy) (time.Time, time.Time, error) {
 
 // CheckPolicy validates a policy's shape, without its signature or window.
 func CheckPolicy(network string, p Policy) error {
+	return checkPolicy(network, p, false)
+}
+
+// CheckDecentralizedPolicy validates the same policy body and resource limits
+// under DEC's positive, at-most-24-hour window. Legacy CheckPolicy retains its
+// original one-to-ninety-day rule. The DEC reader separately checks whole UTC
+// timestamps, exact wrappers and every finite ancestor ceiling.
+func CheckDecentralizedPolicy(network string, p Policy) error {
+	return checkPolicy(network, p, true)
+}
+
+func checkPolicy(network string, p Policy, decentralized bool) error {
 	if p.NetworkID != network {
 		return fmt.Errorf("%w: policy is for a different network", ErrInvalid)
 	}
@@ -355,7 +367,10 @@ func CheckPolicy(network string, p Policy) error {
 	if err != nil {
 		return err
 	}
-	if d := until.Sub(issued); d < PolicyMinValidity || d > PolicyMaxValidity {
+	if decentralized && (until.Unix() <= issued.Unix() || until.Unix()-issued.Unix() > 86400) {
+		return fmt.Errorf("%w: a decentralized policy must be valid for 1 second to 24 hours", ErrInvalid)
+	}
+	if d := until.Sub(issued); !decentralized && (d < PolicyMinValidity || d > PolicyMaxValidity) {
 		return fmt.Errorf("%w: a policy must be valid for 1 to 90 days", ErrInvalid)
 	}
 	if p.Rules == nil || len(p.Rules) > PolicyMaxRules {
