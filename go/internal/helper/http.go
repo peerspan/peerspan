@@ -19,9 +19,10 @@ type transportPeer struct {
 type transportContextKey struct{}
 
 type mailboxHandler struct {
-	store    *resourceStore
-	limits   *limits
-	accounts resourceAccounts
+	store      *resourceStore
+	limits     *limits
+	accounts   resourceAccounts
+	completion ParticipantCompletion
 }
 
 func respondJSON(w http.ResponseWriter, status int, value any) {
@@ -96,7 +97,7 @@ func (h *mailboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		panic(http.ErrAbortHandler)
 	}
 	kind, rate, burst := "mutation", 2.0, 8.0
-	if r.Method == http.MethodGet {
+	if r.Method == http.MethodGet && !h.completionRoute(r.URL.Path) {
 		kind, rate, burst = "get", 1, 4
 	}
 	if !h.limits.allow(kind, resourceKeys(peer.key, peer.source, ""), rate, burst, 0) {
@@ -105,6 +106,10 @@ func (h *mailboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if peer.invalidHeader {
 		respondError(w, wireError("invalid"))
+		return
+	}
+	if h.completionRoute(r.URL.Path) {
+		h.serveCompletion(w, r, peer)
 		return
 	}
 	const base = "/bootstrap/v1/mailboxes"

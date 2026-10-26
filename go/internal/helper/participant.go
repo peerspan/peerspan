@@ -35,6 +35,13 @@ type ParticipantMailbox struct {
 // resource lock in an existing private host state directory. The caller owns
 // the host's listener and TLS configuration; this service never receives keys.
 func OpenParticipantMailbox(parent context.Context, databasePath string) (*ParticipantMailbox, error) {
+	return OpenParticipantMailboxWithCompletion(parent, databasePath, nil)
+}
+
+// OpenParticipantMailboxWithCompletion additionally installs only the host's
+// complete activation/outcome verifier. A nil callback retains resource-only
+// behavior. The callback receives no authority from this transport service.
+func OpenParticipantMailboxWithCompletion(parent context.Context, databasePath string, completion ParticipantCompletion) (*ParticipantMailbox, error) {
 	if parent == nil {
 		return nil, errState
 	}
@@ -71,7 +78,7 @@ func OpenParticipantMailbox(parent context.Context, databasePath string) (*Parti
 	ctx, cancel := context.WithCancel(parent)
 	m := &ParticipantMailbox{state: state, store: store, ctx: ctx, cancel: cancel,
 		connections: &connectionSet{clients: map[*ownedConn]bool{}, sources: map[string]int{}, pending: map[string]int{}}}
-	m.handler = &mailboxHandler{store: store, limits: newLimits()}
+	m.handler = &mailboxHandler{store: store, limits: newLimits(), completion: completion}
 	m.workers.Add(1)
 	go func() {
 		defer m.workers.Done()
