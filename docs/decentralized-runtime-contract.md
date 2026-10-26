@@ -913,8 +913,27 @@ Identity preview derives exact current own host/member/person and old selected
 device from verified source; it generates nothing. Approval may generate an
 owned device key ONLY if none previously existed, preserving old person/key/
 scopes otherwise. No old delegated signature substitutes for original approval.
+When a bound host has no prior device and has not approved its contribution,
+preview uses device_public_key `-` and the explicitly requested valid positive
+scopes; this is a visibly incomplete review, not a publishable proposal entry.
+Approval fixes the one real device key. For an existing selected device,
+requested scopes must equal its exact preserved scopes; an unbound host requires
+scopes0 and person/device `-`. Mismatching requests return409 operation_conflict.
 The approved own roster contribution is handed to the proposer through exact
 known-participant exchange or an explicit public file, not a key copy.
+Before a proposal exists, persist that contribution only as the storage
+contract's nonsigning migration_identity intent. It is not a proposal,
+selected provider, signature approval, acknowledgment, fence or adoption.
+Repeated approval/restart returns the same reviewed tuple and any one generated
+pending device key; elapsed review time cannot replace it. A changed tuple
+returns409 operation_conflict. An unbound host approves its host-only entry
+without inventing an original/root/device signer. Subsequent source/proposal
+verification must still match the same own identity and preserve existing
+selected-device keys/scopes. A missing approved contribution cannot be inferred
+from another machine's roster or from possession of the host key.
+The preproposal MIGRATION_VIEW keeps proposal/context/hashes/root/ack/commit/
+expires_at `-`, missing arrays empty, approved:false and fenced:false; those
+booleans describe proposal participation, not the separate identity approval.
 Prepare requires the exact complete known roster and source/current root;
 changed/omitted known facts block it. Review approves staged participation only;
 it does not yet sign an acknowledgment or adopt the new context.
@@ -1160,6 +1179,19 @@ The independent author derives runtime cases after this contract is pinned:
   complete helper outage, explicit migration and cross-language state reopening.
   Live separate-machine work requires checked output/withdrawal, separately
   from deterministic fixture readiness.
+- Preproposal migration identity preview writes/generates nothing; approval and
+  restart/retry after300s preserve exactly one owned tuple/key; bound existing
+  devices preserve their keys/scopes, unbound hosts need no authority signer,
+  changed tuples conflict, and no proposal/provider/fence/signature is invented.
+  A staged request references the same pending seed; failed staging/adoption
+  preserves it and complete adoption atomically transfers its protected home.
+
+For preproposal migration identity, selected: a nonsigning typed record in the
+existing intent table, preserving one pending device key across all retries.
+Discarded: a fake proposal/root/provider, a shared `-` proposal row, a new table
+and schema version for the same bounded local intent, or generating a new key
+whenever a preview/review window expires. Identity approval is not delegated
+signing authority; all real migration consent and authority gates stay separate.
 
 Selected costs are explicit contact handoff/reply instead of a new global inbox;
 current finite ancestry instead of mandatory online quorum; original-provider

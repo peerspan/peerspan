@@ -413,7 +413,7 @@ intent_id is a fresh local random128-bit lowercase hex value prefixed `dint_`;
 it is an owner-local lookup/idempotency key, not a public authority ID. Unknown
 network/context are `-` until explicitly resolved once. kind is one of
 `owner`, `administrator`, `create`, `action`, `policy_claim`, `root_transition`,
-`migration`, `selection`, `requester_commit`. A policy_claim is the runtime's prepare-only capability claim:
+`migration`, `migration_identity`, `selection`, `requester_commit`. A policy_claim is the runtime's prepare-only capability claim:
 reopening/resuming its signatures cannot change it into an applying ordinary
 action. Only the separate atomic capability-create transaction may admit its
 candidate policy and associated capability/edit/delivery changes.
@@ -431,8 +431,8 @@ The exact record is:
 ```
 
 provider is exactly
-`{kind:"original"|"device"|"root"|"requester",signer_public_key,signature_format,lease_id}`;
-lease_id is the exact selected device ds_ or `-` for original/root/requester. This is a
+`{kind:"original"|"device"|"root"|"requester"|"host",signer_public_key,signature_format,lease_id}`;
+lease_id is the exact selected device ds_ or `-` for the other kinds. This is a
 PRIVATE provider selector, not the runtime public provider summary. Review is
 the exact nonsecret typed owner-local review from the runtime contract. Unknown
 not-yet-resolved IDs/template bytes/signatures are `-`. Templates and signature
@@ -452,6 +452,51 @@ no current device authority, membership, provider selection or reusable signer.
 Never store requester in dec_signers or accept it for another intent kind.
 Requester intent secret is SQL NULL. Only actual owned host/device keys fill
 their fixed roles; these intents expose no external or arbitrary-message slots.
+
+The private `host` selector is allowed ONLY for `migration_identity`. It is
+exactly this store's host key, ed25519 and lease_id `-`. This intent has NO
+signature templates or signature slots; the selector grants no signing power
+and is forbidden in dec_signers and all other intent kinds. It records only the
+owner-approved local roster contribution before a signed proposal exists.
+Its network_id is the exact existing legacy network; context_id, operation_id
+and root_state_id stay `-`, never a fabricated future proposal/root. Its
+person/host/device/scopes equal the reviewed own roster entry. Review is the
+runtime's exact identity-stage review, with proposal/new-context/prepared hash
+`-`; its source hashes describe the reviewed source snapshot, not an adoption
+pin or permission to trust a later proposal.
+
+There is at most one nonterminal migration_identity intent per legacy network
+and local host. Preview creates no intent or key. Approval atomically persists
+approved=true, actual approved_at, the exact tuple/review and, ONLY when this
+bound host has no prior device, one freshly generated32-byte device seed in
+secret. Validate that seed against device_public_key. An existing device uses
+its existing protected owned key; secret stays NULL. An unbound host has
+person/device `-`, scopes0 and secret NULL. No original-person or host private
+key is copied into this record. Its templates/signatures are empty and
+completed=true: there are no signatures to produce, not an applied migration.
+terminal stays `-`, result_base64 is `-`, not_after is `-`; created_at and the
+fixed expires_at=created_at+300s record the initial review boundary. This
+nonsigning tuple does not expire into permission to generate a replacement
+key. Repeated approval of the same tuple returns the same intent/seed and
+approved_at, including after that boundary; changed identity/scopes or a
+different pending contribution returns operation_conflict. Current source
+verification and separate proposal review/acknowledgment remain mandatory.
+
+The exact locally approved proposal references this contribution through its
+own roster and the staged pending request, without changing the identity
+intent's unresolved context/operation fields. The original seed has one
+protected durable home. For a staged local requester only, look up the unique
+approved migration_identity intent by exact legacy network/local host and
+require equality of its member/person/device/scopes with that proposal's own
+roster entry and the pending request's keys. Zero matching rows, multiple
+nonterminal rows or a mismatching tuple refuses; no mutable latest-intent
+selection or seed fallback. No extra dec_pending field is required. Approval, linking,
+restart, expiry and partial failure never regenerate/copy it. Whole-migration
+adoption atomically moves that seed into its normal owned-device home, retires
+the pending copy and marks this identity intent terminal applied; this grants
+no expired positive authority. Preserve the unresolved approved intent/key if
+any step fails. This is a new typed use of existing schema23 dec_intents;
+there is no DDL change or fake dec_migrations row before a real proposal ds_.
 
 result_base64 is `-` except an applied create, action or root_transition intent,
 where it is canonical Base64 of that exact original successful runtime response
@@ -509,7 +554,8 @@ the exact new binding host-role template when needed and its commit_packet;
 an unchanged complete binding creates no new binding signature slot. Host and
 device packet roles bind the existing bootstrap message, with no new codec.
 
-Original private keys are never persisted. secret is SQL NULL except a
+Original private keys are never persisted. secret is SQL NULL except the
+nonsigning migration_identity device-seed case above, or a
 create/root_transition intent may hold the exact locally generated pending
 root32-byte seed; validate its key against the fixed genesis/new-root template.
 It installs only when that exact reviewed creation/accepted transition verifies,
