@@ -134,8 +134,14 @@ PUBLIC_KEY
 
 `ed25519` is a canonical Base64 raw64-byte signature. `sshsig` is the existing
 canonical Base64 binary OpenSSH SSHSIG encoding, Ed25519/SHA512 and namespace
-`peerspan-person-v1`, over the same role message. Original-person and SSH-root
-keys may use SSHSIG; device/host keys use raw Ed25519. This is not an arbitrary
+`peerspan-person-v1`, over the same role message. Original-person authority
+signatures MUST use SSHSIG; device/host keys MUST use raw Ed25519. Network-root
+signatures may use raw Ed25519 or explicitly selected SSHSIG. These same typed
+role rules apply to standalone statements and bootstrap packet authority
+signatures, without implying current issuer power from structural validity.
+Selected: one original-person format consistent with the reviewed external
+provider and bootstrap path. Discarded: raw original-person acceptance, which
+adds an unreviewed signing/custody path and inconsistent route formats. This is not an arbitrary
 message-signing API: local providers accept only the registered typed payload
 and role after its complete pre-sign authority/consent checks.
 
