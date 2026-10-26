@@ -785,6 +785,14 @@ sealed needed outcome frames may survive only to exact frame storageack/request
 expiry, under bootstrap bounds; no decryptkey/reseal/public exposure. Public
 exact operation history survives and secret-free participant retries remain.
 
+First application fixes outcome time/root only after the final transaction's
+actual guarded authority/adoption checks. Its bounded host outcome signature,
+optional terminal-frame sealing and secret retirement share that atomic commit
+with state/provider/event changes. Earlier capacity preflight or a paused
+before-transaction hook supplies no applied timestamp/outcome. This application
+exception does not merge the earlier requester/approver approval, signature
+and frame phases or add consent on resume.
+
 ## 6. Native commands and guided setup
 
 Both CLIs retain network create/invite/join/list/members, link/approve/admit/

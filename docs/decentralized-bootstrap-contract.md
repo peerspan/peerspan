@@ -690,8 +690,18 @@ Durable order: persist approved intent before generating typed signatures;
 persist signature before encryption; persist exact ciphertext before transport;
 persist final requester commit before first publication; apply exact catalog,
 restrictions, high-water, selected provider, public outcome and one application
-event in one transaction. Before that transaction seal any still-needed terminal
-outcome frame using the existing secret and persist its exact ciphertext there.
+event in one transaction. Before that transaction preflight the bounded outcome,
+outbox and optional terminal-frame capacity. Inside the final application
+transaction revalidate actual guarded time, current authority, known restrictions
+and exact adoption/consent, then fix observed_root_state_id and applied_at from
+that actual decision. Sign the local host outcome there, seal any still-needed
+terminal outcome frame with the existing secret, and persist those exact bytes
+with the public state/event and secret retirement in the same transaction.
+These bounded application-outcome computations are an explicit exception to
+the earlier separate ceremony intent/signature/frame phases. No outcome/frame
+is published before commit, and a refusal rolls back that whole application.
+Do not preseal an earlier applied_at and describe it as the later transaction's
+decision. The already complete requester commit remains exact unresolved work.
 Erase the raw pairing secret immediately on local apply. Retain only already
 sealed needed terminal frames plus a separate32-byte raw derived read_cap BLOB
 until their exact storage acknowledgment or request expiry; header renders it

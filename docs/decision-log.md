@@ -1074,6 +1074,14 @@ Selected within the owner's DEC-01 through DEC-07 delegation:
   to imported proofs and local preparation. Discarded: a high sequence silently
   healing a fork, admission before validation, or an empty repair diagnostic for
   this complete but malformed typed relationship.
+- **Atomic application outcome:** preflight bounded resource capacity, then fix
+  the actual guarded decision time/root and generate the bounded host outcome
+  signature/optional terminal frame inside the final application transaction.
+  Commit outcome, public state/provider/event and secret retirement together.
+  This preserves the final current-authority decision and immutable local
+  receipt. Discarded: presealed earlier applied_at presented as a later commit,
+  a separate prematurely durable outcome, or extending this exception to the
+  earlier requester/approver consent/signature/encryption phases.
 
 ## Coordinator-free role-specific preapproval (2026-10-26)
 

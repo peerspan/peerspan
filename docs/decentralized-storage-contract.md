@@ -690,6 +690,15 @@ winner or silent overwrite. At most4096 local outcomes per network; capacity
 refuses before a new application and never evicts an older outcome/authority.
 Exact historical outcome return creates no current admission or provider change.
 
+At first application, outcome applied_at and observed_root_state_id are fixed
+from the final transaction's actual guarded decision and verified root. The
+bounded host signature and optional terminal-frame encryption happen there,
+after capacity preflight and current revalidation. Outcome, frame/read-cap,
+secret retirement, public authority/provider state and one event commit
+atomically; no intermediate outcome/signature/frame transaction or earlier
+timestamp is substituted. A failure preserves the unresolved exact public
+requester commit and supplies no local applied outcome.
+
 A delivery ID is local random128-bit lowercase hex prefixed `ddel_`. Its record
 is exactly:
 
