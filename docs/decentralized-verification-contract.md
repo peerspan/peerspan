@@ -523,6 +523,17 @@ is inferred unless the main contract requires it.
 
 Both required arrays are sorted/distinct and include the issued D plus every
 required ancestor statement, and all manifest-pinned proof IDs, respectively.
+The statement-array minimum is exactly the issued D plus the signed manifest's
+ancestor_statement_ids (the complete D dependency closure). An applicable
+administrator packet's separate issuer path can be required for stage authority
+without becoming a D ancestor when its P/H are existing independent references.
+Those packet-issuer DS values are permitted additional verified dependencies,
+not an extra statement-array minimum. All manifest-pinned DP values remain
+mandatory, including the exact packet-issuer proof closure; every applicable
+stage's current authority is still independently checked.
+Selected: the signed D-ancestry minimum with all independently required proof
+pins and stage checks. Discarded: extending the statement-array minimum to
+separate packet-issuer paths, which are not necessarily ancestors of D.
 Additional verified supplied aliases/dependencies are permitted; every returned
 ID must correspond to exact verified source bytes. The activation argument can
 itself supply its dp_ for this verifier observation. That does not add it to
@@ -588,6 +599,8 @@ Verification sections choose the exact isolated cause/error for each vector.
 | B01 activation | Every absent/reordered/wrong-context required stage and exact allowed renewal skip; unchanged P/H/B renewal needs no unrelated admin8 or binding2 authority but keeps its exact complete binding proof/ceilings; changed admission/binding requires the full applicable approvals; new/renew identity pins; two separate requester consents; pending self-person target exception only; complete exact late learning with live versus expired/withdrawn parents. |
 | B03 consent and cold ancestry | Exact nested binding host-placeholder role/key/format versus omitted or completed host role; ordinary binding placeholder invalid; complete ancestor activation DAG learns independently live P/H/B despite expired old target D, without admitting that D or changing its heads/maxima; current selected issuer and all portable retention still required; unrelated same-pass ordinary grants remain inert; a new pure activation/application still requires usable selected D. |
 | S02 typed signature formats | Original-person statement and packet authority signatures require Ed25519/SHA512 SSHSIG with the exact namespace; raw originals fail; roots may use raw Ed25519 or selected SSHSIG; host/device signatures require raw Ed25519. Format validity never supplies issuer authority. |
+| R02 finite retention denial | A valid root transition remains selected when its typed finite retained-child claim is ineligible: with complete bytes, omitted required finite retention or child issued after transition makes selected child authority forbidden. Missing required proof bytes remains proof_required; a typed ineligible retained kind remains invalid; child expiry retains its own category. |
+| B04 activation output bounds | With existing P/H and a separate current administrator path, minimum required_statement_ids is issued D plus manifest ancestor DS; extra verified packet-issuer DS is permitted. Every manifest DP, applicable current admin/owner stage, exact review pin and source-byte check remains required. |
 | B02 retry | Same request/manifest exact outcome; conflicting immutable tuple; proof aliases; earlier operation cannot replace later selected provider/root/maxima; helper outcome never replaces consent. |
 | M01 migration | Before/after legacy linking; successor root without genesis private key; owned/unbound and unavailable roster hosts; exact authenticated source floors/restrictions; staged grants remain inert outside complete migration. |
 | M02 adoption | Same keys and original-person approval; no silent scope increase; missing local acknowledgment; all-host prepared-hash mismatch; root final commit; competing complete proposals; late context origin with expired prepared grants. |

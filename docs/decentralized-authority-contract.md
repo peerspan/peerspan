@@ -412,6 +412,18 @@ validity depends on that retaining statement or another grant currently being
 authorized. It cannot create cyclic/self-supporting authority. A cold proof
 bundle may carry old descendants and their later retention together; this is
 not evidence that the descendant was freshly created by that local import.
+When complete proof bytes establish that a listed finite descendant could not
+be retained (for example a required retiring finite dependency was omitted, or
+the child was issued after the retaining transition), that attempted retention
+conveys no authority. The selected child fails `forbidden`; it is not
+`proof_required` when all required bodies are present. A correctly signed,
+otherwise valid root-key transition remains valid and advances the root DAG;
+ineligible finite-child retention does not undo its key rotation. Malformed
+proofs or typed ineligible retention entries, including a root_state ID, still
+fail `invalid`. Current child expiry retains its separate expiry category.
+Selected: valid root rotation with no power from ineligible finite retention.
+Discarded: invalidating the whole root transition for that semantic failure,
+or accepting the retention list without checking predecessor eligibility.
 A fork resolver must satisfy the same powers/ceilings, explicitly cover all
 known conflicting heads, and state the exact retained descendants; a branch's selective list is
 not a resolution.
