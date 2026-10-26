@@ -1052,3 +1052,25 @@ The first contract version (`fbd2b7c`) listed decisions 1 to 9 as "Owner review 
 | GS-1 | 2026-10-23 | Prioritize guided setup (`peerspan up`) and defer release repository variables; the proposal was accepted in [PR #38](https://github.com/peerspan/peerspan-internal/pull/38). | Options not recorded. | [Guided setup, status](guided-setup-proposal.md) |
 | ML-1 | 2026-10-23 | UP-06a, delegated signing and pairing primitives, accepted in [PR #41](https://github.com/peerspan/peerspan-internal/pull/41). | Options not recorded in this repository; the UP-05 design is in `docs-internal`. | [Machine linking contract, status](machine-linking-contract.md) |
 | ML-2 | 2026-10-23 | UP-06b, transactions, persistence and recovery, accepted in [PR #43](https://github.com/peerspan/peerspan-internal/pull/43). | Options not recorded. | [Machine linking transactions, status](machine-linking-transactions.md) |
+
+## Coordinator-free preparation clarifications (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation:
+
+- **Cold selection:** verify an existing owner's exact current binding and issuer
+  closure for preparation, without adopting it as authority. Preserve the
+  separately specified new-original possession-only offer and its reviewed pins.
+  This permits first contact while retaining binding/current checks. Discarded:
+  unbound person-only shortcuts for existing owners, fabricated prior/second
+  import, unrelated same-pass admission, and selection as final consent/adoption.
+- **Current retainer proofs:** retain the manifest's exact literal forward DS
+  closure; additionally pin known required current retainer/issuer/consent proofs
+  in proof_ids. This includes the evidence needed for current scope intersection
+  without changing the signed reference graph. Discarded: reverse successor
+  discovery in the literal DS closure, omitted current authority evidence,
+  proof pins as authority, and rewriting a manifest for later learned evidence.
+- **Imported resolvers:** a multi-predecessor statement omitting those IDs from
+  resolves is invalid before admission. Apply the same explicit fork relation
+  to imported proofs and local preparation. Discarded: a high sequence silently
+  healing a fork, admission before validation, or an empty repair diagnostic for
+  this complete but malformed typed relationship.

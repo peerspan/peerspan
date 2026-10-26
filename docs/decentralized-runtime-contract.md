@@ -719,6 +719,39 @@ complete unchanged B proof on renewal with commit signature `"-"`), then fixes e
 manifest/final consent before first publication. A later admin/owner_finalization
 packet never implies commit consent. Both new and renewal require both stages.
 
+A fresh requester may have no admitted network state when reviewing a complete
+existing admitted-person owner offer. For selection preparation only, verify the exact selected owner's
+current P/H/B binding path and actual issuer ancestry from the supplied signed
+closure, without requiring those same bodies to have been admitted on this new
+requester in an earlier import. Preserve the bound-original requirement; a
+device issuer still requires its complete verified activation/retention basis.
+Check the frozen descriptor/root and requester pins, current validity, every
+typed signature/role/parent/scope, all known local heads/maxima/restrictions and
+the guarded decision time. This is a bounded verification result for that exact
+owner offer, never a new ordinary same-batch admission rule.
+
+Preview and selection may retain exact incoming evidence only as private pending
+data; they commit no authoritative next_prior, admission/head/maximum, network,
+member, policy, selected provider or application. Preview grants no consent.
+Explicit selection approval fixes only its own consent and host/device packet;
+final commit remains separate and default-no. Missing actual bytes reports their
+exact required IDs; complete but unusable authority reports its actual denial,
+not an empty proof_required merely because the requester has no prior admission.
+
+The separately specified new-original-person possession-only offer remains
+selectable before administrator admission. Its root_state_id/person_lease_id
+are `"-"` and issuer IDs empty: verify the exact original-key possession
+signature and reviewed psi2 descriptor/context/label/person/requester pins.
+Those placeholders supply no current root, membership, binding or reusable
+authority. This exception does not apply to an existing admitted-person offer.
+Once supplied by administrator/finalization, the concrete P/H/B/current-root
+and issuer paths must pass their normal checks before later signing/application.
+
+Selected: scoped current owner-path verification for cold preparation, preserving
+binding and all known restrictions. Discarded: an unbound person-only shortcut,
+fabricated prior or a second import to gain authority, general same-pass policy
+admission, and selection/resume as network adoption or final requester consent.
+
 An identical approved retry reuses exact IDs/bytes. A competing first consent
 pin is400 invalid; conflicting already-persisted final operation/retry is409
 operation_conflict. Complete exact outcome retrieval follows the historical

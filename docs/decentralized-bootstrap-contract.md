@@ -408,6 +408,12 @@ Recommended order:
    context_id,person_public_key,host_public_key,device_public_key,selected_at}`.
    An explicit default-no review locks this offer and identity tuple. A later
    offer cannot inherit consent, even with the same label.
+   For an existing admitted-person offer, a cold requester can verify the exact current owner binding/issuer closure
+   for this preparation without adopting it as network authority. The runtime's
+   scoped preparation rule preserves known restrictions/heads and all signature,
+   activation and validity checks; it does not admit unrelated supplied proofs.
+   The separately specified new-person possession-only offer remains selectable
+   under its exact reviewed pins, with no authority derived from its placeholders.
 4. **Administrator offer:** after verifying that selection, current root or
    current finite scope 8 administrator signs exactly `{selection_id,
    owner_offer_id,root_state_id,issuer_lease_ids,person_lease,host_lease}`.
@@ -532,6 +538,15 @@ It includes the exact D body and required ancestor/consent provenance, but not
 the containing activation or its current outcome: those cannot be inputs to
 their own signed manifest. Earlier complete activation/migration provenance
 needed by an ancestor retains its exact original proof.
+Current retaining successors need not be forward-reachable from a selected
+statement's signed old parents. Keep ancestor_statement_ids as the literal
+fixed point above; do not add reverse successor edges. When a current retainer
+is required and known while fixing this intent, proof_ids additionally pins its
+exact original proof and required current issuer/consent provenance. Verify
+those proofs and actual typed retention independently; a proof pin grants no
+authority. Later learned necessary retainers/restrictions remain additive
+current evidence without rewriting the frozen manifest. The verifier's output
+may include their verified statement IDs beyond its required minimum.
 If authority heads changed during the ceremony, every old ancestor must have
 the authority contract's exact signed retention through each intervening
 replacement; original deadlines/scopes/restrictions still apply. A local claim

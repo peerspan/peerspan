@@ -598,6 +598,10 @@ head and has a strictly greater sequence; local default generation uses
 checked+1. A resolver names all known maximal conflicting heads in both
 predecessors and resolves, and has sequence greater than all observed values.
 The issuer must have current independent authority for that stream at NOW.
+An imported multi-predecessor statement must also name every predecessor in
+resolves; omission is an invalid typed resolver relation before admission,
+heads or maxima. Local unsigned-intent checks alone are insufficient. Additional
+applicable withdrawal/unbind IDs still follow the separate rule below.
 For admin role regrant or owner binding reauthorization after a known
 reversible withdrawal/unbind, resolves also includes every applicable known
 withdrawal/unbind statement ID as section7 specifies. Those restriction IDs
