@@ -49,6 +49,11 @@ byte string or optional reference is literal `"-"`; optional typed values are
 only for the explicitly nullable secret columns and existing legacy columns.
 Readers do not silently default or repair corrupt records.
 
+The existing `policy_edits.record` has the strict tagged DEC variant specified
+in the [policy edit supplement](decentralized-policy-edit-contract.md).
+Its exact original proof references preserve legacy rows and do not add SQL
+tables or manufacture a legacy signed policy.
+
 Private outer JSON object-key order is not an identity or authorization input;
 compact sorted-key output is recommended. Every Base64 field containing public
 proofs, packets, templates, reviews or signed source snapshots preserves the
