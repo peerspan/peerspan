@@ -17,6 +17,7 @@ pub mod canonical;
 pub mod capabilities;
 pub mod chain;
 pub mod coordinator_move;
+pub mod decentralized;
 pub mod directory;
 pub mod disco;
 pub mod gh;

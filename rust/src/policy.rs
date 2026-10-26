@@ -498,12 +498,23 @@ impl Policy {
         }
     }
     pub(crate) fn check_shape(&self) -> Result<(), Error> {
+        self.check_shape_window(86_400, 90 * 86_400)
+    }
+    /// New-context access windows keep all resource rules, with finite DEC bounds.
+    pub(crate) fn check_decentralized_shape(&self) -> Result<(), Error> {
+        self.check_shape_window(1, 86_400)
+    }
+    fn check_shape_window(&self, minimum: i64, maximum: i64) -> Result<(), Error> {
         if self.version < 1 {
             return Err(invalid("policy versions start at 1"));
         }
         let duration = time(&self.valid_until)? - time(&self.issued_at)?;
-        if duration < TimeDelta::days(1) || duration > TimeDelta::days(90) {
-            return Err(invalid("a policy is valid for 1-90 days"));
+        if duration < TimeDelta::seconds(minimum) || duration > TimeDelta::seconds(maximum) {
+            return Err(invalid(if minimum == 86_400 {
+                "a policy is valid for 1-90 days"
+            } else {
+                "policy validity outside context window"
+            }));
         }
         if self.rules.len() > MAX_RULES {
             return Err(invalid("a policy has at most 64 rules"));
