@@ -431,10 +431,25 @@ or inserting non-link outcomes into the participant-only dec_operations table.
 
 approved_at is `-` before approval, then the actual guarded local review time.
 An explicit permitted re-review may advance it for the same unchanged intent;
-resume never does. expires_at is the exact request/migration window, or
-created_at+300s for an ordinary typed create/action/root preview. A fresh review
-cannot extend that signed operation window. Keep the authority contract's
-unsigned-intent age checks without regenerating approved public templates.
+GET, resume and signature submission never do. An exact repeated approval
+inside its still-valid window preserves the original approved_at.
+expires_at is the exact hard request/migration window, or the fixed initial
+created_at+300s review boundary for an ordinary typed create/action/root preview.
+No review extends a signed request/migration window, finite proof deadline or
+the ordinary action/root pure-verifier300s signing window.
+
+For an incomplete nonterminal CREATE only, explicit same-pin re-review through
+the runtime approve route can renew the local signing approval window: actual
+decision_time-approved_at must be0..300s inclusive before each new signature.
+Its original created_at/expires_at, operation/context/root/person/host identity,
+secret, templates and existing signatures remain exact; expires_at is not
+rewritten to conceal the initial review boundary. Expired approval requires
+review_required until that explicit consent, with no signature or application.
+Already completed=true means all required signatures are durably fixed. An
+unsigned-preview age limit cannot by itself reject application of those exact
+signed proofs; all current proof, identity, consent and final-transaction checks
+still apply. Applied historical responses retain their separate immutable retry
+rules. No terminal intent is resurrected or collected by a review refresh.
 
 Exact object_type values are `owner_offer_packet`, `admin_lease`, `person_lease`, `host_lease`,
 `binding_lease`, `device_lease`, `administrator_packet`,

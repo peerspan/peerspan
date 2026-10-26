@@ -304,6 +304,29 @@ requires re-review, not silent later timestamps; no already published fixed
 object is regenerated. There are at most 8 unresolved creations/host; quota
 refuses new preparation. Exact completed creation outcomes remain retained.
 
+For an incomplete nonterminal creation, the explicit approve route with the
+same exact context/root/person/host pins and approve:true may perform that
+re-review after the initial300s boundary. It records the actual guarded
+approved_at, checks all current creation/finite-proof preconditions, and permits
+new signatures only while its age is0..300s inclusive. A still-fresh exact
+approval retry preserves approved_at. No GET, ordinary resume or signature
+submission refreshes consent; an expired approval returns409 review_required
+before another signature/application. The CLI must show/reconfirm the same
+review before invoking an expired approval again; stored approval is not new
+consent. No key, timestamp, finite deadline, signed template or initial private
+expires_at is regenerated. A changed tuple remains a conflict, not a refresh.
+
+An already completely signed durable creation can apply after that initial
+preview window without a new signature or approval, provided the same six exact
+proofs, identity and current validity still pass at the actual final decision
+and transaction. GET remains read-only. A stopped or expired finite authority
+refuses application; this is not a deadline grace or automatic lease renewal.
+
+Selected: explicit review of an unchanged pending creation plus independent
+current verification of completed proofs. Discarded: next-second timestamp
+equality, silently refreshed consent on resume, regenerated templates/keys,
+extended request/migration deadlines or a general ordinary-action age bypass.
+
 The native create command's explicit requested owned tuple supplies creation
 consent; it verifies the daemon review before submitting matching SSH signatures.
 JSON output is the final NETWORK_VIEW on success, or the explicit pending

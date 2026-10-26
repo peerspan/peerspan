@@ -307,6 +307,13 @@ No positive expiry-skew grace or grace descendant is allowed. Locally signing
 a new intent fixes issued_at from section8's decision time. A persisted
 unsigned intent older than300s must be re-reviewed before a new signature;
 this local safeguard is not proof of remote signing time or global freshness.
+Fixing a newly generated payload uses that writer's guarded decision time.
+Rechecking the same exact owner-local unsigned payload or external signing
+slot later does not require issued_at to equal the next decision time: the
+pure action verifier accepts age0..300s inclusive, refuses future issuance as
+invalid and age301s or more as expired. It never rewrites the payload or grants
+another action/root signing window. The runtime's explicit unchanged-creation
+re-review is a separate local consent rule, not a public pure-action override.
 Late learning of an exact completed, still-valid transcript is not rejected
 merely because its signatures are older than300s.
 
