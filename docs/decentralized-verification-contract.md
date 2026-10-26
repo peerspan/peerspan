@@ -6,7 +6,10 @@ and subsequent contract-derived cases. It is not an executable suite, runtime
 API, implementation inventory, or authorization to start implementation before
 the complete DEC contract set is reviewed and merged. The umbrella contract
 fixes that implementation pin. Base implementation main is
-`6d3823fd3115fff247b1af8551553baf30e97f0f`, schema21.
+`6d3823fd3115fff247b1af8551553baf30e97f0f`, schema21, was the initial baseline.
+The current additive storage target is DEC23 over the merged remote MCP/OAuth22
+baseline. Earlier experimental DEC22 receipts remain historical, not evidence
+for the newly allocated migration.
 
 Read this with the [authority](decentralized-authority-contract.md),
 [bootstrap](decentralized-bootstrap-contract.md),
@@ -606,6 +609,7 @@ Verification sections choose the exact isolated cause/error for each vector.
 | M01 migration | Before/after legacy linking; successor root without genesis private key; owned/unbound and unavailable roster hosts; exact authenticated source floors/restrictions; staged grants remain inert outside complete migration. |
 | M02 adoption | Same keys and original-person approval; no silent scope increase; missing local acknowledgment; all-host prepared-hash mismatch; root final commit; competing complete proposals; late context origin with expired prepared grants. |
 | M03 fence | Acknowledgment survives restart; no timeout abort/new network-derived work/positive old publication; restrictions and independent manual actions retain their own rules; failure preserves all state except named guard metadata. |
+| S03 additive storage allocation | Genuine schema21 and merged remote MCP/OAuth22 open into DEC23 with exact old rows/keys/files/product views. Actual22 adds exactly17 DEC tables, all4 language directions;21 additionally receives the existing OAuth22 migration's changes. Restart preserves state; old22 binary refuses23; future24 and stopped-copy malformed DEC objects/extra generated columns refuse without mutation. Pre23 reserved DEC names, including historical experimental DEC22 state, refuse rather than being silently repaired or reinterpreted. |
 
 The eventual pure suite uses only fixture-owned keys and public signing codecs.
 Runtime suites separately verify actual signature refusal, durable guards and

@@ -118,7 +118,7 @@ budget for exact portable frames. Discarded: normalizing signed frame bytes,
 unbounded whitespace storage, or silently truncating accepted content.
 
 The helper uses separate internal resource storage; it never opens or upgrades
-the host's schema22 database. No public contract depends on its SQL table layout.
+the host's schema23 database. No public contract depends on its SQL table layout.
 Resource expiry/deletion frees ciphertext within the pinned tombstone rules;
 history/authority lives on participants. Restoring or replacing a helper need
 not preserve a network-global log because it has no such authority. Clients

@@ -13,7 +13,7 @@ section explicitly names peer/bootstrap/repair transport.
 
 ## 1. Mode, strict decoding and local success
 
-New networks use only `peerspan-decentralized-v1`. An explicit schema22 database
+New networks use only `peerspan-decentralized-v1`. An explicit schema23 database
 upgrade preserves old data but does not adopt that mode for an existing network.
 Migration requires the complete migration protocol. No failed request, missing
 helper, recent contact or empty coordinator pin can choose a different mode.

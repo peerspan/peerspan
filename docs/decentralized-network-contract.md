@@ -1,7 +1,9 @@
 # Coordinator-free networking: implementation contract
 
-Status: DEC-01 shared contract candidate under final review, based on implementation main
-`6d3823fd3115fff247b1af8551553baf30e97f0f` (schema 21). Runtime implementation
+Status: DEC-01 shared contract, initially based on implementation main
+`6d3823fd3115fff247b1af8551553baf30e97f0f` (schema21). The current additive
+storage target is DEC23 over merged remote MCP/OAuth22 (`ec1052fa`); the
+initial experimental DEC22 storage allocation is superseded. Runtime implementation
 and independent executable cases start only after this complete shared contract
 and its Verification cases are reviewed and merged. That merged revision pins
 the implementation contract. The owner delegated recommended decisions and documentation of their
@@ -19,7 +21,7 @@ This contract coordinates the [authority](decentralized-authority-contract.md),
 exact signed state, validity, expiry, conflict and renewal rules. Bootstrap
 specifies context encodings, enrollment, linking, contacts and optional helpers.
 Migration specifies source-state endorsement, all-known-host consent, fresh
-original-person approval and monotonic cutover. Storage fixes additive schema22
+original-person approval and monotonic cutover. Storage fixes additive schema23
 and cross-language resumption. Runtime fixes typed preparation, public routes,
 consent and local commit semantics. Verification supplies the independent
 public-vector interface and concrete cases; the helper contract fixes the

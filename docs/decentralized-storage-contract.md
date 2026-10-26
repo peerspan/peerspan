@@ -1,4 +1,4 @@
-# Decentralized durable state and schema 22
+# Decentralized durable state and schema 23
 
 Status: DEC-01/02/03/05 shared contract candidate,
 2026-10-26, against main `6d3823fd3115fff247b1af8551553baf30e97f0f`.
@@ -11,21 +11,46 @@ complete contract set is reviewed and merged, as fixed by the umbrella contract.
 
 ## 1. Additive migration and existing data
 
-The shared current schema is 21. Schema 22 adds the tables below in one SQLite
-transaction and sets `PRAGMA user_version = 22` only in that transaction. Keep
-all schema-21 tables, columns, records and keys. Opening a database performs
+Merged remote MCP/OAuth PR86 (`ec1052fa71b83f24921fdf70dfc7468cdd488ea4`)
+allocated schema22. DEC therefore uses schema23. The earlier DEC22 allocation
+was an unmerged experimental storage slice, superseded before release; its
+retained test receipts describe those exact older artifacts only.
+
+Schema23 adds exactly the seventeen DEC tables below in the host's SQLite
+migration transaction and sets `PRAGMA user_version = 23` only there. Keep
+all schema21 and schema22 tables, columns, records and keys, including remote
+MCP definitions, OAuth sign-in/credential state, source snapshots and configured
+headers. Opening a database performs
 no protocol migration, automatic enrollment, lease renewal or original-key
-import. A failed migration rolls back; a version above 22 is refused before
+import. A failed migration rolls back; a version above 23 is refused before
 changing any table, identity, file or service. Existing private-directory,
 process-lock, foreign-key, busy-timeout and synchronous durability rules remain.
 
 In particular preserve identity, peers/manual grants, received/outbound work,
 networks and legacy statements, all link_* history, policies/edits/deliveries,
 agents/sessions/attachments/adapter credentials, tasks/artifacts/sources,
-capabilities, schema-20 per-call approvals and schema-21 resource/gh data.
-Existing schema-21 network JSON is not rewritten just to add a mode field.
-The older binary rejects schema 22 rather than interpreting DEC state as
+capabilities, schema20 per-call approvals, schema21 resource/gh data and
+schema22 remote MCP/OAuth state. An explicit network cutover preserves those
+same product facts; database opening itself never initiates that cutover.
+Existing schema21/22 network JSON is not rewritten just to add a mode field.
+The older binary rejects schema 23 rather than interpreting DEC state as
 coordinator-based state. Neither expiry nor a transport error lowers the mode.
+
+A legitimate schema21 database runs the existing OAuth22 migration and the
+additive DEC23 migration in the same opening transaction; a failure preserves
+its original version21 and state. A legitimate OAuth22 database adds only the
+DEC23 migration; failure preserves version22 and its exact existing state.
+Fresh databases run the preceding normal migrations too. The seventeen DEC
+names are reserved: a pre23 database containing any of them is refused before
+migration changes. Never reinterpret an experimental DEC22 database as OAuth22,
+drop its tables, change its version to disguise its history, or use a missing
+OAuth table as permission to repair another schema22 meaning.
+
+Selected: advance DEC to the next free version and preserve the independently
+merged OAuth migration. Discarded: sharing version22 for two layouts, renumbering
+the merged OAuth feature, deleting its state, or silently upgrading unshipped
+experimental DEC22 fixtures. Earlier valid test receipts stay historical;
+current acceptance adds genuine OAuth22-to23 opening and refusal evidence.
 
 The existing SQL table is already
 `networks(id TEXT PRIMARY KEY, record TEXT NOT NULL, root_seed BLOB)`.
@@ -772,8 +797,20 @@ and revalidate current time/authority in the final transaction; a torn newer
 maximum/older catalog cannot erase a policy or enable lower fallback. Never
 hold a SQLite transaction over a remote request, SSH prompt or user review.
 
-Required independent cases include atomic21-to22 migration/refusal/rollback;
-all4 Go/Rust reopen directions; no fake coordinator fields or private-original
+Required independent cases include legitimate21-to23 and merged OAuth22-to23
+opening/refusal/rollback, with all4 Go/Rust directions for the actual OAuth22
+baseline. Create real remote MCP/OAuth product state through public interfaces;
+retain every old table definition/row, exact tokens/headers/private files and
+public source/capability views. For actual OAuth22 inputs, only the seventeen
+additive DEC tables/version may differ. Schema21 inputs additionally receive
+the existing OAuth22 migration's changes, with every original21 fact preserved.
+Verify restart, schema22 old-binary downgrade
+refusal, future24 refusal and stopped-copy malformed DEC table/generated-column
+refusal without other file/row/version mutation. Experimental DEC22 inputs with
+reserved DEC names refuse rather than becoming a second schema22 meaning.
+Keep earlier experimental22 receipts historical; do not relabel an artifact,
+rewrite an original fixture's version, or count an old run as OAuth22-to23.
+Other cases include no fake coordinator fields or private-original
 seed; exact alias/provenance/head/max-u64 persistence; expired/inactive/forked
 selection without fallback; per-domain missing-body repair plus unrelated deny;
 clock restart/context migration/final-TX race; all7 transcript stages and exact
@@ -782,7 +819,8 @@ boundary; sticky local restriction/outbox before unavailable transport; immutabl
 outcome retry versus newer selection; root seed retirement versus own accepted
 rotation; migration fence/competing origin/event deduplication; contact/helper
 replacement without authority changes; unchanged21 manual grants, tasks,
-capabilities, approvals, bounds, sessions and private credential/profile files.
+capabilities, approvals, bounds, sessions and private credential/profile files,
+plus the merged schema22 remote MCP/OAuth product state.
 
 Chosen conventions keep exact shared state and typed intent below independent
 public authority verification. Discarded: adding fake coordinator columns,

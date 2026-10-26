@@ -2,7 +2,7 @@
 
 Status: PROPOSED shared storage/runtime supplement, 2026-10-26. Review and pin
 before implementing this variant. It supplements the authority, storage and
-owner-local runtime contracts without changing schema22 SQL or old records.
+owner-local runtime contracts without changing schema23 SQL or old records.
 
 ## 1. Exact references instead of a legacy signature
 

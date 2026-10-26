@@ -5,7 +5,7 @@ Status: DEC-01/05 shared contract candidate, 2026-10-26. Review and merge with t
 [bootstrap](decentralized-bootstrap-contract.md) and
 [umbrella](decentralized-network-contract.md) contracts before implementation
 or independent executable cases.
-Opening schema22 is not permission to change a network's protocol.
+Opening schema23 is not permission to change a network's protocol.
 
 ## 1. Selected transition and costs
 
@@ -341,13 +341,14 @@ cannot revive an old generation; fresh new-mode owner/host consent is explicit.
 
 ## 6. Storage, transport and verification
 
-Schema22 is additive over21. Keep legacy tables/bytes and existing product
+Schema23 is additive over the merged OAuth22 baseline, retaining schema21
+upgrades through that existing migration. Keep legacy tables/bytes and existing product
 state. Add explicit mode/context pins, exact DEC objects, provenance,
 restrictions, stream heads/maxima, the shared per-network monotonic clock guard,
 staged migration intents/fence, outcomes and delivery outboxes. Unsupported
 future schemas refuse before mutation; failed migration rolls back. Opening
 the same DB with either host implementation preserves every durable state.
-An older binary refuses schema22 instead of silently resuming coordinator mode.
+An older binary refuses schema23 instead of silently resuming coordinator mode.
 
 Migration preparation/status/typed approval remain owner-local admin actions.
 Authenticated peers may carry exact proposals/proofs/acks; they cannot supply

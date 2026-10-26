@@ -1009,8 +1009,9 @@ connectivity or that direct networking always works.
 
 ## 9. Migration, decisions and verification
 
-Schema is currently 21, including per-call approvals 20 and builtin/gh 21. The
-root-owned schema 22 migration must preserve those tables, host/person/device
+The merged host schema is22, including per-call approvals20, builtin/gh21 and
+remote MCP/OAuth22. The root-owned schema23 migration preserves all those
+tables and product state, host/person/device
 keys, operation history, exact original proofs, restrictions and high-water.
 A signed authorized transition binds old network/genesis/name/history and new
 context. Legacy contexts remain exact historical input; no old coordinator

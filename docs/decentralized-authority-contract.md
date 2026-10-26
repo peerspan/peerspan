@@ -1,7 +1,9 @@
 # Decentralized authority and replicated state
 
-Status: DEC-01 shared contract candidate against
+Status: DEC-01 shared contract, initially based on
 implementation main `6d3823fd3115fff247b1af8551553baf30e97f0f`, schema21.
+The current storage allocation is DEC23 over merged remote MCP/OAuth22;
+see the storage contract for the superseded experimental DEC22 allocation.
 Implementation and independent executable cases begin only after the complete
 contract set is reviewed and merged, as fixed by the umbrella contract.
 This document supplies recommended concrete choices,
@@ -749,7 +751,7 @@ Pagination/deltas carry sufficient closure rather than truncating a catalog.
 ## 8. Local decision clock
 
 Use the local UTC clock plus a persisted per-network largest local decision
-time. Schema22 table `dec_clock` has one row per network, keyed by network_id,
+time. Schema23 table `dec_clock` has one row per network, keyed by network_id,
 with exact strict JSON record
 `{format:1,largest_local_time:"YYYY-MM-DDTHH:MM:SSZ"}`. Store whole seconds;
 clock-state corruption fails closed rather than resetting the anchor. The row
@@ -803,10 +805,12 @@ here. Ordinary shutdown/restart with intact state must retain the guard.
 
 ## 9. Persistence/API consequences
 
-Current host schema is21. Add schema22 storage for context/mode pins, exact
+The merged host baseline now uses schema22 for remote MCP/OAuth. Add schema23
+storage for context/mode pins, exact
 statements/proofs, admitted-restriction IDs, stream DAG/heads/fork state,
 per-context full-u64 maxima, operation outcomes and the decision-clock guard.
-Preserve schema20 approvals and schema21 bounds/gh-source state, existing
+Preserve schema20 approvals, schema21 bounds/gh-source and schema22 remote
+MCP/OAuth state, existing
 host/person/device keys, pending old transcripts, current sessions, projects,
 adapter credentials and policy edits. Migration is atomic and failures roll
 back. Unsupported schemas refuse before modification.
