@@ -622,7 +622,8 @@ pairings. Separate-machine/live-agent completion is recorded independently.
 Production DEC decisions use normal UTC. Independent black-box fixtures may
 explicitly enable `PEERSPAN_DEC_TEST_MODE=1` on an individual daemon or CLI
 process, with `PEERSPAN_DEC_TEST_CLOCK_FILE` and/or
-`PEERSPAN_DEC_TEST_BARRIER_DIR`. Otherwise both controls are ignored. These are
+`PEERSPAN_DEC_TEST_BARRIER_DIR`, or the schema-failure control below. Otherwise
+all these controls are ignored. These are
 not CLI options, persisted profiles, request fields or peer routes. A daemon
 test setting never implicitly enables another CLI/process. The harness supplies
 each process's environment explicitly. Legacy linking retains its separate
@@ -688,6 +689,39 @@ using the existing public linking test-control discipline in a separate DEC
 namespace. Discarded: production clock APIs, peer-controlled fault injection,
 implicit process inheritance, helper-time authority, guessed implementation
 checkpoints or claims that a marker proves a separate database commit.
+
+### Schema migration rollback control
+
+`PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL=1` is an additional per-process opt-in
+only when that same process has `PEERSPAN_DEC_TEST_MODE=1`. Only the literal1
+enables it; all other values leave it disabled. It is ignored by helper
+operators, processes without test mode and already-current schema23 openings.
+It is never a CLI/API option, profile field, clock source or remote request.
+
+When opening an older schema, run its normal migrations (including OAuth22 for
+schema21), create every DEC23 table and validate their final shapes in the one
+opening transaction. At that actual point, before the opening transaction can
+commit, this control returns the fixed startup error `test schema migration
+failure`. The normal error path rolls back and exits. It never waits inside a
+transaction, writes a barrier marker, commits partial DDL, initializes a new
+identity or retries under another schema. No daemon listener starts on this
+failure. Existing private identity, rows, public facts and original schema
+version are preserved. A fresh process without the control may open the exact
+same state normally.
+
+Independent verification uses stopped copies of genuine21 and OAuth22 states,
+with schema/row/private-file snapshots from their owned baselines. Require a
+failed controlled opening, exact original version/tables/rows/files and no
+partial OAuth/DEC table additions. Then open that same copy without the flag and
+verify the normal23 state. Also prove a set flag without test mode is ignored,
+and a current23 open with both flags neither fails nor rewrites history. These
+are late-DDL rollback checks, distinct from reserved-name preflight refusal.
+
+Selected under the DEC delegation: an explicit immediate startup failure point
+makes the required transaction boundary observable without guessing internal
+SQL timing. Discarded: treating preflight refusal as post-DDL rollback evidence;
+waiting on a durable barrier while holding the opening writer lock; relying on
+sleep/kill timing or filesystem exhaustion to guess which migration ran.
 
 ## 8. Missing migrated-origin proof diagnostics
 

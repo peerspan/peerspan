@@ -24,6 +24,18 @@ Contents:
 
 ## Full entries
 
+### DEC-SF1: observe additive migration rollback (2026-10-26)
+
+- **Authority:** selected within the delegated DEC-01 through DEC-07 stream.
+- **Chosen:** "an explicit immediate startup failure point makes the required
+  transaction boundary observable without guessing internal SQL timing."
+- **Discarded:** "treating preflight refusal as post-DDL rollback evidence";
+  "waiting on a durable barrier while holding the opening writer lock";
+  "relying on sleep/kill timing or filesystem exhaustion to guess which migration ran."
+- **Source:** [schema migration rollback control](decentralized-verification-contract.md#schema-migration-rollback-control).
+- **Boundary:** explicit test-mode opt-in, no waiting/partial commit or remote
+  control; normal startup without the flag and current23 opening are unaffected.
+
 ### DEC-RP1: network-root provider host (2026-10-26)
 
 - **Authority:** selected within the delegated DEC-01 through DEC-07 stream.

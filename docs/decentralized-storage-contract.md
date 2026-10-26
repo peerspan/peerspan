@@ -40,6 +40,9 @@ A legitimate schema21 database runs the existing OAuth22 migration and the
 additive DEC23 migration in the same opening transaction; a failure preserves
 its original version21 and state. A legitimate OAuth22 database adds only the
 DEC23 migration; failure preserves version22 and its exact existing state.
+The [opt-in late-DDL failure control](decentralized-verification-contract.md#schema-migration-rollback-control)
+verifies the actual opening transaction's rollback after both migrations have
+run; preflight refusal alone is not that evidence.
 Fresh databases run the preceding normal migrations too. The seventeen DEC
 names are reserved: a pre23 database containing any of them is refused before
 migration changes. Never reinterpret an experimental DEC22 database as OAuth22,
