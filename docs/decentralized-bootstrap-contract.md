@@ -296,6 +296,13 @@ cannot be inferred or inserted after signing. Every staged selection/final root
 must belong to that same approved proposal. A renewal supplies every expected
 identity/context and an exact prior device lease ID. `expires_at=created_at+300s`.
 
+The migration contract's exact preexisting-device-profile cutover rule applies
+only to that approved staged new request's original-owner offer/finalization.
+Its conditional nominal8 supplies no administrator role/current power and
+cannot widen ordinary owner preparation. Verify its complete old-source proof,
+exact approved roster and actual local contribution at the contracted gates;
+an unsigned roster, request field or old delegated signature is not approval.
+
 ```text
 request_id = "link_" + H(L("peerspan-decentralized-request-id-v1",
                            H(exact request payload bytes)))

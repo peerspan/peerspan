@@ -198,6 +198,35 @@ is a new-context enrollment using existing keys, not a legacy renewal. Both
 default-no requester confirmations remain separate. Original-person signing
 uses its own machine's typed slots, never a copied private key.
 
+An exact already selected legacy device profile has one narrow cutover rule:
+the staged original-owner offer/finalization may preserve its SAME device key
+and exact nominal certificate scopes, including conditional8 when the person
+currently lacks an administrator role. Independently verify the frozen source,
+original legacy certificate signatures/activation and exact person/host/device/
+scopes under the approved proposal. Unsigned roster claims alone do not qualify.
+The owned host's approved migration_identity and actual privately retained old
+selection must match before its staged request, either requester confirmation,
+acknowledgment or adoption. A remote owner/admin verifies the exact approved
+proposal/source proof/request/roster; it cannot assert that host's private review.
+
+Only mode new with that exact non-`-` migration_proposal_id qualifies. This
+changes only the original-owner cap that would discard the preserved nominal
+conditional8. Actual current1/2/4 powers, all new finite parents/ceilings,
+signatures/consent, known bans/forks/floors and fixed/current-time checks remain.
+Bit8 grants no usable administration without an independently current admin
+lease; migration MUST NOT create that role merely to preserve the device mask.
+All staged evidence stays inert until the complete all-host/root migration.
+It supplies no ordinary activation/outcome, selected provider or reusable signer.
+
+No different key, increased scope, newly generated no-prior-device profile,
+unapproved proposal, unrelated reparenting or ordinary linking path can use
+this rule. No-prior-device generation keeps the normal actual-path scope cap.
+Selected: explicit original-person cutover of the exact old nominal profile,
+with conditional roles still independently enforced. Discarded: silently
+changing that identity/mask, granting an admin role just to migrate, general
+nonadmin original-owner15 issuance, an unsigned claimed old selection or a
+legacy delegate signature standing in for fresh original/all-host consent.
+
 During this preparation only, the verified legacy root may act as the proposed
 initial root to sign those exact roster-bound components. The original person
 may consent to its own pending new person/binding/device components under the
@@ -376,3 +405,9 @@ commits; acknowledgment fence/restart and no timeout abort; mismatched prepared
 catalog/tuple/signatures; atomic failure/event deduplication; unchanged schema21
 tasks/capabilities/approvals/credentials; cross-language reopening, rollback and
 downgrade refusal; no old coordinator config or receipt used as new authority.
+The exact preexisting nonadmin device15 profile can cut over with fresh
+original/all-host consent while policy1 retains its ordinary checks and admin8
+stays forbidden without its independent role. Ordinary nonmigration original7
+still cannot issue15; an old7→15 increase, changed key/host/profile, missing
+private contribution or unapproved proposal refuses without replacement or
+staged consent. These are separate controls, not an ordinary scope relaxation.

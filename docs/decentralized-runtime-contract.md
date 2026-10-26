@@ -938,6 +938,7 @@ fence with no timeout abort. No secret/root seed appears in these responses.
 | Owner-local route | Exact request | Success |
 | --- | --- | --- |
 | GET /v2/networks/{id}/migration | No query/body |200 MIGRATION_VIEW; before preparation needs_approvals with proposal/context `"-"` |
+| GET /v2/networks/{id}/migration/evidence | No query/body |200 exact existing peer evidence shape below from one coherent retained snapshot;404 not_found before a real signed proposal |
 | POST /v2/networks/{id}/migration/identity | `{scopes,approve}` |200 `{migration,identity,review,signing_requests}`; identity is this host's exact proposal roster entry |
 | POST /v2/networks/{id}/migration/prepare | `{roster,signature_format,approve}` |200 review wrapper, current legacy-root proposal/initial-root ready slots |
 | POST /v2/networks/{id}/migration/review | `{proposal_id,approve}` |200 review wrapper for exact source/proposal/roster/new context |
@@ -962,6 +963,21 @@ migration preparation, then permit the separate explicit review. A later exact
 evidence import preserves those fixed source bytes; changed source/prepared
 identity conflicts. It never manufactures consent, acknowledgment/fence,
 authority or adoption. No caller-supplied provenance is a trusted prior row.
+
+Owner-local evidence GET exports exact original public proposal/source/prepared/
+acknowledgment/commit bytes in the peer evidence shape, at most32MiB with every
+inner bound unchanged. Unknown later proof fields retain that shape's `-`
+convention; a nonexistent proposal never creates a descriptor/catalog/source.
+It signs/generates/fetches nothing and exports no private key, seed or credential.
+No intent, approval, fence, guard, admission or provider changes. After adoption
+it exports ONLY the immutable original transition snapshot, never later DEC
+catalog/contact/authority additions. Existing source/prepared/transition
+conflicts remain409. Exported wrappers confer no trust or remote local consent.
+This is the explicit public-file handoff path; do not read/copy daemon TLS keys
+or reconstruct a signed proposal's nonce/bytes from a review summary.
+Selected: owner-local export of the existing exact public evidence carrier.
+Discarded: inventing a second envelope, exporting daemon keys, direct database
+extraction or relying on a review summary to reconstruct signed bytes.
 
 Identity preview derives exact current own host/member/person and old selected
 device from verified source; it generates nothing. Approval may generate an
@@ -991,6 +1007,10 @@ booleans describe proposal participation, not the separate identity approval.
 Prepare requires the exact complete known roster and source/current root;
 changed/omitted known facts block it. Review approves staged participation only;
 it does not yet sign an acknowledgment or adopt the new context.
+Staged original-owner preparation applies only the migration contract's narrow
+exact preexisting-device-profile cutover cap: conditional nominal8 may be
+preserved without minting an admin role. Ordinary owner preparation, no-prior-
+device profiles and every current role/power/consent check retain their rules.
 
 Migration/link requires the exact locally approved proposal and roster tuple.
 It writes request migration_proposal_id and uses the same original seven-stage
@@ -1255,6 +1275,16 @@ The independent author derives runtime cases after this contract is pinned:
   changed tuples conflict, and no proposal/provider/fence/signature is invented.
   A staged request references the same pending seed; failed staging/adoption
   preserves it and complete adoption atomically transfers its protected home.
+- Exact old nonadmin device15 migration preserves that key/profile through
+  fresh original/all-host approval and both requester consents; policy1 keeps
+  its ordinary bounds and admin8 stays forbidden without its separate role.
+  Ordinary original7 still cannot issue15; increased/different/unapproved old
+  profiles cannot invoke the cutover-only rule.
+- Owner-local exact public migration evidence export/reimport: read repeats
+  preserve every DB/clock/private-file hash, first signed proposal bytes are
+  available without a daemon key export, and import supplies no local approval,
+  fence/provider/adoption. Before a real signed proposal export is404; after
+  adoption it remains the immutable original transition snapshot.
 
 For preproposal migration identity, selected: a nonsigning typed record in the
 existing intent table, preserving one pending device key across all retries.
