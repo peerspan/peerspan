@@ -256,6 +256,21 @@ history, head or high-water. A private marker never excuses a forged object,
 missing consent or missing ancestor. Missing a selected body preserves the
 known head/maximum and yields repair for that domain, never lower fallback.
 
+For a statement supplied by an exact retained activation or migration container,
+the admission record's proof_id names that complete top-level container dp_,
+whose original body is in dec_objects. A standalone statement instead names its
+own stored complete alias dp_. Reopening must verify that the named container
+actually supplies this exact admitted ds_ and its original complete nested
+signatures, required consent and dependency closure. Merely pointing at any
+valid container is insufficient. A derived nested-statement dp_ that is not an
+actual standalone catalog object is not a stored source proof. Do not fabricate
+a standalone dec_objects row by reserialization. Manifest-pinned standalone
+binding/device proofs still require their exact original catalog bodies.
+Selected: retained original container provenance for exact nested statements.
+Discarded: virtual standalone proof rows or treating a container marker as
+admission/current authority for every nested statement. The statement's typed
+admission basis and current eligibility remain independently required.
+
 A candidate network catalog cannot set these rows, admitted_at, heads, maxima,
 clock or context pins. Only the local verifier's admission transaction may do
 so after the current/retention/migration rules. The caller reconstructs the
