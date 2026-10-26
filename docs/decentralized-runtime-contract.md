@@ -627,8 +627,14 @@ bounded tombstone. Persisted final commit cannot be cancelled as uncommitted.
 provider_id,signature_format,scopes,not_after,expected_host_public_key,
 expected_device_public_key,approve}`. Code arrives from hidden prompt/stdin, never command arguments.
 The owner is the exact selected original person; provider resolves original or
-same-person device. Scopes default in CLI to 15 capped by the actual path and
-not_after to the earliest now+7d/all finite ancestors; API requires fixed values.
+same-person device. For an already admitted owner, scopes default in CLI to 15
+capped by the actual path. For an unadmitted new original person, the requested
+scopes default to 7; this is a proposed target mask, not preview authority or a
+promise of future administrator scope8. An explicit mask remains subject to the
+actual current signing path at each later review/signature/application stage.
+Not_after defaults to the earliest now+7d/all finite ancestors; API requires
+fixed values. The possession-only preview's scopes0 does not make the requested
+mask0 and does not authorize any ordinary provider work.
 An unadmitted new original person first supplies a typed possession-only owner
 offer from its own machine: reviewed psi2 descriptor/context/label/person pins,
 root_state_id and person_lease_id `"-"`, issuer IDs empty. Its preview provider

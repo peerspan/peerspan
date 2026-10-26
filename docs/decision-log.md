@@ -1096,6 +1096,19 @@ requiring admin8 merely to finish an owner's own bounded approval, letting
 owner preapproval stand in for an actual administrator, widened terms or an
 alternate signer on resume, and any implicit requester final consent.
 
+## Coordinator-free new-person requested-scope default (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: the CLI proposes
+scopes7 for an unadmitted new original person. Its possession-only preview still
+truthfully reports scopes0, and later finalization must use the exact approved
+mask under its actual current path. Existing admitted owners keep the default15
+capped by their actual path; explicit administrator scope8 requires its actual
+grant. This gives the new-person flow a usable bounded default without treating
+someone else's administrator approval as the new owner's own admin authority.
+Discarded: default0 inferred from possession-only metadata, nominal default15
+that assumes a future admin grant, silently widening a reviewed mask after P/H
+arrives, and using possession consent as a normal selected signing provider.
+
 ## Coordinator-free durable ceremony consent (2026-10-26)
 
 Selected within the owner's DEC-01 through DEC-07 delegation: persist approved
