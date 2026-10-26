@@ -469,9 +469,15 @@ same independently verified actual current root. That `"-"` intent cannot
 substitute for a final root, alter the reviewed descriptor/person or let later
 signing choose another authority branch. Existing-person and migration offers
 must name their exact eligible current/staged root. Ancestor statement IDs are the complete sorted unique
-transitive closure required for those grants; `proof_ids` pins the exact original
+transitive dependency closure required for the issued D, including root states,
+P/H/B, issuer ancestors and required predecessor/retention provenance. Exclude
+the issued D itself: device_lease_id names it separately. `proof_ids` pins the exact original
 proof bodies presented for this intent, including every signature. Missing
 required bodies are `proof_required`, never inferred from names or receipts.
+It includes the exact D body and required ancestor/consent provenance, but not
+the containing activation or its current outcome: those cannot be inputs to
+their own signed manifest. Earlier complete activation/migration provenance
+needed by an ancestor retains its exact original proof.
 If authority heads changed during the ceremony, every old ancestor must have
 the authority contract's exact signed retention through each intervening
 replacement; original deadlines/scopes/restrictions still apply. A local claim

@@ -133,7 +133,8 @@ This carrier is not a peer API and must never be exposed as one.
 {format:1,context_id,catalog_base64,
  admitted_statement_ids:[DS,...],admitted_restriction_ids:[DS,...],
  admitted_activation_ids:[DA,...],root_head_ids:[DS,...],
- maxima:[{stream:[COMPONENT,...],sequence:U64,statement_ids:[DS,...]}],
+ maxima:[{stream:[COMPONENT,...],sequence:U64,statement_ids:[DS,...],
+          head_ids:[DS,...]}],
  migration_proposal_id,clock_guard}
 ```
 
@@ -152,7 +153,13 @@ sort `maxima` by tuple. A maximum is positiveu64 for every ordinary lease/access
 stream; **only `["root"]` permits0**, and its `sequence` field represents the
 retained root epoch. A non-absent prior with an admitted/pinned root has exactly
 one root maximum row, including genesis0 and max-u64. `statement_ids` identifies
-the admitted exact statements at that maximum. A migration-inherited floor can
+the admitted exact statements at that maximum. Separate head_ids preserves ALL
+independently admitted incomparable maximal heads, including a lower-sequence
+fork, even when a remembered access body is missing. Root head_ids is identical
+to root_head_ids. Both arrays are sorted/distinct; they are not inferred from
+one another. Every head belongs to the stated stream and admitted prior history;
+present bodies must agree with the retained metadata. An inherited floor with
+no admitted new-context head has head_ids empty. A migration-inherited floor can
 have no new-context statement ID; its complete migration must authenticate the
 exact legacy floor. Such metadata never supplies an active body or fresh owner
 signature. A missing remembered root body cannot erase its root epoch maximum,
@@ -166,7 +173,7 @@ make a previously admitted object inactive without erasing its admitted
 history/head/maximum.
 
 An exact prior access-body absence is an explicit unavailable-domain state.
-The trusted prior maximum/statement-ID metadata can preserve that known policy
+The trusted prior maximum/statement-ID/head-ID metadata can preserve that known policy
 or group head/floor while the body is missing, but supplies **no** active body,
 current issuer path or signature. Preserve the maximum and known IDs, report
 that stream inactive with `proof_required` and its derivable exact missing
@@ -299,6 +306,41 @@ missing IDs in that stream while independently valid restrictive additions in
 other domains can proceed. Valid admitted forks return domain conflicts; they
 are not malformed objects.
 
+For this pure PROJECTION operation, a structurally and cryptographically valid
+unadmitted candidate whose complete closure proves it has no current admission
+power is inert evidence. Return success with its semantic ID in
+inert_statement_ids; it does not enter admitted IDs, heads, maxima or sticky
+restrictions. This includes an ordinary grant/deny from a retired root or a
+currently wrong-scope issuer. Apply the exact current and portable-retention
+rules before making that determination. A missing closure is proof_required,
+not permission to guess that the issuer is unauthorized. Malformed/forged
+evidence is invalid. Previously admitted heads/restrictions retain their
+contracted provenance even after their old issuer loses authority; mere current
+inactivity does not reclassify them as unadmitted. Root-transition equivocation
+has its separate explicit fork rule and is not an ordinary retired-root grant.
+
+Unadmitted ordinary statements retained in the evaluated union are reported
+once by semantic ID, irrespective of proof aliases. Recognizing them as inert
+is not publication, local signing, owner adoption or a successful ACTION; an
+action requiring that denied authority returns its actual denial code. Cold
+inspection still requires its independently pinned valid genesis/migrated
+origin. No candidate-only admission marker or metadata is a trusted prior.
+
+In particular, an independently valid root may admit an ordinary P/H/admin
+candidate, but that newly supplied P/admin does not become a pre-pass issuer
+for an unrelated policy/grant in the SAME projection. That dependent candidate
+is inert for this pass. A later operation with legitimately committed next_prior
+may evaluate it under the then-current authority. Do not run an intra-batch
+grant-as-issuer fixed point or invent prior acceptance. The explicit local
+genesis, same-operation complete activation/migration and portable-retention
+exceptions retain their exact separate consent/provenance rules.
+
+Selected: inert complete unauthorized candidates in an untrusted state union,
+with explicit action denials and separately admitted prior authority. This lets
+unrelated valid restrictive updates progress. Discarded: rejecting an otherwise
+complete projection solely for such an inert candidate, admitting its maxima,
+and silently using a new batch grant as another fresh action's issuer.
+
 Success is exactly:
 
 ```text
@@ -333,6 +375,11 @@ maximum (including0/MAX) even if its selected body is missing; its unavailable a
 cannot be bypassed by a dependent stream. This row schema is an observation,
 not permission to ignore missing root/consent provenance.
 
+A remembered pair of incomparable head_ids remains a fork even if one access
+body is missing. Preserve every head and the numeric maximum, select none and
+report state_conflict; missing bytes cannot collapse it to a unique lower head.
+An operation requiring those missing exact bodies still returns proof_required.
+
 `next_prior` contains the exact retained union and updated admitted metadata,
 not normalized signed bytes. It preserves previously admitted maxima even when
 inactive and never admits candidate-only claims of prior acceptance. In a read
@@ -349,7 +396,25 @@ the actual runtime must perform its own coherent transaction/consent checks.
  action_kind,unsigned_payload_base64}
 ```
 
-Actor IDs use `"-"` only where the registered typed role permits. The unsigned
+Actor models the pure issuer identity, not local key ownership or a target-host
+cosigner. Its exact mappings are:
+
+- Original person: person_public_key is that original key; host_public_key,
+  device_public_key and issuer_id are `"-"`. Independently resolve its current
+  P admission and the typed payload's exact required parent references.
+- Device: person_public_key, host_public_key and device_public_key match the
+  exact currently activated issuer D; issuer_id is that D's ds_.
+- Root: all three actor key fields are `"-"`; issuer_id is the exact current
+  root_state ds_. For the explicit root-resolution check only, it can instead
+  name one retained disputed branch: the proposed resolution must cover ALL
+  known root heads, and this check permits only that branch's typed cosignature.
+  No branch becomes current, and all other branch/new-root signatures remain
+  mandatory before final application.
+
+Reject superfluous actor identity claims. Target keys/host consent are checked
+through the typed payload and final signature roles, not inferred from actor.
+Runtime selected-provider/own-host binding and private-key checks remain
+additional. The unsigned
 payload is the exact fixed intent for that action kind from the authority or
 runtime contract. This is not arbitrary signing. Check current exact heads,
 every ancestor/retention, target/role/scope, lifetime ceiling, restrictions,
@@ -367,7 +432,23 @@ Success is exactly:
 This operation does not admit its unsigned payload, change a stream head,
 reserve an edit/sequence, or produce a signed object/catalog. Signed verification
 remains mandatory after the real provider signs. Unknown action kinds are
-`invalid`. The action registry and actor roles must be pinned before its cases.
+`invalid`.
+
+The registry is exactly the ordinary runtime action kinds: admin/person/host/
+binding lease, policy, group, admin_withdraw, person_remove, host_revoke,
+host_unbind, device_revoke and root_state transition/resolution. Device issuance
+and migration have their dedicated complete protocols, not ordinary actions.
+Response issuer_id preserves the exact mapping above. required_parent_ids is
+sorted unique root_state_id plus declared parents[].id for an ordinary payload;
+for a root transition/resolution it is the direct predecessor root IDs (all
+known heads for a resolution). This field lists direct authority references,
+not transitive proof closure, target-stream predecessor history or edit rows;
+every required dependency still verifies before success.
+
+Selected: a fixed issuer-only actor and direct-reference result, keeping the
+pure authority check separate from runtime key custody and target consent.
+Discarded: accepting unused actor claims or interpreting the public provider
+view's original-person lease_id as a different pure actor selector.
 
 ### Complete activation
 
@@ -412,6 +493,14 @@ match exactly or the call fails. It does not assert that keys are locally owned
 or consent was newly obtained. Exact original proof aliases are compared by
 required/excluded IDs and source bytes; no minimal closure or preferred alias
 is inferred unless the main contract requires it.
+
+Both required arrays are sorted/distinct and include the issued D plus every
+required ancestor statement, and all manifest-pinned proof IDs, respectively.
+Additional verified supplied aliases/dependencies are permitted; every returned
+ID must correspond to exact verified source bytes. The activation argument can
+itself supply its dp_ for this verifier observation. That does not add it to
+its own signed manifest. Current outcome/helper/event/private IDs are never
+authority dependencies and cannot be fabricated into either array.
 
 ### Complete migration
 
