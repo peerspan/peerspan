@@ -285,7 +285,19 @@ both by root (`issuer`) and target (`host`); its operation ID is the proposal
 statement ID and it activates only with the complete migration. Host consent
 here does not fabricate person/device ownership.
 
-All per-host preparation uses current original-person approval. A prior
+For an unbound host, the root first fixes its issuer signature on the exact
+proposal-bound host_lease template. Its ready host-role signing request can
+carry that public partial template to the target's owner-local
+`migration/host-lease` route. The target separately reviews the exact root,
+member and finite interval, durably approves its sole host-role template, then
+signs ONLY with its actual owned host key. The completed two-signature body
+returns through ordinary migration evidence. The partial template never enters
+a public catalog; no original/device/root signer is invented for the unbound
+host. This is not acknowledgment and creates no fence or active membership.
+
+All owned-host preparation uses current original-person approval. An unbound
+host instead supplies only its separately reviewed actual host consent above;
+it has no person/device to approve. A prior
 delegated legacy signature can identify history but cannot substitute for it.
 Prepared policies/groups have the exact new wrappers and new finite parents,
 and only their ordinary original-owner/root issuer. Staging verifies those
@@ -317,6 +329,19 @@ full prepared catalog and known restrictions at its final transaction boundary.
 Persist the fence, approved intent, exact acknowledgment and immutable prepared
 bytes before publication. One proposal has one prepared-catalog hash; a changed
 catalog needs a fresh proposal and fresh reviews, not an inherited signature.
+
+The private acknowledgment selector pins actual possession, not active staged
+authority. An unbound host uses its own host-only migration intent; an owned
+host uses its exact prepared device-lease selector plus actual owned host key.
+Both require the full prepared catalog, exact source/proposal/own identity
+approval and actual owned host key. The unbound host requires its exact completed
+issuer+host signed host lease; it has no device or activation. ONLY an owned
+host additionally requires its complete prepared activation and actual retained
+device seed. A newly generated device seed
+stays in its unique approved identity-intent home until whole adoption. No
+ordinary selected provider, device administration or arbitrary signing power
+arises from this narrow use. Neither a remote roster assertion nor an already
+signed host-membership lease supplies acknowledgment consent.
 
 Acknowledgment explicitly approves eventual exact adoption. It is not a generic
 sign endpoint or a substitute for either requester bootstrap confirmation.
@@ -459,3 +484,18 @@ stays forbidden without its independent role. Ordinary nonmigration original7
 still cannot issue15; an old7→15 increase, changed key/host/profile, missing
 private contribution or unapproved proposal refuses without replacement or
 staged consent. These are separate controls, not an ordinary scope relaxation.
+
+For unbound host preparation, require a valid already fixed root issuer role,
+exact actual own unbound tuple and approved proposal/source; preview is pure.
+Approval, host signature and completed prepared-body publication have distinct
+durable boundaries. The completed body round-trips through public evidence;
+partial templates do not enter catalogs. Wrong target/member/root/context,
+bound host, ordinary operation, altered interval or duplicate/extra role refuses
+without signing/fencing/adoption. Same-template restart returns exact bytes;
+changed approved template conflicts. A missing/wrong actual host key or completed
+host lease prevents acknowledgment; an owned host additionally requires its
+actual matching device seed and prepared activation, without installing a provider.
+Verify distinct host-only and bound host+device acknowledgment templates,
+fixed prepared hash, no external owned-key slots, no copied key and no implicit
+acknowledgment from the earlier membership approval. Ordinary host/provider
+actions still reject these private migration selectors.

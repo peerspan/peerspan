@@ -453,10 +453,12 @@ Never store requester in dec_signers or accept it for another intent kind.
 Requester intent secret is SQL NULL. Only actual owned host/device keys fill
 their fixed roles; these intents expose no external or arbitrary-message slots.
 
-The private `host` selector is allowed ONLY for `migration_identity`. It is
-exactly this store's host key, ed25519 and lease_id `-`. This intent has NO
-signature templates or signature slots; the selector grants no signing power
-and is forbidden in dec_signers and all other intent kinds. It records only the
+The private `host` selector is exactly this store's host key, ed25519 and
+lease_id `-`. It is forbidden in dec_signers. It is allowed ONLY for the
+nonsigning migration_identity below and the two narrow migration signing uses
+specified after it; it is never an ordinary network signing provider.
+The migration_identity intent has NO signature templates or signature slots
+and grants no signing power. It records only the
 owner-approved local roster contribution before a signed proposal exists.
 Its network_id is the exact existing legacy network; context_id, operation_id
 and root_state_id stay `-`, never a fabricated future proposal/root. Its
@@ -497,6 +499,42 @@ the pending copy and marks this identity intent terminal applied; this grants
 no expired positive authority. Preserve the unresolved approved intent/key if
 any step fails. This is a new typed use of existing schema23 dec_intents;
 there is no DDL change or fake dec_migrations row before a real proposal ds_.
+
+For kind migration, the host selector permits exactly ONE template, either:
+
+- The approved proposal's own UNBOUND host_lease, imported through the runtime's
+  host-lease route with its exact valid root issuer signature already fixed and
+  only the actual local host role unfilled. Its operation_id is that proposal
+  ds_, not an ordinary action. Sign only that host role; never the issuer role.
+- The own UNBOUND migration_ack, with exactly the actual owned host signature
+  and that proposal's complete fixed prepared-catalog hash. It cannot share an
+  intent/template set with the earlier host lease or supply a fence implicitly.
+
+Both require the exact locally approved proposal/source/own roster and unique
+approved migration_identity contribution, with person/device `-` and scopes0.
+The host-lease intent has operation_id equal to the proposal ID and pins its
+exact root/context and typed host-membership review. At most one approved such
+intent exists per proposal/local host; locate it by those exact pins and its
+sole host_lease template, never by a mutable latest-intent rule. The separate
+ack intent remains referenced by local_ack_intent_id. Both have secret NULL,
+only locally owned host signature entries and no external signing slots.
+
+An OWNED migration_ack instead uses kind migration and the private device
+selector: exact staged device public key, ed25519 and lease_id equal to its
+exact prepared device_lease ds_. Its sole template is that acknowledgment;
+the owned host additionally fills its host role. Validate the complete prepared
+activation, exact approved proposal/source/roster and own migration_identity
+before every signature. Resolve the actual matching owned device seed, including
+its unique approved identity-intent home when newly generated; do not copy it
+into this intent. This selector pins staged contribution/possession ONLY. It
+does not require or create ordinary active device authority, dec_signers,
+issuer power, a selected provider, or any other signature. Secret stays NULL.
+Missing/mismatching seed or prepared proof refuses, never chooses another key.
+
+Approval, signature, acknowledgment-fence and publication durability rules
+remain distinct. A partial host lease is an exact typed template in an approved
+private migration intent, never an incomplete object in a public catalog.
+Only its fully verified issuer+host signed body enters prepared evidence.
 
 result_base64 is `-` except an applied create, action or root_transition intent,
 where it is canonical Base64 of that exact original successful runtime response

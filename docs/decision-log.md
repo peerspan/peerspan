@@ -1141,6 +1141,30 @@ exact evidence is proof_required. Discarded: treating every restrictive catalog
 object as active, forgetting admitted bans after a withdrawal, and conflating a
 complete invalid prepared choice with a missing proof.
 
+## Coordinator-free migration possession selectors (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: use the existing
+private host selector only for an exact owned unbound proposal-bound membership
+signature and its separate exact acknowledgment. The first uses a dedicated
+owner-local typed partial-host-lease handoff: the real root issuer signature is
+fixed first, then the actual target host reviews and signs its own role. Only
+the complete body enters public prepared evidence. The later acknowledgment
+requires a different approval and the complete fixed prepared hash; it alone
+fences the legacy network. Owned acknowledgments pin their exact prepared device
+lease and actual retained device seed, plus their actual host signature. These
+private possession selectors create no ordinary provider/issuer authority.
+
+This makes unbound migration possible without inventing a person/device or
+using the root as another host's consent. It also avoids requiring an already
+active new context merely to approve that context's migration. Discarded:
+arbitrary host signing, a generic unsigned-object catalog/import route, mixing
+partial signatures into public catalogs, copying host/device/original keys,
+reusing membership approval as acknowledgment, manufacturing current provider
+authority for staged keys, and new schema/tables for these bounded typed intents.
+The dedicated route adds one explicit reviewed local step; all-known-host/root
+consent, original-person approvals, fixed finite ceilings and final adoption
+checks remain mandatory.
+
 ## Coordinator-free known-source serialization compatibility (2026-10-26)
 
 Selected within the owner's DEC-01 through DEC-07 delegation: compare strictly

@@ -951,6 +951,7 @@ fence with no timeout abort. No secret/root seed appears in these responses.
 | POST /v2/networks/{id}/migration/identity | `{scopes,approve}` |200 `{migration,identity,review,signing_requests}`; identity is this host's exact proposal roster entry |
 | POST /v2/networks/{id}/migration/prepare | `{roster,signature_format,approve}` |200 review wrapper, current legacy-root proposal/initial-root ready slots |
 | POST /v2/networks/{id}/migration/review | `{proposal_id,approve}` |200 review wrapper for exact source/proposal/roster/new context |
+| POST /v2/networks/{id}/migration/host-lease | `{proposal_id,host_lease_base64,approve}` |200 exact host-membership preparation wrapper below; own unbound host only |
 | POST /v2/networks/{id}/migration/link | `{proposal_id}` |201 flat LINK_VIEW plus display_code for this explicit local staged requester creation; exact retry200 |
 | POST /v2/networks/{id}/migration/evidence | `{proposal,source_catalog_base64,source_state_base64,catalog,acknowledgments,commit}` |200 review wrapper; exact same evidence fields as peer exchange, proposal required, commit `"-"` or exact statement |
 | POST /v2/networks/{id}/migration/acknowledgment | `{proposal_id,prepared_catalog_sha256,approve}` |200 review wrapper, exact own host/device ack after complete prepared review |
@@ -1025,6 +1026,70 @@ booleans describe proposal participation, not the separate identity approval.
 Prepare requires the exact complete known roster and source/current root;
 changed/omitted known facts block it. Review approves staged participation only;
 it does not yet sign an acknowledgment or adopt the new context.
+
+### Exact unbound host-membership handoff
+
+An unbound roster host needs its own signature on the root-issued finite host
+lease before the prepared catalog can be fixed. This uses the owner-local
+host-lease route above, at most2MiB whole request with at most1MiB decoded exact
+template bytes. The template is the exact proposed host_lease envelope with
+the valid current legacy-root issuer signature already fixed and only its
+declared raw local host signature `"-"`. It is not a public catalog object yet.
+The proposer exposes that exact template through the existing ready host-role
+SIGNING_REQUEST ONLY after its issuer signature is durably fixed. A public file
+can carry those template bytes to the target's own administration socket;
+there is no remote arbitrary-signing route or daemon-key export.
+
+The target verifies its actual owned host key, approved proposal/source,
+unique approved own identity contribution, exact unbound roster member and
+the inert initial root. Require operation_id equal to this proposal ds_,
+sequence1, no predecessors/resolves/retained IDs, root issuer, no finite parents,
+person/device `"-"`, scopes0, exact target/member, and the ordinary finite
+interval/7-day ceiling. Recheck source/root/restrictions, guarded NOW and the
+proposal signing window before each new signature. Its issued_at must be within
+the proposal's inclusive issued_at..expires_at range; at the target's signature
+decision the host lease must already be within its valid finite interval and
+unexpired. The target signs strictly before proposal expiry, as required for
+all incomplete preparation. A bound or foreign host,
+ordinary operation, changed root/proposal/tuple, alternate issuer or extra
+signature role is refused; possession of the host key alone is insufficient.
+
+Response is exactly `{migration,host_lease_base64,review,signing_requests}`.
+Host_lease_base64 returns the exact supplied partial template until completed,
+then the exact fully signed body. Review is exactly:
+
+```text
+{stage:"host_membership",network_id,proposal_id,host_public_key,member,
+ root_state_id,host_lease_id,issued_at,not_before,not_after,authority_warning}
+```
+
+It discloses the exact finite membership and that no person/device ownership,
+acknowledgment/fence or active authority follows. Preview writes/signs nothing.
+Explicit approval first durably fixes the exact typed review/template/intent;
+only a later transaction may sign its actual owned host role and persist the
+fully verified body in prepared evidence. Signing_requests is empty: the target
+never offers this owned key as an external slot. All signatures and the original
+issuer bytes remain exact. Repeated same-template requests return the same
+intent/body; resume advances only that fixed approved intent and completed
+evidence, without another consent or template. A changed template after
+approval is409 operation_conflict.
+GET migration evidence exports the completed body through its existing partial
+prepared catalog; the proposer imports it through the same evidence route.
+Never insert partial signatures into a public catalog, regenerate a lease on
+retry, or claim the shared prepared hash before all components are complete.
+
+No fence, acknowledgment, active context/provider, ordinary activation/outcome
+or authority event is created by this preparation. The separate acknowledgment
+approval still pins the full prepared catalog and uses the storage contract's
+own host-only or exact staged-device selector. Both recheck the full prepared
+catalog, own review/actual host key and final guarded source/restrictions. An
+unbound host requires its exact complete issuer+host signed host lease and has
+no activation/device; ONLY an owned host additionally requires its complete
+prepared activation and actual matching device seed. The exact acknowledgment
+and fence are durable before publication. Neither selector grants a reusable signer.
+
+### Owned staged bootstrap and whole-migration completion
+
 Staged original-owner preparation applies only the migration contract's narrow
 exact preexisting-device-profile cutover cap: conditional nominal8 may be
 preserved without minting an admin role. Ordinary owner preparation, no-prior-
@@ -1087,10 +1152,11 @@ operation_conflict. It allows an approved offline participant to obtain the
 already complete transition, not to bypass current DEC action/repair gates.
 The ordinary local adoption checks/retained restrictions still apply afterward.
 
-Commands are `network migrate identity|prepare|review|link|ack|commit|resume|status
+Commands are `network migrate identity|prepare|review|host-lease|link|ack|commit|resume|status
 NETWORK_ID`, with --proposal, --prepared-catalog, exact --roster-file and
 --approve mapping to these fields. File/stdin evidence uses the same strict
-route shape. Missing original key/host/proof displays exact next action and
+route shape. Host-lease uses --host-lease-file for the exact partial statement,
+prints the typed host-membership review and defaults to no approval. Missing original key/host/proof displays exact next action and
 preserves identities/fence; coordinated abort is unavailable, not an invented
 force/reset/delete flag. This command family is migration-only, not a second
 new-network lifecycle.
