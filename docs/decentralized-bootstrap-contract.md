@@ -242,11 +242,33 @@ routes, including over a replacement explicitly configured relay. Recovery
 uses original signed evidence and current final transaction checks; it creates
 no new consent, keys, signatures, timestamps, helper lifetime or activation.
 An already applied historical local GET/exact application retry stays read-only
-and performs no remote request. Explicit delivery resume/background publication
-may still send that operation's exact retained complete public evidence to an
-actual participant without changing the original local result or authority.
-A pending participant may explicitly resume GET/POST recovery; publication/
-retry remains bounded and never implies global commit.
+and performs no remote request. In contrast, an explicit owner-local
+POST `/v2/link/requests/{request_id}/resume` of a locally applied operation MUST
+attempt publication of its exact retained complete activation/catalog to every
+other original transcript participant, even if earlier delivery was acknowledged.
+Use the existing complete POST route, current same-host transport hints and
+explicitly selected optional resources, with the SAME immutable participant pin
+and one overall30s bound across all targets. Absence of a known usable path
+produces transport attention; no successful delivery may be inferred.
+Unavailable/refusing paths return the original linked result with actual
+transport attention, rather than undoing the local result. On the already
+applied sender, the attempt generates no keys, signatures, consent, new signed
+or protocol timestamps, applied_at or ciphertext; cannot revive an erased secret;
+and changes no authority, guard, provider, authority event or local outcome.
+Bounded delivery scheduling/retry/error observations are allowed under storage
+section9, including a needed delivery's created_at/next_attempt_at. They cannot
+change original signed bytes or create another network.link_applied event.
+A remote acknowledgment is not required to
+preserve that completed local adoption; observed delivery still requires the
+existing verified participant outcome. Background publication MAY
+also retry the same exact public evidence. A pending participant may explicitly
+resume GET/POST recovery; publication/retry never implies global commit.
+
+Selected: explicit existing resume is the bounded delivery-repair action after
+helper replacement, while local historical reads/retries remain pure. Discarded:
+a new forced-transport route/receipt, optional background timing as a required
+verification oracle, retransmission of erased ciphertext or authority rollback
+when every carrier is unavailable.
 
 Selected: an isolated completion-only QUIC ALPN over the existing host transport
 and opaque relay wire, with actual participant authentication and bounded

@@ -665,7 +665,16 @@ no context adoption or requester consent.
 intents, verified incoming evidence, exact publication retries and application.
 It never selects an offer/commits for a requester. Return200 flat LINK_VIEW;
 explicit still-pending local resume alone additionally has display_code. Terminal
-resume has no code. Background and explicit polling share successful-poll
+resume has no code. For an already locally applied operation, explicit resume
+MUST attempt the bootstrap contract's exact complete public POST publication to
+all other original transcript participants within one overall30s bound, even
+when earlier delivery was acknowledged. It returns the same linked result plus
+actual transport attention if unreachable/refused; it creates no new consent,
+sender signature, key, secret, guard/provider/authority-event/outcome change.
+Bounded transport scheduling/error observations retain storage section9's rules;
+signed/protocol timestamps and applied_at remain exact. Owner-local GET and
+exact application/commit retries remain historical pure reads without I/O.
+Background and explicit polling share successful-poll
 state/budget: reuse a successful exact host+locator read for2s only while the
 clock has not rewound and code fingerprint/actual transport pins still match.
 Still revalidate current intent/authority and process already durable frames.
@@ -1258,6 +1267,11 @@ The independent author derives runtime cases after this contract is pinned:
   complete helper outage, explicit migration and cross-language state reopening.
   Live separate-machine work requires checked output/withdrawal, separately
   from deterministic fixture readiness.
+- Explicit already-applied resume triggers actual bounded exact complete POST
+  through replacement configured resources despite prior acknowledgment. All
+  authority/guard/provider/event/outcome/private-key hashes remain unchanged;
+  erased secrets/ciphertexts stay erased, unreachable resources produce linked
+  plus transport attention, and local GET/exact commit retries perform no I/O.
 - Completion-only QUIC through a selected opaque relay with no direct TCP path:
   exact participant GET/POST recovery after requester apply/secret retirement,
   mailbox erasure/expiry and helper replacement; same original operation,
