@@ -47,6 +47,11 @@ const (
 	callCancelRequested   = "cancel_requested"
 	callDeadline          = "deadline"
 	callLapsed            = "authorization lapsed before start"
+	// Remote server outcomes (slice 3).
+	callAuthRequired      = "auth_required"
+	callInsufficientScope = "insufficient_scope"
+	callHTTPError         = "http_error"
+	callConnectionLost    = "connection_lost"
 )
 
 const (
@@ -416,6 +421,9 @@ func (s *Store) resolveCallTarget(ctx context.Context, q dbQuerier, r CallReques
 			return instanceTarget{}, err
 		}
 		rec, err := readToolServer(ctx, q, agentID, server)
+		if err == nil && deref(rec.Reason) == reasonLogin {
+			return instanceTarget{}, errAuthLapsed
+		}
 		if errors.Is(err, ErrNotFound) || (err == nil && (!rec.Shareable || rec.SnapshotAt == nil)) {
 			return instanceTarget{}, fmt.Errorf("%w: no source %s", ErrNotFound, r.Capability)
 		}
@@ -448,6 +456,9 @@ func (s *Store) resolveCallTarget(ctx context.Context, q dbQuerier, r CallReques
 	_, unavailable, snap, err := capabilityState(ctx, q, c)
 	if err != nil {
 		return instanceTarget{}, err
+	}
+	if contains(unavailable, unavailableAuth) {
+		return instanceTarget{}, errAuthLapsed
 	}
 	// Only an unavailable operation, or a gone source, refuses the call.
 	if contains(unavailable, unavailableSource) || contains(unavailable, r.Operation) {

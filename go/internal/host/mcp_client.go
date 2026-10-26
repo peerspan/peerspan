@@ -45,6 +45,8 @@ type rpcResponse struct {
 	Error  *rpcError
 	// Size is the encoded size of the result or error object.
 	Size int
+	// Fail is set when a remote exchange ended without a response.
+	Fail *transportFailure
 }
 
 // launchSpec is how to start one source or capability instance.
@@ -56,6 +58,8 @@ type launchSpec struct {
 	LogPath string
 	// ghPath is the gh executable of a built-in gh source's instance.
 	ghPath string
+	// Remote is set for a remote server's instance.
+	Remote *remoteSpec
 }
 
 // mcpProcess is one running server.
@@ -390,6 +394,11 @@ type toolSnapshot struct {
 	Tools     []SnapshotTool
 	Resources []SnapshotResource
 	Reach     *GHReach
+	// authMode is what a remote source's probe learned, with its
+	// challenge; skip means no snapshot was taken, and none failed.
+	authMode  string
+	challenge *authChallenge
+	skip      bool
 }
 
 const (
@@ -401,21 +410,45 @@ const (
 
 // takeSnapshot starts the server, lists its tools and resources, following
 // cursors up to 1,000 entries each, and stops it, all within 30 seconds.
-func takeSnapshot(ctx context.Context, spec launchSpec) (toolSnapshot, error) {
+func (s *Store) takeSnapshot(ctx context.Context, spec launchSpec) (toolSnapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
 	defer cancel()
-	p, err := startMCP(spec)
-	if err != nil {
-		return toolSnapshot{}, err
+	var p mcpConn
+	snap := toolSnapshot{Tools: []SnapshotTool{}, Resources: []SnapshotResource{}}
+	if spec.Remote != nil {
+		usable, err := s.remoteSnapshotCredential(ctx, &spec)
+		if err != nil {
+			return toolSnapshot{}, err
+		}
+		if !usable {
+			// A capability's own sign-in that cannot be used: no snapshot.
+			return toolSnapshot{skip: true}, nil
+		}
+		c, err := newHTTPConn(s, spec)
+		if err != nil {
+			return toolSnapshot{}, err
+		}
+		p = c
+	} else {
+		proc, err := startMCP(spec)
+		if err != nil {
+			return toolSnapshot{}, err
+		}
+		stopOnDone := context.AfterFunc(ctx, func() { _ = proc.stdin.Close() })
+		defer stopOnDone()
+		p = proc
 	}
 	defer p.stop()
-	stopOnDone := context.AfterFunc(ctx, func() { _ = p.stdin.Close() })
-	defer stopOnDone()
 	capabilities, err := p.initialize(ctx)
+	if spec.Remote != nil {
+		var done bool
+		if snap, done, err = remoteProbe(spec, snap, err); done {
+			return snap, err
+		}
+	}
 	if err != nil {
 		return toolSnapshot{}, timeoutError(ctx, err)
 	}
-	snap := toolSnapshot{Tools: []SnapshotTool{}, Resources: []SnapshotResource{}}
 	if _, ok := capabilities["tools"]; ok {
 		err = listPages(ctx, p, "tools/list", "tools", func(raw json.RawMessage) error {
 			var t struct {
@@ -478,7 +511,7 @@ func timeoutError(ctx context.Context, err error) error {
 
 // listPages calls a list method, following nextCursor, until there is no
 // cursor or 1,000 entries were read.
-func listPages(ctx context.Context, p *mcpProcess, method, field string, add func(json.RawMessage) error, count func() int) error {
+func listPages(ctx context.Context, p mcpConn, method, field string, add func(json.RawMessage) error, count func() int) error {
 	var cursor *string
 	for pages := 0; pages < snapshotMaxItems+1; pages++ {
 		params := map[string]any{}

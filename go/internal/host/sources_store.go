@@ -64,6 +64,10 @@ type ToolServerDefinition struct {
 	Source    string             `json:"source"`
 	// Disabled marks a definition disabled in its harness.
 	Disabled bool `json:"disabled,omitempty"`
+	// Remote and Headers describe a remote server (slice 3): null and
+	// empty for stdio.
+	Remote  *RemoteDefinition  `json:"remote"`
+	Headers map[string]ToolEnv `json:"headers"`
 }
 
 // PutToolServers is PUT /v1/agents/{agent_id}/tool-servers: the agent's
@@ -104,6 +108,9 @@ func (r *PutToolServers) UnmarshalJSON(data []byte) error {
 				}
 				continue
 			}
+			if field == "remote" || field == "headers" {
+				continue
+			}
 			if !slices.Contains(required, field) {
 				return fmt.Errorf("%w: unknown server definition field %q", ErrInvalid, field)
 			}
@@ -136,6 +143,9 @@ func (r *PutToolServers) UnmarshalJSON(data []byte) error {
 				return fmt.Errorf("%w: invalid env entry %s", ErrInvalid, name)
 			}
 		}
+		if err := readRemoteFields(&d, fields); err != nil {
+			return err
+		}
 		r.Servers = append(r.Servers, d)
 	}
 	return nil
@@ -148,6 +158,10 @@ type toolServerRecord struct {
 	Shareable  bool     `json:"shareable"`
 	Reason     *string  `json:"reason"`
 	MissingEnv []string `json:"missing_env"`
+	// AuthMode is a remote source's auth mode (none, headers, or oauth),
+	// null until reached; Challenge its latest OAuth challenge.
+	AuthMode  *string        `json:"auth_mode"`
+	Challenge *authChallenge `json:"challenge"`
 	toolSnapshotState
 	// builtin is set for a built-in source read through readToolServer.
 	builtin *builtinRecord
@@ -165,6 +179,10 @@ type toolSnapshotState struct {
 	AuthErrorAt   *string `json:"auth_error_at"`
 	// Reach is a gh credential's reach, for built-in gh sources.
 	Reach *GHReach `json:"reach,omitempty"`
+	// InsufficientScopeAt and InsufficientScope record the latest 403
+	// insufficient_scope of a remote server, and the scope it asked for.
+	InsufficientScopeAt *string `json:"insufficient_scope_at,omitempty"`
+	InsufficientScope   *string `json:"insufficient_scope,omitempty"`
 }
 
 func (r toolServerRecord) MarshalJSON() ([]byte, error) {
@@ -177,6 +195,9 @@ func (r toolServerRecord) MarshalJSON() ([]byte, error) {
 	}
 	if r.MissingEnv == nil {
 		r.MissingEnv = []string{}
+	}
+	if r.Headers == nil {
+		r.Headers = map[string]ToolEnv{}
 	}
 	data, err := json.Marshal(struct {
 		plain
@@ -205,6 +226,9 @@ type SourceView struct {
 	StartFailedAt *string            `json:"start_failed_at"`
 	AuthErrorAt   *string            `json:"auth_error_at"`
 	Capabilities  []string           `json:"capabilities"`
+	Remote        *RemoteDefinition  `json:"remote"`
+	Headers       map[string]ToolEnv `json:"headers"`
+	Auth          *AuthView          `json:"auth"`
 }
 
 func emptySnapshot(st toolSnapshotState) toolSnapshotState {
@@ -221,7 +245,14 @@ func sourceView(r toolServerRecord) SourceView {
 	st := emptySnapshot(r.toolSnapshotState)
 	v := SourceView{Name: r.Name, Transport: r.Transport, Command: r.Command, Args: r.Args, Env: r.Env, URL: r.URL, Source: r.Source, Disabled: r.Disabled,
 		Shareable: r.Shareable, Reason: r.Reason, MissingEnv: r.MissingEnv, Tools: st.Tools, Resources: st.Resources, SnapshotAt: st.SnapshotAt,
-		SnapshotError: st.SnapshotError, StartFailedAt: st.StartFailedAt, AuthErrorAt: st.AuthErrorAt, Capabilities: []string{}}
+		SnapshotError: st.SnapshotError, StartFailedAt: st.StartFailedAt, AuthErrorAt: st.AuthErrorAt, Capabilities: []string{}, Remote: r.Remote, Headers: r.Headers}
+	if v.Headers == nil {
+		v.Headers = map[string]ToolEnv{}
+	}
+	if v.Transport == "remote" && v.Remote == nil {
+		// A remote record stored before slice 3 reads with the http default.
+		v.Remote = defaultRemote()
+	}
 	if v.Args == nil {
 		v.Args = []string{}
 	}
@@ -316,18 +347,41 @@ func shareability(d ToolServerDefinition, values map[string]string) (bool, *stri
 			}
 		}
 	}
+	remote := d.Transport == "remote"
+	urlMissing := false
+	if remote {
+		for _, h := range d.Headers {
+			if h.Source == "missing" {
+				for _, name := range h.Variables {
+					missing[name] = true
+				}
+			}
+		}
+		if d.URL != nil {
+			if _, ok := values["url"]; !ok {
+				for _, name := range referencedNames(*d.URL) {
+					missing[name] = true
+					urlMissing = true
+				}
+			}
+		}
+	}
 	names := sortedKeys(missing)
 	reason := ""
 	switch {
 	case !membership.ValidName(d.Name):
 		reason = reasonName
-	case d.Transport != "stdio":
-		reason = reasonRemote
 	case d.Disabled:
 		reason = reasonDisabled
+	case remote && !urlMissing && !secureURL(remoteURL(d, values)):
+		reason = reasonInsecureURL
+	case remote && d.remote().Protocol == "sse":
+		reason = reasonSSE
+	case remote && d.remote().HeadersHelper:
+		reason = reasonHeadersHelper
 	case len(names) > 0:
 		reason = reasonMissingEnv
-	case d.Command == nil || *d.Command == "":
+	case !remote && (d.Command == nil || *d.Command == ""):
 		reason = reasonMissingEnv
 	}
 	if reason == "" {
@@ -367,6 +421,9 @@ func validateToolServers(r PutToolServers) error {
 		if d.Transport != "stdio" && d.Transport != "remote" {
 			return fmt.Errorf("%w: a server's transport is stdio or remote", ErrInvalid)
 		}
+		if err := validateRemoteDefinition(d); err != nil {
+			return err
+		}
 		if len(d.Args) > 1000 {
 			return fmt.Errorf("%w: too many args", ErrInvalid)
 		}
@@ -387,6 +444,12 @@ func validateToolServers(r PutToolServers) error {
 		for field, value := range fields {
 			if len(value) > 65536 || strings.ContainsRune(value, 0) || !utf8.ValidString(value) {
 				return fmt.Errorf("%w: invalid value for %s %s", ErrInvalid, server, field)
+			}
+			if d.Transport == "remote" {
+				if err := validateRemoteValue(d, server, field); err != nil {
+					return err
+				}
+				continue
 			}
 			switch {
 			case field == "command":
@@ -468,12 +531,14 @@ func (s *Store) PutToolServers(ctx context.Context, agentID string, r PutToolSer
 		}{d, values})
 		return string(data)
 	}
+	oldValues := map[string]map[string]string{}
 	for _, o := range olds {
 		old[o.Name] = o
 		values, err := toolValues(ctx, tx, agentID, o.Name)
 		if err != nil {
 			return AgentSources{}, err
 		}
+		oldValues[o.Name] = values
 		changed[o.Name] = true
 		for _, d := range r.Servers {
 			if d.Name == o.Name && launchOf(d, nonNil(r.Values[d.Name])) == launchOf(o.ToolServerDefinition, values) {
@@ -486,6 +551,29 @@ func (s *Store) PutToolServers(ctx context.Context, agentID string, r PutToolSer
 		if _, err = tx.ExecContext(ctx, q, agentID); err != nil {
 			return AgentSources{}, err
 		}
+	}
+	// A dropped remote source, or one whose URL changed, loses its
+	// credentials; they are revoked once the transaction is stored.
+	var revoke []oauthCredential
+	kept := map[string]bool{}
+	for _, d := range r.Servers {
+		o, ok := old[d.Name]
+		if !ok || o.Transport != "remote" {
+			continue
+		}
+		if d.Transport == "remote" && canonicalURL(remoteURL(o.ToolServerDefinition, oldValues[d.Name])) == canonicalURL(remoteURL(d, r.Values[d.Name])) {
+			kept[d.Name] = true
+		}
+	}
+	for name, o := range old {
+		if o.Transport != "remote" || kept[name] {
+			continue
+		}
+		list, err := deleteCredentials(ctx, tx, agentID, name, nil)
+		if err != nil {
+			return AgentSources{}, err
+		}
+		revoke = append(revoke, list...)
 	}
 	for _, d := range r.Servers {
 		values := r.Values[d.Name]
@@ -500,6 +588,12 @@ func (s *Store) PutToolServers(ctx context.Context, agentID string, r PutToolSer
 		if o, ok := old[d.Name]; ok {
 			// The previous snapshot stays until a new one succeeds.
 			rec.toolSnapshotState = o.toolSnapshotState
+			if kept[d.Name] {
+				rec.AuthMode, rec.Challenge = o.AuthMode, o.Challenge
+			}
+		}
+		if err = applyLoginReason(ctx, tx, agentID, &rec, values); err != nil {
+			return AgentSources{}, err
 		}
 		if err = putJSON(ctx, tx, `INSERT INTO tool_servers (record, agent_id, name) VALUES (?, ?, ?)`, rec, agentID, d.Name); err != nil {
 			return AgentSources{}, err
@@ -516,6 +610,7 @@ func (s *Store) PutToolServers(ctx context.Context, agentID string, r PutToolSer
 	if err = tx.Commit(); err != nil {
 		return AgentSources{}, err
 	}
+	s.revokeInBackground(revoke)
 	// Instances started from an old definition take no new calls; those of
 	// unchanged sources keep running until their idle stop.
 	s.retireInstances(agentID, changed)
@@ -556,7 +651,8 @@ func (s *Store) snapshotAgent(ctx context.Context, agentID string) error {
 	}
 	var targets []snapshotTarget
 	for _, srv := range servers {
-		if !srv.Shareable {
+		// A remote source that needs a sign-in is probed again.
+		if !srv.Shareable && deref(srv.Reason) != reasonLogin {
 			continue
 		}
 		targets = append(targets, snapshotTarget{server: srv.Name})
@@ -575,7 +671,7 @@ func (s *Store) snapshotAgent(ctx context.Context, agentID string) error {
 			defer wg.Done()
 			spec, err := s.toolLaunch(ctx, s.db, agentID, t.server, t.own)
 			if err == nil {
-				snaps[i], err = takeSnapshot(context.WithoutCancel(ctx), spec)
+				snaps[i], err = s.takeSnapshot(context.WithoutCancel(ctx), spec)
 			}
 			if err == nil && spec.ghPath != "" {
 				reach := s.checkReach(context.WithoutCancel(ctx), spec, accounts[t.server])
@@ -608,6 +704,11 @@ func (s *Store) recordSnapshot(ctx context.Context, agentID string, t snapshotTa
 			state.SnapshotError = &message
 			return
 		}
+		if snap.skip {
+			// A source that needs a sign-in keeps its previous snapshot.
+			state.SnapshotError = nil
+			return
+		}
 		state.Tools, state.Resources, state.SnapshotAt, state.SnapshotError = snap.Tools, snap.Resources, &now, nil
 		if snap.Reach != nil {
 			state.Reach = snap.Reach
@@ -617,6 +718,23 @@ func (s *Store) recordSnapshot(ctx context.Context, agentID string, t snapshotTa
 		found, err := updateSourceState(ctx, tx, agentID, t.server, update)
 		if err != nil || !found {
 			return err
+		}
+		if snap.authMode != "" && agentID != builtinAgent {
+			rec, err := readToolServer(ctx, tx, agentID, t.server)
+			if err != nil {
+				return err
+			}
+			mode := snap.authMode
+			rec.AuthMode = &mode
+			if snap.challenge != nil {
+				rec.Challenge = snap.challenge
+			}
+			if err = putJSON(ctx, tx, `UPDATE tool_servers SET record = ? WHERE agent_id = ? AND name = ?`, rec, agentID, t.server); err != nil {
+				return err
+			}
+			if err = syncLoginReason(ctx, tx, agentID, t.server); err != nil {
+				return err
+			}
 		}
 		if failure != nil {
 			if err = appendEvent(ctx, tx, "sources.snapshot_failed", agentID+"/"+t.server, now); err != nil {
@@ -694,6 +812,7 @@ type ownCredential struct {
 	capability string
 	envFile    *string
 	args       []string
+	ownSignIn  bool
 }
 
 // toolLogPath is STATE/tool-logs/AGENT_ID/SERVER.log, or
@@ -726,6 +845,9 @@ func (s *Store) toolLaunch(ctx context.Context, q dbQuerier, agentID, server str
 		return launchSpec{}, err
 	}
 	spec := launchSpec{Dir: rec.Workspace, LogPath: s.toolLogPath(agentID, server, capability)}
+	if rec.Transport == "remote" {
+		return s.remoteLaunch(agentID, rec, values, own, spec)
+	}
 	if rec.Command != nil {
 		spec.Command = *rec.Command
 	}
@@ -830,6 +952,9 @@ func (s *Store) Sources(ctx context.Context, agentID string) ([]AgentSources, er
 				at.Workspace = &w
 			}
 			view := sourceView(srv)
+			if view.Auth, err = sourceAuth(ctx, s.db, a.ID, srv); err != nil {
+				return nil, err
+			}
 			for _, c := range capabilities {
 				if c.AgentID == a.ID && c.Source.Server == srv.Name {
 					view.Capabilities = append(view.Capabilities, c.Name)

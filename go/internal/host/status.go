@@ -41,6 +41,10 @@ type CapabilitiesStatus struct {
 	OpenTo       int64 `json:"open_to"`
 	// ApprovalsPending counts approvals in pending.
 	ApprovalsPending int64 `json:"approvals_pending"`
+	// RemoteSources counts remote sources; SignedIn the OAuth credentials
+	// that are not login_required.
+	RemoteSources int64 `json:"remote_sources"`
+	SignedIn      int64 `json:"signed_in"`
 }
 
 type NetworkStatus struct {

@@ -8,6 +8,7 @@ mod discovery;
 mod integration;
 mod link_cli;
 mod service;
+mod sign_in_cli;
 mod up;
 
 use anyhow::{Context, bail};

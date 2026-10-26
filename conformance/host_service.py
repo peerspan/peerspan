@@ -24,7 +24,7 @@ import time
 
 
 # The current database version (capabilities contract, Persistence).
-SCHEMA_VERSION = 21  # version 21: builtin_sources (capabilities contract, slice 3: resource bounds and the gh source)
+SCHEMA_VERSION = 22  # version 22: oauth_clients and oauth_credentials (capabilities contract, slice 3: remote MCP servers and OAuth)
 # Exact schema19 tables (machine linking), removed before modelling historical fixture state.
 LINKING_TABLES = ["link_signers", "link_highwater", "link_features", "link_objects",
                   "link_operations", "link_frames", "link_pending", "link_device_keys"]
@@ -41,6 +41,9 @@ AGENT_CALL_TABLES = ["adapter_calls", "call_update_notifications"]
 APPROVAL_TABLES = ["call_approvals", "approval_notices"]
 # Tables added by database version 21 (built-in sources, capabilities contract slice 3), dropped to model older state.
 BUILTIN_TABLES = ["builtin_sources"]
+# Tables added by database version 22 (remote MCP servers and OAuth, capabilities contract slice 3), dropped to
+# model older state.
+OAUTH_TABLES = ["oauth_clients", "oauth_credentials"]
 # Tables added by database version 12 (policy propagation), dropped to model older state.
 POLICY_DELIVERY_TABLES = ["policy_deliveries", "directory_sends"]
 # Tables added by database version 11 (delegation chains), dropped to model older state.
@@ -319,7 +322,7 @@ def check(binary, label):
             # Model an existing v1 installation, retaining its identity/registry.
             connection = sqlite3.connect(host.state / "host.db")
             try:
-                for table in [*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
+                for table in [*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES, "access_blocks", "network_statements", "adapter_connections", "adapter_outbound", "adapter_routes", "outbound_replies", "received_replies", "deliveries", "adapter_credentials",
                               "network_members", "networks",
                               "outbound_messages", "received_messages", "grants", "peers"]:
                     connection.execute("DROP TABLE " + table)

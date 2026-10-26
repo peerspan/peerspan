@@ -69,6 +69,9 @@ pub struct CapabilityRecord {
     /// `{}`, or `{"arguments": [COMBINATION, ...]}`.
     #[serde(default = "no_bounds")]
     pub bounds: Value,
+    /// Whether the capability has its own OAuth sign-in (slice 3).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub own_sign_in: bool,
 }
 fn no_bounds() -> Value {
     json!({})
@@ -78,12 +81,17 @@ impl CapabilityRecord {
     pub fn combinations(&self) -> Vec<crate::bounds::Combination> {
         crate::bounds::of_record(&self.bounds)
     }
+    /// Whether it runs its own instance: its own `env_file` or `args`, or
+    /// its own sign-in.
+    pub fn own_instance(&self) -> bool {
+        self.credential.own() || self.own_sign_in
+    }
     /// The instance its calls run on.
     pub fn instance(&self) -> Instance {
         Instance {
             agent_id: self.agent_id.clone(),
             server: self.source.server.clone(),
-            capability: self.credential.own().then(|| self.name.clone()),
+            capability: self.own_instance().then(|| self.name.clone()),
         }
     }
     pub fn reads(&self) -> bool {
@@ -172,7 +180,75 @@ fn record_view(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> 
         "unavailable": now.unavailable,
         "created_at": r.created_at,
         "approval": r.approval,
+        "auth": capability_auth(conn, r)?,
     }))
+}
+
+/// The auth of a remote source's credential: mode, state, and the
+/// credential's public fields.
+pub(crate) fn auth_view(
+    conn: &Connection,
+    source: &ServerRecord,
+    key: &crate::oauth::Key,
+) -> Result<Value, Error> {
+    let mode = source.auth_mode.clone();
+    let credential = if mode.as_deref() == Some("oauth") {
+        crate::oauth::credential(conn, key)?
+    } else {
+        None
+    };
+    let mut view = json!({
+        "mode": mode,
+        "state": null,
+        "issuer": null,
+        "scope": null,
+        "account": null,
+        "registration": null,
+        "obtained_at": null,
+        "expires_at": null,
+    });
+    if mode.as_deref() == Some("oauth") {
+        view["state"] = json!(
+            credential
+                .as_ref()
+                .map(|c| c.state.clone())
+                .unwrap_or_else(|| "login_required".into())
+        );
+    }
+    if let Some(c) = &credential
+        && let (Some(o), Some(extra)) = (view.as_object_mut(), c.view().as_object())
+    {
+        for (k, v) in extra {
+            o.insert(k.clone(), v.clone());
+        }
+    }
+    Ok(view)
+}
+/// A capability's `auth`: null on a stdio or built-in source; otherwise the
+/// auth of the credential it uses, with `own`.
+pub(crate) fn capability_auth(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Error> {
+    let Some(source) = server_record(conn, &r.agent_id, &r.source.server)? else {
+        return Ok(Value::Null);
+    };
+    if source.definition.transport != "remote" || source.builtin.is_some() {
+        return Ok(Value::Null);
+    }
+    let key = (
+        r.agent_id.clone(),
+        r.source.server.clone(),
+        if r.own_sign_in {
+            r.name.clone()
+        } else {
+            String::new()
+        },
+    );
+    let mut source = source;
+    if r.own_sign_in {
+        source.auth_mode = Some("oauth".into());
+    }
+    let mut view = auth_view(conn, &source, &key)?;
+    view["own"] = json!(r.own_sign_in);
+    Ok(view)
 }
 
 /// Whether a capability is built on a built-in `gh` source.
@@ -188,7 +264,7 @@ fn credential_reach(conn: &Connection, r: &CapabilityRecord) -> Result<Value, Er
     if !on_gh(conn, r)? {
         return Ok(Value::Null);
     }
-    let reach = if r.credential.own() {
+    let reach = if r.own_instance() {
         r.snapshot.as_ref().and_then(|s| s.reach.clone())
     } else {
         server_record(conn, &r.agent_id, &r.source.server)?
@@ -216,16 +292,49 @@ impl Current {
     pub fn gone(&self) -> bool {
         self.unavailable.iter().any(|u| u == "source")
     }
+    /// Whether the capability's sign-in has lapsed.
+    pub fn lapsed(&self) -> bool {
+        self.unavailable.iter().any(|u| u == "auth")
+    }
+}
+/// The refusal of a call whose capability's sign-in has lapsed.
+pub(crate) const LAPSED_TEXT: &str = "the capability's sign-in has lapsed on its host";
+pub(crate) fn lapsed_refusal() -> Error {
+    Error::Coded {
+        status: 409,
+        code: "unavailable",
+        message: LAPSED_TEXT.into(),
+        extra: Default::default(),
+    }
 }
 pub(crate) fn current(conn: &Connection, r: &CapabilityRecord) -> Result<Current, Error> {
     let source: Option<ServerRecord> = server_record(conn, &r.agent_id, &r.source.server)?;
-    let Some(source) = source.filter(|s| s.shareable) else {
+    // A source whose only reason is `login` is still there: its
+    // capabilities read `auth` instead of `source`.
+    let login = source
+        .as_ref()
+        .is_some_and(|s| s.reason.as_deref() == Some("login"));
+    let Some(source) = source.filter(|s| s.shareable || login) else {
         return Ok(Current {
             snapshot: None,
             unavailable: vec!["source".into()],
         });
     };
-    let snapshot = if r.credential.own() {
+    let lapsed = if r.own_sign_in {
+        let key = (r.agent_id.clone(), r.source.server.clone(), r.name.clone());
+        let stored = crate::sources::source_values(conn, &r.agent_id, &r.source.server)?;
+        let url = crate::sources::effective_url(&source.definition, &stored);
+        !crate::oauth::usable(conn, &key, crate::http_client::canonical(&url).as_deref())?
+    } else {
+        login
+    };
+    if lapsed {
+        return Ok(Current {
+            snapshot: None,
+            unavailable: vec!["auth".into()],
+        });
+    }
+    let snapshot = if r.own_instance() {
         r.snapshot.clone()
     } else {
         source.snapshot
@@ -436,6 +545,9 @@ impl Store {
                 "the environment file must be an existing absolute path".into(),
             ));
         }
+        if source.definition.transport == "remote" && c.args.is_some() {
+            return Err(Error::Invalid("--arg applies only to stdio sources".into()));
+        }
         let builtin = source.builtin.clone();
         if builtin.is_some() && c.args.is_some() {
             return Err(Error::Invalid(
@@ -487,6 +599,7 @@ impl Store {
             snapshot: None,
             snapshot_error: None,
             health: Health::default(),
+            own_sign_in: false,
         };
         if let Some(old) = capability_record(&conn, &c.name)? {
             if old.same(&record) {
@@ -660,7 +773,7 @@ impl Store {
                 record.name
             )));
         }
-        if record.credential.own() {
+        if record.own_instance() {
             record.snapshot = snapshot;
         }
         self.claim_policies(
@@ -708,7 +821,17 @@ impl Store {
         }
         self.capability_show(name)
     }
-    fn remove_capability(&self, name: &str) -> Result<Value, Error> {
+    #[allow(clippy::type_complexity)]
+    fn remove_capability(
+        &self,
+        name: &str,
+    ) -> Result<
+        (
+            Value,
+            Vec<(crate::oauth::Credential, Option<crate::oauth::Registration>)>,
+        ),
+        Error,
+    > {
         let view = self.capability_show(name)?;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
@@ -735,10 +858,18 @@ impl Store {
                 )));
             }
         }
+        // Its own sign-in goes with it, revoked in the background.
+        let taken = match capability_record(&tx, name)? {
+            Some(r) => crate::oauth::take_credentials(
+                &tx,
+                &[(r.agent_id.clone(), r.source.server.clone(), r.name.clone())],
+            )?,
+            None => Vec::new(),
+        };
         tx.execute("DELETE FROM capabilities WHERE name = ?1", [name])?;
         append_event(&tx, "capability.removed", name, &now())?;
         tx.commit()?;
-        Ok(view)
+        Ok((view, taken))
     }
 
     /// `status`'s `capabilities` counts.
@@ -773,8 +904,20 @@ impl Store {
             [],
             |r| r.get(0),
         )?;
+        let remote: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tool_servers WHERE COALESCE(json_extract(record, '$.definition.transport'), json_extract(record, '$.transport')) = 'remote'",
+            [],
+            |r| r.get(0),
+        )?;
+        let signed_in: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM oauth_credentials WHERE json_extract(record, '$.state') IS NOT 'login_required'",
+            [],
+            |r| r.get(0),
+        )?;
         Ok(json!({
             "sources": sources,
+            "remote_sources": remote,
+            "signed_in": signed_in,
             "capabilities": records.len(),
             "shared": shared,
             "calls_running": running,
@@ -811,12 +954,42 @@ impl Store {
                     r.health.auth_error.clone().unwrap_or_default()
                 ));
             }
+            let mut command = format!("peerspan capability show {}", r.name);
+            if r.own_sign_in {
+                let key = (r.agent_id.clone(), r.source.server.clone(), r.name.clone());
+                let credential = crate::oauth::credential(&conn, &key)?;
+                let hour = chrono::Utc::now() - chrono::TimeDelta::hours(1);
+                let stale = credential.as_ref().is_some_and(|c| {
+                    c.state == "refresh_failed"
+                        && c.refresh_failed_at
+                            .as_deref()
+                            .and_then(|t| crate::membership::time(t).ok())
+                            .is_some_and(|t| t < hour)
+                });
+                let lapsed = credential
+                    .as_ref()
+                    .is_none_or(|c| c.state == "login_required");
+                if lapsed || stale {
+                    if stale {
+                        causes.push(
+                            "its own sign-in could not be refreshed for more than an hour".into(),
+                        );
+                    }
+                    command = format!("peerspan capability login {}", r.name);
+                } else if recent(&r.health.insufficient_scope_at) {
+                    causes.push(
+                        "the server refused a call for insufficient scope in the last 24 hours"
+                            .into(),
+                    );
+                    command = format!(
+                        "peerspan capability login {} --scopes \"{}\"",
+                        r.name,
+                        r.health.insufficient_scope.clone().unwrap_or_default()
+                    );
+                }
+            }
             if !causes.is_empty() {
-                out.push((
-                    r.name.clone(),
-                    causes.join("; "),
-                    format!("peerspan capability show {}", r.name),
-                ));
+                out.push((r.name.clone(), causes.join("; "), command));
             }
         }
         Ok(out)
@@ -941,9 +1114,9 @@ async fn remove_route(
     State(store): State<Arc<Store>>,
     Path(name): Path<String>,
 ) -> Result<Json<Value>, Error> {
-    Ok(Json(
-        blocking(store, move |s| s.remove_capability(&name)).await?,
-    ))
+    let (view, taken) = blocking(store, move |s| s.remove_capability(&name)).await?;
+    crate::oauth::revoke_later(taken);
+    Ok(Json(view))
 }
 /// For a new gh capability with a bound: each exact bound repository the
 /// capability's credential cannot see, as a warning.
@@ -1017,10 +1190,11 @@ async fn create_route(
     // operations are checked against that snapshot.
     let own = if record.credential.own() {
         let (r, instance) = (record.clone(), record.instance());
-        let launch = blocking(store.clone(), move |s| {
+        let mut launch = blocking(store.clone(), move |s| {
             s.launch_with(&*s.connection()?, &instance, Some(&r))
         })
         .await?;
+        crate::oauth::arm(&store, &mut launch);
         match take_snapshot(launch).await {
             Ok(snapshot) => Some(snapshot),
             Err(e) => {

@@ -78,6 +78,37 @@ pub struct Definition {
     /// Disabled in its harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled: Option<bool>,
+    /// For a remote server: `{protocol, oauth, headers_helper}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<Value>,
+    /// For a remote server: how each header's value is obtained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<BTreeMap<String, EnvSource>>,
+}
+impl Definition {
+    /// `remote`, with the defaults of a definition without it.
+    pub fn remote_spec(&self) -> Value {
+        match &self.remote {
+            Some(r) if !r.is_null() => r.clone(),
+            _ => default_remote(),
+        }
+    }
+    /// The header names, sorted.
+    pub fn header_names(&self) -> Vec<String> {
+        self.headers
+            .as_ref()
+            .map(|h| h.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+}
+fn default_remote() -> Value {
+    json!({"protocol": "http", "oauth": {"client_id": null, "scopes": null, "callback_port": null}, "headers_helper": false})
+}
+/// The challenge of a source whose auth mode is `oauth`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Challenge {
+    pub resource_metadata: Option<String>,
+    pub scope: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -123,6 +154,11 @@ pub struct Health {
     pub auth_error_at: Option<String>,
     #[serde(default)]
     pub auth_error: Option<String>,
+    /// The last `insufficient_scope` refusal, and the scope it asked for.
+    #[serde(default)]
+    pub insufficient_scope_at: Option<String>,
+    #[serde(default)]
+    pub insufficient_scope: Option<String>,
 }
 
 /// `tool_servers.record`: the definition and its snapshot.
@@ -143,6 +179,12 @@ pub struct ServerRecord {
     /// For a built-in source: its definition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub builtin: Option<crate::builtin::BuiltinDefinition>,
+    /// For a remote source: `none`, `headers`, or `oauth` once reached.
+    #[serde(default)]
+    pub auth_mode: Option<String>,
+    /// For an `oauth` source: the latest challenge.
+    #[serde(default)]
+    pub challenge: Option<Challenge>,
 }
 
 #[derive(Deserialize)]
@@ -282,20 +324,137 @@ fn reason_for(
             .filter(|(_, s)| s.source == "missing")
             .flat_map(|(_, s)| s.variables.clone().unwrap_or_default()),
     );
+    let remote = d.transport == "remote";
+    // A URL with an unresolved reference is missing_env, not judged for
+    // insecure_url.
+    let mut url_unresolved = false;
+    if remote {
+        if let Some(u) = &d.url
+            && !has("url")
+        {
+            let refs = references(u);
+            url_unresolved = !refs.is_empty();
+            missing.extend(refs);
+        }
+        missing.extend(
+            d.headers
+                .iter()
+                .flatten()
+                .filter(|(_, s)| s.source == "missing")
+                .flat_map(|(_, s)| s.variables.clone().unwrap_or_default()),
+        );
+    }
     missing.sort();
     missing.dedup();
+    let spec = d.remote_spec();
+    let url = values
+        .and_then(|v| v.get("url").cloned())
+        .or_else(|| d.url.clone())
+        .unwrap_or_default();
     let reason = if !name_shape(&d.name) {
         Some("name")
-    } else if d.transport == "remote" {
-        Some("remote")
     } else if d.disabled == Some(true) {
         Some("disabled")
+    } else if remote
+        && !url_unresolved
+        && !crate::http_client::parse_url(&url).is_some_and(|u| u.secure_enough())
+    {
+        Some("insecure_url")
+    } else if remote && spec["protocol"] == "sse" {
+        Some("sse")
+    } else if remote && spec["headers_helper"] == json!(true) {
+        Some("headers_helper")
     } else if !missing.is_empty() {
         Some("missing_env")
     } else {
         None
     };
     (reason.is_none(), reason.map(str::to_owned), missing)
+}
+
+/// Whether a header name is an HTTP token.
+fn header_token(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+.^_`|~-".contains(&b))
+}
+/// Checks a remote definition's `remote` and `headers`, and fills their
+/// defaults; a stdio definition has neither.
+fn normalize_remote(d: &mut Definition) -> Result<(), Error> {
+    let bad = |m: &str| Err(Error::Invalid(format!("server {:?}: {m}", d.name)));
+    if d.transport != "remote" {
+        if d.remote.as_ref().is_some_and(|r| !r.is_null())
+            || d.headers.as_ref().is_some_and(|h| !h.is_empty())
+        {
+            return bad("only a remote server has remote and headers");
+        }
+        d.remote = None;
+        d.headers = None;
+        return Ok(());
+    }
+    if d.command.is_some() || !d.args.is_empty() || !d.env.is_empty() {
+        return bad("a remote server has no command, args, or env");
+    }
+    let remote = match d.remote.take() {
+        None | Some(Value::Null) => default_remote(),
+        Some(r) => r,
+    };
+    let Some(object) = remote.as_object() else {
+        return bad("remote is an object");
+    };
+    let keys: BTreeSet<&str> = object.keys().map(String::as_str).collect();
+    if keys != BTreeSet::from(["protocol", "oauth", "headers_helper"]) {
+        return bad("remote is exactly {protocol, oauth, headers_helper}");
+    }
+    if !matches!(object["protocol"].as_str(), Some("http" | "sse")) {
+        return bad("remote.protocol is http or sse");
+    }
+    if !object["headers_helper"].is_boolean() {
+        return bad("remote.headers_helper is a boolean");
+    }
+    match &object["oauth"] {
+        Value::Null => {}
+        Value::Object(o) => {
+            let keys: BTreeSet<&str> = o.keys().map(String::as_str).collect();
+            if keys != BTreeSet::from(["client_id", "scopes", "callback_port"]) {
+                return bad("remote.oauth is exactly {client_id, scopes, callback_port}");
+            }
+            if !(o["client_id"].is_null() || o["client_id"].is_string())
+                || !(o["scopes"].is_null() || o["scopes"].is_string())
+            {
+                return bad("remote.oauth client_id and scopes are strings or null");
+            }
+            let port_ok = match &o["callback_port"] {
+                Value::Null => true,
+                v => v.as_u64().is_some_and(|p| (1..=65535).contains(&p)),
+            };
+            if !port_ok {
+                return bad("remote.oauth.callback_port is from 1 to 65535");
+            }
+        }
+        _ => return bad("remote.oauth is null or an object"),
+    }
+    let headers = d.headers.take().unwrap_or_default();
+    if headers.len() > 64 {
+        return bad("at most 64 headers");
+    }
+    for (name, entry) in &headers {
+        if !header_token(name) {
+            return bad("a header name is an HTTP token");
+        }
+        let ok = match (entry.source.as_str(), &entry.variables) {
+            ("literal", None) => true,
+            ("captured" | "missing", Some(v)) => !v.is_empty() && v.iter().all(|n| !n.is_empty()),
+            _ => false,
+        };
+        if !ok {
+            return bad("headers are literal, captured with variables, or missing with variables");
+        }
+    }
+    d.remote = Some(remote);
+    d.headers = Some(headers);
+    Ok(())
 }
 
 fn valid_definition(d: &Definition) -> Result<(), Error> {
@@ -334,6 +493,19 @@ fn valid_definition(d: &Definition) -> Result<(), Error> {
     Ok(())
 }
 fn valid_field(d: &Definition, field: &str) -> bool {
+    if d.transport == "remote" {
+        let header = |name: &str| d.headers.as_ref().and_then(|h| h.get(name));
+        if field == "url" {
+            return true;
+        }
+        if let Some(name) = field.strip_prefix("headers.") {
+            return header(name).is_some_and(|s| s.source == "literal" || s.source == "captured");
+        }
+        if let Some(name) = field.strip_prefix("header_templates.") {
+            return header(name).is_some_and(|s| s.source == "captured");
+        }
+        return false;
+    }
     if field == "command" {
         return true;
     }
@@ -383,6 +555,8 @@ pub(crate) fn flat_snapshot(
         start_failed_at: text("start_failed_at"),
         auth_error_at: text("auth_error_at"),
         auth_error: text("auth_error"),
+        insufficient_scope_at: text("insufficient_scope_at"),
+        insufficient_scope: text("insufficient_scope"),
     };
     Ok((snapshot, text("snapshot_error"), health))
 }
@@ -407,7 +581,20 @@ pub(crate) fn decode_server(agent: &str, text: &str) -> Result<ServerRecord, Err
     if v.get("disabled") == Some(&Value::Bool(true)) {
         definition.disabled = Some(true);
     }
-    let (snapshot, snapshot_error, health) = flat_snapshot(&v)?;
+    if definition.transport == "remote" {
+        definition.remote = v.get("remote").cloned().filter(|r| !r.is_null());
+        definition.headers = v
+            .get("headers")
+            .cloned()
+            .and_then(|h| serde_json::from_value(h).ok());
+    }
+    let mut health = Health::default();
+    let (snapshot, snapshot_error, flat_health) = flat_snapshot(&v)?;
+    health.start_failed_at = flat_health.start_failed_at;
+    health.auth_error_at = flat_health.auth_error_at;
+    health.auth_error = flat_health.auth_error;
+    health.insufficient_scope_at = flat_health.insufficient_scope_at;
+    health.insufficient_scope = flat_health.insufficient_scope;
     let updated_at = snapshot
         .as_ref()
         .map(|s| s.taken_at.clone())
@@ -429,6 +616,11 @@ pub(crate) fn decode_server(agent: &str, text: &str) -> Result<ServerRecord, Err
         snapshot_error,
         health,
         updated_at,
+        auth_mode: v["auth_mode"].as_str().map(str::to_owned),
+        challenge: v
+            .get("challenge")
+            .cloned()
+            .and_then(|c| serde_json::from_value(c).ok()),
     })
 }
 /// Reads `agent_id, record` rows of `tool_servers`.
@@ -466,6 +658,13 @@ pub(crate) fn server_records(conn: &Connection, agent: &str) -> Result<Vec<Serve
         .prepare("SELECT agent_id, record FROM tool_servers WHERE agent_id = ?1 ORDER BY name")?;
     decode_rows(&mut statement, [agent])
 }
+pub(crate) fn source_values(
+    conn: &Connection,
+    agent: &str,
+    server: &str,
+) -> Result<BTreeMap<String, String>, Error> {
+    values(conn, agent, server)
+}
 fn values(conn: &Connection, agent: &str, server: &str) -> Result<BTreeMap<String, String>, Error> {
     let mut statement =
         conn.prepare("SELECT field, value FROM tool_values WHERE agent_id = ?1 AND server = ?2")?;
@@ -486,6 +685,9 @@ pub(crate) fn agent_names(conn: &Connection) -> Result<BTreeMap<String, String>,
     Ok(rows)
 }
 /// Stores a source record: an agent's, or a built-in source's.
+pub(crate) fn save_record(conn: &Connection, r: &ServerRecord) -> Result<(), Error> {
+    save_server(conn, r)
+}
 fn save_server(conn: &Connection, r: &ServerRecord) -> Result<(), Error> {
     if r.builtin.is_some() {
         return crate::builtin::save(conn, r);
@@ -544,6 +746,16 @@ impl Store {
             server_record(conn, &instance.agent_id, &instance.server)?.ok_or(Error::NotFound)?;
         let d = &server.definition;
         let stored = values(conn, &instance.agent_id, &instance.server)?;
+        if d.transport == "remote" {
+            return Ok(Launch {
+                command: String::new(),
+                args: Vec::new(),
+                env: Vec::new(),
+                cwd: PathBuf::from(&server.workspace),
+                log: self.tool_log(instance),
+                remote: Some(remote_launch(conn, &server, &stored, instance, capability)?),
+            });
+        }
         let command = stored
             .get("command")
             .cloned()
@@ -599,6 +811,7 @@ impl Store {
                 env,
                 cwd: crate::gh::work_dir(&state),
                 log: self.tool_log(instance),
+                remote: None,
             });
         }
         Ok(Launch {
@@ -607,6 +820,7 @@ impl Store {
             env,
             cwd: PathBuf::from(&server.workspace),
             log: self.tool_log(instance),
+            remote: None,
         })
     }
     /// `STATE/tool-logs/AGENT_ID/SERVER[@CAPABILITY].log`.
@@ -619,15 +833,26 @@ impl Store {
 
     /// Replaces an agent's definitions and values in one transaction.
     /// Returns the instances to snapshot and the servers to stop.
+    #[allow(clippy::type_complexity)]
     fn replace_servers(
         &self,
         agent: &str,
-        r: PutServers,
-    ) -> Result<(Vec<Instance>, Vec<String>), Error> {
+        mut r: PutServers,
+    ) -> Result<
+        (
+            Vec<Instance>,
+            Vec<String>,
+            Vec<(crate::oauth::Credential, Option<crate::oauth::Registration>)>,
+        ),
+        Error,
+    > {
         if !std::path::Path::new(&r.workspace).is_absolute() {
             return Err(Error::Invalid("workspace must be an absolute path".into()));
         }
         let mut names = BTreeSet::new();
+        for d in r.servers.iter_mut() {
+            normalize_remote(d)?;
+        }
         for d in &r.servers {
             valid_definition(d)?;
             if !names.insert(d.name.clone()) {
@@ -658,8 +883,21 @@ impl Store {
             .into_iter()
             .map(|s| (s.definition.name.clone(), s))
             .collect();
+        let mut old_urls = BTreeMap::new();
+        for (name, o) in &old {
+            if o.definition.transport == "remote" {
+                let v = values(&tx, agent, name)?;
+                old_urls.insert(name.clone(), effective_url(&o.definition, &v));
+            }
+        }
+        let mut drop_keys: Vec<crate::oauth::Key> = Vec::new();
         let mut stop = Vec::new();
         for name in old.keys().filter(|n| !names.contains(*n)) {
+            drop_keys.extend(
+                crate::oauth::credentials_of(&tx, agent, name)?
+                    .into_iter()
+                    .map(|(k, _)| k),
+            );
             // Capabilities built on it remain, and become unavailable.
             for table in ["tool_servers", "tool_values"] {
                 let column = if table == "tool_servers" {
@@ -683,6 +921,32 @@ impl Store {
             if previous.is_some_and(|p| p.definition != d || p.workspace != r.workspace) {
                 stop.push(d.name.clone());
             }
+            // A changed URL deletes the source's credentials and forgets
+            // its auth mode and challenge.
+            let url = effective_url(&d, &r.values.get(&d.name).cloned().unwrap_or_default());
+            let mut auth_mode = previous.and_then(|p| p.auth_mode.clone());
+            let mut challenge = previous.and_then(|p| p.challenge.clone());
+            if d.transport == "remote" {
+                let resource = crate::http_client::canonical(&url);
+                if old_urls.get(&d.name).is_some_and(|u| *u != url) {
+                    auth_mode = None;
+                    challenge = None;
+                }
+                for (key, c) in crate::oauth::credentials_of(&tx, agent, &d.name)? {
+                    if Some(c.resource.as_str()) != resource.as_deref() {
+                        drop_keys.push(key);
+                    }
+                }
+            } else {
+                auth_mode = None;
+                challenge = None;
+                drop_keys.extend(
+                    crate::oauth::credentials_of(&tx, agent, &d.name)?
+                        .into_iter()
+                        .map(|(k, _)| k),
+                );
+            }
+            let definition_ok = reason.is_none();
             let record = ServerRecord {
                 agent_id: agent.to_owned(),
                 workspace: r.workspace.clone(),
@@ -695,7 +959,21 @@ impl Store {
                 updated_at: at.clone(),
                 definition: d.clone(),
                 builtin: None,
+                auth_mode,
+                challenge,
             };
+            let mut record = record;
+            if definition_ok && d.transport == "remote" {
+                let taken = drop_keys.clone();
+                let resource = crate::http_client::canonical(&url);
+                let key = (agent.to_owned(), d.name.clone(), String::new());
+                let usable =
+                    !taken.contains(&key) && crate::oauth::usable(&tx, &key, resource.as_deref())?;
+                if record.auth_mode.as_deref() == Some("oauth") && !usable {
+                    record.shareable = false;
+                    record.reason = Some("login".into());
+                }
+            }
             tx.execute(
                 "INSERT OR REPLACE INTO tool_servers VALUES (?1, ?2, ?3)",
                 params![agent, d.name, serde_json::to_string(&record)?],
@@ -708,7 +986,7 @@ impl Store {
                     )?;
                 }
             }
-            if shareable {
+            if definition_ok {
                 snapshot.push(Instance {
                     agent_id: agent.to_owned(),
                     server: d.name.clone(),
@@ -716,22 +994,78 @@ impl Store {
                 });
             }
         }
+        let taken = crate::oauth::take_credentials(&tx, &drop_keys)?;
         // Capabilities with their own credential, built on this agent's
         // shareable sources, are snapshotted again with that credential; a
-        // failure keeps their previous snapshot.
+        // failure keeps their previous snapshot. One with its own sign-in
+        // is skipped while that sign-in is not usable.
         for c in capability_records(&tx)? {
             if c.agent_id == agent
-                && c.credential.own()
+                && c.own_instance()
                 && snapshot
                     .iter()
                     .any(|i| i.capability.is_none() && i.server == c.source.server)
             {
+                if c.own_sign_in {
+                    let key = (agent.to_owned(), c.source.server.clone(), c.name.clone());
+                    let url = server_record(&tx, agent, &c.source.server)?
+                        .map(|s| {
+                            effective_url(
+                                &s.definition,
+                                &values(&tx, agent, &c.source.server).unwrap_or_default(),
+                            )
+                        })
+                        .unwrap_or_default();
+                    if !crate::oauth::usable(
+                        &tx,
+                        &key,
+                        crate::http_client::canonical(&url).as_deref(),
+                    )? {
+                        continue;
+                    }
+                }
                 snapshot.push(c.instance());
             }
         }
         append_event(&tx, "sources.discovered", agent, &at)?;
         tx.commit()?;
-        Ok((snapshot, stop))
+        Ok((snapshot, stop, taken))
+    }
+    /// Recomputes a source's `shareable` and `reason`: its definition's
+    /// reasons, then `login` for an `oauth` source without a usable
+    /// credential.
+    pub(crate) fn refresh_login_reason(
+        &self,
+        conn: &Connection,
+        agent: &str,
+        server: &str,
+    ) -> Result<(), Error> {
+        if crate::builtin::is_builtin(agent) {
+            return Ok(());
+        }
+        let Some(mut r) = server_record(conn, agent, server)? else {
+            return Ok(());
+        };
+        if r.definition.transport != "remote" || r.reason.as_deref() == Some("remote") {
+            return Ok(());
+        }
+        let stored = values(conn, agent, server)?;
+        let (mut shareable, mut reason, missing) = reason_for(&r.definition, Some(&stored));
+        if reason.is_none() && r.auth_mode.as_deref() == Some("oauth") {
+            let url = effective_url(&r.definition, &stored);
+            let key = (agent.to_owned(), server.to_owned(), String::new());
+            if !crate::oauth::usable(conn, &key, crate::http_client::canonical(&url).as_deref())? {
+                shareable = false;
+                reason = Some("login".into());
+            }
+        }
+        if r.shareable != shareable || r.reason != reason || r.missing_env != missing {
+            r.shareable = shareable;
+            r.reason = reason;
+            r.missing_env = missing;
+            save_server(conn, &r)?;
+        }
+        Ok(())
     }
     /// Stores a snapshot's outcome: a new snapshot, or an error that keeps
     /// the previous one.
@@ -781,6 +1115,81 @@ impl Store {
                 &format!("{}/{}", instance.agent_id, instance.label()),
                 &at,
             )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Stores a snapshot's outcome, with a remote source's auth mode and
+    /// challenge: a challenge or a lapsed sign-in records no
+    /// `snapshot_error` and keeps the previous snapshot.
+    pub(crate) fn store_snapshot_full(
+        &self,
+        instance: &Instance,
+        outcome: Result<(Snapshot, Option<&'static str>), SnapFail>,
+    ) -> Result<(), Error> {
+        let (outcome, mode, challenge, quiet) = match outcome {
+            Ok((s, mode)) => (Ok(s), mode, None, false),
+            Err(SnapFail::Plain(e)) => (Err(e), None, None, false),
+            Err(SnapFail::Challenge(c)) => (Err(String::new()), Some("oauth"), Some(c), true),
+            Err(SnapFail::LoginRequired) => (Err(String::new()), None, None, true),
+        };
+        if !quiet {
+            self.store_snapshot(instance, outcome.clone())?;
+        }
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        match &instance.capability {
+            None => {
+                if let Some(mut r) = server_record(&tx, &instance.agent_id, &instance.server)?
+                    && r.builtin.is_none()
+                {
+                    if let Some(mode) = mode {
+                        r.auth_mode = Some(mode.into());
+                    }
+                    if let Some(c) = challenge {
+                        r.challenge = Some(c);
+                    }
+                    if quiet {
+                        r.snapshot_error = None;
+                    }
+                    save_server(&tx, &r)?;
+                    self.refresh_login_reason(&tx, &instance.agent_id, &instance.server)?;
+                }
+            }
+            Some(c) => {
+                if quiet && let Some(mut r) = capability_record(&tx, c)? {
+                    r.snapshot_error = None;
+                    crate::capabilities::save(&tx, &r)?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Records an `insufficient_scope` refusal and the scope it asked for.
+    pub(crate) fn note_scope(
+        &self,
+        instance: &Instance,
+        scope: Option<String>,
+    ) -> Result<(), Error> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let at = now();
+        match &instance.capability {
+            None => {
+                if let Some(mut r) = server_record(&tx, &instance.agent_id, &instance.server)? {
+                    r.health.insufficient_scope_at = Some(at);
+                    r.health.insufficient_scope = scope;
+                    save_server(&tx, &r)?;
+                }
+            }
+            Some(c) => {
+                if let Some(mut r) = capability_record(&tx, c)? {
+                    r.health.insufficient_scope_at = Some(at);
+                    r.health.insufficient_scope = scope;
+                    crate::capabilities::save(&tx, &r)?;
+                }
+            }
         }
         tx.commit()?;
         Ok(())
@@ -848,7 +1257,20 @@ impl Store {
                     .map(|c| c.name.as_str())
                     .collect();
                 let d = &s.definition;
+                let remote = d.transport == "remote";
+                let auth = if remote {
+                    crate::capabilities::auth_view(
+                        &conn,
+                        &s,
+                        &(a.id.clone(), name.clone(), String::new()),
+                    )?
+                } else {
+                    Value::Null
+                };
                 servers.push(json!({
+                    "remote": if remote { d.remote_spec() } else { Value::Null },
+                    "headers": d.headers.clone().unwrap_or_default(),
+                    "auth": auth,
                     "name": name,
                     "transport": d.transport,
                     "command": d.command,
@@ -958,17 +1380,59 @@ impl Store {
         let mut statement =
             conn.prepare("SELECT agent_id, record FROM tool_servers ORDER BY agent_id, name")?;
         let servers: Vec<ServerRecord> = decode_rows(&mut statement, [])?;
-        let mut check = |agent: &str, label: String, error: &Option<String>, h: &Health| {
+        let hour = chrono::Utc::now() - chrono::TimeDelta::hours(1);
+        let mut check = |agent: &str,
+                         label: String,
+                         error: &Option<String>,
+                         h: &Health,
+                         remote: Option<&ServerRecord>|
+         -> Result<(), Error> {
             let name = names
                 .get(agent)
                 .cloned()
                 .unwrap_or_else(|| agent.to_owned());
-            let command = if crate::builtin::is_builtin(agent) {
+            let mut command = if crate::builtin::is_builtin(agent) {
                 "peerspan sources refresh --builtin".to_owned()
             } else {
                 format!("peerspan sources refresh --agent {name}")
             };
             let mut causes = Vec::new();
+            if let Some(r) = remote {
+                let key = (agent.to_owned(), label.clone(), String::new());
+                let credential = crate::oauth::credential(&conn, &key)?;
+                let stale = credential.as_ref().is_some_and(|c| {
+                    c.state == "refresh_failed"
+                        && c.refresh_failed_at
+                            .as_deref()
+                            .and_then(|t| crate::membership::time(t).ok())
+                            .is_some_and(|t| t < hour)
+                });
+                let lapsed = credential
+                    .as_ref()
+                    .is_some_and(|c| c.state == "login_required");
+                let unsigned = r.reason.as_deref() == Some("login")
+                    && credential.is_none()
+                    && !crate::oauth::source_sign_in_users(&conn, agent, &label)?.is_empty();
+                if lapsed || stale || unsigned {
+                    causes.push(if stale {
+                        "its sign-in could not be refreshed for more than an hour".to_owned()
+                    } else if lapsed {
+                        "its sign-in has lapsed".to_owned()
+                    } else {
+                        "it needs a sign-in, and capabilities use it".to_owned()
+                    });
+                    command = format!("peerspan sources login {name}/{label}");
+                } else if recent(&h.insufficient_scope_at) {
+                    causes.push(
+                        "the server refused a call for insufficient scope in the last 24 hours"
+                            .to_owned(),
+                    );
+                    command = format!(
+                        "peerspan sources login {name}/{label} --scopes \"{}\"",
+                        h.insufficient_scope.clone().unwrap_or_default()
+                    );
+                }
+            }
             if let Some(e) = error {
                 causes.push(format!("its latest snapshot failed: {e}"));
             }
@@ -984,6 +1448,7 @@ impl Store {
             if !causes.is_empty() {
                 out.push((format!("{name}/{label}"), causes.join("; "), command));
             }
+            Ok(())
         };
         for s in servers.iter().chain(crate::builtin::records(&conn)?.iter()) {
             check(
@@ -991,7 +1456,8 @@ impl Store {
                 s.definition.name.clone(),
                 &s.snapshot_error,
                 &s.health,
-            );
+                (s.definition.transport == "remote" && s.builtin.is_none()).then_some(s),
+            )?;
         }
         if let EnvFile::TooOpen(path) = read_env_file() {
             out.push((
@@ -1007,24 +1473,98 @@ impl Store {
     }
 }
 
+/// Why a snapshot did not finish.
+pub(crate) enum SnapFail {
+    /// A `snapshot_error`.
+    Plain(String),
+    /// A remote server asked for an OAuth sign-in.
+    Challenge(Challenge),
+    /// The credential needs a new sign-in.
+    LoginRequired,
+}
+/// What a remote server's failure means for a snapshot.
+fn remote_failure(launch: &Launch, e: &anyhow::Error) -> SnapFail {
+    let Some(remote) = &launch.remote else {
+        return SnapFail::Plain(format!("{e:#}"));
+    };
+    let Some(fail) = e.downcast_ref::<mcp::HttpFail>() else {
+        return SnapFail::Plain(format!("{e:#}"));
+    };
+    match fail.kind {
+        mcp::HttpKind::LoginRequired => SnapFail::LoginRequired,
+        mcp::HttpKind::Unauthorized if remote.tokens.is_some() => SnapFail::LoginRequired,
+        mcp::HttpKind::Unauthorized => {
+            let authorization = remote
+                .headers
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case("authorization"));
+            match fail
+                .authenticate
+                .as_deref()
+                .and_then(crate::http_client::bearer_challenge)
+            {
+                Some(params) if !authorization && remote.oauth_enabled => {
+                    let param = |name: &str| {
+                        params
+                            .iter()
+                            .find(|(k, _)| k == name)
+                            .map(|(_, v)| v.clone())
+                    };
+                    SnapFail::Challenge(Challenge {
+                        resource_metadata: param("resource_metadata"),
+                        scope: param("scope"),
+                    })
+                }
+                _ => SnapFail::Plain("unauthorized".into()),
+            }
+        }
+        _ => SnapFail::Plain(fail.to_string()),
+    }
+}
+
 /// Lists a server's tools and resources once, within 30 seconds, from a
 /// short-lived instance.
 pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
+    take_snapshot_full(launch)
+        .await
+        .map(|(s, _)| s)
+        .map_err(|f| match f {
+            SnapFail::Plain(e) => e,
+            SnapFail::Challenge(_) => "unauthorized".into(),
+            SnapFail::LoginRequired => "the sign-in has lapsed".into(),
+        })
+}
+/// `take_snapshot`, with a remote server's auth mode on success and its
+/// challenge or lapsed sign-in on failure.
+pub(crate) async fn take_snapshot_full(
+    launch: Launch,
+) -> Result<(Snapshot, Option<&'static str>), SnapFail> {
+    let mode = launch.remote.as_ref().map(|r| {
+        if r.tokens.is_some() {
+            "oauth"
+        } else if !r.headers.is_empty() {
+            "headers"
+        } else {
+            "none"
+        }
+    });
     let work = async {
-        let (client, capabilities) = mcp::start(&launch).await.map_err(|e| format!("{e:#}"))?;
+        let (client, capabilities) = mcp::start(&launch)
+            .await
+            .map_err(|e| remote_failure(&launch, &e))?;
         // Each list is asked for when the server declares its capability
         // key, whatever the value.
         let tools = if capabilities.get("tools").is_some() {
             mcp::list(&client, "tools/list", "tools", LIST_LIMIT)
                 .await
-                .map_err(|e| format!("{e:#}"))?
+                .map_err(|e| remote_failure(&launch, &e))?
         } else {
             Vec::new()
         };
         let resources = if capabilities.get("resources").is_some() {
             mcp::list(&client, "resources/list", "resources", LIST_LIMIT)
                 .await
-                .map_err(|e| format!("{e:#}"))?
+                .map_err(|e| remote_failure(&launch, &e))?
         } else {
             Vec::new()
         };
@@ -1061,7 +1601,7 @@ pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
                 })
             })
             .collect();
-        Ok::<_, String>(Snapshot {
+        Ok::<_, SnapFail>(Snapshot {
             tools,
             resources,
             taken_at: now(),
@@ -1070,10 +1610,12 @@ pub(crate) async fn take_snapshot(launch: Launch) -> Result<Snapshot, String> {
     };
     let snapshot = tokio::time::timeout(SNAPSHOT_BOUND, work)
         .await
-        .map_err(|_| "the snapshot did not finish within 30 seconds".to_owned())??;
+        .map_err(|_| {
+            SnapFail::Plain("the snapshot did not finish within 30 seconds".to_owned())
+        })??;
     match serde_json::to_vec(&snapshot) {
-        Ok(encoded) if encoded.len() <= SNAPSHOT_MAX => Ok(snapshot),
-        _ => Err("the snapshot is larger than 1 MiB".into()),
+        Ok(encoded) if encoded.len() <= SNAPSHOT_MAX => Ok((snapshot, mode)),
+        _ => Err(SnapFail::Plain("the snapshot is larger than 1 MiB".into())),
     }
 }
 
@@ -1089,10 +1631,13 @@ pub(crate) async fn snapshot_all(store: Arc<Store>, instances: Vec<Instance>) {
             let i = instance.clone();
             let outcome =
                 match blocking(store.clone(), move |s| s.launch(&*s.connection()?, &i)).await {
-                    Ok(launch) => take_snapshot(launch).await,
-                    Err(e) => Err(e.to_string()),
+                    Ok(mut launch) => {
+                        crate::oauth::arm(&store, &mut launch);
+                        take_snapshot_full(launch).await
+                    }
+                    Err(e) => Err(SnapFail::Plain(e.to_string())),
                 };
-            let _ = blocking(store, move |s| s.store_snapshot(&instance, outcome)).await;
+            let _ = blocking(store, move |s| s.store_snapshot_full(&instance, outcome)).await;
         });
     }
     while set.join_next().await.is_some() {}
@@ -1126,8 +1671,9 @@ async fn put_route(
 ) -> Result<Json<Value>, Error> {
     let request: PutServers = decode(body)?;
     let id = agent.clone();
-    let (instances, stop) =
+    let (instances, stop, taken) =
         blocking(store.clone(), move |s| s.replace_servers(&id, request)).await?;
+    crate::oauth::revoke_later(taken);
     for server in &stop {
         store.tool_pool.stop(&agent, server);
     }
@@ -1174,6 +1720,130 @@ pub(crate) fn open_to_host(conn: &Connection, host: &str) -> Result<bool, Error>
         [host],
         |r| r.get(0),
     )?)
+}
+/// A remote definition's URL: `values.url` when stored, else `url`.
+/// The canonical URL of a stored remote source, or None when the source is
+/// gone or not remote.
+pub(crate) fn source_resource(
+    conn: &Connection,
+    agent: &str,
+    server: &str,
+) -> Result<Option<String>, Error> {
+    let Some(r) = server_record(conn, agent, server)? else {
+        return Ok(None);
+    };
+    if r.definition.transport != "remote" {
+        return Ok(None);
+    }
+    let stored = values(conn, agent, server)?;
+    Ok(crate::http_client::canonical(&effective_url(
+        &r.definition,
+        &stored,
+    )))
+}
+
+pub(crate) fn effective_url(d: &Definition, stored: &BTreeMap<String, String>) -> String {
+    stored
+        .get("url")
+        .cloned()
+        .or_else(|| d.url.clone())
+        .unwrap_or_default()
+}
+/// Resolves `${NAME}` and `${NAME:-D}` in a header template; `D` applies
+/// when `NAME` is unset or empty.
+fn resolve_template(template: &str, lookup: &dyn Fn(&str) -> Option<String>) -> String {
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("${") {
+        let Some(len) = rest[start..].find('}') else {
+            break;
+        };
+        out.push_str(&rest[..start]);
+        let inner = &rest[start + 2..start + len];
+        let (name, default) = match inner.split_once(":-") {
+            Some((n, d)) => (n, Some(d)),
+            None => (inner, None),
+        };
+        match (lookup(name), default) {
+            (Some(v), Some(d)) if v.is_empty() => out.push_str(d),
+            (Some(v), _) => out.push_str(&v),
+            (None, Some(d)) => out.push_str(d),
+            (None, None) => {}
+        }
+        rest = &rest[start + len + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+/// How to reach a remote source: its URL, its headers with values (a
+/// captured header resolved again from the capability's `env_file` and the
+/// environment file when they define every variable it references), and
+/// the OAuth credential the instance uses, when one is stored.
+fn remote_launch(
+    conn: &Connection,
+    server: &ServerRecord,
+    stored: &BTreeMap<String, String>,
+    instance: &Instance,
+    capability: Option<&CapabilityRecord>,
+) -> Result<crate::mcp::RemoteLaunch, Error> {
+    let d = &server.definition;
+    let url = stored
+        .get("url")
+        .cloned()
+        .or_else(|| d.url.clone())
+        .unwrap_or_default();
+    let file: Vec<(String, String)> = match read_env_file() {
+        EnvFile::Values(v) => v,
+        _ => Vec::new(),
+    };
+    let own: Vec<(String, String)> = capability
+        .and_then(|c| c.credential.env_file.as_ref())
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|t| parse_env(&t))
+        .unwrap_or_default();
+    let lookup = |name: &str| -> Option<String> {
+        own.iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .or_else(|| file.iter().rev().find(|(n, _)| n == name))
+            .map(|(_, v)| v.clone())
+    };
+    let mut headers = Vec::new();
+    for (name, entry) in d.headers.iter().flatten() {
+        let Some(value) = stored.get(&format!("headers.{name}")) else {
+            continue;
+        };
+        let mut value = value.clone();
+        if entry.source == "captured"
+            && let Some(template) = stored.get(&format!("header_templates.{name}"))
+        {
+            let variables = entry.variables.clone().unwrap_or_default();
+            if !variables.is_empty() && variables.iter().all(|v| lookup(v).is_some()) {
+                value = resolve_template(template, &lookup);
+            }
+        }
+        headers.push((name.clone(), value));
+    }
+    let own_sign_in = capability.is_some_and(|c| c.own_sign_in);
+    let key = (
+        instance.agent_id.clone(),
+        instance.server.clone(),
+        if own_sign_in {
+            instance.capability.clone().unwrap_or_default()
+        } else {
+            String::new()
+        },
+    );
+    // The token is sent only while the credential is usable.
+    let resource = crate::http_client::canonical(&url);
+    let credential = crate::oauth::usable(conn, &key, resource.as_deref())?.then_some(key);
+    Ok(crate::mcp::RemoteLaunch {
+        url,
+        headers,
+        credential,
+        tokens: None,
+        oauth_enabled: !d.remote_spec()["oauth"].is_null(),
+    })
 }
 /// A failed reach check names the definition's account.
 fn fill_account(snapshot: &mut Snapshot, account: Option<String>) {

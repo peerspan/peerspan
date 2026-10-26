@@ -10,7 +10,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, sql
-from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
+from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
 from peer_messaging import PeerHost, request_id, timestamp, DropResponse
 from coordination import Coordinator, CoordHost
 
@@ -539,7 +539,7 @@ def migration_check(original_binary, replacement_binary, label):
             a.stop(crash=True)
             b.stop(crash=True)
             for host in (a, b):
-                for table in [*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
+                for table in [*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
                     sql(host, "DROP TABLE " + table)
                 sql(host, "DROP TABLE access_blocks")
                 sql(host, "DROP TABLE network_statements")

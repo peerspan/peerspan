@@ -572,6 +572,9 @@ fn resolve_target(conn: &Connection, r: &CallRequest) -> Result<Target, Error> {
         let Some(source) = server_record(conn, &id, server)? else {
             return Err(unavailable(&r.capability));
         };
+        if source.reason.as_deref() == Some("login") {
+            return Err(crate::capabilities::lapsed_refusal());
+        }
         let Some(snapshot) = source.snapshot.as_ref().filter(|_| source.shareable) else {
             return Err(unavailable(&r.capability));
         };
@@ -591,6 +594,9 @@ fn resolve_target(conn: &Connection, r: &CallRequest) -> Result<Target, Error> {
         return Err(Error::NotFound);
     }
     let now = current(conn, &record)?;
+    if now.lapsed() {
+        return Err(crate::capabilities::lapsed_refusal());
+    }
     if now.gone() {
         return Err(unavailable(&r.capability));
     }
@@ -1286,6 +1292,12 @@ impl Store {
                 self.defer(sender, id);
                 return Ok(None);
             }
+            // A lapsed sign-in fails the call without sending it.
+            Err(e) if is_lapsed(&e) => {
+                finish(&tx, sender, &mut s, "failed", Some("auth_required"), None)?;
+                tx.commit()?;
+                return Ok(None);
+            }
             Err(_) => {
                 finish(&tx, sender, &mut s, "rejected", Some(LAPSED), None)?;
                 tx.commit()?;
@@ -1323,6 +1335,11 @@ impl Store {
             Ok(_) => Ok(true),
             Err(Error::Unavailable(_)) => {
                 self.defer(sender, id);
+                Ok(false)
+            }
+            Err(e) if is_lapsed(&e) => {
+                finish(&tx, sender, &mut s, "failed", Some("auth_required"), None)?;
+                tx.commit()?;
                 Ok(false)
             }
             Err(_) => {
@@ -1443,6 +1460,10 @@ impl Store {
         Ok(())
     }
 }
+/// Whether a refusal is a lapsed sign-in's.
+fn is_lapsed(e: &Error) -> bool {
+    matches!(e, Error::Coded { code: "unavailable", message, .. } if message == crate::capabilities::LAPSED_TEXT)
+}
 /// The instance a call runs on, while its target exists.
 fn instance_of(conn: &Connection, r: &CallRequest) -> Result<Option<Instance>, Error> {
     if let Some((agent, server)) = r.source() {
@@ -1516,7 +1537,10 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     }
     let i = instance.clone();
     let launch = match blocking(store.clone(), move |s| s.launch(&*s.connection()?, &i)).await {
-        Ok(launch) => launch,
+        Ok(mut launch) => {
+            crate::oauth::arm(store, &mut launch);
+            launch
+        }
         Err(_) => {
             // The server is gone; the recheck rejects the call.
             let (s, i) = (sender.to_owned(), id.to_owned());
@@ -1526,11 +1550,17 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     };
     let live = match store.tool_pool.instance(&key, &launch).await {
         Ok(live) => live,
-        Err(_) => {
+        Err(e) => {
+            // A 401 after the refresh and retry fails the waiting calls
+            // with auth_required.
+            let error = match e.downcast_ref::<mcp::HttpFail>().map(|f| f.kind) {
+                Some(mcp::HttpKind::Unauthorized | mcp::HttpKind::LoginRequired) => "auth_required",
+                _ => "server_start_failed",
+            };
             let i = instance.clone();
             let _ = blocking(store.clone(), move |s| {
                 s.note_health(&i, true, None)?;
-                s.fail_queued(&i, "server_start_failed")
+                s.fail_queued(&i, error)
             })
             .await;
             return;
@@ -1553,13 +1583,16 @@ async fn run_inner(store: &Arc<Store>, sender: &str, id: &str, instance: &Instan
     if let Ok(mut used) = live.used.lock() {
         *used = std::time::Instant::now();
     }
-    let (state, error, result, auth) = outcome;
+    let (state, error, result, auth, scope) = outcome;
     let (s, i) = (sender.to_owned(), id.to_owned());
     let inst = instance.clone();
     let log = live.client.log().to_path_buf();
     let _ = blocking(store.clone(), move |st| {
         if let Some(message) = &auth {
             st.note_health(&inst, false, Some(message))?;
+        }
+        if let Some(scope) = scope {
+            st.note_scope(&inst, scope)?;
         }
         if let Some(state) = state
             && !st.end_call(&s, &i, state, error, result)?
@@ -1580,7 +1613,28 @@ type Outcome = (
     Option<&'static str>,
     Option<Payload>,
     Option<String>,
+    // An `insufficient_scope` refusal, with the scope it asked for.
+    Option<Option<String>>,
 );
+/// A remote server's HTTP failure as a call's end.
+fn http_outcome(fail: &mcp::HttpFail) -> Outcome {
+    use mcp::HttpKind::*;
+    let (state, error) = match fail.kind {
+        Unauthorized | LoginRequired => ("failed", "auth_required"),
+        InsufficientScope => ("failed", "insufficient_scope"),
+        SessionGone | Connect => ("failed", "server_exited"),
+        Failed => ("failed", "http_error"),
+        ServerError => ("uncertain", "http_error"),
+        Lost => ("uncertain", "connection_lost"),
+    };
+    let scope = (fail.kind == InsufficientScope).then(|| {
+        fail.authenticate
+            .as_deref()
+            .and_then(crate::http_client::bearer_challenge)
+            .and_then(|p| p.into_iter().find(|(k, _)| k == "scope").map(|(_, v)| v))
+    });
+    (Some(state), Some(error), None, None, scope)
+}
 /// Sends the call and waits for whichever comes first: the response, the
 /// instance ending, a cancellation, or the deadline. A cancellation or the
 /// deadline sends `notifications/cancelled`.
@@ -1597,7 +1651,7 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool)
     };
     let (rid, rx) = match live.client.send(method, params).await {
         Ok(sent) => sent,
-        Err(_) => return (Some("failed"), Some("server_exited"), None, None),
+        Err(_) => return (Some("failed"), Some("server_exited"), None, None, None),
     };
     let deadline = crate::membership::time(&r.deadline).unwrap_or_else(|_| Utc::now());
     let wait = (deadline - Utc::now()).to_std().unwrap_or(Duration::ZERO);
@@ -1605,34 +1659,35 @@ async fn send(live: &mcp::Live, r: &CallRequest, cancel: &Notify, builtin: bool)
         reply = rx => match reply {
             Ok(Reply::Result(result, text)) => {
                 if tool && result.get("isError") == Some(&json!(true)) {
-                    (Some("failed"), Some("tool_error"), Some((result, text)), None)
+                    (Some("failed"), Some("tool_error"), Some((result, text)), None, None)
                 } else {
-                    (Some("succeeded"), None, Some((result, text)), None)
+                    (Some("succeeded"), None, Some((result, text)), None, None)
                 }
             }
             // A built-in source reports output over its limit this way.
             Ok(Reply::Error { code, .. }) if builtin && code == crate::gh::TOO_LARGE_CODE => {
-                (Some("failed"), Some("result_too_large"), None, None)
+                (Some("failed"), Some("result_too_large"), None, None, None)
             }
             Ok(Reply::Error { code, message }) => {
                 let auth = crate::sources::auth_like(&message).then(|| message.clone());
                 let error = json!({"code": code, "message": message});
                 let text = crate::canonical::value_text(&error);
-                (Some("failed"), Some("jsonrpc_error"), Some((error, text)), auth)
+                (Some("failed"), Some("jsonrpc_error"), Some((error, text)), auth, None)
             }
-            Ok(Reply::TooLarge) => (Some("failed"), Some("result_too_large"), None, None),
-            Err(_) => (Some("uncertain"), Some("server_exited"), None, None),
+            Ok(Reply::TooLarge) => (Some("failed"), Some("result_too_large"), None, None, None),
+            Ok(Reply::Http(fail)) => http_outcome(&fail),
+            Err(_) => (Some("uncertain"), Some("server_exited"), None, None, None),
         },
         _ = cancel.notified() => {
             // The cancel route already made the call uncertain.
             live.client.forget(rid);
             live.client.cancel(rid, "cancel_requested").await;
-            (None, None, None, None)
+            (None, None, None, None, None)
         }
         _ = tokio::time::sleep(wait) => {
             live.client.forget(rid);
             live.client.cancel(rid, "deadline").await;
-            (Some("uncertain"), Some("deadline"), None, None)
+            (Some("uncertain"), Some("deadline"), None, None, None)
         }
     }
 }

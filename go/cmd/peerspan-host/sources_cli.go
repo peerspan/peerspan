@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/peerspan/peerspan/go/internal/host"
@@ -50,6 +51,9 @@ type sourceServer struct {
 	Resources     []host.SnapshotResource `json:"resources"`
 	SnapshotError *string                 `json:"snapshot_error"`
 	Capabilities  []string                `json:"capabilities"`
+	URL           *string                 `json:"url"`
+	Headers       map[string]host.ToolEnv `json:"headers"`
+	Auth          *host.AuthView          `json:"auth"`
 }
 
 // sourcesListing is GET /v1/sources.
@@ -88,10 +92,41 @@ func isTerminal(f *os.File) bool {
 // stdin reads stdin a line at a time, shared by every prompt of a command.
 var stdin = bufio.NewReader(os.Stdin)
 
+// stdinLine is one line read from stdin, or its end.
+type stdinLine struct {
+	text string
+	err  error
+}
+
+var (
+	stdinOnce  sync.Once
+	stdinLines chan stdinLine
+)
+
+// lineSource delivers stdin's lines, read by one goroutine, so a prompt
+// and a wait that also listens elsewhere never compete for a line. The
+// channel closes at the end of stdin.
+func lineSource() chan stdinLine {
+	stdinOnce.Do(func() {
+		stdinLines = make(chan stdinLine)
+		go func() {
+			for {
+				line, err := stdin.ReadString('\n')
+				stdinLines <- stdinLine{line, err}
+				if err != nil {
+					close(stdinLines)
+					return
+				}
+			}
+		}()
+	})
+	return stdinLines
+}
+
 // readLine reads one answer from stdin.
 func readLine() string {
-	line, _ := stdin.ReadString('\n')
-	return strings.TrimSpace(line)
+	line := <-lineSource()
+	return strings.TrimSpace(line.text)
 }
 
 // askYes prompts at a terminal and reads one answer; only y or yes agrees.
@@ -158,6 +193,10 @@ func summarize(stored sourcesAgent, errs []discoveryError) (attachSummary, strin
 		case s.Shareable:
 		case deref(s.Reason) == "remote":
 			name += " (remote, not usable yet)"
+		case deref(s.Reason) == "login":
+			name += " (needs a sign-in: peerspan sources login " + stored.AgentName + "/" + s.Name + ")"
+		case deref(s.Reason) == "insecure_url" || deref(s.Reason) == "sse" || deref(s.Reason) == "headers_helper":
+			name += " (" + deref(s.Reason) + ")"
 		case deref(s.Reason) == "missing_env":
 			name += " (missing " + strings.Join(s.MissingEnv, ", ") + ")"
 		case deref(s.Reason) == "disabled":

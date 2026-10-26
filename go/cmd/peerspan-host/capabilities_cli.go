@@ -117,6 +117,10 @@ func runSources(ctx context.Context, client host.Client, args []string, fs *pfla
 			results = append(results, map[string]any{"agent_id": nil, "agent": "builtin", "workspace": nil, "sources": summary})
 		}
 		return printJSON(out, results)
+	case "login":
+		return runLogin(ctx, client, "sources", args[2], fs, out, errOut)
+	case "logout":
+		return runLogout(ctx, client, "sources", args[2], fs, out, errOut)
 	case "open-to", "close-to":
 		all, _ := fs.GetBool("all")
 		target := ""
@@ -159,6 +163,10 @@ func printSources(out io.Writer, listing sourcesListing) {
 				}
 			}
 			fmt.Fprintf(out, "  %s/%s  %s  from %s  %s\n", a.Agent.Name, s.Name, s.Transport, s.Source, state)
+			if s.Transport == "remote" {
+				fmt.Fprintf(out, "    url: %s\n", deref(s.URL))
+				fmt.Fprintf(out, "    %s\n", authLine(a.Agent.Name+"/"+s.Name, s))
+			}
 			if s.SnapshotError != nil {
 				fmt.Fprintf(out, "    snapshot failed: %s\n", *s.SnapshotError)
 			}
@@ -234,6 +242,7 @@ type capabilityRecord struct {
 	Unavailable     []string              `json:"unavailable"`
 	Bounds          host.CapabilityBounds `json:"bounds"`
 	CredentialReach *host.GHReach         `json:"credential_reach"`
+	Auth            *host.AuthView        `json:"auth"`
 	Approval        struct {
 		Operations json.RawMessage `json:"operations"`
 		AgentSelf  *bool           `json:"agent_self"`
@@ -538,6 +547,10 @@ func runCapability(ctx context.Context, client host.Client, args []string, fs *p
 		return printJSON(out, data)
 	case "remove":
 		return removeCapability(ctx, client, args[2], fs, out, errOut)
+	case "login":
+		return runLogin(ctx, client, "capability", args[2], fs, out, errOut)
+	case "logout":
+		return runLogout(ctx, client, "capability", args[2], fs, out, errOut)
 	case "approval":
 		self, _ := fs.GetBool("agent-self")
 		noSelf, _ := fs.GetBool("no-agent-self")
@@ -685,7 +698,13 @@ func printReview(errOut io.Writer, address string, c capabilityRecord, server so
 		fmt.Fprintln(errOut, line)
 	}
 	printApprovalReview(errOut, c, server)
-	if c.Credential.EnvFile != nil || c.Credential.Args != nil {
+	auth := c.Auth
+	if auth == nil {
+		auth = server.Auth
+	}
+	if text := credentialText(c, server, auth); text != "" {
+		fmt.Fprintf(errOut, "Credential: %s\n", text)
+	} else if c.Credential.EnvFile != nil || c.Credential.Args != nil {
 		fmt.Fprintf(errOut, "Credentials: the capability's own environment file %s", deref(c.Credential.EnvFile))
 		if c.Credential.Args != nil {
 			fmt.Fprintf(errOut, ", with arguments %s", strings.Join(c.Credential.Args, " "))
@@ -763,13 +782,17 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 		if spec.source == "" || spec.name == "" || (!fs.Changed("operations") && !fs.Changed("resources")) || !yes {
 			return spec, listing, errors.New("without a terminal, share --with needs --from, --operations or --resources, --name, and --yes; nothing was created")
 		}
+		if agent, server, err := resolveSource(listing, spec.source); err == nil && deref(server.Reason) == "login" {
+			source := agent.Agent.Name + "/" + server.Name
+			return spec, listing, fmt.Errorf("%s needs a sign-in first: run peerspan sources login %s", source, source)
+		}
 		return spec, listing, nil
 	}
 	if spec.source == "" {
 		var choices []string
 		for _, a := range listing.Agents {
 			for _, s := range a.Servers {
-				if s.Shareable {
+				if s.Shareable || deref(s.Reason) == "login" {
 					choices = append(choices, a.Agent.Name+"/"+s.Name)
 				}
 			}
@@ -796,6 +819,18 @@ func guidedSpec(ctx context.Context, client host.Client, fs *pflag.FlagSet, errO
 	agent, server, err := resolveSource(listing, spec.source)
 	if err != nil {
 		return spec, listing, err
+	}
+	if deref(server.Reason) == "login" {
+		// A source that needs a sign-in gets it before the operations.
+		if err = signIn(ctx, client, agent.Agent.Name, server.Name, nil, loginOptions{command: "sources login"}, io.Discard, errOut); err != nil {
+			return spec, listing, err
+		}
+		if listing, err = readSources(ctx, client, "/v1/sources"); err != nil {
+			return spec, listing, err
+		}
+		if agent, server, err = resolveSource(listing, agent.Agent.Name+"/"+server.Name); err != nil {
+			return spec, listing, err
+		}
 	}
 	spec.source = agent.Agent.Name + "/" + server.Name
 	if !fs.Changed("operations") {
@@ -1461,6 +1496,13 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		}
 		fmt.Fprintf(out, "  bounds: %s\n", bounds)
 		fmt.Fprintf(out, "  reach: %s\n", entry["reach"])
+		for _, a := range listing.Agents {
+			if srv := a.server(c.Source.Server); a.Agent.Name == c.Source.Agent && srv != nil {
+				if text := credentialText(c, *srv, c.Auth); text != "" {
+					fmt.Fprintf(out, "  credential: %s\n", text)
+				}
+			}
+		}
 	}
 	for _, r := range rules {
 		if r["this_host"] == true {

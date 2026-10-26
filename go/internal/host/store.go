@@ -103,7 +103,9 @@ type Store struct {
 	moves       moveState   // move lookups and repair imports per network
 	// artifactQuota is the artifact quota in bytes; 0 means the default.
 	artifactQuota atomic.Int64
-	toolState     toolState   // discovery and snapshot serialization per agent
+	toolState     toolState // discovery and snapshot serialization per agent
+	oauthOnce     sync.Once
+	oauthMem      *oauthState
 	calls         callRuntime // running tool server instances and their calls
 }
 
@@ -159,7 +161,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 21 {
+	if version < 0 || version > 22 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -271,6 +273,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 21 {
 		if err = migrateBuiltin(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
+	if version < 22 {
+		if _, err = tx.ExecContext(ctx, oauthSchema); err != nil {
 			return nil, err
 		}
 	}

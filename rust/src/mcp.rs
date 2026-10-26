@@ -1,4 +1,5 @@
-//! A minimal MCP client over stdio (tools contract): the daemon starts a
+//! A minimal MCP client over stdio, or Streamable HTTP for remote servers
+//! (tools contract): the daemon starts a
 //! shared server as a child process, speaks newline-delimited JSON-RPC 2.0
 //! to it, and keeps one instance per agent, server, and profile for calls.
 //! Snapshots use a short-lived instance of their own.
@@ -43,7 +44,95 @@ pub struct Launch {
     pub env: Vec<(String, String)>,
     pub cwd: PathBuf,
     pub log: PathBuf,
+    /// For a remote server: its URL, headers, and OAuth tokens.
+    pub remote: Option<RemoteLaunch>,
 }
+
+/// What a token request asks of an OAuth credential.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TokenMode {
+    /// The current token, refreshed first when it expires within 60
+    /// seconds or was marked.
+    Use,
+    /// A refreshed token, unless the token refused (given) was already
+    /// replaced by another request's refresh.
+    Force(Option<String>),
+    /// Marks the token (given) so that the next request refreshes first,
+    /// while it is still the current one.
+    Mark(Option<String>),
+    /// The token (given) was refused after a refresh: the credential needs
+    /// a new sign-in, while that token is still the current one.
+    Lapse(Option<String>),
+}
+/// The credential needs a new sign-in.
+#[derive(Debug)]
+pub struct LoginRequired;
+pub type TokenFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Option<String>, LoginRequired>> + Send>,
+>;
+/// Provides a remote instance's OAuth access token.
+pub type Tokens = Arc<dyn Fn(TokenMode) -> TokenFuture + Send + Sync>;
+
+/// How to reach a remote server.
+#[derive(Clone)]
+pub struct RemoteLaunch {
+    pub url: String,
+    /// The definition's headers, with values and overrides applied.
+    pub headers: Vec<(String, String)>,
+    /// The OAuth credential's key, `(agent_id, server, capability)`, when
+    /// the instance uses one.
+    pub credential: Option<(String, String, String)>,
+    /// Set by the daemon before the instance starts.
+    pub tokens: Option<Tokens>,
+    /// Whether the harness left OAuth on (`remote.oauth` not null).
+    pub oauth_enabled: bool,
+}
+impl std::fmt::Debug for RemoteLaunch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteLaunch")
+            .field("url", &self.url)
+            .field("credential", &self.credential)
+            .finish_non_exhaustive()
+    }
+}
+
+/// How a request to a remote server failed without a JSON-RPC answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HttpKind {
+    /// 401.
+    Unauthorized,
+    /// 403 with an `insufficient_scope` challenge.
+    InsufficientScope,
+    /// 404 to a request carrying `MCP-Session-Id`.
+    SessionGone,
+    /// Another 4xx, a 3xx, or an unreadable 2xx: the server did not run it.
+    Failed,
+    /// A 5xx.
+    ServerError,
+    /// No connection, so nothing was sent.
+    Connect,
+    /// The connection dropped after the request was sent.
+    Lost,
+    /// The credential needs a new sign-in; nothing was sent.
+    LoginRequired,
+}
+#[derive(Clone, Debug)]
+pub struct HttpFail {
+    pub kind: HttpKind,
+    pub status: Option<u16>,
+    /// The `WWW-Authenticate` header of the answer.
+    pub authenticate: Option<String>,
+    pub detail: String,
+}
+impl std::fmt::Display for HttpFail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.status {
+            Some(status) => write!(f, "the server answered HTTP {status}"),
+            None => write!(f, "{}", self.detail),
+        }
+    }
+}
+impl std::error::Error for HttpFail {}
 
 /// A server's answer to one request.
 #[derive(Debug)]
@@ -57,13 +146,16 @@ pub enum Reply {
     },
     /// The result was larger than 1 MiB encoded.
     TooLarge,
+    /// A remote server's HTTP failure.
+    Http(HttpFail),
 }
 
 type Waiters = Arc<Mutex<HashMap<u64, oneshot::Sender<Reply>>>>;
 
-/// One running server process.
+/// One running server process, or one remote session.
 pub struct Client {
-    stdin: tokio::sync::Mutex<ChildStdin>,
+    stdin: Option<tokio::sync::Mutex<ChildStdin>>,
+    http: Option<Arc<crate::remote::Session>>,
     pending: Waiters,
     next_id: AtomicU64,
     exited: watch::Receiver<bool>,
@@ -191,7 +283,8 @@ impl Client {
         let (exit_tx, exited) = watch::channel(false);
         let pending: Waiters = Arc::default();
         let client = Arc::new(Self {
-            stdin: tokio::sync::Mutex::new(stdin),
+            stdin: Some(tokio::sync::Mutex::new(stdin)),
+            http: None,
             pending: pending.clone(),
             next_id: AtomicU64::new(1),
             exited,
@@ -274,10 +367,31 @@ impl Client {
         });
         Ok(client)
     }
+    /// Starts a remote session; nothing is sent until `initialize`.
+    pub fn remote(launch: &Launch) -> anyhow::Result<Arc<Self>> {
+        let Some(remote) = &launch.remote else {
+            anyhow::bail!("not a remote server");
+        };
+        drop(open_log(&launch.log)?);
+        let (exit_tx, exited) = watch::channel(false);
+        let session = crate::remote::Session::new(remote, launch.log.clone(), exit_tx)?;
+        Ok(Arc::new(Self {
+            stdin: None,
+            http: Some(Arc::new(session)),
+            pending: Arc::default(),
+            next_id: AtomicU64::new(1),
+            exited,
+            child: Mutex::new(None),
+            log: launch.log.clone(),
+        }))
+    }
     async fn write(&self, message: &Value) -> std::io::Result<()> {
+        let Some(stdin) = &self.stdin else {
+            return Err(std::io::Error::other("not a stdio server"));
+        };
         let mut line = serde_json::to_vec(message)?;
         line.push(b'\n');
-        let mut stdin = self.stdin.lock().await;
+        let mut stdin = stdin.lock().await;
         stdin.write_all(&line).await?;
         stdin.flush().await
     }
@@ -290,6 +404,16 @@ impl Client {
     ) -> std::io::Result<(u64, oneshot::Receiver<Reply>)> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
+        if let Some(http) = &self.http {
+            if self.has_exited() {
+                return Err(std::io::Error::other("the session ended"));
+            }
+            if let Ok(mut pending) = self.pending.lock() {
+                pending.insert(id, tx);
+            }
+            http.spawn_request(id, method.to_owned(), params, self.pending.clone());
+            return Ok((id, rx));
+        }
         if let Ok(mut pending) = self.pending.lock() {
             pending.insert(id, tx);
         }
@@ -305,10 +429,17 @@ impl Client {
         if let Ok(mut pending) = self.pending.lock() {
             pending.remove(&id);
         }
+        if let Some(http) = &self.http {
+            http.abandon(id);
+        }
     }
     pub async fn notify(&self, method: &str, params: Value) -> std::io::Result<()> {
-        self.write(&json!({"jsonrpc": "2.0", "method": method, "params": params}))
-            .await
+        let message = json!({"jsonrpc": "2.0", "method": method, "params": params});
+        if let Some(http) = &self.http {
+            http.notify(&message).await;
+            return Ok(());
+        }
+        self.write(&message).await
     }
     /// Tells the server a request is cancelled.
     pub async fn cancel(&self, id: u64, reason: &str) {
@@ -339,10 +470,19 @@ impl Client {
                 anyhow::bail!("initialize failed: {code} {message}")
             }
             Reply::TooLarge => anyhow::bail!("initialize returned too much"),
+            Reply::Http(fail) => return Err(anyhow::Error::new(fail)),
         };
         let version = result["protocolVersion"].as_str().unwrap_or_default();
-        if !SUPPORTED.contains(&version) {
+        let supported = if self.http.is_some() {
+            crate::remote::VERSIONS.contains(&version)
+        } else {
+            SUPPORTED.contains(&version)
+        };
+        if !supported {
             anyhow::bail!("the server negotiated unsupported protocol version {version:?}");
+        }
+        if let Some(http) = &self.http {
+            http.set_version(version);
         }
         self.notify("notifications/initialized", json!({})).await?;
         Ok(result["capabilities"].clone())
@@ -356,6 +496,10 @@ impl Client {
         let _ = exited.wait_for(|e| *e).await;
     }
     pub fn kill(&self) {
+        if let Some(http) = &self.http {
+            http.end();
+            return;
+        }
         if let Ok(mut child) = self.child.lock()
             && let Some(child) = child.as_mut()
         {
@@ -375,7 +519,11 @@ impl Drop for Client {
 /// Starts an instance and completes `initialize` within 30 seconds;
 /// otherwise stops it.
 pub async fn start(launch: &Launch) -> anyhow::Result<(Arc<Client>, Value)> {
-    let client = Client::spawn(launch)?;
+    let client = if launch.remote.is_some() {
+        Client::remote(launch)?
+    } else {
+        Client::spawn(launch)?
+    };
     match tokio::time::timeout(START_BOUND, client.initialize()).await {
         Ok(Ok(capabilities)) => Ok((client, capabilities)),
         Ok(Err(e)) => {
@@ -414,6 +562,7 @@ pub async fn list(
             Reply::Result(result, _) => result,
             Reply::Error { code, message } => anyhow::bail!("{method} failed: {code} {message}"),
             Reply::TooLarge => anyhow::bail!("{method} returned more than 1 MiB"),
+            Reply::Http(fail) => return Err(anyhow::Error::new(fail)),
         };
         for entry in result[field].as_array().into_iter().flatten() {
             if out.len() >= limit {
@@ -436,6 +585,9 @@ pub type Key = (String, String, String);
 pub struct Pool {
     slots: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<Option<Live>>>>>,
     failures: Mutex<HashMap<Key, Vec<Instant>>>,
+    /// Instances to retire that were busy starting when asked: the next
+    /// `instance` for the key retires whatever the start left in the slot.
+    pending_retire: Mutex<std::collections::HashSet<Key>>,
 }
 #[derive(Clone)]
 pub struct Live {
@@ -468,6 +620,14 @@ impl Pool {
     pub async fn instance(&self, key: &Key, launch: &Launch) -> anyhow::Result<Live> {
         let slot = self.slot(key);
         let mut guard = slot.lock().await;
+        let retire_now = self
+            .pending_retire
+            .lock()
+            .map(|mut p| p.remove(key))
+            .unwrap_or(false);
+        if retire_now {
+            retire(&mut guard);
+        }
         if let Some(live) = guard.as_ref()
             && !live.client.has_exited()
         {
@@ -485,11 +645,17 @@ impl Pool {
                 Ok(live)
             }
             Err(e) => {
-                let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-                failures
-                    .entry(key.clone())
-                    .or_default()
-                    .push(Instant::now());
+                // A refused sign-in does not count toward the start limit.
+                let auth = e.downcast_ref::<HttpFail>().is_some_and(|f| {
+                    matches!(f.kind, HttpKind::Unauthorized | HttpKind::LoginRequired)
+                });
+                if !auth {
+                    let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+                    failures
+                        .entry(key.clone())
+                        .or_default()
+                        .push(Instant::now());
+                }
                 Err(e)
             }
         }
@@ -518,25 +684,53 @@ impl Pool {
             }
         }
     }
+    /// Retires one instance, so the next call starts a new one (after a
+    /// sign-in or sign-out): an idle one is stopped; a busy one is detached,
+    /// finishes its calls, and stops when the last of them drops it.
+    pub fn stop_key(&self, key: &Key) {
+        let slot = {
+            let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+            slots.get(key).cloned()
+        };
+        if let Some(slot) = slot {
+            match slot.try_lock() {
+                Ok(mut guard) => retire(&mut guard),
+                Err(_) => self.mark_retire(key),
+            }
+        }
+    }
+    /// Records that an instance being started must be retired.
+    fn mark_retire(&self, key: &Key) {
+        if let Ok(mut pending) = self.pending_retire.lock() {
+            pending.insert(key.clone());
+        }
+    }
     /// Stops every instance of an agent's server, for example after its
     /// definition was dropped or changed.
     pub fn stop(&self, agent: &str, server: &str) {
-        let slots: Vec<Arc<tokio::sync::Mutex<Option<Live>>>> = {
+        let slots: Vec<(Key, Arc<tokio::sync::Mutex<Option<Live>>>)> = {
             let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
             slots
                 .iter()
                 .filter(|((a, s, _), _)| a == agent && s == server)
-                .map(|(_, v)| v.clone())
+                .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()
         };
-        for slot in slots {
-            if let Ok(mut guard) = slot.try_lock()
-                && let Some(live) = guard.as_ref()
-                && live.active.load(Ordering::Relaxed) == 0
-            {
-                live.client.kill();
-                *guard = None;
+        for (key, slot) in slots {
+            match slot.try_lock() {
+                Ok(mut guard) => retire(&mut guard),
+                Err(_) => self.mark_retire(&key),
             }
         }
+    }
+}
+
+/// Takes an instance out of its slot: stopped when idle, otherwise left to
+/// its running calls, which hold it until they end (its drop stops it).
+fn retire(slot: &mut Option<Live>) {
+    if let Some(live) = slot.take()
+        && live.active.load(Ordering::Relaxed) == 0
+    {
+        live.client.kill();
     }
 }

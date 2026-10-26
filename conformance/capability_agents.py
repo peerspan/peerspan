@@ -42,6 +42,8 @@ Sections, per pairing (contract Verification bullets in brackets):
 - bounds and gh (slice 3) [Resource bounds and the gh source, Verification: `bounds` and narrowed schemas in
   list_capabilities and GET /adapter/v1/capabilities, the description's sentence, call_capability on a gh capability,
   and an out_of_bounds refusal through call_capability running nothing];
+- remote (slice 3) [Remote MCP servers and OAuth, Verification, Capabilities and calls: a call through
+  call_capability on a remote capability, and a new call error passed through unchanged];
 - unanswered [Listing: `unanswered` with a stopped host].
 Once per run (from capabilities.py): migration from version 17 to 18 [Migration].
 
@@ -799,6 +801,7 @@ class AgentPairing:
         self.section('revocation', self.check_revocation)
         self.section('slash label (slice 1)', self.check_slash_label)
         self.section('bounds and gh (slice 3)', self.check_bounds_gh)
+        self.section('remote (slice 3)', self.check_remote)
         self.section('unanswered', self.check_unanswered)
         if self.setup_notes:
             print(f'NOTE {self.label} agent tools setup: ' + ' | '.join(self.setup_notes), flush=True)
@@ -2028,6 +2031,51 @@ class AgentPairing:
         need(gh.starts(since=mark) == [] and not self.executions('fx', 'no'), 'calls outside the bound run nothing')
         return ''
 
+    def check_remote(self):
+        """Slice 3, item A, for agents: call_capability on a capability built on a remote MCP server (a fake
+        Streamable HTTP server needing a fixed header, PUT to p1 as the CLI's discovery would), shared with quinn; the
+        new call errors pass through unchanged (auth_required for a 401 answer)."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent / 'fixtures' / 'remote'))
+        from remote import McpServer
+        p1 = self.hosts['p1']
+        value_ = 'agent-header-' + secrets.token_hex(8)
+        site = McpServer('agents-remote')
+        site.cfg.update(auth='headers', headers={'X-Agent-Key': value_})
+        try:
+            self.register('p1', 'srvremote', 'pat')
+            definition = {'name': 'rm', 'transport': 'remote', 'command': None, 'args': [], 'env': {},
+                          'url': site.url, 'source': 'claude-code:user',
+                          'remote': {'protocol': 'http', 'oauth': {'client_id': None, 'scopes': None,
+                                                                   'callback_port': None}, 'headers_helper': False},
+                          'headers': {'X-Agent-Key': {'source': 'literal'}}}
+            status, body = p1.call('PUT', f"/v1/agents/{self.aid['srvremote']}/tool-servers",
+                                   {'workspace': str(self.root), 'servers': [definition],
+                                    'values': {'rm': {'headers.X-Agent-Key': value_}}})
+            need(status == 200, 'setup: PUT a remote source', status, body)
+            self.create('p1', 'remcap', 'srvremote/rm', ['echo', 'status'])
+            self.share('p1', 'remcap', 'quinn', per_hour=1000)
+            self.sync_pat()
+            view, _ = self.ok_call('qa', 'pat/remcap', 'echo', {'text': 'remote-agent'}, wait=15,
+                                   rule='call_capability on a remote capability')
+            if view['state'] != 'succeeded':
+                view = self.final_view('qa', view['call_id'])
+            need(view['state'] == 'succeeded' and 'remote-agent' in json.dumps(view.get('result')),
+                 'call_capability on a remote capability succeeds with the server\'s result', view)
+            view, _ = self.ok_call('qa', 'pat/remcap', 'status', {'code': 401}, wait=15,
+                                   rule='call_capability with a 401 answer')
+            if view['state'] not in FINAL:
+                view = self.final_view('qa', view['call_id'])
+            need(view['state'] == 'failed' and view['error'] == 'auth_required',
+                 'the new error auth_required passes through call_capability unchanged', view)
+            sent = [e for e in site.executions if e['kind'] == 'call']
+            need(len(sent) == 2 and all(e['request']['headers'].get('x-agent-key') == value_ for e in sent),
+                 'each call reached the server once, with its header', len(sent))
+            need(value_ not in json.dumps(view), 'the header value never reaches the caller')
+        finally:
+            site.stop()
+        return ''
+
     def check_unanswered(self):
         self.hosts['p4'].stop()
         value = self.listing('qa')
@@ -3047,7 +3095,7 @@ def check_migration(original, replacement, label, baseline=None):
     approval tables, which later binaries add), credential records without the new fields, and user_version 17.
     Binaries since per-call approval migrate 17 on to the current version (host_service.SCHEMA_VERSION) and refuse
     19, which is reserved."""
-    from host_service import APPROVAL_TABLES, BUILTIN_TABLES, SCHEMA_VERSION, Host
+    from host_service import APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, SCHEMA_VERSION, Host
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-migration-') as directory:
         host = Host(baseline or original, Path(directory) / 'host')
         try:
@@ -3067,7 +3115,7 @@ def check_migration(original, replacement, label, baseline=None):
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                    for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
+                    for table in (*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
                         connection.execute(f'DROP TABLE {table}')
                     connection.execute(f'PRAGMA user_version = {VERSION - 1}')
                     connection.commit()

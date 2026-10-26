@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/peerspan/peerspan/go/internal/host"
@@ -47,7 +48,60 @@ type rawServer struct {
 	env                map[string]string
 	url                *string
 	envKeysOrderedHint []string
+	// Remote servers (slice 3): the protocol, the harness's OAuth hints
+	// (nil when OAuth is off), headersHelper, and the header texts.
+	protocol      string
+	oauth         *host.RemoteOAuth
+	headersHelper bool
+	headers       []rawHeader
 }
+
+// rawHeader is one configured header: text with ${VAR} references, or a
+// literal written as is.
+type rawHeader struct {
+	name, text string
+	literal    bool
+}
+
+// setHeader adds a header, replacing an earlier one of the same name
+// compared case-insensitively.
+func (r *rawServer) setHeader(h rawHeader) {
+	kept := r.headers[:0]
+	for _, old := range r.headers {
+		if !strings.EqualFold(old.name, h.name) {
+			kept = append(kept, old)
+		}
+	}
+	r.headers = append(kept, h)
+}
+
+func optionalString(v any) *string {
+	switch t := v.(type) {
+	case string:
+		return &t
+	case []any:
+		joined := strings.Join(stringList(t), " ")
+		return &joined
+	}
+	return nil
+}
+
+func optionalPort(v any) *int {
+	if f, ok := v.(float64); ok && f == float64(int(f)) {
+		n := int(f)
+		return &n
+	}
+	if n, ok := v.(int64); ok {
+		m := int(n)
+		return &m
+	}
+	return nil
+}
+
+// opencodeRefs rewrites OpenCode {env:VAR} references as ${VAR}.
+var opencodeRefs = regexp.MustCompile(`\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+func opencodeText(text string) string { return opencodeRefs.ReplaceAllString(text, "$${$1}") }
 
 // configHome is $XDG_CONFIG_HOME, by default ~/.config.
 func configHome(home string) string {
@@ -122,8 +176,23 @@ func claudeServers(entries any, source string) []rawServer {
 		r := rawServer{name: name, source: source, args: []string{}, env: map[string]string{}}
 		kind, _ := e["type"].(string)
 		r.url, _ = stringOf(e["url"])
-		if kind == "http" || kind == "sse" || (kind != "stdio" && r.url != nil) {
+		if kind == "http" || kind == "streamable-http" || kind == "sse" || (kind != "stdio" && r.url != nil) {
 			r.remote = true
+			r.protocol = "http"
+			if kind == "sse" {
+				r.protocol = "sse"
+			}
+			r.oauth = &host.RemoteOAuth{}
+			if o, ok := e["oauth"].(map[string]any); ok {
+				r.oauth.ClientID, _ = stringOf(o["clientId"])
+				r.oauth.Scopes = optionalString(o["scopes"])
+				r.oauth.CallbackPort = optionalPort(o["callbackPort"])
+			}
+			_, r.headersHelper = e["headersHelper"]
+			headers := stringMap(e["headers"])
+			for _, name := range sortedNames(headers) {
+				r.setHeader(rawHeader{name: name, text: headers[name]})
+			}
 		} else {
 			r.command, _ = stringOf(e["command"])
 			r.args = stringList(e["args"])
@@ -182,6 +251,25 @@ func discoverCodex(home string, d *discovery) [][]rawServer {
 		}
 		if r.url != nil {
 			r.remote = true
+			r.protocol = "http"
+			r.oauth = &host.RemoteOAuth{Scopes: optionalString(e["scopes"])}
+			if o, ok := e["oauth"].(map[string]any); ok {
+				r.oauth.CallbackPort = optionalPort(o["callback_port"])
+			}
+			if r.oauth.CallbackPort == nil {
+				r.oauth.CallbackPort = optionalPort(config["mcp_oauth_callback_port"])
+			}
+			literal := stringMap(e["http_headers"])
+			for _, name := range sortedNames(literal) {
+				r.setHeader(rawHeader{name: name, text: literal[name], literal: true})
+			}
+			fromEnv := stringMap(e["env_http_headers"])
+			for _, name := range sortedNames(fromEnv) {
+				r.setHeader(rawHeader{name: name, text: "${" + fromEnv[name] + "}"})
+			}
+			if variable, ok := e["bearer_token_env_var"].(string); ok {
+				r.setHeader(rawHeader{name: "Authorization", text: "Bearer ${" + variable + "}"})
+			}
 		} else {
 			r.command, _ = stringOf(e["command"])
 			r.args = stringList(e["args"])
@@ -205,6 +293,27 @@ func opencodeServers(config map[string]any, source string) []rawServer {
 		}
 		if kind == "remote" || (kind != "local" && r.url != nil) {
 			r.remote = true
+			r.protocol = "http"
+			if r.url != nil {
+				converted := opencodeText(*r.url)
+				r.url = &converted
+			}
+			switch o := e["oauth"].(type) {
+			case bool:
+				if o {
+					r.oauth = &host.RemoteOAuth{}
+				}
+			case map[string]any:
+				r.oauth = &host.RemoteOAuth{}
+				r.oauth.ClientID, _ = stringOf(o["clientId"])
+				r.oauth.Scopes = optionalString(o["scope"])
+			default:
+				r.oauth = &host.RemoteOAuth{}
+			}
+			headers := stringMap(e["headers"])
+			for _, name := range sortedNames(headers) {
+				r.setHeader(rawHeader{name: name, text: opencodeText(headers[name])})
+			}
 		} else {
 			command := stringList(e["command"])
 			if len(command) > 0 {
@@ -295,7 +404,7 @@ func discoverServers(integrationID, workspace string) discovery {
 	sort.Strings(names)
 	for _, name := range names {
 		r := chosen[name]
-		def := host.ToolServerDefinition{Name: name, Transport: "stdio", Args: []string{}, Env: map[string]host.ToolEnv{}, Source: r.source, Disabled: r.disabled}
+		def := host.ToolServerDefinition{Name: name, Transport: "stdio", Args: []string{}, Env: map[string]host.ToolEnv{}, Headers: map[string]host.ToolEnv{}, Source: r.source, Disabled: r.disabled}
 		values := map[string]string{}
 		if !r.remote && (r.command == nil || *r.command == "") {
 			// A stdio entry without a command is reported, not sent.
@@ -309,6 +418,32 @@ func discoverServers(integrationID, workspace string) discovery {
 		}
 		if r.remote {
 			def.Transport, def.URL = "remote", r.url
+			def.Remote = &host.RemoteDefinition{Protocol: r.protocol, OAuth: r.oauth, HeadersHelper: r.headersHelper}
+			def.Headers = map[string]host.ToolEnv{}
+			if r.url != nil {
+				if resolved, found, missing := resolveReferences(*r.url, os.LookupEnv); found && len(missing) == 0 {
+					values["url"] = resolved
+				}
+			}
+			for _, h := range r.headers {
+				if h.literal {
+					def.Headers[h.name] = host.ToolEnv{Source: "literal"}
+					values["headers."+h.name] = h.text
+					continue
+				}
+				resolved, found, missing := resolveReferences(h.text, os.LookupEnv)
+				switch {
+				case !found:
+					def.Headers[h.name] = host.ToolEnv{Source: "literal"}
+					values["headers."+h.name] = h.text
+				case len(missing) > 0:
+					def.Headers[h.name] = host.ToolEnv{Source: "missing", Variables: dedupeNames(missing)}
+				default:
+					def.Headers[h.name] = host.ToolEnv{Source: "captured", Variables: referenceNames(h.text)}
+					values["headers."+h.name] = resolved
+					values["header_templates."+h.name] = h.text
+				}
+			}
 		} else {
 			def.Command, def.Args = r.command, r.args
 			if r.command != nil {
@@ -341,4 +476,35 @@ func discoverServers(integrationID, workspace string) discovery {
 		}
 	}
 	return d
+}
+
+func sortedNames(m map[string]string) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func dedupeNames(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// referenceNames lists the variables a text references, in order of first
+// appearance.
+func referenceNames(text string) []string {
+	var names []string
+	for _, m := range referencePattern.FindAllStringSubmatch(text, -1) {
+		names = append(names, m[1])
+	}
+	return dedupeNames(names)
 }

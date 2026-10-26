@@ -93,17 +93,19 @@ type capabilityRecord struct {
 	// Approval is the approval requirement; a record without one reads as
 	// none with agent_self true.
 	Approval *ApprovalRequirement `json:"approval,omitempty"`
+	// OwnSignIn marks a capability with its own OAuth sign-in.
+	OwnSignIn bool `json:"own_sign_in,omitempty"`
 }
 
 func (c capabilityRecord) ownInstance() bool {
-	return c.Credential.EnvFile != nil || c.Credential.Args != nil
+	return c.Credential.EnvFile != nil || c.Credential.Args != nil || c.OwnSignIn
 }
 
 func (c capabilityRecord) credential() *ownCredential {
 	if !c.ownInstance() {
 		return nil
 	}
-	return &ownCredential{capability: c.Name, envFile: c.Credential.EnvFile, args: c.Credential.Args}
+	return &ownCredential{capability: c.Name, envFile: c.Credential.EnvFile, args: c.Credential.Args, ownSignIn: c.OwnSignIn}
 }
 
 // Capability is a capability record as the local API shows it.
@@ -121,6 +123,8 @@ type Capability struct {
 	// CredentialReach is the gh reach of the capability's credential: its
 	// own snapshot's, or its source's; null for other sources.
 	CredentialReach *GHReach `json:"credential_reach"`
+	// Auth is the credential of a capability on a remote source.
+	Auth *AuthView `json:"auth"`
 }
 
 // CapabilityCreated is the POST /v1/capabilities answer: the view and the
@@ -203,7 +207,7 @@ func capabilitySnapshot(ctx context.Context, q dbQuerier, c capabilityRecord) (t
 	if errors.Is(err, ErrNotFound) {
 		return toolSnapshotState{}, false, nil
 	}
-	if err != nil || !rec.Shareable {
+	if err != nil || !(rec.Shareable || deref(rec.Reason) == reasonLogin) {
 		return toolSnapshotState{}, false, err
 	}
 	if c.ownInstance() {
@@ -240,6 +244,15 @@ func capabilityState(ctx context.Context, q dbQuerier, c capabilityRecord) (stri
 	if !present {
 		return CapabilityUnavailable, []string{unavailableSource}, snap, nil
 	}
+	if c.AgentID != builtinAgent {
+		rec, err := readToolServer(ctx, q, c.AgentID, c.Source.Server)
+		if err != nil {
+			return "", nil, snap, err
+		}
+		if lapsed, err := capabilityAuthLapsed(ctx, q, c, rec); err != nil || lapsed {
+			return CapabilityUnavailable, []string{unavailableAuth}, snap, err
+		}
+	}
 	missing := []string{}
 	for _, op := range c.Operations {
 		if _, ok := snapshotTool(snap, op); !ok {
@@ -265,6 +278,9 @@ func (s *Store) capabilityView(ctx context.Context, q dbQuerier, c capabilityRec
 		ops = []string{}
 	}
 	view := Capability{Name: c.Name, Source: c.Source, Operations: ops, Resources: c.Resources, Credential: c.Credential, Bounds: c.Bounds, Approval: c.requirement(), State: state, Unavailable: unavailable, CreatedAt: c.CreatedAt}
+	if view.Auth, err = capabilityAuth(ctx, q, c); err != nil {
+		return Capability{}, err
+	}
 	if c.Source.Agent == builtinAgent {
 		if c.ownInstance() {
 			if c.Snapshot != nil {
@@ -420,6 +436,9 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	if err != nil {
 		return Capability{}, err
 	}
+	if rec.Transport == "remote" && r.Args != nil {
+		return Capability{}, &codedError{status: http.StatusBadRequest, code: "invalid", message: "--arg applies only to stdio sources"}
+	}
 	if old, err := readCapability(ctx, s.db, r.Name); err == nil {
 		if !sameCapability(old, r, bounds) {
 			return Capability{}, fmt.Errorf("%w: a different capability %s exists on this host", ErrConflict, r.Name)
@@ -457,7 +476,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		spec, err := s.toolLaunch(ctx, s.db, agentID, r.Source.Server, c.credential())
 		var taken toolSnapshot
 		if err == nil {
-			taken, err = takeSnapshot(context.WithoutCancel(ctx), spec)
+			taken, err = s.takeSnapshot(context.WithoutCancel(ctx), spec)
 		}
 		if err != nil {
 			return Capability{}, fmt.Errorf("%w: the snapshot with the capability's credential failed: %v", ErrInvalid, err)
@@ -744,12 +763,18 @@ func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, 
 	if _, err = tx.ExecContext(ctx, `DELETE FROM capabilities WHERE name = ?`, name); err != nil {
 		return view, err
 	}
+	// The capability's own sign-in goes with it.
+	revoke, err := deleteCredentials(ctx, tx, c.AgentID, c.Source.Server, &name)
+	if err != nil {
+		return view, err
+	}
 	if err = appendEvent(ctx, tx, "capability.removed", name, timestamp(time.Now())); err != nil {
 		return view, err
 	}
 	if err = tx.Commit(); err != nil {
 		return view, err
 	}
+	s.revokeInBackground(revoke)
 	s.retireCapability(name)
 	return view, nil
 }

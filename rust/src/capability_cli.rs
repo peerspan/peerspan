@@ -600,6 +600,30 @@ async fn sources(
             }
             Ok(Some(Value::Array(out)))
         }
+        Some(SourcesCommand::Login {
+            source,
+            scopes,
+            client_id,
+            client_secret_file,
+            port,
+            no_browser,
+            account,
+        }) => {
+            let flags = crate::sign_in_cli::SignIn {
+                scopes: scopes.as_deref(),
+                client_id: client_id.as_deref(),
+                client_secret_file: client_secret_file.as_deref(),
+                port: *port,
+                no_browser: *no_browser,
+                account: account.as_deref().filter(|a| !a.is_empty()),
+            };
+            Ok(Some(
+                crate::sign_in_cli::sources_login(local, source, &flags).await?,
+            ))
+        }
+        Some(SourcesCommand::Logout { source, yes }) => Ok(Some(
+            crate::sign_in_cli::sources_logout(local, source, *yes).await?,
+        )),
         Some(SourcesCommand::OpenTo { host, all }) => {
             let host = if *all {
                 "*".to_owned()
@@ -897,6 +921,28 @@ async fn capability(local: &Local<'_>, c: &CapabilityCommand) -> anyhow::Result<
                 .put(format!("/v1/capabilities/{}/approval", encoded(name)), body)
                 .await?
         }
+        CapabilityCommand::Login {
+            name,
+            scopes,
+            client_id,
+            client_secret_file,
+            port,
+            no_browser,
+            account,
+        } => {
+            let flags = crate::sign_in_cli::SignIn {
+                scopes: scopes.as_deref(),
+                client_id: client_id.as_deref(),
+                client_secret_file: client_secret_file.as_deref(),
+                port: *port,
+                no_browser: *no_browser,
+                account: account.as_deref().filter(|a| !a.is_empty()),
+            };
+            crate::sign_in_cli::capability_login(local, name, &flags).await?
+        }
+        CapabilityCommand::Logout { name } => {
+            crate::sign_in_cli::capability_logout(local, name).await?
+        }
         CapabilityCommand::List { json } => {
             let value = local.get("/v1/capabilities?lookup=true".into()).await?;
             if !*json {
@@ -1133,7 +1179,7 @@ async fn share(
                     let view = sources_view(local).await?;
                     for a in view["agents"].as_array().into_iter().flatten() {
                         for s in a["servers"].as_array().into_iter().flatten() {
-                            if s["shareable"] == true {
+                            if s["shareable"] == true || s["reason"] == "login" {
                                 eprintln!(
                                     "  {}/{}",
                                     a["agent"]["name"].as_str().unwrap_or_default(),
@@ -1145,7 +1191,25 @@ async fn share(
                     prompt("Source (AGENT/SERVER)", None)?
                 }
             };
-            let (agent, server, source) = source_of(local, &from).await?;
+            let (agent, server, mut source) = source_of(local, &from).await?;
+            // A source that needs a sign-in gets it first, at a terminal.
+            if source["reason"] == "login" {
+                if !terminal {
+                    bail!(
+                        "{agent}/{server} needs a sign-in first: run peerspan sources login {agent}/{server}"
+                    );
+                }
+                let flags = crate::sign_in_cli::SignIn {
+                    scopes: None,
+                    client_id: None,
+                    client_secret_file: None,
+                    port: None,
+                    no_browser: false,
+                    account: None,
+                };
+                crate::sign_in_cli::sign_in(local, &agent, &server, None, &flags).await?;
+                source = source_of(local, &format!("{agent}/{server}")).await?.2;
+            }
             let (operations, resources) =
                 if guided.operations.is_some() || guided.resources.is_some() || !terminal {
                     (guided.operations.clone(), guided.resources.clone())
@@ -1342,9 +1406,24 @@ async fn share(
     for line in approval_review(&record, &cap, &read_only) {
         eprintln!("{line}");
     }
-    match record["credential"]["env_file"].as_str() {
-        Some(file) => eprintln!("Credentials: the capability's environment file {file}"),
-        None => eprintln!("Credentials: the source's own environment on this host"),
+    let (auth, own) = if record["draft"] == true {
+        (source_view["auth"].clone(), false)
+    } else {
+        (record["auth"].clone(), record["auth"]["own"] == true)
+    };
+    match crate::sign_in_cli::credential_text(
+        &source_view,
+        &auth,
+        own,
+        record["credential"]["env_file"].as_str(),
+        record["source"]["agent"].as_str().unwrap_or_default(),
+        &cap,
+    ) {
+        Some(text) => eprintln!("Credential: {text}"),
+        None => match record["credential"]["env_file"].as_str() {
+            Some(file) => eprintln!("Credentials: the capability's environment file {file}"),
+            None => eprintln!("Credentials: the source's own environment on this host"),
+        },
     }
     let persons = local
         .get(format!("/v1/networks/{}/persons", encoded(network)))
@@ -1894,7 +1973,25 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
             Some(&c["credential_reach"]),
             builtin.as_ref().and_then(|b| b["account"].as_str()),
         );
+        let remote_source = sources["agents"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|a| a["agent"]["name"] == c["source"]["agent"])
+            .flat_map(|a| a["servers"].as_array().cloned().unwrap_or_default())
+            .find(|s| s["name"] == c["source"]["server"])
+            .unwrap_or(Value::Null);
+        let credential_text = crate::sign_in_cli::credential_text(
+            &remote_source,
+            &c["auth"],
+            c["auth"]["own"] == true,
+            c["credential"]["env_file"].as_str(),
+            c["source"]["agent"].as_str().unwrap_or_default(),
+            name,
+        );
         entries.push(json!({
+            "auth": c["auth"],
+            "credential_text": credential_text,
             "bounds": c["bounds"],
             "reach": reach_statement("Recipients", gh, &c["bounds"], &sentence),
             "capability": name,
@@ -2208,26 +2305,41 @@ fn readable_sources(view: &Value) -> String {
     let mut out = String::new();
     for a in view["agents"].as_array().into_iter().flatten() {
         let agent = a["agent"]["name"].as_str().unwrap_or_default();
+        out += &format!(
+            "{agent} ({})\n",
+            a["agent"]["id"].as_str().unwrap_or_default()
+        );
         let servers = a["servers"].as_array().cloned().unwrap_or_default();
         if servers.is_empty() {
-            out += &format!("{agent}: no sources found\n");
+            out += "  no sources discovered\n";
         }
         for s in servers {
             let name = s["name"].as_str().unwrap_or_default();
-            out += &format!(
-                "{agent}/{name} ({}){}\n",
-                s["source"].as_str().unwrap_or_default(),
-                match s["reason"].as_str() {
-                    Some(r) => format!(": not shareable ({r})"),
-                    None => String::new(),
+            let state = match s["reason"].as_str() {
+                None => "usable".to_owned(),
+                Some(r) => {
+                    let missing = list_text(&s["missing_env"]);
+                    if missing.is_empty() {
+                        format!("not usable: {r}")
+                    } else {
+                        format!("not usable: {r} ({missing})")
+                    }
                 }
+            };
+            out += &format!(
+                "  {agent}/{name}  {}  from {}  {state}\n",
+                s["transport"].as_str().unwrap_or_default(),
+                s["source"].as_str().unwrap_or_default(),
             );
+            if s["transport"] == "remote" {
+                out += &crate::sign_in_cli::remote_lines(agent, &s);
+            }
             if let Some(e) = s["snapshot_error"].as_str() {
-                out += &format!("  snapshot failed: {e}\n");
+                out += &format!("    snapshot failed: {e}\n");
             }
             for t in s["tools"].as_array().into_iter().flatten() {
                 out += &format!(
-                    "  tool {}{}\n",
+                    "    tool {}{}\n",
                     t["name"].as_str().unwrap_or_default(),
                     if t["read_only"] == true {
                         " (read-only)"
@@ -2237,11 +2349,11 @@ fn readable_sources(view: &Value) -> String {
                 );
             }
             for r in s["resources"].as_array().into_iter().flatten() {
-                out += &format!("  resource {}\n", r["uri"].as_str().unwrap_or_default());
+                out += &format!("    resource {}\n", r["uri"].as_str().unwrap_or_default());
             }
             let caps = list_text(&s["capabilities"]);
             if !caps.is_empty() {
-                out += &format!("  capabilities: {caps}\n");
+                out += &format!("    capabilities: {caps}\n");
             }
         }
     }
@@ -2336,6 +2448,9 @@ fn readable_shares(value: &Value) -> String {
                 .map(|s| format!(" ({s})"))
                 .unwrap_or_default()
         );
+        if let Some(text) = e["credential_text"].as_str() {
+            out += &format!("  credential: {text}\n");
+        }
         if let Some(reach) = e["reach"].as_str() {
             let combinations = peerspan_host::bounds::of_record(&e["bounds"]);
             out += &format!(

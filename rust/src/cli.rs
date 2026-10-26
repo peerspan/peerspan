@@ -495,6 +495,36 @@ pub enum SourcesCommand {
         #[arg(long)]
         all: bool,
     },
+    /// Sign Peerspan in to a remote source's server (OAuth)
+    Login {
+        #[arg(value_name = "SOURCE")]
+        source: String,
+        /// Scopes to ask for, space-separated
+        #[arg(long, value_name = "SCOPES")]
+        scopes: Option<String>,
+        /// A client ID registered with the provider
+        #[arg(long, value_name = "ID")]
+        client_id: Option<String>,
+        /// A file holding that client's secret (mode 0600 or stricter)
+        #[arg(long, value_name = "PATH")]
+        client_secret_file: Option<PathBuf>,
+        /// The loopback port of the redirect
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..))]
+        port: Option<u16>,
+        /// Print the link, and read the pasted address from stdin
+        #[arg(long)]
+        no_browser: bool,
+        /// Your own label for the provider account that approves
+        #[arg(long, value_name = "LABEL")]
+        account: Option<String>,
+    },
+    /// Revoke and delete this host's sign-in for a remote source
+    Logout {
+        #[arg(value_name = "SOURCE")]
+        source: String,
+        #[arg(long)]
+        yes: bool,
+    },
     /// Stop letting a machine call this host's sources directly
     CloseTo {
         #[arg(
@@ -553,6 +583,34 @@ pub enum CapabilityCommand {
         /// Self-access calls from your agents need no approval
         #[arg(long)]
         no_agent_self: bool,
+    },
+    /// Give a capability its own sign-in to its remote source (OAuth)
+    Login {
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Scopes to ask for, space-separated
+        #[arg(long, value_name = "SCOPES")]
+        scopes: Option<String>,
+        /// A client ID registered with the provider
+        #[arg(long, value_name = "ID")]
+        client_id: Option<String>,
+        /// A file holding that client's secret (mode 0600 or stricter)
+        #[arg(long, value_name = "PATH")]
+        client_secret_file: Option<PathBuf>,
+        /// The loopback port of the redirect
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..))]
+        port: Option<u16>,
+        /// Print the link, and read the pasted address from stdin
+        #[arg(long)]
+        no_browser: bool,
+        /// Your own label for the provider account that approves
+        #[arg(long, value_name = "LABEL")]
+        account: Option<String>,
+    },
+    /// Revoke and delete a capability's own sign-in
+    Logout {
+        #[arg(value_name = "NAME")]
+        name: String,
     },
     /// List this host's capabilities
     List {

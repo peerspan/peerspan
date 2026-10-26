@@ -181,6 +181,8 @@ fn as_server(d: &BuiltinDefinition) -> crate::sources::Definition {
         url: None,
         source: AGENT.into(),
         disabled: None,
+        remote: None,
+        headers: None,
     }
 }
 
@@ -318,6 +320,8 @@ impl Store {
                 health: previous.map(|p| p.health.clone()).unwrap_or_default(),
                 updated_at: at.clone(),
                 builtin: Some(d.clone()),
+                auth_mode: None,
+                challenge: None,
             };
             save(&tx, &record)?;
             for (field, value) in &new_values {
@@ -336,7 +340,7 @@ impl Store {
         }
         for c in capability_records(&tx)? {
             if c.agent_id == AGENT
-                && c.credential.own()
+                && c.own_instance()
                 && snapshot
                     .iter()
                     .any(|i| i.capability.is_none() && i.server == c.source.server)
@@ -369,6 +373,9 @@ impl Store {
                 "args": [],
                 "env": b.env,
                 "url": null,
+                "remote": null,
+                "headers": {},
+                "auth": null,
                 "source": AGENT,
                 "version": b.version,
                 "host": b.host,

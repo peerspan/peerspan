@@ -1,6 +1,6 @@
 # Remote MCP servers and OAuth (capabilities slice 3, item A)
 
-Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [decision 16](capabilities-contract.md#owner-decisions) in the capabilities contract. The recommended design below is the design for item A; it is not yet implemented, and its contract section is added when it is.
+Status: **Accepted on 2026-10-25.** The owner accepted every recommendation under [Owner decisions needed](#owner-decisions-needed), recorded as [decision 16](capabilities-contract.md#owner-decisions) in the capabilities contract. The recommended design below is the design for item A. It is implemented in [PR #86](https://github.com/peerspan/peerspan-internal/pull/86), specified in the contract section [Remote MCP servers and OAuth (slice 3)](capabilities-contract.md#remote-mcp-servers-and-oauth-slice-3), which applies where the two differ.
 
 Milestone 10, slice 3 has four parts, proposed separately: (A) remote MCP servers and OAuth, this document; (B) approval of each call; (C) sharing with one agent; (D) optional resource bounds and non-MCP sources such as a `gh` adapter. This document builds on the [capabilities contract](capabilities-contract.md) (slices 1 and 2) and the [credentials analysis](tool-credentials.md#remote-servers-with-oauth). It does not change policy v2, the peer routes, or the agent tools.
 

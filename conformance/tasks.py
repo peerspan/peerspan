@@ -22,7 +22,7 @@ import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
 from coordination import Coordinator, wait_for
-from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES, stop_all
+from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES, stop_all
 from peer_messaging import DropResponse, PeerHost, fixture_context, set_probe, timestamp, wire
 
 STATUS_KEYS = {'task_id', 'sender_host_id', 'receiver_host_id', 'target_agent_id', 'state', 'cancel_requested',
@@ -598,7 +598,7 @@ def migration_check(original, replacement, label):
             identity = host.start()
             agent = host.cli('agent', 'register', '--name', 'kept', '--owner', 'pat')
             host.stop()
-            for table in [*BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
+            for table in [*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *AGENT_CALL_TABLES, *POLICY_EDIT_TABLES, *CAPABILITY_TABLES, *POLICY_DELIVERY_TABLES, *DELEGATION_TABLES, *ARTIFACT_TABLES, *TASK_TABLES]:
                 sql(host, 'DROP TABLE ' + table)
             sql(host, 'PRAGMA user_version = 8')
             host.binary = str(replacement)

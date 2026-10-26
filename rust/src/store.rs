@@ -106,6 +106,8 @@ pub struct Store {
     pub(crate) coordinator_moves: Mutex<BTreeMap<String, crate::coordinator_move::Tracker>>,
     /// Running instances of shared MCP servers.
     pub(crate) tool_pool: crate::mcp::Pool,
+    /// OAuth sign-ins waiting for their redirect, and refresh locks.
+    pub(crate) oauth: crate::oauth::OAuthState,
     /// Received calls being dispatched and run.
     pub(crate) call_runner: crate::calls::Runner,
     /// Held call requests and held status requests (owner decision 15).
@@ -145,7 +147,7 @@ impl Store {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;")?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if !(0..=21).contains(&version) {
+        if !(0..=22).contains(&version) {
             bail!("unsupported host database version: {version}");
         }
         let tx = connection.transaction()?;
@@ -211,6 +213,9 @@ impl Store {
         }
         if version < 21 {
             tx.execute_batch(crate::builtin::SCHEMA)?;
+        }
+        if version < 22 {
+            tx.execute_batch(crate::oauth::SCHEMA)?;
         }
         let stored: Option<(Vec<u8>, String)> = tx
             .query_row(
@@ -309,6 +314,7 @@ impl Store {
             agent_directory: Mutex::new(Default::default()),
             agent_labels: Mutex::new(Default::default()),
             tool_pool: Default::default(),
+            oauth: Default::default(),
             call_runner: Default::default(),
             call_timing: Default::default(),
             link_mutation: Default::default(),

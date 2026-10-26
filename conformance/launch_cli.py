@@ -78,7 +78,10 @@ HIDDEN_COMMANDS = [
 ]
 # `capabilities` added by the capabilities contract (Status).
 STATUS_KEYS = {'host_id', 'version', 'networks', 'blocks', 'agents', 'artifacts', 'capabilities', 'attention'}
-CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running'}
+# Per-call approval (capabilities slice 3) adds approvals_pending; remote MCP servers (slice 3) remote_sources and
+# signed_in.
+CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running', 'approvals_pending', 'remote_sources',
+                     'signed_in'}
 NETWORK_KEYS = {'id', 'name', 'coordinator', 'last_sync_at', 'last_sync_error', 'members', 'person', 'policy',
                 'policy_deliveries_pending'}
 SESSION_KEYS = {'id', 'integration', 'adapter_id', 'connection', 'expires_at', 'renewable'}
@@ -308,7 +311,8 @@ def check(coord_binary, cli_binary, daemon_binary, label):
             assert fresh['host_id'] == a and fresh['networks'] == [] and fresh['attention'] == [], fresh
             assert fresh['artifacts'] == {'quota': QUOTA, 'stored_bytes': 0, 'pending_bytes': 0}, fresh
             assert capability_counts(fresh) == {'sources': 0, 'capabilities': 0, 'shared': 0, 'calls_running': 0,
-                                                'open_to': 0}, fresh
+                                                'open_to': 0, 'approvals_pending': 0, 'remote_sources': 0,
+                                                'signed_in': 0}, fresh
             assert alice.run('status').returncode == 0
             same = alice.status(long)
             assert {k: v for k, v in same.items()} == fresh, (same, fresh)

@@ -91,6 +91,13 @@ and the agent timeout case; and once per run, migration from versions 18 and 19 
 real version 18 state as well). It also needs `--node` (`--skip-approval` skips it; `--approval-only` runs only it, and
 `--approval-section` selects sections), and `--baseline18`, a version 18 peerspan-host, for the older-peer cases.
 
+Slice 3 item A (remote MCP servers and OAuth) runs from conformance/capability_remote.py, in a topology of its own per
+pairing, after the item B sections, with fake Streamable HTTP MCP servers and fake OAuth authorization servers
+(fixtures/remote/remote.py) on loopback HTTP; and once per run, migration from version 21 (with `--baseline18`, from a
+real version 18 state too) to 22. Its older-peer section needs `--baseline18`; its agent case (call_capability on a
+remote capability) runs in the slice 2 section "remote (slice 3)". `--skip-remote` skips it; `--remote-only` runs only
+it, and `--remote-section` selects sections. A pairing waits about 11 minutes for its idle-stop case.
+
 Where the contract is silent, the suite takes the narrowest reading or makes no assertion; those spots are marked
 "ambiguous" in comments and soft results are printed as NOTE lines, not failures.
 
@@ -118,7 +125,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
+from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
@@ -138,11 +145,12 @@ ATTACH_ERROR_KEYS = {'source', 'path', 'server', 'error'}
 SOURCES_AGENT_KEYS = {'agent', 'workspace', 'servers'}
 SERVER_KEYS = {'name', 'transport', 'command', 'args', 'env', 'url', 'source', 'disabled', 'shareable', 'reason',
                'missing_env', 'tools', 'resources', 'snapshot_at', 'snapshot_error', 'start_failed_at',
-               'auth_error_at', 'capabilities'}
+               'auth_error_at', 'capabilities', 'remote', 'headers', 'auth'}
 RECORD_KEYS = {'name', 'source', 'operations', 'resources', 'credential', 'bounds', 'state', 'unavailable',
                'created_at', 'approval'}
 # Slice 3 (Resource bounds: The capability view): the view adds credential_reach, and the POST response warnings.
-VIEW_KEYS = RECORD_KEYS | {'credential_reach'}
+# Slice 3 (Remote MCP servers and OAuth: `auth` in the capability view): the view adds auth (null for stdio sources).
+VIEW_KEYS = RECORD_KEYS | {'credential_reach', 'auth'}
 CREATED_KEYS = VIEW_KEYS | {'warnings'}
 RECIPIENT_KEYS = {'network_id', 'principal', 'label'}
 CAP_RULE_KEYS = {'host', 'capability', 'principals', 'max_input_bytes', 'allow_disconnected', 'max_calls_per_hour'}
@@ -164,7 +172,9 @@ OUTBOUND_KEYS = {'peer_host_id', 'target', 'network_id', 'request', 'submit_stat
 DISCOVER_KEYS = {'agents', 'capabilities', 'unanswered'}
 DISCOVER_ENTRY_KEYS = {'address', 'host_id', 'kind', 'capability', 'operations', 'resources', 'state',
                        'unavailable', 'via', 'bounds'}
-CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running', 'approvals_pending'}
+# Remote MCP servers and OAuth (slice 3, Status) add remote_sources and signed_in.
+CAPABILITY_COUNTS = {'sources', 'capabilities', 'shared', 'calls_running', 'approvals_pending', 'remote_sources',
+                     'signed_in'}
 FINAL = {'succeeded', 'failed', 'rejected', 'expired', 'cancelled', 'uncertain'}
 LAPSED = 'authorization lapsed before start'
 JOIN_PROMPT = ('Let this machine use your capabilities on your other machines, and the tools of those that allow '
@@ -1280,8 +1290,8 @@ class Pairing:
         need([e['server'] for e in errors] == ['nocmd'], 'a stdio entry without a command is reported in errors',
              errors)
         for name, transport, shareable, reason in (('fx', 'stdio', True, None), ('Bad.Name', 'stdio', False, 'name'),
-                                                   ('rem', 'remote', False, 'remote'),
-                                                   ('sserem', 'remote', False, 'remote'),
+                                                   ('rem', 'remote', True, None),
+                                                   ('sserem', 'remote', False, 'sse'),
                                                    ('needy', 'stdio', False, 'missing_env'),
                                                    ('proj', 'stdio', True, None), ('lit', 'stdio', True, None)):
             x = cc[name]
@@ -1327,6 +1337,19 @@ class Pairing:
              'unresolved references are {source: missing, variables}', servers['needy']['env'])
         need(servers['rem']['tools'] == [] and servers['rem']['resources'] == [] and servers['rem']['url'],
              'tools and resources are [] without a snapshot', servers['rem'])
+        # Slice 3 (Remote MCP servers and OAuth): the reason `remote` is retired. An https server that cannot be
+        # reached has no definition reason, so it is shareable; its probe failing is a snapshot_error, and its auth
+        # mode stays null (not reached yet).
+        need(isinstance(servers['rem']['snapshot_error'], str) and servers['rem']['snapshot_error'] and
+             servers['rem']['remote'] == {'protocol': 'http', 'oauth': {'client_id': None, 'scopes': None,
+                                                                        'callback_port': None},
+                                          'headers_helper': False} and servers['rem']['headers'] == {} and
+             servers['rem']['auth'] == {'mode': None, 'state': None, 'issuer': None, 'scope': None, 'account': None,
+                                        'registration': None, 'obtained_at': None, 'expires_at': None},
+             'an unreachable remote server: a snapshot_error, the default remote fields, and auth mode null (slice 3)',
+             {k: servers['rem'].get(k) for k in ('snapshot_error', 'remote', 'headers', 'auth')})
+        need(servers['fx']['remote'] is None and servers['fx']['headers'] == {} and servers['fx']['auth'] is None,
+             'a stdio source lists remote null, headers {}, and auth null (slice 3)', servers['fx'])
 
         cc2 = attach_servers('cc2')
         need(set(cc2) == {'fx', 'Bad.Name', 'rem'}, 'Claude Code: only the user scope for another workspace', sorted(cc2))
@@ -1342,8 +1365,12 @@ class Pairing:
              sorted(cx))
         need(cx['cxs']['shareable'] is True and cx['cxs']['reason'] is None, 'Codex stdio server shareable '
              '(startup_timeout_ms ignored)', cx['cxs'])
-        need(cx['cxoff']['reason'] == 'disabled' and cx['cxrem']['reason'] == 'remote' and
-             cx['cxoffrem']['reason'] == 'remote', 'disabled, remote, and remote before disabled', cx)
+        # Slice 3: `remote` is retired and `disabled` precedes the remote reasons; an unreachable https server has no
+        # reason (its probe failure is a snapshot_error).
+        need(cx['cxoff']['reason'] == 'disabled' and cx['cxrem']['reason'] is None and
+             cx['cxrem']['shareable'] is True and cx['cxrem']['snapshot_error'] and
+             cx['cxoffrem']['reason'] == 'disabled', 'disabled; a remote server without a reason; disabled for a '
+             'disabled remote server (slice 3 retires remote)', cx)
         cx_servers = self.servers('cx')
         need(cx_servers['cxoff']['disabled'] is True and cx_servers['cxs']['source'] == 'codex:user' and
              'from_codexhome' in self.tool_names(cx_servers['cxs']), 'Codex definitions', cx_servers['cxs'])
@@ -1351,8 +1378,9 @@ class Pairing:
 
         oc = attach_servers('oc')
         need(set(oc) == {'ocs', 'ocover', 'ocoff', 'ocrem', 'ocenv'}, 'OpenCode: global and project files', sorted(oc))
-        need(oc['ocoff']['reason'] == 'disabled' and oc['ocrem']['reason'] == 'remote', 'OpenCode enabled false and '
-             'type remote', oc)
+        need(oc['ocoff']['reason'] == 'disabled' and oc['ocrem']['reason'] is None and oc['ocrem']['shareable'] is True
+             and oc['ocrem']['transport'] == 'remote', 'OpenCode enabled false, and type remote (no reason since slice '
+             '3)', oc)
         ocs = self.servers('oc')
         need('from_project' in self.tool_names(ocs['ocover']) and 'from_global' not in self.tool_names(ocs['ocover'])
              and ocs['ocover']['source'] == 'opencode:project' and ocs['ocs']['source'] == 'opencode:global',
@@ -3631,7 +3659,7 @@ def check_migration(original, replacement, label):
                 # Version 20 (per-call approval) and 18 (agent tools, slice 2) tables, when the binaries have them,
                 # go first: they refer to received_calls and outbound_calls.
                 connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                for table in (*BUILTIN_TABLES, *APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
+                for table in (*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
                     connection.execute(f'DROP TABLE IF EXISTS {table}')
                 for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                     connection.execute(f'DROP TABLE {table}')
@@ -3733,11 +3761,25 @@ def main():
                         'migration')
     parser.add_argument('--approval-section', action='append', help='run only this approval section (by name, such as '
                         '"decisions"); repeatable')
+    parser.add_argument('--skip-remote', action='store_true', help='skip the remote MCP server and OAuth cases (slice 3 '
+                        'item A, capability_remote.py)')
+    parser.add_argument('--remote-only', action='store_true', help='run only the remote MCP server and OAuth cases and '
+                        'their migration')
+    parser.add_argument('--remote-section', action='append', help='run only this remote section (by name, such as '
+                        '"sign-in"); repeatable')
     parser.add_argument('--baseline18', type=Path, help='a version 18 peerspan-host (built from main before per-call '
                         'approval, such as ef86f06): the version 18 to 21 migrations open its state, the approval '
                         'cases use it for their older-peer section, and the bounds cases serve a capability from it '
                         '(compatibility)')
     args = parser.parse_args()
+    if args.skip_remote and args.remote_only:
+        parser.error('--skip-remote and --remote-only exclude each other')
+    if args.remote_only:
+        if args.bounds_only or args.agents_only or args.approval_only:
+            parser.error('--remote-only excludes --bounds-only, --agents-only, and --approval-only')
+        args.skip_bounds, args.skip_agents, args.skip_approval = True, True, True
+    if args.bounds_only or args.agents_only or args.approval_only:
+        args.skip_remote = True
     if args.skip_bounds and args.bounds_only:
         parser.error('--skip-bounds and --bounds-only exclude each other')
     if args.bounds_only and (args.agents_only or args.approval_only):
@@ -3785,11 +3827,15 @@ def main():
     import capability_agents
     import capability_approval
     import capability_bounds
+    import capability_remote
     available = [name for name, binary in binaries.items() if binary]
     if not args.skip_migration:
         for first in available:
             for second in available:
-                if not args.agents_only and not args.bounds_only:
+                if not args.skip_remote:
+                    failures += once(f'migration 21→22 {first}→{second} (remote)', capability_remote.check_migration,
+                                     binaries[first], binaries[second], f'{first} state opened by {second}')
+                if not args.agents_only and not args.bounds_only and not args.remote_only:
                     failures += once(f'migration {first}→{second}', check_migration, binaries[first],
                                      binaries[second], f'{first} state opened by {second}')
                 if not args.skip_bounds:
@@ -3799,11 +3845,16 @@ def main():
                     failures += once(f'migration 17→18 {first}→{second}', capability_agents.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}')
                 if approval:
-                    failures += once(f'migration 18→21 {first}→{second}', capability_approval.check_migration,
+                    failures += once(f'migration 18→{SCHEMA_VERSION} {first}→{second}', capability_approval.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}')
-                    failures += once(f'migration 19→21 {first}→{second}', capability_approval.check_migration,
+                    failures += once(f'migration 19→{SCHEMA_VERSION} {first}→{second}', capability_approval.check_migration,
                                      binaries[first], binaries[second], f'{first} state opened by {second}', None,
                                      19)
+        if args.baseline18 and not args.skip_remote:
+            for second in available:
+                failures += once(f'migration 18→22 baseline→{second} (remote)', capability_remote.check_migration,
+                                 binaries[second], binaries[second], f'version 18 baseline state opened by {second}',
+                                 args.baseline18.resolve())
         if args.baseline18 and not args.skip_bounds:
             for second in available:
                 failures += once(f'migration 18→21 baseline→{second} (bounds)', capability_bounds.check_migration,
@@ -3811,7 +3862,7 @@ def main():
                                  args.baseline18.resolve())
         if args.baseline18 and approval:
             for second in available:
-                failures += once(f'migration 18→21 baseline→{second}', capability_approval.check_migration,
+                failures += once(f'migration 18→{SCHEMA_VERSION} baseline→{second}', capability_approval.check_migration,
                                  binaries[second], binaries[second], f'version 18 baseline state opened by {second}',
                                  args.baseline18.resolve())
         if args.baseline17 and not args.skip_agents:
@@ -3823,7 +3874,7 @@ def main():
         cli, _, daemon = pairing.partition('/')
         label = f'{cli} CLI, {daemon} daemon'
         results = []
-        if not args.agents_only and not args.bounds_only:
+        if not args.agents_only and not args.bounds_only and not args.remote_only:
             results += run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label)
         if not args.skip_bounds:
             results += capability_bounds.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label,
@@ -3845,6 +3896,10 @@ def main():
                                                        args.integrations.resolve() if args.integrations else None,
                                                        args.approval_section,
                                                        args.baseline18.resolve() if args.baseline18 else None)
+        if not args.skip_remote:
+            results += capability_remote.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label,
+                                                     args.remote_section,
+                                                     args.baseline18.resolve() if args.baseline18 else None)
         for name, ok, detail in results:
             if not ok:
                 failures.append(f'{label} [{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}')

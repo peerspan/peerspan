@@ -31,7 +31,7 @@ const (
 type toolInstance struct {
 	key      string
 	target   instanceTarget
-	proc     *mcpProcess // nil while starting
+	proc     mcpConn // nil while starting
 	active   int
 	lastUsed time.Time
 	retired  bool
@@ -136,7 +136,7 @@ func (s *Store) RunCallWorkers(ctx context.Context) {
 	var calls sync.WaitGroup
 	defer func() {
 		s.calls.mu.Lock()
-		var procs []*mcpProcess
+		var procs []mcpConn
 		for _, inst := range s.calls.instances {
 			if inst.proc != nil {
 				procs = append(procs, inst.proc)
@@ -169,7 +169,7 @@ func (s *Store) RunCallWorkers(ctx context.Context) {
 // with none running.
 func (s *Store) stopIdle(now time.Time) {
 	s.calls.mu.Lock()
-	var stop []*mcpProcess
+	var stop []mcpConn
 	for key, inst := range s.calls.instances {
 		if inst.proc == nil || inst.active > 0 {
 			continue
@@ -304,6 +304,14 @@ func (s *Store) startCall(ctx context.Context, q queuedCall) (bool, error) {
 		if errors.Is(err, ErrUnavailable) {
 			return false, nil
 		}
+		if errors.Is(err, errAuthLapsed) {
+			// A lapsed sign-in fails the call without sending it.
+			failure := callAuthRequired
+			if err = finishCall(ctx, tx, &c, CallFailed, &failure, now); err != nil {
+				return false, err
+			}
+			return false, tx.Commit()
+		}
 		var coded *codedError
 		if !errors.Is(err, ErrForbidden) && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrInvalid) && !errors.As(err, &coded) {
 			return false, err
@@ -327,6 +335,11 @@ func (s *Store) startCall(ctx context.Context, q queuedCall) (bool, error) {
 
 // failQueued fails every queued call of an instance with server_start_failed.
 func (s *Store) failQueued(ctx context.Context, key string) {
+	s.failQueuedWith(ctx, key, callServerStartFailed)
+}
+
+// failQueuedWith fails every queued call of an instance with an error.
+func (s *Store) failQueuedWith(ctx context.Context, key, failure string) {
 	queued, err := s.queuedCalls(ctx)
 	if err != nil {
 		return
@@ -336,7 +349,6 @@ func (s *Store) failQueued(ctx context.Context, key string) {
 		return
 	}
 	defer tx.Rollback()
-	failure := callServerStartFailed
 	now := time.Now()
 	for _, q := range queued {
 		target, err := s.resolveCallTarget(ctx, tx, q.request)
@@ -355,9 +367,9 @@ func (s *Store) failQueued(ctx context.Context, key string) {
 // seconds; on failure its waiting calls fail with server_start_failed.
 func (s *Store) startInstance(ctx context.Context, inst *toolInstance) {
 	spec, err := s.toolLaunch(ctx, s.db, inst.target.agentID, inst.target.server, inst.target.own)
-	var p *mcpProcess
+	var p mcpConn
 	if err == nil {
-		p, err = startMCP(spec)
+		p, err = s.startConn(spec, inst.target)
 	}
 	if err == nil {
 		startCtx, cancel := context.WithTimeout(ctx, instanceStartTime)
@@ -369,6 +381,20 @@ func (s *Store) startInstance(ctx context.Context, inst *toolInstance) {
 		}
 	}
 	now := time.Now()
+	var unauthorized *httpStatusError
+	if errors.Is(err, errLoginRequired) || (errors.As(err, &unauthorized) && unauthorized.status == 401) {
+		// A start refused for its credential fails the waiting calls with
+		// auth_required, not toward the start-failure limit.
+		s.calls.mu.Lock()
+		if s.calls.instances[inst.key] == inst {
+			delete(s.calls.instances, inst.key)
+		}
+		s.calls.mu.Unlock()
+		if ctx.Err() == nil {
+			s.failQueuedWith(context.WithoutCancel(ctx), inst.key, callAuthRequired)
+		}
+		return
+	}
 	if err != nil {
 		s.calls.mu.Lock()
 		if s.calls.instances[inst.key] == inst {
@@ -385,14 +411,12 @@ func (s *Store) startInstance(ctx context.Context, inst *toolInstance) {
 		}
 		return
 	}
-	p.mu.Lock()
-	p.late = func(id int64) { p.logf("discarded the response to request %d, which arrived after its call ended", id) }
-	p.mu.Unlock()
+	p.setLate(func(id int64) { p.logf("discarded the response to request %d, which arrived after its call ended", id) })
 	s.calls.mu.Lock()
 	inst.proc, inst.lastUsed = p, now
 	s.calls.mu.Unlock()
 	go func() {
-		<-p.done
+		<-p.doneChan()
 		s.calls.mu.Lock()
 		for key, i := range s.calls.instances {
 			if i == inst {
@@ -488,8 +512,12 @@ func (s *Store) executeCall(ctx context.Context, inst *toolInstance, rc *running
 		p.forget(reqID)
 		_ = p.notify("notifications/cancelled", map[string]any{"requestId": reqID, "reason": reason})
 	}
-	select {
-	case r := <-ch:
+	handle := func(r rpcResponse) {
+		if r.Fail != nil {
+			failure := r.Fail.err
+			finish(r.Fail.state, &failure, nil, nil)
+			return
+		}
 		if r.Error != nil && r.Error.Code == ghTooLargeCode && inst.target.agentID == builtinAgent {
 			// A built-in source's output over its limit: no result is stored.
 			failure := callResultTooLarge
@@ -524,6 +552,10 @@ func (s *Store) executeCall(ctx context.Context, inst *toolInstance, rc *running
 			return
 		}
 		finish(CallSucceeded, nil, r.Result, &size)
+	}
+	select {
+	case r := <-ch:
+		handle(r)
 	case reason := <-rc.signal:
 		cancelled(reason)
 		failure := reason
@@ -532,9 +564,15 @@ func (s *Store) executeCall(ctx context.Context, inst *toolInstance, rc *running
 		cancelled("deadline")
 		failure := callDeadline
 		finish(CallUncertain, &failure, nil, nil)
-	case <-p.done:
-		failure := callServerExited
-		finish(CallUncertain, &failure, nil, nil)
+	case <-p.doneChan():
+		// An answer that ended the session arrives with it.
+		select {
+		case r := <-ch:
+			handle(r)
+		default:
+			failure := callServerExited
+			finish(CallUncertain, &failure, nil, nil)
+		}
 	case <-ctx.Done():
 		// The daemon is stopping: the call stays running, and the next start
 		// records it uncertain.

@@ -42,6 +42,26 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 		}
 		return out
 	}
+	capabilities, err := records[capabilityRecord](ctx, tx, `SELECT record FROM capabilities ORDER BY name`)
+	if err != nil {
+		return st, err
+	}
+	// lapsed reports a credential that needs a new sign-in.
+	lapsed := func(k credKey) (bool, bool, error) {
+		cred, found, err := readCredential(ctx, tx, k)
+		if err != nil || !found {
+			return false, found, err
+		}
+		if cred.State == credLoginRequired {
+			return true, true, nil
+		}
+		if cred.State == credRefreshFailed && cred.RefreshFailedAt != nil {
+			if t, err := parseTime(*cred.RefreshFailedAt); err == nil && now.Sub(t) > time.Hour {
+				return true, true, nil
+			}
+		}
+		return false, true, nil
+	}
 	for _, a := range agents {
 		servers, err := records[toolServerRecord](ctx, tx, `SELECT record FROM tool_servers WHERE agent_id = ? ORDER BY name`, a.id)
 		if err != nil {
@@ -49,8 +69,32 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 		}
 		for _, srv := range servers {
 			st.Sources++
-			if found := causes(srv.toolSnapshotState); len(found) > 0 {
-				attend("capability_failing", a.name+"/"+srv.Name, strings.Join(found, "; "), "peerspan sources refresh --agent "+a.name)
+			subject := a.name + "/" + srv.Name
+			found := causes(srv.toolSnapshotState)
+			command := "peerspan sources refresh --agent " + a.name
+			if srv.Transport == "remote" {
+				st.RemoteSources++
+				using := 0
+				for _, c := range capabilities {
+					if c.AgentID == a.id && c.Source.Server == srv.Name && !c.OwnSignIn {
+						using++
+					}
+				}
+				gone, hasCred, err := lapsed(credKey{a.id, srv.Name, ""})
+				if err != nil {
+					return st, err
+				}
+				switch {
+				case gone || (!hasCred && deref(srv.Reason) == reasonLogin && using > 0):
+					found = append([]string{"its sign-in has lapsed or is missing, so calls fail"}, found...)
+					command = "peerspan sources login " + subject
+				case recent(srv.InsufficientScopeAt):
+					found = append([]string{"the server refused a call for insufficient scope at " + *srv.InsufficientScopeAt}, found...)
+					command = "peerspan sources login " + subject + " --scopes \"" + deref(srv.InsufficientScope) + "\""
+				}
+			}
+			if len(found) > 0 {
+				attend("capability_failing", subject, strings.Join(found, "; "), command)
 			}
 		}
 	}
@@ -63,10 +107,6 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 		if found := causes(srv.toolSnapshotState); len(found) > 0 {
 			attend("capability_failing", builtinAgent+"/"+srv.Name, strings.Join(found, "; "), "peerspan sources refresh --builtin")
 		}
-	}
-	capabilities, err := records[capabilityRecord](ctx, tx, `SELECT record FROM capabilities ORDER BY name`)
-	if err != nil {
-		return st, err
 	}
 	for _, c := range capabilities {
 		st.Capabilities++
@@ -99,8 +139,23 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 		if c.Snapshot != nil {
 			found = append(found, causes(*c.Snapshot)...)
 		}
+		command := "peerspan capability show " + c.Name
+		if c.OwnSignIn {
+			gone, hasCred, err := lapsed(credKey{c.AgentID, c.Source.Server, c.Name})
+			if err != nil {
+				return st, err
+			}
+			switch {
+			case gone || !hasCred:
+				found = append([]string{"its own sign-in has lapsed or is missing, so calls fail"}, found...)
+				command = "peerspan capability login " + c.Name
+			case c.Snapshot != nil && recent(c.Snapshot.InsufficientScopeAt):
+				found = append([]string{"the server refused a call for insufficient scope at " + *c.Snapshot.InsufficientScopeAt}, found...)
+				command = "peerspan capability login " + c.Name + " --scopes \"" + deref(c.Snapshot.InsufficientScope) + "\""
+			}
+		}
 		if len(found) > 0 {
-			attend("capability_failing", c.Name, strings.Join(found, "; "), "peerspan capability show "+c.Name)
+			attend("capability_failing", c.Name, strings.Join(found, "; "), command)
 		}
 	}
 	if path := ToolEnvFile(); path != "" && envFileTooOpen(path) {
@@ -114,6 +169,9 @@ func (s *Store) capabilitiesStatus(ctx context.Context, tx *sql.Tx, now time.Tim
 		return st, err
 	}
 	st.OpenTo = int64(len(open))
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth_credentials WHERE json_extract(record, '$.state') != 'login_required'`).Scan(&st.SignedIn); err != nil {
+		return st, err
+	}
 	if err = approvalAttention(ctx, tx, &st, attend); err != nil {
 		return st, err
 	}

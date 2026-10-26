@@ -1,11 +1,11 @@
 # Capabilities contract
 
-Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; slice 2: [agent tools](#agent-tools-slice-2); and slice 3: [sharing with one agent](#sharing-with-one-agent-slice-3) and [per-call approval](#per-call-approval-slice-3).
+Roadmap milestone 10, slice 1: sources, capabilities, sharing, and owner calls; slice 2: [agent tools](#agent-tools-slice-2); and slice 3: [sharing with one agent](#sharing-with-one-agent-slice-3), [per-call approval](#per-call-approval-slice-3), [resource bounds and the `gh` source](#resource-bounds-and-the-gh-source-slice-3), and [remote MCP servers and OAuth](#remote-mcp-servers-and-oauth-slice-3).
 - **Public surface.** It follows the CLI experience agreed on 2026-10-16 in the system design (`docs-internal`, `docs/cli-spec.md`).
 - **Background.** The [remote tools proposal](remote-tools-proposal.md) and [credentials for shared tools](tool-credentials.md) give the background. Their MCP-server sharing model is superseded.
 - **What it builds on.** The [task contract](task-contract.md) for call records, retry, and polling; owner access policy in the [coordination contract](coordination-contract.md); and `attach`, self access, and status in the [launch contract](launch-contract.md).
 
-Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Its designs are in four proposals, and each item's section is added here when it is implemented; [sharing with one agent](#sharing-with-one-agent-slice-3), [per-call approval](#per-call-approval-slice-3), and [resource bounds and the `gh` source](#resource-bounds-and-the-gh-source-slice-3) are specified:
+Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-slice-2) adds the agent-facing MCP tools. Slice 3 was settled with the owner on 2026-10-25 ([decision 16](#owner-decisions)). Its designs are in four proposals, and each item's section is added here when it is implemented; all four are now specified: [remote MCP servers and OAuth](#remote-mcp-servers-and-oauth-slice-3), [sharing with one agent](#sharing-with-one-agent-slice-3), [per-call approval](#per-call-approval-slice-3), and [resource bounds and the `gh` source](#resource-bounds-and-the-gh-source-slice-3):
 - remote MCP servers and OAuth ([proposal](capabilities-slice3-remote-proposal.md));
 - approval of each call ([proposal](capabilities-slice3-approval-proposal.md));
 - sharing with one agent, and `call --from-agent` ([proposal](capabilities-slice3-agent-shares-proposal.md));
@@ -27,7 +27,7 @@ Slice 1 covers MCP sources and owner calls from the CLI. [Slice 2](#agent-tools-
 
 | Term | Meaning |
 | --- | --- |
-| **Source** | Something this host can operate. In slice 1, an MCP server from an attached agent's configuration, identified as `AGENT/SERVER`. From slice 3, also a [built-in source](#built-in-sources) such as `builtin/gh`. |
+| **Source** | Something this host can operate. In slice 1, an MCP server from an attached agent's configuration, identified as `AGENT/SERVER`. From slice 3, also a [built-in source](#built-in-sources) such as `builtin/gh`, and a [remote MCP server](#remote-mcp-servers-and-oauth-slice-3). |
 | **Snapshot** | The tools and resources a source reported when the host last listed them. |
 | **Capability** | The owner's named, host-local definition of one use case. It binds a source, selected operations, and the credential context that serves calls. |
 | **Operation** | One thing a capability lets a caller do. It is either a selected MCP tool, named as the tool, or `read`, which reads one of the capability's selected resources. |
@@ -80,7 +80,7 @@ Each discovered server is normalized to:
 }
 ```
 
-- **`transport`.** `stdio`, or `remote` for any URL-based server (Claude Code `http` or `sse`, Codex `url`, OpenCode `type: "remote"`). A `remote` server is listed with `shareable: false` and the reason `remote` until slice 3.
+- **`transport`.** `stdio`, or `remote` for any URL-based server (Claude Code `http` or `sse`, Codex `url`, OpenCode `type: "remote"`). From slice 3, a `remote` server is a source as specified under [Remote MCP servers and OAuth](#remote-mcp-servers-and-oauth-slice-3); the reason `remote` is retired.
 - **`command` and `args`** come from the harness's own shape:
   - Claude Code: `command` and `args`;
   - Codex: `command` and `args`;
@@ -469,7 +469,8 @@ Activity never includes inputs, results, or secret values.
 - **`PUT /v1/agents/{agent_id}/tool-servers` request.**
   - The body is `{workspace, servers, values}`. `values` may be absent.
   - Each element of `servers` has exactly the definition fields `name`, `transport`, `command`, `args`, `env`, `url`, and `source`, plus an optional boolean `disabled`. Unknown fields are refused with 400.
-  - The daemon computes `shareable` and `reason`. Reasons, in precedence order, are `name`, `remote`, `disabled`, and `missing_env`.
+  - The daemon computes `shareable` and `reason`. Reasons, in precedence order, are `name`, `remote`, `disabled`, and `missing_env`. Slice 3 retires `remote` and adds the remote reasons under [Shareable and reasons](#shareable-and-reasons).
+  - Slice 3 adds the optional `remote` and `headers` fields under [Remote definitions](#remote-definitions).
   - A stdio entry without a command is reported by the CLI in `errors`, and is not sent.
   - Each `env` entry is exactly `{source}` for `literal` and `captured`, or `{source: "missing", variables}` with a non-empty `variables`. Any other shape is refused with 400.
   - In `values`, `env.NAME` is accepted only for entries whose source is `literal` or `captured`.
@@ -1465,7 +1466,7 @@ The `(can change things)` marks for a `gh` source follow its annotations, which 
 
 ### Persistence
 
-Database version 21 adds the following. Version 19 is machine linking and version 20 is [per-call approval](#per-call-approval-slice-3). Version 21 binaries migrate every version from 0 to 20 up to 21, and refuse anything above 21.
+Database version 21 adds the following. Version 19 is machine linking and version 20 is [per-call approval](#per-call-approval-slice-3). Version 21 binaries migrate every version from 0 to 20 up to 21, and refuse anything above 21. [Remote MCP servers](#remote-mcp-servers-and-oauth-slice-3) add version 22, which binaries from then on migrate to.
 
 ```sql
 CREATE TABLE builtin_sources (name TEXT PRIMARY KEY, record TEXT NOT NULL);
@@ -1499,6 +1500,351 @@ It covers:
 - **Compatibility:** when a version 18 build is given (`--baseline18`), a receiver at version 18 serving capabilities without `bounds`, listed with `bounds` `{}` by `discover`.
 
 `conformance/live_capability_agents.py` gains one run against a real test repository with a real `gh`, through all three harnesses: a bounded `gh` capability lists issues in the bound repository, and a call for another repository is refused with the `out_of_bounds` text.
+
+## Remote MCP servers and OAuth (slice 3)
+
+Slice 3, item A, as accepted in [decision 16](#owner-decisions) from its [proposal](capabilities-slice3-remote-proposal.md), with the owner's addition on the share review of a server with no sign-in. A source can be a remote MCP server reached over Streamable HTTP. It gets its credential in one of three ways: **none** (a server that asks for no sign-in), **headers** (fixed headers from the harness configuration), or **oauth** (Peerspan signs in as its own OAuth client and keeps its own tokens on the serving host). Capabilities, sharing, policy, the peer routes, call states, and the agent tools are unchanged above the transport. Where this section differs from the sections above, this section applies. Behavior is the same in Go and Rust hosts, in every CLI and daemon pairing.
+
+Out of scope: the deprecated HTTP+SSE transport, Client ID Metadata Documents, the OAuth device flow, completing a sign-in from another machine, using a harness's stored tokens, `headersHelper`, proxies, server-to-client requests other than `ping`, and the session-less 2026-07-28 protocol form.
+
+### Remote definitions
+
+A remote server's definition, in `PUT /v1/agents/{agent_id}/tool-servers`, adds two optional fields, `remote` and `headers`:
+
+```json
+{
+  "name": "linear",
+  "transport": "remote",
+  "command": null,
+  "args": [],
+  "env": {},
+  "url": "https://mcp.linear.app/mcp",
+  "remote": {"protocol": "http", "oauth": {"client_id": null, "scopes": null, "callback_port": null}, "headers_helper": false},
+  "headers": {"Authorization": {"source": "captured", "variables": ["LINEAR_TOKEN"]}},
+  "source": "claude-code:user"
+}
+```
+
+- **Shape.** A JSON `null` for `remote` or `headers` reads as absent. For `transport` `stdio`, `remote` is absent and `headers` is absent or `{}`. For `remote`, `command` is null, `args` is `[]`, and `env` is `{}`; `remote` absent reads as `{"protocol": "http", "oauth": {"client_id": null, "scopes": null, "callback_port": null}, "headers_helper": false}`, and `headers` absent reads as `{}`. Any other shape is 400.
+- **`remote`** is exactly `{protocol, oauth, headers_helper}`:
+  - `protocol` is `http` (Streamable HTTP) or `sse` (the deprecated HTTP+SSE transport, which is not supported);
+  - `oauth` is null when the harness turned OAuth off (OpenCode `oauth: false`), and otherwise exactly `{client_id, scopes, callback_port}`: the harness's public hints, each null when absent. `client_id` and `scopes` are strings (`scopes` space-separated), and `callback_port` an integer from 1 to 65535;
+  - `headers_helper` is true when the harness runs a command to produce headers (Claude Code `headersHelper`).
+- **`headers`** maps each header name (an HTTP token, at most 64 entries) to how its value is obtained:
+  - `{"source": "literal"}`: the value is written in the configuration;
+  - `{"source": "captured", "variables": [NAME, ...]}`: the value contained references, all resolved at discovery; `variables` lists every variable it referenced, in order of first appearance, without duplicates;
+  - `{"source": "missing", "variables": [NAME, ...]}`: a reference could not be resolved; `variables` lists those that could not.
+- **Values.** The `values` payload carries, per server:
+  - `headers.NAME`: the full value of each `literal` or `captured` header;
+  - `header_templates.NAME`: for each `captured` header, the configured text with its references, written as `${NAME}` or `${NAME:-DEFAULT}`;
+  - `url`: the resolved URL, when the configured `url` contained a reference.
+
+  Any other field for a remote server, or one of these for a header whose entry does not allow it, is 400. As for `env`, values appear only in `tool_values`, never in definitions, listings, output, logs, or activity. Header templates are stored as values because they may hold text written in the configuration.
+- **References** in `url` are resolved like those in `command`: a URL with an unresolved reference makes the server `missing_env`, naming the variables, and is not judged for `insecure_url`.
+
+**Per harness** (the CLI reads only these fields; client secrets are never read):
+
+| Harness | Remote when | `protocol` | Headers | `oauth` hints |
+| --- | --- | --- | --- | --- |
+| Claude Code | `type` is `http`, `streamable-http`, or `sse`, or `url` is set and `type` is not `stdio` | `sse` for `type: "sse"`, else `http` | `headers`, with `${VAR}` and `${VAR:-D}` resolved from the CLI's environment as for `env` | `oauth.clientId`, `oauth.scopes` (a string, or an array joined with spaces), `oauth.callbackPort`; `headersHelper` present sets `headers_helper` |
+| Codex | `url` is set | `http` | `http_headers` (literal); each `env_http_headers` entry `HEADER = "VAR"` as the template `${VAR}`; `bearer_token_env_var = "VAR"` as `Authorization` with the template `Bearer ${VAR}`. Later entries in that order replace earlier ones of the same name, compared case-insensitively. A variable that is set, even empty, is `captured`; an unset one makes the header `missing` | `scopes` (an array joined with spaces, or a string); `oauth.callback_port`, else the top-level `mcp_oauth_callback_port` |
+| OpenCode | `type` is `remote`, or `url` is set and `type` is not `local` | `http` | `headers`, with `{env:VAR}` resolved as `${VAR}` without a default; the template is written with `${VAR}` | `oauth: false` makes `oauth` null; otherwise `oauth.clientId` and `oauth.scope` |
+
+Codex `http_headers` values are literal even when they contain `${`. A header value that is not a string is written as its JSON text, as for `env`.
+
+**The environment file and `--env-file`.** When the environment file defines every variable that a `captured` header references, the daemon resolves that header's template again with those values, instead of using the captured value; otherwise the captured value stands. For a capability with its own `env_file`, the lookup takes the capability's file first, then the environment file, under the same every-variable rule. Literal headers and the URL are never overridden.
+
+### Shareable and reasons
+
+`shareable` and `reason` are computed for every source. The reason `remote` is retired. Reasons, in precedence order: `name`, `disabled`, `insecure_url`, `sse`, `headers_helper`, `missing_env`, `login`.
+- **`insecure_url`**: the URL (`values.url` when present, else `url`) is not an absolute `http` or `https` URL with a host, or it is `http` and its host, compared case-insensitively, is not `localhost`, `127.0.0.1`, or `[::1]`.
+- **`sse`**: `remote.protocol` is `sse`.
+- **`headers_helper`**: `remote.headers_helper` is true.
+- **`login`**: the source's auth mode is `oauth` and this host has no usable credential for it ([Auth mode](#auth-mode)). It is the only reason a sign-in clears.
+
+A source record stored before this slice keeps the reason `remote` until the next `PUT` for its agent, which recomputes it. A `PUT` from a CLI that predates this slice (no `remote` or `headers`) is accepted with the defaults above.
+
+<a id="auth-mode"></a>
+### Auth mode
+
+Each remote source has an **auth mode**, learned when the daemon first reaches it: null (not reached yet), `none`, `headers`, or `oauth`. It is stored with the source, with the latest **challenge** `{resource_metadata, scope}` (each a string or null) when the mode is `oauth`.
+
+**The probe.** A snapshot of a remote source whose definition reasons do not apply (every reason above but `login`) starts with `initialize`:
+- with a usable OAuth credential for the source, the request carries its token, refreshed first as under [Use and refresh](#use-and-refresh);
+- otherwise it carries only the definition's headers.
+
+Its answer decides:
+- **2xx:** the mode stays `oauth` if the request carried a token; otherwise it becomes `headers` when the definition has headers, else `none`. The snapshot proceeds as for stdio.
+- **401 with a `WWW-Authenticate` header whose scheme is `Bearer`, when the request carried no token, the definition has no `Authorization` header (compared case-insensitively), and `remote.oauth` is not null:** the mode becomes `oauth` and the challenge is stored from the header's `resource_metadata` and `scope` parameters. The source has no usable credential, so it gets the reason `login`; the snapshot stops without a `snapshot_error`, and the previous snapshot is kept.
+- **401 when the request carried a token:** the daemon refreshes once and repeats `initialize`. A second 401, or a refresh that is refused, makes the credential `login_required` and the source `login`, without a `snapshot_error`.
+- **Any other 401**, including one for a source with a configured `Authorization` header or with `remote.oauth` null: `snapshot_error` is exactly `unauthorized`. The daemon never starts OAuth over a configured header.
+- **Any other failure:** a `snapshot_error` as today. For an HTTP answer it contains the decimal status, for example `the server answered HTTP 503`.
+
+**Usable.** A credential is usable when it exists for the source (or capability), its `state` is `ok` or `refresh_failed`, and its `resource` equals the source's canonical URL ([Signing in](#signing-in)).
+
+### Listing
+
+`GET /v1/sources` `SERVER` gains `remote` (null for stdio and built-in sources), `headers` (`{}` for them), and `auth`: null for stdio and built-in sources, and for remote sources `{mode, state, issuer, scope, account, registration, obtained_at, expires_at}`:
+- `mode` is the auth mode;
+- `state` is null unless `mode` is `oauth`; then it is the credential's `state`, or `login_required` when there is no credential;
+- the other fields come from the source's own credential (capability sign-ins are not shown here), each null without one. No token, client secret, or header value ever appears.
+
+**`sources` text.** For a remote source, the line `  AGENT/SERVER  remote  from SOURCE  STATE` is unchanged, with `STATE` `not usable: login` for a source that needs a sign-in. It is followed by `    url: URL` (the configured `url`, references unresolved) and one auth line:
+- mode null: `    auth: not reached yet`;
+- `none`: `    auth: none (the server asks for no sign-in)`;
+- `headers`: `    auth: headers NAME, NAME` (the header names, sorted by byte order);
+- `oauth` with a usable credential: `    auth: signed in to ISSUER_HOST, scopes SCOPE, account LABEL, STATE` with `SCOPE` `none` when null, `LABEL` `not labelled` when null, and `STATE` the credential's state;
+- `oauth` otherwise: `    auth: needs a sign-in: peerspan sources login AGENT/SERVER`.
+
+`ISSUER_HOST` and `URL_HOST` are the host of the issuer or URL, lowercased, without port; an IPv6 host keeps its brackets.
+
+**`attach` output.** The `sources.servers` entries keep their shape. The readable line's wording is not shared.
+
+### Signing in
+
+| CLI | Local API | Behavior |
+| --- | --- | --- |
+| `sources login SOURCE [--scopes "A B"] [--client-id ID] [--client-secret-file PATH] [--port N] [--no-browser] [--account LABEL]` | `POST /v1/sources/{agent}/{server}/login`, then `POST /v1/oauth/logins/{login_id}/complete` | Signs Peerspan in to the source's server, as below. `SOURCE` is `AGENT/SERVER`, or `SERVER` when exactly one agent on this host has a server of that name; when several do, the CLI exits 1 before any request, listing the qualified names. |
+| `capability login NAME [same flags]` | the same routes, with `capability: NAME` | Gives the capability its own sign-in ([Per-capability sign-in](#per-capability-sign-in)). |
+| `sources logout SOURCE [--yes]` | `POST /v1/sources/{agent}/{server}/logout` | Revokes and deletes this host's credential for the source ([Revocation](#revocation-and-removal)). |
+| `capability logout NAME` | the same route, with `capability: NAME` | Revokes and deletes the capability's own credential. |
+
+`{agent}` is an agent name or ID. The CLI resolves `capability login` and `logout` to the capability's source first, through `GET /v1/capabilities/{name}`.
+
+**Starting.** `POST /v1/sources/{agent}/{server}/login` takes `{capability, scopes, client_id, client_secret, redirect_port, account}`, each optional and nullable; any other field is 400. `scopes` is a space-separated string; `redirect_port` an integer from 1 to 65535; `account` at most 256 bytes without characters below U+0020 or U+007F; `client_secret` only with `client_id`. The daemon:
+1. **Checks**, in this order, refusing as in [Refusals](#login-refusals): the source exists; with `capability`, that capability exists and is built on this source; the source is remote; `remote.oauth` is not null; no definition reason applies.
+2. **Probes.** It sends `initialize` with the definition's headers and no token. The answer must be a 401 with a `Bearer` challenge, and the definition must have no `Authorization` header; the challenge is stored as under the probe. Anything else is `no_challenge`; a failure to connect is `unreachable`.
+3. **Finds the authorization server.** It fetches the protected resource metadata ([RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728)) from the challenge's `resource_metadata` when given, else from `ORIGIN/.well-known/oauth-protected-resource/PATH` when the MCP URL has a path other than `/` (`PATH` without its leading `/`), then from `ORIGIN/.well-known/oauth-protected-resource`, using the first 200 answer that is a JSON object with a non-empty string array `authorization_servers`. The issuer `I` is its first entry. It then fetches the authorization server metadata from, in order: for an `I` with a path `P` other than `/`, `ORIGIN/.well-known/oauth-authorization-server/P`, `ORIGIN/.well-known/openid-configuration/P`, and `I/.well-known/openid-configuration`; for an `I` without a path, `ORIGIN/.well-known/oauth-authorization-server` and `ORIGIN/.well-known/openid-configuration`. The first 200 JSON object is used. Its `issuer` must equal `I` exactly, and it must have string `authorization_endpoint` and `token_endpoint`. Every metadata URL and every endpoint must be `https`, or `http` on a loopback host (`localhost`, `127.0.0.1`, `[::1]`). Any failure is `oauth_metadata`.
+4. **Requires PKCE.** `code_challenge_methods_supported` must be an array containing `S256`; otherwise `no_pkce`.
+5. **Picks the redirect URI** `http://127.0.0.1:PORT/callback`, where `PORT` is `redirect_port`, else the hint `remote.oauth.callback_port`, else the port of the most recently created stored client registration for `I`, else a free port the daemon finds by binding `127.0.0.1:0`.
+6. **Gets a client**, the first that applies:
+   - `client_id` given: stored as the registration for `(I, redirect URI)` with `registration` `manual`, replacing any stored one, with `client_secret` when given;
+   - a stored registration for `(I, redirect URI)`;
+   - the hint `remote.oauth.client_id`: stored with `registration` `harness` and no secret;
+   - the metadata has a string `registration_endpoint`: dynamic client registration ([RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591)), below, stored with `registration` `dcr`; a refused or unreadable registration is `registration_failed`;
+   - otherwise `no_registration`.
+7. **Chooses scopes:** `scopes` given, else the hint `remote.oauth.scopes`, else the challenge's `scope`, else the protected resource metadata's `scopes_supported` joined with spaces, else none.
+8. **Builds the authorization URL**: the `authorization_endpoint` with these query parameters added (after its own query, if any): `response_type=code`, `client_id`, `redirect_uri`, `code_challenge`, `code_challenge_method=S256`, `state`, `resource`, and `scope` when scopes were chosen. `state` is 32 random bytes in lowercase hex. The PKCE verifier is 32 random bytes in base64url without padding, and `code_challenge` is the base64url encoding, without padding, of its SHA-256 digest. `resource` is the source's **canonical URL**: the URL with scheme and host lowercased, no fragment, and trailing `/` characters removed from the path.
+9. **Keeps the login in memory only**, for 10 minutes: `{login_id, state, verifier, client, issuer, redirect_uri, scopes, account, source, capability, endpoints}`. `login_id` is `login_` and 16 random bytes in lowercase hex. A daemon restart forgets it.
+10. **Answers** 200 `{login_id, authorization_url, redirect_uri, expires_at}`.
+
+**Dynamic client registration.** A `POST` to `registration_endpoint` with `Content-Type: application/json` and exactly `{"client_name": "Peerspan (HOST_LABEL)", "redirect_uris": [REDIRECT_URI], "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"], "token_endpoint_auth_method": "none", "application_type": "native"}`. `HOST_LABEL` is this machine's host name up to its first `.`, at most 64 bytes; with none, the name is `Peerspan`. A 200 or 201 JSON answer with a string `client_id` is kept with its `client_secret` and `registration_access_token` when present. With a `client_secret`, the client authenticates as the answer's `token_endpoint_auth_method` says, `client_secret_post` or `client_secret_basic`, and `client_secret_basic` when it says neither; without one, it is a public client (`none`). A `manual` client with a secret uses `client_secret_post`, unless the metadata's `token_endpoint_auth_methods_supported` lists `client_secret_basic` and not `client_secret_post`.
+
+**One registration per issuer and redirect URI per host**, reused by every source and capability using that issuer. A source whose issuer changes gets a new registration; a registration is never sent to another issuer.
+
+**Approving.** The CLI then:
+1. Refuses before any request when stdin is not a terminal and `--no-browser` is not given (see [Refusals](#login-refusals)). `--client-secret-file` without `--client-id` exits 1 with `--client-secret-file needs --client-id.`; a secret file whose mode grants any group or other permission exits 1 with `PATH must have mode 0600 or stricter.` It reads the file once, removes trailing whitespace, and sends it as `client_secret`.
+2. Starts the login, then listens on `127.0.0.1:PORT`, the port of `redirect_uri`. If the port is busy, it prints `Port PORT on 127.0.0.1 is in use, so Peerspan cannot receive the redirect; paste the address instead.` and only reads pasted lines.
+3. Prints, to stderr, in **print mode** (with `--no-browser`, when `SSH_CONNECTION` is set, or on Linux when neither `DISPLAY` nor `WAYLAND_DISPLAY` is set, or when the browser command cannot be started):
+   ```text
+   Open this link in a browser on any machine and approve Peerspan:
+     AUTHORIZATION_URL
+   If the browser then shows a page that cannot be reached, copy the full address
+   from its address bar and paste it here:
+   ```
+   Otherwise it starts `xdg-open AUTHORIZATION_URL` (Linux) or `open AUTHORIZATION_URL` (macOS) and prints the same block with the first line `Opening your browser to approve Peerspan. If it does not open, use this link:`.
+4. Waits for whichever comes first: a `GET` to the listener with the path `/callback` (other requests get 404 and are ignored), or a non-empty line on stdin, trimmed. At end of stdin it keeps waiting for the listener if it has one, and otherwise exits 1 with `The sign-in was not completed.` When the login's `expires_at` passes first, it exits 1 with the `login_expired` text.
+5. Posts `{callback_url}` to `POST /v1/oauth/logins/{login_id}/complete`: for the listener, `http://127.0.0.1:PORT` followed by the request's path and query; for a pasted line, the line. The listener answers the browser after the daemon has answered: 200 with `Content-Type: text/html; charset=utf-8` and a page containing `Peerspan sign-in complete. You can close this tab.`, or 400 with a page containing `Peerspan sign-in failed.` and the daemon's error text.
+6. On success prints the daemon's answer as JSON on stdout and `Signed in to ISSUER_HOST for SOURCE (scopes: SCOPE).` on stderr, with `SCOPE` `none` when null, and exits 0. On a refusal it prints the error and exits 1.
+
+The PKCE verifier and the tokens never pass through the CLI; only the redirect URL does.
+
+**Finishing.** `POST /v1/oauth/logins/{login_id}/complete` with exactly `{callback_url}`. The login is removed from memory at the first attempt, whatever its outcome. The daemon:
+1. reads the query of `callback_url`. An unknown or expired `login_id`, a missing `state`, or a `state` that differs is `login_expired`;
+2. an `error` parameter is `provider_refused`; a missing `code` is `no_code`;
+3. posts the token request to `token_endpoint` (`application/x-www-form-urlencoded`, `Accept: application/json`) with `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `code_verifier`, and `resource`, plus the client's authentication: `client_secret` in the form for `client_secret_post`, or HTTP Basic with the URL-encoded client ID and secret for `client_secret_basic`;
+4. needs a 200 JSON object with a string `access_token`, and `token_type` absent or `Bearer` in any case; anything else is `token_refused`, with `ERROR` the answer's `error` string when it has one, else `HTTP STATUS`;
+5. checks, as it stores, that the source still exists with the same canonical URL (and, for a capability, that the capability still exists on it); otherwise the sign-in is `login_expired` and the issued tokens are revoked in the background. It then stores the credential (below), replacing any stored one for the key; a replaced credential's tokens are revoked in the background, best effort. It records `sources.login` and, for a capability, sets its [own sign-in](#per-capability-sign-in);
+6. snapshots the source, or for a capability its own instance, with the token. A failed snapshot does not fail the sign-in; it is recorded as `snapshot_error`;
+7. answers 200 `{source, capability, issuer, scopes, account, expires_at, registration}`: `source` is `AGENT/SERVER` (agent name), `capability` the name or null, `scopes` the stored `scope` (a string or null), and the rest from the credential.
+
+<a id="login-refusals"></a>**Refusals.** Each is `{code, error}` with exactly this `error` text, which the CLI prints on stderr before exiting 1. `SOURCE` is `AGENT/SERVER`, `ISSUER` the issuer, and `PORT` the redirect URI's port.
+
+| Case | Status and code | Text |
+| --- | --- | --- |
+| No such source (also the CLI's `SERVER` matching none) | 404 `not_found` | `No source SOURCE on this host. Run peerspan sources.` |
+| `capability` names no capability on this host | 404 `not_found` | `No capability NAME on this host. Run peerspan capability list.` |
+| The capability is built on another source | 400 `invalid` | `NAME is not built on SOURCE.` |
+| `remote.oauth` is null | 409 `oauth_disabled` | `SOURCE has OAuth turned off in its harness configuration.` |
+| A definition reason applies | 409 `not_usable` | `SOURCE is not usable (REASON), so Peerspan cannot sign in to it.` |
+| Not remote, or the probe found no challenge | 409 `no_challenge` | `SOURCE did not ask for a sign-in, so there is nothing to sign in to.` |
+| The probe could not connect | 502 `unreachable` | `Peerspan could not reach SOURCE: DETAIL` |
+| Metadata missing, unreadable, insecure, or with a wrong `issuer` | 502 `oauth_metadata` | `Peerspan could not read the authorization server metadata for SOURCE: DETAIL` |
+| No `S256` | 409 `no_pkce` | `The authorization server for SOURCE (ISSUER) does not advertise PKCE, so Peerspan will not sign in to it.` |
+| No way to register | 409 `no_registration` | `The authorization server for SOURCE (ISSUER) does not let Peerspan register itself. Register an OAuth app with the provider, with redirect URI http://127.0.0.1:PORT/callback, then run: peerspan sources login SOURCE --client-id ID [--client-secret-file PATH]` |
+| Registration refused | 502 `registration_failed` | `The authorization server for SOURCE (ISSUER) refused to register Peerspan: DETAIL` |
+| Unknown or expired login, or `state` missing or different | 400 `login_expired` | `This sign-in link is no longer valid. Run peerspan sources login SOURCE again.` (for an unknown `login_id`, `SOURCE` is the literal word `SOURCE`) |
+| `error` in the redirect | 400 `provider_refused` | `The provider refused the sign-in: ERROR (DESCRIPTION).`, or `The provider refused the sign-in: ERROR.` without `error_description` |
+| No `code` in the redirect | 400 `no_code` | `The redirect carried no authorization code. Run peerspan sources login SOURCE again.` |
+| Token request refused | 502 `token_refused` | `The provider refused to issue a token: ERROR (DESCRIPTION).`, or without the parenthesis when there is no `error_description` |
+| CLI: no terminal and no `--no-browser` | exit 1, no request | `sources login needs a terminal, or --no-browser to print the link and read the pasted address from stdin.` (`capability login` says `capability login` instead) |
+
+`DETAIL` wording is not shared. Other invalid bodies are 400 `invalid`.
+
+### Tokens
+
+**The credential.** Each sign-in is one OAuth credential, keyed by `(agent_id, server, capability)`, where `capability` is `""` for the source's own sign-in. Its record:
+
+```json
+{
+  "issuer": "https://auth.example",
+  "resource": "https://mcp.example/mcp",
+  "registration": "dcr",
+  "client": {"issuer": "https://auth.example", "redirect_uri": "http://127.0.0.1:53682/callback"},
+  "token_endpoint": "https://auth.example/token",
+  "revocation_endpoint": "https://auth.example/revoke",
+  "access_token": "…",
+  "refresh_token": "… or null",
+  "token_type": "Bearer",
+  "expires_at": "RFC3339 or null",
+  "scope": "read write",
+  "account": "work or null",
+  "obtained_at": "RFC3339",
+  "refreshed_at": "RFC3339 or null",
+  "state": "ok",
+  "refresh_failed_at": "RFC3339 or null"
+}
+```
+
+- `registration` is `dcr`, `manual`, or `harness`. `revocation_endpoint` is the metadata's, or null.
+- `expires_at` is `obtained_at` (or the refresh time) plus `expires_in` when the token answer has a numeric `expires_in`, else null. `scope` is the answer's `scope`, else the scopes requested, else null. `account` is `--account`, else null.
+- `state` is `ok`; `refresh_failed` (the latest refresh failed in a way that may recover, such as a network error, a 5xx, or an error other than `invalid_grant` and `invalid_client`; `refresh_failed_at` is when the first such failure since the last success happened); or `login_required` (a refresh was refused with `invalid_grant` or `invalid_client`, the token was refused after a refresh, or it could not be refreshed because there is no refresh token).
+- **Client registrations** are stored separately, keyed by issuer and redirect URI: `{issuer, redirect_uri, client_id, client_secret, registration_access_token, method, registration, created_at}`, where `method` is `none`, `client_secret_post`, or `client_secret_basic`.
+- **At rest.** Credentials and registrations are stored in the host database, in the 0700 state directory, as `tool_values` are. Tokens, client secrets, and registration access tokens never appear in any response, output, log, or activity, and are never sent to peers or the coordinator.
+
+<a id="use-and-refresh"></a>**Use and refresh.**
+- **Every request** to the MCP endpoint of an OAuth source carries `Authorization: Bearer ACCESS_TOKEN`. Tokens are sent only to the MCP URL and to the credential's token and revocation endpoints. HTTP redirects from the MCP endpoint or any OAuth endpoint are never followed: a 3xx answer is an error.
+- **Refresh before use.** Before `initialize`, before each call, and before each snapshot request, when `expires_at` is within 60 seconds, or when the credential was marked by a 401 to a call, the daemon refreshes: a `POST` to `token_endpoint` with `grant_type=refresh_token`, `refresh_token`, `client_id`, and `resource`, with the client's authentication. A 200 JSON answer with an `access_token` replaces the access token, the refresh token when the answer has one, `expires_at`, and `scope` when given, sets `refreshed_at`, `state` `ok`, and `refresh_failed_at` null.
+- **One refresh at a time.** Refreshes of one credential are serialized, and the new tokens are stored, in one transaction, before they are used. A request waiting on a refresh uses its result.
+- **A refused refresh** (`invalid_grant` or `invalid_client` in a 400 or 401 JSON answer, or no refresh token when one is needed) makes the credential `login_required`. Any other failure makes it `refresh_failed`, and the request goes ahead with the current access token. Each failed refresh records `sources.token_refresh_failed`.
+- **401 during a session.** For `initialize`, `tools/list`, and `resources/list`, the daemon refreshes once and repeats the request; a second 401 makes the credential `login_required`. For `tools/call` and `resources/read`, a 401 makes the call `failed` with `auth_required`, the call is not sent again, and the credential is marked so that the next request refreshes first.
+- **403 `insufficient_scope`** (a `WWW-Authenticate` `Bearer` challenge with `error="insufficient_scope"`) makes the call `failed` with `insufficient_scope`, and records the time and the challenge's `scope` on the source, or on the capability's own instance, for [status](#remote-status). There is no automatic step-up.
+
+<a id="revocation-and-removal"></a>**Revocation and removal.**
+- **`sources logout SOURCE [--yes]`.** When capabilities built on the source use its sign-in (those without their own), the CLI first prints them, one per line, and asks `Sign out? Calls to these capabilities will fail until the next sign-in. [y/N] `; `--yes` skips the question, and without a terminal and `--yes` it exits 1 with `confirm this sign-out at a terminal, or pass --yes`. The route takes `{capability}` (optional, nullable). When the credential has a `revocation_endpoint`, the daemon posts the refresh token (when there is one) and then the access token to it ([RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)), as `token` with `token_type_hint` `refresh_token` or `access_token`, `client_id`, and the client's authentication. It then deletes the credential, whatever the revocation did, and records `sources.logout`. It answers 200 `{source, capability, revoked, deleted}`: `revoked` is true when every token posted got a 200; `deleted` is false only when there was no credential (then nothing is posted). Shares are kept.
+- **The CLI** prints the answer as JSON on stdout. When `deleted` is true and `revoked` false, it prints on stderr `ISSUER has no revocation endpoint Peerspan could use. To revoke access there, remove "Peerspan (HOST_LABEL)" from the connected apps of your account.`; when `deleted` is false, `SOURCE has no sign-in on this host.` (`capability logout`: `NAME has no sign-in of its own on this host.`).
+- **A source dropped by a `PUT`** loses its credentials, the source's and its capabilities' own, with the definition, values, and snapshot. **A URL change** (a canonical URL that no longer equals a credential's `resource`) deletes the source's credentials likewise, and resets the stored auth mode and challenge, so the next probe learns them again. In both cases the credentials are deleted in the `PUT`'s transaction, and their tokens are revoked in the background, best effort.
+- **`capability remove`** deletes the capability's own credential with the record, revoking it in the background, best effort.
+- **At the provider.** When the owner revokes Peerspan there, the next refresh or request gets `invalid_grant` or 401, and the credential becomes `login_required`.
+- **`unshare`** does not touch credentials.
+
+<a id="per-capability-sign-in"></a>
+### Per-capability sign-in
+
+A capability built on an OAuth source may have its own sign-in (`capability login NAME`), for example with another account or fewer scopes.
+- **Effect.** A successful `capability login` stores the credential under the capability's key and marks the capability record with `own_sign_in: true`. The capability then has its own instance (`…/SERVER@CAPABILITY.log`) and its own snapshot, taken with its own token, as a capability with its own `env_file` does; its operations are judged against that snapshot. It is judged only by its own credential: it keeps working while the source's sign-in has lapsed or been signed out.
+- **Sign-out.** `capability logout NAME` deletes the capability's credential but keeps `own_sign_in`, so the capability is `unavailable` with `auth` until the next `capability login`; it never falls back to the source's sign-in, which may reach more.
+- **The record.** `own_sign_in` is stored only when true, and is not part of the comparison for an identical `capability create` repeat.
+- **Snapshots.** A `PUT` for the agent, and `sources refresh`, snapshot such a capability with its own token when its credential is usable, and skip it, without a `snapshot_error`, when it is not.
+
+### Running remote servers
+
+The rules of [Running servers](#running-servers) apply, with these meanings:
+
+| Rule | For a remote server |
+| --- | --- |
+| Instance | One MCP session: an HTTP client, the negotiated protocol version, and `MCP-Session-Id` when the server set one. One per source, and one per capability with its own `env_file` or own sign-in. |
+| Starting | `POST initialize`, then `notifications/initialized`, within 30 seconds. A failure fails the instance's waiting calls with `server_start_failed` and counts toward the 3 failures in 10 minutes, except a 401 after the refresh and retry, which fails them with `auth_required`. |
+| Concurrency | At most 4 calls at once per instance. |
+| Idle stop | After 10 minutes without calls, a `DELETE` to the MCP URL with `MCP-Session-Id`, when one was set; any answer is accepted. |
+| Log | `STATE/tool-logs/AGENT_ID/SERVER.log` (or `…@CAPABILITY.log`), mode 0600, records HTTP statuses, session changes, refreshes, and errors, never header values or tokens. |
+
+- **Requests.** Each JSON-RPC message is a `POST` to the URL with `Content-Type: application/json`, `Accept: application/json, text/event-stream`, the definition's headers (with their values and overrides), `Authorization` for OAuth, `MCP-Protocol-Version` with the negotiated version after `initialize`, and `MCP-Session-Id` once set. Definition headers named `Content-Type`, `Accept`, `Content-Length`, `Host`, `MCP-Protocol-Version`, or `MCP-Session-Id` (case-insensitively) are not sent. Notifications expect 202 or 200, and their answers are not read.
+- **Answers.** A `Content-Type` of `application/json` is read whole as one JSON-RPC response. `text/event-stream` is read event by event until the event whose `data` (its `data:` lines joined with `\n`) is the response to this request. Other messages on the stream are dropped and logged; a request from the server on it is answered with a `POST` of the JSON-RPC response `{"jsonrpc": "2.0", "id": ID, "result": {}}` for `ping`, and of a JSON-RPC error response with code `-32601` otherwise. Any other content type is an error.
+- **Protocol version.** The client offers `2025-06-18` and accepts `2025-03-26`, `2025-06-18`, or `2025-11-25` from the server.
+- **Size.** A body, or the part of an event stream read for one response, is read up to 2 MiB; beyond that the read stops. For a call this is `failed` with `result_too_large` and `result_bytes` null; a result over 1,048,576 bytes is `failed` with `result_too_large` as today.
+- **Timeouts.** Connecting, TLS included, has 10 seconds. A call has no read timeout of its own beyond its deadline.
+- **TLS and proxies.** `https` uses the system's trust store in both hosts. Neither host uses `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`.
+
+**Call outcomes** for an answer to `tools/call` or `resources/read`, beyond the JSON-RPC and result outcomes of today:
+
+| Answer | State | `error` |
+| --- | --- | --- |
+| The connection could not be made (DNS, connect, or TLS), so nothing was sent | `failed` | `server_exited` |
+| 401 | `failed` | `auth_required` |
+| 403 with an `insufficient_scope` challenge | `failed` | `insufficient_scope` |
+| 404 to a request carrying `MCP-Session-Id` (the session is gone; the instance ends, and queued calls start a new one) | `failed` | `server_exited` |
+| Any other 4xx, a 3xx, or a 2xx that is not a readable JSON-RPC response | `failed` | `http_error` |
+| 5xx | `uncertain` | `http_error` |
+| The connection dropped after the request was sent, before its response | `uncertain` | `connection_lost` |
+| Cancellation or the deadline while running | `uncertain` | `cancel_requested` or `deadline`, as today; the daemon posts `notifications/cancelled` with the request ID on the same session and stops reading the answer |
+
+`failed` gains `auth_required`, `insufficient_scope`, and `http_error`; `uncertain` gains `connection_lost` and `http_error`. A call is never sent twice. A call that would start while its instance's OAuth credential is `login_required` is `failed` with `auth_required` without being sent; when a refresh before the call is refused, likewise.
+
+### Capabilities on remote sources
+
+- **`capability create --from AGENT/SERVER`** accepts a remote source once it is `shareable`, as any source. `--arg` with a remote source is 400 `--arg applies only to stdio sources`. `--env-file` supplies the variables that its headers reference, as above, and gives the capability its own instance.
+- **`auth` in the capability view.** `GET /v1/capabilities`, `GET /v1/capabilities/{name}`, `capability show`, the `POST /v1/capabilities` response, and `shares --json` gain `auth`: null for a capability on a stdio or built-in source; otherwise `{mode, state, issuer, scope, account, registration, obtained_at, expires_at, own}`, where `own` is the record's `own_sign_in`, and the other fields are those of the credential the capability uses (its own when `own` is true, else the source's), computed as for sources.
+- **`unavailable: ["auth"]`.** A capability whose credential is not usable is `unavailable` with exactly `["auth"]`: with `own` false, when its source is `login`; with `own` true, when its own credential is missing or `login_required`. A source whose only reason is `login` still counts as present for its capabilities, so they read `auth`, not `source`. A capability whose source is gone or not shareable for another reason reads `source`, as today.
+- **Refusal.** A call to an operation of a capability that is `unavailable` with `auth` is refused at submission with 409 `{"code": "unavailable", "error": "the capability's sign-in has lapsed on its host"}`, before anything is persisted, and so is a call to a source (`AGENT/SERVER`) whose reason is `login`. A queued call that would start while that holds becomes `failed` with `auth_required`, instead of `rejected`.
+- **Raw sources.** For the person's own machines, a remote source is called as any source, on the serving host's credential.
+
+**The review.** For a capability on a remote source, the review's `Credentials:` line is replaced by one `Credential:` line, the first that applies:
+- auth mode `none`: `Credential: none. AGENT/SERVER (URL_HOST) asks for no sign-in, so it serves anyone who can reach it. Sharing it lets the people you share with use the selected operations through this host, including when the server is only reachable from here (a local, home, VPN, or company network).`
+- `headers`: `Credential: the token in the NAME header of AGENT/SERVER (from SOURCE).` for one header, or `Credential: the tokens in the NAME, NAME headers of AGENT/SERVER (from SOURCE).` for several, sorted by byte order; `SOURCE` is the definition's `source`. For a capability with its own `env_file`, followed on the same line by ` Values from the capability's environment file PATH override the variables those headers reference.`
+- `oauth` with a usable credential: `Credential: Peerspan's own sign-in to ISSUER_HOST, scopes SCOPE, ACCOUNT, signed in on DATE.`, or with `own` true `Credential: this capability's own sign-in to ISSUER_HOST, scopes SCOPE, ACCOUNT, signed in on DATE.`, where `SCOPE` is the scope or `none`, `ACCOUNT` is `account LABEL`, or `account not labelled; Peerspan cannot see which account approved` without a label, and `DATE` is the `YYYY-MM-DD` of `obtained_at`;
+- `oauth` otherwise: `Credential: the sign-in to AGENT/SERVER has lapsed; run peerspan sources login AGENT/SERVER` (with `own` true: `peerspan capability login NAME`);
+- mode null: `Credential: unknown; Peerspan has not reached AGENT/SERVER yet.`
+
+The reach statement is unchanged.
+
+**`shares`.** Each capability on a remote source gets, in its text output, a line `  credential: TEXT`, where `TEXT` is the review's `Credential:` line without its `Credential: ` prefix.
+
+**The guided share.** A source whose reason is `login` may be chosen, at a terminal or with `--from`. At a terminal, the CLI runs the sign-in (as `sources login SOURCE` without flags) right after the source is chosen and before the operations are asked; a failed sign-in exits 1 with nothing created. Without a terminal, such a source exits 1 with `SOURCE needs a sign-in first: run peerspan sources login SOURCE`, with nothing created.
+
+<a id="remote-status"></a>
+### Status
+
+- **Counts.** `capabilities` in `GET /v1/status` gains `remote_sources`, the number of remote sources, and `signed_in`, the number of stored OAuth credentials (sources' and capabilities') whose `state` is not `login_required`.
+- **Item 14** gains, with one item per subject as before:
+  - for a remote source (subject `AGENT/SERVER`), command `peerspan sources login AGENT/SERVER` when: its credential is `login_required`, or `refresh_failed` with `refresh_failed_at` more than 1 hour ago; or it is `login` without a credential and has capabilities that use its sign-in;
+  - otherwise, when it recorded an `insufficient_scope` in the last 24 hours, command `peerspan sources login AGENT/SERVER --scopes "SCOPES"` with the challenge's `scope`;
+  - otherwise its existing causes and command, including a `snapshot_error` of `unauthorized` on a headers source (`peerspan sources refresh --agent AGENT`, after the owner updates the token);
+  - for a capability with its own sign-in (subject `NAME`), command `peerspan capability login NAME` when its credential is missing, `login_required`, or `refresh_failed` for more than 1 hour; otherwise `peerspan capability login NAME --scopes "SCOPES"` for an `insufficient_scope` in the last 24 hours on its own instance; otherwise as before.
+
+  The detail is free text and never holds tokens.
+
+### Persistence
+
+Database version 22 adds the following. Version 22 binaries migrate every version from 0 to 21 up to 22, and refuse anything above 22.
+
+```sql
+CREATE TABLE oauth_clients (issuer TEXT NOT NULL, redirect_uri TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(issuer, redirect_uri));
+CREATE TABLE oauth_credentials (agent_id TEXT NOT NULL, server TEXT NOT NULL, capability TEXT NOT NULL DEFAULT '', record TEXT NOT NULL, PRIMARY KEY(agent_id, server, capability));
+PRAGMA user_version = 22;
+```
+
+- **Migration** to 22 creates the two tables and sets the version, in the same transaction as any earlier version's migration, and rewrites no record. Older binaries reject version 22.
+- **Records.** `tool_servers.record` gains `remote`, `headers`, `auth_mode`, `challenge`, and the health fields `insufficient_scope_at` and `insufficient_scope`; a capability's own snapshot may hold the health fields; capability records gain `own_sign_in` when true. Records without them read with the defaults: a remote record without `remote` reads, and is listed, with the http default under [Remote definitions](#remote-definitions), and without `headers` as `{}`; a stdio record with `remote` null and `headers` `{}`; mode null, no challenge, and false. `tool_values` holds the new value fields.
+- **Activity:** `sources.login`, `sources.logout`, and `sources.token_refresh_failed`, with subject `AGENT_ID/SERVER`, or `AGENT_ID/SERVER@CAPABILITY` for a capability's own sign-in. Activity never holds tokens, codes, secrets, or header values.
+
+### Older peers
+
+Nothing on the wire changes except values: listings may show `unavailable: ["auth"]`, call records may carry the new `error` values, and a receiver may answer 409 `unavailable` with the new text. A caller of any earlier version shows them as it shows other values. A receiver older than this slice has no remote sources, so nothing it serves changes. An older CLI talking to this daemon sends definitions without `remote` and `headers`, which read with the defaults above.
+
+### Verification
+
+`conformance/capabilities.py` gains these cases, written from this section by an author independent of both implementations. They run across all four Go/Rust CLI and daemon pairings, with `--probe`, the Go coordinator, and OpenSSH; the agent tool cases also need `--node`. They use a fixture Streamable HTTP MCP server and a fixture OAuth authorization server, both in Python on loopback HTTP, which record every request (method, path, headers, and body) and can be told per test how to answer. The suite drives the authorization URL itself (the fixture approves at once and redirects), so it covers both the listener and the pasted address. Live runs against real providers are separate (below).
+
+The fixtures can: require a static header; challenge with `WWW-Authenticate: Bearer` with and without `resource_metadata` and `scope`; serve protected resource metadata at the challenge URL, the path-inserted URL, and the root URL; serve RFC 8414 and OpenID Connect metadata at each well-known path; advertise or omit `S256`, `registration_endpoint`, and `revocation_endpoint`; answer DCR with and without a `client_secret`; check PKCE, `state`, `redirect_uri`, and `resource`; issue short-lived tokens and rotate refresh tokens; answer `invalid_grant`, `invalid_client`, a 5xx, and `insufficient_scope`; set and expire `MCP-Session-Id`; answer with JSON or SSE (with unrelated events and a `ping` request before the response); drop the connection after reading a call; return 3xx, 4xx, and 5xx; and serve oversized results.
+
+It covers:
+- **Discovery:** each harness's remote fields (`protocol`, the `oauth` hints, OpenCode `oauth: false`, `headersHelper`), headers as `literal`, `captured` with `variables`, and `missing`; Codex `http_headers`, `env_http_headers`, and `bearer_token_env_var`, and their precedence; OpenCode `{env:VAR}`; a URL with a reference; values (`headers.NAME`, `header_templates.NAME`, `url`) appearing in no listing, output, log, or activity; the environment file overriding a header only when it defines every referenced variable; a capability's `env_file` overriding header variables; a `PUT` without `remote` and `headers` accepted.
+- **Reasons:** each reason in precedence order (`insecure_url` for `http` on another host and for loopback allowed, `sse`, `headers_helper`, `missing_env`, `login`), `remote` retired, and a record stored before this slice keeping `remote` until the next `PUT`.
+- **Auth mode:** `none` and `headers` from a 2xx; `oauth` with the challenge stored and the reason `login` without a `snapshot_error`; `unauthorized` for a 401 with a configured `Authorization` header and for `oauth: false`; another failure's status in `snapshot_error`; `auth` in `sources --json` for each mode; the `sources` text lines.
+- **Sign-in:** the full flow through the listener and through a pasted address, for a source and for a capability; protected resource metadata from each of the three places; authorization server metadata from each path in order, for issuers with and without a path; the `issuer` check; `S256` required; DCR with the exact request body and `Peerspan (HOST_LABEL)`, a returned secret used as `client_secret_post` and as `client_secret_basic`; `--client-id` with and without `--client-secret-file` (and the secret file's mode check); the harness `client_id` hint; one registration reused for a second source of the same issuer, and its port reused; scope choice in order; the authorization URL's parameters, the PKCE challenge matching the verifier at the token request, and `resource` equal to the canonical URL in both requests; `--account`; the output JSON and stderr line; `sources.login` activity; each refusal with its status, code, and text; `login_expired` after a wrong `state`, after a second use of a `login_id`, and for an unknown one; print mode with `--no-browser`; refusal without a terminal; a busy port falling back to paste.
+- **Tokens:** no token, secret, or code in `sources --json`, `capability show`, `shares`, `status`, the review, logs, or activity; refresh before use with a short-lived token, with the rotated refresh token stored and the old one never reused; one refresh for several concurrent calls; `refresh_failed` on a 5xx with the request going ahead; `login_required` on `invalid_grant`, making the capability `unavailable` with `auth`, refused at submission with 409 and its text, with nothing persisted; queued calls failing with `auth_required` without being sent; a 401 to a call giving `auth_required`, never resent, and the next call refreshing first; `insufficient_scope` and item 14's command; tokens sent only to the MCP URL, never on a redirect; `sources.token_refresh_failed`.
+- **Revocation:** `sources logout` with the confirmation, `--yes`, and refusal without either; revocation of both tokens with their hints; the message without a revocation endpoint; `deleted: false` without a credential; capabilities becoming `unavailable` with `auth`, and shares kept; a dropped source and a changed URL deleting credentials; `capability remove` deleting the capability's own credential.
+- **Per-capability sign-in:** its own instance and snapshot, working while the source is signed out; `capability logout` making it `unavailable` with `auth` without falling back; `own` in `auth`.
+- **Running:** headers and `Authorization` on every request; `MCP-Protocol-Version` and `MCP-Session-Id`; JSON and SSE answers, with a `ping` answered and other events dropped; the idle `DELETE`; a session 404 failing the call with `server_exited` and the next call starting a new session; each call outcome in the table, with exactly one request per call recorded by the fixture; cancellation and the deadline posting `notifications/cancelled`; the 2 MiB read and `result_too_large`; a connect failure as `failed` `server_exited`; no proxy used with `HTTPS_PROXY` set; a server that cannot complete `initialize` failing calls with `server_start_failed`.
+- **Capabilities and calls:** `capability create` on each mode, `--arg` refused with its text; a full call by policy and by self from the CLI and through `call_capability`, and a raw source call from a trusted host it is open to; `auth` in the capability view and `shares --json`; the three review `Credential:` lines, the lapsed line, and the `shares` text line; the guided share refusing a `login` source without a terminal.
+- **Status:** `remote_sources` and `signed_in`, and each new item 14 case with its command.
+- **Migration:** a database at version 21 migrating to 22; with `--baseline18`, a version 18 database migrating to 22; a database at version 23 refused.
+- **Older peers:** with `--baseline18`, an older caller calling a remote capability, and seeing `auth_required` as a failed call's `error`.
+
+The slice 1 discovery cases that expected the reason `remote` follow this section instead.
+
+`conformance/live_capability_agents.py` gains, separately from deterministic conformance and needing the owner's test accounts (decision 11): Linear by OAuth with DCR and GitHub by a PAT header, each with an owner call and an agent call, then `sources logout` and the next call failing with `auth_required`.
 
 ## Owner decisions
 

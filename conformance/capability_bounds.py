@@ -2040,7 +2040,8 @@ def run_pairing(coord_binary, cli_binary, daemon_binary, label, only=None, basel
 # --- migration to version 21 ---------------------------------------------------------------------------------
 
 def check_migration(original, replacement, label, baseline=None):
-    """Version 20 (or the version 18 baseline) to 21 (builtin_sources created; capabilities read bounds {}); 22 refused.
+    """Version 20 (or the version 18 baseline) to 21 (builtin_sources created; capabilities read bounds {}), and on to the
+    current version; the next version refused.
 
     With `baseline` (a version 18 peerspan-host), the version 18 state is made by it; otherwise by `original`, taken
     back to version 20 by dropping builtin_sources."""
@@ -2058,6 +2059,10 @@ def check_migration(original, replacement, label, baseline=None):
                      f'{SCHEMA_VERSION}', label)
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
+                    # Version 22 (remote MCP servers and OAuth) tables too, when the binaries have them.
+                    from host_service import OAUTH_TABLES
+                    for table in OAUTH_TABLES:
+                        connection.execute(f'DROP TABLE IF EXISTS {table}')
                     connection.execute('DROP TABLE builtin_sources')
                     connection.execute('PRAGMA user_version = 20')
                     connection.commit()
@@ -2065,7 +2070,8 @@ def check_migration(original, replacement, label, baseline=None):
                     connection.close()
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION == 21, 'migrated to version 21')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION >= 21, 'migrated to version 21 (and on to '
+                 'the current version)')
             columns = [r[1] for r in db_rows(host, 'PRAGMA table_info(builtin_sources)')]
             need(columns == ['name', 'record'], 'builtin_sources (name TEXT PRIMARY KEY, record TEXT NOT NULL)', columns)
             if baseline:
@@ -2079,12 +2085,12 @@ def check_migration(original, replacement, label, baseline=None):
             need(status == 200 and view.get('builtin') == [], 'no built-in sources after migration', status, view)
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
-            connection.execute('PRAGMA user_version = 22')
+            connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION + 1}')
             connection.commit()
             connection.close()
             for binary in {str(original), str(replacement)}:
                 result = subprocess.run([binary, '--state', str(host.state), 'run'], capture_output=True, timeout=10)
-                need(result.returncode != 0, 'version 21 binaries reject version 22', binary)
+                need(result.returncode != 0, 'current binaries reject the next version', binary)
         finally:
             stop_all((host,))
     return label

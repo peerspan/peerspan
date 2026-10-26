@@ -199,6 +199,8 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("sources refresh", "refresh", "Discover the sources of attached agents again", 0)
 	add("sources open-to", "open-to HOST", "Let a trusted machine of yours call this host's sources", 0).Args = cobra.RangeArgs(0, 1)
 	add("sources close-to", "close-to HOST", "Stop a machine calling this host's sources", 0).Args = cobra.RangeArgs(0, 1)
+	add("sources login", "login SOURCE", "Sign Peerspan in to a remote source's server", 1)
+	add("sources logout", "logout SOURCE", "Revoke and delete this host's sign-in to a remote source", 1)
 	// sources is the sources group itself, listing this host's sources.
 	sourcesGroup := groups["sources"]
 	sourcesGroup.Use, sourcesGroup.Short, sourcesGroup.Args = "sources", "List this host's sources and the capabilities built on them", cobra.NoArgs
@@ -212,6 +214,8 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("capability show", "show NAME", "Show a capability and its recipients", 1)
 	add("capability remove", "remove NAME", "Remove a capability, withdrawing its shares", 1)
 	add("capability approval", "approval NAME (none|changing|all|OP[,OP...])", "Set which calls to a capability wait for your approval", 2)
+	add("capability login", "login NAME", "Give a capability its own sign-in to its remote server", 1)
+	add("capability logout", "logout NAME", "Revoke and delete a capability's own sign-in", 1)
 	add("share", "share [NAME]", "Share a capability with a principal", 0).Args = cobra.RangeArgs(0, 1)
 	add("shares", "shares", "List capabilities and their shares", 0)
 	add("unshare", "unshare NAME", "Withdraw a principal's access to a capability", 1)
@@ -454,6 +458,15 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.Bool("builtin", false, "only the built-in sources, such as gh")
 	case "sources open-to", "sources close-to":
 		fs.Bool("all", false, "every machine of yours that passes self access, including ones trusted later")
+	case "sources login", "capability login":
+		fs.String("scopes", "", "the scopes to ask for, space-separated")
+		fs.String("client-id", "", "a client ID registered with the provider")
+		fs.String("client-secret-file", "", "a file (mode 0600) holding that client's secret")
+		fs.Int("port", 0, "the loopback port of the redirect URI")
+		fs.Bool("no-browser", false, "print the link and read the pasted address from stdin")
+		fs.String("account", "", "your label for the provider account you approve with")
+	case "sources logout":
+		fs.Bool("yes", false, "sign out without asking")
 	case "capability create":
 		fs.String("from", "", "the source: AGENT/SERVER, builtin/NAME, or SERVER when one source here has that name")
 		fs.String("operations", "", "tool names, comma-separated")
