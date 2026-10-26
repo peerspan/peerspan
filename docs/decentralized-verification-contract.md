@@ -455,6 +455,18 @@ Normal current expiry/missing-proof categories still apply. Do not drop an
 ineffective selection or rewrite the fixed payload; choosing another list
 requires a new explicit reviewed intent.
 
+For all-head root resolution, use the authority contract's narrow hypothetical
+per-branch retention check. It ignores ONLY the global root-fork freeze for
+this proposed retention evaluation and intersects every branch/path's existing
+power/closure. It creates no current root/provider or fresh action authority.
+Complete all-branches-carry succeeds for a matching branch cosignature; omission,
+loss of an actually required role/power or applicable restriction on any branch
+refuses. Intersected surviving scopes remain retainable: nominal15 narrowed to
+effective7 can preserve common policy1, never restore the lost8. Missing exact
+closure remains proof_required. Issued_at/current-time checks and current
+non-root stream conflicts remain intact. Signed root verification still has
+its separate valid-rotation/ineffective-finite-retention semantics.
+
 This preparation rule does not change public verification of a signed root
 transition: an otherwise valid key rotation still advances the root DAG when
 its finite retention is ineffective, and the selected child still conveys no
@@ -629,6 +641,7 @@ Verification sections choose the exact isolated cause/error for each vector.
 | S02 typed signature formats | Original-person statement and packet authority signatures require Ed25519/SHA512 SSHSIG with the exact namespace; raw originals fail; roots may use raw Ed25519 or selected SSHSIG; host/device signatures require raw Ed25519. Format validity never supplies issuer authority. |
 | S04 packet signing slots | Owner-offer, administrator and owner-finalization packet SIGNING_REQUESTs use literal role authority, exact signer_public_key/authority_signature_format and the existing exact packet M. Reject a different role, key, message or format without filling any slot. A valid external signature fills only authority_signature; the packet's own role, host signature and device_signature requirements remain independently checked. |
 | R02 finite retention denial | A valid root transition remains selected when its typed finite retained-child claim is ineligible: with complete bytes, omitted required finite retention or child issued after transition makes selected child authority forbidden. Missing required proof bytes remains proof_required; a typed ineligible retained kind remains invalid; child expiry retains its own category. |
+| R03 all-head retention signing | A common finite child and exact authority-contribution closure carried by every maximal root branch remains signable ONLY for the exact all-head resolver role; no ordinary action/provider is made current during the fork. Intersect narrowed surviving powers (15→7 still permits common policy1), never restore lost bits; omission, an actually missing required power, a current non-root fork, known restriction, fixed-time/current-time ineligibility or missing proof refuses with the actual cause. Preserve both root-first and descendant-first arrival controls. |
 | B04 activation output bounds | With existing P/H and a separate current administrator path, minimum required_statement_ids is issued D plus manifest ancestor DS; extra verified packet-issuer DS is permitted. Every manifest DP, applicable current admin/owner stage, exact review pin and source-byte check remains required. |
 | B06 current retainer proof pins | A nominal15 issuer with a required current retainer narrowing effective power to7 can issue fresh child7 but not child15. Keep the manifest DS list as its exact literal forward closure; pin known required current-retainer proofs/current issuer-consent provenance in proof_ids, verify actual retention separately, and allow the output's additional verified retainer DS. Later necessary evidence does not rewrite the signed manifest. |
 | P05 imported fork resolver | With two known incomparable stream heads, an imported multi-predecessor candidate missing those IDs from resolves is invalid and cannot gain admission/head/maximum or clear the conflict. The otherwise identical explicit resolver succeeds only under actual current issuer power. A higher ordinary write on one branch alone cannot heal the fork. |

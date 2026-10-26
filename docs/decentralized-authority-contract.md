@@ -550,6 +550,27 @@ newly learned branch reopens the dispute. A root's permission to rotate is
 separate from any person's ownership, so rotation cannot fabricate an absent
 owner signature or extend a carried management deadline.
 
+For the narrow all-head-resolution RETENTION eligibility check, evaluate the
+previously signed finite grant under EVERY maximal predecessor branch and
+every intervening path to it. Ignore only the global root-fork freeze while
+performing that hypothetical check; do not select a branch/current provider or
+authorize an ordinary action. Every branch/path must already carry that exact
+grant and required finite closure under section4. All original signatures,
+complete consent, current non-root stream heads/forks, restrictions, effective
+powers and original/retaining deadlines still apply. A grant omitted on one
+branch cannot be revived by the resolver or another branch's list. Narrowing
+caps the common surviving contribution; it does not automatically discard the
+whole grant. For example, a nominal device15 with effective7 on one branch may
+retain the independently valid common7, including policy1, but never recover8
+from the other branch. A use lacking a required bit/role still refuses normally.
+Missing proof bytes remain proof_required, not proof of ineligibility. Local
+signing preparation checks eligibility both at the fixed resolver issued_at and
+current guarded time. All exact branch and new-root signatures remain mandatory
+before resolution/application; the fork supplies no ordinary positive power.
+Selected: intersection of every branch's existing retained contribution.
+Discarded: treating the fork's ordinary-use freeze as proof that no finite
+grant can be retained, or preserving a grant supported by only one branch.
+
 New-mode migration is explicit current legacy-root authorization plus every
 known nonrevoked admitted host's acknowledgment as specified by bootstrap and
 umbrella migration. Fresh complete new-mode transcripts use each owned host's

@@ -505,6 +505,45 @@ additional resource permission or arbitrary signing primitive.
 
 ### Next-root preparation and exact resolution
 
+`GET /v2/networks/{id}/root-retention` has no query/body and returns exactly
+`{network_id,context_id,decision_time,root_head_ids,catalog,candidates,excluded}`
+from ONE coherent read snapshot, within the existing32MiB owner response and
+inner catalog bounds. Root_head_ids is every known maximal root head, sorted.
+Catalog contains exact retained verified public proof closure, including any
+historical/inert bodies needed to verify literal references of admitted root
+states/candidates. Such a body's presence does not assert its admission or
+authority. No private markers or unverified incoming candidates are exposed or
+newly admitted. Each candidate is exactly
+`{statement_id,kind,required_retained_ids,effective_scopes,effective_not_after}`;
+each excluded entry is exactly `{statement_id,code,required_ids}`. Both arrays
+are sorted by statement_id, with unique IDs. Required arrays are sorted unique.
+
+Candidates are independently eligible current finite lease/access stream heads
+whose exact existing contribution can survive the proposed next-root transition
+at this decision time. Required_retained_ids includes the candidate itself and
+EVERY needed exact finite AUTHORITY CONTRIBUTION that the transition must carry.
+This differs from literal catalog/manifest proof closure: an expired P1 needed
+only as predecessor lineage for current P2 is supplied as proof, not retained
+as live authority. It excludes root lineage and restrictions, which retain
+their own rules. Effective_scopes
+keeps the kind's actual role semantics (person/host/policy/group0, binding2,
+admin8, device effective mask); it does not reinterpret zero as a device mask.
+The exact signed bodies/ancestry in catalog disclose actual subjects/powers.
+Effective_not_after is the earliest original/retaining finite deadline, never
+an extended promise. For a root fork, use only the authority contract's narrow
+all-branches-intersect retention evaluation; no branch becomes current.
+
+Excluded lists known finite stream heads that cannot currently be preserved,
+with their actual expiry/revocation/conflict/forbidden or missing-proof code and
+exact required IDs when derivable. Missing bytes/unknown eligibility MUST NOT
+be silently omitted as if the statement were known ineligible. Missing origin,
+root-head closure or invalid private state that prevents a trustworthy preview
+returns its structured error instead of an incomplete success. This read
+generates no key/intent/signature, fetches nothing and writes no guard, admission,
+provider or authority. It is local planning, not signed authority or a guarantee
+that later signing/application will pass. Final preparation still revalidates
+the complete exact retention set at fixed issued_at AND actual current time.
+
 `POST /v2/networks/{id}/root-transitions` takes exactly
 `{new_root_public_key,new_root_signature_format,signature_format,
 retained_statement_ids,approve}` and returns the same action result wrapper.
@@ -540,6 +579,21 @@ epoch. `network rotate-root ID` and --to-ssh --root-key PATH use this preparatio
 and fixed slots; root resolution uses `network resolve-root ID --new-root-key
 PATH`, every required existing-branch key supplied via repeated --root-key PATH.
 A missing branch key yields exact needed slots/repair, never a highest-root win.
+
+The native rotate-root/resolve-root default obtains this preview and explicitly
+reviews the full union of eligible candidates' required_retained_ids, exact
+root heads, preserved powers/deadlines and excluded entries before approval.
+Rotation preserves those roles until their existing bounds/restrictions; it
+does not revoke them merely by changing the root key. A proof_required entry
+blocks this full-set default until repaired, because its possible eligibility
+is unknown. Repeated --retain DS instead selects exactly those listed finite
+IDs (no inferred missing closure); --retain-none explicitly selects the empty
+set. These options are mutually exclusive. An explicit subset/empty selection
+may resolve a root despite unrelated finite-proof gaps when the normal
+domain-local verifier permits it; the review must disclose what it drops.
+Never silently erase, truncate or change a rejected selection, choose a branch,
+or automatically approve a new set after a concurrent state change. The daemon
+root-transitions API continues to require the caller's exact explicit set.
 
 ### Contact-invitation minting
 
@@ -1161,6 +1215,11 @@ The independent author derives runtime cases after this contract is pinned:
 - Exact retries/crashes at approved-intent/signature/frame/finalcommit/apply
   boundaries; historical outcomes after expiry; no implicit consent, new keys,
   fallback signer, duplicate event or rollback of newer provider/maxima.
+- Root-retention preview/read purity and complete finite closure; default full
+  eligible-set review, exact explicit subset/empty choice, missing-body repair
+  rather than silent omission, effective powers/deadlines and concurrent final
+  recheck. All-head resolver preserves only grants retained by every branch;
+  ordinary root/provider/fresh actions stay frozen until complete resolution.
 - Expired known-peer narrow proof repair, unknown/revoked-key isolation and no
   local/admin/task leak; current-self withdrawal propagation and unrelated
   conflict-domain restrictions; strict catalogs/aliases/closures/size quotas.
