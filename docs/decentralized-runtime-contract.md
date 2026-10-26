@@ -363,6 +363,19 @@ remaining slots are exposed on later exact reads/submissions after dependencies
 or earlier signatures are fixed. This is a declared signing batch, not truncated
 authority evidence. The persisted full typed intent retains every slot.
 
+For owner_offer_packet, administrator_packet and owner_finalization_packet,
+the declared SIGNING_REQUEST role is exactly `authority`; it fills only the
+packet's authority_signature with its fixed authority_signature_format.
+It is distinct from the packet's own role (owner, administrator or
+owner_finalization). The message is exactly that packet's existing bootstrap
+`M`, and public_key is its fixed signer_public_key. Host and device signatures
+are separate locally owned key roles, never external authority slots. In these
+three packet types device_signature remains `"-"`; the independently checked
+host signature still binds the same exact `M`. Selected: one literal typed
+external packet-authority role, using the existing message and cryptography.
+Discarded: inferring a signature field from the packet role, accepting arbitrary
+role names, or letting an external authority slot replace host/device consent.
+
 Only persisted approved, dependency-ready typed templates expose slots. An
 original-person SSH slot uses peerspan-person-v1/Ed25519/SHA512; a returned slot
 cannot request arbitrary bytes, another person or an unrelated root action.
