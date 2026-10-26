@@ -24,6 +24,28 @@ Contents:
 
 ## Full entries
 
+### DEC-EP1: unambiguous numeric endpoints (2026-10-26)
+
+- **Authority:** selected within the delegated DEC-01 through DEC-07 stream.
+- **Chosen:** "refuse ambiguous numeric-address aliases so endpoint
+  interpretation does not depend on a platform's legacy IPv4 resolver."
+- **Discarded:** "interpret every numeric label sequence as DNS"; "special-case
+  only exactly four dotted numeric labels while accepting other legacy numeric forms."
+- **Source:** [endpoint grammar](decentralized-bootstrap-contract.md).
+- **Boundary:** exact TLS key pins remain mandatory; endpoint parsing grants no authority.
+
+### DEC-RT1: explicit retention selections before signing (2026-10-26)
+
+- **Authority:** selected within the delegated DEC-01 through DEC-07 stream.
+- **Chosen:** "refuse a known ineffective retention selection before local
+  signing, while preserving independent key rotation verification."
+- **Discarded:** "advertise unusable selections as preserved"; "invalidate a
+  correctly signed root rotation because its child cannot be kept"; "infer a
+  new child grant from the list."
+- **Source:** [typed signing-intent authority](decentralized-verification-contract.md#action-or-typed-signing-intent-authority).
+- **Reason:** the caller's reviewed kept-grant selection must be independently
+  usable at its fixed transition time; signed root verification remains separate.
+
 ### DEC-SF1: observe additive migration rollback (2026-10-26)
 
 - **Authority:** selected within the delegated DEC-01 through DEC-07 stream.

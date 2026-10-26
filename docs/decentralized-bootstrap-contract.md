@@ -106,7 +106,15 @@ no final dot, labels 1..63 bytes containing only `a-z`, `0-9`, `-`, with no lead
 or trailing hyphen; IDNA must already be an ASCII `xn--` label. IPv6 brackets
 are mandatory and cannot wrap DNS/opaque text. Zones, empty host, unspecified
 IP, controls/whitespace, URL delimiters/credentials/path and Unicode DNS are
-invalid. DNS resolution/routability is not authority. An implementation does not
+invalid. A host made only of ASCII digits and dots is accepted only as the
+canonical four-octet IPv4 form above; `123`, `127.1`, `01.2.3.4` and a trailing
+dot on a numeric address are invalid. Numeric DNS labels inside an otherwise
+valid hostname containing a letter or hyphen, such as `123.example`, retain
+the DNS grammar. Selected: refuse ambiguous numeric-address aliases so endpoint
+interpretation does not depend on a platform's legacy IPv4 resolver. Discarded:
+interpret every numeric label sequence as DNS, or special-case only exactly four
+dotted numeric labels while accepting other legacy numeric forms. DNS
+resolution/routability is not authority. An implementation does not
 reinterpret a signed noncanonical spelling as a different endpoint. Existing
 legacy proof/address grammar remains unchanged in its own context. Loopback
 and link-local literals are permitted transport hints, without zones or an

@@ -444,6 +444,29 @@ self-invalidation and validity of the explicitly supplied sequence before any
 proposed signing. It does not choose or increment a default sequence.
 No key ownership or actual signature is asserted by the adapter.
 
+A typed signing intent's `retained_statement_ids` is the caller's explicit
+selection of grants to preserve. Before returning signable success, every
+selected finite grant and its actual retiring contribution must be independently
+eligible both at the exact fixed transition `issued_at` and at current guarded
+`now`. If a child begins only after that fixed transition, complete evidence
+returns `forbidden` for this signing preparation even if it is live at `now`.
+Apply the same reviewed-selection rule to root and finite successor intents.
+Normal current expiry/missing-proof categories still apply. Do not drop an
+ineffective selection or rewrite the fixed payload; choosing another list
+requires a new explicit reviewed intent.
+
+This preparation rule does not change public verification of a signed root
+transition: an otherwise valid key rotation still advances the root DAG when
+its finite retention is ineffective, and the selected child still conveys no
+power under the authority contract. Selected: refuse a known ineffective
+retention selection before local signing, while preserving independent key
+rotation verification. Discarded: advertise unusable selections as preserved,
+invalidate a correctly signed root rotation because its child cannot be kept,
+or infer a new child grant from the list. Verification pairs an unsigned
+transition prepared atT0/recheckedT1 with child.not_before=T1 (preparation
+forbidden) and the same correctly signed transition's projection (root advances,
+child forbidden), plus a valid eligible selection and the finite-successor case.
+
 Success is exactly:
 
 ```text
