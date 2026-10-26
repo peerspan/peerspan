@@ -411,7 +411,10 @@ cosigner. Its exact mappings are:
   No branch becomes current, and all other branch/new-root signatures remain
   mandatory before final application.
 
-Reject superfluous actor identity claims. Target keys/host consent are checked
+Reject superfluous actor identity claims. A non-`"-"` value in an unused actor
+field fixed to that literal above is invalid before current-authority checks;
+a correctly framed actor lacking actual power returns its authority denial.
+Target keys/host consent are checked
 through the typed payload and final signature roles, not inferred from actor.
 Runtime selected-provider/own-host binding and private-key checks remain
 additional. The unsigned

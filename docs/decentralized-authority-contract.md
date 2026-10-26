@@ -152,6 +152,16 @@ resolves its exact ds_ through any complete valid envelope alias with that ds_.
 This deliberately rejects a typed-equivalence/canonicalization exception whose
 head and reference behavior would be ambiguous. No alias is a policy tie-break.
 
+Before authority admission/selection, validate EVERY present exact envelope
+alias against its declared signature roles and referenced root/person/device
+keys. A cryptographically valid signature by a key impossible for its referenced
+issuer is invalid provenance even beside a correct alias of an already admitted
+ds_. Missing required reference closure remains proof_required. Selecting one
+alias by arrival/order/hash cannot stand in for validating the others. A genuine
+old-root signature matching its own root reference can instead be historical
+inert evidence under the ordinary retirement rules. No DS admission marker
+forgives a present wrong-key alias. Structural decoding alone grants nothing.
+
 Catalog exchange is exactly
 `{format:1,context_id,objects:[{id,kind,body_base64}]}`, sorted by proof ID with
 unique IDs. Each ordinary object's kind equals its decoded envelope kind;
@@ -352,6 +362,11 @@ signed descendant IDs in `retained_statement_ids`. A listed descendant must:
    every older dependency that would cease to be current at this transition
    must be explicitly retained too. Proofs resolve to exact original bytes;
    no newly synthesized parent or changed signature replaces them.
+   For P1 replaced by P2 preserving B1/policy1 through P1, list P1 as well as
+   B1/policy1 when those exact older dependencies are still needed. Only finite
+   lease/access statements are eligible retained entries; root-state lineage
+   has the separate rule in section5, and restrictions retain their own sticky
+   provenance. An entry of an ineligible statement kind is invalid.
 3. Still fit the replaced ancestor's exact role, subject and available powers.
    The retaining signer must have normal authority to replace **that ancestor**;
    it preserves a descendant's existing owner signature rather than acquiring
@@ -459,11 +474,20 @@ not a proof of no unseen branch or of global signing time.
 
 Fresh actions use the verified current root state. A lease from an earlier
 root state is current only if **every intervening transition explicitly carries
-its exact ID and required ancestor closure** in retained_statement_ids, with
+its exact ID and required finite ancestor closure** in retained_statement_ids, with
 section4's unchanged-deadline/no-revival limits. Root retention is preservation
 of existing signatures and powers, not new owner signatures or fresh authority
 for the retired root. Uncarried old-state grants are historical only. A
 retired root cannot create a new fresh grant or deny in the current context.
+
+Predecessor root states remain exact verified lineage through the root DAG;
+their provenance is implicit in those predecessor references, not finite grant
+retention. Do not include a predecessor root_state ID in retained_statement_ids:
+it is an invalid typed retention entry. A transition preserving P/H and their
+eligible descendants lists those finite grants/dependencies, while its proof
+closure still supplies every required old root. This preserves lineage without
+retaining a retired root's unrestricted signing power. Discarded: treating a
+root state as a retained finite grant or omitting its required lineage proof.
 
 A root fork is incomparable valid branches, never the numerically largest
 epoch. Freeze positive paths depending on the fork until the all-head
@@ -792,6 +816,12 @@ implementation; implementers do not write matching unit tests.
 - Policy equal-version and different-version sibling forks, inactive maxima,
   group/admin/root forks, complete resolution and later newly learned branches;
   no permissive hash winner or lower-body fallback.
+- A correct envelope plus a valid-crypto wrong referenced-issuer-key alias of
+  the same ds_ refuses authority ingestion as invalid regardless of proof order
+  or a prior admission marker; exact prior state is unchanged. Root rotation
+  retention lists eligible finite grants and dependencies, with predecessor
+  roots in verified lineage only. P renewal retains an old P dependency itself
+  when needed by the retained B/policy; root-state/self retention refuses.
 - Alice policy fork plus otherwise valid Bob/root revocation commits the deny;
   a forked issuer cannot issue fresh grants. Maxu64 round-trip and no-wrap
   refusal leave all authority/reservation/outbound state unchanged.
