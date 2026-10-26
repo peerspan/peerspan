@@ -1087,3 +1087,19 @@ runtime's separate owner-finalization and administrator paragraphs. Discarded:
 requiring admin8 merely to finish an owner's own bounded approval, letting
 owner preapproval stand in for an actual administrator, widened terms or an
 alternate signer on resume, and any implicit requester final consent.
+
+## Coordinator-free durable ceremony consent (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: persist approved
+exact typed intent before generating signatures, persist exact signatures and
+packet before encryption, then persist exact sealed frames before publication.
+Add requester selection/requester_commit intent kinds and their fixed private
+packet templates, two pending intent references, and a requester-only owned-key
+selector that supplies possession signatures but no network authority. Existing
+stage APIs and independent default-no consents stay unchanged. The new frame
+barrier observes actual committed bytes, outside writer locks. This makes the
+bootstrap's existing durable order expressible and independently crashable in
+both implementations. Discarded: calling one atomic approve/sign/seal transaction
+three durable boundaries, a generic requester signing provider, reconstructing
+consent from an incoming packet, exposing owned requester signing slots, changing
+templates on resume, or silently repairing unshipped older pending shapes.

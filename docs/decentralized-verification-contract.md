@@ -690,6 +690,7 @@ The literal named points are:
 | dec.intent.after_commit | Fixed typed intent/templates/private preparation durably stored, before return/signing. |
 | dec.approval.after_commit | Explicit approval durably stored, before further signatures/application. |
 | dec.signature.after_commit | Exact submitted/generated signature batch durably stored, before subsequent application/response. |
+| dec.frame.after_commit | Newly received or sealed outbound frame bytes durably stored, before dependent interpretation/publication; an acknowledgment/retry alone does not enter this point. |
 | dec.request.after_commit | Exact request, keys/pins and private nonce/secret durably stored. |
 | dec.owner.after_commit | Exact complete owner packet durably stored. |
 | dec.selection.after_commit | Separate requester selection and exact selected pins durably stored. |
@@ -710,6 +711,18 @@ an already committed fact; no barrier implies global unobservedness. A completed
 historical retry performs no new signature/application and must not revisit
 those mutating barriers. Pending resume rechecks current authority and may
 continue only the exact fixed operation; it cannot regenerate timestamps.
+
+Approval-before-signature and signature-before-encryption are distinct required
+durable phases for typed ceremony work, including requester selection/final
+commit. At dec.approval.after_commit no new signature or frame from that stage
+exists; at dec.signature.after_commit its exact signature/packet bytes exist
+but no new frame encrypting them exists. At dec.frame.after_commit only the
+actual persisted frame can be published/retried. Stage-specific packet facts
+may share the signature transaction; application/outcome facts can share their
+atomic application transaction. These permissions do not combine the three
+ordered approval, signature and encryption phases into one commit. Independent
+crash/restart cases inspect each phase, then verify exact continuation, both
+requester consents and no repeated signature/frame/application/event.
 
 Selected: explicitly opted-in local clock files and named real durable barriers,
 using the existing public linking test-control discipline in a separate DEC

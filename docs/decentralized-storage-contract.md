@@ -413,7 +413,7 @@ intent_id is a fresh local random128-bit lowercase hex value prefixed `dint_`;
 it is an owner-local lookup/idempotency key, not a public authority ID. Unknown
 network/context are `-` until explicitly resolved once. kind is one of
 `owner`, `administrator`, `create`, `action`, `policy_claim`, `root_transition`,
-`migration`. A policy_claim is the runtime's prepare-only capability claim:
+`migration`, `selection`, `requester_commit`. A policy_claim is the runtime's prepare-only capability claim:
 reopening/resuming its signatures cannot change it into an applying ordinary
 action. Only the separate atomic capability-create transaction may admit its
 candidate policy and associated capability/edit/delivery changes.
@@ -431,8 +431,8 @@ The exact record is:
 ```
 
 provider is exactly
-`{kind:"original"|"device"|"root",signer_public_key,signature_format,lease_id}`;
-lease_id is the exact selected device ds_ or `-` for original/root. This is a
+`{kind:"original"|"device"|"root"|"requester",signer_public_key,signature_format,lease_id}`;
+lease_id is the exact selected device ds_ or `-` for original/root/requester. This is a
 PRIVATE provider selector, not the runtime public provider summary. Review is
 the exact nonsecret typed owner-local review from the runtime contract. Unknown
 not-yet-resolved IDs/template bytes/signatures are `-`. Templates and signature
@@ -442,6 +442,16 @@ ordered by slot_id then role. This permits several same-kind migration leases
 without ambiguous object_type lookup. A filled signature/template never changes.
 completed means all required typed signatures are durably fixed, not published
 or globally applied. terminal is `-`, applied, cancelled or expired.
+
+The private requester provider is allowed ONLY for selection/requester_commit
+intents. It pins the pending request's exact locally owned device public key,
+signature_format ed25519 and lease_id `-`; its host key must also equal this
+store's identity. Validate its owned seed and exact pending request, role,
+context/person/owner and selected terms before every signature. It establishes
+no current device authority, membership, provider selection or reusable signer.
+Never store requester in dec_signers or accept it for another intent kind.
+Requester intent secret is SQL NULL. Only actual owned host/device keys fill
+their fixed roles; these intents expose no external or arbitrary-message slots.
 
 result_base64 is `-` except an applied create, action or root_transition intent,
 where it is canonical Base64 of that exact original successful runtime response
@@ -479,7 +489,7 @@ signed proofs; all current proof, identity, consent and final-transaction checks
 still apply. Applied historical responses retain their separate immutable retry
 rules. No terminal intent is resurrected or collected by a review refresh.
 
-Exact object_type values are `owner_offer_packet`, `admin_lease`, `person_lease`, `host_lease`,
+Exact object_type values are `selection_packet`, `commit_packet`, `owner_offer_packet`, `admin_lease`, `person_lease`, `host_lease`,
 `binding_lease`, `device_lease`, `administrator_packet`,
 `owner_finalization_packet`, `root_state`, `policy`, `group`, `admin_withdraw`,
 `person_remove`, `host_revoke`, `host_unbind`, `device_revoke`,
@@ -494,6 +504,10 @@ available, then is fixed once. Current path/clock/consent is rechecked before
 each signature/publication; later dependency arrival creates no new approval
 or alternate provider. Same-review admin intent obeys the runtime authority
 and consent rule, not merely co-location of owner/admin rows.
+selection permits only its exact selection_packet. requester_commit permits
+the exact new binding host-role template when needed and its commit_packet;
+an unchanged complete binding creates no new binding signature slot. Host and
+device packet roles bind the existing bootstrap message, with no new codec.
 
 Original private keys are never persisted. secret is SQL NULL except a
 create/root_transition intent may hold the exact locally generated pending
@@ -532,7 +546,7 @@ The exact pending record is:
  commit_packet_base64,outcome_packet_base64,catalog_base64,
  owner_offer_id,selection_id,administrator_offer_id,owner_finalization_id,
  manifest_id,activation_id,selection_approved,commit_approved,
- owner_intent_id,administrator_intent_id,terminal,
+ owner_intent_id,administrator_intent_id,selection_intent_id,commit_intent_id,terminal,
  carrier_endpoints,outbound_frames}
 ```
 
@@ -550,6 +564,19 @@ explicit reviewed adoption. Both requester consent booleans start false and
 only their separate explicit consent actions turn them true. They never follow
 a mailbox hint, owner/admin review or resume. An approver retains its exact
 reviewed selected owner offer, including when another machine wrote it.
+selection_intent_id and commit_intent_id start `-`. Explicit selection/commit
+approval atomically fixes the corresponding approved typed intent reference,
+its exact reviewed pins and consent boolean BEFORE generating a signature.
+The reference names the same request_id as operation_id and the corresponding
+selection/requester_commit kind. All later transactions retain those exact pins.
+An approved boolean can therefore precede a complete packet; it is not evidence
+that a stage is signed, published or applied. Finalizing/unresolved-final-commit
+semantics require the durably complete exact commit packet, not that boolean
+alone. Missing referenced intent or a conflicting kind/tuple is corruption,
+never permission to recreate approval or choose another key/template.
+This amends the unshipped DEC pending shape before runtime release. A draft
+record lacking the new required fields is refused unchanged; do not normalize
+it into consent, reset identity/state, or modify any legacy linking record.
 The outcome field is a participant's fixed local result, not a global receipt.
 contact_invitation_base64 is `-` when no invitation was reviewed at local
 request creation, otherwise standard Base64 of the exact original decoded

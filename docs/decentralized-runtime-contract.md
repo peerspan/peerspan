@@ -741,6 +741,26 @@ final commit remains separate and default-no. Missing actual bytes reports their
 exact required IDs; complete but unusable authority reports its actual denial,
 not an empty proof_required merely because the requester has no prior admission.
 
+For selection and final commit, explicit approval first commits the exact
+reviewed typed intent and its own consent boolean/reference. Only after that
+transaction commits may the owned keys generate the fixed packet/binding
+signatures. Commit exact generated/submitted signature batches and any newly
+completed packet in subsequent signature transactions before encryption; commit each exact sealed
+outbound frame in a subsequent transaction before transport. Apply the same
+approval-before-signature and signature-before-encryption order to owner,
+administrator and owner-finalization work. All stages use their already fixed
+terms/current checks; resume can continue an approved unfinished stage but
+cannot approve it, rewrite templates, extend its window or choose a new signer.
+An approved boolean without a complete packet is displayed as pending signing,
+not a completed stage or escaped final commit. GET remains read-only. The
+requester-only private provider and packet templates are not external signing
+requests and confer no network authority. Request/selection/commit response
+shapes and the two independent default-no confirmations stay unchanged.
+Each dependency-ready typed template is itself durably fixed before generating
+its signatures. For a new binding, first retain its exact host signature, then
+fix the resulting exact manifest/commit template before commit-packet signing.
+No dependency arrival changes the already approved terms or supplies consent.
+
 The separately specified new-original-person possession-only offer remains
 selectable before administrator admission. Its root_state_id/person_lease_id
 are `"-"` and issuer IDs empty: verify the exact original-key possession
