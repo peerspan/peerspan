@@ -612,7 +612,91 @@ catalogs, local consent, crash barriers, exact events, helper/router isolation,
 relay4 hostile inputs, NAT/helper replacement and normal installed all-four
 pairings. Separate-machine/live-agent completion is recorded independently.
 
-## 7. Decisions and discarded alternatives
+## 7. Deterministic owner-local runtime controls
+
+Production DEC decisions use normal UTC. Independent black-box fixtures may
+explicitly enable `PEERSPAN_DEC_TEST_MODE=1` on an individual daemon or CLI
+process, with `PEERSPAN_DEC_TEST_CLOCK_FILE` and/or
+`PEERSPAN_DEC_TEST_BARRIER_DIR`. Otherwise both controls are ignored. These are
+not CLI options, persisted profiles, request fields or peer routes. A daemon
+test setting never implicitly enables another CLI/process. The harness supplies
+each process's environment explicitly. Legacy linking retains its separate
+LINK controls; helper resource clocks/rates, relay registrations, TLS certificate
+checks, QUIC and I/O/retry timeouts continue using real transport/monotonic time.
+
+The owner-local clock file is a regular nonsymlink file containing exactly a
+strict whole-second UTC timestamp (years0001..9999), optionally one final LF.
+Read it for each DEC decision/snapshot and the final authoritative transaction;
+it is not cached at startup or taken from remote signed time. A malformed,
+missing or unreadable configured test clock fails closed with500 internal,
+generic `internal error`, stage clock; never fall back to real time. Guard and
+read-only rules stay unchanged. Fake local time cannot erase persisted guards,
+renew a lease, supply consent or make a status read write admission metadata.
+
+Barrier directory is fixture-owned0700, with regular nonsymlink0600 files.
+An armed `<name>.arm` contains the exact public operation ID, or `-` for any
+operation, optionally one final LF. Nonmatching/unarmed points do nothing.
+For typed intent/approval/signature and create/action/root application points,
+use that intent record's exact operation_id (create_/act_ or its migration
+proposal ID), never its private dint_ lookup ID. For ceremony packet/selection/
+commit/application points use the exact signed request_id (link_); migration
+proposal/fence/final-commit/adoption points use exact proposal_id (ds_). A
+ceremony staged for migration still uses link_ at its ceremony points. These
+are the IDs already fixed in the corresponding public operation, not another
+generated test identity or legacy dreq_ handle.
+At a matching point write `<name>.entered` containing only that operation ID,
+then wait for `<name>.continue` or process-context cancellation. The fixture
+owns removal of its markers. It may kill/restart that exact fixture process
+instead of continuing. Never place keys, tokens, packets, catalogs, ciphertext
+or private paths in a marker. Invalid configured controls fail internal.
+
+The literal named points are:
+
+| Name | Actual boundary |
+| --- | --- |
+| dec.intent.after_commit | Fixed typed intent/templates/private preparation durably stored, before return/signing. |
+| dec.approval.after_commit | Explicit approval durably stored, before further signatures/application. |
+| dec.signature.after_commit | Exact submitted/generated signature batch durably stored, before subsequent application/response. |
+| dec.request.after_commit | Exact request, keys/pins and private nonce/secret durably stored. |
+| dec.owner.after_commit | Exact complete owner packet durably stored. |
+| dec.selection.after_commit | Separate requester selection and exact selected pins durably stored. |
+| dec.administrator.after_commit | Exact complete administrator packet/grants durably stored. |
+| dec.owner_finalization.after_commit | Exact complete owner-finalization packet/draft durably stored. |
+| dec.requester_commit.after_commit | Separate final requester consent and exact manifest/commit/grants durably stored before publication. |
+| dec.apply.before_transaction | After preparation/signature work, before acquiring the final authority snapshot/write transaction; concurrent changes must be rechecked after continue. |
+| dec.apply.after_commit | Actual create/action/activation/adoption public-state transaction committed, before this handler's response/remote attempt. |
+| dec.migration_proposal.after_commit | Exact proposal/source/preparation intent durably stored. |
+| dec.migration_fence.after_commit | Own exact acknowledgment and durable fence committed before exposing/publishing the acknowledgment. |
+| dec.migration_commit.after_commit | Exact all-host root final commit durably stored before its response/publication. |
+
+After-commit barriers run outside SQLite transactions/global writer locks.
+Several named facts may share one atomic transaction; their markers do not
+assert intermediate durable states. A participant outcome and activation facts
+committed together cannot be split by a test hook. Other workers may observe
+an already committed fact; no barrier implies global unobservedness. A completed
+historical retry performs no new signature/application and must not revisit
+those mutating barriers. Pending resume rechecks current authority and may
+continue only the exact fixed operation; it cannot regenerate timestamps.
+
+Selected: explicitly opted-in local clock files and named real durable barriers,
+using the existing public linking test-control discipline in a separate DEC
+namespace. Discarded: production clock APIs, peer-controlled fault injection,
+implicit process inheritance, helper-time authority, guessed implementation
+checkpoints or claims that a marker proves a separate database commit.
+
+## 8. Missing migrated-origin proof diagnostics
+
+An isolated self-signed migrated initial root, or its signed ordinary successor,
+cannot authenticate authority under a different descriptor genesis without
+its verified complete migration. If that origin is absent, return proof_required
+with the exact directly declared migration_proposal_id as required_ids. Do not
+invent a container dp_ from missing bytes or treat a structural root signature
+as an authenticated origin. This fixes the isolated diagnostic; unrelated
+multiple-error ordering is still not an oracle. Selected: the direct semantic
+repair reference. Discarded: an attacker-selected root, fabricated missing-proof
+hash or an empty repair list when that signed direct reference is available.
+
+## 9. Decisions and discarded alternatives
 
 | Choice | Reason | Discarded alternative |
 | --- | --- | --- |
