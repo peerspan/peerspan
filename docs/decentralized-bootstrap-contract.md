@@ -162,6 +162,99 @@ Recommended first implementation uses the existing HTTP/1.1-over-TLS primitives
 on this isolated listener; normal post-enrollment traffic retains existing QUIC.
 This avoids a transport-library migration and a global relaxation of peer pins.
 
+### Participant completion through QUIC and optional opaque relays
+
+The same exact participant completion routes from section5 are also available
+over QUIC with the separate ALPN `peerspan-completion/1`. This ALPN serves ONLY
+POST `/bootstrap/v1/activations` and GET
+`/bootstrap/v1/operations/{request_id}`, with the identical strict request/
+response bytes, actual-TLS participant checks, original transcript and final
+application rules. It does not serve mailboxes, repair, ordinary peer or
+owner-local routes. Unknown routes return404 JSON, wrong methods405 with Allow
+POST or GET respectively; no implicit HEAD, query, escaped-path or trailing-slash alias.
+There is no new packet, signature, outcome, consent, authority or receipt type.
+
+This completion transport uses the host's ordinary advertised QUIC addresses
+and the explicitly selected optional relay4 resources. Relay SEND/RECEIVE still
+carries opaque QUIC datagrams, using the existing actual-host-ID wire; no relay
+protocol or helper store is extended. Both endpoints must actually be reachable
+directly or registered with a usable common explicitly configured helper. No
+configured helper is valid; it gives the direct path, not a NAT guarantee.
+Helper credentials/availability cannot become a completion/adoption predicate.
+The client independently pins the exact original participant host key from its
+durable signed transcript before sending any HTTP bytes. Address/contact/helper
+pins never substitute for that end-to-end key. A refreshed same-host transport
+hint can repair reachability but cannot change an operation's participants.
+
+An endpoint may share its physical QUIC listener with normal/repair transport.
+ALPN dispatch MUST precede stream/HTTP dispatch. For this shared QUIC endpoint,
+TLS may verify Ed25519 certificate/key possession before checking the selected
+ALPN's independent identity policy. Normal and repair ALPNs MUST check their
+existing independently remembered host pin BEFORE accepting any application
+stream or parsing HTTP; unknown keys close with no application response/data.
+Completion accepts possession at TLS but its isolated route authenticates the
+actual client AND receiving-server keys as exact participants of the complete
+transcript before disclosure or application. POST may establish the operation
+from its independently valid complete body under section5; this transport adds
+no prior local pending/outcome/admission prerequisite. The existing requester
+local-approval/context-adoption requirements still apply. GET requires retained
+local operation/outcome history under section5. A key accepted for completion is never inserted as
+a normal/repair pin or network member. These equivalent pre-HTTP normal gates
+are the only qualification to the ordinary TLS unknown-key rejection above;
+they are not a global permissive peer verifier/router.
+
+Completion uses one bidirectional stream and one HTTP/1.1 request per QUIC
+connection, then closes. Other streams and datagrams are refused. Apply the
+bootstrap5s handshake,5s/16KiB/64-field header,10s body,10s response, actual
+source/key concurrency and64MiB aggregate receive/queued-response budgets
+below; complete request/response envelopes remain at most20MiB with every
+inner bound unchanged. Completion attempts have an overall30s bound. Use a
+separate bounded completion dispatcher; no stalled unknown/completion client
+can consume ordinary-peer/admin workers or bypass either pool's capacity.
+The pools may share a transport-level cap, never exceed it by opening ALPNs.
+
+A selected relay's RECEIVE source prefix is an UNTRUSTED routing hint until
+the inner QUIC certificate proves the matching actual host ID. This permits
+bounded inbound completion from a transcript participant not yet admitted as a
+network member. Before that proof, at most16 provisional source routes per
+selected helper public key may exist, aggregated across ALL addresses, resource
+credentials and replacement connections for that helper. Actual network-source
+buckets also retain their16-handshake ceiling. One shared128-global ceiling
+covers ALL direct unknown handshakes and relayed provisional routes across
+ALPNs, not128 for each transport. Each has a5s nonrefreshable handshake deadline.
+A synthetic address/claimed digest or extra helper connection cannot mint
+another quota identity. Drop
+over-cap datagrams without growing a queue/map. After TLS, require that the
+actual end-to-end key derives the claimed source host ID; mismatch closes and
+retires the provisional route. Matching key possession alone still admits no
+normal stream. Completion retains such a route only for that one bounded
+request (at most30s from first datagram), within4-per-actual-key,
+16-per-actual-source and128-global request bounds, then removes it. Repeated
+datagrams cannot extend the route lifetime or leave an unbounded member/cache
+entry. A malicious helper can disrupt traffic; it cannot choose an inner key.
+
+Attempt publication of exact already sealed commit/catalog frames before
+requester local application, outside writer locks. An unsuccessful carrier
+attempt does not prevent otherwise valid final atomic local application or
+recreate erased secrets/frames. After application/expiry, retained complete
+public operation evidence remains available through these exact participant
+routes, including over a replacement explicitly configured relay. Recovery
+uses original signed evidence and current final transaction checks; it creates
+no new consent, keys, signatures, timestamps, helper lifetime or activation.
+An already applied historical local GET/exact application retry stays read-only
+and performs no remote request. Explicit delivery resume/background publication
+may still send that operation's exact retained complete public evidence to an
+actual participant without changing the original local result or authority.
+A pending participant may explicitly resume GET/POST recovery; publication/
+retry remains bounded and never implies global commit.
+
+Selected: an isolated completion-only QUIC ALPN over the existing host transport
+and opaque relay wire, with actual participant authentication and bounded
+provisional routing. Discarded: retaining pairing secrets/ciphertext beyond the
+fixed window, depending on a helper storage acknowledgment for authority,
+requiring a public TCP address, exposing the full bootstrap/normal/admin router
+through an unknown-key QUIC path, or trusting a helper's source-ID assertion.
+
 Before TLS completes, allow at most 16 handshakes per actual source bucket and
 128 globally, with5s handshake timeout. Bootstrap HTTP uses one request per TLS
 connection and then closes. After TLS, bound active requests to 4 per actual host

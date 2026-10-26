@@ -1179,6 +1179,17 @@ The independent author derives runtime cases after this contract is pinned:
   complete helper outage, explicit migration and cross-language state reopening.
   Live separate-machine work requires checked output/withdrawal, separately
   from deterministic fixture readiness.
+- Completion-only QUIC through a selected opaque relay with no direct TCP path:
+  exact participant GET/POST recovery after requester apply/secret retirement,
+  mailbox erasure/expiry and helper replacement; same original operation,
+  separate final consent and no duplicate event/provider/key replacement.
+  Wrong server pin fails before HTTP, wrong TLS participant discloses nothing,
+  normal/repair/mailbox/admin routes stay unreachable through completion ALPN,
+  and completion-only identities get no stream/data on normal/repair ALPN.
+  Forged relay source IDs, unknown-key pressure, deadlines and aggregate pools
+  cannot grow routes/workers/buffers without bound; real transport time remains
+  separate from the DEC authority clock. Preserve first failures and rerun only
+  failed or previously unevaluated controls.
 - Preproposal migration identity preview writes/generates nothing; approval and
   restart/retry after300s preserve exactly one owned tuple/key; bound existing
   devices preserve their keys/scopes, unbound hosts need no authority signer,
