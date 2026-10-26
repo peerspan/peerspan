@@ -624,7 +624,9 @@ func TestAdapterTaskHTTPBodies(t *testing.T) {
 	}
 }
 
-const dropLinkTables = "DROP TABLE link_device_keys; DROP TABLE link_pending; DROP TABLE link_frames; DROP TABLE link_operations; DROP TABLE link_objects; DROP TABLE link_features; DROP TABLE link_signers; DROP TABLE link_highwater"
+const dropDecTables = "DROP TABLE oauth_credentials; DROP TABLE oauth_clients; DROP TABLE dec_contexts; DROP TABLE dec_objects; DROP TABLE dec_admissions; DROP TABLE dec_restrictions; DROP TABLE dec_activations; DROP TABLE dec_heads; DROP TABLE dec_highwater; DROP TABLE dec_signers; DROP TABLE dec_clock; DROP TABLE dec_intents; DROP TABLE dec_pending; DROP TABLE dec_frames; DROP TABLE dec_operations; DROP TABLE dec_outbox; DROP TABLE dec_migrations; DROP TABLE dec_contacts; DROP TABLE dec_helpers"
+
+const dropLinkTables = dropDecTables + "; DROP TABLE link_device_keys; DROP TABLE link_pending; DROP TABLE link_frames; DROP TABLE link_operations; DROP TABLE link_objects; DROP TABLE link_features; DROP TABLE link_signers; DROP TABLE link_highwater"
 
 const dropArtifactTables = dropLinkTables + "; DROP TABLE policy_edits; DROP TABLE directory_sends; DROP TABLE policy_deliveries; DROP TABLE task_children; DROP TABLE artifact_files; DROP TABLE task_artifacts"
 const dropTaskTables = dropArtifactTables + "; DROP TABLE received_tasks; DROP TABLE task_events; DROP TABLE outbound_tasks; DROP TABLE outbound_task_events; DROP TABLE task_deliveries; DROP TABLE task_update_notifications"
@@ -641,7 +643,7 @@ func TestTaskMigrationToVersion10(t *testing.T) {
 	s = must(Open(ctx, dir))
 	defer s.Close()
 	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 22 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 23 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if kept := must(s.Agent(ctx, agent.ID)); kept.Name != "kept" {

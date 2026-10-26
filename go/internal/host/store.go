@@ -161,7 +161,7 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	if err = s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return nil, err
 	}
-	if version < 0 || version > 22 {
+	if version < 0 || version > 23 {
 		return nil, fmt.Errorf("unsupported host database version: %d", version)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -169,6 +169,11 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 		return nil, err
 	}
 	defer tx.Rollback()
+	if version < 23 {
+		if err = checkDecNamespaceUnused(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
 	if version == 0 {
 		if _, err = tx.ExecContext(ctx, schema); err != nil {
 			return nil, err
@@ -278,6 +283,22 @@ func Open(ctx context.Context, dir string) (_ *Store, err error) {
 	}
 	if version < 22 {
 		if _, err = tx.ExecContext(ctx, oauthSchema); err != nil {
+			return nil, err
+		}
+	}
+	if version < 23 {
+		if _, err = tx.ExecContext(ctx, decentralizedSchema); err != nil {
+			return nil, err
+		}
+	}
+	if err = validateDecSchema(ctx, tx); err != nil {
+		return nil, err
+	}
+	if version < 23 {
+		if os.Getenv("PEERSPAN_DEC_TEST_MODE") == "1" && os.Getenv("PEERSPAN_DEC_TEST_FAIL_AFTER_SCHEMA_DDL") == "1" {
+			return nil, errors.New("test schema migration failure")
+		}
+		if _, err = tx.ExecContext(ctx, `PRAGMA user_version = 23`); err != nil {
 			return nil, err
 		}
 	}

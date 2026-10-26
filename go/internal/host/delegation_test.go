@@ -432,17 +432,17 @@ func TestDelegationMigrationToVersion11(t *testing.T) {
 	s.Close()
 	s = must(Open(ctx, dir))
 	var version, tables int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 22 {
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 23 {
 		t.Fatalf("version %d %v", version, err)
 	}
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'task_children'").Scan(&tables); err != nil || tables != 1 {
 		t.Fatalf("task_children: %d %v", tables, err)
 	}
-	if _, err := s.db.ExecContext(ctx, "PRAGMA user_version = 23"); err != nil {
+	if _, err := s.db.ExecContext(ctx, "PRAGMA user_version = 24"); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
-	if _, err := Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version: 23") {
-		t.Fatalf("version 23 opened: %v", err)
+	if _, err := Open(ctx, dir); err == nil || !strings.Contains(err.Error(), "unsupported host database version: 24") {
+		t.Fatalf("version 24 opened: %v", err)
 	}
 }

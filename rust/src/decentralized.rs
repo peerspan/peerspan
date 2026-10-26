@@ -5,6 +5,7 @@ mod codec;
 mod probe;
 mod state;
 mod statement;
+pub(crate) mod storage;
 mod transcript;
 
 pub use catalog::{Catalog, Proof};
