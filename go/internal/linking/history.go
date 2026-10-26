@@ -17,6 +17,7 @@ type adminWithdrawal struct {
 	v2     bool
 }
 type historyFacts struct {
+	restrictions            map[string]bool
 	delegated               map[string]bool
 	withdrawals             map[string]adminWithdrawal
 	persons, hosts, invites map[string]bool
@@ -98,6 +99,7 @@ func (v *activationVerifier) loadWithdrawals() error {
 			set[k] = true
 		}
 		v.history.withdrawals[person] = adminWithdrawal{revoke: revoke, kept: set, object: o, v2: v2}
+		v.history.restrictions[id] = true
 		v.admins[person] = false
 	}
 	return nil
@@ -161,6 +163,7 @@ func (v *activationVerifier) loadRestrictions() error {
 				return pathError("invalid")
 			}
 			v.history.unbound[bindingPair{scalar(o, "person_public_key"), scalar(o, "host_public_key")}] = true
+			v.history.restrictions[id] = true
 			continue
 		default:
 			continue
@@ -191,6 +194,7 @@ func (v *activationVerifier) loadRestrictions() error {
 		if !valid {
 			continue
 		}
+		v.history.restrictions[id] = true
 		switch p.kind {
 		case "person_removal":
 			v.history.persons[scalar(o, subject)] = true
@@ -241,7 +245,7 @@ func (v *activationVerifier) bootstrap(checkHostFeatures bool) error {
 	if e := v.loadAttestations(); e != nil {
 		return e
 	}
-	v.history = historyFacts{delegated: map[string]bool{}, withdrawals: map[string]adminWithdrawal{}, persons: map[string]bool{}, hosts: map[string]bool{}, invites: map[string]bool{}, unbound: map[bindingPair]bool{}}
+	v.history = historyFacts{restrictions: map[string]bool{}, delegated: map[string]bool{}, withdrawals: map[string]adminWithdrawal{}, persons: map[string]bool{}, hosts: map[string]bool{}, invites: map[string]bool{}, unbound: map[bindingPair]bool{}}
 	ids := v.orderedProofs()
 	for _, id := range ids {
 		p := v.proofs[id]
@@ -834,6 +838,7 @@ func (v *activationVerifier) revocations() error {
 				}
 			}
 			v.state.RevokedDevices[DeviceKey{PersonPublicKey: person, DevicePublicKey: target.device}] = true
+			v.history.restrictions[pf] = true
 		}
 	}
 	return v.settleHistory()

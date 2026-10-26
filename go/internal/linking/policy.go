@@ -285,6 +285,17 @@ func VerifyAccessState(ctx AccessContext, catalog []byte) (AccessState, error) {
 	return verifyAccessState(ctx, catalog, false)
 }
 func verifyAccessState(ctx AccessContext, catalog []byte, stored bool) (AccessState, error) {
+	return verifyLegacyAccessState(ctx, catalog, stored, false)
+}
+
+// VerifyStoredLegacyMigrationAccess preserves legacy selection/maxima semantics
+// while inspecting a genuinely pre-feature migration source. It does not grant
+// a linking feature or any new-context access.
+func VerifyStoredLegacyMigrationAccess(ctx AccessContext, catalog []byte) (AccessState, error) {
+	return verifyLegacyAccessState(ctx, catalog, true, ctx.KnownFeatureID == "-")
+}
+
+func verifyLegacyAccessState(ctx AccessContext, catalog []byte, stored, preFeature bool) (AccessState, error) {
 	fail := func(e error) (AccessState, error) { return AccessState{}, e }
 	if !verificationBudget(stored, len(ctx.Network), len(catalog), 0) || len(ctx.PriorPolicies)+len(ctx.PriorGroups) > 16384 {
 		return fail(pathError("invalid"))
@@ -310,9 +321,10 @@ func verifyAccessState(ctx AccessContext, catalog []byte, stored bool) (AccessSt
 	if e != nil {
 		return fail(e)
 	}
-	if ctx.KnownFeatureID == "-" {
+	if ctx.KnownFeatureID == "-" && !preFeature {
 		return fail(pathError("upgrade_required"))
 	}
+	v.featurePreparation = preFeature
 	if e = v.catalog(catalog); e == nil {
 		e = v.bootstrap(true)
 	}
@@ -321,6 +333,9 @@ func verifyAccessState(ctx AccessContext, catalog []byte, stored bool) (AccessSt
 	}
 	if e != nil {
 		return fail(e)
+	}
+	if preFeature && v.feature != "" {
+		return fail(pathError("state_conflict"))
 	}
 	candidates := []accessCandidate{}
 	for _, id := range v.orderedProofs() {

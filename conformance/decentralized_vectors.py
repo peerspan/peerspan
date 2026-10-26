@@ -1631,6 +1631,60 @@ def migration_cases(w: World) -> list[Case]:
     return result
 
 
+def migration_source_authority_cases(w: World) -> list[Case]:
+    """Raw legacy proof presence is separate from actual inherited authority.
+
+    Public migration section2 reissues active stable-key bans; legacy admin
+    removal retains only explicitly listed exact statement-message digests.
+    A signed inactive proof remains exact source evidence without a new ban.
+    """
+    result = []
+    for kind in ("person_removal", "host_revocation"):
+        for kept, copy_ban, suffix in [
+            (False, False, "withdrawn_unkept_raw_proof_is_not_permanent_ban"),
+            (True, True, "explicitly_kept_active_ban_is_copied"),
+            (True, False, "explicitly_kept_active_ban_cannot_be_omitted"),
+        ]:
+            m = w.legacy_restriction_migration(kind, kept=kept, copy_ban=copy_ban)
+            expected = ({"ok": True, "context_id": w.context_id, "proposal_id": m.proposal.statement_id,
+                "root_state_id": m.root.statement_id, "prepared_catalog_sha256": sha(m.prepared_catalog),
+                "roster_host_public_keys": [item["host_public_key"] for item in json.loads(m.proposal.payload)["roster"]],
+                "local_approval_matched": False, "context_origin_valid": True,
+                "usable_device_lease_ids": [], "inactive_device_lease_ids": []}
+                if not kept or copy_ban else error("forbidden"))
+            result.append(Case("migration_source_authority/"+kind+"/"+suffix,
+                {"format": 1, "kind": "migration", "descriptor_base64": b64(w.descriptor_bytes),
+                 "legacy_prior": "-", "prior": "-", "migration_base64": b64(m.body),
+                 "now": NOW, "purpose": "evidence", "local_host_public_key": "-"}, expected,
+                oracle_pin="0ea487eba4134b851c87816b7d54776f7b8bee31" if not kept or copy_ban else
+                           "dada7fcedc4a215f79a78e08f2bedfa14e374931"))
+    return result
+
+
+def migration_sticky_restriction_cases(w: World) -> list[Case]:
+    """A previously admitted stable ban stays sticky despite its lost role.
+
+    The original raw source bytes and unkept withdrawal match the inactive
+    control. Only the exact endorsed admitted-restrictions entry establishes
+    the separately required inherited stable-ban history.
+    """
+    result = []
+    for copy_ban, suffix in [(True, "previously_admitted_unkept_ban_is_copied"),
+                              (False, "previously_admitted_unkept_ban_cannot_be_omitted")]:
+        m = w.legacy_restriction_migration("person_removal", kept=False, admitted=True, copy_ban=copy_ban)
+        expected = ({"ok": True, "context_id": w.context_id, "proposal_id": m.proposal.statement_id,
+            "root_state_id": m.root.statement_id, "prepared_catalog_sha256": sha(m.prepared_catalog),
+            "roster_host_public_keys": [w.keys.public("host-a")], "local_approval_matched": False,
+            "context_origin_valid": True, "usable_device_lease_ids": [], "inactive_device_lease_ids": []}
+            if copy_ban else error("forbidden"))
+        result.append(Case("migration_sticky_restriction/"+suffix,
+            {"format": 1, "kind": "migration", "descriptor_base64": b64(w.descriptor_bytes),
+             "legacy_prior": "-", "prior": "-", "migration_base64": b64(m.body),
+             "now": NOW, "purpose": "evidence", "local_host_public_key": "-"}, expected,
+            oracle_pin="dada7fcedc4a215f79a78e08f2bedfa14e374931"))
+    return result
+
+
 def migration_source_budget_cases(w: World) -> list[Case]:
     """Independent decoded source-state cap at both public ingress modes."""
     result = []
@@ -2342,7 +2396,9 @@ GROUPS = {"descriptor": descriptor_cases, "statement": statement_cases, "catalog
           "retained_root": retained_root_cases,
           "root_origin": root_origin_cases,
           "retention_time": retention_time_cases,
-          "migration": migration_cases, "migration_source_budget": migration_source_budget_cases,
+          "migration": migration_cases, "migration_source_authority": migration_source_authority_cases,
+          "migration_sticky_restriction": migration_sticky_restriction_cases,
+          "migration_source_budget": migration_source_budget_cases,
           "migration_origin": migration_origin_cases,
           "migration_current": migration_current_cases,
           "migration_conflict": migration_conflict_cases,

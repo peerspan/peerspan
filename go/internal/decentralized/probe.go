@@ -42,7 +42,11 @@ func Probe(raw []byte) any {
 		}
 		return map[string]any{"ok": true, "decision_time": decision, "next_guard": decision}
 	}
-	names := map[string]string{"descriptor": "format kind descriptor_base64", "statement": "format kind descriptor_base64 statement_base64", "catalog": "format kind descriptor_base64 catalog_base64"}
+	names := map[string]string{"descriptor": "format kind descriptor_base64", "statement": "format kind descriptor_base64 statement_base64", "catalog": "format kind descriptor_base64 catalog_base64",
+		"projection": "format kind descriptor_base64 prior candidate_catalog_base64 now operation",
+		"action":     "format kind descriptor_base64 prior candidate_catalog_base64 now actor action_kind unsigned_payload_base64",
+		"activation": "format kind descriptor_base64 prior catalog_base64 activation_base64 now expected",
+		"migration":  "format kind descriptor_base64 legacy_prior prior migration_base64 now purpose local_host_public_key"}
 	required, ok := names[kind]
 	if !ok || fields(o, required) != nil {
 		return probeFailure(invalid())
@@ -60,6 +64,95 @@ func Probe(raw []byte) any {
 		return probeFailure(e)
 	}
 	switch kind {
+	case "migration":
+		now, e := text(o, "now")
+		if e != nil {
+			return probeFailure(e)
+		}
+		purpose, e := text(o, "purpose")
+		if e != nil {
+			return probeFailure(e)
+		}
+		host, e := text(o, "local_host_public_key")
+		if e != nil {
+			return probeFailure(e)
+		}
+		raw, e := probeBytes(o, "migration_base64", MaxObject)
+		if e != nil {
+			return probeFailure(e)
+		}
+		result, e := VerifyMigration(d, o["legacy_prior"], o["prior"], raw, now, purpose, host)
+		if e != nil {
+			return probeFailure(e)
+		}
+		return result
+	case "projection":
+		now, e := text(o, "now")
+		if e != nil {
+			return probeFailure(e)
+		}
+		operation, e := text(o, "operation")
+		if e != nil {
+			return probeFailure(e)
+		}
+		encoded, e := text(o, "candidate_catalog_base64")
+		if e != nil {
+			return probeFailure(e)
+		}
+		candidate := []byte("-")
+		if encoded != "-" {
+			candidate, e = decode(encoded, MaxCatalog)
+			if e != nil {
+				return probeFailure(e)
+			}
+		} else if operation != "read" {
+			return probeFailure(invalid())
+		}
+		result, e := Project(d, o["prior"], candidate, now, operation)
+		if e != nil {
+			return probeFailure(e)
+		}
+		return result
+	case "action":
+		now, e := text(o, "now")
+		if e != nil {
+			return probeFailure(e)
+		}
+		actionKind, e := text(o, "action_kind")
+		if e != nil {
+			return probeFailure(e)
+		}
+		candidate, e := probeBytes(o, "candidate_catalog_base64", MaxCatalog)
+		if e != nil {
+			return probeFailure(e)
+		}
+		unsigned, e := probeBytes(o, "unsigned_payload_base64", MaxPayload)
+		if e != nil {
+			return probeFailure(e)
+		}
+		result, e := VerifyActionIntent(d, o["prior"], candidate, o["actor"], unsigned, now, actionKind)
+		if e != nil {
+			return probeFailure(e)
+		}
+		return result
+	case "activation":
+		now, e := text(o, "now")
+		if e != nil {
+			return probeFailure(e)
+		}
+		catalog, e := probeBytes(o, "catalog_base64", MaxCatalog)
+		if e != nil {
+			return probeFailure(e)
+		}
+		activation, e := probeBytes(o, "activation_base64", MaxObject)
+		if e != nil {
+			return probeFailure(e)
+		}
+		result, e := VerifyActivation(d, o["prior"], catalog, activation, o["expected"], now)
+		if e != nil {
+			return probeFailure(e)
+		}
+		return result
 	case "descriptor":
 		return map[string]any{"ok": true, "context_id": d.ContextID, "network_id": d.NetworkID, "genesis_root_public_key": d.GenesisRootPublicKey}
 	case "statement":
@@ -135,8 +228,10 @@ func RunProbe(input io.Reader, output io.Writer) error {
 				encoded, _ = json.Marshal(probeFailure(failure("quota_exceeded")))
 			}
 			encoded = append(encoded, '\n')
-			if _, err = output.Write(encoded); err != nil {
+			if n, err := output.Write(encoded); err != nil {
 				return err
+			} else if n != len(encoded) {
+				return io.ErrShortWrite
 			}
 		}
 		line = nil
@@ -148,4 +243,12 @@ func RunProbe(input io.Reader, output io.Writer) error {
 			return e
 		}
 	}
+}
+
+func probeBytes(o Object, name string, max int) ([]byte, error) {
+	s, e := text(o, name)
+	if e != nil {
+		return nil, e
+	}
+	return decode(s, max)
 }

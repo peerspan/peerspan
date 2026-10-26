@@ -735,6 +735,106 @@ class World:
         return MigrationFixture(body, proposal, root, host, acknowledgment, commit,
                                 prepared_catalog, source_catalog, source_state, legacy_prior)
 
+    def legacy_restriction_migration(self, kind: str, *, kept: bool, copy_ban: bool, admitted: bool = False) -> MigrationFixture:
+        """Complete legacy-source authority controls, with no raw-kind shortcut.
+
+        The same original administrator signs the legacy restriction. A valid
+        root removal keeps either its exact message digest or nothing. All
+        source bytes remain present. Active stable-key bans are reissued under
+        the staged root; inactive old proof bytes do not become new denies.
+        Every still-admitted unbound host supplies its own real acknowledgment.
+        """
+        if kind not in {"person_removal", "host_revocation"} or (copy_ban and not (kept or admitted)):
+            raise ValueError("unsupported legacy restriction control")
+        base = self.unbound_migration(nonce_name="source-authority-"+kind)
+        network = self.descriptor["network_id"]
+        source = json.loads(base.source_catalog)
+        def legacy(kind: str, fields: dict, message: bytes, *, signer: str = "root") -> str:
+            value = copy.deepcopy(fields)
+            value["signature"] = b64(self.keys.sign(signer, message) if signer == "root" else self.keys.sshsig(signer, message))
+            body = raw_json(value)
+            proof = "pf_"+sha(lines("peerspan-link-proof-v1", kind, sha(body)))
+            source["objects"].append({"id": proof, "kind": kind, "body_base64": b64(body)})
+            return proof
+        def admit_person(name: str) -> None:
+            key = self.keys.public(name)
+            legacy("person_admission", {"network_id": network, "epoch": 0,
+                "person_public_key": key, "member": name.capitalize(), "admitted_at": BEFORE},
+                lines("peerspan-person-admit-v1", network, 0, key, name.capitalize(), BEFORE))
+        admit_person("alice")
+        legacy("admin_delegation", {"network_id": network, "epoch": 0,
+            "person_public_key": self.keys.public("alice"), "delegated_at": BEFORE},
+            lines("peerspan-admin-delegate-v1", network, 0, self.keys.public("alice"), BEFORE))
+        if kind == "person_removal":
+            admit_person("bob")
+            target_fields = {"person_public_key": self.keys.public("bob"), "host_public_key": "-", "device_public_key": "-"}
+            message = lines("peerspan-person-remove-v1", network, self.keys.public("bob"), BEFORE)
+            fields = {"network_id": network, "person_public_key": self.keys.public("bob"), "removed_at": BEFORE}
+        else:
+            key = self.keys.public("host-b")
+            legacy("host_admission", {"network_id": network, "epoch": 0, "host_public_key": key,
+                "member": "Bob", "admitted_at": BEFORE}, lines("peerspan-host-admit-v1", network, 0, key, "Bob", BEFORE))
+            target_fields = {"person_public_key": "-", "host_public_key": key, "device_public_key": "-"}
+            message = lines("peerspan-revoke-host-v1", network, key, BEFORE)
+            fields = {"network_id": network, "host_public_key": key, "revoked_at": BEFORE}
+        old_ban = legacy(kind, fields, message, signer="alice")
+        entries = ["legacy:"+sha(message)] if kept else []
+        removed = legacy("admin_removal", {"format": 2, "network_id": network,
+            "person_public_key": self.keys.public("alice"), "revoke_admitted": False,
+            "removed_at": NOW, "kept": entries},
+            lines("peerspan-admin-remove-v2", network, self.keys.public("alice"), "false", NOW, len(entries), *entries))
+        source["objects"].sort(key=lambda item:item["id"])
+        source_catalog = raw_json(source)
+        hosts = [("host-a", "Alice")]+([("host-b", "Bob")] if kind == "host_revocation" and not (kept or admitted) else [])
+        restrictions = [{"proof_id": removed, "kind": "admin_removal",
+            "person_public_key": self.keys.public("alice"), "host_public_key": "-", "device_public_key": "-"}]
+        if kept or admitted:
+            restrictions.append({"proof_id": old_ban, "kind": kind, **target_fields})
+        source_state = raw_json({"format": 1, "network_id": network, "legacy_root_highwater": 0,
+            "known_admitted_hosts": sorted(self.keys.public(name) for name, _ in hosts), "access_maxima": [],
+            "admitted_restrictions": sorted(restrictions, key=lambda item:item["proof_id"])})
+        payload = json.loads(base.proposal.payload)
+        payload.update(source_catalog_sha256=sha(source_catalog), source_state_sha256=sha(source_state),
+            roster=sorted([{"host_public_key": self.keys.public(name), "member": member, "person_public_key": "-",
+                            "device_public_key": "-", "scopes": 0} for name, member in hosts], key=lambda item:item["host_public_key"]))
+        proposal = self.statement("migration_proposal", payload, [("issuer", "root", "ed25519")])
+        root = self.statement("root_state", changed(self.genesis_payload, migration_proposal_id=proposal.statement_id),
+                              [("issuer", "root", "ed25519")])
+        host_objects = []
+        for name, member in hosts:
+            item = self.lease_payload("host_lease", host=name, root_state_id=root.statement_id,
+                                      operation_id=proposal.statement_id)
+            item["subject"]["member"] = member
+            host_objects.append(self.statement("host_lease", item, [("issuer", "root", "ed25519"), ("host", name, "ed25519")]))
+        persons = ["alice"]+(["bob"] if kind == "person_removal" and not (kept or admitted) else [])
+        person_objects = [self.statement("person_lease", self.lease_payload("person_lease", person=name,
+            root_state_id=root.statement_id), [("issuer", "root", "ed25519")]) for name in persons]
+        copied = []
+        if copy_ban:
+            copied = [self.restriction("person_remove" if kind == "person_removal" else "host_revoke",
+                                      root_state_id=root.statement_id)]
+        prepared = self.catalog([proposal, root]+host_objects+person_objects+copied)
+        acknowledgments = []
+        for (name, _), host in zip(hosts, host_objects):
+            acknowledgments.append(self.statement("migration_ack", {"proposal_id": proposal.statement_id,
+                "root_state_id": root.statement_id, "prepared_catalog_sha256": sha(prepared),
+                "host_public_key": self.keys.public(name), "person_public_key": "-", "device_public_key": "-",
+                "host_lease_id": host.statement_id, "binding_lease_id": "-", "device_lease_id": "-", "activation_id": "-",
+                "acknowledged_at": NOW}, [("host", name, "ed25519")]))
+        acknowledgments.sort(key=lambda item:json.loads(item.payload)["host_public_key"])
+        commit = self.statement("migration_commit", {"proposal_id": proposal.statement_id,
+            "root_state_id": root.statement_id, "prepared_catalog_sha256": sha(prepared),
+            "acknowledgment_ids": sorted(item.statement_id for item in acknowledgments), "committed_at": NOW},
+            [("issuer", "root", "ed25519")])
+        body = raw_json({"format": 1, "proposal": json.loads(proposal.body), "source_catalog_base64": b64(source_catalog),
+            "source_state_base64": b64(source_state), "prepared_catalog_base64": b64(prepared),
+            "acknowledgments": [json.loads(item.body) for item in acknowledgments], "commit": json.loads(commit.body)})
+        prior = changed(base.legacy_prior, legacy_catalog_base64=b64(source_catalog), source_state_base64=b64(source_state),
+            acknowledged_proposal_id=proposal.statement_id, acknowledged_prepared_sha256=sha(prepared),
+            acknowledgment_base64=b64(next(item.body for item in acknowledgments if json.loads(item.payload)["host_public_key"] == self.keys.public("host-a"))))
+        return MigrationFixture(body, proposal, root, host_objects[0], acknowledgments[0], commit,
+                                prepared, source_catalog, source_state, prior)
+
     def owned_migration(self) -> MigrationFixture:
         """One genuinely bound legacy host, same owner/host and a reviewed D.
 

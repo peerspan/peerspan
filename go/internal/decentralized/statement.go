@@ -428,7 +428,7 @@ func (s *Statement) checkPayload(d Descriptor) ([]string, error) {
 				return nil, invalid()
 			}
 		case "person_lease":
-			if !key(sub.Person) || sub.Host != "-" || sub.Device != "-" || !membership.ValidLabel(sub.Member) || sub.Scopes != 0 {
+			if !key(sub.Person) || sub.Host != "-" || sub.Device != "-" || !membership.ValidLabel(sub.Member) || sub.Scopes != 0 || identifier(l.Operation, "ds_") {
 				return nil, invalid()
 			}
 			parentRoles = requiredRoles(issuer, true)
@@ -441,13 +441,13 @@ func (s *Statement) checkPayload(d Descriptor) ([]string, error) {
 				roles = append(roles, "host")
 			}
 		case "binding_lease":
-			if !key(sub.Person) || !key(sub.Host) || sub.Device != "-" || sub.Member != "-" || sub.Scopes != 2 || issuer.Kind == "root" || issuer.Person != sub.Person {
+			if !key(sub.Person) || !key(sub.Host) || sub.Device != "-" || sub.Member != "-" || sub.Scopes != 2 || issuer.Kind == "root" || issuer.Person != sub.Person || identifier(l.Operation, "ds_") {
 				return nil, invalid()
 			}
 			parentRoles = requiredRoles(issuer, false, "subject_person", "subject_host")
 			roles = append(roles, "host")
 		case "device_lease":
-			if !key(sub.Person) || !key(sub.Host) || !key(sub.Device) || sub.Member != "-" || sub.Scopes == 0 || sub.Scopes > 15 || issuer.Kind == "root" || issuer.Person != sub.Person || l.Operation == "-" {
+			if !key(sub.Person) || !key(sub.Host) || !key(sub.Device) || sub.Member != "-" || sub.Scopes == 0 || sub.Scopes > 15 || issuer.Kind == "root" || issuer.Person != sub.Person || !identifier(l.Operation, "link_") {
 				return nil, invalid()
 			}
 			parentRoles = requiredRoles(issuer, false, "subject_person", "subject_host", "subject_binding")

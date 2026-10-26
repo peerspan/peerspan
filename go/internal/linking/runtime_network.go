@@ -17,15 +17,34 @@ type MemberProof struct {
 	JoinProofID       string `json:"join_proof_id"`
 }
 type NetworkState struct {
-	Facts         CatalogFacts
-	Members       []MemberProof
-	Epoch         uint64
-	RootPublicKey string
+	Facts                  CatalogFacts
+	Members                []MemberProof
+	Epoch                  uint64
+	RootPublicKey          string
+	applicableRestrictions map[string]bool
+}
+
+// RestrictionApplies reports exact verified retained-history provenance. Mere
+// presence of signed but superseded catalog bytes is not an admitted deny.
+func (s NetworkState) RestrictionApplies(proofID string) bool {
+	return s.applicableRestrictions[proofID]
 }
 
 // VerifyStoredNetworkState materializes a complete durable network snapshot.
 // Historical activation validity is separate from the resulting live paths.
 func VerifyStoredNetworkState(ctx CatalogFactContext, catalog []byte) (NetworkState, error) {
+	return verifyStoredNetworkState(ctx, catalog, false)
+}
+
+// VerifyStoredLegacyMigrationSource verifies an exact legacy migration source.
+// It also supports a genuinely pre-feature network without inventing a linking
+// feature, acknowledgment, receipt or new-context authority. Existing active
+// linking sources retain the full ordinary stored verification path.
+func VerifyStoredLegacyMigrationSource(ctx CatalogFactContext, catalog []byte) (NetworkState, error) {
+	return verifyStoredNetworkState(ctx, catalog, ctx.KnownFeatureID == "-")
+}
+
+func verifyStoredNetworkState(ctx CatalogFactContext, catalog []byte, preFeature bool) (NetworkState, error) {
 	fail := func(err error) (NetworkState, error) { return NetworkState{}, err }
 	if !verificationBudget(true, len(ctx.Network), len(catalog), 0) {
 		return fail(pathError("invalid"))
@@ -37,8 +56,12 @@ func VerifyStoredNetworkState(ctx CatalogFactContext, catalog []byte) (NetworkSt
 	if err = v.catalog(catalog); err != nil {
 		return fail(err)
 	}
+	v.featurePreparation = preFeature
 	if err = v.bootstrap(true); err != nil {
 		return fail(err)
+	}
+	if preFeature && v.feature != "" {
+		return fail(pathError("state_conflict"))
 	}
 	requests := make([]string, 0, len(v.activations))
 	for id := range v.activations {
@@ -180,9 +203,18 @@ func VerifyStoredNetworkState(ctx CatalogFactContext, catalog []byte) (NetworkSt
 	}
 	sort.Strings(hosts)
 	out := NetworkState{Facts: CatalogFacts{v.net, v.feature, v.state, v.persons, v.hosts}, Members: []MemberProof{}, Epoch: v.epoch, RootPublicKey: v.root}
+	out.applicableRestrictions = map[string]bool{}
+	for id := range v.history.restrictions {
+		out.applicableRestrictions[id] = true
+	}
+	for id, active := range v.activeRecords {
+		if active {
+			out.applicableRestrictions[id] = true
+		}
+	}
 	for _, host := range hosts {
 		membershipID, joinID := memberships[host], joins[host]
-		if roster[host] {
+		if preFeature || roster[host] {
 			joinID = "-"
 		}
 		if membershipID == "" || joinID == "" {

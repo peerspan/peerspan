@@ -2,6 +2,7 @@ package decentralized
 
 import (
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/peerspan/peerspan/go/internal/membership"
@@ -168,7 +169,7 @@ func readMigration(d Descriptor, raw []byte) (*ParsedMigration, error) {
 	if _, e = parseLimit(m.SourceCatalog, 512<<10); e != nil {
 		return nil, e
 	}
-	if _, e = parseLimit(m.SourceState, MaxPayload); e != nil {
+	if _, e = readSourceState(d, m.SourceState); e != nil {
 		return nil, e
 	}
 	if digest(m.SourceCatalog) != stringField(proposal.Object, "source_catalog_sha256") || digest(m.SourceState) != stringField(proposal.Object, "source_state_sha256") {
@@ -205,6 +206,40 @@ func readMigration(d Descriptor, raw []byte) (*ParsedMigration, error) {
 		return nil, e
 	}
 	if m.Commit.Kind != "migration_commit" || stringField(m.Commit.Object, "proposal_id") != proposal.ID || stringField(m.Commit.Object, "prepared_catalog_sha256") != digest(m.PreparedCatalog) || m.Commit.Signer("issuer") != proposal.Signer("issuer") {
+		return nil, invalid()
+	}
+
+	expected := []string{}
+	for _, ack := range m.Acknowledgments {
+		expected = append(expected, ack.ID)
+	}
+	sort.Strings(expected)
+	actual, e := ids(m.Commit.Object, "acknowledgment_ids", "ds_")
+	if e != nil {
+		return nil, e
+	}
+	if !equalStrings(expected, actual) {
+		missing := []string{}
+		for _, id := range actual {
+			if !contains(expected, id) {
+				missing = append(missing, id)
+			}
+		}
+		if len(missing) > 0 {
+			return nil, failure("proof_required", missing...)
+		}
+		return nil, invalid()
+	}
+	issued := stringField(proposal.Object, "issued_at")
+	expires := stringField(proposal.Object, "expires_at")
+	for _, ack := range m.Acknowledgments {
+		at := stringField(ack.Object, "acknowledged_at")
+		if at < issued || at >= expires {
+			return nil, invalid()
+		}
+	}
+	committed := stringField(m.Commit.Object, "committed_at")
+	if committed < issued || committed >= expires {
 		return nil, invalid()
 	}
 	return m, nil
