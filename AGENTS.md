@@ -10,6 +10,16 @@ The administration API is owner-local over a private Unix socket. The opt-in pee
 
 Maintain behavior parity without mechanically translating module structure between languages. Implement working slices rather than empty packages. Record shared external behavior in `docs/host-service-contract.md`; record broader product decisions in the system design.
 
+## Coordinator-free redesign stream
+
+For DEC-01 through DEC-07 only, the owner delegated completion on 2026-10-26.
+Choose the recommended options, document each decision, rationale and discarded
+alternatives, and continue through concrete contracts, Go/Rust implementation,
+independent conformance and reviewed PRs without routine clarification requests.
+Reuse the Go and Rust agents and the separate contract-only conformance author.
+This delegation is specific to this work stream and does not change other
+tracks. Existing authority boundaries and independent-test requirements remain.
+
 ## Tests
 
 Tests come from the specification, not from an implementation. Agent-written tests that restate an implementation add cost without catching errors.

@@ -42,10 +42,15 @@ bounded public snapshots while preserving the original state-free API budgets.
 [Historical descriptor verification](linking-coordinator-history-checks.md) keeps
 complete old transcripts verifiable under their own coordinator pins, while new
 operations remain pinned to the actual current connection.
-These checks expose verified facts;
-they do not apply actions or enable runtime writers. Standalone invitations,
-durable high-water persistence, freshness and propagation remain pending;
-`link` and its local routes are not available.
+These pure checks expose verified facts; the composed Go/Rust runtime applies
+them under the [host runtime contract](linking-host-checks.md). Approved linking,
+durable propagation and device providers are available, with the independent
+[launch validation record](results/linking-launch-validation.json) documenting
+the accepted implementation and its limits.
+
+The [coordinator-free redesign](decentralized-network-contract.md) is a separate
+DEC-01 draft with authority, bootstrap and migration contracts under review.
+Those proposed protocol versions do not establish available runtime behavior.
 
 The daemon listens on `admin.sock` within its private state directory. The directory has mode 0700; the socket, database, and process lock files have mode 0600. Administration trusts the local account that can access that socket. This is the local control interface for setup, integrations, and diagnostics. It is separate from the authenticated peer interface and from the daemon’s outbound connection to coordination; it does not define the everyday network-facing user workflow. The foundation starts with no TCP listener. An explicit peer listener, configured identities, and grants are specified in the [known-host messaging contract](peer-messaging-contract.md). Network membership and the coordination client are specified in the [coordination contract](coordination-contract.md).
 
