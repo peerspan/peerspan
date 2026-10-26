@@ -24,6 +24,33 @@ Contents:
 
 ## Full entries
 
+### DEC-RP1: network-root provider host (2026-10-26)
+
+- **Authority:** selected within the delegated DEC-01 through DEC-07 stream.
+- **Chosen:** "use the absent-host marker consistently" in the public root
+  provider summary; its root state and scope8 stay explicit.
+- **Discarded:** "show the daemon's local writer as a bound root host".
+- **Reason:** that would "mix transport placement with the root's authority
+  identity". The private intent still pins its actual local writer.
+- **Source:** [public provider views](decentralized-runtime-contract.md#2-public-network-and-provider-views).
+
+### DEC-RC1: exact retention proof closure (2026-10-26)
+
+- **Authority:** selected by the delegated coordinator-free workstream; this
+  records an agent decision within DEC-01 through DEC-07, not a new owner reply.
+- **Chosen:** "include every signed retention reference in the manifest's
+  transitive statement closure."
+- **Reason:** "This keeps portable validation deterministic and requires the
+  same original evidence on both implementations."
+- **Discarded:** "omit all retention references"; "include only finite retainers
+  while skipping root retention"; "choose only apparently relevant retained
+  children". The reasons and concrete verification cases are in the source.
+- **Source:** [retention-closure clarification](decentralized-bootstrap-contract.md#retention-closure-clarification-2026-10-26).
+- **Boundary:** proof completeness does not change admission or effective scopes;
+  existing aggregate quotas can refuse an oversized exact closure. Ordinary
+  statement closure includes exact resolution/restriction references; operation
+  and migration-origin composite proofs keep their separate verification rules.
+
 ### CAP-16: capabilities slice 3 (2026-10-25)
 
 - **Date:** 2026-10-25.

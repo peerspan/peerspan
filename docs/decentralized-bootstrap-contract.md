@@ -258,7 +258,11 @@ activation at most 1 MiB and complete publication request/response at most 20 Mi
 These aggregate ceilings apply even when each nested object is individually
 valid; report quota rather than truncation. Larger complete source state is
 never truncated:
-select the sufficient exact closure or refuse `quota_exceeded`. Catalog-only
+select the sufficient exact closure or refuse `quota_exceeded`. In particular,
+a root or ancestor with a large signed retention list can make its complete
+manifest exceed 16 KiB. Refuse that ceremony with `quota_exceeded`; do not omit
+signed references, lower an object limit, or choose an older authority head to
+fit the manifest. Catalog-only
 frames can carry partial proof sets; no partial set becomes active state.
 
 The requester-origin private token is `psl2-` plus unpadded Base64URL of exact JSON:
@@ -494,7 +498,25 @@ substitute for a final root, alter the reviewed descriptor/person or let later
 signing choose another authority branch. Existing-person and migration offers
 must name their exact eligible current/staged root. Ancestor statement IDs are the complete sorted unique
 transitive dependency closure required for the issued D, including root states,
-P/H/B, issuer ancestors and required predecessor/retention provenance. Exclude
+P/H/B, issuer ancestors and required predecessor/retention provenance.
+Compute this closure from all selected P/H/B/D components: recursively include
+each exact `root_state_id`, parent ID, predecessor ID, `resolves` ID and every
+literal `retained_statement_ids` entry of every reached statement, including a
+root state. For a reached restriction also include its non-`"-"`
+`target.statement_id`, non-`"-"` `ratifies`, and every `kept_statement_ids` entry. Follow the same references from each newly included statement until no
+new IDs remain, deduplicating shared DAG references. Computing that fixed point
+does not waive the authority contract's structural cycle or device-depth checks.
+A retention entry is signed evidence that must be verified even
+when it names another branch; do not filter it by requested scope, subject,
+currently active status or the path eventually used for authorization. This
+syntactic closure establishes proof completeness only. It neither admits a
+retained object nor grants powers or extends its original finite ceilings.
+Missing referenced bodies require their exact IDs as `proof_required`.
+Public keys, `operation_id` and `migration_proposal_id` are not ordinary
+statement-graph edges: their typed identity/operation/origin and exact composite
+proof requirements remain independently enforced. The statement closure never
+substitutes for complete consent or migration-origin proof bodies.
+Exclude
 the issued D itself: device_lease_id names it separately. `proof_ids` pins the exact original
 proof bodies presented for this intent, including every signature. Missing
 required bodies are `proof_required`, never inferred from names or receipts.
@@ -1046,3 +1068,33 @@ restrictive NAT with two independent relays; migration/restart/downgrade;
 installed setup/real adapter readiness; and separate-machine live-agent task,
 artifact/result and withdrawal. A signed heartbeat, fixture adapter or helper
 receipt is never evidence of no unseen revocation or a completed model task.
+
+## Retention-closure clarification (2026-10-26)
+
+Chosen under the owner's DEC-01 through DEC-07 delegation: include every signed
+retention reference in the manifest's transitive statement closure. This keeps
+portable validation deterministic and requires the same original evidence on
+both implementations. It does not change authority intersection or admission.
+Discarded: omit all retention references (loses the proof of explicit retention);
+include only finite retainers while skipping root retention (makes proof
+completeness depend on the containing kind); choose only apparently relevant
+retained children (requires an additional partial-validation rule that this
+protocol does not define). The existing aggregate quota may refuse a large
+closure; it never permits truncating a signed statement or selecting stale heads.
+
+Verification additions: build a complete renewed-device ceremony whose finite
+retainer explicitly names an old parent and retained child B/D/H; require exactly
+the transitive closure above and preserve effective scope intersection. Add an
+otherwise unrelated child to a reached root's signed retention list: its exact
+body and recursive references are required for completeness but confer no new
+power. Omit one such body and expect `proof_required` naming it; omit a known
+ancestor from the signed manifest and expect `invalid`. Exercise an exact closure
+whose manifest exceeds 16 KiB and expect `quota_exceeded` without truncation,
+head fallback, activation or writes. Include a binding/admin reauthorization whose `resolves` names a known
+unbind/withdrawal restriction separately from its predecessor: the closure must
+include that restriction, its target, any exact ratified restriction and kept
+grants, then their recursive references. Missing bodies require exact IDs;
+omitting a present required ID from the frozen manifest is `invalid`. Operation
+and migration proposal IDs must retain their separately verified composite proof
+provenance without being mistaken for ordinary statement bodies. Keep the
+existing cycle, missing-proof and original-deadline cases.

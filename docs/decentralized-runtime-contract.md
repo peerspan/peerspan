@@ -178,8 +178,13 @@ Kind is `original_person`, `device` or `network_root`. Device names the exact
 selected lease; private seed availability belongs to provider_state; person/host/device match its current verified
 binding/path. Original person resolves the verified bound original key and its
 actual owner-local SSH/file provider, with device `"-"` and lease_id equal to
-the person lease. Network root has person/device/lease `"-"`, current root state
-and actual owned/external root provider; it is not an owner-person provider.
+the person lease. Network root has person/host/device/lease `"-"`, current root
+state and actual owned/external root provider; it is not an owner-person
+provider. Its host field therefore does not claim an owner-host binding. The
+actual local writer still belongs to the private intent's exact `host` field.
+Selected under the DEC delegation: use the absent-host marker consistently;
+discarded: show the daemon's local writer as a bound root host, which would mix
+transport placement with the root's authority identity.
 Scopes are actual available typed powers: root8, original owner1|2|4 plus 8 only
 with its current admin role, device's currently usable subset. Deadline is the
 intersection of required finite parents; only root identity uses `"-"`.
