@@ -484,10 +484,14 @@ device path must be owned by that writer host and same person. Original-key
 signing returns fixed typed external slots; there is no arbitrary sign endpoint,
 new root fallback or hidden original-key import.
 
-A same-review owner may preapprove later administrator/finalization work only
-when its exact selected path also has current scope 8/admin authority. Later
-signatures wait for dependency-ready exact templates and revalidate current
-eligibility. Otherwise a separate actual administrator review is required.
+A same-review owner may preapprove later administrator work only when its exact
+selected path also has current scope 8/admin authority. Otherwise a separate
+actual administrator review is required. An approved owner intent may separately
+preapprove its own later finalization under the exact reviewed terms: original
+owner or current device scope 4 for D issuance, plus scope 2 for a new/changed B.
+Finalization preapproval does not require administrator scope 8 and cannot
+supply an administrator approval. Later signatures wait for dependency-ready
+exact templates and revalidate the actual current authority for their own role.
 An attempted alternate administrator after that locked review returns 409
 `state_conflict`, not fallback. Requester selection and final commit remain
 separate in both cases.

@@ -1074,3 +1074,16 @@ Selected within the owner's DEC-01 through DEC-07 delegation:
   to imported proofs and local preparation. Discarded: a high sequence silently
   healing a fork, admission before validation, or an empty repair diagnostic for
   this complete but malformed typed relationship.
+
+## Coordinator-free role-specific preapproval (2026-10-26)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: an approved owner
+intent may preapprove its own dependency-ready finalization under the exact
+reviewed terms, with actual current original-owner authority or device scope4
+and scope2 for a new/changed binding. Preapproval of administrator work separately
+requires the exact selected path's current scope8/admin authority. Later signing
+revalidates the role and current path. This aligns the bootstrap summary with the
+runtime's separate owner-finalization and administrator paragraphs. Discarded:
+requiring admin8 merely to finish an owner's own bounded approval, letting
+owner preapproval stand in for an actual administrator, widened terms or an
+alternate signer on resume, and any implicit requester final consent.

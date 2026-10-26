@@ -661,7 +661,10 @@ changed B requires owner2+host consent, and D issuance still needs original owne
 or current strict ancestor4. An expired target D is never an issuer. An approved
 owner intent may preauthorize this bounded later step under its already reviewed
 terms, so resume can materialize dependency-ready slots; it cannot widen terms
-or choose another owner. Any changed term requires explicit fresh review.
+or choose another owner. This owner-finalization preapproval uses its actual
+owner authority, including device scope4 and scope2 for a new/changed binding;
+it does not require scope8 or preapprove administrator work. Any changed term
+requires explicit fresh review. Requester final consent remains separate.
 
 All three routes return exactly `{request,review,signing_requests}`. Review is:
 
