@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Exercise multi-hop delegation chains (milestone 6 slice 4) with real hosts.
 
-Runs four hosts in one network under the Go coordinator, in Go/Rust mixes
-that put each implementation in every chain position: alice (pat) originates,
-bob (quinn) and carol (rhea) pass work on, and dave is unbound. With
+Runs four hosts in one coordinator-free network (conformance/dec_network.py),
+in Go/Rust mixes that put each implementation in every chain position: alice
+(pat) creates the network and originates, bob (quinn) and carol (rhea) pass
+work on, and dave holds the extra agent. dave used to be a host-only member;
+decentralized-spec.md defines no host-only join (every member host has a
+binding, sections 5 and 8), so dave is bound to a fourth person, sam, whose
+policy no case uses. With
 deterministic adapter consumers and no model calls, it covers two- and
 three-hop chains authorized for the originator at the final receiver (by
 policy and by grant), refusal when only the sender is allowed, refused
@@ -16,7 +20,7 @@ originator's person and a revoked originator at submission and at handoff,
 cancellation propagated two hops down with each hop's own outcome, MCP
 delegate_task with parent_task_id and the originator fields in meta, the
 shared link test vector, and v10→v11 migration.
-Needs the Go coordinator, peerspan-peer-probe, and OpenSSH; Node for MCP.
+Needs peerspan-peer-probe and OpenSSH; Node for MCP.
 """
 import argparse
 import hashlib
@@ -27,7 +31,8 @@ import subprocess
 import tempfile
 
 from agent_adapter import Channel, adapter_call, credential, sql
-from support import Coordinator, wait_for
+from support import wait_for
+from dec_network import DecNetwork
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
 import peer_messaging
 from peer_messaging import set_probe, timestamp
@@ -153,15 +158,14 @@ def check_vector():
     print('PASS link test vector: statement, signature, and previous hash', flush=True)
 
 
-def check(binaries, coord_binary, node, script, label):
+def check(binaries, node, script, label):
     with tempfile.TemporaryDirectory(prefix='peerspan-delegation-') as temporary:
         directory = Path(temporary)
-        coord = Coordinator(coord_binary, directory / 'coord')
+        dec = DecNetwork(directory / 'dec')
         alice, bob, carol, dave = (PolicyHost(binary, directory / name)
                                    for binary, name in zip(binaries, ('alice', 'bob', 'carol', 'dave')))
         hosts = (alice, bob, carol, dave)
-        (directory / 'keys').mkdir()
-        keys = {name: ssh_key(directory / 'keys', name) for name in ('pat', 'quinn', 'rhea')}
+        keys = {name: (dec.person(name).key, dec.person(name).public, dec.person(name).raw) for name in ('pat', 'quinn', 'rhea')}
         agents = {}
         channels = []
         saved_sock = os.environ.get('SSH_AUTH_SOCK')
@@ -171,22 +175,19 @@ def check(binaries, coord_binary, node, script, label):
                 agents[name] = Agent(directory / f'agent-{name}')
                 agents[name].add(keys[name][0])
             pat_id = person_id(keys['pat'][2])
-            coordinator = coord.start()
             A, B, C, D = (host.start()['id'] for host in hosts)
             use_agent(agents['pat'])
-            net = alice.cli('network', 'create', '--name', 'team', '--member', 'pat', '--coordinator', coord.address,
-                            '--coordinator-key', coordinator['public_key'])['id']
+            net = dec.create(alice, 'pat')['id']
             for host, name in ((bob, 'quinn'), (carol, 'rhea')):
-                invite = alice.cli('network', 'invite', '--network', net, '--member', name, '--expires-at', timestamp())
                 use_agent(agents[name])
-                assert host.cli('network', 'join', '--token', invite['token'])['person']['bound']
-            invite = alice.cli('network', 'invite', '--network', net, '--member', 'dave', '--expires-at', timestamp(),
-                               '--host-only')
-            dave.cli('network', 'join', '--token', invite['token'], '--no-person')
+                dec.join(alice, host, name)
+                assert dec.bound(host) == keys[name][2], name + ' is not bound'
+            use_agent(None)
+            dec.join(alice, dave, 'sam')
             for host in hosts:
                 host.cli('network', 'sync', net)
-            for host in hosts:
-                wait_for(lambda: len(host.cli('network', 'members', net)) == 4, timeout=20, message='four members')
+            dec.wait_members(hosts, 4)
+            assert dec.member_host_ids(alice) == {A, B, C, D}
             origin = alice.cli('agent', 'register', '--name', 'origin', '--owner', 'pat')
             worker = bob.cli('agent', 'register', '--name', 'worker', '--owner', 'quinn')
             helper = carol.cli('agent', 'register', '--name', 'helper', '--owner', 'rhea')
@@ -444,10 +445,13 @@ def check(binaries, coord_binary, node, script, label):
                 parents.append(out['request']['task_id'])
                 take(bob, tokens[bob], parents[-1])
             queued = forward(bob, D, parents[0], C, helper, gCD)['request']['task_id']
-            alice.cli('network', 'revoke', '--network', net, '--host', D)
+            # A host_revoke ban signed by the root (decentralized-spec.md 5.1); `--approve` approves the
+            # displayed typed action (spec 11 "Approval first").
+            use_agent(agents['pat'])
+            alice.cli('network', 'revoke', '--network', net, '--host', D, '--approve')
             for host in (bob, carol):
-                wait_for(lambda: D not in {m['host_id'] for m in host.cli('network', 'members', net)}, timeout=20,
-                         message='revocation sync')
+                wait_for(lambda: (host.cli('network', 'sync', net) or True) and D not in dec.member_host_ids(host),
+                         timeout=20, message='revocation sync')
             assert claim(carol, tokens[carol]) is None
             until_state(bob, {'id': C}, queued, 'rejected')
             assert bob.cli('task', 'events', '--peer', C, queued)[-1]['message'] == LAPSED
@@ -465,8 +469,6 @@ def check(binaries, coord_binary, node, script, label):
             else:
                 os.environ['SSH_AUTH_SOCK'] = saved_sock
             stop_all(hosts)
-            coord.stop()
-            coord.logs.close()
             for agent in agents.values():
                 agent.stop()
             if failure:
@@ -506,7 +508,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
-    parser.add_argument('--coord', type=Path, required=True)
     parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, help='Node.js for the MCP cases; skipped without it')
     parser.add_argument('--mix', action='append',
@@ -523,7 +524,7 @@ def main():
     for mix in args.mix or ['GGGG', 'RRRR', 'GRGR', 'RGRG']:
         assert len(mix) == 4 and set(mix) <= set(binaries), mix
         names = {'G': 'Go', 'R': 'Rust'}
-        check([binaries[c] for c in mix], args.coord.resolve(), node, script,
+        check([binaries[c] for c in mix], node, script,
               'alice, bob, carol, dave = ' + ', '.join(names[c] for c in mix))
 
 

@@ -12,7 +12,7 @@ import time
 from agent_adapter import Channel, adapter_call, credential, sql
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
 from peer_messaging import PeerHost, request_id, timestamp, DropResponse
-from support import Coordinator, CoordHost
+from dec_network import DecNetwork
 
 
 def route(
@@ -606,38 +606,18 @@ def migration_check(original_binary, replacement_binary, label):
     )
 
 
-def network_check(coord_binary, sender_binary, receiver_binary, label):
+def network_check(sender_binary, receiver_binary, label):
+    # Coordinator-free network (decentralized-spec.md 6 and 8, conformance/dec_network.py):
+    # a creates it as alice; b joins as the new person bob with bob's own original key.
     with tempfile.TemporaryDirectory(prefix="peerspan-outbound-network-") as directory:
         root = Path(directory)
-        coord = Coordinator(coord_binary, root / "coord")
-        a = CoordHost(sender_binary, root / "a")
-        b = CoordHost(receiver_binary, root / "b")
+        dec = DecNetwork(root / "dec")
+        a = PeerHost(sender_binary, root / "a")
+        b = PeerHost(receiver_binary, root / "b")
         try:
-            ci = coord.start()
             ai, bi = a.start(), b.start()
-            n = a.cli(
-                "network",
-                "create",
-                "--name",
-                "team",
-                "--member",
-                "alice",
-                "--coordinator",
-                coord.address,
-                "--coordinator-key",
-                ci["public_key"],
-            )
-            invite = a.cli(
-                "network",
-                "invite",
-                "--network",
-                n["id"],
-                "--member",
-                "bob",
-                "--expires-at",
-                timestamp(),
-            )
-            b.cli("network", "join", "--token", invite["token"])
+            n = dec.create(a, "alice")
+            dec.join(a, b, "bob")
             a.cli("network", "sync", n["id"])
             b.cli("network", "sync", n["id"])
             aa = a.cli("agent", "register", "--name", "alice", "--owner", "alice")
@@ -691,7 +671,6 @@ def network_check(coord_binary, sender_binary, receiver_binary, label):
         finally:
             a.stop()
             b.stop()
-            coord.stop()
     print(
         label
         + ": enrolled peers receive automatic replies without manual peer pins passed",
@@ -704,7 +683,6 @@ def main():
     parser.add_argument("--go", type=Path, required=True)
     parser.add_argument("--rust", type=Path, required=True)
     parser.add_argument("--node", type=Path, required=True)
-    parser.add_argument("--coord", type=Path, required=True)
     args = parser.parse_args()
     for a, b, label in [
         (args.go, args.go, "Go→Go"),
@@ -713,7 +691,7 @@ def main():
         (args.rust, args.go, "Rust→Go"),
     ]:
         check(a.resolve(), b.resolve(), args.node.resolve(), label)
-        network_check(args.coord.resolve(), a.resolve(), b.resolve(), label)
+        network_check(a.resolve(), b.resolve(), label)
     migration_check(args.go.resolve(), args.rust.resolve(), "Go→Rust")
     migration_check(args.rust.resolve(), args.go.resolve(), "Rust→Go")
 

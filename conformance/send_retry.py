@@ -3,8 +3,8 @@
 
 No case below calls `message retry`: the sending daemon must recover each
 uncertain outcome by itself, with the same request ID, and the receiver must
-hold exactly one copy. Uses temporary state, Python's standard library, the
-Go coordinator, and the peerspan-peer-probe test client.
+hold exactly one copy. Uses temporary state, Python's standard library, and
+the peerspan-peer-probe test client. No case needs a network.
 """
 import argparse
 import concurrent.futures
@@ -13,7 +13,6 @@ import tempfile
 import time
 
 from agent_adapter import adapter_call, credential
-from support import CoordHost, Coordinator, INTERVAL
 from peer_messaging import DropResponse, PeerHost, request_id, set_probe, timestamp
 from adapter_outbound import route
 
@@ -186,42 +185,21 @@ def adapter_case(sender_binary, receiver_binary):
             stop_all((sender, receiver))
 
 
-def connected_case(coord_binary, sender_binary, receiver_binary):
-    """A 503 from a receiver whose coordination went stale resolves automatically."""
-    with tempfile.TemporaryDirectory(prefix='peerspan-retry-coord-') as directory:
-        root = Path(directory)
-        coord = Coordinator(coord_binary, root / 'coord')
-        alice, bob = CoordHost(receiver_binary, root / 'alice'), CoordHost(sender_binary, root / 'bob')
-        try:
-            coordinator = coord.start()
-            a, b = alice.start(), bob.start()
-            network = alice.cli('network', 'create', '--name', 'team', '--member', 'alice',
-                                '--coordinator', coord.address, '--coordinator-key', coordinator['public_key'])
-            invite = alice.cli('network', 'invite', '--network', network['id'], '--member', 'bob', '--expires-at', timestamp(600))
-            bob.cli('network', 'join', '--token', invite['token'])
-            alice.cli('network', 'sync', network['id'])
-            agent = alice.cli('agent', 'register', '--name', 'target', '--owner', 'alice')
-            grant = alice.cli('grant', 'create', '--peer', b['id'], '--agent', agent['id'], '--expires-at', timestamp(1200))
-            coord.stop()
-            wait_until(lambda: alice.cli('network', 'list')[0]['last_sync_error'] is not None, 15, 'sync failure')
-            time.sleep(3 * INTERVAL + 1)
-            rid = request_id()
-            stale = bob.cli('message', 'send', '--peer', a['id'], '--grant', grant['id'], '--agent', agent['id'],
-                            '--deadline', timestamp(), '--content', 'while stale', '--request', rid)
-            assert stale['state'] == 'unknown' and 'HTTP 503' in stale['error'] and stale['next_attempt_at'], stale
-            coord.start()
-            accepted_automatically(bob, alice, a, rid, 60)
-        finally:
-            stop_all((alice, bob))
-            coord.stop()
-            coord.logs.close()
+# Not ported: the former connected_case. It stopped the coordinator so that the
+# receiver's coordination went stale (`last_sync_error` set, then three
+# coordination intervals), and required the sender's first attempt to end
+# `unknown` with the receiver's HTTP 503 and then be accepted automatically once
+# the coordinator was back. Coordinator networks are refused now (DEC-OWN2), and
+# a coordinator-free host never waits for another host: it checks grants locally
+# at decision time (decentralized-spec.md sections 1 "No quorum" and 4.3), so
+# there is no stale-coordination state that answers 503. The automatic retry of
+# an uncertain outcome is still covered by direct_cases and adapter_case.
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
-    parser.add_argument('--coord', type=Path, required=True)
     parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     args = parser.parse_args()
     set_probe(args.probe)
@@ -231,8 +209,7 @@ def main():
             label = f'{sender}→{receiver}'
             direct_cases(binaries[sender], binaries[receiver])
             adapter_case(binaries[sender], binaries[receiver])
-            connected_case(args.coord.resolve(), binaries[sender], binaries[receiver])
-            print(f'PASS {label}: lost response, offline receiver, stale coordination (503), and agent sends '
+            print(f'PASS {label}: lost response, offline receiver, and agent sends '
                   'accepted automatically once; rejections final; refresh-only after the deadline; '
                   'no burst after restart', flush=True)
 

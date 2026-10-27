@@ -9,7 +9,8 @@ submit response recovered by automatic retry, the full lifecycle, rejection,
 expiry, failure, cancellation, restarts on either side, refusal of transitions
 by another session or credential, revocation before acceptance, submitter-only
 status and events, delegate_task with task_update events, and v8→v11 migration.
-Needs the Go coordinator and peerspan-peer-probe; policy cases need OpenSSH.
+Needs peerspan-peer-probe; policy cases need OpenSSH and build a coordinator-free
+network with conformance/dec_network.py.
 """
 import argparse
 import json
@@ -21,7 +22,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
-from support import Coordinator, wait_for
+from support import wait_for
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES, stop_all
 from peer_messaging import DropResponse, PeerHost, fixture_context, set_probe, timestamp, wire
 
@@ -508,18 +509,22 @@ def check_mcp(sender, receiver, a, b, node, script, root, channels):
     assert tool(worker, 'task_accept', {'task_id': 'task_bad'})[0]
 
 
-def policy_check(coord_binary, owner_binary, sender_binary, label):
+def policy_check(owner_binary, sender_binary, label):
     """task.submit in an owner policy authorizes tasks without a grant."""
-    from persons import Agent, person_id, ssh_key, use_agent
+    from persons import Agent, use_agent
     from policy import PolicyHost
+    from dec_network import DecNetwork, person_id
     import os
     with tempfile.TemporaryDirectory(prefix='peerspan-task-policy-') as temporary:
         root = Path(temporary)
-        coord = Coordinator(coord_binary, root / 'coord')
+        # Coordinator-free network (decentralized-spec.md 6 and 8). bob (the sender, quinn) creates
+        # it and holds the root; alice joins as the new person pat with pat's own original key.
+        # The creator's original key signs "the first policy" at creation (spec 6 step 3), so the
+        # owner whose missing policy this case needs must be the joining person, not the creator.
+        dec = DecNetwork(root / 'dec')
         alice, bob = PolicyHost(owner_binary, root / 'alice'), PolicyHost(sender_binary, root / 'bob')
         hosts = (alice, bob)
-        (root / 'keys').mkdir()
-        keys = {name: ssh_key(root / 'keys', name) for name in ('pat', 'quinn')}
+        keys = {name: (dec.person(name).key, dec.person(name).public, dec.person(name).raw) for name in ('pat', 'quinn')}
         agents = {}
         saved_sock = os.environ.get('SSH_AUTH_SOCK')
         try:
@@ -527,16 +532,13 @@ def policy_check(coord_binary, owner_binary, sender_binary, label):
                 (root / f'agent-{name}').mkdir()
                 agents[name] = Agent(root / f'agent-{name}')
                 agents[name].add(keys[name][0])
-            coordinator = coord.start()
             ids = {host: host.start() for host in hosts}
-            use_agent(agents['pat'])
-            net = alice.cli('network', 'create', '--name', 'team', '--member', 'pat', '--coordinator', coord.address,
-                            '--coordinator-key', coordinator['public_key'])['id']
-            invite = alice.cli('network', 'invite', '--network', net, '--member', 'quinn', '--expires-at', timestamp())
             use_agent(agents['quinn'])
-            assert bob.cli('network', 'join', '--token', invite['token'])['person']['bound']
-            for host in hosts:
-                host.cli('network', 'sync', net)
+            net = dec.create(bob, 'quinn')['id']
+            use_agent(agents['pat'])
+            dec.join(bob, alice, 'pat')
+            assert dec.bound(alice) == keys['pat'][2], 'alice is not bound to pat'
+            dec.sync()
             reviewer = alice.cli('agent', 'register', '--name', 'reviewer', '--owner', 'pat')
             a = ids[alice]
 
@@ -583,8 +585,6 @@ def policy_check(coord_binary, owner_binary, sender_binary, label):
             else:
                 os.environ['SSH_AUTH_SOCK'] = saved_sock
             stop_all(hosts)
-            coord.stop()
-            coord.logs.close()
             for agent in agents.values():
                 agent.stop()
     print(f'PASS {label}: policy task.submit authorizes tasks without grants; message-only rules refuse them; '
@@ -622,7 +622,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, required=True)
-    parser.add_argument('--coord', type=Path, required=True)
     parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, help='Node.js for the MCP channel cases; skipped without it')
     parser.add_argument('--pairing', action='append', help='sender/receiver, such as Go/Rust; default all')
@@ -640,7 +639,7 @@ def main():
                 continue
             check(binaries[first], binaries[second], node, script, f'{first} submitter, {second} receiver')
             if not args.skip_policy:
-                policy_check(args.coord.resolve(), binaries[second], binaries[first],
+                policy_check(binaries[second], binaries[first],
                              f'{second} owner, {first} submitter')
 
 

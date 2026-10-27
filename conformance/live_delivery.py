@@ -6,9 +6,10 @@ redelivery, adoption, and pending work", and their Verification lists), with con
 (agent adapter, outbound, recovery, task, harness integration, launch), independently of the Go and
 Rust hosts and of the Node adapter, which runs here only as a black box.
 
-Each pairing runs one Go coordinator and two hosts, alice's (A) and bob's (B), both running the
-pairing's daemon and driven by its CLI. Every host has its own HOME and XDG_CONFIG_HOME, so persons
-use generated keys and nothing touches the real ~/.config/peerspan. Sessions are prepared with the
+Each pairing runs two hosts, alice's (A) and bob's (B), in one coordinator-free network built by
+conformance/dec_network.py (A creates it; bob joins with his own original key), both running the
+pairing's daemon and driven by its CLI. Every host has its own HOME and XDG_CONFIG_HOME, where each
+person's fixture key is the configured owner key, so nothing touches the real ~/.config/peerspan. Sessions are prepared with the
 Claude integration (`session setup --harness claude-code`) against a fixture `claude` executable
 that reports a chosen `--version` and `auth status` JSON and, when launched, prints its arguments,
 cwd, and MCP_PROTOCOL_NEGOTIATION. No model runs: the MCP consumer here is deterministic. It starts
@@ -102,7 +103,8 @@ from host.db, since the contract lists them as shared state.
   upgraded: the columns added, existing items marked seen and not redelivered.
 
 Ambiguities are listed in the suite questions file and marked "Q:" below; checks take the most
-literal reading. Needs Python 3, peerspan-peer-probe, Node, and the Go coordinator.
+literal reading. Needs Python 3, peerspan-peer-probe, Node, and OpenSSH (ssh-keygen). The migration to 15
+section is not portable (a schema 14 host cannot join a coordinator-free network) and fails with that reason.
 `--slice1-only` skips the slice 2 sections.
 Exits non-zero listing every failed section.
 """
@@ -124,7 +126,8 @@ import threading
 import time
 import traceback
 
-from support import Coordinator, wait_for
+from support import wait_for
+from dec_network import DecNetwork
 from host_service import SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import Failure, near, need, parse_time
@@ -522,12 +525,13 @@ class StatusWatcher:
 
 
 class Pairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, baseline, root, baseline14=None, slices=(1, 2)):
+    def __init__(self, label, cli_binary, daemon_binary, node, baseline, root, baseline14=None, slices=(1, 2)):
         self.label, self.cli_binary, self.daemon, self.node, self.root = label, cli_binary, daemon_binary, node, root
         self.baseline = baseline
         self.baseline14 = baseline14
         self.slices = slices
-        self.coord = Coordinator(coord_binary, root / 'coord')
+        # Coordinator-free network (decentralized-spec.md 6 and 8; conformance/dec_network.py).
+        self.dec = DecNetwork(root / 'dec')
         self.results = []
         self.hosts = {}
         self.consumers = []
@@ -1703,11 +1707,10 @@ class Pairing:
         """bob/origin -> alice/mid -> carol/end; alice's middle session is replaced while carol works."""
         a, b, net = self.a, self.b, self.net
         c = self.host('c')
+        self.dec.install_key(c, 'carol')
         self.ids['c'] = c.start()['id']
-        token = a.cli('invite', 'carol', '--network', net)['token']
-        c.cli('join', token)
-        for h in (a, b, c):
-            wait_for(lambda h=h: len(h.cli('network', 'members', net)) == 3, timeout=40, message='three members')
+        self.dec.join(a, c, 'carol')
+        self.dec.wait_members((a, b, c), 3)
         c.cli('allow', 'everyone', '--network', net)
         a.cli('allow', 'bob', '--delegate', '--network', net)
         for h in (a, b, c):
@@ -2110,11 +2113,13 @@ class Pairing:
         self.hosts['migration15'] = h
         self.ids['m'] = h.start()['id']
         need(user_version(h) == 14, 'the baseline host writes schema 14', user_version(h))
-        members = len(a.cli('network', 'members', net)) + 1
-        token = a.cli('invite', 'mia', '--network', net)['token']
-        h.cli('join', token)
-        wait_for(lambda: len(b.cli('network', 'members', net)) == members
-                 and len(h.cli('network', 'members', net)) == members, timeout=40, message='mia\'s host a member')
+        # Not portable: this section had a schema-14 host (a build from before the coordinator-free
+        # design) join the network with a coordinator token, then upgraded it in place. A coordinator-free
+        # network admits only hosts that run the join request (decentralized-spec.md section 8), which a
+        # schema-14 build cannot, and coordinator tokens are refused (DEC-OWN2).
+        h.stop()
+        raise Failure('not portable to a coordinator-free network: a schema 14 baseline host cannot join it '
+                      '(decentralized-spec.md 8); the rest of this section needs that membership')
         h.cli('allow', 'bob', '--network', net)
         try:
             b.cli('network', 'sync', net)
@@ -2168,17 +2173,16 @@ class Pairing:
     # --- the pairing ---------------------------------------------------------------------------------------
 
     def run(self):
-        self.coord_key = self.coord.start()['public_key']
         self.a, self.b = self.host('a'), self.host('b')
+        # Each person's original key is that host's configured owner key, as `network create`/`join`
+        # used to generate it there (decentralized-spec.md 6 step 3), so `allow`/`deny` find it.
+        self.dec.install_key(self.a, 'alice')
+        self.dec.install_key(self.b, 'bob')
         self.ids = {'a': self.a.start()['id'], 'b': self.b.start()['id']}
-        created = self.a.cli('network', 'create', 'team', '--as', 'alice', '--coordinator', self.coord.address,
-                             '--coordinator-key', self.coord_key)
+        created = self.dec.create(self.a, 'alice')
         self.net = created['id']
-        token = self.a.cli('invite', 'bob', '--network', self.net)['token']
-        self.b.cli('join', token)
-        for h in (self.a, self.b):
-            wait_for(lambda h=h: len(h.cli('network', 'members', self.net)) == 2, timeout=40,
-                     message='both members known')
+        self.dec.join(self.a, self.b, 'bob')
+        self.dec.wait_members((self.a, self.b), 2)
         self.agent = {n: self.register(self.a, n, 'alice')
                       for n in ('quiet', 'eager', 'rawq', 'idle', 'launchy', 'oldproto', 'doomed', 'noproto',
                                 'learner', 'otherproto')}
@@ -2243,7 +2247,7 @@ class Pairing:
     def save_logs(self, directory):
         target = directory / re.sub(r'[^A-Za-z0-9]+', '-', self.label)
         target.mkdir(parents=True, exist_ok=True)
-        for name, h in [*self.hosts.items(), ('coord', self.coord)]:
+        for name, h in self.hosts.items():
             try:
                 h.logs.seek(0)
                 (target / f'{name}.log').write_bytes(h.logs.read())
@@ -2266,14 +2270,13 @@ class Pairing:
                     pass
             stop_all(tuple(self.hosts.values()))
         finally:
-            self.coord.stop()
-            self.coord.logs.close()
+            pass
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, baseline, label, logs=None, baseline14=None,
+def run_pairing(cli_binary, daemon_binary, node, baseline, label, logs=None, baseline14=None,
                 slices=(1, 2)):
     with tempfile.TemporaryDirectory(prefix='peerspan-live-delivery-') as temporary:
-        pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, node, baseline, Path(temporary),
+        pairing = Pairing(label, cli_binary, daemon_binary, node, baseline, Path(temporary),
                           baseline14, slices)
         started = time.monotonic()
         try:
@@ -2298,7 +2301,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
-    parser.add_argument('--coord', type=Path, required=True)
     parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--node', type=Path, required=True, help='Node 22 or newer, for the MCP adapter')
     parser.add_argument('--baseline', type=Path,
@@ -2309,7 +2311,7 @@ def main():
                         help='skip the slice 2 sections (slice 1 sections always run: slice 2 runs inside their setup)')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
     parser.add_argument('--parallel', action='store_true', help='run the pairings at the same time')
-    parser.add_argument('--logs', type=Path, help='save daemon, coordinator, and adapter logs of failing pairings here')
+    parser.add_argument('--logs', type=Path, help='save daemon and adapter logs of failing pairings here')
     args = parser.parse_args()
     set_probe(args.probe.resolve())
     binaries = {'Go': args.go.resolve(), 'Rust': args.rust.resolve() if args.rust else None}
@@ -2327,7 +2329,7 @@ def main():
     def one(pairing):
         cli, _, daemon = pairing.partition('/')
         label = f'{cli} CLI, {daemon} daemon'
-        outcomes[label] = run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], args.node.resolve(),
+        outcomes[label] = run_pairing(binaries[cli], binaries[daemon], args.node.resolve(),
                                       baseline, label, args.logs, baseline14,
                                       (1,) if args.slice1_only else (1, 2))
     if args.parallel:
