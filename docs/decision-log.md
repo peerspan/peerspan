@@ -1202,3 +1202,29 @@ fixing only the catalog while other original proof bytes remain exposed to
 reserialization, redundant inline-plus-Base64 copies, copying private keys, and
 new persistence schema. Standard JSON tools may transform the outer carrier;
 the bounded decoded public components retain their exact original bytes.
+
+## Coordinator-free inherited device-ban preparation (2026-10-27)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: expose one typed
+copy-only original-person preparation route for the exact required inherited
+device bans. Independently derive targets/provenance from the approved source,
+fix a durable reviewed migration intent and original SSHSIG slots, and put only
+completed copies into prepared evidence. The root's existing preparation can
+copy required person/host bans but never signs an owner's device ban. Reuse the
+inert shared person head and bounded existing records/signature submission.
+This makes the already selected source-preservation rule achievable through
+normal native/API setup without hand-authoring signed proofs or activating
+pending authority. No runtime result is claimed by this contract decision.
+
+Discarded: dropping inherited denies, root/device substitution, arbitrary new
+targets, copied original keys, ordinary action through a staged person, generic
+unsigned import/signing, a second schema/intent kind, and manual proof authoring
+as the required setup path. All exact source, original/all-host consent,
+complete prepared verification and acknowledgment/fence/adoption rules remain.
+The exact copy set may be signed throughout the unchanged proposal window,
+with current root/person/source rechecks and no renewed issued_at; this avoids
+stranding a unique approved intent after300 seconds. Its review includes every
+source maximum. The selected original person may differ from the local writer's
+roster person, but only that exact original key can sign. Discarded: an extra
+300-second expiration for these copies, timestamp refresh, person-filtered
+maxima and requiring the writer to own another person's original key.

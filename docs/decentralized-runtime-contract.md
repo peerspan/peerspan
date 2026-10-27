@@ -952,6 +952,7 @@ fence with no timeout abort. No secret/root seed appears in these responses.
 | POST /v2/networks/{id}/migration/prepare | `{roster,signature_format,approve}` |200 review wrapper, current legacy-root proposal/initial-root ready slots |
 | POST /v2/networks/{id}/migration/review | `{proposal_id,approve}` |200 review wrapper for exact source/proposal/roster/new context |
 | POST /v2/networks/{id}/migration/host-lease | `{proposal_id,host_lease_base64,approve}` |200 exact host-membership preparation wrapper below; own unbound host only |
+| POST /v2/networks/{id}/migration/device-bans | `{proposal_id,person_public_key,approve}` |200 exact inherited-device-ban review wrapper below; original-person copy-only preparation |
 | POST /v2/networks/{id}/migration/link | `{proposal_id}` |201 flat LINK_VIEW plus display_code for this explicit local staged requester creation; exact retry200 |
 | POST /v2/networks/{id}/migration/evidence | `{proposal_base64,source_catalog_base64,source_state_base64,prepared_catalog_base64,acknowledgments_base64,commit_base64}` |200 review wrapper; exact same evidence fields as peer exchange; proposal_base64 required, commit_base64 `"-"` or canonical Base64 of the exact statement |
 | POST /v2/networks/{id}/migration/acknowledgment | `{proposal_id,prepared_catalog_sha256,approve}` |200 review wrapper, exact own host/device ack after complete prepared review |
@@ -1088,6 +1089,95 @@ no activation/device; ONLY an owned host additionally requires its complete
 prepared activation and actual matching device seed. The exact acknowledgment
 and fence are durable before publication. Neither selector grants a reusable signer.
 
+### Original-person copies of inherited device bans
+
+The device-bans route makes the migration contract's existing restrictive-copy
+rule usable before adoption. It accepts no caller-supplied targets or arbitrary
+statement body. Independently verify the exact locally approved proposal/source,
+current legacy root, endorsed applicable restrictions and admitted sticky bans.
+Select ALL required stable-device bans for this exact still-admitted original
+person. An unkept inactive legacy signature alone does not qualify. A permanently
+removed person retains its old device-ban history and root person ban; this
+route cannot restore that person's positive path. Missing exact original proof
+is proof_required with its ID; targets outside that selected person's exact
+source-derived set and persons not source-admitted are forbidden. The selected
+person may differ from the local writer's roster person: this is external
+original-person signing on its own existing machine, never a binding assertion
+or permission for the daemon to select another key.
+
+Require the exact proposal-bound initial root and its one shared pending
+person_lease for that person. These are inert staging facts, never a selected
+provider. Each generated copy is the ordinary device_revoke schema: exact
+root_state_id, issuer.kind person and matching original person, its required
+issuer_person parent equal to that shared person_lease, only person/device
+target fields, statement/host target `-`, kept_statement_ids empty and ratifies
+`-`. Its sole issuer signature uses that original person's SSHSIG. No device,
+host, root or administrator substitutes that signature, and no new target ban
+can be introduced through this route. If no copy is required, return an empty
+copy list with no intent or signature.
+
+Response is exactly `{migration,review,signing_requests}`. This route's review
+is exactly:
+
+```text
+{stage:"inherited_device_bans",network_id,proposal_id,new_context_id,
+ person_public_key,root_state_id,person_lease_id,source_catalog_sha256,
+ source_state_sha256,
+ copies:[{device_public_key,source_proof_ids:[LEGACY_PROOF_ID],statement_id}],
+ access_maxima:[{kind,subject,version,message_hash}],
+ authority_warning}
+```
+
+Copies are sorted/unique by device key; each source_proof_ids list names ALL
+exact applicable original proofs for that stable target, sorted/unique. Arrays
+and full-u64 access_maxima use the source snapshot's existing strict bounds and
+order. Access_maxima contains ALL exact source snapshot rows, without a
+person-specific filter. Retain the4096 limit and complete migration's1MiB preflight; at most16 ready
+signing slots are returned per batch. The warning discloses the exact inherited
+irreversible bans, inert staging and absence of acknowledgment/fence/adoption.
+Preview writes/generates/signs nothing, exposes no ready slots and shows copy
+statement_ids `-` until their templates are durably fixed. Approval fixes the exact
+typed review, original selector, source/proposal/root/person pins, actual guarded
+issued_at and template bytes in a kind migration intent before any signature.
+All templates in that intent are ONLY these required device_revoke copies.
+Use operation_id equal to the proposal ds_, original provider with lease_id `-`
+and signature_format sshsig, scopes0, device_public_key `-`, secret SQL NULL.
+Host_public_key is the actual local writer, not the target device's old host;
+not_after and result_base64 are `-`, expires_at is the fixed proposal deadline.
+There is at most one such approved copy intent per proposal/person; find it by
+those exact pins and template kinds, never a latest-intent rule.
+
+Common migration/signed and resume can fill ONLY those approved exact original
+slots, in dependency order, after rechecking actual source/root, pending person
+head, known restrictions and guarded current time. This copy-only intent fixes
+created_at/issued_at at actual approval and expires_at at the original proposal
+deadline. New signatures require issued_at <= NOW < proposal.expires_at, with
+the exact shared person head already valid and unexpired; no additional300-second
+action-intent age limit applies to this narrow already-endorsed copy set. Neither
+retry nor later signature refreshes a timestamp, target, source or deadline.
+The original key remains on its existing machine. For this copy intent, signed
+and resume return the same inherited_device_bans review variant when exposing
+its ready slots or completed copies; ordinary MIGRATION_VIEW status is unchanged.
+Completed signed copies enter only prepared evidence, retaining exact original
+templates/signatures across retries/restart. Changed approved targets, proofs,
+source or template pins conflict and never inherit approval. No active context,
+provider, admission, ordinary restriction event, acknowledgment or fence follows
+from these signatures. Normal actions still require ordinary adopted authority.
+
+The existing root prepare similarly includes required stable-person/host ban
+copies under the exact proposed root and approved source. It cannot sign a
+device copy or expand the inherited target set. Complete prepared validation
+still requires every applicable inherited ban before any acknowledgment.
+
+Selected: one typed copy-only original-person preparation route using existing
+bounded migration intents and signing submission. Discarded: hand-authoring
+proofs, root/device substitution, dropping inherited restrictions, activating a
+pending person to reach ordinary actions, generic unsigned statement imports,
+new intent kinds/tables or introducing unrelated fresh denies during migration.
+Also discarded: stranding a uniquely approved exact copy intent after300 seconds,
+refreshing its signature time to hide that delay, filtering source maxima by
+person, or restricting the external original signer to the daemon's own owner.
+
 ### Owned staged bootstrap and whole-migration completion
 
 Staged original-owner preparation applies only the migration contract's narrow
@@ -1162,11 +1252,14 @@ operation_conflict. It allows an approved offline participant to obtain the
 already complete transition, not to bypass current DEC action/repair gates.
 The ordinary local adoption checks/retained restrictions still apply afterward.
 
-Commands are `network migrate identity|prepare|review|host-lease|link|ack|commit|resume|status
+Commands are `network migrate identity|prepare|review|host-lease|device-bans|link|ack|commit|resume|status
 NETWORK_ID`, with --proposal, --prepared-catalog, exact --roster-file and
 --approve mapping to these fields. File/stdin evidence uses the same strict
 route shape. Host-lease uses --host-lease-file for the exact partial statement,
-prints the typed host-membership review and defaults to no approval. Missing original key/host/proof displays exact next action and
+prints the typed host-membership review and defaults to no approval. Device-bans
+requires --person, shows each inherited stable target and exact source proof,
+and defaults to no approval; --person-key selects only the exact original key
+for those SSHSIG slots, never imports it into the daemon. Missing original key/host/proof displays exact next action and
 preserves identities/fence; coordinated abort is unavailable, not an invented
 force/reset/delete flag. This command family is migration-only, not a second
 new-network lifecycle.

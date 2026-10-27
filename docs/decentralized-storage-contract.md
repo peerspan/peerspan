@@ -536,6 +536,18 @@ remain distinct. A partial host lease is an exact typed template in an approved
 private migration intent, never an incomplete object in a public catalog.
 Only its fully verified issuer+host signed body enters prepared evidence.
 
+The copy-only inherited-device-ban preparation also uses kind migration, with
+the original provider, sshsig and lease_id `-`. Operation_id is the exact
+proposal ds_; person_public_key is that source-admitted original person,
+root_state_id its inert proposed root, scopes0 and device_public_key `-`.
+Every template is one required source-derived device_revoke under the exact
+shared pending person head. Review fixes all exact target/provenance/template
+pins from the runtime's inherited_device_bans variant. Secret stays SQL NULL;
+no person/host/device seed or ordinary provider is installed. At most one such
+approved intent exists per proposal/person, located by exact pins/template
+kinds. Common approval-before-signature and exact immutable retry rules apply;
+there is no new schema or generic staged-signing authority.
+
 result_base64 is `-` except an applied create, action or root_transition intent,
 where it is canonical Base64 of that exact original successful runtime response
 wrapper, fixed atomically with the local application. Decode and validate the

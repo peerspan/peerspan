@@ -175,6 +175,16 @@ and unbinds remain exact history and cannot revive any old generation. This
 staging exception permits only those exact restrictive copies, not unrelated
 new authority or a claimed global historical timestamp.
 
+Original-person ratification has the runtime's dedicated copy-only device-bans
+preparation route. It derives all exact required targets/provenance from this
+verified source, uses the one inert shared person head and original SSHSIG,
+and durably fixes review/templates before signatures. It creates no active
+provider or acknowledgment. A root prepares only the corresponding required
+person/host bans; it never supplies an owner's device-ban signature. Public
+files carry completed signed copies through the existing exact evidence
+carrier. Neither manual proof authoring nor dropping a required ban is a setup
+requirement or a supported recovery path.
+
 ## 3. Exact proposal and migrated initial root
 
 Use the authority contract's strict JSON, encodings, exact statement/proof IDs
