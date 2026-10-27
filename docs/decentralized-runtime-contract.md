@@ -242,12 +242,42 @@ every later mutation or product action still performs its own current checks.
 Never return a fabricated legacy PolicyView/signature or reinterpret the
 statement's outer serialization as a new proof admitted by this GET.
 
-Both routes use one held coherent snapshot and guarded read time, with no clock
+`GET /v2/networks/{id}/groups` takes no query/body and returns exactly
+`{context_id,groups:[{name,statement_id,statement_base64}]}`. Read one held
+coherent snapshot at guarded DEC decision time. Include only independently
+current usable group stream heads, unique and ordered by validated group name,
+at most4096 entries. Each entry preserves the exact ORIGINAL signed group
+envelope as canonical standard Base64 and its exact ds_; existing1MiB statement
+and32MiB whole-response bounds apply. Do not truncate an incomplete response.
+
+An absent, expired, withdrawn or otherwise independently inactive group supplies
+no entry; a complete empty current view is200 with groups[]. Every remembered
+group stream required by this aggregate must be evaluated. A missing selected
+head/body or required ancestor refuses the whole GET with proof_required and
+its exact derivable IDs. A known fork in any such group stream refuses the
+whole GET with ordinary state_conflict and all exact conflicting heads, never
+an omitted incomplete stream, partial200, lower body fallback or hash-selected
+group. Corresponding diagnostic IDs are sorted/unique; multiple independent
+causes retain the existing error-precedence rules. These errors do not make unrelated policy,
+person or other domains unusable for their independently authorized operations.
+Retained maxima and raw planning-head presence cannot manufacture current group
+authority. Root/origin/clock failures retain their existing structured errors.
+
+Native `network groups` uses this verified read for DEC networks and displays
+names, members and versions decoded from these exact envelopes. An unavailable
+local signing key does not invalidate a usable cached public group. Do not
+fabricate a legacy group signature or fall back to v1/SSH signing to read it.
+Every later group mutation or product action performs its own current checks.
+
+These routes use one held coherent snapshot and guarded read time, with no clock
 commit, projection rewrite, key generation, coordinator fetch or event. Reads
 retain the ordinary structured error/clock-rollback rules. Native agents/person
 resolution/access display use these verified v2 views; they do not route DEC
 state through legacy coordinator parsers or treat planning heads as usable
 policy authority. Existing legacy v1 policy/person response shapes stay exact.
+The groups read also performs no signing, fetching, adoption, provider selection,
+head/maximum/outbox update or other row mutation. Existing legacy v1 group
+history remains unchanged.
 
 `GET /v2/networks/{id}/provider` returns200 PROVIDER_VIEW when the actual
 selected provider is usable and locally available,404 only when NO selection exists, or the actual
@@ -1495,6 +1525,13 @@ recommended default, Go selectable; private/public release decision is separate.
 
 The independent author derives runtime cases after this contract is pinned:
 
+- Current groups return exact independently verified original signed bytes/DS
+  and decoded members from one coherent view, with every DB row including
+  guard/provider unchanged. A remembered higher missing body or a group fork
+  returns exact diagnostics without a lower historical fallback; expired or
+  withdrawn groups disappear while their durable maxima remain. Native group
+  display uses only the v2 route for DEC and works with an unavailable local
+  signing key, without v1/SSH fallback. Other current domains remain independent.
 - All four creator/requester/CLI pairings without a coordinator process, key,
   config or successful sync; local original-provider creation with no device
   lease; later creator-device creation still requires complete consent.

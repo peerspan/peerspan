@@ -1305,3 +1305,21 @@ Discarded: treating every private host pin as the writer, rewriting an already
 fixed subject/template to satisfy that assertion, presenting a root as bound to
 one host, adding a metadata column, or accepting a root tuple as local consent.
 No schema, signature, selector, approval, source, fence or adoption gate changes.
+
+## Coordinator-free verified current groups (2026-10-27)
+
+Selected within the delegated DEC stream: an aggregate pure v2 current-groups
+read using the same coherent retained authority and guarded decision time as
+product checks. Return exact original signed usable group heads and preserve
+missing-proof/fork diagnostics. Native group display decodes that view without
+requiring a signing key. Existing typed action preparation remains the mutation
+path; this adds no signing, admission, provider or import authority.
+
+Discarded: repurposing v1 history, fabricating a legacy group signature,
+accepting raw planning heads as usable groups, returning a lower historical body
+when a higher proof is missing, truncating an incomplete view or issuing up to
+4096 independent reads without one coherent snapshot. Inactive groups may be
+omitted only after independent current evaluation; their retained maxima stay.
+The separate author derives exact-byte/purity, missing/fork/expiry and native
+unavailable-key controls after reviewed merge. No implementation or runtime
+success is claimed by this contract.
