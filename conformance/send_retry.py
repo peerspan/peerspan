@@ -185,15 +185,10 @@ def adapter_case(sender_binary, receiver_binary):
             stop_all((sender, receiver))
 
 
-# Not ported: the former connected_case. It stopped the coordinator so that the
-# receiver's coordination went stale (`last_sync_error` set, then three
-# coordination intervals), and required the sender's first attempt to end
-# `unknown` with the receiver's HTTP 503 and then be accepted automatically once
-# the coordinator was back. Coordinator networks are refused now (DEC-OWN2), and
-# a coordinator-free host never waits for another host: it checks grants locally
-# at decision time (decentralized-spec.md sections 1 "No quorum" and 4.3), so
-# there is no stale-coordination state that answers 503. The automatic retry of
-# an uncertain outcome is still covered by direct_cases and adapter_case.
+# The former connected_case (a 503 from a receiver whose coordination went stale, resolved
+# automatically) is removed by owner decision DEC-OWN4: coordinator networks are retired
+# (DEC-OWN2) and a coordinator-free host has no stale-coordination state. Automatic retry of
+# an uncertain outcome stays covered by direct_cases and adapter_case.
 
 
 def main():
