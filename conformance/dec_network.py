@@ -251,11 +251,24 @@ class DecNetwork:
             cli_json(requester, 'link', 'select', request_id, '--network', self.id, '--context', self.context,
                      '--expect-person', person.raw, *keys, '--owner-offer', view['owner_offer_id'], '--approve')
         view = self._wait(requester, request_id, lambda v: v['selection_id'] != '-' and v['selection_approved'], 'selection')
-        if view['administrator_offer_id'] == '-':
-            cli_json(self.root_host, 'link', 'admit', '--network', self.id, '--person', person.raw, *admin_signer_args,
-                     *keys, '--owner-offer', view['owner_offer_id'], '--selection', view['selection_id'],
-                     '--code-stdin', '--approve', input=(code + '\n').encode())
-        view = self._wait(requester, request_id, lambda v: v['administrator_offer_id'] != '-', 'administrator offer at requester')
+        admitted = []
+        for attempt in range(3):
+            if view['administrator_offer_id'] != '-':
+                break
+            # Spec 8.7: a retry resends the exact same bytes, so repeating the admission is safe.
+            admitted.append(cli_json(self.root_host, 'link', 'admit', '--network', self.id, '--person', person.raw,
+                                     *admin_signer_args, *keys, '--owner-offer', view['owner_offer_id'],
+                                     '--selection', view['selection_id'], '--code-stdin', '--approve',
+                                     input=(code + '\n').encode()))
+            try:
+                view = self._wait(requester, request_id, lambda v: v['administrator_offer_id'] != '-',
+                                  'administrator offer at requester', seconds=60)
+            except SetupFailure:
+                if attempt == 2:
+                    raise SetupFailure(f'administrator offer never reached the requester; admit said: '
+                                       f'{[{k: a.get(k) for k in ("state", "completed", "next", "attention")} for a in admitted]}')
+                print(f'NOTE dec_network: administrator offer not at the requester 60 s after admit; admitting again',
+                      flush=True)
         fixed = ['--network', self.id, '--context', self.context, '--expect-person', person.raw, *keys,
                  '--owner-offer', view['owner_offer_id'], '--selection', view['selection_id'],
                  '--administrator-offer', view['administrator_offer_id']]
