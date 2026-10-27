@@ -1097,7 +1097,12 @@ class Pairing:
         private.chmod(0o600)
         argv = ('join', '--invite-file', str(private), '--person-key', str(key), *flags)
         if terminal is not None:
-            code, out, tty, stdout, seen = h.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
+            try:
+                code, out, tty, stdout, seen = h.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
+            except subprocess.TimeoutExpired as error:
+                # The coordinator-free join asks other questions at a terminal and waits; the trust prompt
+                # never came. Recorded for the trust section, which fails on it.
+                code, out, tty, seen = None, None, f'join at a terminal did not exit: {error}', False
             self.join_terminal[name] = (code, out, tty, seen)
             text = tty
         else:
@@ -1123,7 +1128,10 @@ class Pairing:
         dec.install_key(p1, 'pat')
         argv = ('network', 'create', name, '--as', 'pat', '--person-key-file', str(dec.person('pat').key), *flags)
         if terminal is not None:
-            code, out, tty, stdout, seen = p1.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
+            try:
+                code, out, tty, stdout, seen = p1.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
+            except subprocess.TimeoutExpired as error:
+                code, out, tty, seen = None, None, f'network create at a terminal did not exit: {error}', False
             self.create_terminal = (code, out, tty, seen)
         else:
             code, out, stdout, stderr = p1.outcome(*argv)
