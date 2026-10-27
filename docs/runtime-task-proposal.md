@@ -1,8 +1,11 @@
 # Runtime tasks: running a task's commands in a microVM
 
-Status: proposed 2026-10-27; nothing here is decided or implemented. The decisions to settle
-are under [Decisions](#decisions), each with a recommendation. When they are settled, the
-accepted parts become `docs/runtime-task-contract.md`.
+Status: accepted 2026-10-27. The owner chose the recommendation of each of the four
+[decisions](#decisions). The [runtime task contract](runtime-task-contract.md) specifies the
+result, and refines this proposal in four places: a cancelled queued task ends at once,
+`results_dropped` lists the dropped artifacts instead of a flag, peer task events gain a
+`wait` long poll so output streams promptly, and runtime rules carry `allow_disconnected`.
+Nothing is implemented yet.
 
 This is the first slice of the system design's runtime ("Runtime" in `docs/runtime.md` in
 `docs-internal`): user story 1, one person running a delegated task's commands in a microVM
