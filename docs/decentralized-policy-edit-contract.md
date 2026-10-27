@@ -372,3 +372,9 @@ old body alone supplies no signing or execution authority.
   while retaining distinct rules and unrelated current-baseline permissions.
   Reverse rule order and retain either principal spelling: the result is the
   same, no provisional addition is signed, and dropped status names the group.
+- Prepare an ordinary policy payload after its fixed issued_at whole second.
+  Its actual private created_at may be later; expiry remains issued_at+300s.
+  An interrupted approved action stays byte-exact when stale and cannot block
+  later valid renewal merely because the two initial times differ. New
+  preparation at expiry refuses; existing honest-signing age300 remains the
+  separately specified inclusive boundary. No retry refreshes the payload.
