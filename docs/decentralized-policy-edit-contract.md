@@ -264,6 +264,24 @@ host merges retain their existing semantics; invent no dropped trusted-host
 key. Valid nonempty dropped arrays must remain readable after closure,
 settlement, displacement and cross-language reopen.
 
+These strings are display-marker groups, not full rule identities. Distinct
+agent rules with the same agent but different settings remain distinct in the
+ordinary merge. If their frozen additions produce the same display marker,
+that one marker suppresses EVERY represented local addition in this edit's
+exact frozen delta. It never picks a rule by order, hash or settings, and never
+removes a permission already independently present in the current baseline.
+This may conservatively drop more than the one conflicting local addition;
+the existing dropped status reports that named group. Derive its members from
+the frozen references, not later policies or guessed string parsing.
+
+Accumulate retained and newly generated markers, then recompute the candidate
+from the untouched current baseline with the complete skip set. Repeat until
+no new marker is generated, within the finite frozen addition set; refuse a
+resource limit rather than publish a partial merge. Thus a collision noticed
+after a provisional addition cannot survive this pass and reappear on a later
+retry. The same group suppression applies to additions inside an otherwise
+new rule. No provisional content is signed or admitted before this completes.
+
 Previously written tagged DEC rows may spell a principal key with `of` in
 place of the table's `in`. Accept only an exact such alternate constructed
 from an actual addition in those frozen references. It means the same dropped
@@ -272,7 +290,7 @@ the stored string and all original row/reference bytes during reads; do not
 globally replace substrings in labels. Existing dropped aliases remain
 dropped, and a later write never appends the canonical equivalent as a second
 obligation. A retained array containing both principal spellings for the same
-actual addition is invalid, even though the strings differ; validate semantic
+actual display-marker group is invalid, even though the strings differ; validate semantic
 uniqueness against the constructed frozen addition set. Newly dropped
 additions use the canonical table. Legacy untagged
 rows retain their own representation byte-for-byte.
@@ -280,7 +298,10 @@ rows retain their own representation byte-for-byte.
 Selected: canonical DEC keys with exact read compatibility for the two existing
 principal spellings. Discarded: rewriting retained edit history, rejecting a
 legitimate other-language row, treating a spelling difference as permission to
-restore an addition, or changing legacy policy signatures/schema.
+restore an addition, or changing legacy policy signatures/schema. For marker
+collisions, select explicit conservative group suppression with final remerge.
+Discarded: silently choosing one full rule identity or adding a new hashed-key
+schema whose old ambiguous history would still need a compatibility rule.
 
 ## 5. Applied policy versus claim preparation
 
@@ -342,3 +363,9 @@ old body alone supplies no signing or execution authority.
   language. Canonical and retained alternate principal keys skip the same
   actual addition, never restore it or rewrite stored history; a forged key
   outside the frozen addition set refuses.
+- Two same-agent rules with different settings add the same principal; only
+  one conflicts with a sibling's removal. Its display-marker group suppresses
+  both local additions in this very candidate and on later reapply/reopen,
+  while retaining distinct rules and unrelated current-baseline permissions.
+  Reverse rule order and retain either principal spelling: the result is the
+  same, no provisional addition is signed, and dropped status names the group.
