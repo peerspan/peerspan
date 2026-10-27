@@ -272,7 +272,14 @@ class DecNetwork:
 
     # Spec 8.1: a person, invited by a member host, joins with their own original key on the new machine.
     def join(self, inviter, joiner, label, flags=(), person=None):
-        """`label` is the member label; `person` names the fixture key when it differs (as `ops/sam` for sam)."""
+        """`label` is the member label; `person` names the fixture key when it differs (as `ops/sam` for sam).
+
+        A person who already has a member host in this network adds this machine with `link` instead
+        (spec 8.1, last paragraph: "Linking another machine of an existing person uses `peerspan link` on
+        the new machine instead of `join`"), approved on that person's first member host."""
+        owner = next((h for h, p in self.hosts.items() if p is self.person(person or label)), None)
+        if owner is not None and not flags:
+            return self.link(owner, joiner, person or label)
         key = self.person(person or label).key
         invitation = cli_json(inviter, 'network', 'invite', '--network', self.id, '--member', label, expect=True)
         private = self.directory / f'invite-{len(self.log)}-{os.getpid()}-{time.monotonic_ns()}.private'
@@ -310,7 +317,10 @@ class DecNetwork:
 
     # Spec 8.1 last paragraph: another machine of an existing person.
     def link(self, owner_host, new_host, label, scopes=15):
+        """Spec 8.1 last paragraph and 8.3: `link` on the new machine, `link approve` (scopes default 15,
+        capped by the owner's path) on a machine of the person, admission by the root host."""
         person = self.people[label]
+        self.install_key(new_host, label)
         request = cli_json(new_host, 'link', '--network', self.id, '--expect-person', person.raw)
         request_id, code = request['request_id'], request['display_code']
         cli_json(owner_host, 'link', 'approve', '--network', self.id, '--person', person.raw,
