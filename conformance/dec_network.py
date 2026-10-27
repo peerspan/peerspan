@@ -497,9 +497,16 @@ def policy_action(host, network_id, person, change):
     action route (wire formats 16.4, kind `policy`), signed by the original key. Not an edit: `edits` is copied.
     This replaces the coordinator-era crafted `POST /v1/networks/{id}/policy`. Returns the action result."""
     current = policy_statement(host, network_id, person.raw)
+    # The version is the retained maximum plus one and the predecessors are every known head of the stream
+    # (GET .../access-versions; runtime contract: "Versions use the retained maximum, not an active-only view").
+    status, versions = api(host, 'GET', f'/v2/networks/{network_id}/access-versions')
+    row = next((r for r in versions.get('policies', []) if r['person_public_key'] == person.raw), None) \
+        if status == 200 else None
     if current:
         statement_id, _, _, body = current
-        predecessors = [statement_id]
+        predecessors = list(row['head_ids']) if row else [statement_id]
+        if row:
+            body['version'] = row['version']
     else:
         body = {'format': 2, 'network_id': network_id, 'person_public_key': person.raw, 'version': 0,
                 'issued_at': '-', 'valid_until': '-', 'rules': [], 'capability_rules': [], 'trusted_hosts': [],
@@ -512,7 +519,7 @@ def policy_action(host, network_id, person, change):
     status, ready = api(host, 'POST', route, {'kind': 'policy', 'provider_id': person.raw, 'signature_format': 'sshsig',
                                              'payload_base64': payload, 'approve': True})
     if status != 200:
-        raise SetupFailure(f'policy action: {status} {ready}')
+        raise SetupFailure(f'policy action: {status} {ready}; access-versions row: {row}')
     return _sign_action(host, route, ready, person)
 
 
