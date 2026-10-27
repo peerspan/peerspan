@@ -526,7 +526,11 @@ def trust(host, network_id):
     signing trust back to back otherwise race: the second host's edit starts from a policy it has not yet
     learned and both CLIs exit 1 with `policy changed after reservation` instead of reloading (bug B7)."""
     run_cli(host, 'network', 'sync', network_id)
-    code, out, err = run_cli(host, 'trust', '--network', network_id)
+    # The configured owner key is named explicitly: this is fixture setup, and the Rust CLI with a Go daemon
+    # refuses to sign without --person-key-file-style naming (bug B8; the suites' own commands still show it).
+    config = Path(getattr(host, 'config', None) or host.config_home)
+    key = config / 'peerspan' / 'person_ed25519'
+    code, out, err = run_cli(host, 'trust', '--network', network_id, *(('--person-key', str(key)) if key.exists() else ()))
     if code != 0:
         raise SetupFailure(f'trust: exit {code}: {err.decode(errors="replace")[-400:]}')
     return json.loads(out)
