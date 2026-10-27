@@ -208,7 +208,9 @@ Pin the selected root and exact current policy predecessor, use retained full
 u64 maximum+1, and retain other hosts' edit entries under the existing merge
 rules. This host's entry is the highest unsettled sequence being reapplied,
 not a new reservation. Its issued_at is this snapshot's guarded decision time;
-not_after uses ordinary finite policy and actual parent/provider ceilings.
+not_after uses ordinary finite policy and its operation-required scope1
+parent/provider ceilings, without an unrelated administrator scope8 deadline
+from the broader PROVIDER_VIEW summary shortening an owner's policy.
 Refuse version exhaustion or an unusable ceiling. Even if the content already
 reflects the old delta, a returned candidate uses that old sequence and must
 pass ordinary signing and application before this path settles anything.
@@ -249,13 +251,15 @@ already validated exact policy field; it does not normalize a label or key.
 | --- | --- |
 | A new agent rule | `rule AGENT` |
 | A new principal in an agent rule | `principal PRINCIPAL in rule AGENT` |
-| A new capability rule | `capability rule CAPABILITY` |
+| A new capability rule with nonempty principals | `capability rule CAPABILITY` |
 | A new principal in a capability rule | `principal PRINCIPAL in capability rule CAPABILITY` |
 | A new empty-principal capability claim | `claim CAPABILITY` |
 
 Validate keys against the actual frozen signed-minus-start addition set,
 using the existing agent rule identity/settings and capability name/host
-identity. A withdrawals-only merge's output is not that set. Bounds and trusted
+identity. A newly empty-principal capability claim uses only `claim CAPABILITY`,
+never the capability-rule marker which cannot suppress that claim. A
+withdrawals-only merge's output is not that set. Bounds and trusted
 host merges retain their existing semantics; invent no dropped trusted-host
 key. Valid nonempty dropped arrays must remain readable after closure,
 settlement, displacement and cross-language reopen.
@@ -267,7 +271,10 @@ addition in memory, including when checking skips on reapplication. Preserve
 the stored string and all original row/reference bytes during reads; do not
 globally replace substrings in labels. Existing dropped aliases remain
 dropped, and a later write never appends the canonical equivalent as a second
-obligation. Newly dropped additions use the canonical table. Legacy untagged
+obligation. A retained array containing both principal spellings for the same
+actual addition is invalid, even though the strings differ; validate semantic
+uniqueness against the constructed frozen addition set. Newly dropped
+additions use the canonical table. Legacy untagged
 rows retain their own representation byte-for-byte.
 
 Selected: canonical DEC keys with exact read compatibility for the two existing
@@ -324,7 +331,8 @@ old body alone supplies no signing or execution authority.
   refuse before any signature or settlement while that withdrawal is
   unsettled. Exact old-sequence reapplication settles it without restoring
   access; only then may a new unrelated edit reserve and apply.
-- Reapply-preview is immutable, including empty/no-unsettled and refusal paths.
+- Reapply-preview leaves all durable state unchanged, including empty/no-unsettled
+  and refusal paths; a later read may observe a later timestamp or changed state.
   With an original unavailable to the daemon, its exact returned candidate can
   complete through external typed CLI slots, then a new native mutation starts
   from the actual resulting baseline. Changed head/root/max/provider, expired
