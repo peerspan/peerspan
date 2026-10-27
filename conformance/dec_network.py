@@ -334,16 +334,18 @@ class DecNetwork:
 
     # Spec 8.1 last paragraph: another machine of an existing person.
     def link(self, owner_host, new_host, label, scopes=15):
-        """Spec 8.1 last paragraph and 8.3: `link` on the new machine, `link approve` (scopes default 15,
-        capped by the owner's path) on a machine of the person, admission by the root host."""
+        """Spec 8.1 last paragraph and 8.3: `link` on the new machine, `link approve` on a machine of the person,
+        admission by the root host. The owner offer is signed by the original key (`--signer` names it): a
+        joined person's device has scopes 7, without 4, so it cannot approve a device (spec 5, 8.2 stage 2).
+        Scopes 15 are requested, capped by the owner's path (spec 8.3)."""
         person = self.people[label]
         self.install_key(new_host, label)
         request = cli_json(new_host, 'link', '--network', self.id, '--expect-person', person.raw)
         request_id, code = request['request_id'], request['display_code']
         cli_json(owner_host, 'link', 'approve', '--network', self.id, '--person', person.raw,
                  '--expect-host-key', request['host_public_key'], '--expect-device-key', request['device_public_key'],
-                 '--person-key', str(person.key), '--scopes', str(scopes), '--not-after', utc(6 * 86400),
-                 '--code-stdin', '--approve', input=(code + '\n').encode())
+                 '--person-key', str(person.key), '--signer', person.raw, '--scopes', str(scopes),
+                 '--not-after', utc(6 * 86400), '--code-stdin', '--approve', input=(code + '\n').encode())
         view = self._admit_finalize_commit(new_host, owner_host, request_id, code, person, ['--signer', 'network_root'])
         self.hosts[new_host] = person
         self.log.append(('link', label, request_id))
