@@ -169,6 +169,41 @@ the existing rules; neither guard rewrites its frozen references or dropped
 keys. A new native command must finish reapplication, reload the actual
 admitted policy, and only then compose and reserve its new change.
 
+### Resolve a policy fork before ordinary reapplication
+
+A complete independently verified policy fork is retained as all known
+incomparable heads; it is not rejected merely because edit reconciliation has
+no unique baseline. The domain stays unusable. Keep every frozen signed/start
+reference and dropped marker, leave unsigned reservations unsigned, and treat
+signed local intent not reflected by a unique current policy as unsettled.
+Automatic renewal, new reservations and reapply-preview still refuse the fork.
+
+The owner-local ordinary typed action path permits one narrow explicit recovery:
+a `policy` resolver covering ALL locally known heads in both predecessors and
+resolves, at retained maximum+1, whose content and entire edits list match ONE
+exact complete admitted predecessor body except version and issued/expiry time.
+Current independently established original or scope1 device authority, root,
+finite bounds and all-head complete proofs remain mandatory before every
+signature and application. No policy branch itself supplies issuer authority.
+This is an explicitly reviewed branch choice, never a hash/order winner.
+
+This recovery consumes no new reservation, advances no local edit counter,
+creates no policy_claim, and never marks a never-signed reservation signed.
+Final reconciliation compares the resolver's actual reflected own sequence
+with existing signed local rows: omitted intent stays unsettled, reflected
+intent may settle with its original frozen references/drops preserved. It does
+not fabricate a new signed reference for an old edit. After resolution, normal
+old-sequence reapplication restores the retained local withdrawal before any
+new command can reserve its own change. Changed heads or a body not matching
+the exact reviewed predecessor refuse before signature/application.
+
+Selected: explicit existing-head resolution, then ordinary reapplication and
+new editing in separate steps. Discarded: dropping conflict evidence on import,
+weakening every unique-baseline reader, choosing a branch automatically, or
+using fork resolution to absorb new edits or silently discard withdrawals.
+This owner-local recovery restriction does not change verification/admission
+of otherwise valid public signed resolvers under the authority contract.
+
 ## 3. Pure preparation of an exact reapplication candidate
 
 `POST /v2/networks/{id}/policy-edits/reapply-preview` takes exactly
@@ -355,6 +390,12 @@ old body alone supplies no signing or execution authority.
   refuse before any signature or settlement while that withdrawal is
   unsettled. Exact old-sequence reapplication settles it without restoring
   access; only then may a new unrelated edit reserve and apply.
+- Same-predecessor sibling policies are durably retained as a fork without a
+  branch winner or fabricated edit settlement. An explicitly approved current
+  owner resolves all heads using one exact admitted branch's content/edit
+  entries and a fresh checked generation. The omitted local withdrawal remains
+  unsettled under the resulting unique head; resolution consumes no new edit
+  reservation, and old-sequence reapplication is required before new editing.
 - Reapply-preview leaves all durable state unchanged, including empty/no-unsettled
   and refusal paths; a later read may observe a later timestamp or changed state.
   With an original unavailable to the daemon, its exact returned candidate can
