@@ -1228,3 +1228,29 @@ source maximum. The selected original person may differ from the local writer's
 roster person, but only that exact original key can sign. Discarded: an extra
 300-second expiration for these copies, timestamp refresh, person-filtered
 maxima and requiring the writer to own another person's original key.
+
+## Coordinator-free current views and stable linking defaults (2026-10-27)
+
+Selected within the owner's DEC-01 through DEC-07 delegation, following concrete
+native workflow failures: add pure v2 person-admission and current-policy reads
+from the same guarded verified snapshot as product authorization. Return exact
+current P labels and original signed policy bytes; never fabricate legacy
+PolicyView signatures or obtain authority from planning heads. This lets native
+agents/access/name resolution work without weakening the intentional legacy
+parser guard. Discarded: passing DEC records through the old parser, changing
+v1 response shapes, using an unsigned effective body as signed legacy evidence,
+mutating policy-edit state just to read it or treating a display as authority.
+
+For omitted native owner-approval expiry, select signed request.created_at+7d
+capped by actual finite ancestors. This preserves an unchanged preview's exact
+terms across a later approval while staying within every actual issuance
+ceiling. Discarded: recomputing now+7d on every invocation, an unsigned-preview
+read/persistence exception, extending finite ancestors or silently replacing
+already reviewed terms. Explicit deadlines remain exact.
+
+Native link admit explicitly recommends network_root by default and displays
+that choice before default-no approval; explicit auto remains available for
+the current selected administrator/device with its actual earlier ceiling.
+Discarded: automatic root fallback, presenting auto as the root, ignoring a
+shorter admin lease or silently narrowing a previously fixed owner offer.
+These CLI defaults do not change daemon auto-selection or issuer powers.

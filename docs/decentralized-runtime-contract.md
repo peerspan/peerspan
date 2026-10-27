@@ -206,6 +206,39 @@ authorized device. Those choices invent a relationship the signed state does
 not establish.
 All these reads use one coherent stored snapshot and write nothing.
 
+`GET /v2/networks/{id}/persons` returns exactly
+`{context_id,persons:[{person_public_key,member,person_lease_id,not_after}]}`,
+sorted/unique by person key, with at most4096 entries. Include only independently
+current person admission, using its exact verified P label and effective finite
+deadline; a person need not own a current host to appear. Transport records,
+owner labels, pending migration P, legacy history and selected-provider metadata
+cannot manufacture an admitted person. This is a local current view, not proof
+that no unseen member or revocation exists. Native label resolution preserves
+the existing ambiguity errors instead of choosing a key by label/hash order.
+
+`GET /v2/networks/{id}/policy/{person}` takes an exact canonical person key in
+the encoded path and no query/body. On success200 it returns exactly
+`{statement_id,statement_base64}`: the exact ds_ and canonical standard Base64
+of the ORIGINAL signed current policy statement, at most1MiB decoded and2MiB
+whole response. Verify that person's actual current policy through the same
+stored authority, retained provenance, restrictions, full-u64 maxima and actual
+guarded NOW used by product authorization. A known missing body returns
+proof_required with its exact IDs; a policy fork/conflict returns its ordinary
+state_conflict/required references, never a hash-selected body. No current policy
+or an independently inactive policy returns404 not_found. This read supplies
+no new authority, admission, provider, signing permission or import provenance.
+Clients may decode its unsigned policy body for display and proposed edits;
+every later mutation or product action still performs its own current checks.
+Never return a fabricated legacy PolicyView/signature or reinterpret the
+statement's outer serialization as a new proof admitted by this GET.
+
+Both routes use one held coherent snapshot and guarded read time, with no clock
+commit, projection rewrite, key generation, coordinator fetch or event. Reads
+retain the ordinary structured error/clock-rollback rules. Native agents/person
+resolution/access display use these verified v2 views; they do not route DEC
+state through legacy coordinator parsers or treat planning heads as usable
+policy authority. Existing legacy v1 policy/person response shapes stay exact.
+
 `GET /v2/networks/{id}/provider` returns200 PROVIDER_VIEW when the actual
 selected provider is usable and locally available,404 only when NO selection exists, or the actual
 structured repair error for a present unusable selection. It never turns a
@@ -695,8 +728,14 @@ capped by the actual path. For an unadmitted new original person, the requested
 scopes default to 7; this is a proposed target mask, not preview authority or a
 promise of future administrator scope8. An explicit mask remains subject to the
 actual current signing path at each later review/signature/application stage.
-Not_after defaults to the earliest now+7d/all finite ancestors; API requires
-fixed values. The possession-only preview's scopes0 does not make the requested
+For native link approve, omitted Not_after defaults to the earliest signed
+request.created_at+7d/all actual finite ancestors. The exact signed request
+creation time makes unchanged preview then approval deterministic. Explicit
+--not-after remains exact, and the API still requires a fixed value. This is
+only a conservative CLI default; new lease issuance keeps actual guarded time,
+the ordinary issued_at+7d ceiling and every parent's earlier deadline. A changed
+path/ceiling requires review rather than reusing old consent or widening expiry.
+The possession-only preview's scopes0 does not make the requested
 mask0 and does not authorize any ordinary provider work.
 An unadmitted new original person first supplies a typed possession-only owner
 offer from its own machine: reviewed psi2 descriptor/context/label/person pins,
@@ -718,6 +757,13 @@ admin device. For RENEW only, exact unchanged CURRENT P/H leases allow the admin
 packet/ID to be `"-"`, avoiding an unrelated scope8 requirement. Any P/H change
 requires the ordinary current root/admin stage. Renewals still have explicit
 owner-finalization and requester PoP/final consent.
+The native link admit command recommends network_root as its explicit default
+--signer and displays that root choice in help and the typed default-no review.
+It sends literal provider_id network_root; this is not daemon auto selection or
+a fallback after a failed selected provider. --signer auto remains an explicit
+supported choice for the independently current selected administrator/device
+path, including operation without the root key. A shorter actual admin-path
+ceiling remains enforced; neither mode silently changes the owner offer.
 
 `POST /v2/link/requests/{id}/finalization` takes exactly
 `{owner_offer_id,selection_id,administrator_offer_id,network_id,context_id,
