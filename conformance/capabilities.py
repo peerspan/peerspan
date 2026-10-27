@@ -136,7 +136,7 @@ from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TA
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
-from persons import Agent, coord_db, person_id, ssh_key, ssh_sign, ssh_verify
+from persons import Agent, person_id, ssh_key, ssh_sign, ssh_verify
 from policy import edit_start, edits_list, edits_map, policy_lines, policy_lines_v1, policy_lines_v2, sign_edit
 
 HERE = Path(__file__).resolve().parent
