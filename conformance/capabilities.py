@@ -614,7 +614,7 @@ class Pairing:
         dec = self.decs[net]
         dec.join(self.hosts[inviter] if inviter else dec.root_host, self.hosts[joiner], label, person=person)
         if trusted:
-            self.hosts[joiner].cli('trust', '--network', net)
+            dec_network.trust(self.hosts[joiner], net)
 
     def version(self, host='p1', net=None):
         p = self.policy(host, net)
@@ -1111,7 +1111,7 @@ class Pairing:
             dec.join(dec.root_host, h, label, person=person)
         wanted = '--trusted' in flags or terminal == 'y'
         if wanted:
-            h.cli('trust', '--network', net)
+            dec_network.trust(h, net)
         return attempt
 
     def create_network(self, name, *flags, terminal=None):
@@ -1120,6 +1120,7 @@ class Pairing:
         flag (named NAME-plain, as before), with a yes signed by `trust`."""
         p1 = self.hosts['p1']
         dec = dec_network.DecNetwork(self.root / f'dec-{name}', people=self.dec.people)
+        dec.install_key(p1, 'pat')
         argv = ('network', 'create', name, '--as', 'pat', '--person-key-file', str(dec.person('pat').key), *flags)
         if terminal is not None:
             code, out, tty, stdout, seen = p1.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
@@ -1131,7 +1132,7 @@ class Pairing:
         if code != 0 or not out:
             out = dec.create(p1, 'pat', name + '-plain')
             if '--trusted' in flags or terminal == 'y':
-                p1.cli('trust', '--network', out['id'])
+                dec_network.trust(p1, out['id'])
         else:
             dec.adopt(p1, 'pat', out['id'])
         self.decs[out['id']] = dec

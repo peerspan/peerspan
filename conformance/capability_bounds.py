@@ -723,7 +723,7 @@ class BoundsPairing:
         for name, label, flag in members:
             self.dec.join(h['p1'], h[name], label)
         for name in ('p1', 'p2'):
-            h[name].cli('trust', '--network', self.team)
+            dec_network.trust(h[name], self.team)
         expected = {ids['p1']: self.pat, **{ids[n]: {'pat': self.pat, 'quinn': self.quinn}[l] for n, l, _ in members}}
 
         def bound():

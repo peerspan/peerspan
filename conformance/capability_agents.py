@@ -364,7 +364,7 @@ class AgentPairing:
         both hosts refuse --trusted at join on coordinator-free networks (bug B4; capabilities.py asserts it)."""
         dec.join(self.hosts[inviter], self.hosts[name], label, person=person)
         if trusted:
-            self.hosts[name].cli('trust', '--network', dec.id)
+            dec_network.trust(self.hosts[name], dec.id)
 
     def version(self, host='p1', net=None, person=None):
         p = self.policy(host, net, person)
@@ -730,7 +730,7 @@ class AgentPairing:
         # team: p1 creates it as pat (trusted, signed with `trust`: bug B4); the others join with their person's
         # original key. other: p1 creates it --untrusted; q1 joins. Each network is a DecNetwork of the same people.
         self.team = self.dec.create(h['p1'], 'pat')['id']
-        h['p1'].cli('trust', '--network', self.team)
+        dec_network.trust(h['p1'], self.team)
         for name, label, flags in (('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)),
                                    ('p4', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--untrusted',)),
                                    ('s1', 'ops/sam', ('--trusted',)), ('s2', 'ops/sam', ('--trusted',)),
@@ -2350,7 +2350,7 @@ class SharePairing(AgentPairing):
         ids, h = self.ids, self.hosts
 
         self.team = self.dec.create(h['p1'], 'pat')['id']
-        h['p1'].cli('trust', '--network', self.team)  # create --trusted is refused on these networks (bug B4)
+        dec_network.trust(h['p1'], self.team)  # create --trusted is refused on these networks (bug B4)
         joins = [('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--trusted',)),
                  ('q2', 'quinn', ('--untrusted',)), ('q3', 'quinn', ('--untrusted',)),
                  ('q4', 'quinn', ('--untrusted',)), ('q5', 'quinn', ('--untrusted',)),
@@ -2361,7 +2361,7 @@ class SharePairing(AgentPairing):
         self.setup_notes.append('n2: not portable, no host-only membership on a coordinator-free network')
         self.dec_other = dec_network.DecNetwork(root / 'dec-other', people=self.dec.people)
         self.other = self.dec_other.create(h['p1'], 'pat', 'other')['id']
-        h['p1'].cli('trust', '--network', self.other)
+        dec_network.trust(h['p1'], self.other)
         label_of = {'pat': self.pat, 'quinn': self.quinn, 'sam': self.sam, 'rhea': self.rhea, None: None}
         expected = {ids[n]: label_of[p] for n, p in persons.items() if n != 'n1'}
 

@@ -536,7 +536,7 @@ class ApprovalPairing(AgentPairing):
         ids, h = self.ids, self.hosts
 
         self.team = self.dec.create(h['p1'], 'pat')['id']
-        h['p1'].cli('trust', '--network', self.team)  # create --trusted is refused on these networks (bug B4)
+        dec_network.trust(h['p1'], self.team)  # create --trusted is refused on these networks (bug B4)
         self.labels = {'pat': 'pat', 'quinn': 'quinn', 'rhea': RHEA_LABEL}
         for name, flags in (('p2', ('--trusted',)), ('q1', ('--untrusted',)), ('r1', ('--untrusted',))):
             label = self.labels[persons[name]]

@@ -172,9 +172,10 @@ class DecNetwork:
         return ('--person-key-file', str(self.person(label).key))
 
     def install_key(self, host, label):
-        """Make `label`'s original key this host's configured owner key (spec 6 step 3: "the explicit
-        file, the configured owner key, ..."): $XDG_CONFIG_HOME/peerspan/person_ed25519, which the CLI
-        and the daemon's --person-key-file default both use while it exists."""
+        """Make `label`'s original key this host's configured owner key, $XDG_CONFIG_HOME/peerspan/person_ed25519
+        ("the configured owner key", spec 6 step 3), which the CLI and the daemon's --person-key-file default
+        both use while it exists. create() and the joins do this for every member host: with the key only in
+        ssh-agent neither CLI signs (bug B6), and the coordinator-era flow generated the key at this path."""
         config = Path(getattr(host, 'config', None) or host.config_home)
         target = config / 'peerspan' / 'person_ed25519'
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -199,6 +200,7 @@ class DecNetwork:
     # Spec 6.
     def create(self, host, label, name='team', flags=()):
         person = self.person(label)
+        self.install_key(host, label)
         value = cli_json(host, 'network', 'create', name, '--as', label, '--person-key-file', str(person.key), *flags,
                          expect=True)
         self.created = value
@@ -285,6 +287,7 @@ class DecNetwork:
 
     def complete_join(self, joiner, request, label, person):
         """Finish a join request `request` (the `network join` output) of `person`'s original key on `joiner`."""
+        self.install_key(joiner, person)
         person = self.person(person)
         request_id, code = request['request_id'], request['display_code']
         # Possession-only owner offer by the person's own key on the new machine (spec 8.2 stage 2).
@@ -504,3 +507,16 @@ def claim_catalog(host, host_id, network_id, person, capability, change):
         raise SetupFailure(f'policy-claims preparation: {status} {ready}')
     ready = _sign_action(host, route, ready, person)
     return {'network_id': network_id, 'catalog': ready['catalog']}
+
+
+def trust(host, network_id):
+    """`trust --network ID` for this host, after a bounded sync so its edit starts from the person's newest policy.
+
+    The suites' joins used `--trusted` (refused on coordinator-free networks: bug B4). Two hosts of one person
+    signing trust back to back otherwise race: the second host's edit starts from a policy it has not yet
+    learned and both CLIs exit 1 with `policy changed after reservation` instead of reloading (bug B7)."""
+    run_cli(host, 'network', 'sync', network_id)
+    code, out, err = run_cli(host, 'trust', '--network', network_id)
+    if code != 0:
+        raise SetupFailure(f'trust: exit {code}: {err.decode(errors="replace")[-400:]}')
+    return json.loads(out)
