@@ -1252,6 +1252,18 @@ statement, persisted before publication. An existing ack preapproves eventual
 exact adoption; resume can adopt once complete valid evidence exists, without
 inventing another mutable consent or clearing a fence by absence/timeout.
 
+An acknowledgment POST with approve false is typed preparation. It may persist
+ONLY one exact unapproved migration_ack intent/template, its local_ack_intent_id
+reference and the named monotonic decision-clock update. Approved remains false,
+approved_at `-`, signatures empty, completed false and secret SQL NULL. It must
+not create an acknowledgment, fence, consent, provider, public authority, event
+or adoption, and exposes no ready owned-key signing slot. Exact retries keep
+that fixed template; any later signature still requires separate durable
+explicit approval and current full prepared/source/clock checks. A completely
+read-only acknowledgment preview is also permitted. This bounded preparation
+permission does not relax the separately explicit write-free identity,
+host-membership or inherited-device-ban previews, or any GET's read purity.
+
 Complete adopt atomically writes exact mode/context/origin, retained floors/
 restrictions/proofs and activation admissions with basis migration, actual
 usable selected device if eligible, public migrated state and one
@@ -1481,7 +1493,7 @@ The independent author derives runtime cases after this contract is pinned:
   still needs the current DEC network predicate; explicit true grant can work
   after DEC expiry under its own limits; a known peer alone/relabeled DEC rule
   cannot bypass either;
-  schema21 per-call approvals, resource limits and gh sources unchanged.
+  schema20 per-call approvals and schema21 resource limits/gh sources unchanged.
 - Original/device automatic policy/edit/capability workflows, inactive maxu64
   guards, atomic claims/removal, peer-delivery retries and no fake legacy policy.
 - Truthful info/status/provider and inactive-policy device warnings; guided

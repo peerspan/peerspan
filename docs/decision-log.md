@@ -1254,3 +1254,19 @@ the current selected administrator/device with its actual earlier ceiling.
 Discarded: automatic root fallback, presenting auto as the root, ignoring a
 shorter admin lease or silently narrowing a previously fixed owner offer.
 These CLI defaults do not change daemon auto-selection or issuer powers.
+
+## Coordinator-free acknowledgment preview boundary (2026-10-27)
+
+Selected within the owner's DEC-01 through DEC-07 delegation: an ACK preview
+may fix only the exact unapproved private typed intent/template, its local
+reference and named monotonic clock. Approval, signature, public acknowledgment,
+fence and adoption remain separate. A read-only implementation also qualifies.
+This clarifies the existing typed-preparation boundary after an independent
+case incorrectly required all database rows to be unchanged. The first failed
+assertion stays recorded; there was no observed approval, signature or fence.
+
+Discarded: treating an unsigned private intent as acknowledgment, weakening the
+explicitly pure identity/H/device-ban previews, permitting unrelated row/secret
+changes or silently rewriting the fixed template. Corrected independent checks
+must name and inspect the only permitted changes; this is no general mutation
+waiver or runtime-success claim.
