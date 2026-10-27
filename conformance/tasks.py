@@ -550,7 +550,7 @@ def policy_check(owner_binary, sender_binary, label):
             v1 = alice.cli('access', 'allow', '--network', net, '--agent', 'reviewer', '--principal', 'network',
                            '--max-message-bytes', '100', '--allow-disconnected')
             assert v1['rules'][0]['actions'] == ['message.append'], v1
-            bob.cli('network', 'sync', net)
+            dec.sync([bob], rounds=1, check=True)
             refused = submit(bob, a, reviewer)
             assert refused['submit_state'] == 'rejected' and 'HTTP 403' in refused['error'], refused
             assert refused['request']['grant_id'] is None and refused['request']['policy']['version'] == 1, refused
@@ -561,7 +561,7 @@ def policy_check(owner_binary, sender_binary, label):
                            '--action', 'message.append', '--action', 'task.submit', '--max-message-bytes', '100',
                            '--allow-disconnected')
             assert v2['rules'][0]['actions'] == ['message.append', 'task.submit'], v2
-            bob.cli('network', 'sync', net)
+            dec.sync([bob], rounds=1, check=True)
             accepted = submit(bob, a, reviewer, text='by policy')
             assert accepted['submit_state'] == 'accepted' and accepted['request']['policy'] == {
                 'person_id': person_id(keys['pat'][2]), 'version': 2}, accepted

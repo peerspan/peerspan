@@ -185,7 +185,7 @@ def check(binaries, node, script, label):
             use_agent(None)
             dec.join(alice, dave, 'sam')
             for host in hosts:
-                host.cli('network', 'sync', net)
+                dec.sync([host], rounds=1, check=True)
             dec.wait_members(hosts, 4)
             assert dec.member_host_ids(alice) == {A, B, C, D}
             origin = alice.cli('agent', 'register', '--name', 'origin', '--owner', 'pat')
@@ -202,7 +202,7 @@ def check(binaries, node, script, label):
             use_agent(agents['rhea'])
             carol.cli('access', 'allow', '--network', net, '--agent', 'helper', '--principal', 'person:pat',
                       '--action', 'task.submit', '--allow-disconnected')
-            bob.cli('network', 'sync', net)
+            dec.sync([bob], rounds=1, check=True)
             t0 = root(alice, B, worker, origin, gB)
             l0 = t0['delegation'][0]
             assert t0['parent'] is None and t0['request']['delegation'] == t0['delegation'], t0
@@ -232,7 +232,7 @@ def check(binaries, node, script, label):
             # Refused when only the sender is allowed.
             carol.cli('access', 'allow', '--network', net, '--agent', 'helper', '--principal', 'person:quinn',
                       '--action', 'task.submit', '--allow-disconnected')
-            bob.cli('network', 'sync', net)
+            dec.sync([bob], rounds=1, check=True)
             sender_only = forward(bob, A, t0['request']['task_id'], C, helper)
             assert sender_only['submit_state'] == 'rejected' and 'HTTP 403' in sender_only['error'], sender_only
 
@@ -450,7 +450,7 @@ def check(binaries, node, script, label):
             use_agent(agents['pat'])
             alice.cli('network', 'revoke', '--network', net, '--host', D, '--approve')
             for host in (bob, carol):
-                wait_for(lambda: (host.cli('network', 'sync', net) or True) and D not in dec.member_host_ids(host),
+                wait_for(lambda: (dec.sync([host], rounds=1, check=True) or True) and D not in dec.member_host_ids(host),
                          timeout=20, message='revocation sync')
             assert claim(carol, tokens[carol]) is None
             until_state(bob, {'id': C}, queued, 'rejected')

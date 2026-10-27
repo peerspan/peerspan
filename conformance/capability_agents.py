@@ -69,13 +69,14 @@ import time
 import traceback
 import urllib.parse
 
-from support import Coordinator, wait_for
+from support import wait_for
+import dec_network
 from host_service import LINKING_TABLES, SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need
 import live_delivery
 from live_delivery import Consumer, Fixture as ClaudeFixture, flag
 from peer_messaging import fixture_context, timestamp, wire
-from persons import Agent, person_id, ssh_key
+from persons import Agent, person_id
 
 import capabilities as caps
 from capabilities import CapHost, DropCallResponse, Fixture, PYTHON, cap_rule, crafted_v2, db_rows, policy_of
@@ -284,13 +285,14 @@ class Raw:
 
 
 class AgentPairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None, other=None,
+    def __init__(self, label, cli_binary, daemon_binary, node, root, only=None, other=None,
                  baseline17=None):
         self.label, self.cli_binary, self.daemon, self.node, self.root = label, cli_binary, daemon_binary, node, root
         self.only = only
         self.other_daemon = other        # the other implementation's peerspan-host, serving from x1
         self.baseline17 = baseline17     # a version 17 peerspan-host (predates wait), serving from o1
-        self.coord = Coordinator(coord_binary, root / 'coord')
+        # Coordinator-free networks (decentralized-spec.md 6 and 8; conformance/dec_network.py).
+        self.dec = dec_network.DecNetwork(root / 'dec')
         self.results, self.notes, self.setup_notes = [], [], []
         self.hosts, self.ids, self.keys, self.agents = {}, {}, {}, {}
         self.sessions = {}      # name -> {host, agent_id, session_id, adapter_id, profile, workspace, out, consumer}
@@ -336,17 +338,33 @@ class AgentPairing:
         e['PATH'] = str(Path(self.node).parent) + os.pathsep + e.get('PATH', '')
         return e
 
-    def coordinator_flags(self):
-        return ('--coordinator', self.coord.address, '--coordinator-key', self.coord_key)
+    def network(self, net):
+        """The DecNetwork of a network ID."""
+        return next(d for d in self.decs if d.id == net)
 
-    def invite(self, label, net):
-        return self.hosts['p1'].cli('network', 'invite', '--network', net, '--member', label,
-                                    '--expires-in', '1h')['token']
+    def person_raw(self, person_id_value):
+        return next(k[2] for k in self.keys.values() if person_id(k[2]) == person_id_value)
 
     def policy(self, host='p1', net=None, person=None):
-        path = f'/v1/networks/{net or self.team}/policy?person={person or self.pat}'
-        status, body = self.hosts[host].call('GET', path)
-        return policy_of(body) if status == 200 else None
+        # GET /v2/networks/{id}/policy/{person} on a coordinator-free network (dec_network.policy_body).
+        body = dec_network.policy_body(self.hosts[host], net or self.team, self.person_raw(person or self.pat))
+        return policy_of(body) if body is not None else None
+
+    def keys_from(self, dec, names):
+        """The fixture's original keys, each added to its own ssh-agent as the suite's persons use them."""
+        for name in names:
+            person = dec.person(name)
+            self.keys[name] = (person.key, person.public, person.raw)
+            (self.root / f'agent-{name}').mkdir()
+            self.agents[name] = Agent(self.root / f'agent-{name}')
+            self.agents[name].add(self.keys[name][0])
+
+    def join_dec(self, dec, inviter, name, label, person, trusted):
+        """Join `name` to `dec` with `person`'s original key, then sign trust with the contract's `trust` command:
+        both hosts refuse --trusted at join on coordinator-free networks (bug B4; capabilities.py asserts it)."""
+        dec.join(self.hosts[inviter], self.hosts[name], label, person=person)
+        if trusted:
+            self.hosts[name].cli('trust', '--network', dec.id)
 
     def version(self, host='p1', net=None, person=None):
         p = self.policy(host, net, person)
@@ -688,16 +706,10 @@ class AgentPairing:
 
     def run(self):
         root = self.root
-        (root / 'keys').mkdir()
-        for name in ('pat', 'quinn', 'sam'):
-            self.keys[name] = ssh_key(root / 'keys', name)
-            (root / f'agent-{name}').mkdir()
-            self.agents[name] = Agent(root / f'agent-{name}')
-            self.agents[name].add(self.keys[name][0])
+        self.keys_from(self.dec, ('pat', 'quinn', 'sam'))
         self.pat, self.quinn, self.sam = (person_id(self.keys[n][2]) for n in ('pat', 'quinn', 'sam'))
         self.fixture = Fixture(root / 'fixture')
         self.claude = ClaudeFixture(root / 'claude')
-        self.coord_key = self.coord.start()['public_key']
         persons = {'p1': 'pat', 'p2': 'pat', 'p3': 'pat', 'p4': 'pat', 'q1': 'quinn', 's1': 'sam', 's2': 'sam'}
         for name, person in persons.items():
             self.host(name, person)
@@ -715,22 +727,36 @@ class AgentPairing:
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         ids, h = self.ids, self.hosts
 
-        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
-                                *self.coordinator_flags())['id']
+        # team: p1 creates it as pat (trusted, signed with `trust`: bug B4); the others join with their person's
+        # original key. other: p1 creates it --untrusted; q1 joins. Each network is a DecNetwork of the same people.
+        self.team = self.dec.create(h['p1'], 'pat')['id']
+        h['p1'].cli('trust', '--network', self.team)
         for name, label, flags in (('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)),
                                    ('p4', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--untrusted',)),
                                    ('s1', 'ops/sam', ('--trusted',)), ('s2', 'ops/sam', ('--trusted',)),
                                    *[(n, 'pat', ('--untrusted',)) for n in self.extra]):
-            h[name].cli('join', self.invite(label, self.team), *flags)
-        self.other = h['p1'].cli('network', 'create', 'other', '--as', 'pat', '--untrusted',
-                                 *self.coordinator_flags())['id']
-        h['q1'].cli('join', self.invite('quinn', self.other), '--untrusted')
+            person = {'ops/sam': 'sam'}.get(label, label)
+            try:
+                self.join_dec(self.dec, 'p1', name, label, person, flags == ('--trusted',))
+            except dec_network.SetupFailure as error:
+                if name not in self.extra:
+                    raise
+                # x1 runs the other implementation; a Go p1 cannot admit a Rust x1 (bug B1). Its section
+                # ("call timing") then fails on its own setup check instead of the whole topology.
+                self.setup_notes.append(f'{name} could not join team: {str(error)[:300]}')
+                self.hosts.pop(name).stop()
+                self.extra.remove(name)
+                persons.pop(name)
+        self.dec_other = dec_network.DecNetwork(root / 'dec-other', people=self.dec.people)
+        self.other = self.dec_other.create(h['p1'], 'pat', 'other', ('--untrusted',))['id']
+        self.dec_other.join(h['p1'], h['q1'], 'quinn')
+        self.decs = [self.dec, self.dec_other]
         expected = {ids[n]: {'pat': self.pat, 'quinn': self.quinn, 'sam': self.sam}[p] for n, p in persons.items()}
 
         def bound():
             for n in persons:
                 h[n].run('network', 'sync', self.team)
-            seen = {m['host_id']: m['person_id'] for m in h['p1'].cli('network', 'members', self.team)}
+            seen = self.dec.member_persons(h['p1'])
             return seen == expected
         wait_for(bound, timeout=90, message='every member of team bound as expected')
         for n in ('p1', 'q1'):
@@ -826,9 +852,11 @@ class AgentPairing:
         rules = [r for r in current.get('capability_rules') or [] if r['capability'] != name]
         if len(rules) == len(current.get('capability_rules') or []):
             return
-        signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root, capability_rules=rules)
-        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{net}/policy', {'policy': signed})
-        need(status == 201, f'setup: pat\'s policy in {net} without a rule for {name}', status, body)
+        # The next version signed by pat's original key through the ordinary action route (wire formats 16.4), the
+        # coordinator-free form of the crafted POST /v1/networks/{id}/policy this used.
+        result = dec_network.policy_action(self.hosts['p1'], net, self.dec.person('pat'),
+                                           lambda body: body.update(capability_rules=rules))
+        need(result.get('committed') is True, f'setup: pat\'s policy in {net} without a rule for {name}', result)
 
     # --- opt-in --------------------------------------------------------------------------------------------
 
@@ -2092,8 +2120,6 @@ class AgentPairing:
                     pass
             stop_all(tuple(self.hosts.values()))
         finally:
-            self.coord.stop()
-            self.coord.logs.close()
             for agent in self.agents.values():
                 agent.stop()
 
@@ -2152,26 +2178,20 @@ class SharePairing(AgentPairing):
       lets pat reach, so p1's directory lists it, and `oldhid`, which it does not).
     - `ops/sam` (a label containing `/`): s1 (agent `sagent`). rhea: r1. n2 joins without a person (`nagent`).
       n1 is not a member of team.
-    Networks: team (all members but n1), other (p1 only), and side (q3 and n1)."""
+    Networks: team (all members but n1), other (p1 only), and side (q3 and n1).
+    Coordinator-free (conformance/dec_network.py): p1 creates team and other as pat, q3 creates side as quinn, and
+    every member joins with its person's original key. Not portable as written: n2's host-only membership
+    (`join --no-person`): decentralized-spec.md defines no host-only member (every member host has a binding,
+    sections 5 and 8) and the hosts refuse `--no-person` with an introduction, so n2 stays out of team and the
+    cases about its agent fail on their own; n1 joins side bound to a person `stranger` instead (its role, a
+    host q3 knows that is not in team, is unchanged); o1 (`--old`, a host from before slice 3) cannot join a
+    coordinator-free network."""
 
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None, old=None):
-        super().__init__(label, cli_binary, daemon_binary, coord_binary, node, root, only)
+    def __init__(self, label, cli_binary, daemon_binary, node, root, only=None, old=None):
+        super().__init__(label, cli_binary, daemon_binary, node, root, only)
         self.old = old
 
     # --- helpers -------------------------------------------------------------------------------------------
-
-    def start_coordinator(self):
-        """Start the coordinator, retrying when it is slow to listen (the shared machine stalls for seconds)."""
-        for attempt in range(3):
-            try:
-                return self.coord.start()['public_key']
-            except AssertionError:
-                if attempt == 2:
-                    raise
-                if self.coord.process is not None:
-                    self.coord.process.kill()
-                    self.coord.process.wait()
-                time.sleep(5)
 
     def section(self, name, function):
         if self.only and name not in self.only:
@@ -2271,7 +2291,9 @@ class SharePairing(AgentPairing):
         return None, None
 
     def members(self, net=None):
-        return {m['host_id']: m for m in self.hosts['p1'].cli('network', 'members', net or self.team)}
+        # p1's verified member view (GET /v2/networks/{id}/members), as {host_id: {host_id, person_id}}.
+        view = self.network(net or self.team).member_persons(self.hosts['p1'])
+        return {h: {'host_id': h, 'person_id': p} for h, p in view.items()}
 
     def sync_until(self, condition, message, hosts=('p1',), net=None, timeout=90):
         def done():
@@ -2312,50 +2334,34 @@ class SharePairing(AgentPairing):
 
     def run(self):
         root = self.root
-        (root / 'keys').mkdir()
-        for name in ('pat', 'quinn', 'sam', 'rhea'):
-            self.keys[name] = ssh_key(root / 'keys', name)
-            (root / f'agent-{name}').mkdir()
-            self.agents[name] = Agent(root / f'agent-{name}')
-            self.agents[name].add(self.keys[name][0])
+        self.keys_from(self.dec, ('pat', 'quinn', 'sam', 'rhea'))
         self.pat, self.quinn, self.sam, self.rhea = (person_id(self.keys[n][2]) for n in ('pat', 'quinn', 'sam',
                                                                                           'rhea'))
         self.fixture = Fixture(root / 'fixture')
         self.claude = ClaudeFixture(root / 'claude')
-        self.coord_key = self.start_coordinator()
         persons = {'p1': 'pat', 'p2': 'pat', 'p3': 'pat', 'q1': 'quinn', 'q2': 'quinn', 'q3': 'quinn', 'q4': 'quinn',
                    'q5': 'quinn', 's1': 'sam', 'r1': 'rhea', 'n1': None, 'n2': None}
         for name, person in persons.items():
             self.host(name, person)
         if self.old:
-            self.host('o1', 'quinn', self.old, self.old)
-            persons['o1'] = 'quinn'
+            self.setup_notes.append('o1 (--old): not portable, a host from before slice 3 cannot join a '
+                                    'coordinator-free network')
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         ids, h = self.ids, self.hosts
 
-        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
-                                *self.coordinator_flags())['id']
+        self.team = self.dec.create(h['p1'], 'pat')['id']
+        h['p1'].cli('trust', '--network', self.team)  # create --trusted is refused on these networks (bug B4)
         joins = [('p2', 'pat', ('--trusted',)), ('p3', 'pat', ('--untrusted',)), ('q1', 'quinn', ('--trusted',)),
                  ('q2', 'quinn', ('--untrusted',)), ('q3', 'quinn', ('--untrusted',)),
                  ('q4', 'quinn', ('--untrusted',)), ('q5', 'quinn', ('--untrusted',)),
-                 ('s1', 'ops/sam', ('--untrusted',)), ('r1', 'rhea', ('--untrusted',)), ('n2', 'nobody', ('--no-person',))]
-        if 'o1' in h:
-            joins.append(('o1', 'quinn', ('--untrusted',)))
+                 ('s1', 'ops/sam', ('--untrusted',)), ('r1', 'rhea', ('--untrusted',))]
         for name, label, flags in joins:
-            token = self.invite(label, self.team)
-            for attempt in range(4):
-                # A join is retried with the same invite when the coordinator was too slow to answer (load).
-                result = h[name].run('join', token, *flags)
-                slow = 'coordination unavailable' in result.stderr or 'deadline exceeded' in result.stderr
-                if result.returncode == 0 or not slow or attempt == 3:
-                    break
-                time.sleep(5)
-                if self.team in json.dumps(h[name].call('GET', '/v1/networks')[1]):
-                    break
-            need(self.team in json.dumps(h[name].call('GET', '/v1/networks')[1]), f'setup: {name} joins team as '
-                 f'{label}', result.stderr[-500:])
-        self.other = h['p1'].cli('network', 'create', 'other', '--as', 'pat', '--trusted',
-                                 *self.coordinator_flags())['id']
+            self.join_dec(self.dec, 'p1', name, label, {'ops/sam': 'sam'}.get(label, label), flags == ('--trusted',))
+        persons.pop('n2')
+        self.setup_notes.append('n2: not portable, no host-only membership on a coordinator-free network')
+        self.dec_other = dec_network.DecNetwork(root / 'dec-other', people=self.dec.people)
+        self.other = self.dec_other.create(h['p1'], 'pat', 'other')['id']
+        h['p1'].cli('trust', '--network', self.other)
         label_of = {'pat': self.pat, 'quinn': self.quinn, 'sam': self.sam, 'rhea': self.rhea, None: None}
         expected = {ids[n]: label_of[p] for n, p in persons.items() if n != 'n1'}
 
@@ -2363,16 +2369,15 @@ class SharePairing(AgentPairing):
             for n in persons:
                 if n != 'n1':
                     h[n].run('network', 'sync', self.team)
-            seen = {m['host_id']: m['person_id'] for m in h['p1'].cli('network', 'members', self.team)}
+            seen = self.dec.member_persons(h['p1'])
             return seen == expected
         wait_for(bound, timeout=120, message='every member of team bound as expected')
         h['p1'].run('network', 'sync', self.other)
         # side: q3 and n1, so n1 is a known host to q3 but not a member of team.
-        self.side = h['q3'].cli('network', 'create', 'side', '--as', 'quinn', '--untrusted',
-                                *self.coordinator_flags())['id']
-        token = h['q3'].cli('network', 'invite', '--network', self.side, '--member', 'stranger', '--expires-in',
-                            '1h')['token']
-        h['n1'].cli('join', token, '--no-person')
+        self.dec_side = dec_network.DecNetwork(root / 'dec-side', people=self.dec.people)
+        self.side = self.dec_side.create(h['q3'], 'quinn', 'side', ('--untrusted',))['id']
+        self.dec_side.join(h['q3'], h['n1'], 'stranger')
+        self.decs = [self.dec, self.dec_other, self.dec_side]
         for n in ('q3', 'n1'):
             h[n].run('network', 'sync', self.side)
 
@@ -2916,8 +2921,10 @@ class SharePairing(AgentPairing):
         # unanswered, not_found, host_gone, unbound.
         h['q3'].stop()
         self.delete_agent('q2', aid['qgone'])
-        h['p1'].cli('network', 'revoke', '--network', self.team, '--host', ids['q4'])
-        h['q1'].cli('network', 'unbind', '--network', self.team, '--host', ids['q5'])
+        # host_revoke by the root and host_unbind by quinn (decentralized-spec.md 5.1); --approve approves the
+        # displayed typed action (spec 11 "Approval first").
+        h['p1'].cli('network', 'revoke', '--network', self.team, '--host', ids['q4'], '--approve')
+        h['q1'].cli('network', 'unbind', '--network', self.team, '--host', ids['q5'], '--approve')
         self.sync_until(lambda: ids['q4'] not in self.members() and
                         self.members().get(ids['q5'], {}).get('person_id') is None,
                         'q4 revoked and q5 unbound, in p1\'s map', hosts=('p1', 'q1', 'q5'))
@@ -2941,7 +2948,7 @@ class SharePairing(AgentPairing):
              self.agent_recipient('st', principal['qa'])['agent_state'] == 'found', 'cached states reported')
 
         # The label uses the host's current person: q5 bound to rhea.
-        h['q5'].cli('network', 'bind', '--network', self.team, sock=self.agents['rhea'].socket)
+        h['q5'].cli('network', 'bind', '--network', self.team, '--approve', sock=self.agents['rhea'].socket)
         self.sync_until(lambda: self.members().get(ids['q5'], {}).get('person_id') == self.rhea,
                         'q5 bound to rhea in p1\'s map', hosts=('p1', 'q5'))
         out = self.shares_json()
@@ -3009,11 +3016,11 @@ class SharePairing(AgentPairing):
         return ''
 
 
-def run_share_pairing(coord_binary, cli_binary, daemon_binary, node, label, only=None, old=None):
+def run_share_pairing(cli_binary, daemon_binary, node, label, only=None, old=None):
     if only and not any(name in SHARE_SECTIONS for name in only):
         return []
     with tempfile.TemporaryDirectory(prefix='peerspan-agent-shares-') as temporary:
-        pairing = SharePairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only, old)
+        pairing = SharePairing(label, cli_binary, daemon_binary, node, Path(temporary), only, old)
         started = time.monotonic()
         try:
             pairing.run()
@@ -3033,7 +3040,7 @@ def run_share_pairing(coord_binary, cli_binary, daemon_binary, node, label, only
         return [(f'agent tools: {name}', ok, detail) for name, ok, detail in pairing.results]
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None, only=None, other=None,
+def run_pairing(cli_binary, daemon_binary, node, label, integrations=None, only=None, other=None,
                 baseline17=None):
     global INTEGRATIONS
     if integrations:
@@ -3041,7 +3048,7 @@ def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integratio
     if only and all(name in SHARE_SECTIONS for name in only):
         return []
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-') as temporary:
-        pairing = AgentPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only, other,
+        pairing = AgentPairing(label, cli_binary, daemon_binary, node, Path(temporary), only, other,
                                baseline17)
         started = time.monotonic()
         try:

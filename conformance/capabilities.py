@@ -3,8 +3,14 @@
 
 Written from docs/capabilities-contract.md (and the coordination, launch, and task contracts it builds on),
 independently of both implementations. Runs every Go/Rust CLI and daemon pairing (all hosts of a pairing run that
-pairing's daemon and are driven by its CLI), with one Go coordinator per pairing, real ssh-agents, the peer probe
-for raw peer requests, and the fixture MCP stdio server in fixtures/mcp/server.py. Harness configuration (Claude
+pairing's daemon and are driven by its CLI), with coordinator-free networks built by conformance/dec_network.py (the
+creator's host creates each network with the person's original key and the others join with theirs), real
+ssh-agents, the peer probe for raw peer requests, and the fixture MCP stdio server in fixtures/mcp/server.py. Policies
+are read from GET /v2/networks/{id}/policy/{person}; claims are prepared with POST /v2/networks/{id}/policy-claims
+and sent as `catalogs`. Not portable as written: u1 and u2's host-only membership (decentralized-spec.md defines no
+host-only member; the cases about them fail on their own), and the crafted coordinator-era policy statements posted to
+POST /v1/networks/{id}/policy (coordinator-free networks answer 426 there; their validation cases need a DEC policy
+port, listed in the port's report). Harness configuration (Claude
 Code ~/.claude.json and .mcp.json, Codex config.toml, OpenCode opencode.json) is generated under each host's
 temporary HOME and XDG_CONFIG_HOME; the integrations `claude-code`, `codex`, and `opencode` are the explicit fixture
 integration (fixtures/harness), attached with `--no-start`, so no harness or model runs.
@@ -124,7 +130,8 @@ import threading
 import time
 import traceback
 
-from support import Coordinator, wait_for
+from support import wait_for
+import dec_network
 from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
@@ -539,9 +546,10 @@ def toml_table(name, entry):
 # --- the pairing -----------------------------------------------------------------------------------------------
 
 class Pairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, root):
+    def __init__(self, label, cli_binary, daemon_binary, root):
         self.label, self.cli_binary, self.daemon, self.root = label, cli_binary, daemon_binary, root
-        self.coord = Coordinator(coord_binary, root / 'coord')
+        self.dec = dec_network.DecNetwork(root / 'dec')
+        self.decs = {}      # network ID -> DecNetwork
         self.results = []
         self.hosts = {}
         self.agents = {}
@@ -575,18 +583,38 @@ class Pairing:
               flush=True)
         return True
 
+    def note_not_portable(self, rule):
+        """A check of something only a coordinator did: reported, never counted as passing."""
+        self.notes.append(f'NOT PORTABLE (coordinator-only): {rule}')
+        print(f'NOTE {self.label} not portable to a coordinator-free network: {rule}', flush=True)
+
     def soft(self, condition, rule, *detail):
         """Where the contract leaves something open: report, do not fail."""
         if not condition:
             self.notes.append(f'{rule}: ' + ' | '.join(repr(d)[:300] for d in detail))
             print(f'NOTE {self.label} (not counted; contract silent): {rule}', flush=True)
 
-    def coordinator_flags(self):
-        return ('--coordinator', self.coord.address, '--coordinator-key', self.coord_key)
-
     def policy(self, host='p1', net=None, person=None):
-        status, body = self.hosts[host].call('GET', f'/v1/networks/{net or self.team}/policy?person={person or self.pat}')
-        return policy_of(body) if status == 200 else None
+        # GET /v2/networks/{id}/policy/{person} on a coordinator-free network (dec_network.policy_body).
+        pid = person or self.pat
+        raw = next(k[2] for k in self.keys.values() if person_id(k[2]) == pid)
+        body = dec_network.policy_body(self.hosts[host], net or self.team, raw)
+        return policy_of(body) if body is not None else None
+
+    def new_network(self, host, name, label, *flags):
+        """A coordinator-free network created on `host` by `label`'s original key (decentralized-spec.md 6)."""
+        dec = dec_network.DecNetwork(self.root / f'dec-{name}', people=self.dec.people)
+        net = dec.create(self.hosts[host], label, name, flags)['id']
+        self.decs[net] = dec
+        return net
+
+    def dec_join(self, net, joiner, label, person=None, inviter=None, trusted=False):
+        """`joiner` joins `net` with `person`'s original key, invited by the network's creator host; trust is signed
+        with `trust` (both hosts refuse --trusted at join on these networks: bug B4)."""
+        dec = self.decs[net]
+        dec.join(self.hosts[inviter] if inviter else dec.root_host, self.hosts[joiner], label, person=person)
+        if trusted:
+            self.hosts[joiner].cli('trust', '--network', net)
 
     def version(self, host='p1', net=None):
         p = self.policy(host, net)
@@ -689,10 +717,25 @@ class Pairing:
             out.append(sign_edit(start, net, self.keys[person][2], hid, self.keys[person][0], self.root, change))
         return out
 
+    def claim_catalogs(self, host, name):
+        """The claims the CLI sends on coordinator-free networks: for each network in which the host is bound to its
+        person, one signed `{network_id, catalog}` from POST /v2/networks/{id}/policy-claims with this host's claim for
+        NAME (65,536, false, 100) added to the reserved starting policy (dec_network.claim_catalog). A rule the policy
+        already has for NAME is left as it is. Empty for a host without a person."""
+        person = self.person_of.get(host)
+        if not person:
+            return []
+        hid = self.ids[host]
+
+        def change(p):
+            if not any(r['capability'] == name for r in p['capability_rules']):
+                p['capability_rules'].append(cap_rule(hid, name, []))
+        return [dec_network.claim_catalog(self.hosts[host], hid, net, self.dec.person(person), name, change)
+                for net in self.bound[host]]
+
     def claims_field(self, host, name):
-        """{'policies': claim_policies(...)}, or {} against an implementation from before claims."""
-        policies = self.claim_policies(host, name)
-        return {} if policies is None else {'policies': policies}
+        """{'policies': [], 'catalogs': claim_catalogs(...)} on coordinator-free networks."""
+        return {'policies': [], 'catalogs': self.claim_catalogs(host, name)}
 
     def versions(self, host='p1'):
         """The host's stored version of its person's policy in each network where it is bound."""
@@ -717,7 +760,7 @@ class Pairing:
                 body['env_file'] = value
             elif flag == 'args':
                 body['args'] = value
-        body.update(self.claims_field(host, name) if policies is None else {'policies': policies})
+        body.update(self.claims_field(host, name) if policies is None else {'policies': policies, 'catalogs': []})
         status, out = self.hosts[host].call('POST', '/v1/capabilities', body)
         if expect is not None:
             need(status == expect, f'POST /v1/capabilities {name}', expect, status, out)
@@ -1039,28 +1082,45 @@ class Pairing:
         self.aid[name] = agent['id']
         return agent
 
-    def invite(self, label, net=None):
-        return self.hosts['p1'].cli('network', 'invite', '--network', net or self.team, '--member', label,
-                                    '--expires-in', '1h')['token']
-
-    def join(self, name, token, *flags, terminal=None):
-        h = self.hosts[name]
+    def join(self, name, net, label, *flags, terminal=None, person=None):
+        """`name` joins `net` as `label`. The trust flags or terminal answer are tried first exactly as the contract
+        gives them (capabilities contract, "`join` and `network create`"); both hosts refuse --trusted at join on
+        coordinator-free networks (bug B4), and the refusal is recorded for the trust section. The join then
+        completes through dec_network (invite, join, approvals, commit), and a requested yes is signed with `trust`
+        so later sections run with the intended trusted hosts. Returns the first attempt's output or the refusal."""
+        dec, h = self.decs[net], self.hosts[name]
+        key = dec.person(person or label).key
+        invitation = dec_network.cli_json(dec.root_host, 'network', 'invite', '--network', net, '--member', label,
+                                          expect=True)
+        private = self.root / f'invite-{name}-{len(self.join_outputs)}.private'
+        private.write_text(invitation['invitation'] + '\n')
+        private.chmod(0o600)
+        argv = ('join', '--invite-file', str(private), '--person-key', str(key), *flags)
         if terminal is not None:
-            code, out, tty, stdout, seen = h.at_terminal('join', token, *flags, answer=terminal, prompt=JOIN_PROMPT)
+            code, out, tty, stdout, seen = h.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
             self.join_terminal[name] = (code, out, tty, seen)
-            if code == 0:
-                return out
-            self.setup_notes.append(f'join at a terminal on {name} failed ({code}): {tty[-300:]}')
+            text = tty
         else:
-            code, out, stdout, stderr = h.outcome('join', token, *flags)
-            if code == 0:
-                return out
-            self.setup_notes.append(f'join {" ".join(flags)} on {name} failed ({code}): {stderr[-300:]}')
-        return h.cli('join', token)
+            code, out, stdout, text = h.outcome(*argv)
+        attempt = out if isinstance(out, dict) else {}
+        if 'request_id' in attempt:
+            # The flags were accepted and a join request exists: continue that request.
+            dec.complete_join(h, attempt, label, person or label)
+        else:
+            self.setup_notes.append(f'join {" ".join(flags) or "(terminal)"} on {name} failed ({code}): {text[-300:]}')
+            dec.join(dec.root_host, h, label, person=person)
+        wanted = '--trusted' in flags or terminal == 'y'
+        if wanted:
+            h.cli('trust', '--network', net)
+        return attempt
 
     def create_network(self, name, *flags, terminal=None):
+        """`network create NAME --as pat` on p1 with pat's original key, with the trust flags or terminal answer as
+        given; a refusal (both hosts refuse --trusted: bug B4) is recorded and the network is created without the
+        flag (named NAME-plain, as before), with a yes signed by `trust`."""
         p1 = self.hosts['p1']
-        argv = ('network', 'create', name, '--as', 'pat', *flags, *self.coordinator_flags())
+        dec = dec_network.DecNetwork(self.root / f'dec-{name}', people=self.dec.people)
+        argv = ('network', 'create', name, '--as', 'pat', '--person-key-file', str(dec.person('pat').key), *flags)
         if terminal is not None:
             code, out, tty, stdout, seen = p1.at_terminal(*argv, answer=terminal, prompt=JOIN_PROMPT)
             self.create_terminal = (code, out, tty, seen)
@@ -1069,15 +1129,20 @@ class Pairing:
             if code != 0:
                 self.setup_notes.append(f'network create {" ".join(flags)} failed ({code}): {stderr[-300:]}')
         if code != 0 or not out:
-            out = p1.cli('network', 'create', name + '-plain', '--as', 'pat', *self.coordinator_flags())
+            out = dec.create(p1, 'pat', name + '-plain')
+            if '--trusted' in flags or terminal == 'y':
+                p1.cli('trust', '--network', out['id'])
+        else:
+            dec.adopt(p1, 'pat', out['id'])
+        self.decs[out['id']] = dec
         self.create_outputs[name] = out
         return out['id']
 
     def run(self):
         root = self.root
-        (root / 'keys').mkdir()
         for name in ('pat', 'quinn', 'rhea'):
-            self.keys[name] = ssh_key(root / 'keys', name)
+            person = self.dec.person(name)
+            self.keys[name] = (person.key, person.public, person.raw)
             (root / f'agent-{name}').mkdir()
             self.agents[name] = Agent(root / f'agent-{name}')
             self.agents[name].add(self.keys[name][0])
@@ -1089,7 +1154,6 @@ class Pairing:
         self.setup_catalog()
         self.join_terminal, self.attached, self.create_outputs, self.join_outputs = {}, {}, {}, {}
 
-        self.coord_key = self.coord.start()['public_key']
         persons = {'p1': 'pat', 'p2': 'pat', 'p3': 'pat', 'p4': 'pat', 'q1': 'quinn', 'q2': 'quinn', 'r': 'rhea',
                    'u1': None, 'u2': None, 'n': None}
         for name, person in persons.items():
@@ -1099,17 +1163,18 @@ class Pairing:
 
         # Networks, with the trust flags and prompt (checked in the first section).
         self.team = self.create_network('team', '--untrusted')
-        self.join_outputs['p2'] = self.join('p2', self.invite('pat'), '--trusted')
-        self.join_outputs['p3'] = self.join('p3', self.invite('pat'))
-        self.join_outputs['p4'] = self.join('p4', self.invite('pat'), terminal='y')
+        self.join_outputs['p2'] = self.join('p2', self.team, 'pat', '--trusted')
+        self.join_outputs['p3'] = self.join('p3', self.team, 'pat')
+        self.join_outputs['p4'] = self.join('p4', self.team, 'pat', terminal='y')
         for name, label in (('q1', 'quinn'), ('q2', 'quinn'), ('r', 'rhea')):
-            self.join_outputs[name] = self.join(name, self.invite(label))
+            self.join_outputs[name] = self.join(name, self.team, label)
+        # u1 and u2 joined with --no-person: not portable (no host-only member on a coordinator-free network).
         for name in ('u1', 'u2'):
-            self.join_outputs[name] = self.hosts[name].cli('join', self.invite(name), '--no-person')
-        self.team_members = ['p1', 'p2', 'p3', 'p4', 'q1', 'q2', 'r', 'u1', 'u2']
+            self.setup_notes.append(f'{name}: not portable, no host-only membership on a coordinator-free network')
+        self.team_members = ['p1', 'p2', 'p3', 'p4', 'q1', 'q2', 'r']
         self.other = self.create_network('other', '--trusted')
-        self.join_outputs['p2-other'] = self.join('p2', self.invite('pat', self.other), '--untrusted')
-        self.join_outputs['q1-other'] = self.join('q1', self.invite('quinn', self.other))
+        self.join_outputs['p2-other'] = self.join('p2', self.other, 'pat', '--untrusted')
+        self.join_outputs['q1-other'] = self.join('q1', self.other, 'quinn')
         self.other_members = ['p1', 'p2', 'q1']
         self.create_terminal = None
         self.v1net = self.create_network('v1net', terminal='n')
@@ -1125,7 +1190,7 @@ class Pairing:
         def bound():
             for n in self.team_members:
                 self.hosts[n].run('network', 'sync', self.team)
-            seen = {m['host_id']: m['person_id'] for m in p1.cli('network', 'members', self.team)}
+            seen = self.decs[self.team].member_persons(p1)
             return seen == expected
         wait_for(bound, timeout=60, message='every member of team bound as expected')
         for n in self.other_members:
@@ -1654,9 +1719,8 @@ class Pairing:
         need(self.rule_for('claimed') == cap_rule(ids['p1'], 'claimed', []),
              'unshare removing the last principal keeps the rule as a claim', self.rule_for('claimed'))
         # A network bound later: p2 creates `later`, p1 joins it; the first share there claims the name.
-        later = p2.cli('network', 'create', 'later', '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
-        token = p2.cli('network', 'invite', '--network', later, '--member', 'pat', '--expires-in', '1h')['token']
-        p1.cli('join', token, '--untrusted')
+        later = self.new_network('p2', 'later', 'pat', '--untrusted')
+        self.dec_join(later, 'p1', 'pat')
         self.later = later
         self.bound['p1'].append(later)
         self.bound['p2'].append(later)
@@ -1734,25 +1798,19 @@ class Pairing:
              self.rule_for('budget'))
         ssh_verify(policy_lines_v2(p), p['signature'], self.keys['pat'][1], self.root)
 
-        # The coordinator, and the other hosts' copies.
-        with coord_db(self.coord) as db:
-            row = db.execute("SELECT statement FROM statements WHERE network_id = ? AND kind = 'policy' AND subject = ?",
-                             (self.team, self.keys['pat'][2])).fetchone()
-        need(row and json.loads(row[0]) == p, 'the coordinator accepts and serves the v2 policy', row and row[0][:300])
+        # The other hosts' copies. (Not portable: "the coordinator accepts and serves the v2 policy"; a
+        # coordinator-free network has no coordinator.)
+        self.note_not_portable('the coordinator accepts and serves the v2 policy')
         for name in ('q1', 'u1', 'p3'):
             self.hosts[name].run('network', 'sync', self.team)
             need(self.policy(name) == p, f'{name} stores the same v2 policy', self.policy(name))
 
-        # Sibling propagation, by direct push with the coordinator stopped.
-        self.coord.stop()
-        try:
-            code, out, stderr = self.share('litcap', '--with', 'rhea', '--yes')
-            pushed = out['policy']
-            for name in ('p2', 'p3', 'p4'):
-                wait_for(lambda: self.policy(name) == policy_of(pushed), timeout=30,
-                         message=f'direct push of a v2 policy to {name}')
-        finally:
-            self.coord.start()
+        # Sibling propagation, by direct push (a coordinator-free network has no other path).
+        code, out, stderr = self.share('litcap', '--with', 'rhea', '--yes')
+        pushed = out['policy']
+        for name in ('p2', 'p3', 'p4'):
+            wait_for(lambda: self.policy(name) == policy_of(pushed), timeout=30,
+                     message=f'direct push of a v2 policy to {name}')
         wait_for(lambda: self.hosts['p1'].cli('access', 'sync', '--network', self.team) and all(
             d['state'] == 'delivered' for d in self.hosts['p1'].cli('access', 'sync', '--network', self.team,
                                                                      '--status')['deliveries']),
@@ -1764,7 +1822,7 @@ class Pairing:
         # no edits. It is stored in a network created on q2 (v1only, quinn's) where no host has signed an edit: in a
         # network with edits, a v1 policy reflects none of them, so they would be re-applied on top of it.
         q2 = self.hosts['q2']
-        v1only = q2.cli('network', 'create', 'v1only', '--as', 'quinn', '--untrusted', *self.coordinator_flags())['id']
+        v1only = self.new_network('q2', 'v1only', 'quinn', '--untrusted')
         self.bound['q2'].append(v1only)
         rules = [{'agent': 'legacy', 'principals': ['network'], 'actions': ['message.append'],
                   'max_message_bytes': 1000, 'allow_disconnected': False}]
@@ -1779,12 +1837,7 @@ class Pairing:
              not {'format', 'capability_rules', 'trusted_hosts', 'edits'} & set(stored),
              'a v1 policy is stored in its v1 JSON shape', stored)
 
-        def at_coordinator():
-            with coord_db(self.coord) as db:
-                row = db.execute("SELECT statement FROM statements WHERE network_id = ? AND kind = 'policy' AND "
-                                 "subject = ?", (v1only, self.keys['quinn'][2])).fetchone()
-            return row and json.loads(row[0])['version'] == v1['version']
-        wait_for(at_coordinator, timeout=30, message='the coordinator accepts a v1 policy')
+        self.note_not_portable('the coordinator accepts a v1 policy')
         q2.cli('allow', 'network', '--agent', 'more', '--network', v1only)
         nxt = self.policy('q2', v1only, self.quinn)
         need(nxt['format'] == 2 and nxt['version'] == v1['version'] + 1 and plain(nxt['rules'])[0] == rules[0] and
@@ -2230,16 +2283,12 @@ class Pairing:
                           deadline=timestamp(16))
         for b in (waiting, short):
             need(self.submit('q1', b)[0] == 200, 'setup: queued policy calls')
-        self.coord.stop()
-        try:
-            time.sleep(13)
-            status, record = self.status_of('q1', waiting['call_id'])
-            need(record['state'] == 'queued', 'a recoverable (503-type) failure at the recheck leaves the call queued',
-                 record)
-            need(self.final('q1', short['call_id'], timeout=20)['state'] == 'expired',
-                 'rechecked until its deadline, then expired')
-        finally:
-            self.coord.start()
+        # Not portable: stopping the coordinator made the receiver's recheck fail recoverably (503-type), leaving
+        # `waiting` queued and expiring `short` at its deadline. A coordinator-free host checks grants locally at
+        # decision time and has no disconnected state (decentralized-spec.md 1 "No quorum", 4.3), so both calls
+        # simply run; the cases below still require `waiting` to succeed.
+        self.note_not_portable('a recoverable (503-type) failure at the recheck leaves the call queued; rechecked '
+                               'until its deadline, then expired')
         need(self.final('q1', waiting['call_id'], timeout=60)['state'] == 'succeeded',
              'once the state recovers, the queued call runs')
 
@@ -2882,13 +2931,15 @@ class Pairing:
         rules = [r for r in current.get('capability_rules') or [] if r['capability'] != name]
         if serving:
             rules.append(cap_rule(self.ids[serving], name, []))
-        signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root, capability_rules=rules)
-        status, body = self.hosts['p1'].call('POST', f'/v1/networks/{net}/policy', {'policy': signed})
-        need(status == 201, f'setup: pat\'s policy in {net} with {name} ' + (f'bound to {serving}' if serving else
-             'bound to no host'), status, body)
+        # Signed by pat's original key through the ordinary action route (wire formats 16.4): the coordinator-free
+        # form of the crafted POST /v1/networks/{id}/policy this used.
+        result = dec_network.policy_action(self.hosts['p1'], net, self.dec.person('pat'),
+                                           lambda body: body.update(capability_rules=rules))
+        need(result.get('committed') is True, f'setup: pat\'s policy in {net} with {name} ' +
+             (f'bound to {serving}' if serving else 'bound to no host'), result)
         for host in ('p2', 'p4'):
             if net in self.bound[host]:
-                self.synced(signed['version'], host, net=net)
+                self.synced(current['version'] + 1, host, net=net)
 
     def resolution(self, target, operation='echo', input=None):
         """POST /v1/calls from p2 (trusted in team, open on p1 and p4) scoped to team; returns (status, body,
@@ -3020,10 +3071,9 @@ class Pairing:
         self.create(name, 'q2agent/fx', 'operations', ['echo'], host='q2')
         code, out, stdout, stderr = q2.outcome('share', name, '--with', 'pat', '--yes', '--network', self.team)
         need(code == 0, 'setup: quinn shares q2\'s crossed with pat in team', code, stderr[-300:])
-        mixed = p2.cli('network', 'create', 'mixed', '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
+        mixed = self.new_network('p2', 'mixed', 'pat', '--untrusted')
         try:
-            token = p2.cli('network', 'invite', '--network', mixed, '--member', 'pat', '--expires-in', '1h')['token']
-            q2.cli('join', token, '--untrusted', sock=self.agents['pat'].socket)
+            self.dec_join(mixed, 'q2', 'pat')
 
             def bound():
                 q2.run('network', 'sync', mixed)
@@ -3126,9 +3176,8 @@ class Pairing:
         code, out, stdout, stderr = q2.outcome('share', name, '--with', 'pat', '--yes', '--network', self.team)
         need(code == 0, f'setup: quinn shares q2\'s {name} with pat in team', code, stderr[-300:])
         try:
-            net = p2.cli('network', 'create', name, '--as', 'pat', '--untrusted', *self.coordinator_flags())['id']
-            token = p2.cli('network', 'invite', '--network', net, '--member', 'pat', '--expires-in', '1h')['token']
-            q2.cli('join', token, '--untrusted', sock=self.agents['pat'].socket)
+            net = self.new_network('p2', name, 'pat', '--untrusted')
+            self.dec_join(net, 'q2', 'pat')
 
             def bound():
                 q2.run('network', 'sync', net)
@@ -3142,11 +3191,11 @@ class Pairing:
                                                  'version': 0, 'edits': []}
             rules = [r for r in current.get('capability_rules') or [] if r['capability'] != name]
             rules.append(cap_rule(ids['q2'], name, [self.principal('pat')]))
-            signed = crafted_v2(current, current['version'] + 1, self.keys['pat'][0], self.root,
-                                capability_rules=rules)
-            status, body = p2.call('POST', f'/v1/networks/{net}/policy', {'policy': signed})
-            need(status == 201, f'setup: pat\'s policy in {name} shares q2\'s copy with pat', status, body)
-            self.synced(signed['version'], 'q2', net=net)
+            # pat's original key through the ordinary action route (the crafted /v1 policy this used is refused).
+            result = dec_network.policy_action(p2, net, self.dec.person('pat'),
+                                               lambda body: body.update(capability_rules=rules))
+            need(result.get('committed') is True, f'setup: pat\'s policy in {name} shares q2\'s copy with pat', result)
+            self.synced(current['version'] + 1, 'q2', net=net)
             p2.run('network', 'sync', self.team)
 
             def entries(person):
@@ -3401,7 +3450,7 @@ class Pairing:
         later = self.later
         self.create('rmgone', 'cc/lit', 'operations', ['echo'])
         need(self.rule_for('rmgone', later), 'setup: claimed in later')
-        p1.cli('network', 'unbind', '--network', later, '--host', ids['p1'])
+        p1.cli('network', 'unbind', '--network', later, '--host', ids['p1'], '--approve')  # spec 5.1 host_unbind
         self.bound['p1'].remove(later)
 
         def unbound():
@@ -3434,7 +3483,7 @@ class Pairing:
             self.hosts[name].agent_socket = self.agents['pat'].socket
             self.restart(name)
         claims = {}
-        self.coord.stop()
+        # (The coordinator was stopped here too; a coordinator-free network has none, so only p2, p3 and p4 relay.)
         try:
             for name in ('p2', 'p3', 'p4'):   # p2 and p3 could relay p1's claim to p4 (see check_tie_break)
                 hosts[name].stop()
@@ -3493,7 +3542,6 @@ class Pairing:
                 h = hosts[name]
                 if h.process is None or h.process.poll() is not None:
                     h.start()
-            self.coord.start()
         # Discovery from p2 (trusted in team), scoped to team, the network where the claims conflicted: the
         # claimed copy is PERSON/CAPABILITY, the other HOST_ID/CAPABILITY. (Unscoped, p1's claims in other, v1net,
         # and later could legitimately address p1's copy as PERSON/CAPABILITY in those networks when p1 lost team.)
@@ -3527,7 +3575,7 @@ class Pairing:
         # their person" (coordination contract, Direct propagation: Sync). A running p3 or p4 could relay p1's
         # version to p2 when it starts, and p2 would then rightly sign the next version instead of an equal one.
         relays = [self.hosts['p3'], self.hosts['p4']]
-        self.coord.stop()
+        # (The coordinator was stopped here too; a coordinator-free network has none.)
         try:
             for h in relays:
                 h.stop()
@@ -3555,7 +3603,6 @@ class Pairing:
             for h in relays:
                 if h.process is None or h.process.poll() is not None:
                     h.start()
-            self.coord.start()
 
     def watch_idle(self):
         time.sleep(540)
@@ -3584,8 +3631,7 @@ class Pairing:
         try:
             stop_all(tuple(self.hosts.values()))
         finally:
-            self.coord.stop()
-            self.coord.logs.close()
+            pass
             for agent in self.agents.values():
                 agent.stop()
 
@@ -3701,9 +3747,9 @@ def once(name, function, *args):
         return [f'[{name}]: {detail.strip().splitlines()[-1] if detail.strip() else ""}']
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, label):
+def run_pairing(cli_binary, daemon_binary, label):
     with tempfile.TemporaryDirectory(prefix='peerspan-capabilities-') as temporary:
-        pairing = Pairing(label, cli_binary, daemon_binary, coord_binary, Path(temporary))
+        pairing = Pairing(label, cli_binary, daemon_binary, Path(temporary))
         started = time.monotonic()
         try:
             pairing.run()
@@ -3729,7 +3775,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--go', type=Path, required=True)
     parser.add_argument('--rust', type=Path, help='required unless every --pairing is Go/Go')
-    parser.add_argument('--coord', type=Path, required=True)
     parser.add_argument('--probe', type=Path, required=True, help='peerspan-peer-probe test client')
     parser.add_argument('--pairing', action='append', help='CLI/DAEMON, such as Go/Rust; repeatable; default all four')
     parser.add_argument('--skip-migration', action='store_true', help='skip the version 15 to 17 migration checks')
@@ -3875,29 +3920,29 @@ def main():
         label = f'{cli} CLI, {daemon} daemon'
         results = []
         if not args.agents_only and not args.bounds_only and not args.remote_only:
-            results += run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label)
+            results += run_pairing(binaries[cli], binaries[daemon], label)
         if not args.skip_bounds:
-            results += capability_bounds.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label,
+            results += capability_bounds.run_pairing(binaries[cli], binaries[daemon], label,
                                                      args.bounds_section,
                                                      args.baseline18.resolve() if args.baseline18 else None)
         if not args.skip_agents:
-            results += capability_agents.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
+            results += capability_agents.run_pairing(binaries[cli], binaries[daemon],
                                                      args.node.resolve(), label,
                                                      args.integrations.resolve() if args.integrations else None,
                                                      args.agent_section,
                                                      binaries['Rust' if daemon == 'Go' else 'Go'],
                                                      args.baseline17.resolve() if args.baseline17 else None)
-            results += capability_agents.run_share_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
+            results += capability_agents.run_share_pairing(binaries[cli], binaries[daemon],
                                                            args.node.resolve(), label, args.agent_section,
                                                            args.old.resolve() if args.old else None)
         if approval:
-            results += capability_approval.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon],
+            results += capability_approval.run_pairing(binaries[cli], binaries[daemon],
                                                        args.node.resolve(), label,
                                                        args.integrations.resolve() if args.integrations else None,
                                                        args.approval_section,
                                                        args.baseline18.resolve() if args.baseline18 else None)
         if not args.skip_remote:
-            results += capability_remote.run_pairing(args.coord.resolve(), binaries[cli], binaries[daemon], label,
+            results += capability_remote.run_pairing(binaries[cli], binaries[daemon], label,
                                                      args.remote_section,
                                                      args.baseline18.resolve() if args.baseline18 else None)
         for name, ok, detail in results:

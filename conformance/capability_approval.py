@@ -12,10 +12,13 @@ Each CLI/daemon pairing gets its own topology:
   second attached agent, `srv2`, and `srv3` (source `srv3/fx3`, capability `quiet`), whose adapter the notices
   section pauses; and the registered (never attached) agents `srvraw` (source `srvraw/fxr`,
   capability `rawcap`) and `nobody`, for raw requests to the notice claim route. p2 is pat's trusted host (agent `pa`, --calls) and serves `late` (source
-  `srvp2/fx`) for the agent timeout case. o2 runs a version 18 host (--baseline18) serving `oldcap`.
-- quinn: q1 (agents `qa` and `qb`, --calls), and o1, a version 18 host (--baseline18) calling from its own CLI.
+  `srvp2/fx`) for the agent timeout case. The former o2 (a version 18 host, --baseline18, serving `oldcap`) is not
+  portable: a version 18 host cannot join a coordinator-free network (decentralized-spec.md 8).
+- quinn: q1 (agents `qa` and `qb`, --calls); the former o1 (version 18, calling from its own CLI) is not portable
+  either, so the older peers section reports that.
 - rhea: r1, whose person label carries a C1 control character (U+009B, CSI), as another caller.
-Network: team.
+Network: team, coordinator-free (conformance/dec_network.py): p1 creates it as pat; p2, q1 and r1 join with their
+person's original key; claims are prepared with POST /v2/networks/{id}/policy-claims and sent as `catalogs`.
 
 Capabilities on p1, on srv/fx's own instance unless noted: `chg` (changing; echo, write_note, purge, and resources),
 `every` (all; echo and resources), `named` (the list [echo]; echo and write_note), `plain` (none), `mine`
@@ -48,7 +51,8 @@ from host_service import APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABL
 from launch_onboarding import Failure, need, parse_time as parse_datetime
 from live_delivery import Fixture as ClaudeFixture
 from peer_messaging import fixture_context, timestamp, wire
-from persons import Agent, person_id, ssh_key
+from persons import Agent, person_id
+import dec_network
 
 import capabilities as caps
 import capability_agents as agents
@@ -198,8 +202,8 @@ class PatientHost(CapHost):
 
 
 class ApprovalPairing(AgentPairing):
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, node, root, only=None, baseline18=None):
-        super().__init__(label, cli_binary, daemon_binary, coord_binary, node, root, only)
+    def __init__(self, label, cli_binary, daemon_binary, node, root, only=None, baseline18=None):
+        super().__init__(label, cli_binary, daemon_binary, node, root, only)
         self.baseline18 = baseline18
         self.extra = []
         self.labels = {}
@@ -505,8 +509,6 @@ class ApprovalPairing(AgentPairing):
                     except Exception:
                         pass
         finally:
-            self.coord.stop()
-            self.coord.logs.close()
             for agent in self.agents.values():
                 agent.stop()
         if failures:
@@ -521,46 +523,37 @@ class ApprovalPairing(AgentPairing):
 
     def run(self):
         root = self.root
-        (root / 'keys').mkdir()
-        for name in ('pat', 'quinn', 'rhea'):
-            self.keys[name] = ssh_key(root / 'keys', name)
-            (root / f'agent-{name}').mkdir()
-            self.agents[name] = Agent(root / f'agent-{name}')
-            self.agents[name].add(self.keys[name][0])
+        self.keys_from(self.dec, ('pat', 'quinn', 'rhea'))
         self.pat, self.quinn, self.rhea = (person_id(self.keys[n][2]) for n in ('pat', 'quinn', 'rhea'))
         self.fixture = caps.Fixture(root / 'fixture')
         self.claude = ClaudeFixture(root / 'claude')
-        self.coord_key = self.coord.start()['public_key']
         persons = {'p1': 'pat', 'p2': 'pat', 'q1': 'quinn', 'r1': 'rhea'}
         for name, person in persons.items():
             self.host(name, person)
         if self.baseline18:
-            self.host('o1', 'quinn', self.baseline18, self.baseline18)
-            self.host('o2', 'pat', self.baseline18, self.baseline18)
-            persons.update({'o1': 'quinn', 'o2': 'pat'})
-            self.extra = ['o1', 'o2']
+            self.setup_notes.append('o1, o2: not portable, a version 18 host cannot join a coordinator-free network')
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         ids, h = self.ids, self.hosts
 
-        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
-                                *self.coordinator_flags())['id']
+        self.team = self.dec.create(h['p1'], 'pat')['id']
+        h['p1'].cli('trust', '--network', self.team)  # create --trusted is refused on these networks (bug B4)
         self.labels = {'pat': 'pat', 'quinn': 'quinn', 'rhea': RHEA_LABEL}
-        for name, flags in (('p2', ('--trusted',)), ('q1', ('--untrusted',)), ('r1', ('--untrusted',)),
-                            *[(n, ('--untrusted',)) for n in self.extra]):
+        for name, flags in (('p2', ('--trusted',)), ('q1', ('--untrusted',)), ('r1', ('--untrusted',))):
             label = self.labels[persons[name]]
-            code, out, stdout, stderr = h[name].outcome('join', self.invite(label, self.team), *flags)
-            if code != 0 and name == 'r1':
-                self.setup_notes.append(f'join with the label {label!r} failed ({stderr[-200:]}); using rhea')
+            try:
+                self.join_dec(self.dec, 'p1', name, label, persons[name], flags == ('--trusted',))
+            except dec_network.SetupFailure as error:
+                if name != 'r1':
+                    raise
+                self.setup_notes.append(f'join with the label {label!r} failed ({str(error)[-200:]}); using rhea')
                 self.labels['rhea'] = 'rhea'
-                h[name].cli('join', self.invite('rhea', self.team), *flags)
-            else:
-                need(code == 0, f'setup: join {name}', code, stderr[-300:])
+                self.join_dec(self.dec, 'p1', name, 'rhea', 'rhea', False)
         expected = {ids[n]: {'pat': self.pat, 'quinn': self.quinn, 'rhea': self.rhea}[p] for n, p in persons.items()}
 
         def bound():
             for n in persons:
                 h[n].run('network', 'sync', self.team)
-            seen = {m['host_id']: m['person_id'] for m in h['p1'].cli('network', 'members', self.team)}
+            seen = self.dec.member_persons(h['p1'])
             return seen == expected
         wait_for(bound, timeout=90, message='every member of team bound as expected')
 
@@ -789,19 +782,17 @@ class ApprovalPairing(AgentPairing):
 
     def api_body(self, name, approval):
         return {'name': name, 'source': {'agent': 'srv', 'server': 'fx'}, 'operations': ['echo', 'write_note'],
-                'resources': None, 'env_file': None, 'policies': self.claims('p1', name), 'approval': approval}
+                'resources': None, 'env_file': None, 'policies': [], 'catalogs': self.claims('p1', name),
+                'approval': approval}
 
     def claims(self, host, name):
-        """The claim policies the CLI would send (as capabilities.py signs them), for pat's team policy."""
-        from policy import sign_edit
-        status, start = api(self.hosts[host], 'GET', f'/v1/networks/{self.team}/policy/edit')
-        need(status == 200, 'setup: the edit route', status, start)
-
+        """The claim the CLI would send on a coordinator-free network, for pat's team policy: one signed
+        `{network_id, catalog}` from POST /v2/networks/{id}/policy-claims (dec_network.claim_catalog)."""
         def change(p):
             if not any(r['capability'] == name for r in p['capability_rules']):
                 p['capability_rules'].append(caps.cap_rule(self.ids[host], name, []))
-        return [sign_edit(start, self.team, self.keys['pat'][2], self.ids[host], self.keys['pat'][0], self.root,
-                          change)]
+        return [dec_network.claim_catalog(self.hosts[host], self.ids[host], self.team, self.dec.person('pat'), name,
+                                          change)]
 
     def capability_missing(self, name):
         return api(self.hosts['p1'], 'GET', f'/v1/capabilities/{name}')[0] == 404
@@ -1787,13 +1778,13 @@ class ApprovalPairing(AgentPairing):
         return ''
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, node, label, integrations=None, only=None, baseline18=None):
+def run_pairing(cli_binary, daemon_binary, node, label, integrations=None, only=None, baseline18=None):
     global INTEGRATIONS
     if integrations:
         INTEGRATIONS = Path(integrations)
         agents.INTEGRATIONS = INTEGRATIONS
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-approval-') as temporary:
-        pairing = ApprovalPairing(label, cli_binary, daemon_binary, coord_binary, node, Path(temporary), only,
+        pairing = ApprovalPairing(label, cli_binary, daemon_binary, node, Path(temporary), only,
                                   baseline18)
         started = time.monotonic()
         try:

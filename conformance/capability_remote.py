@@ -15,7 +15,10 @@ Each CLI/daemon pairing gets its own topology:
   `var` (one source `v`, for the sign-in variants), `run` (sources for the running cases), `old` (a PUT without the
   new fields), and `idl` (the idle stop). p1 opens its sources to p2.
 - p2: pat's trusted host (self calls and raw source calls).
-- quinn: q1, the caller by policy; with --baseline18, o1, a version 18 host of quinn's (older peers).
+- quinn: q1, the caller by policy. The former o1 (a version 18 host of quinn's, with --baseline18, for the older
+  peers section) is not portable: a version 18 host cannot join a coordinator-free network (decentralized-spec.md 8).
+Network: team, coordinator-free (conformance/dec_network.py): p1 creates it as pat; p2 and q1 join with their person's
+original key; policies are read from GET /v2/networks/{id}/policy/{person}.
 Network: team.
 
 Sections, per pairing (contract Verification bullets in brackets):
@@ -53,12 +56,13 @@ import time
 import traceback
 import urllib.parse
 
-from support import Coordinator, wait_for
+from support import wait_for
+import dec_network
 from launch_directory import uts_available
 from host_service import stop_all
 from launch_onboarding import Failure, need, parse_time
 from peer_messaging import fixture_context, timestamp, wire
-from persons import Agent, person_id, ssh_key
+from persons import Agent, person_id
 
 import capabilities as caps
 from capabilities import CapHost, PYTHON, HARNESS, SHARE_PROMPT, FINAL, db_rows, squash, toml_string
@@ -372,10 +376,10 @@ def fake_openers(directory):
 # --- the pairing ------------------------------------------------------------------------------------------------
 
 class RemotePairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, root, only=None, baseline18=None):
+    def __init__(self, label, cli_binary, daemon_binary, root, only=None, baseline18=None):
         self.label, self.cli_binary, self.daemon, self.root = label, cli_binary, daemon_binary, root
         self.only, self.baseline18 = only, baseline18
-        self.coord = Coordinator(coord_binary, root / 'coord')
+        self.dec = dec_network.DecNetwork(root / 'dec')
         self.results, self.notes, self.setup_notes = [], [], []
         self.hosts, self.ids, self.keys, self.agents, self.aid = {}, {}, {}, {}, {}
         self.exposed = []          # (where, text) of everything shown to a person or a peer, for the secret scan
@@ -430,16 +434,10 @@ class RemotePairing:
         a.cfg.update(cfg)
         return a
 
-    def coordinator_flags(self):
-        return ('--coordinator', self.coord.address, '--coordinator-key', self.coord_key)
-
-    def invite(self, label):
-        return self.hosts['p1'].cli('network', 'invite', '--network', self.team, '--member', label,
-                                    '--expires-in', '1h')['token']
-
     def policy(self, host='p1'):
-        status, body = self.hosts[host].call('GET', f'/v1/networks/{self.team}/policy?person={self.pat}')
-        return caps.policy_of(body) if status == 200 else None
+        # GET /v2/networks/{id}/policy/{person} on a coordinator-free network (dec_network.policy_body).
+        body = dec_network.policy_body(self.hosts[host], self.team, self.keys['pat'][2])
+        return caps.policy_of(body) if body is not None else None
 
     def version(self, host='p1'):
         p = self.policy(host)
@@ -875,7 +873,8 @@ class RemotePairing:
         root = self.root
         (root / 'keys').mkdir()
         for name in ('pat', 'quinn'):
-            self.keys[name] = ssh_key(root / 'keys', name)
+            person = self.dec.person(name)
+            self.keys[name] = (person.key, person.public, person.raw)
             (root / f'agent-{name}').mkdir()
             self.agents[name] = Agent(root / f'agent-{name}')
             self.agents[name].add(self.keys[name][0])
@@ -883,7 +882,6 @@ class RemotePairing:
         self.setup_catalog()
         self.setup_sites()
         self.attached = {}
-        self.coord_key = self.coord.start()['public_key']
         for name, person in (('p1', 'pat'), ('p2', 'pat'), ('q1', 'quinn')):
             self.host(name, person)
         self.hosts['p1'].proxy_env = {n: self.proxy.origin for n in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
@@ -896,22 +894,25 @@ class RemotePairing:
             self.notes.append('no UTS namespaces (not root): HOST_LABEL is this machine\'s own host name')
         self.client_name = f'Peerspan ({self.host_label})' if self.host_label else 'Peerspan'
         if self.baseline18:
-            self.host('o1', 'quinn', self.baseline18, self.baseline18)
+            self.setup_notes.append('o1: not portable, a version 18 host cannot join a coordinator-free network')
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         h, ids = self.hosts, self.ids
-        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
-                                *self.coordinator_flags())['id']
+        # Coordinator-free: create on p1 as pat, then the joins with each person's original key. Both hosts
+        # refuse `--trusted` at create and join on these networks (bug B4 in the port's bug list; the trust
+        # flags themselves are checked in capabilities.py "trust at create and join"), so the trusted state
+        # this setup needs (p1 and p2 trusted, q1 not) is signed with the contract's `trust` command instead.
+        self.team = self.dec.create(h['p1'], 'pat')['id']
         members = [('p2', 'pat', '--trusted'), ('q1', 'quinn', '--untrusted')]
-        if 'o1' in h:
-            members.append(('o1', 'quinn', '--untrusted'))
         for name, label, flag in members:
-            h[name].cli('join', self.invite(label), flag)
+            self.dec.join(h['p1'], h[name], label)
+        for name in ('p1', 'p2'):
+            h[name].cli('trust', '--network', self.team)
         expected = {ids['p1']: self.pat, **{ids[n]: {'pat': self.pat, 'quinn': self.quinn}[l] for n, l, _ in members}}
 
         def bound():
             for n in [n for n, _, _ in members] + ['p1']:
                 h[n].run('network', 'sync', self.team)
-            seen = {m['host_id']: m['person_id'] for m in h['p1'].cli('network', 'members', self.team)}
+            seen = self.dec.member_persons(h['p1'])
             return seen == expected
         wait_for(bound, timeout=90, message='every member of team bound as expected')
 
@@ -2503,10 +2504,7 @@ class RemotePairing:
                 leaks += [f'{name} activity' for t in secrets_ if t in acts]
             except Exception as error:
                 self.notes.append(f'activity on {name}: {error}')
-        for path in self.coord.state.rglob('*') if hasattr(self.coord, 'state') else []:
-            if path.is_file():
-                data = path.read_bytes()
-                leaks += [f'coordinator {path.name}' for t in secrets_ if t.encode() in data]
+        # (The coordinator's state was scanned here too; a coordinator-free network has none.)
         need(not leaks, 'tokens, codes, client secrets, and header values appear nowhere but the serving host\'s '
              'credential and value tables', sorted(set(leaks))[:20])
         # Tokens only to their MCP URL and to the token and revocation endpoints.
@@ -2554,8 +2552,6 @@ class RemotePairing:
         try:
             stop_all(tuple(self.hosts.values()))
         finally:
-            self.coord.stop()
-            self.coord.logs.close()
             for agent in self.agents.values():
                 agent.stop()
             for s in self.sites:
@@ -2565,9 +2561,9 @@ class RemotePairing:
                     pass
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, label, only=None, baseline18=None):
+def run_pairing(cli_binary, daemon_binary, label, only=None, baseline18=None):
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-remote-') as temporary:
-        pairing = RemotePairing(label, cli_binary, daemon_binary, coord_binary, Path(temporary), only, baseline18)
+        pairing = RemotePairing(label, cli_binary, daemon_binary, Path(temporary), only, baseline18)
         started = time.monotonic()
         try:
             pairing.run()

@@ -10,10 +10,13 @@ it, records every run (arguments, environment, working directory, standard input
 Each CLI/daemon pairing gets its own topology:
 - pat: p1 serves (agent `srv` with the fixture MCP server `srv/fx` started with --bounded 1, and the built-in
   source `builtin/gh` for the account `bob`, discovered from the fake `gh`) and opens its sources to p2; p2 is
-  trusted; with --baseline18, o1 runs a version 18 host and serves `oldcap` (compatibility).
+  trusted. The former o1 (a version 18 host serving `oldcap`, with --baseline18) is not portable: a version 18
+  host cannot join a coordinator-free network (decentralized-spec.md 8), so --baseline18 no longer adds it.
 - quinn: q1, the caller by policy.
 - p3: a host in no network, for discovery cases (its own fake `gh`), the `name` reason, and reach variants.
-Network: team.
+Network: team, coordinator-free (conformance/dec_network.py): p1 creates it as pat; p2 and q1 join with their
+person's original key. Policies are read from GET /v2/networks/{id}/policy/{person} and claims are prepared
+with POST /v2/networks/{id}/policy-claims and sent as `catalogs` (dec_network.claim_catalog).
 
 Sections, per pairing (contract Verification bullets in brackets):
 - gh discovery [Discovery];
@@ -25,7 +28,7 @@ Sections, per pairing (contract Verification bullets in brackets):
 - display [Display], except list_capabilities (capability_agents.py, with --node);
 - calls through gh capabilities [Calls through capabilities on gh], except call_capability (capability_agents.py);
 - status [Status];
-- compatibility [Compatibility] with --baseline18.
+- compatibility [Compatibility]: not portable (see o1 above); the section reports that.
 Once per run (from capabilities.py): migration from version 20 (and, with --baseline18, from 18) to version 21 [Migration].
 
 Where the contract is silent, the suite takes the reading most faithful to the proposal; such spots are marked
@@ -48,12 +51,12 @@ import threading
 import time
 import traceback
 
-from support import Coordinator, wait_for
+from support import wait_for
+import dec_network
 from host_service import stop_all
 from launch_onboarding import Failure, need, parse_time
 from peer_messaging import fixture_context, timestamp, wire
-from persons import Agent, person_id, ssh_key
-from policy import edit_start, sign_edit
+from persons import Agent, person_id
 
 import capabilities as caps
 from capabilities import (CapHost, Fixture, PYTHON, SHARE_PROMPT, SERVER_KEYS, ATTACH_SERVER_KEYS, CAN_CHANGE,
@@ -387,11 +390,11 @@ class GhHost(CapHost):
 # --- the pairing ------------------------------------------------------------------------------------------------
 
 class BoundsPairing:
-    def __init__(self, label, cli_binary, daemon_binary, coord_binary, root, only=None, baseline18=None):
+    def __init__(self, label, cli_binary, daemon_binary, root, only=None, baseline18=None):
         self.label, self.cli_binary, self.daemon, self.root = label, cli_binary, daemon_binary, root
         self.only = only
         self.baseline18 = baseline18
-        self.coord = Coordinator(coord_binary, root / 'coord')
+        self.dec = dec_network.DecNetwork(root / 'dec')
         self.results, self.notes, self.setup_notes = [], [], []
         self.hosts, self.ids, self.keys, self.agents, self.aid = {}, {}, {}, {}, {}
         self.reviews = {}
@@ -426,16 +429,10 @@ class BoundsPairing:
             self.notes.append(f'{rule}: ' + ' | '.join(repr(d)[:300] for d in detail))
             print(f'NOTE {self.label} (not counted): {rule}', flush=True)
 
-    def coordinator_flags(self):
-        return ('--coordinator', self.coord.address, '--coordinator-key', self.coord_key)
-
-    def invite(self, label):
-        return self.hosts['p1'].cli('network', 'invite', '--network', self.team, '--member', label,
-                                    '--expires-in', '1h')['token']
-
     def policy(self, host='p1'):
-        status, body = self.hosts[host].call('GET', f'/v1/networks/{self.team}/policy?person={self.pat}')
-        return caps.policy_of(body) if status == 200 else None
+        # GET /v2/networks/{id}/policy/{person} on a coordinator-free network (dec_network.policy_body).
+        body = dec_network.policy_body(self.hosts[host], self.team, self.keys['pat'][2])
+        return caps.policy_of(body) if body is not None else None
 
     def version(self, host='p1'):
         p = self.policy(host)
@@ -514,23 +511,21 @@ class BoundsPairing:
         status, body = self.hosts[host].call('GET', f'/v1/capabilities/{name}')
         return body if status == 200 else None
 
-    def claim_policies(self, name, host='p1'):
-        """The claim edits the CLI would send with POST /v1/capabilities (as capabilities.py signs them)."""
-        start_status, start = edit_start(self.hosts[host], self.team)
-        need(start_status == 200, 'setup: the edit route', start_status, start)
-
+    def claim_catalogs(self, name, host='p1'):
+        """The claim the CLI would send with POST /v1/capabilities on a coordinator-free network: one signed
+        `{network_id, catalog}` from POST /v2/networks/{id}/policy-claims (dec_network.claim_catalog)."""
         def change(p):
             if not any(r['capability'] == name for r in p['capability_rules']):
                 p['capability_rules'].append(cap_rule(self.ids[host], name, []))
-        return [sign_edit(start, self.team, self.keys['pat'][2], self.ids[host], self.keys['pat'][0], self.root,
-                          change)]
+        return [dec_network.claim_catalog(self.hosts[host], self.ids[host], self.team, self.dec.person('pat'), name,
+                                          change)]
 
     def post_capability(self, name, source, operations, bounds=None, resources=None, args=None, env_file=None,
                         host='p1', claims=True):
         agent, _, server = source.partition('/')
         body = {'name': name, 'source': {'agent': agent, 'server': server}, 'operations': operations,
                 'resources': resources, 'env_file': env_file,
-                'policies': self.claim_policies(name, host) if claims else []}
+                'policies': [], 'catalogs': self.claim_catalogs(name, host) if claims else []}
         if args is not None:
             body['args'] = args
         if bounds is not None:
@@ -701,7 +696,8 @@ class BoundsPairing:
         self.exposed = []
         (root / 'keys').mkdir()
         for name in ('pat', 'quinn'):
-            self.keys[name] = ssh_key(root / 'keys', name)
+            person = self.dec.person(name)
+            self.keys[name] = (person.key, person.public, person.raw)
             (root / f'agent-{name}').mkdir()
             self.agents[name] = Agent(root / f'agent-{name}')
             self.agents[name].add(self.keys[name][0])
@@ -709,29 +705,31 @@ class BoundsPairing:
         self.fixture = Fixture(root / 'fixture')
         self.gh1 = FakeGh(root / 'gh1')
         self.gh3 = FakeGh(root / 'gh3')
-        self.coord_key = self.coord.start()['public_key']
         for name, person in (('p1', 'pat'), ('p2', 'pat'), ('q1', 'quinn')):
             self.host(name, person)
         self.host('p3', None)
         if self.baseline18:
-            self.host('o1', 'pat', self.baseline18, self.baseline18)
+            self.setup_notes.append('o1: not portable, a version 18 host cannot join a coordinator-free network')
         self.hosts['p1'].gh_bin = self.gh1.bin
         self.hosts['p3'].gh_bin = self.gh3.bin
         self.ids = {name: h.start()['id'] for name, h in self.hosts.items()}
         h, ids = self.hosts, self.ids
-        self.team = h['p1'].cli('network', 'create', 'team', '--as', 'pat', '--trusted',
-                                *self.coordinator_flags())['id']
+        # Coordinator-free: create on p1 as pat, then the joins with each person's original key. Both hosts
+        # refuse `--trusted` at create and join on these networks (bug B4 in the port's bug list; the trust
+        # flags themselves are checked in capabilities.py "trust at create and join"), so the trusted state
+        # this setup needs (p1 and p2 trusted, q1 not) is signed with the contract's `trust` command instead.
+        self.team = self.dec.create(h['p1'], 'pat')['id']
         members = [('p2', 'pat', '--trusted'), ('q1', 'quinn', '--untrusted')]
-        if 'o1' in h:
-            members.append(('o1', 'pat', '--untrusted'))
         for name, label, flag in members:
-            h[name].cli('join', self.invite(label), flag)
+            self.dec.join(h['p1'], h[name], label)
+        for name in ('p1', 'p2'):
+            h[name].cli('trust', '--network', self.team)
         expected = {ids['p1']: self.pat, **{ids[n]: {'pat': self.pat, 'quinn': self.quinn}[l] for n, l, _ in members}}
 
         def bound():
             for n in [n for n, _, _ in members] + ['p1']:
                 h[n].run('network', 'sync', self.team)
-            seen = {m['host_id']: m['person_id'] for m in h['p1'].cli('network', 'members', self.team)}
+            seen = self.dec.member_persons(h['p1'])
             return seen == expected
         wait_for(bound, timeout=90, message='every member of team bound as expected')
 
@@ -2007,15 +2005,13 @@ class BoundsPairing:
         try:
             stop_all(tuple(self.hosts.values()))
         finally:
-            self.coord.stop()
-            self.coord.logs.close()
             for agent in self.agents.values():
                 agent.stop()
 
 
-def run_pairing(coord_binary, cli_binary, daemon_binary, label, only=None, baseline18=None):
+def run_pairing(cli_binary, daemon_binary, label, only=None, baseline18=None):
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-bounds-') as temporary:
-        pairing = BoundsPairing(label, cli_binary, daemon_binary, coord_binary, Path(temporary), only, baseline18)
+        pairing = BoundsPairing(label, cli_binary, daemon_binary, Path(temporary), only, baseline18)
         started = time.monotonic()
         try:
             pairing.run()

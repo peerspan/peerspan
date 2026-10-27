@@ -618,8 +618,7 @@ def network_check(sender_binary, receiver_binary, label):
             ai, bi = a.start(), b.start()
             n = dec.create(a, "alice")
             dec.join(a, b, "bob")
-            a.cli("network", "sync", n["id"])
-            b.cli("network", "sync", n["id"])
+            dec.sync([a, b], rounds=1, check=True)
             aa = a.cli("agent", "register", "--name", "alice", "--owner", "alice")
             ba = b.cli("agent", "register", "--name", "bob", "--owner", "bob")
             ass = a.cli(

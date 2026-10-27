@@ -1715,7 +1715,7 @@ class Pairing:
         a.cli('allow', 'bob', '--delegate', '--network', net)
         for h in (a, b, c):
             try:
-                h.cli('network', 'sync', net)
+                self.dec.sync([h], rounds=1, check=True)
             except AssertionError:
                 pass
         origin = self.register(b, 'origin', 'bob')
@@ -2099,7 +2099,7 @@ class Pairing:
         finally:
             a.cli('allow', 'bob', '--network', net)
             try:
-                b.cli('network', 'sync', net)
+                self.dec.sync([b], rounds=1, check=True)
             except AssertionError:
                 pass
         notes.append('revocation')
@@ -2122,7 +2122,7 @@ class Pairing:
                       '(decentralized-spec.md 8); the rest of this section needs that membership')
         h.cli('allow', 'bob', '--network', net)
         try:
-            b.cli('network', 'sync', net)
+            self.dec.sync([b], rounds=1, check=True)
         except AssertionError:
             pass
         keeper = h.cli('agent', 'register', '--name', 'keeper', '--owner', 'mia')

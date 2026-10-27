@@ -150,15 +150,18 @@ class DecNetwork:
     administrator for every admission.
     """
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, people=None):
+        """`people` shares the original keys of another DecNetwork, for a second network of the same people."""
         self.directory = Path(directory)
+        self.directory.mkdir(parents=True, exist_ok=True)
         self.keys = self.directory / 'person-keys'
         self.keys.mkdir(parents=True, exist_ok=True)
-        self.people = {}
+        self.people = people if people is not None else {}
         self.hosts = {}
         self.root_host = None
         self.id = self.context = None
         self.log = []
+        self.slow_resumes = []
 
     def key_args(self, label):
         """Daemon arguments for a host whose person's original key file lives on it.
@@ -194,10 +197,14 @@ class DecNetwork:
         return self.people[label]
 
     # Spec 6.
-    def create(self, host, label, name='team'):
+    def create(self, host, label, name='team', flags=()):
         person = self.person(label)
-        value = cli_json(host, 'network', 'create', name, '--as', label, '--person-key-file', str(person.key), expect=True)
+        value = cli_json(host, 'network', 'create', name, '--as', label, '--person-key-file', str(person.key), *flags,
+                         expect=True)
+        self.created = value
         self.id = value['id']
+        self.networks = getattr(self, 'networks', {})
+        self.networks[name] = value['id']
         status, view = api(host, 'GET', '/v2/networks/' + self.id)
         if status != 200 or view.get('mode') != 'decentralized':
             raise SetupFailure(f'network create did not give a coordinator-free view: {status} {view}')
@@ -215,8 +222,17 @@ class DecNetwork:
         view = None
         while time.monotonic() < deadline:
             if resume:
-                status, view = api(host, 'POST', f'/v2/link/requests/{request_id}/resume', {})
-                if status not in (200, 202, 409, 503):
+                started = time.monotonic()
+                try:
+                    status, view = api(host, 'POST', f'/v2/link/requests/{request_id}/resume', {})
+                except TimeoutError:
+                    # decentralized-spec.md 9.5 bounds a resume's publication at 30 s; record a slower
+                    # answer (reported with the results) and keep polling the request instead.
+                    self.slow_resumes.append((what, round(time.monotonic() - started, 1)))
+                    print(f'NOTE dec_network: POST /v2/link/requests/{{id}}/resume ({what}) gave no answer within '
+                          f'{round(time.monotonic() - started)} s (spec 9.5: 30 s)', flush=True)
+                    status, view = 0, None
+                if status not in (0, 200, 202, 409, 503):
                     raise SetupFailure(f'resume {what}: {status} {view}')
             status, current = api(host, 'GET', '/v2/link/requests/' + request_id)
             if status == 200:
@@ -252,24 +268,42 @@ class DecNetwork:
             self._wait(other, request_id, lambda v: v['state'] == 'linked', 'participant applied')
         return view
 
-    # Spec 8.1: a new person, invited by a member host, joins with their own original key.
-    def join(self, inviter, joiner, label):
-        person = self.person(label)
+    # Spec 8.1: a person, invited by a member host, joins with their own original key on the new machine.
+    def join(self, inviter, joiner, label, flags=(), person=None):
+        """`label` is the member label; `person` names the fixture key when it differs (as `ops/sam` for sam)."""
+        key = self.person(person or label).key
         invitation = cli_json(inviter, 'network', 'invite', '--network', self.id, '--member', label, expect=True)
-        private = self.directory / f'invite-{len(self.log)}.private'
+        private = self.directory / f'invite-{len(self.log)}-{os.getpid()}-{time.monotonic_ns()}.private'
         private.write_text(invitation['invitation'] + '\n')
         private.chmod(0o600)
-        request = cli_json(joiner, 'network', 'join', '--invite-file', str(private), '--person-key', str(person.key))
+        request = cli_json(joiner, 'network', 'join', '--invite-file', str(private), '--person-key', str(key), *flags)
+        self.join_outputs = getattr(self, 'join_outputs', {})
+        self.join_outputs[joiner] = request
+        if 'request_id' not in request:
+            raise SetupFailure(f'network join did not create a request: {request}')
+        return self.complete_join(joiner, request, label, person or label)
+
+    def complete_join(self, joiner, request, label, person):
+        """Finish a join request `request` (the `network join` output) of `person`'s original key on `joiner`."""
+        person = self.person(person)
         request_id, code = request['request_id'], request['display_code']
-        # Possession-only owner offer by the new person's own key on the new machine (spec 8.2 stage 2).
-        cli_json(joiner, 'link', 'approve', '--network', self.id, '--person', person.raw,
-                 '--expect-host-key', request['host_public_key'], '--expect-device-key', request['device_public_key'],
-                 '--person-key', str(person.key), '--not-after', utc(6 * 86400), '--code-stdin', '--approve',
-                 input=(code + '\n').encode())
+        # Possession-only owner offer by the person's own key on the new machine (spec 8.2 stage 2).
+        if request.get('owner_offer_id', '-') == '-':
+            cli_json(joiner, 'link', 'approve', '--network', self.id, '--person', person.raw,
+                     '--expect-host-key', request['host_public_key'], '--expect-device-key', request['device_public_key'],
+                     '--person-key', str(person.key), '--not-after', utc(6 * 86400), '--code-stdin', '--approve',
+                     input=(code + '\n').encode())
         view = self._admit_finalize_commit(joiner, joiner, request_id, code, person, ['--signer', 'network_root'])
         self.hosts[joiner] = person
         self.log.append(('join', label, request_id))
         return view
+
+    def adopt(self, host, label, network_id):
+        """Track a network `host` created itself with `label`'s key (`network create` run by the suite)."""
+        self.id = network_id
+        self.context = api(host, 'GET', '/v2/networks/' + network_id)[1]['context_id']
+        self.root_host = host
+        self.hosts[host] = self.person(label)
 
     # Spec 8.1 last paragraph: another machine of an existing person.
     def link(self, owner_host, new_host, label, scopes=15):
@@ -285,11 +319,22 @@ class DecNetwork:
         self.log.append(('link', label, request_id))
         return view
 
-    def sync(self, hosts=None, rounds=2):
-        """Bounded sync on every member (spec 10) so third hosts learn new activations."""
+    def sync(self, hosts=None, rounds=2, check=False):
+        """`network sync` on each host (spec 10: bounded at 30 s, so the reader allows 60 s, unlike
+        host_service.Host.cli's 10 s). With `check`, a nonzero exit fails, as `Host.cli` did."""
         for _ in range(rounds):
             for host in hosts or list(self.hosts):
-                run_cli(host, 'network', 'sync', self.id)
+                code, out, err = run_cli(host, 'network', 'sync', self.id)
+                if check and code != 0:
+                    raise SetupFailure(f'network sync: exit {code}: {err.decode(errors="replace")[-500:]}')
+
+    def member_persons(self, host):
+        """{host_id: person_id} of the current verified members `host` knows (the old `network members` map)."""
+        status, value = api(host, 'GET', f'/v2/networks/{self.id}/members')
+        if status != 200:
+            return {}
+        return {host_id(m['host_public_key']): person_id(m['person_public_key']) if m['person_public_key'] != '-' else None
+                for m in value['members']}
 
     def member_host_ids(self, host):
         """Host IDs of the current verified members `host` knows (GET /v2/networks/{id}/members).
@@ -316,3 +361,146 @@ class DecNetwork:
 
 def host_id(public_b64):
     return 'host_' + hashlib.sha256(base64.b64decode(public_b64)).hexdigest()
+
+
+# --- policies on coordinator-free networks ------------------------------------------------------------------
+#
+# A coordinator-free network keeps each person's policy as a DEC `policy` statement whose payload carries the
+# unchanged `peerspan-policy-v2` body (decentralized-wire-formats.md section 5). The owner-local read is
+# `GET /v2/networks/{id}/policy/{person}` -> {statement_id, statement_base64} (wire formats 16.2); the
+# coordinator-era `GET /v1/networks/{id}/policy` does not serve these networks (it answers 426).
+
+def _b64json(value):
+    return json.loads(base64.b64decode(value))
+
+
+def policy_statement(host, network_id, person_raw):
+    """(statement_id, envelope, payload, body) of `person_raw`'s current policy on `host`, or None (404)."""
+    import urllib.parse
+    status, value = api(host, 'GET', f'/v2/networks/{network_id}/policy/' + urllib.parse.quote(person_raw, safe=''))
+    if status != 200:
+        return None
+    envelope = _b64json(value['statement_base64'])
+    payload = _b64json(envelope['payload_base64'])
+    return value['statement_id'], envelope, payload, _b64json(payload['body_base64'])
+
+
+def policy_body(host, network_id, person_raw):
+    """The current `peerspan-policy-v2` body (the fields the /v1 policy view used to return), or None."""
+    current = policy_statement(host, network_id, person_raw)
+    return current[3] if current else None
+
+
+def sshsig(key, message):
+    """Canonical Base64 of the binary SSHSIG (namespace peerspan-person-v1) of `message` by an original key file."""
+    result = subprocess.run(['ssh-keygen', '-q', '-Y', 'sign', '-n', 'peerspan-person-v1', '-f', str(key)],
+                            input=message, capture_output=True, timeout=20)
+    if result.returncode != 0:
+        raise SetupFailure('ssh-keygen -Y sign failed: ' + result.stderr.decode(errors='replace')[-300:])
+    armored = result.stdout.decode().strip().splitlines()
+    return ''.join(line for line in armored if not line.startswith('-----'))
+
+
+def _now():
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _fmt(moment):
+    return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _policy_payload(host, network_id, person, body, predecessors):
+    """The unsigned DEC policy payload around `body` (wire formats section 5), issued by the original key now."""
+    now = _now()
+    persons = api(host, 'GET', f'/v2/networks/{network_id}/persons')
+    rows = [p for p in persons[1].get('persons', [])] if persons[0] == 200 else []
+    rows = [p for p in rows if p['person_public_key'] == person.raw]
+    if len(rows) != 1:
+        raise SetupFailure(f'no current person lease for the policy: {persons}')
+    until = min(now + timedelta(seconds=86400),
+                datetime.strptime(rows[0]['not_after'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc))
+    body['issued_at'], body['valid_until'] = _fmt(now), _fmt(until)
+    view = api(host, 'GET', f'/v2/networks/{network_id}')[1]
+    payload = {'root_state_id': view['root_state_id'], 'operation_id': '-', 'sequence': body['version'],
+               'predecessors': sorted(predecessors), 'resolves': [],
+               'issuer': {'kind': 'person', 'person_public_key': person.raw},
+               'parents': [{'role': 'issuer_person', 'id': rows[0]['person_lease_id']}],
+               'issued_at': _fmt(now), 'not_before': _fmt(now), 'not_after': _fmt(until),
+               'body_base64': base64.b64encode(json.dumps(body, separators=(',', ':')).encode()).decode()}
+    return base64.b64encode(json.dumps(payload, separators=(',', ':')).encode()).decode()
+
+
+def _sign_action(host, route, ready, person):
+    """Sign every ready original-key slot of a prepared action (spec 11 "Slots") until none is left."""
+    for _ in range(4):
+        slots = ready.get('signing_requests') or []
+        if not slots:
+            return ready
+        signatures = [{'slot_id': s['slot_id'], 'role': s['role'],
+                       'signature': sshsig(person.key, base64.b64decode(s['message_base64']))} for s in slots]
+        status, ready = api(host, 'POST', f'{route}/{ready["action_id"]}/signed',
+                            {'intent_id': slots[0]['intent_id'], 'signatures': signatures})
+        if status != 200:
+            raise SetupFailure(f'{route} signatures: {status} {ready}')
+    raise SetupFailure(f'{route} left unsigned slots: {ready}')
+
+
+def policy_action(host, network_id, person, change):
+    """Sign and apply the next version of `person`'s policy with `change(body)` applied, through the ordinary
+    action route (wire formats 16.4, kind `policy`), signed by the original key. Not an edit: `edits` is copied.
+    This replaces the coordinator-era crafted `POST /v1/networks/{id}/policy`. Returns the action result."""
+    current = policy_statement(host, network_id, person.raw)
+    if current:
+        statement_id, _, _, body = current
+        predecessors = [statement_id]
+    else:
+        body = {'format': 2, 'network_id': network_id, 'person_public_key': person.raw, 'version': 0,
+                'issued_at': '-', 'valid_until': '-', 'rules': [], 'capability_rules': [], 'trusted_hosts': [],
+                'edits': []}
+        predecessors = []
+    change(body)
+    body['version'] += 1
+    payload = _policy_payload(host, network_id, person, body, predecessors)
+    route = f'/v2/networks/{network_id}/actions'
+    status, ready = api(host, 'POST', route, {'kind': 'policy', 'provider_id': person.raw, 'signature_format': 'sshsig',
+                                             'payload_base64': payload, 'approve': True})
+    if status != 200:
+        raise SetupFailure(f'policy action: {status} {ready}')
+    return _sign_action(host, route, ready, person)
+
+
+def claim_catalog(host, host_id, network_id, person, capability, change):
+    """The signed claim for POST /v1/capabilities `catalogs`, prepared as the CLI does on a coordinator-free network.
+
+    decentralized-runtime-contract.md "Prepare a capability claim without applying a policy" and
+    linking-host-checks.md "Atomic capability claims": the CLI reserves this host's next edit
+    (POST /v2/networks/{id}/policy-edits), applies its change to the reserved starting policy, wraps
+    the unsigned policy-v2 body in a DEC policy payload with version + 1 and this host's `edits` entry,
+    prepares it with POST /v2/networks/{id}/policy-claims, signs the original-key slots, and sends the
+    resulting exact catalog as `{network_id, catalog}`. `change(body)` edits the body in place.
+    `person` is a dec_network.Person.
+    """
+    reserved = api(host, 'POST', f'/v2/networks/{network_id}/policy-edits', {'provider_id': person.raw})
+    if reserved[0] != 200:
+        raise SetupFailure(f'policy edit reservation: {reserved}')
+    reserved = reserved[1]
+    if isinstance(reserved['policy'], dict):  # '-' when the person has no policy yet
+        body = _b64json(reserved['policy']['body_base64'])
+        predecessors = [reserved['policy']['statement_id']]
+    else:
+        body = {'format': 2, 'network_id': network_id, 'person_public_key': person.raw, 'version': 0,
+                'issued_at': '-', 'valid_until': '-', 'rules': [], 'capability_rules': [], 'trusted_hosts': [],
+                'edits': []}
+        predecessors = []
+    change(body)
+    body['version'] = reserved['version'] + 1
+    body['edits'] = sorted([e for e in body['edits'] if e['host'] != host_id] + [{'host': host_id, 'seq': reserved['seq']}],
+                           key=lambda e: e['host'])
+    payload = _policy_payload(host, network_id, person, body, predecessors)
+    route = f'/v2/networks/{network_id}/policy-claims'
+    status, ready = api(host, 'POST', route, {'capability': capability, 'provider_id': person.raw,
+                                             'signature_format': 'sshsig', 'payload_base64': payload, 'approve': True})
+    if status != 200:
+        raise SetupFailure(f'policy-claims preparation: {status} {ready}')
+    ready = _sign_action(host, route, ready, person)
+    return {'network_id': network_id, 'catalog': ready['catalog']}
