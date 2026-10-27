@@ -582,8 +582,18 @@ approved_at is `-` before approval, then the actual guarded local review time.
 An explicit permitted re-review may advance it for the same unchanged intent;
 GET, resume and signature submission never do. An exact repeated approval
 inside its still-valid window preserves the original approved_at.
-expires_at is the exact hard request/migration window, or the fixed initial
-created_at+300s review boundary for an ordinary typed create/action/root preview.
+Created_at is the actual guarded local first-preparation time; it is not
+backdated to a caller's earlier unsigned payload. Expires_at is the exact hard
+request/migration window for those ceremonies. CREATE and migration_identity
+keep their fixed initial created_at+300s review boundary. For ordinary action
+and policy_claim intents it is instead the fixed payload issued_at+300s:
+payload issued_at <= created_at < expires_at. A new preparation at or after
+that expiry refuses before persistence. The dedicated root_transition builder
+fixes its payload issued_at and created_at to the same guarded preparation
+decision, with that same immutable issued_at+300s boundary. This does not change
+the existing inclusive0..300s honest-signing age check for an already prepared
+ordinary action/root payload. A later approval, GET, resume or signature
+submission never moves created_at, issued_at or expires_at.
 No review extends a signed request/migration window, finite proof deadline or
 the ordinary action/root pure-verifier300s signing window.
 
