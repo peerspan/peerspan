@@ -378,7 +378,17 @@ class AgentPairing:
             def caught_up():
                 h.run('network', 'sync', net)
                 return self.version(name, net, person) >= version
-            wait_for(caught_up, timeout=timeout, message=f'policy version {version} on {name}')
+            try:
+                wait_for(caught_up, timeout=timeout, message=f'policy version {version} on {name}')
+            except AssertionError as error:
+                # Diagnostics only: each host's view of this person's policy stream (GET .../access-versions).
+                raw = self.person_raw(person or self.pat)
+                views = {}
+                for other in sorted({name, 'p1'}):
+                    status, value = dec_network.api(self.hosts[other], 'GET', f'/v2/networks/{net}/access-versions')
+                    views[other] = [r for r in value.get('policies', []) if r['person_public_key'] == raw] \
+                        if status == 200 else (status, value)
+                raise AssertionError(f'{error}; access-versions: {views}') from None
 
     def sync_pat(self):
         """Every member stores pat's newest policy in team (and q1 in other)."""
