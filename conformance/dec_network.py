@@ -277,6 +277,19 @@ class DecNetwork:
                  '--owner-offer', view['owner_offer_id'], '--selection', view['selection_id'],
                  '--administrator-offer', view['administrator_offer_id']]
         if view['owner_finalization_id'] == '-':
+            if owner_host is not requester:
+                # The owner's host must hold the selection and the administrator offer before it finalizes
+                # (otherwise it answers proof_required); resume on both sides (spec 9.5) until it does.
+                def owner_has_offer():
+                    api(requester, 'POST', f'/v2/link/requests/{request_id}/resume', {})
+                    return self._wait(owner_host, request_id, lambda v: v['administrator_offer_id'] != '-',
+                                      'administrator offer at the owner', seconds=20)
+                for _ in range(3):
+                    try:
+                        owner_has_offer()
+                        break
+                    except (SetupFailure, TimeoutError):
+                        pass
             cli_json(owner_host, 'link', 'finalize', request_id, *fixed, '--person-key', str(person.key), '--approve')
         view = self._wait(requester, request_id, lambda v: v['owner_finalization_id'] != '-', 'owner finalization at requester')
         if view['state'] != 'linked':
@@ -314,7 +327,8 @@ class DecNetwork:
         self.install_key(joiner, person)
         person = self.person(person)
         request_id, code = request['request_id'], request['display_code']
-        # Possession-only owner offer by the person's own key on the new machine (spec 8.2 stage 2).
+        # Possession-only owner offer by the person's own key on the new machine (spec 8.2 stage 2); scopes
+        # stay at the new-person default 7 (spec 8.3).
         if request.get('owner_offer_id', '-') == '-':
             cli_json(joiner, 'link', 'approve', '--network', self.id, '--person', person.raw,
                      '--expect-host-key', request['host_public_key'], '--expect-device-key', request['device_public_key'],
@@ -333,19 +347,20 @@ class DecNetwork:
         self.hosts[host] = self.person(label)
 
     # Spec 8.1 last paragraph: another machine of an existing person.
-    def link(self, owner_host, new_host, label, scopes=15):
+    def link(self, owner_host, new_host, label, scopes=None):
         """Spec 8.1 last paragraph and 8.3: `link` on the new machine, `link approve` on a machine of the person,
         admission by the root host. The owner offer is signed by the original key (`--signer` names it): a
         joined person's device has scopes 7, without 4, so it cannot approve a device (spec 5, 8.2 stage 2).
-        Scopes 15 are requested, capped by the owner's path (spec 8.3)."""
+        Scopes take the default, 15 capped by the owner's path (spec 8.3); naming 15 above that cap is refused.
+        The deadline is 3 days, inside every parent (a joined owner's own grants end 6 days after its join)."""
         person = self.people[label]
         self.install_key(new_host, label)
         request = cli_json(new_host, 'link', '--network', self.id, '--expect-person', person.raw)
         request_id, code = request['request_id'], request['display_code']
         cli_json(owner_host, 'link', 'approve', '--network', self.id, '--person', person.raw,
                  '--expect-host-key', request['host_public_key'], '--expect-device-key', request['device_public_key'],
-                 '--person-key', str(person.key), '--signer', person.raw, '--scopes', str(scopes),
-                 '--not-after', utc(6 * 86400), '--code-stdin', '--approve', input=(code + '\n').encode())
+                 '--person-key', str(person.key), '--signer', person.raw,
+                 *(('--scopes', str(scopes)) if scopes else ()), '--not-after', utc(3 * 86400), '--code-stdin', '--approve', input=(code + '\n').encode())
         view = self._admit_finalize_commit(new_host, owner_host, request_id, code, person, ['--signer', 'network_root'])
         self.hosts[new_host] = person
         self.log.append(('link', label, request_id))
