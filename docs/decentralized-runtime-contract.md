@@ -1264,6 +1264,20 @@ read-only acknowledgment preview is also permitted. This bounded preparation
 permission does not relax the separately explicit write-free identity,
 host-membership or inherited-device-ban previews, or any GET's read purity.
 
+The root commit POST with approve false has the same bounded typed-preparation
+choice: it may remain read-only, or persist only its exact unapproved
+migration_commit intent/template, that intent's entry in root_intent_ids, and
+the named monotonic decision-clock update. The template fixes this proposal,
+initial root, exact prepared hash, ALL exact retained acknowledgment IDs and
+committed_at within the original signing window. Its root selector and source
+remain exact. Approved is false, approved_at `-`, signatures empty, completed
+false and secret SQL NULL; no ready signature slot or public commit appears.
+The existing acknowledged fence and all participation/identity approvals remain
+unchanged. No new consent, signature, event, provider, active authority or
+adoption follows. Exact retries reuse the fixed intent/template. A later root
+signature still requires separate durable explicit approval and the current
+source/root/all-host/prepared/clock checks. No other row change is permitted.
+
 Complete adopt atomically writes exact mode/context/origin, retained floors/
 restrictions/proofs and activation admissions with basis migration, actual
 usable selected device if eligible, public migrated state and one

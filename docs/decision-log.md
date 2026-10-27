@@ -1270,3 +1270,19 @@ explicitly pure identity/H/device-ban previews, permitting unrelated row/secret
 changes or silently rewriting the fixed template. Corrected independent checks
 must name and inspect the only permitted changes; this is no general mutation
 waiver or runtime-success claim.
+
+## Coordinator-free root commit preview boundary (2026-10-27)
+
+Selected within the delegated DEC stream: make the existing typed-preparation
+choice equally explicit for the root commit. A preview may be read-only or fix
+only one exact unapproved private commit intent/template, its root-intent
+reference and named guard. Existing host ACKs/fence stay unchanged; a public
+commit still requires separately durable root approval and signature. The
+independent author identified a still-unevaluated all-database-pure assertion
+before execution, so this clarification is settled before its next substep.
+
+Discarded: inferring pure commit previews from the stronger identity/H/device-ban
+rules, allowing unrelated row changes, equating private preparation with a root
+commit, or silently replacing a fixed all-host set/hash/time on approval. Require
+named row differences and preserve exact retries, original expiry and current
+source/root checks. This decision supplies no runtime success evidence.
