@@ -1286,3 +1286,22 @@ rules, allowing unrelated row changes, equating private preparation with a root
 commit, or silently replacing a fixed all-host set/hash/time on approval. Require
 named row differences and preserve exact retries, original expiry and current
 source/root checks. This decision supplies no runtime success evidence.
+
+## Coordinator-free typed private root target (2026-10-27)
+
+Selected: distinguish each private intent's typed subject from its actual
+authenticated writer. Whole-network migration root preparation/commit keeps
+person/host/device subject pins absent, scopes8 and the exact root/proposal
+selector. Initial preparation requires the approved preproposal own identity
+and explicit root approval, without supplying the later separate host proposal
+review. Final commit requires that participation and exact own ACK/fence.
+Link owner/admin intents retain the target host even when
+their packet writer differs. Ordinary local root actions retain their actual
+writer pin. This corrects an overgeneral provider-view sentence before the
+independent root-commit continuation; the first failed private-host assertion
+and its exact unapproved template remain recorded.
+
+Discarded: treating every private host pin as the writer, rewriting an already
+fixed subject/template to satisfy that assertion, presenting a root as bound to
+one host, adding a metadata column, or accepting a root tuple as local consent.
+No schema, signature, selector, approval, source, fence or adoption gate changes.

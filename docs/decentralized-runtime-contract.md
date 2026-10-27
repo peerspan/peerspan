@@ -181,7 +181,17 @@ actual owner-local SSH/file provider, with device `"-"` and lease_id equal to
 the person lease. Network root has person/host/device/lease `"-"`, current root
 state and actual owned/external root provider; it is not an owner-person
 provider. Its host field therefore does not claim an owner-host binding. The
-actual local writer still belongs to the private intent's exact `host` field.
+actual local writer belongs to an ordinary action/root_transition private
+intent's exact `host` field. Other intent kinds keep their typed target pins:
+link owner/administrator intents name the target host, which may differ from
+the packet writer. A whole-network migration root preparation/commit has no
+single target person/host/device; all three private subject fields are `-`,
+with root scopes8. Initial preparation independently checks the owned writer,
+approved preproposal own identity/roster contribution and explicit root
+preparation approval; it supplies no later host participation consent. Later
+participant stages still require their separate own proposal review. The final
+root commit checks that participation and exact local acknowledgment/fence. None of
+these fields establishes a bound root-host identity or replaces those checks.
 Selected under the DEC delegation: use the absent-host marker consistently;
 discarded: show the daemon's local writer as a bound root host, which would mix
 transport placement with the root's authority identity.

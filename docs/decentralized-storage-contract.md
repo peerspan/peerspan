@@ -500,6 +500,22 @@ no expired positive authority. Preserve the unresolved approved intent/key if
 any step fails. This is a new typed use of existing schema23 dec_intents;
 there is no DDL change or fake dec_migrations row before a real proposal ds_.
 
+For kind migration, the root selector pins the exact current legacy root,
+approved proposal/new context and initial root, signature_format auto-resolved
+to owned ed25519 or explicit sshsig, lease_id `-`, scopes8, not_after `-` and
+secret SQL NULL. Its person_public_key, host_public_key and device_public_key
+are all `-`: the operation is a whole-network root role without one subject
+host. Root preparation contains only its exact proposal/initial root, required
+shared person leases, unbound host leases and inherited root-ban copies. The
+final root-commit intent contains exactly one migration_commit template with
+the complete prepared hash/all-host ACK set. Neither form can sign an arbitrary
+message or another intent kind. Initial root preparation independently requires
+the actual owned writer, unique approved preproposal own identity/roster and
+explicit root-preparation approval; it does not supply later host participation.
+Later participant stages retain separate own proposal review. Final root commit
+requires that approved participation and its exact own ACK/fence. A root tuple alone never
+supplies those local approvals, fence, authority or key possession.
+
 For kind migration, the host selector permits exactly ONE template, either:
 
 - The approved proposal's own UNBOUND host_lease, imported through the runtime's
