@@ -682,6 +682,8 @@ def main():
     parser.add_argument("--go", type=Path, required=True)
     parser.add_argument("--rust", type=Path, required=True)
     parser.add_argument("--node", type=Path, required=True)
+    parser.add_argument("--pairing", action="append", help="sender→receiver, such as Go→Rust; default all four")
+    parser.add_argument("--skip-migration", action="store_true")
     args = parser.parse_args()
     for a, b, label in [
         (args.go, args.go, "Go→Go"),
@@ -689,10 +691,13 @@ def main():
         (args.go, args.rust, "Go→Rust"),
         (args.rust, args.go, "Rust→Go"),
     ]:
+        if args.pairing and label not in args.pairing:
+            continue
         check(a.resolve(), b.resolve(), args.node.resolve(), label)
         network_check(a.resolve(), b.resolve(), label)
-    migration_check(args.go.resolve(), args.rust.resolve(), "Go→Rust")
-    migration_check(args.rust.resolve(), args.go.resolve(), "Rust→Go")
+    if not args.skip_migration:
+        migration_check(args.go.resolve(), args.rust.resolve(), "Go→Rust")
+        migration_check(args.rust.resolve(), args.go.resolve(), "Rust→Go")
 
 
 if __name__ == "__main__":
