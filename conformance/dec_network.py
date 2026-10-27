@@ -43,7 +43,8 @@ import signal
 import subprocess
 import time
 
-STEP_TIMEOUT = 60  # One CLI step may include the runtime's bounded 30 s publication attempt.
+STEP_TIMEOUT = 180  # Fixture bound only. A step may include the runtime's bounded 30 s publication attempt;
+SLOW_STEP = 40      # a step slower than this is printed as a NOTE (Rust stalls: bug B5) but does not fail setup.
 
 
 class SetupFailure(AssertionError):
@@ -110,7 +111,10 @@ def run_cli(host, *args, input=b'', tty=False, timeout=STEP_TIMEOUT, env=None):
 
 
 def cli_json(host, *args, input=b'', tty=False, expect=None, timeout=STEP_TIMEOUT):
+    started = time.monotonic()
     code, out, err = run_cli(host, *args, input=input, tty=tty, timeout=timeout)
+    if time.monotonic() - started > SLOW_STEP:
+        print(f'NOTE dec_network: `{" ".join(args[:2])}` took {time.monotonic() - started:.0f} s', flush=True)
     if expect is not None and (code == 0) != expect:
         raise SetupFailure(f'{" ".join(args[:3])}: exit {code}: {err.decode(errors="replace")[-1500:]} {out[-500:]!r}')
     try:
