@@ -121,8 +121,13 @@ does not establish anonymity.
 
 ## Persistence, migration and compatibility
 
-The current shared host schema is **21**, including per-call approvals and
-resource-bound/`gh` state. New additive DEC storage begins at schema **22**.
+The merged baseline is **schema22** for remote MCP/OAuth; additive DEC storage
+uses **schema23**. Per-call approvals were introduced in schema20 and
+resource-bound/`gh` state in schema21. Preserve all three prior layouts' state.
+The initial experimental DEC22 allocation is historical and unsupported, not
+an alternative meaning for the merged OAuth22 schema. The
+[shared storage contract](decentralized-storage-contract.md#1-additive-migration-and-existing-data)
+fixes exact opening, rollback and refusal behavior.
 Both hosts must open each other's state and resume exact durable operations.
 Old/new unsupported schemas refuse before modification; failed migration rolls
 back. Preserve host/person/device keys, network IDs, owner policy, restrictions,
