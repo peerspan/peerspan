@@ -11,10 +11,14 @@ The owner's decisions about Peerspan's design, in one place, with the options ea
 - **Superseded decisions stay.** A later decision that replaces an earlier one gets its own entry and names the one it replaces; the earlier entry is not deleted.
 - **Maintained going forward.** Every new owner decision adds an entry here in the same PR that records it in a contract or proposal. Implementing PRs add their number to the entry.
 
-Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations.
+Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and relays, `COORD` coordination, `DEL` delegation, `LAUNCH` launch readiness, `HC` hosted coordinator, `LIVE` live delivery, `RT` remote tools, `CRED` tool credentials, `CAP` capabilities, `GS` guided setup, `ML` machine linking, `CONV` conversations, `DEC` coordinator-free networking.
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [DEC-Q: answers to the open questions of the first draft](#dec-q-answers-to-the-open-questions-of-the-first-draft-2026-10-27) (2026-10-27)
+  - [DEC-S: simplifying the coordinator-free design](#dec-s-simplifying-the-coordinator-free-design-2026-10-27) (2026-10-27)
+  - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
+  - [DEC-D1: replace the coordinator before launch](#dec-d1-replace-the-coordinator-before-launch-2026-10-26) (2026-10-26)
   - [CAP-16: capabilities slice 3](#cap-16-capabilities-slice-3-2026-10-25) (2026-10-25)
   - [CONV: conversations](#conv-conversations-2026-10-25) (2026-10-25)
   - [LIVE-5: protocol_version from every adapter](#live-5-protocol_version-from-every-adapter-2026-10-25) (2026-10-25)
@@ -23,6 +27,360 @@ Contents:
 - [Index of earlier decisions](#index-of-earlier-decisions)
 
 ## Full entries
+
+### DEC-Q: answers to the open questions of the first draft (2026-10-27)
+
+- **Date:** 2026-10-27.
+- **Area:** coordinator-free networking (DEC).
+- **Background:** the first draft of the [coordinator-free spec](decentralized-spec.md) applied DEC-S1 to DEC-S17 and listed 25 questions those decisions left open. Each had options and a recommendation. The owner answered all 25 the same day. Applying them raised four more questions (Q26 to Q29) and a request to confirm a rule implied by Q21. The owner answered these the same day too, each time taking the draft's recommendation. Applying those raised four more (Q30 to Q33), which the owner also answered the same day with the draft's recommendation.
+- **Source:** the owner, 2026-10-27, recorded by the agent session. For 23 questions the owner accepted the draft's recommendation. For two (Q16 and Q21) the coordinating agent proposed a different answer and the owner accepted it; those entries say "against the draft's recommendation". The options below are quoted from the first draft's section 19 ([PR #140](https://github.com/peerspan/peerspan-internal/pull/140), commit `3825043`).
+- **Contract section:** [Resolved questions](decentralized-spec.md#19-resolved-questions) and the sections each entry names.
+- **Recorded in:** [PR #140](https://github.com/peerspan/peerspan-internal/pull/140).
+- **Implemented in:** pending, for every entry below.
+
+#### DEC-Q1. How the 10-minute stage timeout is represented
+
+- **Options:** (a) request `expires_at` = `created_at` + 3600 s as a backstop, mailboxes and frames use that window, and each host enforces the 10-minute inactivity rule locally; (b) as (a) with + 24 hours; (c) add a signed deadline to every packet.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q2. How the invite expiry reaches the daemon
+
+- **Options:** (a) add `expires_at` (60 s to 24 h after now) to `POST /v2/networks/{id}/invitations`, with the CLI sending now + 1 h by default; (b) add `expires_in_seconds`.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q3. How the automatic return path works
+
+- **Options:** (a) the invite carries a 16-byte return secret, and the joiner seals its request code into a mailbox derived from it, first on the inviter's address and then on each helper; (b) a new first-contact route over TLS pinned to the inviter, plus (a) for helpers; (c) direct delivery only.
+- **Chosen:** (a) with its sub-points, the recommendation. `psl2-` is printed after 30 s of failure, status shows `link_request_waiting`, and `link approve`/`link admit` take `REQUEST_ID`.
+
+#### DEC-Q4. Where the person and host grants go when the admin stage is folded
+
+- **Options:** (a) owner finalization names them, their bodies travel in the commit catalog, and there is no admin packet; (b) keep the admin packet, signed automatically under the owner's single approval. Also asked: does "same person" include the root seed on the owner's host?
+- **Chosen:** (a), and yes, the root seed counts when the same reviewer approves with `network_root`. Both are the recommendation.
+
+#### DEC-Q5. When offers compete
+
+- **Options:** (a) two or more valid offers are held when the daemon first processes offers, and later ones are ignored; (b) wait a fixed time to collect offers.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q6. Whether an automatic device renewal is a join request
+
+- **Options:** (a) a deadline-only renewal is an ordinary `device_lease` action with `operation_id` `-` and no target consent; (b) the full exchange runs automatically with no prompt.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q7. How a renewal by a sibling device is capped
+
+- **Options:** (a) the renewer must be current, the same person and scope 4, but its deadline does not cap the renewal, which is capped by the person, host and binding grants; (b) keep today's rules; (c) the renewal takes the renewer as parent. Sub-point for (a): (i) a new `renewer_device` parent role; (ii) keep the target's `issuer_device` parent and record the renewer only as the `issuer` signer.
+- **Chosen:** (a) with (ii), the recommendation. No format change.
+
+#### DEC-Q8. Whether a device may renew its own grant
+
+- **Options:** (a) no; (b) yes.
+- **Chosen:** (a), the recommendation. A device may not renew itself.
+
+#### DEC-Q9. What "new" means in "the original key is still needed for anything new"
+
+- **Options:** (a) a scope-4 device still approves a brand-new device, and "new" means new or higher scopes; (b) a brand-new device needs the original key.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q10. Whether scope 2 still renews a binding
+
+- **Options:** (a) scope 2 or scope 4; (b) scope 4 only.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q11. Which host performs an automatic renewal
+
+- **Options:** (a) ranked turns (original-key host first, then devices by host key) spaced across the renewal window, each syncing before signing, with automatic resolution of a fork between identical plain renewals; (b) one designated renewer per grant; (c) the expiring host asks a reachable signer over a new peer route.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q12. The root countdown: N, and when it shows
+
+- **Options:** for N: (a) whole days to the latest `not_after` among admin grants and root-signed person and host grants; (b) days to this host's own membership deadline. For timing: (i) the root host renews root-signed grants 4 days early, so the countdown appears only after a miss; (ii) show it only once a root renewal is overdue.
+- **Chosen:** N per (a), timing per (i), the recommendation.
+
+#### DEC-Q13. What stays of explicit retention choices
+
+- **Options:** `rotate-root --retain`/`--retain-none`: (a) remove; (b) keep. `admin_withdraw` kept list: (a) the CLI keeps every eligible grant by default; (b) an unchanged explicit list.
+- **Chosen:** (a) for both parts, the recommendation.
+
+#### DEC-Q14. Migration fields and the unused table
+
+- **Options:** (a) keep `migration_proposal_id` fields, always `-`, and leave `dec_migrations` empty; (b) remove the fields and drop the table in schema 24.
+- **Chosen:** (a), the recommendation. A schema-24 cleanup is possible later.
+
+#### DEC-Q15. The legacy status entry
+
+- **Options:** (a) keep the shape with `migration_required:true` and have the guidance name `network reinvite`; (b) rename the field to `reinvite_required`.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q16. Details of `network reinvite`
+
+- **Options:** one invite per machine or one per person; default expiry 1 hour (the draft's recommendation) or 24 hours; a CLI loop or a daemon route; and, for a root-split network, which member list to use.
+- **Chosen:** one per machine, a CLI loop with no new route, and the stored `network_members` cache, all as recommended. The default expiry is **24 hours, against the draft's recommendation of 1 hour**.
+
+#### DEC-Q17. What "what it signs changed" means for a plan
+
+- **Options:** (a) a plan needs review when a record it replaces or depends on is no longer current, or its fixed deadline has passed, and age alone never matters; (b) also when any unrelated head changes. Sub-points: plan `expires_at` is `-` except for link stages; a plan refused with `review_required` becomes terminal, and unapplied terminal plans are removed after 24 hours.
+- **Chosen:** (a) with both sub-points, the recommendation.
+
+#### DEC-Q18. The policy edit record without reservations
+
+- **Options:** (a) keep the record shape, no longer write `reserved`, and have `reserved_at` hold the preparation time; (b) a new format-3 record.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q19. Readers and root fork resolution
+
+- **Options:** (a) readers reject a root state with predecessors from two branches; (b) readers accept it, but nothing produces it.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q20. `publish_contacts`
+
+- **Options:** (a) keep the field, which must be `false`; (b) design a helper route for contact publication.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q21. Renewing grants that only the original key can sign
+
+- **Options:** (a) the daemon on the original key's machine signs through `ssh-agent` or a CLI-generated key file (the draft's recommendation); (b) `network create` also gives the creator's host a scope-15 device grant, so device renewal covers the creator's binding and policy.
+- **Chosen:** **(b), against the draft's recommendation.** The device grant is held by the daemon, so no SSH key has to stay unlocked.
+
+#### DEC-Q22. Approval of automatic renewals
+
+- **Options:** (a) a deadline-only renewal is approved by the approval that created the grant, with an off switch per network; (b) a standing approval given once per network with a new command.
+- **Chosen:** (a) without the off switch, the recommendation.
+
+#### DEC-Q23. Whether the identity choice at `join` is a prompt
+
+- **Options:** (a) it is a choice, not a consent prompt, skipped when the key is pinned or given; (b) fold it into the commit prompt.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q24. Renewal threshold for 24-hour grants
+
+- **Options:** (a) renew when less than 8 hours remain; (b) once per day at a fixed time; (c) when less than half the lifetime remains.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q25. Contacts inside a long-lived invite
+
+- **Options:** (a) contacts inside an invite may be valid until the invite expires; (b) keep the 300-second rule and use expired contacts inside a valid invite as address hints; (c) invites carry only helpers.
+- **Chosen:** (b), the recommendation. No format change.
+
+#### DEC-Q21a. Which device grants may have `operation_id` `-`
+
+- **Question:** after DEC-Q21, which device grants may a verifier accept without a join exchange?
+- **Options:** the rule as drafted: only the creator device grant (sequence 1, signed by the original key, genesis parents) and deadline-only renewals. No alternatives were offered; the owner was asked to confirm it.
+- **Chosen:** confirmed as drafted.
+
+#### DEC-Q26. Where the inviter stores the return secret
+
+- **Options:** (a) a `dec_pending` row keyed by the invitation ID, with the secret in its `secret` column and no schema change; (b) a new `dec_invitations` table in schema 24; (c) no storage, deriving the secret from the host key and invitation ID with HKDF.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q27. Renewing a person's only device
+
+- **Question:** the creator device (DEC-Q21) and the creator's binding cap each other, and DEC-Q8 forbids self-renewal, so neither could be extended without the original key.
+- **Options:** (a) the creator device may renew its own grant and its person's binding, as the one exception to DEC-Q8, and a device-signed binding renewal is capped by the person and host grants only; (b) as (a), but for any device that is its person's only current device; (c) keep DEC-Q8, so a person with one device renews with the original key or links a second device.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q28. Target-host signatures on automatic renewals
+
+- **Options:** (a) a deadline-only renewal of a host grant or binding needs only the `issuer` signature, matching DEC-Q6; (b) a new peer route through which the renewer asks the target host to sign; (c) the target host starts its own renewal and gathers the issuer's signature over a new peer route.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q29. Ancestor expiry after a sibling renewal
+
+- **Options:** (a) an ancestor device counts as current while its device stream has a current, unrevoked head; (b) a kept `issuer_device` parent is checked only for bans, not expiry; (c) a sibling renewal is also capped by every ancestor's deadline.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q30. Whether the creator-device exception lasts
+
+- **Options:** (a) the self-renewal exception holds for the creator device for as long as it exists; (b) it holds only while the creator device is the creator's only current device, and normal sibling renewal applies after that.
+- **Chosen:** (b), the recommendation.
+
+#### DEC-Q31. How a verifier finds the renewer's own grant
+
+- **Options:** (a) for a deadline-only renewal, `issuer.kind` is `device`, the `issuer_device` key rule is relaxed, and the verifier uses the current head of `device/PERSON/SIGNING_KEY`, with no format change; (b) name the renewer's grant in `resolves`; (c) add a `renewer_device` parent role.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q32. Invite rows and the pending-request quota
+
+- **Options:** (a) invite rows do not count toward the 8 active requests, only toward the 4096 total; (b) raise the active limit for invite rows to 256; (c) invites made by `network reinvite` carry no return secret.
+- **Chosen:** (a), the recommendation.
+
+#### DEC-Q33. Contacts inside a request code
+
+- **Options:** (a) apply the DEC-Q25 rule, so expired contacts inside a request code still within its window are used as address hints; (b) let the requester refresh its contacts through the mailbox; (c) no change, so a direct-only `link` must be approved within 5 minutes or use a helper.
+- **Chosen:** (a), the recommendation.
+
+### DEC-S: simplifying the coordinator-free design (2026-10-27)
+
+- **Date:** 2026-10-27.
+- **Area:** coordinator-free networking (DEC), after a plain-language review of the 2026-10-26 contracts and the 39 DEC PRs merged that day.
+- **Background:** the review found the design correct in intent but hard to use and to implement: a 300-second window for a two-code join with two prompts, weekly manual renewal duties, explicit retention lists, a migration that could not be cancelled, an unresolvable root fork rule, five delivery paths, a 5-minute clock on signing plans and policy-edit reservations. It proposed a 10-item simplification agenda. The owner decided each item; the agent review's recommendation is marked where the owner chose differently.
+- **Source:** the owner's replies on 2026-10-27, recorded by the agent session with every option offered. The options and reasons below are quoted from that record. No repository document preceded them.
+- **Contract section:** [coordinator-free spec](decentralized-spec.md) and its [wire-format appendix](decentralized-wire-formats.md); each entry names its section.
+- **Recorded in:** [PR #140](https://github.com/peerspan/peerspan-internal/pull/140).
+- **Implemented in:** pending, for every entry below.
+
+#### DEC-S1. How long permissions last
+
+- **Question:** keep short-lived permissions renewed every 7 days (policies and groups 24 hours), or make permissions last until revoked?
+- **Options:**
+  - Keep short-lived permissions renewed every 7 days, policies and groups 24 h as today.
+  - "Permissions last until revoked, with revocations spreading to every host" (proposed in the agent review).
+- **Chosen:** keep the 7-day renewal.
+- **Reason given:** "i think the permission renewal every 7 days is the correct approach".
+- **Contract section:** [Validity windows](decentralized-spec.md#44-validity-windows).
+
+#### DEC-S2. Order of work
+
+- **Question:** finish PR #139 as designed first, or simplify first?
+- **Options:** finish-then-simplify; simplify first; mixed.
+- **Chosen:** finish-then-simplify: "finish #139 as designed, then simplify in follow-up PRs".
+- **Reason given:** not recorded.
+- **Contract section:** none; it orders the work. The spec's status line keeps the 2026-10-26 files as the description of #139 until code follows.
+
+#### DEC-S3. How PR #139 merges
+
+- **Question:** merge #139 as one PR or split it?
+- **Options:** "one PR gated on all 5 cases + migration/recovery checks + Codex"; "split into ~7 topic PRs per language".
+- **Chosen:** one gated PR.
+- **Reason given:** not recorded. The record adds that, after DEC-S12, "#139's three-host owned-migration gate is no longer worth the effort; the migration code is removed in a follow-up."
+- **Contract section:** none.
+
+#### DEC-S4. Joining: time limits
+
+- **Question:** how long a join may take (today one 300-second window).
+- **Options:** "invite valid 1 h by default, max 24 h; each stage times out after 10 min of inactivity"; "per-step 10 min + invite 24 h"; "whole join 1 h"; "keep 5 min".
+- **Chosen:** invite valid 1 h by default, max 24 h; each stage times out after 10 min of inactivity.
+- **Reason given:** not recorded.
+- **Contract section:** [Time limits](decentralized-spec.md#85-time-limits); open points Q1 and Q2.
+
+#### DEC-S5. Joining: prompts
+
+- **Question:** how many default-no prompts the new machine shows (today two: selection and commit).
+- **Options:** "one at end"; "keep both".
+- **Chosen:** "one default-no prompt at commit showing everything; a choice is still required if there are competing owner offers".
+- **Reason given:** not recorded.
+- **Contract section:** [Prompts on the new machine](decentralized-spec.md#84-prompts-on-the-new-machine); open point Q5.
+
+#### DEC-S6. Joining: the return code
+
+- **Question:** how the join request gets back to the inviter (today a second manual `psl2-` code).
+- **Options:** "automatic with code fallback"; "keep two codes".
+- **Chosen:** "invite carries a return path (inviter address or helper mailbox) and the join request returns automatically; psl2- is printed only when unreachable".
+- **Reason given:** not recorded.
+- **Contract section:** [The flow](decentralized-spec.md#81-the-flow); open point Q3.
+
+#### DEC-S7. Joining: the admin stage
+
+- **Question:** keep the administrator stage separate when the owner is also the admin?
+- **Options:** "fold when same person"; "always separate".
+- **Chosen:** fold into the owner approval when owner and admin are the same person, 7 → 6 stages.
+- **Reason given:** not recorded.
+- **Contract section:** [Stages](decentralized-spec.md#82-stages); open point Q4.
+
+#### DEC-S8. Renewal: who renews
+
+- **Question:** do hosts renew grants themselves, or does a person run a command?
+- **Options:** "automatic"; "manual `network renew` with warnings".
+- **Chosen:** "hosts renew automatically about 2 days before expiry, and status warns only when no signer has been reachable".
+- **Reason given:** not recorded.
+- **Contract section:** [Who renews what](decentralized-spec.md#71-who-renews-what); open point Q11.
+
+#### DEC-S9. Renewal: the signer
+
+- **Question:** which keys may renew a person's device grants.
+- **Options:** "any of the person's devices"; "original key only".
+- **Chosen:** "any of the person's scope-4 devices may renew that person's device and machine grants; the original key is still needed for anything new or higher; person and host grants are renewed by the root or an admin".
+- **Reason given:** not recorded.
+- **Contract section:** [Who renews what](decentralized-spec.md#71-who-renews-what); open points Q6 to Q10.
+
+#### DEC-S10. Retention
+
+- **Question:** what a renewal keeps of the grants signed under the old generation (today an explicit list).
+- **Options:** "keep all with explicit removal"; "children survive by default with the list dropped from the format"; "keep explicit lists".
+- **Chosen:** "a renewal automatically keeps every current child that isn't banned, and removal is explicit via revoke (permanent) or unbind (undoable); the record format is unchanged".
+- **Reason given:** not recorded.
+- **Contract section:** [Keeping children](decentralized-spec.md#72-keeping-children-retention); open point Q13.
+
+#### DEC-S11. When the root is offline
+
+- **Question:** what keeps admin grants alive, since only the root signs them.
+- **Options:** "root renews with loud warnings"; "admins renew each other"; "30-day admin grants".
+- **Chosen:** "the root's host renews admins automatically, and every host's status counts down 'root unreachable: network stops in N days' from 3 days out; docs advise an always-on root host, and `rotate-root` can move it".
+- **Reason given:** not recorded.
+- **Contract section:** [When the root is offline](decentralized-spec.md#73-when-the-root-is-offline); open point Q12.
+
+#### DEC-S12. Migration of coordinator networks
+
+- **Question:** keep in-place migration of legacy networks?
+- **Options:** "drop with new network + re-invite"; "keep with cancel + 7-day timeout"; "keep with skipping unreachable hosts"; "keep as is".
+- **Chosen:** drop in-place migration. "Instead, create a new coordinator-free network and run `network reinvite OLD NEW` to print an invite for each old member; the old network stays read-only history."
+- **Reason given:** not recorded. Consequence recorded: "#139's three-host owned-migration gate is no longer worth the effort; the migration code is removed in a follow-up."
+- **Contract section:** [Old networks](decentralized-spec.md#14-old-networks); open points Q14 to Q16.
+
+#### DEC-S13. Root conflict
+
+- **Question:** what happens when two valid root states fork.
+- **Options:** "say plainly, make a new network"; "genesis key's branch wins"; "keep today's 'every branch signs' rule".
+- **Chosen:** "a root split freezes changes, status explains it, and recovery is a new network plus re-invites".
+- **Reason given:** not recorded.
+- **Contract section:** [Root split](decentralized-spec.md#132-root-split); open point Q19.
+
+#### DEC-S14. Delivery paths
+
+- **Question:** how many ways a join's packets and finished activation travel.
+- **Options:** "one path (mailbox + resume, recommended)"; "two paths (direct + helper)"; "keep all five".
+- **Chosen:** keep all five: first-contact listener, opaque mailbox, QUIC completion, HTTP activation, resume. This is against the review's recommendation of one path.
+- **Reason given:** not recorded.
+- **Contract section:** [Delivery paths](decentralized-spec.md#9-delivery-paths).
+
+#### DEC-S15. Signing plans
+
+- **Question:** keep stored signing plans and their 5-minute clock?
+- **Options:** "keep the rule and relax the clock"; "keep as is"; "drop plans so the CLI builds the bytes".
+- **Chosen:** "keep the rule that the daemon never asks for a signature over arbitrary bytes, and keep the stored plan; a plan needs re-review only if what it signs changed, with no 5-minute clock".
+- **Reason given:** not recorded.
+- **Contract section:** [Signing plans](decentralized-spec.md#11-signing-plans); open point Q17.
+
+#### DEC-S16. Policy edits
+
+- **Question:** keep edit-number reservations?
+- **Options:** "version check"; "keep reservations".
+- **Chosen:** "an edit names the policy version it replaces and fails if that changed; no reservation table, no 10-minute expiry; capability create still updates policy in the same transaction".
+- **Reason given:** not recorded.
+- **Contract section:** [Policy edits and capability claims](decentralized-spec.md#12-policy-edits-and-capability-claims); open point Q18.
+
+#### DEC-S17. Shape of the specification
+
+- **Question:** what to do with the nine contract files after #139.
+- **Options:** "one plain spec + appendix"; "trim the nine files"; "leave it".
+- **Chosen:** "rewrite as ONE plain spec about the size of the capabilities spec, plus a wire-format appendix; freeze it, then implement in small slice-3-style PRs".
+- **Reason given:** not recorded. The record adds that item 10 of the agenda (how code lands) "is covered by the merge-shape and spec decisions: #139 merges as one gated PR, and the follow-ups are small PRs, each with an implementer, a spec-only test author and Codex review."
+- **Contract section:** [decentralized-spec.md](decentralized-spec.md) and [decentralized-wire-formats.md](decentralized-wire-formats.md).
+
+### DEC-D2: hand-over of DEC-01 to DEC-07 to the agents (2026-10-26)
+
+- **Date:** 2026-10-26.
+- **Area:** coordinator-free networking, how its decisions are made.
+- **Question:** who settles the many design choices inside DEC-01 to DEC-07.
+- **Options:** not recorded.
+- **Chosen:** "For DEC-01 through DEC-07 only, the owner delegated completion on 2026-10-26. Choose the recommended options, document each decision, rationale and discarded alternatives, and continue through concrete contracts, Go/Rust implementation, independent conformance and reviewed PRs without routine clarification requests." The delegation "is specific to this work stream and does not change other tracks."
+- **Reason given:** not recorded.
+- **Source:** [AGENTS.md, Coordinator-free redesign stream](../AGENTS.md#coordinator-free-redesign-stream). The agent-made choices under it are the DEC-EP1, DEC-RT1, DEC-SF1, DEC-RP1 and DEC-RC1 entries and the "Coordinator-free …" sections after the index. DEC-S1 to DEC-S17 are the owner's own later decisions and take precedence where they differ.
+- **Recorded in:** [PR #140](https://github.com/peerspan/peerspan-internal/pull/140).
+
+### DEC-D1: replace the coordinator before launch (2026-10-26)
+
+- **Date:** 2026-10-26.
+- **Area:** coordinator-free networking, launch direction.
+- **Question:** launch the coordinator-based private preview next, or first remove the mandatory coordinator?
+- **Options:** not recorded. The decision replaced the earlier plan to publish the coordinator-based private preview next.
+- **Chosen:** "redesign away from the centralized coordinator model before launch, including the coordinator defaults discussed for release configuration. This replaces publishing the coordinator-based private preview as the immediate next engineering milestone. Both host implementations remain required, with Rust recommended and Go supported."
+- **Also decided, on helpers:** "optional, replaceable discovery and encrypted relay helpers are acceptable, provided Peerspan works without any Peerspan-operated service and helpers cannot grant membership or access. No single per-network coordinator is required. Network owners and administrators retain their explicit signing authority; this does not transfer to helper operators or to arbitrary network members."
+- **Reason given:** the motivation section cites the Tailworm report's privileged forwarding, connector authorization, enrollment credential and service-availability failures, as the report's claims and not reproduced Peerspan findings.
+- **Source:** `docs-internal` [PR 14](https://github.com/peerspan/docs-internal/pull/14), `docs/design.md`, "Coordinator-free launch: decision and working proposal", and `docs/launch-plan.md`.
+- **Recorded in:** [PR #140](https://github.com/peerspan/peerspan-internal/pull/140).
+- **Implemented in:** the DEC PRs merged on 2026-10-26 (#87, #89 to #107, #110 to #128) and the open #139; the simplified design is pending under DEC-S.
 
 ### DEC-EP1: unambiguous numeric endpoints (2026-10-26)
 
