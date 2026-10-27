@@ -532,7 +532,8 @@ reported. An explicit owner filters unrelated bound networks before opening a
 provider. No fake legacy wire policy is emitted from a DEC projection.
 
 The [policy edit supplement](decentralized-policy-edit-contract.md) fixes the
-strict private edit representation, POST reservation/read-only summary and
+strict private edit representation, POST reservation/read-only summary,
+pure typed reapplication preview and interoperable dropped-addition keys, and
 payload-bound edit sequence, including prepare-only claims and atomic final
 settlement. Existing legacy edit history remains distinct.
 
