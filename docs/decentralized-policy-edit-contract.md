@@ -274,9 +274,12 @@ This may conservatively drop more than the one conflicting local addition;
 the existing dropped status reports that named group. Derive its members from
 the frozen references, not later policies or guessed string parsing.
 
-Accumulate retained and newly generated markers, then recompute the candidate
-from the untouched current baseline with the complete skip set. Repeat until
-no new marker is generated, within the finite frozen addition set; refuse a
+Marker groups and their skip sets belong to each exact frozen edit row, never
+an unrelated or later edit. Apply unsettled rows in ascending sequence from
+the same untouched current baseline. Accumulate retained and newly generated
+markers per row, then restart that ordered merge from the baseline with every
+row's complete skip set. Repeat until no new marker is generated, within the
+finite frozen addition sets; refuse a
 resource limit rather than publish a partial merge. Thus a collision noticed
 after a provisional addition cannot survive this pass and reappear on a later
 retry. The same group suppression applies to additions inside an otherwise
