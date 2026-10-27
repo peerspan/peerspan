@@ -82,6 +82,23 @@ func Choose(option string) (*Choice, error) {
 		path, _ := filepath.Abs(option)
 		return &Choice{Signer: s, Source: SourceOption, Path: path}, nil
 	}
+	if existing, err := DiscoverChoice(); err != nil || existing != nil {
+		return existing, err
+	}
+	generated, err := GeneratedKeyPath()
+	if err != nil {
+		return nil, err
+	}
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	return &Choice{Signer: fileSigner{membership.KeySigner{Key: key}}, Source: SourceNew, Path: generated, key: key}, nil
+}
+
+// DiscoverChoice finds an existing original without generating or saving a key.
+// A caller can review the exact identity before deciding whether to create one.
+func DiscoverChoice() (*Choice, error) {
 	generated, err := GeneratedKeyPath()
 	if err != nil {
 		return nil, err
@@ -99,11 +116,7 @@ func Choose(option string) (*Choice, error) {
 		}
 		return &Choice{Signer: s, Source: SourceAgent}, nil
 	}
-	_, key, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	return &Choice{Signer: fileSigner{membership.KeySigner{Key: key}}, Source: SourceNew, Path: generated, key: key}, nil
+	return nil, nil
 }
 
 // soleAgentKey is the only ssh-ed25519 identity in ssh-agent, nil when there

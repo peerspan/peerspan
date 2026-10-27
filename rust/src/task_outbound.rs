@@ -627,6 +627,9 @@ impl Store {
             return Err(Error::Forbidden);
         };
         let last = chain.last().expect("validated chain").clone();
+        if crate::decentralized::history::legacy(self, conn, &last.network_id)? {
+            return Err(Error::Forbidden);
+        }
         if last.depth < 1
             || !crate::task::delegable(conn, &parent.sender_host_id, &parent.task_id)?
             || chain.len() >= MAX_LINKS
@@ -635,7 +638,7 @@ impl Store {
         }
         let bindings = self.bindings(conn, &last.network_id)?;
         if peer == self.identity().id
-            || crate::chain::member(conn, &last.network_id, peer)?.is_none()
+            || self.product_member(conn, &last.network_id, peer)?.is_none()
             || !covered(&last.principals, &format!("host:{peer}"), &|h| {
                 bindings.get(h).cloned()
             })

@@ -283,6 +283,11 @@ func serveMailbox(ctx context.Context, conn net.Conn, peer transportPeer, handle
 		return // No request framing exists yet; close the carrier on saturation.
 	}
 	defer handler.limits.endRequest(peer)
+	serveMailboxRequest(ctx, conn, peer, handler)
+}
+
+func serveMailboxRequest(ctx context.Context, conn net.Conn, peer transportPeer, handler *mailboxHandler) {
+	defer func() { _ = recover() }()
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	reader := bufio.NewReaderSize(conn, 16<<10)
 	response := &wireResponse{conn: conn, header: http.Header{}}

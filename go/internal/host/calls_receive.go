@@ -489,28 +489,26 @@ func (s *Store) trustedSelf(ctx context.Context, q dbQuerier, sender, person, ne
 	if sender == s.identity.ID {
 		return nil, nil
 	}
-	rows, err := q.QueryContext(ctx, `SELECT a.network_id FROM network_members a JOIN network_members b ON a.network_id = b.network_id WHERE a.host_id = ? AND b.host_id = ? AND json_extract(a.record, '$.person_id') = ? AND json_extract(b.record, '$.person_id') = ? ORDER BY a.network_id`, s.identity.ID, sender, person, person)
+	own, err := s.membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, err
 	}
-	var networks []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
+	networks := []string{}
+	for _, n := range own {
+		if n.member.PersonID == nil || *n.member.PersonID != person || (network != "" && n.network != network) {
+			continue
 		}
-		if network == "" || id == network {
-			networks = append(networks, id)
+		members, e := s.membersOf(ctx, q, n.network)
+		if e != nil {
+			return nil, e
 		}
-	}
-	rows.Close()
-	if err = rows.Err(); err != nil {
-		return nil, err
+		if member, ok := members[sender]; ok && member.PersonID != nil && *member.PersonID == person {
+			networks = append(networks, n.network)
+		}
 	}
 	var trusted []string
 	for _, id := range networks {
-		g, err := s.loadGovernance(ctx, q, id)
+		g, err := s.loadProductGovernance(ctx, q, id)
 		if err != nil {
 			return nil, err
 		}
@@ -519,10 +517,10 @@ func (s *Store) trustedSelf(ctx context.Context, q dbQuerier, sender, person, ne
 			continue
 		}
 		p, ok := g.storedPolicy(key)
-		if !ok || !membership.PolicyActive(p, now) {
+		if !ok || !p.active(now) {
 			continue
 		}
-		if p, err = s.enforcedPolicy(ctx, q, id, p); err != nil {
+		if p, err = s.enforcedProductPolicy(ctx, q, g, key, p); err != nil {
 			return nil, err
 		}
 		if contains(p.TrustedHosts, sender) {
@@ -554,7 +552,7 @@ type capabilityRuleCandidate struct {
 // policy older than cited. A listing matches any origin, and records which
 // principals matched.
 func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, person string, cited uint64, network, capability string, origin *Origin, now time.Time, listing bool) ([]capabilityRuleCandidate, bool, error) {
-	own, err := membershipsOf(ctx, q, s.identity.ID)
+	own, err := s.membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -564,7 +562,7 @@ func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, 
 		if n.member.PersonID == nil || *n.member.PersonID != person || sender == s.identity.ID || (network != "" && n.network != network) {
 			continue
 		}
-		g, err := s.loadGovernance(ctx, q, n.network)
+		g, err := s.loadProductGovernance(ctx, q, n.network)
 		if err != nil {
 			return nil, false, err
 		}
@@ -577,19 +575,20 @@ func (s *Store) policyCapabilityRules(ctx context.Context, q dbQuerier, sender, 
 			behind = true
 			continue
 		}
-		if !membership.PolicyActive(p, now) {
+		if !p.active(now) {
 			continue
 		}
 		// Withdrawals of this host's unsettled edits apply at once.
-		if p, err = s.enforcedPolicy(ctx, q, n.network, p); err != nil {
+		if p, err = s.enforcedProductPolicy(ctx, q, g, key, p); err != nil {
 			return nil, false, err
 		}
-		member, err := readJSON[NetworkMember](q.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", n.network, sender))
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
+		members, err := s.membersOf(ctx, q, n.network)
 		if err != nil {
 			return nil, false, err
+		}
+		member, present := members[sender]
+		if !present {
+			continue
 		}
 		until, _ := membership.ParseTime(p.ValidUntil)
 		caller := sender
@@ -677,7 +676,7 @@ func (s *Store) callAuthority(ctx context.Context, tx *sql.Tx, sender string, r 
 			}
 			return callGrant{}, instanceTarget{}, ErrForbidden
 		}
-		if refused, err := blocked(ctx, tx, sender); err != nil || refused {
+		if refused, err := s.blocked(ctx, tx, sender); err != nil || refused {
 			if err == nil {
 				err = ErrForbidden
 			}
@@ -808,7 +807,7 @@ func (s *Store) AcceptCall(ctx context.Context, sender string, r CallRequest) (C
 		// The pending limit refuses the call, and the rollback persists
 		// nothing; otherwise the approval, its notice, and its activity are
 		// stored with the call.
-		if c.Approval, err = requestApproval(ctx, tx, sender, r, capability, changes, g.budgetKey, c.InputSHA256, now); err != nil {
+		if c.Approval, err = s.requestApproval(ctx, tx, sender, r, capability, changes, g.budgetKey, c.InputSHA256, now); err != nil {
 			return CallStatus{}, err
 		}
 		if err = writeReceivedCall(ctx, tx, c); err != nil {
@@ -1072,11 +1071,11 @@ func (s *Store) ListCapabilities(ctx context.Context, sender, network string) ([
 	}
 	defer tx.Rollback()
 	now := time.Now()
-	isBlocked, err := blocked(ctx, tx, sender)
+	isBlocked, err := s.blocked(ctx, tx, sender)
 	if err != nil {
 		return nil, err
 	}
-	own, err := membershipsOf(ctx, tx, s.identity.ID)
+	own, err := s.membershipsOf(ctx, tx, s.identity.ID)
 	if err != nil {
 		return nil, err
 	}

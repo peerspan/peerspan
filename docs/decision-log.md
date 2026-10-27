@@ -15,6 +15,9 @@ Areas: `ACC` access model, `ROAD` roadmap, `PI` person identity, `QR` QUIC and r
 
 Contents:
 - [Full entries](#full-entries), with options:
+  - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
+  - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
+  - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
   - [DEC-Q: answers to the open questions of the first draft](#dec-q-answers-to-the-open-questions-of-the-first-draft-2026-10-27) (2026-10-27)
   - [DEC-S: simplifying the coordinator-free design](#dec-s-simplifying-the-coordinator-free-design-2026-10-27) (2026-10-27)
   - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
@@ -28,6 +31,37 @@ Contents:
 
 ## Full entries
 
+### DEC-OWN1: merge gates for the coordinator-free runtime, PR #139 (2026-10-27)
+
+- **Authority:** owner decision, 2026-10-27.
+- **Question:** before merging PR #139, should a new two-host product smoke suite on a coordinator-free network gate the merge, given that no existing suite exercises cross-host product paths there?
+- **Options:** (A) merge without a new product smoke suite. The gates are unit tests, the native introduction suite (5/5 for Go and Rust in CI on the final head), the independent recovery and preparation-timing suites, `host_service.py` and `agent_adapter.py` with schema 23 state models, the other applicable `decentralized_*` suites, and a clean Codex review. (B) Before merging, the separate conformance author writes one contract-derived two-host smoke suite covering message and task handoff sender persons, approval callers, a delegation chain, agent lookup and capability recipient labels, and it gates the merge.
+- **Chosen:** (A).
+- **Consequence:** the PR body lists the cross-host product paths on coordinator-free networks that no suite covers end to end. Porting the product suites is the next priority after the merge.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
+### DEC-OWN2: retire the coordinator product at the coordinator-free merge (2026-10-27)
+
+- **Authority:** owner decision, 2026-10-27.
+- **Question:** both hosts refuse coordinator-based `network create`, as the [runtime contract](decentralized-runtime-contract.md) requires ("There is no new-network compatibility flag which recreates the old coordinator lifecycle"), and legacy networks become history-only. Should the coordinator product be retired at this merge or kept alongside?
+- **Options:** retire now; keep both.
+- **Chosen:** retire now. The 39 conformance suites that create coordinator networks (capabilities, live delivery, tasks, delegation, launch, policy and others) are retired pending ports to coordinator-free setup, and they do not gate the merge.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
+### DEC-OWN3: in-place migration from coordinator networks (2026-10-27)
+
+- **Authority:** owner decision, 2026-10-27.
+- **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
+- **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+
+### DEC-impl: settled by the implementer in PR #139 (not owner decisions)
+
+- **DEC.impl1. Product readers on coordinator-free networks.** Message and task handoff sender persons, approval callers, delegation chains and shared-network choice, chain originators, the peer agent-lookup route, same-person `sources open-to` and self-access citations read the existing verified current-member adapters (Go `membersOf`/`membershipsOf`, Rust `product_members`/`product_members_of`) in the caller's transaction. Retained legacy history contributes no binding in a coordinator-free runtime, and no legacy member record is synthesized. Discarded: decoding cached native member rows as legacy members.
+- **DEC.impl2. Requester creation view.** Go returns the 201 creation view after the first exact publication attempt, so an identical live retry returns the same view, as the runtime contract requires. The requester's own mailbox endpoint still counts toward `delivery_pending`, because approvers pull frames from it. Discarded: excluding the own mailbox from delivery attention, which would hide an unpublished frame.
+- **DEC.impl3. Explicit root admission.** An explicit `provider_id network_root` admission is never pinned to the approved owner's provider, even when that provider has scope 8. Any other explicit provider choice stays pinned.
+- **DEC.impl4. Policy ceiling.** A native policy edit's `not_after` is capped only by its declared issuer ancestry (the person lease and, for a device provider, the device lease, with their parents), never by the person's administrator lease, so a short administrator lease does not shorten the owner's policy. Discarded: using the provider summary's combined deadline.
+- **DEC.impl5. Transient peer wire budget.** Running out of the shared peer wire budget because of concurrent requests returns `429 rate_limited` with Retry-After, not `quota_exceeded`, and a peer POST reserves its declared body size. `quota_exceeded` stays for fixed framing, object and catalog bounds.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 ### DEC-Q: answers to the open questions of the first draft (2026-10-27)
 
 - **Date:** 2026-10-27.
@@ -391,6 +425,7 @@ Contents:
   only exactly four dotted numeric labels while accepting other legacy numeric forms."
 - **Source:** [endpoint grammar](decentralized-bootstrap-contract.md).
 - **Boundary:** exact TLS key pins remain mandatory; endpoint parsing grants no authority.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 ### DEC-RT1: explicit retention selections before signing (2026-10-26)
 
@@ -403,6 +438,7 @@ Contents:
 - **Source:** [typed signing-intent authority](decentralized-verification-contract.md#action-or-typed-signing-intent-authority).
 - **Reason:** the caller's reviewed kept-grant selection must be independently
   usable at its fixed transition time; signed root verification remains separate.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 ### DEC-SF1: observe additive migration rollback (2026-10-26)
 
@@ -415,6 +451,7 @@ Contents:
 - **Source:** [schema migration rollback control](decentralized-verification-contract.md#schema-migration-rollback-control).
 - **Boundary:** explicit test-mode opt-in, no waiting/partial commit or remote
   control; normal startup without the flag and current23 opening are unaffected.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 ### DEC-RP1: network-root provider host (2026-10-26)
 
@@ -425,6 +462,7 @@ Contents:
 - **Reason:** that would "mix transport placement with the root's authority
   identity". The private intent still pins its actual local writer.
 - **Source:** [public provider views](decentralized-runtime-contract.md#2-public-network-and-provider-views).
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 ### DEC-RC1: exact retention proof closure (2026-10-26)
 
@@ -442,6 +480,7 @@ Contents:
   existing aggregate quotas can refuse an oversized exact closure. Ordinary
   statement closure includes exact resolution/restriction references; operation
   and migration-origin composite proofs keep their separate verification rules.
+- **Implemented in:** [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 ### CAP-16: capabilities slice 3 (2026-10-25)
 
@@ -1413,6 +1452,8 @@ The first contract version (`fbd2b7c`) listed decisions 1 to 9 as "Owner review 
 
 ## Coordinator-free preparation clarifications (2026-10-26)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation:
 
 - **Cold selection:** verify an existing owner's exact current binding and issuer
@@ -1443,6 +1484,8 @@ Selected within the owner's DEC-01 through DEC-07 delegation:
 
 ## Coordinator-free role-specific preapproval (2026-10-26)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation: an approved owner
 intent may preapprove its own dependency-ready finalization under the exact
 reviewed terms, with actual current original-owner authority or device scope4
@@ -1456,6 +1499,8 @@ alternate signer on resume, and any implicit requester final consent.
 
 ## Coordinator-free new-person requested-scope default (2026-10-26)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation: the CLI proposes
 scopes7 for an unadmitted new original person. Its possession-only preview still
 truthfully reports scopes0, and later finalization must use the exact approved
@@ -1468,6 +1513,8 @@ that assumes a future admin grant, silently widening a reviewed mask after P/H
 arrives, and using possession consent as a normal selected signing provider.
 
 ## Coordinator-free durable ceremony consent (2026-10-26)
+
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 Selected within the owner's DEC-01 through DEC-07 delegation: persist approved
 exact typed intent before generating signatures, persist exact signatures and
@@ -1485,6 +1532,8 @@ templates on resume, or silently repairing unshipped older pending shapes.
 
 ## Coordinator-free legacy status and restriction classification (2026-10-26)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation: retain the exact
 existing NetworkStatus response fields for a legacy network and add explicit
 mode legacy_history and migration_required true. Reads stay local and preserve
@@ -1500,6 +1549,8 @@ object as active, forgetting admitted bans after a withdrawal, and conflating a
 complete invalid prepared choice with a missing proof.
 
 ## Coordinator-free migration possession selectors (2026-10-26)
+
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 Selected within the owner's DEC-01 through DEC-07 delegation: use the existing
 private host selector only for an exact owned unbound proposal-bound membership
@@ -1525,6 +1576,8 @@ checks remain mandatory.
 
 ## Coordinator-free known-source serialization compatibility (2026-10-26)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation: compare strictly
 decoded descriptor/source-state fields and exact legacy catalog proof-body
 tuples when independently reconstructed LOCAL state is checked against a frozen
@@ -1544,6 +1597,8 @@ representations only; it does not create semantic signed-object hashes.
 
 ## Coordinator-free exact migration evidence carrier (2026-10-26)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation: encode every
 exact public migration component as canonical standard Base64 in one shared
 owner-local/peer/file evidence carrier. Preserve original decoded proposal,
@@ -1562,6 +1617,8 @@ new persistence schema. Standard JSON tools may transform the outer carrier;
 the bounded decoded public components retain their exact original bytes.
 
 ## Coordinator-free inherited device-ban preparation (2026-10-27)
+
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 Selected within the owner's DEC-01 through DEC-07 delegation: expose one typed
 copy-only original-person preparation route for the exact required inherited
@@ -1589,6 +1646,8 @@ maxima and requiring the writer to own another person's original key.
 
 ## Coordinator-free current views and stable linking defaults (2026-10-27)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation, following concrete
 native workflow failures: add pure v2 person-admission and current-policy reads
 from the same guarded verified snapshot as product authorization. Return exact
@@ -1615,6 +1674,8 @@ These CLI defaults do not change daemon auto-selection or issuer powers.
 
 ## Coordinator-free acknowledgment preview boundary (2026-10-27)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the owner's DEC-01 through DEC-07 delegation: an ACK preview
 may fix only the exact unapproved private typed intent/template, its local
 reference and named monotonic clock. Approval, signature, public acknowledgment,
@@ -1631,6 +1692,8 @@ waiver or runtime-success claim.
 
 ## Coordinator-free root commit preview boundary (2026-10-27)
 
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
+
 Selected within the delegated DEC stream: make the existing typed-preparation
 choice equally explicit for the root commit. A preview may be read-only or fix
 only one exact unapproved private commit intent/template, its root-intent
@@ -1646,6 +1709,8 @@ named row differences and preserve exact retries, original expiry and current
 source/root checks. This decision supplies no runtime success evidence.
 
 ## Coordinator-free typed private root target (2026-10-27)
+
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 Selected: distinguish each private intent's typed subject from its actual
 authenticated writer. Whole-network migration root preparation/commit keeps
@@ -1665,6 +1730,8 @@ one host, adding a metadata column, or accepting a root tuple as local consent.
 No schema, signature, selector, approval, source, fence or adoption gate changes.
 
 ## Coordinator-free verified current groups (2026-10-27)
+
+Implemented in: [PR #139](https://github.com/peerspan/peerspan-internal/pull/139).
 
 Selected within the delegated DEC stream: an aggregate pure v2 current-groups
 read using the same coherent retained authority and guarded decision time as

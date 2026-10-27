@@ -90,7 +90,7 @@ func defaultNetwork(ctx context.Context, client host.Client, args []string, fs *
 	if !flag && !positional {
 		return args, nil
 	}
-	networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
+	networks, err := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func defaultNetwork(ctx context.Context, client host.Client, args []string, fs *
 // attention, 1 when something does, and 2 when the daemon is unreachable.
 func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state string, out io.Writer) error {
 	asJSON, _ := fs.GetBool("json")
-	data, err := client.Call(ctx, "GET", "/v1/status", nil)
+	data, err := client.Call(ctx, "GET", "/v2/status", nil)
 	var unreachable *net.OpError
 	if err != nil && errors.As(err, &unreachable) {
 		dir, _ := filepath.Abs(state)
@@ -137,8 +137,8 @@ func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state
 	if err != nil {
 		return err
 	}
-	var st host.Status
-	if err := json.Unmarshal(data, &st); err != nil {
+	st, modern, err := decodeStatus(data)
+	if err != nil {
 		return err
 	}
 	// The CLI adds the service and its attention items to the daemon's view.
@@ -156,7 +156,7 @@ func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state
 			return err
 		}
 	} else {
-		printStatus(out, st, service)
+		printStatus(out, st, service, modern...)
 	}
 	if len(st.Attention) > 0 {
 		return exitStatus(1)
@@ -164,7 +164,7 @@ func runStatus(ctx context.Context, client host.Client, fs *pflag.FlagSet, state
 	return nil
 }
 
-func printStatus(out io.Writer, st host.Status, service serviceStatus) {
+func printStatus(out io.Writer, st host.Status, service serviceStatus, modern ...host.DecNetworkView) {
 	fmt.Fprintf(out, "Host %s (version %s)\n", st.HostID, st.Version)
 	switch {
 	case service.Manager == nil:
@@ -182,10 +182,14 @@ func printStatus(out io.Writer, st host.Status, service serviceStatus) {
 		}
 		fmt.Fprintln(out, line)
 	}
-	if len(st.Networks) == 0 {
+	if len(st.Networks)+len(modern) == 0 {
 		fmt.Fprintln(out, "\nNetworks: none")
 	} else {
 		fmt.Fprintln(out, "\nNetworks:")
+	}
+	for _, n := range modern {
+		fmt.Fprintf(out, "  %s %s: decentralized, authority %s, provider %s; %d proof deliveries pending\n", n.Name, n.ID, n.Authority.State, n.ProviderState.State, len(n.Delivery.Proofs))
+		fmt.Fprintf(out, "    person %s; current root %s, epoch %d\n", n.Person, n.Root, n.RootEpoch)
 	}
 	for _, n := range st.Networks {
 		sync := "never synced"
@@ -195,7 +199,7 @@ func printStatus(out io.Writer, st host.Status, service serviceStatus) {
 		if n.LastSyncError != nil {
 			sync += ", last sync failed: " + *n.LastSyncError
 		}
-		fmt.Fprintf(out, "  %s %s: %d members, coordinator %s, %s\n", n.Name, n.ID, n.Members, n.Coordinator, sync)
+		fmt.Fprintf(out, "  %s %s: legacy history (migration required), %d members, historical coordinator %s, %s\n", n.Name, n.ID, n.Members, n.Coordinator, sync)
 		if n.Person == nil {
 			fmt.Fprintln(out, "    no person bound to this host")
 			continue
@@ -245,4 +249,50 @@ func printStatus(out io.Writer, st host.Status, service serviceStatus) {
 			fmt.Fprintf(out, "    run: %s\n", item.Command)
 		}
 	}
+}
+
+// The product status fields are shared, while new network entries retain the
+// exact NETWORK_VIEW shape rather than pretending to be legacy coordinator data.
+func decodeStatus(raw []byte) (host.Status, []host.DecNetworkView, error) {
+	var value map[string]json.RawMessage
+	var st host.Status
+	modern := []host.DecNetworkView{}
+	if e := json.Unmarshal(raw, &value); e != nil {
+		return st, nil, e
+	}
+	var networks []json.RawMessage
+	if e := json.Unmarshal(value["networks"], &networks); e != nil {
+		return st, nil, e
+	}
+	delete(value, "networks")
+	common, e := json.Marshal(value)
+	if e != nil {
+		return st, nil, e
+	}
+	if e = json.Unmarshal(common, &st); e != nil {
+		return st, nil, e
+	}
+	st.Networks = []host.NetworkStatus{}
+	for _, raw := range networks {
+		var tag struct {
+			Mode string `json:"mode"`
+		}
+		if e = json.Unmarshal(raw, &tag); e != nil {
+			return st, nil, e
+		}
+		if tag.Mode == "decentralized" {
+			var n host.DecNetworkView
+			if e = json.Unmarshal(raw, &n); e != nil {
+				return st, nil, e
+			}
+			modern = append(modern, n)
+		} else {
+			var n host.NetworkStatus
+			if e = json.Unmarshal(raw, &n); e != nil {
+				return st, nil, e
+			}
+			st.Networks = append(st.Networks, n)
+		}
+	}
+	return st, modern, nil
 }

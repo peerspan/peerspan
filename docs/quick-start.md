@@ -2,7 +2,7 @@
 
 Peerspan lets Claude Code sessions on different machines message each other and hand each other tasks, under access each owner controls. It works for one person with two machines, a pair, and a small team, with the same commands.
 
-**Linux validation:** [scripted installed-bundle checks](results/linking-launch-validation.json) cover approved linking and guided setup across all four Go/Rust CLI/daemon pairings with fixture agents. Private release configuration, macOS, live model task completion and separate-machine user observation remain separate launch work.
+**Preview status:** coordinator-free setup is being validated. The [earlier installed-bundle results](results/linking-launch-validation.json) describe the preceding coordinator-based release; they do not validate this redesign. Both host implementations, a fresh combined-revision end-to-end run, installed setup and live agent work must pass the [release gates](decentralized-network-contract.md#delivery-slices-and-review-gates) before launch.
 
 Release bundles in this preview are native Linux builds; macOS has not yet completed the same validation. Agent integrations and the archive installer need Node.js 22 or later, but not npm, Go, or Rust. The installer also needs Bash, tar, and `flock`. Private release downloads need GitHub CLI (`gh`) authenticated for the repository. Claude Code must already be installed, logged in, and allowed to use development channels by its organization.
 
@@ -62,31 +62,23 @@ machine permits capability calls under existing policy. A linked machine with
 access-management authority can also mark itself trusted; review the requested
 scopes before approving it.
 
-## Enable approved machine linking
+## Connectivity
 
-First upgrade the coordinator and **every admitted host** to this release.
-Keep the agent running and open another terminal for network administration.
-On the machine holding the current network root, find the network ID with
-`peerspan network list`, then propose enabling linking:
+A new network is created locally. It needs no coordinator address, coordinator
+key or Peerspan-operated service. Each machine verifies signed membership and
+access proofs itself.
 
-```sh
-peerspan network enable-linking --network NETWORK_ID
-```
+Fresh installation enables peer networking and a separate pairing listener.
+On a reachable LAN, private contact handoffs include the actual local addresses;
+you do not need manual `serve` flags. An existing service unit is preserved. If
+it lacks a reachable pairing listener, follow the specific configuration and
+restart guidance before trying to link.
 
-Each upgraded host must acknowledge that exact proposal. It can do so during its
-normal sync or by running:
-
-```sh
-peerspan network sync NETWORK_ID
-```
-
-If enablement reports `pending_hosts`, upgrade and sync those machines, then
-rerun `network enable-linking`. Continue only when its result says `active`.
-Offline hosts are not removed automatically. A proposal expires after 24 hours;
-roster or root changes require a fresh proposal. If the current root is an
-external SSH key, add `--root-key PATH` on its existing machine. The root key
-stays there. Activation is permanent; old binaries and legacy coordinator
-mutation paths cannot operate on the activated network.
+Across restrictive firewalls or NAT, configure reachable addresses or optional
+rendezvous and encrypted relay helpers using the [transport configuration](decentralized-runtime-contract.md#9-info-status-transport-configuration-and-release).
+Helpers can be independently operated and replaced. They carry transport data;
+network owners still approve membership and access. A contact handoff alone
+does not connect two unreachable machines.
 
 ## Add your own second machine
 
@@ -98,12 +90,11 @@ peerspan up claude
 ```
 
 With no membership, choose **link** from `create/link/join`. The new machine
-creates its own host and device keys and displays a private pairing code. If no
-coordinator was built into the release, supply the same independently known
-`--coordinator HOST:PORT --coordinator-key KEY` as the existing machine. You can
-also start the explicit flow with `peerspan link` and run `up` after linking.
+creates its own host and device keys and displays a private pairing code.
+Transfer that code privately to your authorized existing machine. You can also
+start the explicit flow with `peerspan link` and run `up` after linking.
 
-On your existing machine:
+Find the network ID with `peerspan network list`. On your existing machine:
 
 ```sh
 peerspan link approve --network NETWORK_ID
@@ -126,10 +117,20 @@ peerspan link resume REQUEST_ID
 ```
 
 Use the request ID returned by approval, and the same `--person-key PATH` if one
-was selected explicitly. If the owner is not an administrator, a current
-administrator separately runs `peerspan link admit --network NETWORK_ID` after
-owner selection and reviews that same private code and target. Review the final
-admission on the new machine before committing.
+was selected explicitly. If a separate administrator is needed, send that
+administrator the selected references from `peerspan link status REQUEST_ID`
+and the same private code. On the administrator’s machine:
+
+```sh
+peerspan link admit --network NETWORK_ID --person PERSON_PUBLIC_KEY \
+  --expect-host-key HOST_PUBLIC_KEY --expect-device-key DEVICE_PUBLIC_KEY \
+  --owner-offer OWNER_OFFER_ID --selection SELECTION_ID
+```
+
+Enter the code at the hidden prompt and check the exact target and selected
+references. The default signer is explicitly `network_root`; add `--signer auto`
+to use the administrator’s current selected signing path instead. Review the
+final admission on the new machine before committing.
 
 `up` continues to attachment only after the request is `linked`. Once linked,
 this machine can approve a third machine using its live device authority while
@@ -161,22 +162,65 @@ Teammates use their own person identity. On an existing authorized machine:
 peerspan invite bob
 ```
 
-The output includes a private token and an explicit `peerspan join ...` command.
-The default invite lasts up to 7 days, bounded by its signer, and works once for
-a new host. Invites created
-after linking activation also bind the exact signed feature and coordinator.
-The teammate installs Peerspan and runs:
+The output contains a private `psi2-` contact introduction. It lasts five
+minutes and grants no membership. Send it privately to the teammate; do not put
+it in a command argument or shell history. On the teammate's machine:
 
 ```sh
 cd ~/src/project
-peerspan up claude --join TOKEN
+peerspan up claude --join
 ```
 
-Keep the token private. An older unwrapped invite may be refused after network
-activation; obtain a fresh invite instead of copying a person key or bypassing
-the feature check. If membership succeeds but person admission or binding does
-not, `up` stops before attachment and reports the exact identity repair step.
-A retry preserves the existing membership and does not redeem the invite again.
+Enter the introduction at the hidden prompt. Review the network, genesis
+fingerprint, inviter, proposed name and any person-key pin. Select an existing
+original identity on this machine or explicitly approve creating a new one.
+`peerspan join` provides the same explicit handoff without attaching an agent;
+`--invite-file PATH` reads a protected file instead of prompting.
+
+The teammate returns the new private `psl2-` request code. For a new person,
+there are three participants in approval: that person's original key on their
+own machine, the administrator on an authorized existing machine, and the new
+machine's separate selection and final consent. The inviter cannot sign as the
+new person.
+
+1. On the teammate's machine, run `peerspan link approve --network NETWORK_ID
+   --person PERSON_PUBLIC_KEY` and enter its request code. Review and approve
+   the exact host/device and requested powers. The new-person default is 7;
+   this initial possession review grants no membership or administrator power.
+2. Run `peerspan link resume REQUEST_ID` on that machine and select the exact
+   owner offer when prompted. Selection defaults to no.
+3. On the administrator's machine, run `peerspan link admit --network NETWORK_ID
+   --person PERSON_PUBLIC_KEY` with the same private code. Check the exact
+   host/device, owner-offer and selection references from `link status` and the
+   review. Supply `--owner-offer OWNER_OFFER_ID --selection SELECTION_ID` and
+   the matching `--expect-host-key` / `--expect-device-key` pins. The default
+   signer is explicitly `network_root`; `--signer auto` selects the existing
+   administrator's current signing path instead.
+4. Back on the teammate's machine, finalize its exact owner consent. Use the
+   references shown by `peerspan link status REQUEST_ID`:
+
+   ```sh
+   peerspan link finalize REQUEST_ID --network NETWORK_ID --context CONTEXT_ID \
+     --expect-person PERSON_PUBLIC_KEY --expect-host-key HOST_PUBLIC_KEY \
+     --expect-device-key DEVICE_PUBLIC_KEY --owner-offer OWNER_OFFER_ID \
+     --selection SELECTION_ID --administrator-offer ADMINISTRATOR_OFFER_ID
+   ```
+
+   Omission of `--approve` previews. After reviewing those same terms, rerun
+   with `--approve`; use `--person-key PATH` if the original SSH signer was
+   selected explicitly. That private key stays on this machine.
+5. Resume the same request and separately accept its complete final manifest
+   at **Commit this exact machine link?**, which also defaults to no. Run `up`
+   again only after the request is `linked` and its signer is usable.
+
+A pending request exits nonzero and retains its identity and next step. Keep
+using that request after an interruption; do not create another person or copy
+an original key. The introduction must still be current when starting. The new
+request has its own fixed five-minute signing window: finish owner approval,
+admission, finalization and both requester confirmations within that window.
+After expiry, follow the retained request’s recovery guidance; expiry does not
+permit a new signature or consent on the old attempt. Already durably signed
+completion may continue only under the protocol’s separate recovery rules.
 
 Administrators can delegate administration with `peerspan network delegate-admin`
 and maintain groups with `peerspan network group set`; see `peerspan help advanced`.
@@ -240,7 +284,7 @@ peerspan status
 
 `peerspan help advanced` lists every other command: grants, routes, explicit expiries, `session setup`, and the network administration commands. The [manual agent testing guide](manual-agent-testing.md) uses them to wire up sessions by hand, including Codex and OpenCode. `peerspan up codex` and `peerspan up opencode` ask for the existing conversation inputs at a terminal, or accept them with `--option KEY=VALUE`; their integrations attach to conversations that are already running (see `share/peerspan/integrations/codex/README.md` and `share/peerspan/integrations/opencode/README.md`).
 
-**A self-hosted coordinator.** Run `peerspan-coord`, built from the Go source, and start with `peerspan up claude --create acme --coordinator HOST:PORT --coordinator-key KEY`. Joining always uses the coordinator named in the invite.
+**Existing coordinator-based networks.** Upgrade every admitted host and use the explicit [migration procedure](decentralized-runtime-contract.md#7-explicit-migration-preparation-and-adoption). Migration needs the current legacy root, acknowledgment from every known nonrevoked admitted host, and original-person approval for each owned host. An unavailable host is not silently removed. Keep the existing keys and state; creating a replacement network or copying keys is not migration. New networks need no enable-linking step or coordinator configuration.
 
 **Building a bundle.** Until release archives are published, a maintainer can build one from a checkout:
 
@@ -249,7 +293,7 @@ scripts/package-release.sh rust 0.1.0
 # supported alternative: scripts/package-release.sh go 0.1.0
 ```
 
-Set `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` to build in a default coordinator; without them, `network create` needs `--coordinator`. Existing output is never overwritten unless `PEERSPAN_PACKAGE_OVERWRITE=1` is set, and packaging uses `flock` from util-linux to serialize builds of the same release. The command writes an archive and checksum under `dist/`, built for the current Linux machine with production dependencies from the committed npm lockfiles, and includes no coordinator or test probe. Maintainers can check a bundle with Python 3.12 or newer:
+Leave `PEERSPAN_COORDINATOR` and `PEERSPAN_COORDINATOR_KEY` unset. Packaging refuses these obsolete options, including empty values; host bundles need no embedded service identity. Existing output is never overwritten unless `PEERSPAN_PACKAGE_OVERWRITE=1` is set, and packaging uses `flock` from util-linux to serialize builds of the same release. The command writes an archive and checksum under `dist/`, built for the current Linux machine with production dependencies from the committed npm lockfiles, and includes no coordinator or test probe. Maintainers can check a bundle with Python 3.12 or newer:
 
 ```sh
 python3 conformance/installed_bundle.py \

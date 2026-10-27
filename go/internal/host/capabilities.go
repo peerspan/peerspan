@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,10 +11,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
 
+	dec "github.com/peerspan/peerspan/go/internal/decentralized"
 	"github.com/peerspan/peerspan/go/internal/membership"
 )
 
@@ -308,7 +311,7 @@ func (s *Store) recipients(ctx context.Context, q dbQuerier, name string) ([]Rec
 		}
 		if labels[r.NetworkID] == nil {
 			labels[r.NetworkID] = map[string]string{}
-			if g, err := s.loadGovernance(ctx, q, r.NetworkID); err == nil {
+			if g, err := s.loadProductGovernance(ctx, q, r.NetworkID); err == nil {
 				for _, p := range g.personList() {
 					labels[r.NetworkID]["person:"+p.PersonID] = p.Member
 				}
@@ -328,6 +331,9 @@ func (s *Store) recipients(ctx context.Context, q dbQuerier, name string) ([]Rec
 // boundElsewhere reports whether a stored capability rule of this host's
 // person binds a name to another host.
 func (s *Store) boundElsewhere(ctx context.Context, q dbQuerier, name string) (bool, error) {
+	if e := s.checkDecCapabilityNames(ctx, q); e != nil {
+		return false, e
+	}
 	rules, err := s.ownCapabilityRules(ctx, q)
 	if err != nil {
 		return false, err
@@ -460,6 +466,18 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	if !rec.Shareable {
 		return Capability{}, fmt.Errorf("%w: source %s/%s is not shareable (%s)", ErrInvalid, r.Source.Agent, r.Source.Server, deref(rec.Reason))
 	}
+	var sourceGuard [32]byte
+	if len(r.Catalogs) > 0 {
+		values, e := toolValues(ctx, s.db, agentID, r.Source.Server)
+		if e != nil {
+			return Capability{}, e
+		}
+		guard, _ := json.Marshal(struct {
+			Record toolServerRecord
+			Values map[string]string
+		}{rec, values})
+		sourceGuard = sha256.Sum256(guard)
+	}
 	if r.EnvFile != nil {
 		if info, err := os.Stat(*r.EnvFile); err != nil || !info.Mode().IsRegular() {
 			return Capability{}, fmt.Errorf("%w: env_file %s does not exist", ErrInvalid, *r.EnvFile)
@@ -470,6 +488,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		c.Operations = []string{}
 	}
 	snap := rec.toolSnapshotState
+	var snapshotSpec *launchSpec
 	if c.ownInstance() {
 		// A capability with its own credential is checked against a snapshot
 		// taken with that credential.
@@ -481,6 +500,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 		if err != nil {
 			return Capability{}, fmt.Errorf("%w: the snapshot with the capability's credential failed: %v", ErrInvalid, err)
 		}
+		snapshotSpec = &spec
 		at := timestamp(time.Now())
 		snap = toolSnapshotState{Tools: taken.Tools, Resources: taken.Resources, SnapshotAt: &at}
 		if spec.ghPath != "" {
@@ -518,10 +538,66 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			return Capability{}, err
 		}
 	}
+	decTime, e := decNow()
+	if e != nil {
+		return Capability{}, e
+	}
+	decClaims, legacyCatalogs, e := s.prepareDecCapabilityClaims(ctx, tx, r, linkTime(decTime))
+	if e != nil {
+		return Capability{}, e
+	}
+	if len(decClaims) > 0 {
+		current, e := readToolServer(ctx, tx, agentID, r.Source.Server)
+		if e != nil {
+			return Capability{}, e
+		}
+		values, e := toolValues(ctx, tx, agentID, r.Source.Server)
+		if e != nil {
+			return Capability{}, e
+		}
+		guard, _ := json.Marshal(struct {
+			Record toolServerRecord
+			Values map[string]string
+		}{current, values})
+		if !current.Shareable || sha256.Sum256(guard) != sourceGuard {
+			return Capability{}, ErrConflict
+		}
+		if snapshotSpec != nil {
+			actual, e := s.toolLaunch(ctx, tx, agentID, r.Source.Server, c.credential())
+			if e != nil {
+				return Capability{}, e
+			}
+			if !reflect.DeepEqual(*snapshotSpec, actual) {
+				return Capability{}, ErrConflict
+			}
+		}
+		if agentID != builtinAgent {
+			var currentAgent string
+			if e = tx.QueryRowContext(ctx, `SELECT id FROM agents WHERE name=?`, r.Source.Agent).Scan(&currentAgent); e != nil {
+				return Capability{}, e
+			}
+			if currentAgent != agentID {
+				return Capability{}, ErrConflict
+			}
+		}
+		if elsewhere, e := s.boundElsewhere(ctx, tx, r.Name); e != nil {
+			return Capability{}, e
+		} else if elsewhere {
+			return Capability{}, ErrConflict
+		}
+	}
+	r.Catalogs = legacyCatalogs
 	// Original-person claims on an activated network also enter the immutable
 	// catalog; their signed legacy bytes are never replaced by a projection.
 	legacyPolicies := []membership.Policy{}
 	for _, policy := range r.Policies {
+		modern, e := decContextMode(ctx, tx, policy.NetworkID)
+		if e != nil {
+			return Capability{}, e
+		}
+		if modern {
+			return Capability{}, decFailure("invalid")
+		}
 		feature, _, e := readLinkFeature(ctx, tx, policy.NetworkID)
 		if e != nil {
 			return Capability{}, e
@@ -549,7 +625,7 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 	for network, claim := range linkClaims {
 		projected[network] = claim.policy
 	}
-	claims, err := s.checkClaims(ctx, tx, r, projected)
+	claims, err := s.checkClaims(ctx, tx, r, projected, decClaims)
 	if err != nil {
 		return Capability{}, err
 	}
@@ -569,6 +645,9 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 			}
 			return Capability{}, err
 		}
+	}
+	if err = s.applyDecCapabilityClaims(ctx, tx, decClaims); err != nil {
+		return Capability{}, err
 	}
 	if err = putJSON(ctx, tx, `INSERT INTO capabilities (record, name) VALUES (?, ?)`, c, c.Name); err != nil {
 		if isUniqueViolation(err) {
@@ -594,8 +673,8 @@ func (s *Store) CreateCapability(ctx context.Context, r CreateCapability) (Capab
 // exactly one for each network in which this host is bound to that person,
 // verifying, and holding this host's rule for the name. Networks where this
 // host is bound to another person gain the claim at their first share.
-func (s *Store) checkClaims(ctx context.Context, q dbQuerier, r CreateCapability, catalogs map[string]membership.Policy) ([]membership.Policy, error) {
-	own, err := membershipsOf(ctx, q, s.identity.ID)
+func (s *Store) checkClaims(ctx context.Context, q dbQuerier, r CreateCapability, catalogs map[string]membership.Policy, decClaims map[string]decCapabilityClaim) ([]membership.Policy, error) {
+	own, err := s.membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -622,6 +701,18 @@ func (s *Store) checkClaims(ctx context.Context, q dbQuerier, r CreateCapability
 		}
 		signer, given[network] = person, policy
 	}
+	decGiven := map[string]bool{}
+	for network, claim := range decClaims {
+		person := personIDOf(claim.owner)
+		if signer != "" && signer != person {
+			return nil, decFailure("forbidden")
+		}
+		if _, duplicate := given[network]; duplicate {
+			return nil, decFailure("invalid")
+		}
+		signer = person
+		decGiven[network] = true
+	}
 	out := []membership.Policy{}
 	for _, n := range own {
 		if n.member.PersonID == nil {
@@ -629,6 +720,10 @@ func (s *Store) checkClaims(ctx context.Context, q dbQuerier, r CreateCapability
 		}
 		// Without policies, the claims of any person bound here are missing.
 		if signer != "" && *n.member.PersonID != signer {
+			continue
+		}
+		if decGiven[n.network] {
+			delete(decGiven, n.network)
 			continue
 		}
 		p, ok := given[n.network]
@@ -651,6 +746,9 @@ func (s *Store) checkClaims(ctx context.Context, q dbQuerier, r CreateCapability
 			return nil, fmt.Errorf("%w: the policy for network %s has no claim of %s for this host", ErrInvalid, n.network, r.Name)
 		}
 		out = append(out, p)
+	}
+	if len(decGiven) != 0 {
+		return nil, decFailure("forbidden")
 	}
 	for network := range given {
 		return nil, fmt.Errorf("%w: this host is not bound to the policies' person in network %s", ErrInvalid, network)
@@ -712,25 +810,52 @@ func (s *Store) CapabilityOf(ctx context.Context, name string, lookup bool) (Cap
 
 // ruleHeld reports whether any stored policy, of any owner and in any
 // network of this host, holds this host's rule for a capability name.
-func (s *Store) ruleHeld(ctx context.Context, name string) (string, bool, error) {
-	networks, err := s.Networks(ctx)
-	if err != nil {
-		return "", false, err
+func (s *Store) ruleHeld(ctx context.Context, q dbQuerier, name string) (string, bool, error) {
+	ids, e := s.networkIDs(ctx, q)
+	if e != nil {
+		return "", false, e
 	}
-	for _, n := range networks {
-		g, err := s.loadGovernance(ctx, s.db, n.ID)
-		if err != nil {
-			return "", false, err
+	for _, id := range ids {
+		g, e := s.loadProductGovernance(ctx, q, id)
+		if e != nil {
+			return "", false, e
 		}
-		current := g.persons()
-		for _, key := range sortedKeys(g.persisted.policies) {
-			p, ok := g.storedPolicy(key)
-			if _, person := current[key]; !ok || !person {
-				continue // a removed person's policy no longer applies
+		if g.snapshot != nil {
+			if e = decCapabilityReadRoot(g.projection); e != nil {
+				return "", false, e
 			}
-			for _, r := range p.CapabilityRules {
-				if r.Host == s.identity.ID && r.Capability == name {
-					return n.ID, true, nil
+			for _, stream := range g.projection.Streams {
+				if len(stream.Stream) != 2 || stream.Stream[0] != "person" {
+					continue
+				}
+				if _, _, e = g.projection.Current(stream.Stream); e != nil {
+					if decInactiveRead(dec.Code(e)) {
+						continue
+					}
+					return "", false, e
+				}
+				policy, ok, e := checkedDecCapabilityPolicy(g.projection, stream.Stream[1])
+				if e != nil {
+					return "", false, e
+				}
+				if ok {
+					for _, rule := range policy.CapabilityRules {
+						if rule.Host == s.identity.ID && rule.Capability == name {
+							return id, true, nil
+						}
+					}
+				}
+			}
+			continue
+		}
+		for _, key := range g.personKeys() {
+			p, ok := g.storedPolicy(key)
+			if !ok {
+				continue
+			}
+			for _, rule := range p.CapabilityRules {
+				if rule.Host == s.identity.ID && rule.Capability == name {
+					return id, true, nil
 				}
 			}
 		}
@@ -741,25 +866,30 @@ func (s *Store) ruleHeld(ctx context.Context, name string) (string, bool, error)
 // RemoveCapability deletes a capability once no stored rule of this host's
 // person shares it from this host; the CLI signs those withdrawals first.
 func (s *Store) RemoveCapability(ctx context.Context, name string) (Capability, error) {
-	c, err := readCapability(ctx, s.db, name)
+	s.syncing.Lock()
+	defer s.syncing.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Capability{}, err
 	}
-	if network, held, err := s.ruleHeld(ctx, name); err != nil || held {
+	defer tx.Rollback()
+	c, err := readCapability(ctx, tx, name)
+	if err != nil {
+		return Capability{}, err
+	}
+	// Withdrawal/name checks and deletion share the same snapshot and writer
+	// transaction. A concurrent claim cannot be hidden between an earlier read
+	// and deletion, and a refusal retires neither the resource nor credentials.
+	if network, held, err := s.ruleHeld(ctx, tx, name); err != nil || held {
 		if err == nil {
 			err = fmt.Errorf("%w: a stored policy in network %s still holds this host's rule for %s; withdraw it first", ErrConflict, network, name)
 		}
 		return Capability{}, err
 	}
-	view, err := s.capabilityView(ctx, s.db, c)
+	view, err := s.capabilityView(ctx, tx, c)
 	if err != nil {
 		return view, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return view, err
-	}
-	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, `DELETE FROM capabilities WHERE name = ?`, name); err != nil {
 		return view, err
 	}

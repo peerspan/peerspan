@@ -12,7 +12,10 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use peerspan_host::{
     persons::{self, PersonSigner},
-    policy::{ACTION, ALL_AGENTS, Content, DELEGATE_ACTION, EditEntry, Policy, Rule, TASK_ACTION},
+    policy::{
+        ACTION, ALL_AGENTS, Content, DELEGATE_ACTION, EditEntry, Policy, PolicyBody, Rule,
+        TASK_ACTION,
+    },
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -26,6 +29,9 @@ pub(crate) trait PolicySigning {
     fn public_key(&self) -> Vec<u8>;
     fn original(&self) -> Option<&PersonSigner>;
     fn device(&self) -> Option<(&str, &str)> {
+        None
+    }
+    fn decentralized(&self) -> Option<&crate::decentralized_policy_cli::Provider> {
         None
     }
     fn public_key_b64(&self) -> String {
@@ -46,6 +52,10 @@ pub(crate) enum PolicySigner {
         person: Vec<u8>,
         certificate: String,
         not_after: String,
+    },
+    Decentralized {
+        provider: crate::decentralized_policy_cli::Provider,
+        original: Option<PersonSigner>,
     },
 }
 impl PolicySigner {
@@ -69,6 +79,14 @@ impl PolicySigner {
         path: Option<&Path>,
         allow_unbound: bool,
     ) -> anyhow::Result<Self> {
+        if let Some(provider) =
+            crate::decentralized_policy_cli::provider(local, network, path, allow_unbound).await?
+        {
+            let original = path
+                .map(|p| PersonSigner::open(Some(p)).map_err(failed))
+                .transpose()?;
+            return Ok(Self::Decentralized { provider, original });
+        }
         if path.is_none() {
             match local
                 .get(format!("/v1/networks/{}/link-signer", encoded(network)))
@@ -160,12 +178,16 @@ impl PolicySigning for PolicySigner {
         match self {
             Self::Original(s) => s.public_key().to_vec(),
             Self::Device { person, .. } => person.clone(),
+            Self::Decentralized { provider, .. } => STANDARD
+                .decode(&provider.person)
+                .expect("checked native person"),
         }
     }
     fn original(&self) -> Option<&PersonSigner> {
         match self {
             Self::Original(s) => Some(s),
             Self::Device { .. } => None,
+            Self::Decentralized { original, .. } => original.as_ref(),
         }
     }
     fn device(&self) -> Option<(&str, &str)> {
@@ -175,6 +197,12 @@ impl PolicySigning for PolicySigner {
                 not_after,
                 ..
             } => Some((certificate, not_after)),
+            _ => None,
+        }
+    }
+    fn decentralized(&self) -> Option<&crate::decentralized_policy_cli::Provider> {
+        match self {
+            Self::Decentralized { provider, .. } => Some(provider),
             _ => None,
         }
     }
@@ -200,12 +228,51 @@ pub(crate) struct Editor {
     pub person_id: String,
     numbered: bool,
     device_certificate: Option<String>,
+    decentralized: Option<crate::decentralized_policy_cli::Provider>,
 }
 /// Where one edit starts.
+#[derive(Clone)]
+pub(crate) struct PolicyValue {
+    body: PolicyBody,
+    legacy: Option<Policy>,
+}
+impl PolicyValue {
+    fn legacy(value: Policy) -> Self {
+        Self {
+            body: value.unsigned_body(),
+            legacy: Some(value),
+        }
+    }
+    fn native(body: PolicyBody) -> Self {
+        Self { body, legacy: None }
+    }
+    fn native_body(&self) -> anyhow::Result<&PolicyBody> {
+        anyhow::ensure!(
+            self.legacy.is_none(),
+            "expected an unsigned native policy body"
+        );
+        Ok(&self.body)
+    }
+}
+impl std::ops::Deref for PolicyValue {
+    type Target = PolicyBody;
+    fn deref(&self) -> &PolicyBody {
+        &self.body
+    }
+}
+impl serde::Serialize for PolicyValue {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match &self.legacy {
+            Some(p) => p.serialize(s),
+            None => self.body.serialize(s),
+        }
+    }
+}
 pub(crate) struct Start {
-    pub policy: Option<Policy>,
+    pub policy: Option<PolicyValue>,
     pub version: u64,
     seq: Option<u64>,
+    decision_time: Option<String>,
 }
 impl Editor {
     pub async fn new(
@@ -218,6 +285,16 @@ impl Editor {
             .as_str()
             .context("invalid daemon response")?
             .to_owned();
+        if let Some(provider) = signer.decentralized() {
+            return Ok(Self {
+                network: network.into(),
+                host,
+                person_id: me,
+                numbered: true,
+                device_certificate: None,
+                decentralized: Some(provider.clone()),
+            });
+        }
         let members = local
             .get(format!("/v1/networks/{}/members", encoded(network)))
             .await?;
@@ -231,10 +308,27 @@ impl Editor {
             person_id: me,
             numbered,
             device_certificate: signer.device().map(|(id, _)| id.into()),
+            decentralized: None,
         })
     }
     /// The starting point of the next edit.
-    pub async fn start(&self, local: &Local<'_>) -> anyhow::Result<Start> {
+    pub async fn start(
+        &self,
+        local: &Local<'_>,
+        original: Option<&PersonSigner>,
+    ) -> anyhow::Result<Start> {
+        if let Some(provider) = &self.decentralized {
+            crate::decentralized_policy_cli::reapply(local, &self.network, provider, original)
+                .await?;
+            let v =
+                crate::decentralized_policy_cli::reserve(local, &self.network, provider).await?;
+            return Ok(Start {
+                policy: v.policy.map(PolicyValue::native),
+                version: v.version,
+                seq: Some(v.seq),
+                decision_time: Some(v.decision_time),
+            });
+        }
         if self.numbered {
             let v = local
                 .get(format!(
@@ -245,10 +339,11 @@ impl Editor {
             return Ok(Start {
                 policy: match &v["policy"] {
                     Value::Null => None,
-                    p => Some(serde_json::from_value(p.clone())?),
+                    p => Some(PolicyValue::legacy(serde_json::from_value(p.clone())?)),
                 },
                 version: v["version"].as_u64().context("invalid daemon response")?,
                 seq: Some(v["seq"].as_u64().context("invalid daemon response")?),
+                decision_time: None,
             });
         }
         let path = format!(
@@ -256,8 +351,10 @@ impl Editor {
             encoded(&self.network),
             encoded(&self.person_id)
         );
-        let policy: Option<Policy> = match local.get(path).await {
-            Ok(value) => Some(serde_json::from_value(strip_view(value))?),
+        let policy: Option<PolicyValue> = match local.get(path).await {
+            Ok(value) => Some(PolicyValue::legacy(serde_json::from_value(strip_view(
+                value,
+            ))?)),
             Err(e)
                 if e.downcast_ref::<DaemonError>()
                     .is_some_and(|d| d.status == 404) =>
@@ -270,6 +367,7 @@ impl Editor {
             version: policy.as_ref().map_or(0, |p| p.version),
             policy,
             seq: None,
+            decision_time: None,
         })
     }
     /// Whether the edit route's starting policy differs in content from
@@ -277,18 +375,27 @@ impl Editor {
     pub async fn folds_in(
         &self,
         local: &Local<'_>,
-        start: &Option<Policy>,
+        start: &Option<PolicyValue>,
     ) -> anyhow::Result<bool> {
         if !self.numbered {
             return Ok(false);
+        }
+        if self.decentralized.is_some() {
+            // The exact old-sequence reapplication completed before reserving
+            // this selected baseline; no unsigned merged view is returned.
+            return Ok(start
+                .as_ref()
+                .is_none_or(|p| !p.edits().iter().any(|e| e.host == self.host)));
         }
         let path = format!(
             "/v1/networks/{}/policy?person={}",
             encoded(&self.network),
             encoded(&self.person_id)
         );
-        let stored: Option<Policy> = match local.get(path).await {
-            Ok(value) => Some(serde_json::from_value(strip_view(value))?),
+        let stored: Option<PolicyValue> = match local.get(path).await {
+            Ok(value) => Some(PolicyValue::legacy(serde_json::from_value(strip_view(
+                value,
+            ))?)),
             Err(e)
                 if e.downcast_ref::<DaemonError>()
                     .is_some_and(|d| d.status == 404) =>
@@ -297,7 +404,7 @@ impl Editor {
             }
             Err(e) => return Err(e),
         };
-        let content = |p: &Option<Policy>| {
+        let content = |p: &Option<PolicyValue>| {
             p.as_ref().map(|p| {
                 let mut c = p.content();
                 c.trusted_hosts.sort();
@@ -317,7 +424,7 @@ impl Editor {
         mut content: Content,
         duration: Option<TimeDelta>,
         edit: bool,
-    ) -> anyhow::Result<Policy> {
+    ) -> anyhow::Result<PolicyValue> {
         // Identical duplicate rules of a version 1 policy become one.
         content.dedup_rules();
         let duration = match (duration, &start.policy) {
@@ -334,11 +441,36 @@ impl Editor {
             (Some(p), _) => p.edits().to_vec(),
             (None, _) => Vec::new(),
         };
-        let now = Utc::now();
+        let now = start
+            .decision_time
+            .as_ref()
+            .map(|s| DateTime::parse_from_rfc3339(s).map(|t| t.with_timezone(&Utc)))
+            .transpose()?
+            .unwrap_or_else(Utc::now);
         let version = start
             .version
             .checked_add(1)
             .context("access version exhausted")?;
+        if let Some(provider) = &self.decentralized {
+            let until = (now + duration.min(TimeDelta::days(1)))
+                .min(DateTime::parse_from_rfc3339(&provider.not_after)?.with_timezone(&Utc));
+            anyhow::ensure!(
+                until > now,
+                "selected authority has expired; repair this network's provider"
+            );
+            return Ok(PolicyValue::native(PolicyBody {
+                format: Some(2),
+                network_id: self.network.clone(),
+                person_public_key: signer.public_key_b64(),
+                version,
+                issued_at: at(now),
+                valid_until: at(until),
+                rules: content.rules,
+                capability_rules: Some(content.capability_rules),
+                trusted_hosts: Some(content.trusted_hosts),
+                edits: Some(edits),
+            }));
+        }
         if let Some(original) = signer.original() {
             return Policy::sign_v2(
                 original,
@@ -349,6 +481,7 @@ impl Editor {
                 content,
                 edits,
             )
+            .map(PolicyValue::legacy)
             .map_err(failed);
         }
         let (_, not_after) = signer.device().context("missing selected provider")?;
@@ -358,7 +491,7 @@ impl Editor {
             until > now,
             "selected device authority has expired; renew this person's device"
         );
-        Ok(Policy {
+        Ok(PolicyValue::legacy(Policy {
             format: Some(2),
             network_id: self.network.clone(),
             person_public_key: signer.public_key_b64(),
@@ -370,10 +503,48 @@ impl Editor {
             trusted_hosts: Some(content.trusted_hosts),
             edits: Some(edits),
             signature: "-".into(),
-        })
+        }))
     }
     /// Submits a signed policy.
-    pub async fn submit(&self, local: &Local<'_>, policy: &Policy) -> anyhow::Result<Value> {
+    pub async fn prepare_claim(
+        &self,
+        local: &Local<'_>,
+        signer: &dyn PolicySigning,
+        policy: &PolicyValue,
+        name: &str,
+    ) -> anyhow::Result<Option<Value>> {
+        let Some(provider) = &self.decentralized else {
+            return Ok(None);
+        };
+        Ok(Some(
+            crate::decentralized_policy_cli::submit(
+                local,
+                &self.network,
+                provider,
+                signer.original(),
+                policy.native_body()?,
+                Some(name),
+            )
+            .await?,
+        ))
+    }
+    pub async fn submit(
+        &self,
+        local: &Local<'_>,
+        signer: &dyn PolicySigning,
+        policy: &PolicyValue,
+    ) -> anyhow::Result<Value> {
+        if let Some(provider) = &self.decentralized {
+            return crate::decentralized_policy_cli::submit(
+                local,
+                &self.network,
+                provider,
+                signer.original(),
+                policy.native_body()?,
+                None,
+            )
+            .await;
+        }
         if let Some(certificate) = &self.device_certificate {
             let mut payload = serde_json::to_value(policy)?;
             payload
@@ -399,6 +570,28 @@ impl Editor {
 }
 
 pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<Option<Value>> {
+    if let AccessCommand::Show { network, person } = command {
+        let local = Local(socket);
+        let network_id = resolved(network);
+        if let Some(view) =
+            crate::decentralized_policy_cli::network_view(&local, network_id).await?
+        {
+            let person = if let Some(given) = person {
+                person_key(&local, network_id, given).await?
+            } else {
+                view["person_public_key"]
+                    .as_str()
+                    .filter(|p| *p != "-")
+                    .context("this host has no bound original person in the network")?
+                    .to_owned()
+            };
+            let (_, body) = crate::decentralized_policy_cli::current_policy(&local, &view, &person)
+                .await?
+                .context("no current policy for that person")?;
+            return Ok(Some(serde_json::to_value(body)?));
+        }
+        return Ok(None);
+    }
     let (network, person_key_path) = match command {
         AccessCommand::Allow {
             network,
@@ -436,7 +629,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let start = editor.start(&local).await?;
+        let start = editor.start(&local, signer.original()).await?;
         let current = &start.policy;
         let mut duration = None;
         let mut rules = current
@@ -517,7 +710,7 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
             _ => unreachable!("not a signing access command"),
         }
         let policy = editor.sign(&signer, &start, kept(current, rules), duration, edit)?;
-        match editor.submit(&local, &policy).await {
+        match editor.submit(&local, &signer, &policy).await {
             Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
             outcome => return Ok(Some(outcome?)),
         }
@@ -525,8 +718,8 @@ pub async fn command(command: &AccessCommand, socket: &Path) -> anyhow::Result<O
 }
 
 /// New rules with the current policy's tool rules and trusted hosts.
-pub(crate) fn kept(current: &Option<Policy>, rules: Vec<Rule>) -> Content {
-    let mut content = current.as_ref().map(Policy::content).unwrap_or_default();
+pub(crate) fn kept(current: &Option<PolicyValue>, rules: Vec<Rule>) -> Content {
+    let mut content = current.as_ref().map(|p| p.content()).unwrap_or_default();
     content.rules = rules;
     content
 }
@@ -544,7 +737,7 @@ pub(crate) fn strip_view(mut value: Value) -> Value {
     value
 }
 
-pub(crate) fn duration_of(p: &Policy) -> anyhow::Result<TimeDelta> {
+pub(crate) fn duration_of(p: &PolicyValue) -> anyhow::Result<TimeDelta> {
     let issued = DateTime::parse_from_rfc3339(&p.issued_at)?;
     let until = DateTime::parse_from_rfc3339(&p.valid_until)?;
     Ok(until - issued)
@@ -578,8 +771,19 @@ async fn synced_person_key(
     match &first {
         Err(e) if e.to_string().starts_with("no current person") => {
             // A failed sync leaves the first answer.
+            let version = if crate::decentralized_policy_cli::network_view(local, network)
+                .await?
+                .is_some()
+            {
+                "v2"
+            } else {
+                "v1"
+            };
             if local
-                .post(format!("/v1/networks/{}/sync", encoded(network)), json!({}))
+                .post(
+                    format!("/{version}/networks/{}/sync", encoded(network)),
+                    json!({}),
+                )
                 .await
                 .is_err()
             {
@@ -674,8 +878,19 @@ pub(crate) async fn recipient(
                         d.code == "unknown_person" || d.code == "unknown_host"
                     }) =>
                 {
+                    let version = if crate::decentralized_policy_cli::network_view(local, network)
+                        .await?
+                        .is_some()
+                    {
+                        "v2"
+                    } else {
+                        "v1"
+                    };
                     local
-                        .post(format!("/v1/networks/{}/sync", encoded(network)), json!({}))
+                        .post(
+                            format!("/{version}/networks/{}/sync", encoded(network)),
+                            json!({}),
+                        )
                         .await?;
                     local.get(path).await?
                 }
@@ -760,29 +975,22 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
     let local = Local(socket);
     let signer = PolicySigner::open(&local, network, person_key_path.as_deref()).await?;
     let owner = signer.public_key_b64();
-    let persons = local
-        .get(format!("/v1/networks/{}/persons", encoded(network)))
-        .await?;
-    let me = persons
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|p| p["public_key"].as_str() == Some(owner.as_str()))
-        .and_then(|p| p["person_id"].as_str())
-        .map(str::to_owned)
-        .with_context(|| {
-            format!(
-                "the person key {} is not a current person of that network",
-                persons::person_id(&signer.public_key())
-            )
-        })?;
+    let current_owner = person_key(&local, network, &owner).await.with_context(|| {
+        format!(
+            "the person key {} is not a current person of that network",
+            persons::person_id(&signer.public_key())
+        )
+    })?;
+    anyhow::ensure!(
+        current_owner == owner,
+        "current person lookup changed the policy owner"
+    );
     let (principal, _) = recipient(&local, network, given).await?;
-    let _ = me;
     let editor = Editor::new(&local, network, &signer).await?;
     let mut attempt = 0;
     let (stored, removed) = loop {
         attempt += 1;
-        let start = editor.start(&local).await?;
+        let start = editor.start(&local, signer.original()).await?;
         let current = &start.policy;
         let scoped = allow || agent.is_some();
         let mut removed = 0;
@@ -822,7 +1030,7 @@ pub async fn top_command(command: &Command, socket: &Path) -> anyhow::Result<Opt
             duration = None;
         }
         let policy = editor.sign(&signer, &start, kept(current, rules), duration, true)?;
-        match editor.submit(&local, &policy).await {
+        match editor.submit(&local, &signer, &policy).await {
             Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
             outcome => break (outcome?, removed),
         }

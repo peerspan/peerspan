@@ -2592,10 +2592,10 @@ def run_pairing(coord_binary, cli_binary, daemon_binary, label, only=None, basel
 # --- migration to version 22 ---------------------------------------------------------------------------------
 
 def check_migration(original, replacement, label, baseline=None):
-    """Version 21 (or the version 18 baseline) to 22: oauth_clients and oauth_credentials created, records not
-    rewritten; version 23 refused. With the baseline, a remote source stored at version 18 keeps the reason `remote`
+    """Version 21 (or the version 18 baseline) to 22 and on to the current version: oauth_clients and
+    oauth_credentials created, records not rewritten; the next version refused. With the baseline, a remote source stored at version 18 keeps the reason `remote`
     until the next PUT."""
-    from host_service import Host, OAUTH_TABLES, SCHEMA_VERSION
+    from host_service import DEC_TABLES, Host, OAUTH_TABLES, SCHEMA_VERSION
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-remote-migration-') as directory:
         host = Host(baseline or original, Path(directory) / 'host')
         try:
@@ -2611,10 +2611,10 @@ def check_migration(original, replacement, label, baseline=None):
             if baseline:
                 need(db_rows(host, 'PRAGMA user_version')[0][0] == 18, 'the baseline is version 18')
             else:
-                need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION == 22, 'Database version 22', label)
+                need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION == 23, 'Database version 23', label)
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
-                    for table in OAUTH_TABLES:
+                    for table in (*DEC_TABLES, *OAUTH_TABLES):
                         connection.execute(f'DROP TABLE {table}')
                     connection.execute('PRAGMA user_version = 21')
                     connection.commit()
@@ -2623,7 +2623,7 @@ def check_migration(original, replacement, label, baseline=None):
             before = db_rows(host, 'SELECT * FROM tool_servers')
             host.binary = str(replacement)
             need(host.start()['id'] == identity['id'], 'the identity survives migration')
-            need(db_rows(host, 'PRAGMA user_version')[0][0] == 22, 'migrated to version 22')
+            need(db_rows(host, 'PRAGMA user_version')[0][0] == SCHEMA_VERSION, 'migrated to version 22 and on to the current version')
             for table, columns in (('oauth_clients', ['issuer', 'redirect_uri', 'record']),
                                    ('oauth_credentials', ['agent_id', 'server', 'capability', 'record'])):
                 got = [r[1] for r in db_rows(host, f'PRAGMA table_info({table})')]
@@ -2645,12 +2645,12 @@ def check_migration(original, replacement, label, baseline=None):
                      'the next PUT recomputes the reason', status, server)
             host.stop()
             connection = sqlite3.connect(host.state / 'host.db')
-            connection.execute('PRAGMA user_version = 23')
+            connection.execute(f'PRAGMA user_version = {SCHEMA_VERSION + 1}')
             connection.commit()
             connection.close()
             for binary in {str(original), str(replacement)}:
                 result = subprocess.run([binary, '--state', str(host.state), 'run'], capture_output=True, timeout=10)
-                need(result.returncode != 0, 'version 22 binaries reject version 23', binary)
+                need(result.returncode != 0, f'version {SCHEMA_VERSION} binaries reject version {SCHEMA_VERSION + 1}', binary)
         finally:
             stop_all((host,))
     return label

@@ -314,7 +314,7 @@ func (s *Store) presenceSource(ctx context.Context, client *relayClient, host, n
 	if err != nil || relayKey(n) != relayKey(client.network) {
 		return false
 	}
-	members, err := membersOf(ctx, s.db, network)
+	members, err := s.membersOf(ctx, s.db, network)
 	if err != nil {
 		return false
 	}

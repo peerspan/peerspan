@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Independent additive schema21→22 opening/preservation acceptance.
+"""HISTORICAL experimental schema21→DEC22 opening/preservation acceptance.
+
+The unreleased DEC22 allocation tested here was superseded by merged OAuth22
+and additive DEC23. Keep its fixtures and receipts at their original numbers;
+current opening/refusal coverage is in decentralized_schema23.py. This script
+is historical evidence, not the current database allocation or launch gate.
 
 Create genuine schema21 data using supplied immutable OLD binaries and public
 owner-local APIs/CLI.  Stop before copying/upgrading.  No implementation or
@@ -91,6 +96,7 @@ class Host:
         tool_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.environment["PATH"] = str(tool_path)
         self.process: subprocess.Popen | None = None
+        self.run_arguments: list[str] = []
         self.log_path = root / (label + ".daemon.log")
 
     def start(self) -> None:
@@ -98,7 +104,7 @@ class Host:
         require(len(str(self.state / "admin.sock").encode()) <= 103,
                 "fixture owner-local socket path exceeds portable Unix limit")
         self.log = self.log_path.open("ab")
-        self.process = subprocess.Popen([str(self.binary), "--state", str(self.state), "run"],
+        self.process = subprocess.Popen([str(self.binary), "--state", str(self.state), "run", *self.run_arguments],
                                         stdout=self.log, stderr=subprocess.STDOUT,
                                         env=self.environment, start_new_session=True)
         deadline = time.monotonic() + 10
@@ -182,9 +188,9 @@ def quoted(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
-def snapshot(state: Path) -> dict:
+def snapshot(state: Path, database: Path | None = None) -> dict:
     """Actual generated database records only; never log private row contents."""
-    database = sqlite_file(state)
+    database = sqlite_file(state) if database is None else database
     connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
     try:
         connection.execute("BEGIN")
@@ -200,6 +206,23 @@ def snapshot(state: Path) -> dict:
         return {"user_version": version, "tables": tables}
     finally:
         connection.close()
+
+
+def all_database_snapshots(state: Path) -> dict:
+    """Runtime hosts may also own an isolated bootstrap resource database.
+
+    Discover actual SQLite files by their magic; preserve each independently
+    observed schema/version/row set, rather than guessing a main file name or
+    silently excluding the resource database as bookkeeping.
+    """
+    values = {}
+    for path in sorted(state.iterdir()):
+        if path.is_file() and not path.is_symlink():
+            with path.open("rb") as stream:
+                if stream.read(16) == b"SQLite format 3\x00":
+                    values[str(path.relative_to(state))] = snapshot(state, path)
+    require(bool(values), "runtime fixture has no actual SQLite database")
+    return {"databases": values}
 
 
 def tree_hashes(state: Path) -> dict:

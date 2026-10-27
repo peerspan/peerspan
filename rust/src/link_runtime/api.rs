@@ -129,6 +129,12 @@ pub(crate) async fn resume(
 ) -> Result<Json<Value>, Failure> {
     let _: serde_json::Map<String, Value> = decode(body, "", &id)?;
     let _guard = store.link_mutation.lock().await;
+    if store.decentralized_runtime() {
+        finalize::finish_historical(store.clone(), &id)
+            .await
+            .map_err(|e| Failure::cause(e, &id, "resume"))?;
+        return Ok(Json(public(store.clone(), &id, false).await?));
+    }
     let lookup = id.clone();
     let pending = blocking(store.clone(), &id, move |s| {
         let c = s.connection()?;
@@ -234,10 +240,15 @@ async fn cancel(
             .ok_or_else(|| Failure::new("not_found", &lookup, "request").into())
     })
     .await?;
+    if store.decentralized_runtime()
+        && (p.record.commit_approved || p.record.commit_packet_base64 != "-")
+    {
+        return Err(Failure::new("recovery_required", &id, "cancel"));
+    }
     if p.record.commit_approved || p.state == "linked" {
         return Ok(Json(public(store.clone(), &id, false).await?));
     }
-    if p.role != "approver" && p.secret.is_some() {
+    if !store.decentralized_runtime() && p.role != "approver" && p.secret.is_some() {
         transport::delete(store.clone(), &id)
             .await
             .map_err(|e| Failure::cause(e, &id, "cancel"))?;

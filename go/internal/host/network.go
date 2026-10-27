@@ -163,6 +163,15 @@ func scanNetwork(row interface{ Scan(...any) error }) (Network, error) {
 		}
 		return n, err
 	}
+	var mode struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal([]byte(record), &mode); err != nil {
+		return n, err
+	}
+	if mode.Mode == "decentralized" {
+		return n, linkFail("upgrade_required", "-", "request")
+	}
 	err := json.Unmarshal([]byte(record), &n)
 	n.Administrator = administrator
 	if n.CurrentRootPublicKey == "" {
@@ -200,26 +209,53 @@ func (s *Store) Network(ctx context.Context, id string) (Network, error) {
 }
 
 func (s *Store) NetworkMembers(ctx context.Context, id string) ([]NetworkMember, error) {
-	if _, err := s.Network(ctx, id); err != nil {
+	tx, e := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if e != nil {
+		return nil, e
+	}
+	defer tx.Rollback()
+	members, e := s.membersOf(ctx, tx, id)
+	if e != nil {
+		return nil, e
+	}
+	ids := sortedKeys(members)
+	out := []NetworkMember{}
+	for _, id := range ids {
+		m := members[id]
+		if m.Candidates == nil {
+			m.Candidates = []string{}
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// listedNetworkMembers serves the v1 members route. A coordinator-free
+// network lists its verified current members, which native reads such as
+// agents use. A legacy network lists its retained member records, which stay
+// readable as history even when the coordinator-free runtime excludes them
+// from product authorization.
+func (s *Store) listedNetworkMembers(ctx context.Context, id string) ([]NetworkMember, error) {
+	var mode sql.NullString
+	if err := s.db.QueryRowContext(ctx, `SELECT json_extract(record, '$.mode') FROM networks WHERE id = ?`, id).Scan(&mode); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT record FROM network_members WHERE network_id = ? ORDER BY host_id", id)
+	if mode.String == "decentralized" {
+		return s.NetworkMembers(ctx, id)
+	}
+	members, err := records[NetworkMember](ctx, s.db, "SELECT record FROM network_members WHERE network_id = ? ORDER BY host_id", id)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	members := []NetworkMember{}
-	for rows.Next() {
-		m, err := readJSON[NetworkMember](rows)
-		if err != nil {
-			return nil, err
+	for i := range members {
+		if members[i].Candidates == nil {
+			members[i].Candidates = []string{}
 		}
-		if m.Candidates == nil {
-			m.Candidates = []string{} // records stored before candidates existed
-		}
-		members = append(members, m)
 	}
-	return members, rows.Err()
+	return members, nil
 }
 
 func putJSON(ctx context.Context, tx *sql.Tx, query string, value any, args ...any) error {
@@ -959,46 +995,58 @@ func (s *Store) RunCoordination(ctx context.Context, logf func(string, ...any)) 
 // KnownHost resolves a manually configured peer, or a verified member of any
 // network other than this host. When public is given it must match.
 func (s *Store) KnownHost(ctx context.Context, id string, public []byte) (Peer, error) {
-	p, err := s.Peer(ctx, id)
-	if errors.Is(err, ErrNotFound) && id != s.identity.ID {
-		var member NetworkMember
-		member, err = readJSON[NetworkMember](s.db.QueryRowContext(ctx, "SELECT record FROM network_members WHERE host_id = ? LIMIT 1", id))
-		p = Peer{ID: member.HostID, PublicKey: member.PublicKey}
+	p, e := s.Peer(ctx, id)
+	if errors.Is(e, ErrNotFound) && id != s.identity.ID {
+		memberships, err := s.membershipsOf(ctx, s.db, id)
+		if err != nil {
+			return p, err
+		}
+		if len(memberships) == 0 {
+			p, err = s.retainedDecPeer(ctx, id)
+			if errors.Is(err, ErrNotFound) {
+				p, err = s.retainedLegacyPeer(ctx, id)
+			}
+			if errors.Is(err, ErrNotFound) {
+				p, err = s.retainedMigrationPeer(ctx, id)
+			}
+			if err != nil {
+				return p, err
+			}
+		} else {
+			member := memberships[0].member
+			p = Peer{ID: member.HostID, PublicKey: member.PublicKey}
+		}
 	}
-	if err != nil {
-		return p, err
+	if e != nil && !errors.Is(e, ErrNotFound) {
+		return p, e
 	}
-	key, err := peerKey(p)
-	if err != nil || (public != nil && !bytes.Equal(key, public)) {
+	key, e := peerKey(p)
+	if e != nil || public != nil && !bytes.Equal(key, public) {
 		return p, ErrNotFound
 	}
 	return p, nil
 }
 
-// dialPeer prefers a manual peer's address, then the nonempty member address
-// most recently updated by any coordinator.
+// dialPeer prefers an explicit owner-local pin, then an authenticated current
+// member's signed transport hints. Hints never establish membership.
 func (s *Store) dialPeer(ctx context.Context, id string) (Peer, error) {
-	p, err := s.KnownHost(ctx, id, nil)
-	if err != nil || p.Address != "" {
-		return p, err
+	p, e := s.KnownHost(ctx, id, nil)
+	if e != nil || p.Address != "" {
+		return p, e
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT record FROM network_members WHERE host_id = ?", id)
-	if err != nil {
-		return p, err
+	memberships, e := s.membershipsOf(ctx, s.db, id)
+	if e != nil {
+		return p, e
 	}
-	defer rows.Close()
 	var latest time.Time
-	for rows.Next() {
-		member, err := readJSON[NetworkMember](rows)
-		if err != nil {
-			return p, err
-		}
-		updated, err := parseTime(member.UpdatedAt)
-		if err == nil && member.Address != "" && (p.Address == "" || updated.After(latest)) {
+	for _, n := range memberships {
+		member := n.member
+		updated, e := parseTime(member.UpdatedAt)
+		if e == nil && member.Address != "" && (p.Address == "" || updated.After(latest)) {
 			p.Address, latest = member.Address, updated
 		}
 	}
-	return p, rows.Err()
+	return p, nil
 }
 
 // connected reports whether the requester is a member of a network this host
@@ -1047,7 +1095,7 @@ func localNetworkRoutes(mux *http.ServeMux, store *Store) {
 		respond(w, http.StatusOK, n, err)
 	})
 	mux.HandleFunc("GET /v1/networks/{id}/members", func(w http.ResponseWriter, r *http.Request) {
-		m, err := store.NetworkMembers(r.Context(), r.PathValue("id"))
+		m, err := store.listedNetworkMembers(r.Context(), r.PathValue("id"))
 		respond(w, http.StatusOK, m, err)
 	})
 	mux.HandleFunc("POST /v1/networks/{id}/invites", func(w http.ResponseWriter, r *http.Request) {

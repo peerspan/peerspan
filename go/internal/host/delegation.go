@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -82,24 +81,6 @@ func chainRefused(format string, args ...any) error {
 	return fmt.Errorf("%w: delegation chain: "+format, append([]any{ErrForbidden}, args...)...)
 }
 
-// networkMembers is a network's current members by host ID.
-func networkMembers(ctx context.Context, q queryer, network string) (map[string]NetworkMember, error) {
-	rows, err := q.QueryContext(ctx, "SELECT record FROM network_members WHERE network_id = ?", network)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	members := map[string]NetworkMember{}
-	for rows.Next() {
-		m, err := readJSON[NetworkMember](rows)
-		if err != nil {
-			return nil, err
-		}
-		members[m.HostID] = m
-	}
-	return members, rows.Err()
-}
-
 func boundIn(members map[string]NetworkMember) func(string) string {
 	return func(host string) string {
 		if m, ok := members[host]; ok && m.PersonID != nil {
@@ -118,7 +99,7 @@ func (s *Store) verifyChain(ctx context.Context, tx *sql.Tx, sender string, r Ta
 		return nil, nil
 	}
 	network := links[0].NetworkID
-	members, err := networkMembers(ctx, tx, network)
+	members, err := s.membersOf(ctx, tx, network)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +173,7 @@ func (s *Store) verifyChain(ctx context.Context, tx *sql.Tx, sender string, r Ta
 	}
 	// 6. No participant is blocked.
 	for k, l := range links {
-		refused, err := blocked(ctx, tx, l.IssuerHostID)
+		refused, err := s.blocked(ctx, tx, l.IssuerHostID)
 		if err != nil {
 			return nil, err
 		}
@@ -234,12 +215,24 @@ func (s *Store) taskAuthority(ctx context.Context, tx *sql.Tx, sender string, r 
 // sharedNetwork is the lowest network ID of which this host and peer are
 // both current members.
 func (s *Store) sharedNetwork(ctx context.Context, q dbQuerier, peer string) (string, error) {
-	var network string
-	err := q.QueryRowContext(ctx, `SELECT a.network_id FROM network_members a JOIN network_members b ON b.network_id = a.network_id WHERE a.host_id = ? AND b.host_id = ? ORDER BY a.network_id LIMIT 1`, s.identity.ID, peer).Scan(&network)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("%w: delegation needs a network shared with host %s", ErrInvalid, peer)
+	// Verified current members only: retained legacy history is not shared
+	// for a new chain, as on the receiving side.
+	ids, err := s.networkIDs(ctx, q)
+	if err != nil {
+		return "", err
 	}
-	return network, err
+	for _, id := range ids {
+		members, err := s.membersOf(ctx, q, id)
+		if err != nil {
+			return "", err
+		}
+		_, self := members[s.identity.ID]
+		_, other := members[peer]
+		if self && other {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("%w: delegation needs a network shared with host %s", ErrInvalid, peer)
 }
 
 // delegationPrincipals validates, sorts, and de-duplicates link 0's
@@ -334,7 +327,7 @@ func (s *Store) checkForward(ctx context.Context, tx *sql.Tx, parent TaskRequest
 		return fmt.Errorf("%w: the chain would exceed %d links", ErrForbidden, membership.DelegationMaxLinks)
 	}
 	last := parent.Delegation[n-1]
-	members, err := networkMembers(ctx, tx, last.NetworkID)
+	members, err := s.membersOf(ctx, tx, last.NetworkID)
 	if err != nil {
 		return err
 	}

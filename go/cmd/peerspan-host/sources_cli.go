@@ -602,6 +602,7 @@ func callsRequest(args []string, fs *pflag.FlagSet) (string, string, error) {
 // owner: the current persons, the owner's person ID, and the starting point
 // of an edit, from the daemon's edit route (Concurrent edits).
 type ownerContext struct {
+	dec      *decPolicyEditor
 	signer   person.Signer
 	device   *host.LinkSignerView
 	ownerKey string
@@ -620,6 +621,9 @@ type ownerContext struct {
 }
 
 func loadOwner(ctx context.Context, client host.Client, network, keyPath string) (*ownerContext, error) {
+	if o, handled, err := tryDecOwner(ctx, client, network, keyPath); handled {
+		return o, err
+	}
 	var selected *host.LinkSignerView
 	if keyPath == "" {
 		view, err := call[host.LinkSignerView](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/link-signer")
@@ -723,6 +727,9 @@ type editStart struct {
 // an edit number. When this host is not bound to the signing person, it
 // starts from that person's stored policy instead, without an edit number.
 func (o *ownerContext) start(ctx context.Context, client host.Client) error {
+	if o.dec != nil {
+		return o.dec.reload(ctx, client)
+	}
 	if o.hostID == "" {
 		identity, err := call[host.Identity](ctx, client, "GET", "/v1/host")
 		if err != nil {
@@ -781,6 +788,9 @@ func (o *ownerContext) start(ctx context.Context, client host.Client) error {
 // this host's reserved number; keep keeps the starting point's duration,
 // otherwise it is valid for 7 days.
 func (o *ownerContext) next(network string, body membership.PolicyBody, keep bool) (membership.Policy, error) {
+	if o.dec != nil {
+		return membership.Policy{}, errors.New("DEC policies require typed action preparation; no legacy signature is fabricated")
+	}
 	version, err := membership.NextAccessVersion(o.version)
 	if err != nil {
 		return membership.Policy{}, err
@@ -834,6 +844,13 @@ func (o *ownerContext) submit(ctx context.Context, client host.Client, policy me
 }
 
 func (o *ownerContext) body() membership.PolicyBody {
+	if o.dec != nil {
+		// Body changes are local deltas, never a mutable alias of the verified baseline.
+		raw, _ := json.Marshal(o.dec.content)
+		var body membership.PolicyBody
+		_ = json.Unmarshal(raw, &body)
+		return body
+	}
 	if o.current == nil {
 		return membership.PolicyBody{Rules: []membership.PolicyRule{}, CapabilityRules: []membership.CapabilityRule{}, TrustedHosts: []string{}, Edits: []membership.PolicyEdit{}}
 	}
@@ -855,6 +872,22 @@ func isEditConflict(err error) bool {
 // times. change reports whether anything changed; when nothing does,
 // nothing is signed and the starting point is returned.
 func (o *ownerContext) edit(ctx context.Context, client host.Client, keep bool, change func(body *membership.PolicyBody) (bool, error)) (json.RawMessage, bool, error) {
+	if o.dec != nil {
+		if err := o.decReapplyBeforeMutation(ctx, client); err != nil {
+			return nil, false, err
+		}
+		body := o.body()
+		changed, err := change(&body)
+		if err != nil {
+			return nil, false, err
+		}
+		if !changed {
+			data, err := json.Marshal(o.policyView())
+			return data, false, err
+		}
+		data, err := o.decWritePolicy(ctx, client, body, true)
+		return data, err == nil, err
+	}
 	for attempt := 0; ; attempt++ {
 		body := o.body()
 		changed, err := change(&body)
@@ -924,14 +957,22 @@ func runTrust(ctx context.Context, client host.Client, command string, args []st
 	}
 	defer o.close()
 	if command == "trust" {
-		members, err := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/members")
-		if err != nil {
-			return err
-		}
 		bound := false
-		for _, m := range members {
-			if m.HostID == target && m.PersonID != nil && *m.PersonID == o.ownerID {
-				bound = true
+		if o.dec != nil {
+			for _, p := range o.persons {
+				if p.PersonID == o.ownerID && contains(p.Hosts, target) {
+					bound = true
+				}
+			}
+		} else {
+			members, err := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/members")
+			if err != nil {
+				return err
+			}
+			for _, m := range members {
+				if m.HostID == target && m.PersonID != nil && *m.PersonID == o.ownerID {
+					bound = true
+				}
 			}
 		}
 		if !bound {
@@ -941,10 +982,7 @@ func runTrust(ctx context.Context, client host.Client, command string, args []st
 	trusted := command == "trust"
 	if contains(o.body().TrustedHosts, target) == trusted {
 		// Nothing changes, so nothing is signed.
-		var policy any
-		if o.current != nil {
-			policy = o.current
-		}
+		policy := o.policyView()
 		return printJSON(out, map[string]any{"policy": policy, "host": target, "trusted": trusted, "changed": false})
 	}
 	data, changed, err := setTrusted(ctx, client, o, target, trusted)

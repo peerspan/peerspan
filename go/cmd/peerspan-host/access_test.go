@@ -29,11 +29,11 @@ func accessSync(args ...string) (method, path string, body any, err error) {
 
 func TestAccessSyncRequest(t *testing.T) {
 	for args, want := range map[[2]string]string{
-		{"--network", "net_x"}:          "POST /v1/networks/net_x/policy/sync",
-		{"--network=net_x", "--status"}: "GET /v1/networks/net_x/policy/sync",
+		{"--network", "net_x"}:          "POST /v2/networks/net_x/sync",
+		{"--network=net_x", "--status"}: "GET /v2/networks/net_x/policy-edits",
 	} {
 		method, path, body, err := accessSync(args[0], args[1])
-		if err != nil || method+" "+path != want || body != nil {
+		if err != nil || method+" "+path != want || method == "GET" && body != nil || method == "POST" && body != (struct{}{}) {
 			t.Errorf("%v: %s %s %v %v", args, method, path, body, err)
 		}
 	}

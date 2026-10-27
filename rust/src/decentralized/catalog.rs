@@ -3,7 +3,7 @@ use super::{
     statement::{Descriptor, Statement, proof_id},
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct Proof {
@@ -19,10 +19,14 @@ pub struct Catalog {
     pub statements: BTreeMap<String, Statement>,
     pub aliases: BTreeMap<String, Vec<Statement>>,
     pub statement_proofs: BTreeMap<String, Vec<String>>,
+    pub(crate) migrations: BTreeMap<String, Arc<super::migration::Migration>>,
 }
 impl Catalog {
     pub fn read(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
         Self::read_inner(descriptor, bytes, true)
+    }
+    pub(crate) fn read_prepared(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
+        Self::read_inner(descriptor, bytes, false)
     }
     fn read_inner(descriptor: &Descriptor, bytes: &[u8], allow_migration: bool) -> Result<Self> {
         let value = parse(bytes, MAX_CATALOG)?;
@@ -38,6 +42,7 @@ impl Catalog {
             statements: BTreeMap::new(),
             aliases: BTreeMap::new(),
             statement_proofs: BTreeMap::new(),
+            migrations: BTreeMap::new(),
         };
         let mut previous = "";
         let mut decoded = 0usize;
@@ -74,40 +79,19 @@ impl Catalog {
                 }
             }
             "migration" => {
-                let value = parse(&proof.body, MAX_OBJECT)?;
-                let o = object(&value)?;
-                fields(
-                    o,
-                    "format proposal source_catalog_base64 source_state_base64 prepared_catalog_base64 acknowledgments commit",
-                )?;
-                version(o)?;
-                // Nested originals are read from RawValue, never synthesized.
-                let proposal = Statement::read(descriptor, &raw_field(&proof.body, "proposal")?)?;
-                check(proposal.kind == "migration_proposal")?;
-                let source = b64(text(o, "source_catalog_base64")?, 512 << 10)?;
-                let source_state = b64(text(o, "source_state_base64")?, 256 << 10)?;
-                check(
-                    hash(&source) == text(&proposal.payload, "source_catalog_sha256")?
-                        && hash(&source_state) == text(&proposal.payload, "source_state_sha256")?,
-                )?;
-                parse(&source_state, 256 << 10)?;
-                let prepared = b64(text(o, "prepared_catalog_base64")?, MAX_OBJECT)?;
-                let prepared_catalog = Self::read_inner(descriptor, &prepared, false)?;
-                for aliases in prepared_catalog.aliases.into_values() {
+                let migration = super::migration::Migration::read(descriptor, &proof.body)?;
+                for aliases in migration.prepared.aliases.values() {
                     for statement in aliases {
-                        self.insert(statement, &proof.id)?;
+                        self.insert(statement.clone(), &proof.id)?;
                     }
                 }
-                self.insert(proposal, &proof.id)?;
-                let acks = raw_array_field(&proof.body, "acknowledgments")?;
-                for ack in acks {
-                    let statement = Statement::read(descriptor, &ack)?;
-                    check(statement.kind == "migration_ack")?;
-                    self.insert(statement, &proof.id)?;
+                self.insert(migration.proposal.clone(), &proof.id)?;
+                for statement in migration.acknowledgments.values() {
+                    self.insert(statement.clone(), &proof.id)?;
                 }
-                let commit = Statement::read(descriptor, &raw_field(&proof.body, "commit")?)?;
-                check(commit.kind == "migration_commit")?;
-                self.insert(commit, &proof.id)?;
+                self.insert(migration.commit.clone(), &proof.id)?;
+                self.migrations
+                    .insert(proof.id.clone(), Arc::new(migration));
             }
             kind => {
                 let statement = Statement::read(descriptor, &proof.body)?;
@@ -133,6 +117,43 @@ impl Catalog {
             .entry(statement.id.clone())
             .or_insert(statement);
         Ok(())
+    }
+    /// Resolve original proof bytes inside a retained composite without
+    /// fabricating a standalone dec_objects row or changing its source DP.
+    pub(crate) fn proof(&self, id: &str) -> Result<&Proof> {
+        self.proofs
+            .get(id)
+            .or_else(|| {
+                self.migrations
+                    .values()
+                    .find_map(|m| m.prepared.proofs.get(id))
+            })
+            .ok_or_else(|| Error::missing(id))
+    }
+    pub(crate) fn has_statement_source(&self, statement: &str, proof: &str) -> bool {
+        self.statement_proofs
+            .get(statement)
+            .is_some_and(|sources| sources.iter().any(|source| source == proof))
+            || self.migrations.values().any(|m| {
+                m.prepared
+                    .statement_proofs
+                    .get(statement)
+                    .is_some_and(|sources| sources.iter().any(|source| source == proof))
+            })
+    }
+    pub(crate) fn activation_proofs(&self) -> Vec<(&Proof, Option<&str>)> {
+        self.proofs
+            .values()
+            .filter(|p| p.kind == "activation")
+            .map(|p| (p, None))
+            .chain(self.migrations.iter().flat_map(|(outer, m)| {
+                m.prepared
+                    .proofs
+                    .values()
+                    .filter(|p| p.kind == "activation")
+                    .map(move |p| (p, Some(outer.as_str())))
+            }))
+            .collect()
     }
     pub fn get(&self, id: &str) -> Result<&Statement> {
         self.statements.get(id).ok_or_else(|| Error::missing(id))

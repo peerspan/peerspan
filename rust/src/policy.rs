@@ -161,6 +161,171 @@ pub struct Policy {
     pub signature: String,
 }
 
+/// Unsigned resource rules and metadata. This is neither a legacy signature nor
+/// authority: DEC callers retain and verify the separate exact statement.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyBody {
+    /// 2 for a `peerspan-policy-v2` statement; absent for version 1.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub format: Option<u8>,
+    pub network_id: String,
+    pub person_public_key: String,
+    pub version: u64,
+    pub issued_at: String,
+    pub valid_until: String,
+    pub rules: Vec<Rule>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub capability_rules: Option<Vec<CapabilityRule>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub trusted_hosts: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub edits: Option<Vec<EditEntry>>,
+}
+
+impl PolicyBody {
+    pub fn edits(&self) -> &[EditEntry] {
+        self.edits.as_deref().unwrap_or_default()
+    }
+    pub fn edits_with(&self, host: &str, seq: u64) -> Vec<EditEntry> {
+        let mut entries = self
+            .edits()
+            .iter()
+            .filter(|e| e.host != host)
+            .cloned()
+            .collect::<Vec<_>>();
+        entries.push(EditEntry {
+            host: host.into(),
+            seq,
+        });
+        entries.sort_by(|a, b| a.host.cmp(&b.host));
+        entries
+    }
+    pub(crate) fn check_decentralized_shape(&self) -> Result<(), Error> {
+        self.check_shape_window(1, 86_400)
+    }
+    pub fn capability_rules(&self) -> &[CapabilityRule] {
+        self.capability_rules.as_deref().unwrap_or_default()
+    }
+    pub fn trusted_hosts(&self) -> &[String] {
+        self.trusted_hosts.as_deref().unwrap_or_default()
+    }
+    pub fn content(&self) -> Content {
+        Content {
+            rules: self.rules.clone(),
+            capability_rules: self.capability_rules().to_vec(),
+            trusted_hosts: self.trusted_hosts().to_vec(),
+        }
+    }
+    fn check_shape_window(&self, minimum: i64, maximum: i64) -> Result<(), Error> {
+        if self.version < 1 {
+            return Err(invalid("policy versions start at 1"));
+        }
+        let duration = time(&self.valid_until)? - time(&self.issued_at)?;
+        if duration < TimeDelta::seconds(minimum) || duration > TimeDelta::seconds(maximum) {
+            return Err(invalid(if minimum == 86_400 {
+                "a policy is valid for 1-90 days"
+            } else {
+                "policy validity outside context window"
+            }));
+        }
+        if self.rules.len() > MAX_RULES {
+            return Err(invalid("a policy has at most 64 rules"));
+        }
+        for r in &self.rules {
+            r.check()?;
+        }
+        match (
+            self.format,
+            &self.capability_rules,
+            &self.trusted_hosts,
+            &self.edits,
+        ) {
+            (None, None, None, None) => {}
+            (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
+                if self
+                    .rules
+                    .iter()
+                    .enumerate()
+                    .any(|(i, r)| self.rules[..i].iter().any(|k| k.same_key(r)))
+                {
+                    return Err(invalid(
+                        "a version 2 policy has no two rules with the same agent and settings",
+                    ));
+                }
+                if capability_rules.len() > MAX_CAPABILITY_RULES {
+                    return Err(invalid("a policy has at most 256 capability rules"));
+                }
+                if edits.len() > MAX_EDITS {
+                    return Err(invalid("a policy has at most 256 edits entries"));
+                }
+                for e in edits {
+                    if !crate::peer_store::valid_id(&e.host, "host", 32) {
+                        return Err(invalid("an edits entry's host is a host ID"));
+                    }
+                    if !(1..=MAX_EDIT_SEQ).contains(&e.seq) {
+                        return Err(invalid("an edits entry's seq is 1 to 2^53 - 1"));
+                    }
+                }
+                let mut hosts: Vec<&str> = edits.iter().map(|e| e.host.as_str()).collect();
+                hosts.sort_unstable();
+                if hosts.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(invalid("an edits entry's host appears once"));
+                }
+                for r in capability_rules {
+                    r.check()?;
+                }
+                // A name is bound to one host, by at most one rule.
+                let mut names: Vec<&str> = capability_rules
+                    .iter()
+                    .map(|r| r.capability.as_str())
+                    .collect();
+                names.sort_unstable();
+                if names.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(invalid("a policy has at most one rule per capability name"));
+                }
+                if trusted.len() > MAX_TRUSTED {
+                    return Err(invalid("a policy has at most 64 trusted hosts"));
+                }
+                if trusted
+                    .iter()
+                    .any(|h| !crate::peer_store::valid_id(h, "host", 32))
+                {
+                    return Err(invalid("trusted hosts must be host IDs"));
+                }
+                // The statement lists them sorted; each appears once.
+                let mut sorted: Vec<&String> = trusted.iter().collect();
+                sorted.sort();
+                if sorted.windows(2).any(|w| w[0] == w[1]) {
+                    return Err(invalid("trusted hosts must be unique"));
+                }
+            }
+            _ => {
+                return Err(invalid(
+                    "a version 2 policy has format 2, capability_rules, trusted_hosts, and edits; a version 1 policy has none of them",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// What a policy grants: its rules, capability rules, and trusted hosts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Content {
@@ -212,7 +377,7 @@ pub(crate) type RequestAuthorization = (Option<String>, Option<PolicyRef>, Optio
 /// What a request without a grant cites.
 pub(crate) enum Citation {
     SelfAccess(SelfRef),
-    Policy(Box<Policy>),
+    Policy(Box<crate::decentralized::product::Policy>),
 }
 impl Citation {
     /// The request fields `policy` and `self`.
@@ -282,10 +447,28 @@ pub fn principal(value: &str) -> Result<(), Error> {
 }
 /// Whether a principal matches an authenticated sender, its groups, and the
 /// origin it asserts.
+#[cfg(test)]
 pub(crate) fn principal_matches(
     p: &str,
     sender: &Member,
     groups: &[crate::admins::Group],
+    origin: Option<&crate::peer_store::Origin>,
+) -> bool {
+    principal_matches_with_group(
+        p,
+        sender,
+        |name, person| {
+            groups
+                .iter()
+                .any(|g| g.name == name && g.members.iter().any(|m| m == person))
+        },
+        origin,
+    )
+}
+pub(crate) fn principal_matches_with_group(
+    p: &str,
+    sender: &Member,
+    group_contains: impl Fn(&str, &str) -> bool,
     origin: Option<&crate::peer_store::Origin>,
 ) -> bool {
     if p == "network" {
@@ -293,14 +476,11 @@ pub(crate) fn principal_matches(
     } else if let Some(id) = p.strip_prefix("person:") {
         sender.person_id.as_deref() == Some(id)
     } else if let Some(name) = p.strip_prefix("group:") {
-        sender.person_id.as_ref().is_some_and(|person| {
-            groups
-                .iter()
-                .any(|g| g.name == name && g.members.contains(person))
-        })
+        sender
+            .person_id
+            .as_ref()
+            .is_some_and(|person| group_contains(name, person))
     } else if let Some((host, agent)) = agent_principal(p) {
-        // The authenticated host asserts which of its agents originated the
-        // request; it can never speak for another host's agents.
         host == sender.host_id && origin.is_some_and(|o| o.agent_id == agent)
     } else {
         false
@@ -390,6 +570,21 @@ impl CapabilityRule {
 }
 
 impl Policy {
+    pub fn unsigned_body(&self) -> PolicyBody {
+        PolicyBody {
+            format: self.format,
+            network_id: self.network_id.clone(),
+            person_public_key: self.person_public_key.clone(),
+            version: self.version,
+            issued_at: self.issued_at.clone(),
+            valid_until: self.valid_until.clone(),
+            rules: self.rules.clone(),
+            capability_rules: self.capability_rules.clone(),
+            trusted_hosts: self.trusted_hosts.clone(),
+            edits: self.edits.clone(),
+        }
+    }
+
     fn lines(&self) -> Vec<String> {
         let header = match self.format {
             Some(2) => "peerspan-policy-v2",
@@ -500,100 +695,8 @@ impl Policy {
     pub(crate) fn check_shape(&self) -> Result<(), Error> {
         self.check_shape_window(86_400, 90 * 86_400)
     }
-    /// New-context access windows keep all resource rules, with finite DEC bounds.
-    pub(crate) fn check_decentralized_shape(&self) -> Result<(), Error> {
-        self.check_shape_window(1, 86_400)
-    }
     fn check_shape_window(&self, minimum: i64, maximum: i64) -> Result<(), Error> {
-        if self.version < 1 {
-            return Err(invalid("policy versions start at 1"));
-        }
-        let duration = time(&self.valid_until)? - time(&self.issued_at)?;
-        if duration < TimeDelta::seconds(minimum) || duration > TimeDelta::seconds(maximum) {
-            return Err(invalid(if minimum == 86_400 {
-                "a policy is valid for 1-90 days"
-            } else {
-                "policy validity outside context window"
-            }));
-        }
-        if self.rules.len() > MAX_RULES {
-            return Err(invalid("a policy has at most 64 rules"));
-        }
-        for r in &self.rules {
-            r.check()?;
-        }
-        match (
-            self.format,
-            &self.capability_rules,
-            &self.trusted_hosts,
-            &self.edits,
-        ) {
-            (None, None, None, None) => {}
-            (Some(2), Some(capability_rules), Some(trusted), Some(edits)) => {
-                if self
-                    .rules
-                    .iter()
-                    .enumerate()
-                    .any(|(i, r)| self.rules[..i].iter().any(|k| k.same_key(r)))
-                {
-                    return Err(invalid(
-                        "a version 2 policy has no two rules with the same agent and settings",
-                    ));
-                }
-                if capability_rules.len() > MAX_CAPABILITY_RULES {
-                    return Err(invalid("a policy has at most 256 capability rules"));
-                }
-                if edits.len() > MAX_EDITS {
-                    return Err(invalid("a policy has at most 256 edits entries"));
-                }
-                for e in edits {
-                    if !crate::peer_store::valid_id(&e.host, "host", 32) {
-                        return Err(invalid("an edits entry's host is a host ID"));
-                    }
-                    if !(1..=MAX_EDIT_SEQ).contains(&e.seq) {
-                        return Err(invalid("an edits entry's seq is 1 to 2^53 - 1"));
-                    }
-                }
-                let mut hosts: Vec<&str> = edits.iter().map(|e| e.host.as_str()).collect();
-                hosts.sort_unstable();
-                if hosts.windows(2).any(|w| w[0] == w[1]) {
-                    return Err(invalid("an edits entry's host appears once"));
-                }
-                for r in capability_rules {
-                    r.check()?;
-                }
-                // A name is bound to one host, by at most one rule.
-                let mut names: Vec<&str> = capability_rules
-                    .iter()
-                    .map(|r| r.capability.as_str())
-                    .collect();
-                names.sort_unstable();
-                if names.windows(2).any(|w| w[0] == w[1]) {
-                    return Err(invalid("a policy has at most one rule per capability name"));
-                }
-                if trusted.len() > MAX_TRUSTED {
-                    return Err(invalid("a policy has at most 64 trusted hosts"));
-                }
-                if trusted
-                    .iter()
-                    .any(|h| !crate::peer_store::valid_id(h, "host", 32))
-                {
-                    return Err(invalid("trusted hosts must be host IDs"));
-                }
-                // The statement lists them sorted; each appears once.
-                let mut sorted: Vec<&String> = trusted.iter().collect();
-                sorted.sort();
-                if sorted.windows(2).any(|w| w[0] == w[1]) {
-                    return Err(invalid("trusted hosts must be unique"));
-                }
-            }
-            _ => {
-                return Err(invalid(
-                    "a version 2 policy has format 2, capability_rules, trusted_hosts, and edits; a version 1 policy has none of them",
-                ));
-            }
-        }
-        Ok(())
+        self.unsigned_body().check_shape_window(minimum, maximum)
     }
     /// Signs a version 2 policy as `signer`, the owner. Trusted hosts and
     /// edits are stored sorted; duplicates are refused.
@@ -812,7 +915,14 @@ impl Store {
         &self,
         connection: &Connection,
     ) -> Result<Vec<(String, Member)>, Error> {
-        self.members_of(connection, &self.identity().id)
+        let mut members = if self.decentralized_runtime() {
+            Vec::new()
+        } else {
+            self.members_of(connection, &self.identity().id)?
+        };
+        members.extend(self.decentralized_own_members(connection)?);
+        members.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(members)
     }
     fn members_of(
         &self,
@@ -820,7 +930,7 @@ impl Store {
         host: &str,
     ) -> Result<Vec<(String, Member)>, Error> {
         let mut statement = connection.prepare(
-            "SELECT network_id, record FROM network_members WHERE host_id = ?1 ORDER BY network_id",
+            "SELECT network_id, record FROM network_members WHERE host_id = ?1 AND COALESCE(json_extract(record,'$.mode'),'') <> 'decentralized' ORDER BY network_id",
         )?;
         let rows = statement
             .query_map([host], |r| {
@@ -853,7 +963,7 @@ impl Store {
         if host {
             return Ok(true);
         }
-        for (_, m) in self.members_of(connection, sender)? {
+        for (_, m) in self.product_members_of(connection, sender)? {
             if let Some(person) = &m.person_id {
                 let blocked: bool = connection.query_row(
                     "SELECT EXISTS(SELECT 1 FROM access_blocks WHERE kind = 'person' AND subject = ?1)",
@@ -895,7 +1005,7 @@ impl Store {
         let mut behind = false;
         let mut allowed: Option<Bounds> = None;
         // A named agent's rules override the `*` rules.
-        let applies = |policy: &Policy, rule: &Rule| {
+        let applies = |policy: &crate::decentralized::product::Policy, rule: &Rule| {
             if policy.rules.iter().any(|r| r.agent == agent) {
                 rule.agent == agent
             } else {
@@ -906,10 +1016,10 @@ impl Store {
             if own.person_id.as_deref() != Some(cited.person_id.as_str()) {
                 continue;
             }
-            let Some(key) = self.person_key(connection, &network, &cited.person_id)? else {
+            let Some(key) = self.product_person_key(connection, &network, &cited.person_id)? else {
                 continue;
             };
-            let Some(policy) = self.stored_policy(connection, &network, &key)? else {
+            let Some(policy) = self.product_policy(connection, &network, &key)? else {
                 behind = true;
                 continue;
             };
@@ -918,20 +1028,27 @@ impl Store {
                 continue;
             }
             // Withdrawals of this host's unsettled edits apply at once.
-            let policy = self.enforced(connection, &network, policy)?;
+
             // The receiver evaluates its own newest version.
             if !policy.in_window(at) || deadline > time(&policy.valid_until)? {
                 continue;
             }
             let Some(sender_member) = self
-                .stored_members(connection, &network)?
+                .product_members(connection, &network)?
                 .into_iter()
                 .find(|m| m.host_id == sender && m.host_id != self.identity().id)
             else {
                 continue;
             };
-            let groups = self.stored_groups(connection, &network)?;
-            let matches = |p: &str| principal_matches(p, &sender_member, &groups, r.origin);
+            let groups = self.product_groups(connection, &network)?;
+            let matches = |p: &str| {
+                crate::decentralized::product::principal_matches(
+                    p,
+                    &sender_member,
+                    &groups,
+                    r.origin,
+                )
+            };
             for rule in &policy.rules {
                 if !applies(&policy, rule)
                     || !rule.actions.iter().any(|a| allows(a, r.action))
@@ -976,7 +1093,8 @@ impl Store {
             if own.person_id.as_deref() != Some(person) {
                 continue;
             }
-            if crate::chain::member(connection, &network, host)?
+            if self
+                .product_member(connection, &network, host)?
                 .is_some_and(|m| m.person_id.as_deref() == Some(person))
             {
                 return Ok(true);
@@ -998,7 +1116,8 @@ impl Store {
             let Some(person) = own.person_id else {
                 continue;
             };
-            if crate::chain::member(connection, &network, peer)?
+            if self
+                .product_member(connection, &network, peer)?
                 .is_some_and(|m| m.person_id.as_deref() == Some(person.as_str()))
             {
                 return Ok(Some(SelfRef { person_id: person }));
@@ -1092,11 +1211,18 @@ impl Store {
     ) -> Result<Citation, Error> {
         if let Some(first) = chain.first() {
             let network = &first.network_id;
-            let person = crate::chain::member(connection, network, &first.issuer_host_id)?
+            if crate::decentralized::history::legacy(self, connection, network)? {
+                return Err(Error::Forbidden);
+            }
+            let person = self
+                .product_member(connection, network, &first.issuer_host_id)?
                 .and_then(|m| m.person_id);
             if let Some(person) = person
-                && crate::chain::member(connection, network, &self.identity().id)?.is_some()
-                && crate::chain::member(connection, network, peer)?
+                && self
+                    .product_member(connection, network, &self.identity().id)?
+                    .is_some()
+                && self
+                    .product_member(connection, network, peer)?
                     .is_some_and(|m| m.person_id.as_deref() == Some(person.as_str()))
             {
                 return Ok(Citation::SelfAccess(SelfRef { person_id: person }));
@@ -1112,17 +1238,17 @@ impl Store {
         &self,
         connection: &Connection,
         peer: &str,
-    ) -> Result<Policy, Error> {
+    ) -> Result<crate::decentralized::product::Policy, Error> {
         let mut owner = None;
-        for (network, m) in self.members_of(connection, peer)? {
+        for (network, m) in self.product_members_of(connection, peer)? {
             let Some(person) = &m.person_id else {
                 continue;
             };
             owner = Some(person.clone());
-            let Some(key) = self.person_key(connection, &network, person)? else {
+            let Some(key) = self.product_person_key(connection, &network, person)? else {
                 continue;
             };
-            if let Some(p) = self.stored_policy(connection, &network, &key)? {
+            if let Some(p) = self.product_policy(connection, &network, &key)? {
                 return Ok(p);
             }
         }
@@ -1298,6 +1424,9 @@ impl Store {
         let at = Utc::now();
         let mut out = Vec::new();
         for (network, own) in self.own_members(&connection)? {
+            if crate::decentralized::product::is_decentralized(&connection, &network)? {
+                continue;
+            }
             let selected: bool = connection.query_row(
                 "SELECT EXISTS(SELECT 1 FROM link_signers WHERE network_id=?1)",
                 [&network],
@@ -1350,11 +1479,11 @@ impl Store {
                 };
                 let mut persons = Vec::new();
                 for n in networks {
-                    persons.extend(self.stored_persons(&connection, &n)?);
+                    persons.extend(self.product_persons(&connection, &n)?);
                 }
                 persons.sort_by(|a, b| a.person_id.cmp(&b.person_id));
                 persons.dedup_by(|a, b| a.person_id == b.person_id);
-                let id = match crate::admins::resolve_person(&persons, person) {
+                let id = match crate::decentralized::product::resolve_person(&persons, person) {
                     Ok(p) => p.person_id.clone(),
                     Err(Error::NotFound) if person_id_shape(person) => person.clone(),
                     Err(e) => return Err(e),

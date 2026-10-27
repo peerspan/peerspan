@@ -23,6 +23,57 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+// Mutation/name decisions need complete current facts. Active-only product
+// membership is suitable for denying access, but cannot prove that a remembered
+// policy does not hold a capability name when its current bytes are missing.
+fn inactive_claim(code: &str) -> bool {
+    matches!(
+        code,
+        "not_found"
+            | "expired"
+            | "authority_expired"
+            | "not_yet_valid"
+            | "forbidden"
+            | "person_removed"
+            | "device_revoked"
+    )
+}
+fn claim_error(
+    network: &str,
+    projection: Option<&crate::decentralized::Projection>,
+    stream: &[String],
+    mut error: crate::decentralized::Error,
+) -> Error {
+    if error.code == "state_conflict"
+        && let Some(head) = projection.and_then(|p| p.streams.get(stream))
+    {
+        error.required_ids.extend(head.heads.iter().cloned());
+    }
+    let status = match error.code {
+        "invalid" => 400,
+        "forbidden" | "authority_expired" | "device_revoked" | "not_yet_valid" => 403,
+        "not_found" => 404,
+        "expired" => 410,
+        "internal" => 500,
+        _ => 409,
+    };
+    let conflict = error.code == "state_conflict";
+    let refs = error.required_ids;
+    Error::Coded {
+        status,
+        code: error.code,
+        message: error.code.replace('_', " "),
+        extra: json!({"details": {"network_id":network,
+            "context_id":projection.map(|p|p.descriptor.context_id()).unwrap_or_else(||"-".into()),
+            "request_id":"-", "stage":"claim",
+            "required_ids":if conflict {std::collections::BTreeSet::new()} else {refs.clone()},
+            "conflict_ids":if conflict {refs} else {std::collections::BTreeSet::new()}, "next":[]}})
+        .as_object()
+        .cloned()
+        .unwrap_or_default(),
+    }
+}
+
 /// The operation that reads a capability's resources.
 pub const READ: &str = "read";
 
@@ -406,16 +457,19 @@ type Drafted = (
 
 impl Store {
     /// This host's person's stored policies, by network.
-    pub(crate) fn own_policies(&self, conn: &Connection) -> Result<Vec<(String, Policy)>, Error> {
+    pub(crate) fn own_policies(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<(String, crate::decentralized::product::Policy)>, Error> {
         let mut out = Vec::new();
         for (network, own) in self.own_members(conn)? {
             if let Some(person) = &own.person_id
-                && let Some(key) = self.person_key(conn, &network, person)?
-                && let Some(policy) = self.stored_policy(conn, &network, &key)?
+                && let Some(key) = self.product_person_key(conn, &network, person)?
+                && let Some(policy) = self.product_policy(conn, &network, &key)?
             {
                 // With this host's unsettled withdrawals applied, as
                 // authorization sees it.
-                out.push((network.clone(), self.enforced(conn, &network, policy)?));
+                out.push((network.clone(), policy));
             }
         }
         Ok(out)
@@ -425,7 +479,7 @@ impl Store {
         let me = self.identity().id;
         let mut out = Vec::new();
         for (network, policy) in self.own_policies(conn)? {
-            let persons = self.stored_persons(conn, &network)?;
+            let persons = self.product_persons(conn, &network)?;
             for rule in policy.capability_rules() {
                 if rule.host != me || rule.capability != name {
                     continue;
@@ -443,8 +497,135 @@ impl Store {
         }
         Ok(out)
     }
+    /// Exact current DEC policy bodies for mutation checks, from the held
+    /// caller transaction. No provider, candidate, admission or clock write.
+    fn current_claims(
+        &self,
+        conn: &Connection,
+        own_only: bool,
+    ) -> Result<Vec<crate::policy::PolicyBody>, Error> {
+        use crate::decentralized::{Snapshot, local_decision_time};
+        let time = local_decision_time().map_err(|e| claim_error("-", None, &[], e))?;
+        let mut result = Vec::new();
+        for network in self.product_network_ids(conn)? {
+            if !crate::decentralized::product::is_decentralized(conn, &network)? {
+                continue;
+            }
+            let snapshot = Snapshot::load(conn, &network, &self.identity().public_key)
+                .map_err(|e| claim_error(&network, None, &[], e))?;
+            if snapshot
+                .migrations
+                .iter()
+                .any(|m| m.fenced && m.state != "adopted")
+            {
+                return Err(claim_error(
+                    &network,
+                    None,
+                    &[],
+                    crate::decentralized::Error::new("migration_pending"),
+                ));
+            }
+            let p = snapshot
+                .project(&time)
+                .map_err(|e| claim_error(&network, None, &[], e))?;
+            let root = vec!["root".into()];
+            let root_id = p
+                .root_state_id()
+                .map_err(|e| claim_error(&network, Some(&p), &root, e))?;
+            p.catalog
+                .get(root_id)
+                .map_err(|e| claim_error(&network, Some(&p), &root, e))?;
+            let people = if own_only {
+                let host = vec!["host".into(), self.identity().public_key];
+                let binding = vec!["binding".into(), self.identity().public_key];
+                if ![&host, &binding]
+                    .iter()
+                    .all(|key| p.streams.get(*key).is_some_and(|s| !s.heads.is_empty()))
+                {
+                    continue;
+                }
+                let mut bound = None;
+                let mut inactive = false;
+                for key in [&host, &binding] {
+                    match p.current_statement(key) {
+                        Ok((s, _)) if key == &binding => {
+                            bound = Some(
+                                s.subject()
+                                    .map_err(|e| claim_error(&network, Some(&p), key, e))?
+                                    .get("person_public_key")
+                                    .and_then(Value::as_str)
+                                    .ok_or_else(|| {
+                                        Error::Conflict("invalid current binding".into())
+                                    })?
+                                    .to_owned(),
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) if inactive_claim(e.code) => {
+                            inactive = true;
+                            break;
+                        }
+                        Err(e) => return Err(claim_error(&network, Some(&p), key, e)),
+                    }
+                }
+                if inactive {
+                    continue;
+                }
+                vec![bound.ok_or_else(|| Error::Conflict("missing current binding".into()))?]
+            } else {
+                p.streams
+                    .values()
+                    .filter(|s| s.key[0] == "person" && !s.heads.is_empty())
+                    .map(|s| s.key[1].clone())
+                    .collect()
+            };
+            for person in people {
+                let key = vec!["person".into(), person.clone()];
+                match p.current_statement(&key) {
+                    Ok(_) => {}
+                    Err(e) if inactive_claim(e.code) => continue,
+                    Err(e) => return Err(claim_error(&network, Some(&p), &key, e)),
+                }
+                let key = vec!["policy".into(), person];
+                if !p.streams.get(&key).is_some_and(|s| !s.heads.is_empty()) {
+                    continue;
+                }
+                let statement = match p.current_statement(&key) {
+                    Ok((s, _)) => s,
+                    Err(e) if inactive_claim(e.code) => continue,
+                    Err(e) => return Err(claim_error(&network, Some(&p), &key, e)),
+                };
+                let body = statement
+                    .payload
+                    .get("body_base64")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| Error::Conflict("missing current policy body".into()))?;
+                use base64::Engine;
+                let raw = base64::engine::general_purpose::STANDARD
+                    .decode(body)
+                    .map_err(|e| Error::Internal(e.into()))?;
+                result.push(serde_json::from_slice(&raw)?);
+            }
+        }
+        Ok(result)
+    }
     /// Whether a stored rule of this person binds `name` to another host.
     pub(crate) fn bound_elsewhere(&self, conn: &Connection, name: &str) -> Result<bool, Error> {
+        let me = self.identity().id;
+        if self.current_claims(conn, true)?.iter().any(|p| {
+            p.capability_rules
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .any(|r| r.capability == name && r.host != me)
+        }) {
+            return Ok(true);
+        }
+        self.known_name_conflict(conn, name)
+    }
+    // Diagnostic-only: unavailable authority is already reported by the
+    // network view, and cannot establish a positive name-conflict warning.
+    fn known_name_conflict(&self, conn: &Connection, name: &str) -> Result<bool, Error> {
         let me = self.identity().id;
         Ok(self.own_policies(conn)?.iter().any(|(_, p)| {
             p.capability_rules()
@@ -635,56 +816,92 @@ impl Store {
         if networks.len() != given.len() {
             return Err(Error::Invalid("duplicate claim network".into()));
         }
+        for p in &given {
+            if crate::decentralized::product::is_decentralized(conn, &p.network_id)? {
+                return Err(Error::Invalid(
+                    "native claims require exact signed catalogs, not legacy policies".into(),
+                ));
+            }
+        }
+        let mut native = std::collections::BTreeMap::new();
         for claim in catalogs {
             if !networks.insert(claim.network_id.clone()) {
                 return Err(Error::Invalid("duplicate claim network".into()));
             }
-            let checked = crate::link_runtime::claims::check(self, conn, name, claim)
-                .map_err(crate::link_runtime::support::model_error)?;
-            given.push(checked.policy);
+            if crate::decentralized::product::is_decentralized(conn, &claim.network_id)? {
+                let body = crate::decentralized::check_capability_claim(
+                    self,
+                    conn,
+                    &claim.network_id,
+                    name,
+                    claim.catalog.get().as_bytes(),
+                )
+                .map_err(|e| claim_error(&claim.network_id, None, &[], e))?;
+                native.insert(claim.network_id.clone(), body);
+            } else {
+                given.push(
+                    crate::link_runtime::claims::check(self, conn, name, claim)
+                        .map_err(crate::link_runtime::support::model_error)?
+                        .policy,
+                );
+            }
         }
-        let me = self.identity().id;
-        let at = chrono::Utc::now();
-        let mut out = Vec::new();
-        // Claims are signed by one person: required in each network where
-        // this host is bound to that person. Other networks gain theirs at
-        // the first share there.
-        let signer = given.first().map(Policy::person_id);
-        if given.iter().any(|p| Some(p.person_id()) != signer) {
+        let keys: std::collections::BTreeSet<_> = given
+            .iter()
+            .map(|p| p.person_public_key.clone())
+            .chain(native.values().map(|p| p.person_public_key.clone()))
+            .collect();
+        if keys.len() > 1 {
             return Err(Error::Invalid(
                 "the policies are signed by more than one person".into(),
             ));
         }
+        let signer = keys
+            .first()
+            .map(|k| crate::persons::person_id_of(k))
+            .transpose()?
+            .map(|p| p.to_owned());
+        // Check all current own-name paths before active-only membership can
+        // omit an unresolved remembered binding or policy.
+        self.current_claims(conn, true)?;
         let members = self.own_members(conn)?;
         if signer.is_none() && members.iter().any(|(_, m)| m.person_id.is_some()) {
             return Err(Error::Invalid(
                 "policies has no signed policy, and this host is bound to a person".into(),
             ));
         }
+        let me = self.identity().id;
+        let mut out = Vec::new();
         for (network, own) in members {
-            let Some(person) = &own.person_id else {
+            let Some(person) = own.person_id else {
                 continue;
             };
-            if signer.as_ref() != Some(person) {
+            if signer.as_ref() != Some(&person) {
                 continue;
             }
-            let Some(i) = given.iter().position(|p| p.network_id == network) else {
-                return Err(Error::Invalid(format!(
-                    "policies has no signed policy for network {network}, in which this host is bound"
-                )));
-            };
+            if let Some(body) = native.remove(&network) {
+                if self.product_person_key(conn, &network, &person)?.as_deref()
+                    != Some(body.person_public_key.as_str())
+                {
+                    return Err(Error::Invalid(
+                        "native claim is not signed by the current own person".into(),
+                    ));
+                }
+                continue;
+            }
+            let i=given.iter().position(|p|p.network_id==network)
+                .ok_or_else(||Error::Invalid(format!("policies has no signed policy for network {network}, in which this host is bound")))?;
             let p = given.remove(i);
-            if !catalogs.iter().any(|c| c.network_id == network) {
+            let typed = catalogs.iter().any(|c| c.network_id == network);
+            if !typed {
                 p.verify(&network)?;
+                if !p.in_window(chrono::Utc::now()) {
+                    return Err(Error::Invalid(
+                        "a claim policy is not within its validity window".into(),
+                    ));
+                }
             }
-            // Typed catalogs were revalidated at the runtime decision clock
-            // above; preserve the legacy policy clock for legacy submissions.
-            if !catalogs.iter().any(|c| c.network_id == network) && !p.in_window(at) {
-                return Err(Error::Invalid(
-                    "a claim policy is not within its validity window".into(),
-                ));
-            }
-            if self.person_key(conn, &network, person)?.as_deref()
+            if self.person_key(conn, &network, &person)?.as_deref()
                 != Some(p.person_public_key.as_str())
             {
                 return Err(Error::Invalid(format!(
@@ -702,9 +919,9 @@ impl Store {
             }
             out.push((network, p));
         }
-        if !given.is_empty() {
+        if !given.is_empty() || !native.is_empty() {
             return Err(Error::Invalid(
-                "policies holds a policy for a network in which this host is not bound, or two for one network".into(),
+                "claims holds a policy for a network in which this host is not bound".into(),
             ));
         }
         Ok(out)
@@ -719,7 +936,7 @@ impl Store {
         catalogs: &[crate::link_runtime::claims::ClaimCatalog],
     ) -> Result<Value, Error> {
         let mut conn = self.connection()?;
-        let tx = conn.transaction()?;
+        let mut tx = conn.transaction()?;
         let snapshot = match own {
             Some(s) => Some(s),
             None => server_record(&tx, &record.agent_id, &record.source.server)?
@@ -776,6 +993,12 @@ impl Store {
         if record.own_instance() {
             record.snapshot = snapshot;
         }
+        if self.bound_elsewhere(&tx, &record.name)? {
+            return Err(Error::Conflict(format!(
+                "a capability rule of yours binds {} to another host",
+                record.name
+            )));
+        }
         self.claim_policies(
             &tx,
             &record.name,
@@ -786,8 +1009,42 @@ impl Store {
                 .collect(),
             catalogs,
         )?;
-        crate::link_runtime::claims::apply(self, &tx, &record.name, catalogs)
+        let legacy_catalogs: Vec<_> = catalogs
+            .iter()
+            .filter_map(|claim| {
+                match crate::decentralized::product::is_decentralized(&tx, &claim.network_id) {
+                    Ok(false) => Some(Ok(claim.clone())),
+                    Ok(true) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        crate::link_runtime::claims::apply(self, &tx, &record.name, &legacy_catalogs)
             .map_err(crate::link_runtime::support::model_error)?;
+        for claim in catalogs {
+            if crate::decentralized::product::is_decentralized(&tx, &claim.network_id)? {
+                crate::decentralized::apply_capability_claim(
+                    self,
+                    &mut tx,
+                    &claim.network_id,
+                    &record.name,
+                    claim.catalog.get().as_bytes(),
+                )
+                .map_err(|e| claim_error(&claim.network_id, None, &[], e))?;
+            }
+        }
+        // All networks share this final transaction; recheck every exact
+        // candidate after all applications, at the actual decision clock.
+        self.claim_policies(
+            &tx,
+            &record.name,
+            policies
+                .iter()
+                .filter(|(n, _)| !catalogs.iter().any(|c| &c.network_id == n))
+                .map(|(_, p)| p.clone())
+                .collect(),
+            catalogs,
+        )?;
         // The claims and the record are stored together; a refusal stores
         // nothing.
         for (network, p) in policies
@@ -832,12 +1089,27 @@ impl Store {
         ),
         Error,
     > {
-        let view = self.capability_show(name)?;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
+        let record = capability_record(&tx, name)?.ok_or(Error::NotFound)?;
+        let view = self.capability_view(&tx, &record)?;
         // The record stays while any stored policy, of any person, holds
         // this host's rule for the name.
         let me = self.identity().id;
+        for policy in self.current_claims(&tx, false)? {
+            if policy
+                .capability_rules
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .any(|r| r.host == me && r.capability == name)
+            {
+                return Err(Error::Conflict(format!(
+                    "the policy of {} in network {} still holds this host's rule for {name}; withdraw it first",
+                    policy.person_public_key, policy.network_id
+                )));
+            }
+        }
         let holders: Vec<(String, String)> = {
             let mut statement = tx.prepare(
                 "SELECT network_id, record FROM network_statements WHERE kind = 'policy' ORDER BY network_id, subject",
@@ -847,6 +1119,11 @@ impl Store {
                 .collect::<Result<_, _>>()?
         };
         for (network, record) in holders {
+            if crate::decentralized::product::is_decentralized(&tx, &network)?
+                || self.decentralized_runtime()
+            {
+                continue;
+            }
             let p: Policy = json(record)?;
             if p.capability_rules()
                 .iter()
@@ -873,16 +1150,15 @@ impl Store {
     }
 
     /// `status`'s `capabilities` counts.
-    pub(crate) fn capabilities_summary(&self) -> Result<Value, Error> {
-        let conn = self.connection()?;
+    pub(crate) fn capabilities_summary(&self, conn: &Connection) -> Result<Value, Error> {
         let sources: i64 = conn.query_row(
             "SELECT (SELECT COUNT(*) FROM tool_servers) + (SELECT COUNT(*) FROM builtin_sources)",
             [],
             |r| r.get(0),
         )?;
-        let records = capability_records(&conn)?;
+        let records = capability_records(conn)?;
         let me = self.identity().id;
-        let policies = self.own_policies(&conn)?;
+        let policies = self.own_policies(conn)?;
         let shared = records
             .iter()
             .filter(|c| {
@@ -927,17 +1203,20 @@ impl Store {
     }
     /// Status item 14: sources failing, the environment file, and each
     /// capability that is unavailable or whose own instance is failing.
-    pub(crate) fn failing_capabilities(&self) -> Result<Vec<(String, String, String)>, Error> {
-        let mut out = self.failing_sources()?;
-        let conn = self.connection()?;
-        let day = chrono::Utc::now() - chrono::TimeDelta::hours(24);
+    pub(crate) fn failing_capabilities(
+        &self,
+        conn: &Connection,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, String, String)>, Error> {
+        let mut out = self.failing_sources(conn, at)?;
+        let day = at - chrono::TimeDelta::hours(24);
         let recent = |at: &Option<String>| {
             at.as_deref()
                 .and_then(|t| crate::membership::time(t).ok())
                 .is_some_and(|t| t > day)
         };
-        for r in capability_records(&conn)? {
-            let now = current(&conn, &r)?;
+        for r in capability_records(conn)? {
+            let now = current(conn, &r)?;
             let mut causes = Vec::new();
             if !now.unavailable.is_empty() {
                 causes.push(format!("unavailable: {}", now.unavailable.join(", ")));
@@ -957,8 +1236,8 @@ impl Store {
             let mut command = format!("peerspan capability show {}", r.name);
             if r.own_sign_in {
                 let key = (r.agent_id.clone(), r.source.server.clone(), r.name.clone());
-                let credential = crate::oauth::credential(&conn, &key)?;
-                let hour = chrono::Utc::now() - chrono::TimeDelta::hours(1);
+                let credential = crate::oauth::credential(conn, &key)?;
+                let hour = at - chrono::TimeDelta::hours(1);
                 let stale = credential.as_ref().is_some_and(|c| {
                     c.state == "refresh_failed"
                         && c.refresh_failed_at
@@ -996,11 +1275,13 @@ impl Store {
     }
     /// Status item 15: capability names here that a stored rule of this
     /// person binds to another host.
-    pub(crate) fn capability_name_conflicts(&self) -> Result<Vec<(String, String, String)>, Error> {
-        let conn = self.connection()?;
+    pub(crate) fn capability_name_conflicts(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<(String, String, String)>, Error> {
         let mut out = Vec::new();
-        for r in capability_records(&conn)? {
-            if self.bound_elsewhere(&conn, &r.name)? {
+        for r in capability_records(conn)? {
+            if self.known_name_conflict(conn, &r.name)? {
                 let mut create = format!(
                     "peerspan capability create NEW_NAME --from {}/{}",
                     r.source.agent, r.source.server

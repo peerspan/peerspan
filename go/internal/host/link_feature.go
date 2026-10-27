@@ -68,7 +68,13 @@ func decodeLinkFeatureProposal(raw []byte) (linkFeatureProposal, error) {
 	return p, nil
 }
 func (s *Store) legacyLinkCatalog(ctx context.Context, n Network) ([]byte, error) {
-	rows, e := s.db.QueryContext(ctx, `SELECT kind,record FROM network_statements WHERE network_id=? ORDER BY kind,subject`, n.ID)
+	return legacyLinkCatalogSnapshot(ctx, s.db, n)
+}
+
+// Migration must read the legacy rows, exact retained proofs and durable floors
+// from one snapshot. This helper adds no grants and performs no remote repair.
+func legacyLinkCatalogSnapshot(ctx context.Context, q dbQuerier, n Network) ([]byte, error) {
+	rows, e := q.QueryContext(ctx, `SELECT kind,record FROM network_statements WHERE network_id=? ORDER BY kind,subject`, n.ID)
 	if e != nil {
 		return nil, e
 	}
@@ -125,7 +131,7 @@ func (s *Store) legacyLinkCatalog(ctx context.Context, n Network) ([]byte, error
 	if e != nil {
 		return nil, e
 	}
-	members, e := s.NetworkMembers(ctx, n.ID)
+	members, e := readLinkMembers(ctx, q, n.ID)
 	if e != nil {
 		return nil, e
 	}

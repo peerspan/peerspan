@@ -1,0 +1,144 @@
+{
+  "format": 1,
+  "group": "verified_current_group_aggregate_and_native_reads",
+  "contract_pin": "32921db847245f7751c473e3cf837065dc615c5b",
+  "implementation_source_read": false,
+  "execution_status": "executable_and_public_fixture_recipe_frozen_unrun_waiting_reviewed_behavioral_offer",
+  "references": [
+    "decentralized-runtime-contract.md sections2 and10: exact aggregate current groups, all remembered streams, diagnostics, native display and held read purity",
+    "decentralized-authority-contract.md sections4,6 and7: group root/admin8 issuer, current finite ancestry, durable maxima, forks and administrator withdrawal",
+    "decentralized-storage-contract.md sections4 and11: exact public proof bodies, admissions, maxima and guarded read without a clock commit"
+  ],
+  "scope": "NEW seven group-read controls, not earlier current-person/policy, introduction, root-retention, migration-floor or installed functions. No claim of group mutation UI parity, product execution, final-head acceptance, size-pressure coverage or live agents.",
+  "fixture": {
+    "construction": [
+      "Construct a bounded working DEC network through actual public creation/admission routes. The normal owned initial root signs only its own public creation/transition roles. A legitimate exact root transition then moves signing to a separately fixture-owned external key; later root/original signatures use their own signer fixture. No daemon private key is read, copied or exported.",
+      "Retain an independently usable owner and one other admitted person. Group members are their exact stable person_ IDs derived independently from admitted canonical public keys, never raw key strings or labels substituted for IDs.",
+      "Use actual public typed action writers or authenticated current-member catalog imports for independently signed ordinary groups. First public peer add pins only the independently verified actual own host ID/key and loopback listener; current H remains independently required. This transport configuration grants no operation/network authority. Retain named all-DB before/after hashes; any transport-contact/outbox bookkeeping is reported, not silently masked. Freeze the exact signed statement bytes, ds_, name, version and decoded members before reading the new endpoint.",
+      "Each scenario has a complete otherwise-valid root/person/host path and an independently complete current personal policy. Unrelated complete group streams remain present when testing aggregate failure.",
+      "Use separately constructed disposable actual public fixtures for expiry, withdrawal, fork and proof loss; never copy an actual store containing daemon/device/private key material. Never rewind an existing guard or rewrite an old signed object to obtain another scenario.",
+      "Every positive and negative read uses one held coherent decision-time precondition. Snapshot every fixture-created SQLite table and normative private record in a coherent read transaction; avoid noncoherent live file copies or immutable/nolock reads.",
+      "The parent has approved a bounded proof-loss fixture mutation, with no whole-store copy: preserve a separate positive fixture untouched, create a dedicated disposable actual fixture through ordinary public setup, stop that daemon and retain all DDL/rows/BLOB hashes. Remove only independently identified PUBLIC proof rows/containers from normative dec_objects, retaining exact removed public bytes and every private/admission/head/max/guard hash. Preserve a first failing fixture unchanged. Use a separate disposable actual fixture for each loss control. Do not guess columns, write an admission or modify a signed body.",
+      "For proof loss, enumerate all exact public aliases or containing public composites that supply the missing statement. If another retained public object still provides its complete bytes, the intended missing-body precondition is not established. Never assert proof_required while complete proof bytes remain available."
+    ],
+    "custody": "Original fixture signer keys remain in their own signer homes; no daemon key copying. A foreground fixture establishes no installed or separate-machine custody claim.",
+    "signer_unavailable_read": "For the read-only/native controls, restart the actual owner with no original-key daemon arguments or SSH agent. Preserve its selected provider row exactly, including an unavailable provider state. Verified cached public authority remains independently usable."
+  },
+  "mandatory_read_oracles": [
+    "GET /v2/networks/{id}/groups has no query/body. A200 response is exactly context_id plus groups; each row has exactly name, statement_id and statement_base64. Names are validated, sorted and unique.",
+    "Each successful row equals the exact independently signed ORIGINAL current group envelope and ds_, with canonical standard Base64. Decode the unsigned group-v1 body to compare actual stable members and full-u64 version; never manufacture a legacy signature or normalize signed bytes.",
+    "Before/after DB snapshots, clock guard, actual identity, context/origin, admissions, all maxima/head sets, provider selection/state, intents/signatures, outbox and authority events remain unchanged. A read performs no key generation, signing, consent, projection commit or remote repair.",
+    "Capture exact structured errors for the single isolated cause: proof_required has exact sorted unique IDs in required_ids and empty conflict_ids; state_conflict has exact sorted unique heads in conflict_ids and empty required_ids. Do not accept a union across diagnostic fields or invent precedence between different error classes.",
+    "Native success demonstrates the observable names/members/versions and lack of a signer requirement. Without separate instrumentation, do not claim to have traced its internal HTTP route or ruled out every attempted fallback solely from output."
+  ],
+  "cases": [
+    {
+      "name": "groups/complete_empty_current_view_is_exact_and_pure",
+      "assert": [
+        "Before any group stream exists, a complete usable network returns200 exactly {context_id:ACTUAL_CONTEXT,groups:[]}.",
+        "All mandatory read-purity checks pass without a local signing key, an invented initial group or a fetch."
+      ]
+    },
+    {
+      "name": "groups/current_original_bytes_sorted_members_and_native_display_without_signer",
+      "assert": [
+        "Create two current groups under independently valid current issuers in reverse name order. GET returns exactly the two name-sorted current ds_/ORIGINAL-byte rows, not historical bodies or an invented legacy view.",
+        "Native network groups, bound to its actual public help before execution, succeeds without an available signer and displays each exact current name, stable members and version.",
+        "Current persons/policy and actual provider state remain independent and unchanged; mandatory read-purity checks pass for API and native reads."
+      ]
+    },
+    {
+      "name": "groups/expired_higher_head_is_absent_without_lower_fallback_or_floor_reset",
+      "assert": [
+        "Admit a longer-lived first group and a valid higher successor with a shorter finite deadline. Advance only the test DEC authority clock monotonically beyond the successor deadline while all required root/management authority and the lower historical body would still be live.",
+        "GET omits that group and retains every unrelated current group; no lower historical group becomes active. The expired higher admitted head/maximum and its exact proof bytes remain durable and unchanged.",
+        "Mandatory read-purity checks pass; advancing the test control file is fixture setup and the GET itself commits no guard."
+      ]
+    },
+    {
+      "name": "groups/withdrawn_administrator_group_is_inactive_while_unrelated_root_group_remains",
+      "assert": [
+        "An independently admitted current administrator8 issues a current group. The actual current root then validly withdraws that exact administrator role without a group-preservation exception; group authority cannot be preserved by an admin-withdraw kept list.",
+        "GET omits the withdrawn-issuer group, keeps an independently current root-issued group and does not erase the inactive group's admitted high-water or retained original proofs.",
+        "The separate complete current personal policy remains readable and usable; the groups read performs no mutation."
+      ]
+    },
+    {
+      "name": "groups/any_remembered_group_fork_refuses_whole_aggregate_with_exact_heads",
+      "assert": [
+        "Import two otherwise valid current sibling group successors with exact common predecessor and distinct signed bodies. Their independently computed ds_ heads establish one known group fork; another group remains complete and usable.",
+        "Whole GET returns the ordinary state_conflict with all exact conflicting head IDs sorted/unique. It never returns partial200, a hash-selected winner, an omitted forked entry or a lower body.",
+        "The unrelated complete personal policy remains independently readable. No read resolves the fork, advances a maximum, fetches proof or mutates any row."
+      ]
+    },
+    {
+      "name": "groups/missing_current_head_refuses_whole_aggregate_with_exact_proof_id",
+      "execution_hold": "Requires executable exact-public-row bindings in a dedicated disposable actual fixture and a separately offered supported artifact. No actual store/private key is copied; this declarative freeze performs no mutation.",
+      "assert": [
+        "A previously admitted higher group head remains remembered with its exact maximum, while all copies of only its public body are genuinely absent in the stopped dedicated actual fixture. A lower historical group and an unrelated complete group remain available.",
+        "Whole GET returns proof_required with the exact independently derivable missing statement ID. It never falls back to the lower group, omits the incomplete stream or returns an unrelated partial200.",
+        "The separately complete personal policy remains independently readable. Preserve the faulted actual fixture's exact pre-read retained maxima/admissions and every remaining row; do not repair or refetch through this GET."
+      ]
+    },
+    {
+      "name": "groups/missing_required_ancestor_refuses_whole_aggregate_without_rewrite",
+      "execution_hold": "Requires executable exact-public-row bindings in a dedicated disposable actual fixture and a separately offered supported artifact. No actual store/private key is copied; this declarative freeze performs no mutation.",
+      "assert": [
+        "A current group's signed head body is present, but an exact required predecessor/issuer ancestor is genuinely absent from all retained public objects. Freeze one isolated derivable missing ID and keep unrelated group/policy proofs complete.",
+        "Whole GET returns proof_required for that exact missing ID, without an incomplete entry, partial200, authority inferred from an admission marker or a synthesized ancestor.",
+        "Every remaining DB row, guard, provider, maximum/head, original proof and identity remains unchanged. The unrelated complete personal policy remains independently readable."
+      ]
+    }
+  ],
+  "execution_gate": "Freeze executable, public fixture/proof bindings and exact offered host/source hashes before any runtime. This freeze executes zero cases and offers no artifact. Preserve the first failure and continue only failed/unevaluated functions; necessary public prerequisite setup is uncounted and never invoked as an old positive test function.",
+  "executable_binding": {
+    "script": "conformance/decentralized_current_groups.py",
+    "manifest": "/tmp/peerspan-dec-current-groups-ancestor-only-frozen-binding.json",
+    "public_native_help": "network groups [ID]; global --state. Parent-provided Go42ab help is binding-only, not a runtime offer.",
+    "actual_fixtures": "Seven independent disposable actual stores constructed through public routes; no prior positive function invoked. Stable person IDs are independently derived from actual admitted person public keys. Forks use distinct independently signed siblings under the legitimate external root.",
+    "proof_loss": "For each dedicated stopped actual fixture, retain exact public removed rows/bytes and require the entire post-fault row set to equal the prior set minus only those independently hashed public rows. Every other public/private/admission/head/max/guard row and schema remains exact. Do not copy an actual store.",
+    "purity": "API/native reads preserve every coherent DB-row hash and hash of non-DB state/HOME files; the latter detects unwanted key generation without exporting private bytes. Capture exact original public proof input before transmitting it.",
+    "native_scope": "Visible current names, members (exact stable IDs or correctly resolved actual member labels) and versions; no unsupported assertion about internal HTTP tracing."
+  },
+  "fixture_continuation": {
+    "original_setup_receipt": "/tmp/peerspan-dec-current-groups-go42ab-first/results.json",
+    "actual_fixture_dir": "/tmp/dgroups-go-first/empty",
+    "stopped_boundary_sha256": "7335286358acffe22be04841e483ba3cba6ed5295489e8e3ab838a7da19d5400",
+    "unimported_original_public_input_sha256": "f1ba92fe6a05f271f02ea2781a1005a15d18e897d363a7adea0ad1e7a4842823",
+    "cause": "Before any group read, the shared constructor's unnecessary Bob P import used an unconfigured self TLS key and failed before HTTP. Preserve its exact source/root/input/clock/keys and setup-only receipt; no group product finding follows.",
+    "approved_minimum": "Only empty case0 reopens the SAME existing actual store/home/root/clock/host and reads exact empty groups/current policy/purity, with no public creation, root transition, Bob import or peer-pin replay. All seven group assertions remain previously UNEVALUATED. Cases1-6 use fresh necessary fixtures and the documented actual own transport pin before snapshots/imports.",
+    "database_discovery_correction": "A normal host has its actual main and isolated resource SQLite databases. Keep generic snapshots of both; discover the unique actual file owning normative dec_objects for head/high-water reads and approved exact public-row loss. Never guess a filename or assume one DB, infer private schema or copy a store."
+  },
+  "failed_ancestor_continuation": {
+    "first_actual_receipt": "/tmp/peerspan-dec-current-groups-go42ab-same-root/results.json",
+    "first_receipt_sha256": "586aea92bcb8dde087481582307c7a1ad750355ba691b6d7baf469932186f84a",
+    "actual_fixture_dir": "/tmp/dgroups-go-same-root/missing-ancestor",
+    "missing_statement_id": "ds_4a3fbcb920e5252c4173e79dc59f3ecbff24b7dea62f582695c250804af2516b",
+    "public_file_sha256": {
+      "proof-loss.public.json": "6c616aaa8c7c827deb51c4a09dfaeaca02f668b85ac2c9f8f6f0f1bab3c80267",
+      "stopped-after-read-audit.public.json": "78e698263da0408eb5c085f8bfb8917b4b9392ad8fa35c1c5ed7b07cb2e276e4",
+      "clock": "6ac6753b3b7346b55008c1e63ad318cd9147d2e93b3d1dec3217f430fd3600bc",
+      "public-responses/010.json": "7e8a3594a7320506d47caf7843f05f90630abe462276c441f308bed519a8489b",
+      "wire-003.request.json": "6031bdeab06a6c11193091b8ea4d1debbe21a71d87d37f2fb240bf864886f063"
+    },
+    "security_oracle_unchanged": "On the SAME actual faulted store/root/clock/host, groups must retain exact proof_required in required_ids only; the unrelated complete empty personal policy must200 with its ORIGINAL statement bytes. All DB/private-file/head/max/guard hashes remain exact. The first group diagnostic substep passed but the whole final control failed on policy409; preserve that receipt.",
+    "minimum": "Only case6 with --retained-missing-ancestor; skip all six passed functions. No creation, root transition, peer pin, public import, new key, proof deletion/restoration, signature, consent or clock reset is replayed. Wait for separately reviewed correction-only artifact before this one read control."
+  },
+  "rust_fork_continuation": {
+    "first_actual_receipt": "/tmp/peerspan-dec-current-groups-rust12c-first/results.json",
+    "first_receipt_sha256": "316ce86232f4532606cb66415148ebe1f671cad3deb1a523b15b17e2fb6f3cdd",
+    "actual_fixture_dir": "/tmp/dgroups-rust-first/fork",
+    "stopped_boundary_sha256": "4d988a9d8c9b12352ed23e6491ee836a10af5e545394442b5ad269181fc7f433",
+    "stopped_protected_sha256": "dc906bea78def79fcab72e38cb0015491fe21b348e558c686538e81352090bcb",
+    "cause": "Actual409 state_conflict contains the exact sorted conflict_ids and empty required_ids, but context_id is dash despite the independently known actual context. The unchanged compound assertion stopped before unrelated-policy/purity postconditions.",
+    "security_oracle_unchanged": "Same exact fork returns409 state_conflict with the actual known network/context and exact two conflict IDs only in conflict_ids. The unrelated complete original policy remains200 and all protected rows/private files/head/max/guard remain exact. No partial200 or authority bypass was observed in the first receipt.",
+    "minimum": "Run ONLY failed case4 on its SAME stopped actual state/HOME/host/root/clock/keys, then the two previously unevaluated fresh disposable proof-loss fixtures5/6. Skip all four passed functions. No creation, root transition, pin, public import, re-signature, consent or clock replay on retained case4.",
+    "required_arguments": [
+      "--retained-fork /tmp/dgroups-rust-first/fork",
+      "--case groups/any_remembered_group_fork_refuses_whole_aggregate_with_exact_heads",
+      "--case groups/missing_current_head_refuses_whole_aggregate_with_exact_proof_id",
+      "--case groups/missing_required_ancestor_refuses_whole_aggregate_without_rewrite"
+    ],
+    "execution_hold": "Wait for separately reviewed immutable correction-only Rust offer and root approval of this binding; no runtime during freeze."
+  }
+}

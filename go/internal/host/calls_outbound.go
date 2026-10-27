@@ -282,20 +282,12 @@ func (s *Store) fetchListing(ctx context.Context, host, network string) ([]Liste
 // selectedNetworks is the given network, or every network of this host.
 func (s *Store) selectedNetworks(ctx context.Context, network string) ([]string, error) {
 	if network != "" {
-		if _, err := s.Network(ctx, network); err != nil {
-			return nil, err
+		if _, e := s.loadProductGovernance(ctx, s.db, network); e != nil {
+			return nil, e
 		}
 		return []string{network}, nil
 	}
-	all, err := s.Networks(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for _, n := range all {
-		ids = append(ids, n.ID)
-	}
-	return ids, nil
+	return s.networkIDs(ctx, s.db)
 }
 
 // personHost is a host bound to a person in one network, with the
@@ -344,7 +336,7 @@ func (s *Store) personHosts(ctx context.Context, person, network string) ([]pers
 	var out []personHost
 	resolved := false
 	for _, id := range networks {
-		g, err := s.loadGovernance(ctx, s.db, id)
+		g, err := s.loadProductGovernance(ctx, s.db, id)
 		if err != nil {
 			return nil, err
 		}
@@ -651,7 +643,7 @@ func (s *Store) personAddressed(ctx context.Context, wanted []personHost, listin
 		persons[h.person] = true
 	}
 	for _, id := range networks {
-		g, err := s.loadGovernance(ctx, s.db, id)
+		g, err := s.loadProductGovernance(ctx, s.db, id)
 		if err != nil {
 			return nil, err
 		}
@@ -813,7 +805,7 @@ func (s *Store) citeVia(ctx context.Context, via ToolVia, r *CallRequest) error 
 		r.Policy = &CallPolicyCitation{PersonID: *via.PersonID, NetworkID: *via.NetworkID, Version: *via.Version}
 		return nil
 	case AuthorizationSelf:
-		person, err := s.ownPerson(ctx, s.db, *via.NetworkID)
+		person, err := s.verifiedOwnPerson(ctx, s.db, *via.NetworkID)
 		if err != nil {
 			return err
 		}
@@ -914,7 +906,7 @@ func (s *Store) PrepareCall(ctx context.Context, r SubmitCall) (OutboundCall, er
 	if request.Deadline == "" {
 		deadline := now.Add(callMaxDeadline)
 		if request.Policy != nil {
-			if g, err := s.loadGovernance(ctx, s.db, request.Policy.NetworkID); err == nil {
+			if g, err := s.loadProductGovernance(ctx, s.db, request.Policy.NetworkID); err == nil {
 				if key, ok := g.personKey(request.Policy.PersonID); ok {
 					if p, ok := g.storedPolicy(key); ok {
 						if until, err := membership.ParseTime(p.ValidUntil); err == nil && until.Before(deadline) {

@@ -25,14 +25,13 @@ current administrator. Root-only commands without the seed use --root-key PATH.
 PERSON is a person ID or label. An access policy, signed by the agents' owner,
 lets principals (person:PERSON, group:NAME, or network) message the owner's
 agents by name without a grant; the daemon renews it through the ssh-agent at
---person-agent. The owner's hosts in a network push their policies to one
-another and to the coordinator, and sync with each other at start, every 5
-minutes, and when another of the owner's hosts appears; access sync runs a sync
-now, and --status shows the deliveries. Blocks are host-local and override
+--person-agent. The owner's hosts exchange signed policies with admitted peers;
+access sync runs a sync now, and --status shows the deliveries. Finite network
+authority must remain usable for new work. Blocks are host-local and override
 grants and policies.
 A policy rule for agent * covers every agent of the owner that no rule names.
 Hosts bound to the same person reach each other's agents without a grant or
-policy (self access), even out of sync with coordination; blocks do not apply.
+policy (self access) while their network authority is usable; blocks do not apply.
 Without --grant, message send, task submit, and adapter routes cite self access
 when the receiver is bound to this host's person, and otherwise the receiver
 owner's policy. Grants, policy rules, and routes carry an action: message.append
@@ -104,6 +103,7 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("link approve", "approve", "Review and approve a machine for your person", 0)
 	add("link admit", "admit", "Review and admit a selected machine as administrator", 0)
 	add("link select", "select REQUEST_ID", "Review and select one exact owner offer", 1)
+	add("link finalize", "finalize REQUEST_ID", "Review exact owner finalization and signing slots", 1)
 	add("link commit", "commit REQUEST_ID", "Review and consent to the exact final operation", 1)
 	add("link status", "status [REQUEST_ID]", "Show public linking progress", 0).Args = cobra.RangeArgs(0, 1)
 	add("link resume", "resume REQUEST_ID", "Resume the same persisted machine link", 1)
@@ -256,22 +256,26 @@ Session attachment records metadata; a scoped adapter connects an opted-in sessi
 	add("untrust", "untrust HOST", "Stop a machine of yours using your capabilities", 1)
 	add("artifact list", "list", "List stored artifacts", 0)
 	add("artifact prune", "prune", "Release artifacts of finished tasks", 0)
-	add("network create", "create [NAME]", "Create a coordinated network", 0).Args = cobra.RangeArgs(0, 1)
-	add("join", "join TOKEN", "Join a network with an invite", 1)
+	add("network create", "create [NAME]", "Create a coordinator-free network", 0).Args = cobra.RangeArgs(0, 1)
+	add("join", "join", "Review a private introduction and request explicit admission", 0)
 	add("invite", "invite LABEL", "Invite a person to a network", 1)
 	add("allow", "allow PRINCIPAL", "Set a principal's access to your agents", 1)
 	add("deny", "deny (PRINCIPAL | ID) [--reason TEXT]", "Remove a principal's access to your agents", 1)
 	add("block", "block TARGET", "Block a person or host locally", 1)
 	add("unblock", "unblock TARGET", "Remove a local block", 1)
-	add("network join", "join", "Join a coordinated network", 0)
-	add("network invite", "invite", "Issue a member or host invite", 0)
+	add("network join", "join", "Review a private introduction", 0)
+	add("network invite", "invite", "Issue a private five-minute contact introduction", 0)
 	add("network list", "list", "List joined networks", 0)
+	for _, command := range []string{"identity", "prepare", "review", "host-lease", "device-bans", "link", "ack", "evidence", "commit", "adopt", "resume", "status"} {
+		add("network migrate "+command, command+" NETWORK_ID", "Review and complete an exact legacy-network migration", 1)
+	}
 	add("network members", "members [ID]", "List network members", 0).Args = cobra.RangeArgs(0, 1)
-	add("network sync", "sync [ID]", "Sync a network with coordination", 0).Args = cobra.RangeArgs(0, 1)
+	add("network sync", "sync [ID]", "Exchange signed network state with admitted peers", 0).Args = cobra.RangeArgs(0, 1)
 	add("network revoke", "revoke", "Revoke a host membership", 0)
 	add("network revoke-invite", "revoke-invite", "Revoke an invite", 0)
 	add("network leave", "leave ID", "Leave a network", 1)
 	add("network rotate-root", "rotate-root ID", "Rotate the network root key", 1)
+	add("network resolve-root", "resolve-root ID", "Resolve every known root branch with exact signatures", 1)
 	add("network move", "move", "Move a network to another coordinator", 0)
 	add("network admit", "admit", "Admit a person or host", 0)
 	add("network invite-person", "invite-person", "Issue a person invite", 0)
@@ -423,6 +427,25 @@ func printHelp(root *cobra.Command, leaves []*cobra.Command, advanced bool) erro
 func configureFlags(cmd *cobra.Command, args []string) {
 	fs := cmd.Flags()
 	command := args[len(args)-1]
+	if len(args) == 3 && args[0] == "network" && args[1] == "migrate" {
+		configureDecMigrationFlags(fs, command)
+		return
+	}
+	if len(args) == 2 && args[0] == "network" && (command == "delegate-admin" || command == "remove-admin" || command == "remove-person" || command == "revoke" || command == "unbind") {
+		fs.String("signer", "auto", "auto uses only the selected provider; network_root explicitly selects the owned root; or give the exact original/device provider")
+		fs.Bool("approve", false, "approve only the exact displayed typed DEC action")
+		if command != "delegate-admin" && command != "remove-admin" {
+			fs.String("root-key", "", "explicit current root SSH key; forbidden for owner-only unbind")
+		}
+		if command == "delegate-admin" {
+			fs.String("not-after", "", "exact role expiry; default seven days capped by actual finite authority")
+			fs.StringArray("resolve", nil, "exact known role withdrawal ds_ to resolve in this new generation; repeatable")
+		}
+		if command == "remove-admin" {
+			fs.StringArray("keep", nil, "every exact eligible person/host admission ds_ to preserve; omission stays incomplete")
+			fs.String("statement", "", "exact administrator role ds_; defaults only to its unique remembered head")
+		}
+	}
 	if args[0] == "link" {
 		configureLinkFlags(cmd, args)
 		return
@@ -431,6 +454,10 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		switch command {
 		case "create", "join", "redeem-person", "bind", "unbind", "set":
 			fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
+			if command == "create" {
+				fs.String("person-key-file", "", "original person key file retained on this machine")
+			}
+
 		default:
 			if administeredCommands[command] {
 				fs.String("person-key", "", "ssh-ed25519 public key in ssh-agent, or an unencrypted OpenSSH private key file")
@@ -520,6 +547,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "trust", "untrust":
 		fs.String("network", "", "network ID; defaults to the only network")
 	case "join":
+		fs.Bool("invite-stdin", false, "read the private introduction from stdin")
+		fs.String("invite-file", "", "read a protected private introduction file")
 		fs.Bool("trusted", false, "let this machine use your capabilities on your other machines")
 		fs.Bool("untrusted", false, "do not let this machine use your capabilities on your other machines")
 		fs.Bool("no-person", false, "join as a host-only membership, without admitting or binding a person")
@@ -530,11 +559,12 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		_ = fs.MarkHidden("descriptor")
 	case "invite":
 		fs.String("network", "", "network ID; defaults to the only network")
-		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead; default 7 days")
-		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
-		fs.String("member", "", "")
+		fs.String("expires-at", "", "legacy expiry override; private introductions last five minutes")
+		fs.String("expires-in", "", "legacy expiry override; private introductions last five minutes")
+		fs.String("member", "", "reviewed label for the private five-minute contact introduction")
 		fs.Bool("host-only", false, "")
-		_ = fs.MarkHidden("member")
+		_ = fs.MarkHidden("expires-at")
+		_ = fs.MarkHidden("expires-in")
 		_ = fs.MarkHidden("host-only")
 	case "allow", "deny":
 		fs.String("network", "", "network ID; defaults to the only network")
@@ -551,11 +581,15 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "attach", "up":
 		if command == "up" {
 			fs.String("create", "", "create or resume a network by name")
-			fs.String("join", "", "join or resume the network in an invite")
+			fs.Bool("join", false, "review a private introduction and request admission")
+			fs.Bool("invite-stdin", false, "read the private introduction from stdin")
+			fs.String("invite-file", "", "read a protected private introduction file")
 			fs.String("as", "", "person label for a new network; defaults to your login")
 			fs.String("person-key", "", "person signing key")
 			fs.String("coordinator", "", "explicit coordinator HOST:PORT for creation")
 			fs.String("coordinator-key", "", "pinned coordinator public key")
+			_ = fs.MarkHidden("coordinator")
+			_ = fs.MarkHidden("coordinator-key")
 			fs.Bool("trusted", false, "trust this machine for capability calls")
 			fs.Bool("untrusted", false, "keep this machine untrusted for capability calls")
 		}
@@ -647,10 +681,13 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.Int64("limit", 100, "maximum records, 1 to 1000")
 	case "network invite":
 		fs.String("network", "", "network ID")
-		fs.String("member", "", "invitee member label")
-		fs.String("expires-at", "", "UTC invite expiration, at most 30 days ahead; default 7 days")
-		fs.String("expires-in", "", "relative lifetime (1m to 720h); excludes --expires-at")
-		fs.Bool("host-only", false, "issue a host-only invite instead of a member invite")
+		fs.String("member", "", "reviewed label for the private five-minute contact introduction")
+		fs.String("expires-at", "", "legacy expiry override; private introductions last five minutes")
+		fs.String("expires-in", "", "legacy expiry override; private introductions last five minutes")
+		fs.Bool("host-only", false, "legacy host-only bearer invite, unavailable for new enrollment")
+		_ = fs.MarkHidden("expires-at")
+		_ = fs.MarkHidden("expires-in")
+		_ = fs.MarkHidden("host-only")
 	case "network invite-person":
 		fs.String("network", "", "network ID")
 		fs.String("member", "", "invitee member label")
@@ -684,6 +721,9 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.Int64("after", 0, "read events after this sequence")
 		fs.Int("limit", 100, "maximum events, 1 to 1000")
 	case "network group set":
+		fs.String("signer", "auto", "auto uses only the selected administrator; network_root explicitly uses the owned root; or give the exact original/device provider")
+		fs.String("root-key", "", "explicit current root SSH key for this exact finite group action; otherwise use only the selected administrator")
+		fs.Bool("approve", false, "approve the exact displayed finite DEC group definition")
 		fs.String("network", "", "network ID")
 		fs.String("group", "", "group name")
 		fs.StringArray("person", nil, "member person ID or label (repeatable; none deletes the group)")
@@ -694,6 +734,13 @@ func configureFlags(cmd *cobra.Command, args []string) {
 	case "network rotate-root":
 		fs.Bool("to-ssh", false, "rotate to the SSH key named by --root-key")
 		fs.String("root-key", "", "the new SSH root: a .pub file selecting an ssh-agent identity, or an OpenSSH private key file")
+		fs.StringArray("retain", nil, "exact finite statement ds_ subset; repeatable, bypasses the full eligible-set default")
+		fs.Bool("retain-none", false, "explicitly retain no delegated finite authority")
+	case "network resolve-root":
+		fs.String("new-root-key", "", "new root SSH key file or public key selecting an ssh-agent identity")
+		fs.StringArray("root-key", nil, "existing branch SSH key file or agent identity; repeatable")
+		fs.StringArray("retain", nil, "exact finite statement ds_ subset; repeatable, bypasses the full eligible-set default")
+		fs.Bool("retain-none", false, "explicitly retain no delegated finite authority")
 	case "network admit":
 		fs.String("network", "", "network ID")
 		fs.String("person", "", "person ssh-ed25519 public key line, or a path to one")
@@ -706,17 +753,25 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.Bool("untrusted", false, "do not let this machine use your capabilities on your other machines")
 		fs.Bool("no-person", false, "host-only membership: do not admit or bind a person")
 		if command == "create" {
+			_ = fs.MarkHidden("no-person")
+			_ = fs.MarkHidden("trusted")
 			fs.String("name", "", "network name; or give NAME")
 			fs.String("as", "", "your person and member label; defaults to the login name")
 			fs.String("member", "", "alias of --as")
 			fs.String("coordinator", "", "coordinator HOST:PORT; with --coordinator-key, overrides the build's default coordinator")
 			fs.String("coordinator-key", "", "pinned coordinator public key; given together with --coordinator")
+			_ = fs.MarkHidden("coordinator")
+			_ = fs.MarkHidden("coordinator-key")
 		} else {
-			fs.String("token", "", "invite token")
+			fs.Bool("invite-stdin", false, "read the private introduction from stdin")
+			fs.String("invite-file", "", "read a protected private introduction file")
+			fs.String("token", "", "legacy token, unavailable for new enrollment")
 			fs.String("descriptor", "", "network descriptor, for a host admitted by public key")
 		}
 	case "run":
 		fs.String("peer-listen", "", "opt-in peer bind address, UDP IP:port")
+		fs.String("bootstrap-listen", "", "isolated pairing listener, TCP HOST:PORT; defaults to peer interface on an ephemeral port or loopback")
+		fs.String("transport-config", "", "private optional rendezvous and relay transport configuration")
 		fs.String("advertise", "", "peer address advertised to coordination; defaults to a specific bind address")
 		fs.Int("coordination-interval", 30, "seconds between coordination syncs, 1 to 3600")
 		fs.String("person-agent", os.Getenv("SSH_AUTH_SOCK"), "ssh-agent socket for renewing access policies; defaults to SSH_AUTH_SOCK")
@@ -768,6 +823,8 @@ func configureFlags(cmd *cobra.Command, args []string) {
 		fs.String("network", "", "network ID")
 		if command == "unbind" {
 			fs.String("host", "", "host ID to unbind")
+		} else {
+			fs.Bool("approve", false, "approve this exact own-host binding and original-provider selection")
 		}
 	case "access allow", "access deny", "access renew":
 		fs.String("network", "", "network ID")

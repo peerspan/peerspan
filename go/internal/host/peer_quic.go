@@ -17,7 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/peerspan/peerspan/go/internal/helper"
 	"github.com/peerspan/peerspan/go/internal/relay"
+	"github.com/peerspan/peerspan/go/internal/tlsid"
 	"github.com/quic-go/quic-go"
 )
 
@@ -38,10 +40,17 @@ const (
 // Neither side accepts unidirectional streams; a client accepts no streams.
 func PeerQUICConfig(server bool) *quic.Config {
 	streams := int64(-1)
+	handshake := peerHandshakeTimeout
 	if server {
 		streams = peerMaxStreams
+		// quic-go's total handshake deadline is twice its idle bound.
+		handshake /= 2
 	}
-	return &quic.Config{HandshakeIdleTimeout: peerHandshakeTimeout, MaxIdleTimeout: peerIdleTimeout, MaxIncomingStreams: streams, MaxIncomingUniStreams: -1}
+	// A fixed sliding receive window bounds bytes buffered before HTTP has
+	// reserved its body. It does not limit total body size or normal streams.
+	return &quic.Config{HandshakeIdleTimeout: handshake, MaxIdleTimeout: peerIdleTimeout, MaxIncomingStreams: streams, MaxIncomingUniStreams: -1,
+		InitialStreamReceiveWindow: 16 << 10, MaxStreamReceiveWindow: 16 << 10,
+		InitialConnectionReceiveWindow: 16 << 10, MaxConnectionReceiveWindow: 16 << 10}
 }
 
 // peerTransport owns the daemon's single UDP socket, its relay connections,
@@ -52,7 +61,10 @@ type peerTransport struct {
 	packets   *packetConn
 	paths     *pathManager
 	listening bool // a peer listener accepts inbound connections
+	closed    bool // terminal Store.Close; outbound work cannot recreate UDP
 	relays    map[string]*relayClient
+	resources map[string]*decRelayClient
+	mailbox   *helper.ParticipantMailbox
 	conns     map[string]cachedPeerConn
 	// users counts in-flight requests per outbound connection. An evicted
 	// connection is closed only when its last request finishes, so one failed
@@ -85,6 +97,9 @@ func (s *Store) statelessResetKey() *quic.StatelessResetKey {
 func (s *Store) peerUDP(bind *net.UDPAddr) (*quic.Transport, error) {
 	s.peer.mu.Lock()
 	defer s.peer.mu.Unlock()
+	if s.peer.closed {
+		return nil, net.ErrClosed
+	}
 	if s.peer.transport != nil {
 		if bind != nil {
 			return nil, errors.New("peer socket already open")
@@ -103,32 +118,50 @@ func (s *Store) peerUDP(bind *net.UDPAddr) (*quic.Transport, error) {
 	s.peer.packets = newPacketConn(socket)
 	s.peer.paths = newPathManager(s, s.peer.packets)
 	s.peer.packets.paths = s.peer.paths
-	s.peer.transport = &quic.Transport{Conn: s.peer.packets, StatelessResetKey: s.statelessResetKey(), ConnectionIDLength: 4}
+	s.peer.transport = &quic.Transport{Conn: s.peer.packets, StatelessResetKey: s.statelessResetKey(), ConnectionIDLength: 4, ConnContext: s.decPeerHandshakeContext}
 	return s.peer.transport, nil
 }
 
 func (s *Store) closePeerTransport() error {
+	// ConnContext and route retirement may inspect the peer transport. Detach
+	// under the mutex, then cancel/close outside it so shutdown cannot wait for
+	// a handshake which is itself waiting for this mutex.
 	s.peer.mu.Lock()
-	defer s.peer.mu.Unlock()
+	s.peer.closed = true
+	connections := map[*quic.Conn]bool{}
 	for id, c := range s.peer.conns {
-		_ = c.conn.CloseWithError(0, "closing")
+		connections[c.conn] = true
 		delete(s.peer.conns, id)
 	}
 	for conn := range s.peer.users {
-		_ = conn.CloseWithError(0, "closing")
+		connections[conn] = true
 		delete(s.peer.users, conn)
 	}
+	cancels := []context.CancelFunc{}
 	for key, client := range s.peer.relays {
-		client.cancel()
+		cancels = append(cancels, client.cancel)
 		delete(s.peer.relays, key)
 	}
-	if s.peer.transport == nil {
+	for key, client := range s.peer.resources {
+		cancels = append(cancels, client.cancel)
+		delete(s.peer.resources, key)
+	}
+	transport, packets, paths := s.peer.transport, s.peer.packets, s.peer.paths
+	s.peer.transport, s.peer.packets, s.peer.paths = nil, nil, nil
+	s.peer.listening = false
+	s.peer.mu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+	for conn := range connections {
+		_ = conn.CloseWithError(0, "closing")
+	}
+	if transport == nil {
 		return nil
 	}
-	err := s.peer.transport.Close()
-	err = errors.Join(err, s.peer.packets.Close())
-	s.peer.paths.close()
-	s.peer.transport, s.peer.packets, s.peer.paths = nil, nil, nil
+	err := transport.Close()
+	err = errors.Join(err, packets.Close())
+	paths.close()
 	if errors.Is(err, net.ErrClosed) {
 		err = nil
 	}
@@ -150,6 +183,15 @@ func (s *Store) ListenPeer(ctx context.Context, address string) (net.Listener, e
 	if err != nil {
 		return nil, err
 	}
+	ordinaryVerify := config.VerifyConnection
+	config.NextProtos = []string{PeerALPN, DecRepairALPN, DecCompletionALPN}
+	config.VerifyConnection = func(state tls.ConnectionState) error {
+		if state.NegotiatedProtocol == DecRepairALPN || state.NegotiatedProtocol == DecCompletionALPN {
+			_, e := tlsid.PeerKey(state)
+			return e
+		}
+		return ordinaryVerify(state)
+	}
 	transport, err := s.peerUDP(bind)
 	if err != nil {
 		return nil, err
@@ -162,18 +204,23 @@ func (s *Store) ListenPeer(ctx context.Context, address string) (net.Listener, e
 	s.peer.listening = true
 	s.peer.mu.Unlock()
 	listenCtx, cancel := context.WithCancel(context.Background())
-	l := &streamListener{ln: ln, ctx: listenCtx, cancel: cancel, streams: make(chan net.Conn), slots: make(chan struct{}, peerMaxConnections)}
+	l := &streamListener{ln: ln, ctx: listenCtx, cancel: cancel, streams: make(chan net.Conn), slots: make(chan struct{}, peerMaxConnections),
+		completionSlots: make(chan struct{}, 128), repair: s.serveDecRepairConnection, repairKnown: s.decRememberedRepairPeer, completion: s.serveDecCompletionQUIC}
 	go l.acceptConnections()
 	return l, nil
 }
 
 type streamListener struct {
-	ln      *quic.Listener
-	ctx     context.Context
-	cancel  context.CancelFunc
-	streams chan net.Conn
-	slots   chan struct{}
-	once    sync.Once
+	ln              *quic.Listener
+	ctx             context.Context
+	cancel          context.CancelFunc
+	streams         chan net.Conn
+	slots           chan struct{}
+	once            sync.Once
+	repair          func(context.Context, net.Conn, tls.ConnectionState)
+	repairKnown     func(context.Context, tls.ConnectionState) bool
+	completionSlots chan struct{}
+	completion      func(context.Context, *quic.Conn, *decPeerHandshake)
 }
 
 func (l *streamListener) acceptConnections() {
@@ -182,16 +229,68 @@ func (l *streamListener) acceptConnections() {
 		if err != nil {
 			return
 		}
-		if conn.ConnectionState().TLS.NegotiatedProtocol != PeerALPN {
-			_ = conn.CloseWithError(0x1, "unsupported application protocol")
+		meta, ok := conn.Context().Value(decPeerHandshakeKey{}).(*decPeerHandshake)
+		if !ok || time.Since(meta.created) > peerHandshakeTimeout {
+			_ = conn.CloseWithError(1, "peer handshake deadline")
 			continue
 		}
-		select {
-		case l.slots <- struct{}{}:
-			go l.serveConnection(conn)
-		default:
-			_ = conn.CloseWithError(0x2, "too many peer connections")
+		// The shared pending reservation remains held until this bounded
+		// dispatch finishes. A slow repair lookup cannot stall the accept loop.
+		go l.dispatchConnection(conn, meta)
+	}
+}
+
+func (l *streamListener) dispatchConnection(conn *quic.Conn, meta *decPeerHandshake) {
+	defer meta.pending()
+	state := conn.ConnectionState().TLS
+	if meta.provisional != nil && state.NegotiatedProtocol != DecCompletionALPN {
+		meta.provisional.retire()
+		_ = conn.CloseWithError(1, "completion route protocol required")
+		return
+	}
+	key, keyError := tlsid.PeerKey(state)
+	if keyError != nil || meta.relayed && keyID(key) != meta.claimed.String() {
+		meta.buffer()
+		_ = conn.CloseWithError(1, "peer route key mismatch")
+		return
+	}
+	if state.NegotiatedProtocol == DecCompletionALPN {
+		if meta.provisional != nil {
+			if !meta.provisional.complete(conn) {
+				_ = conn.CloseWithError(1, "completion route deadline")
+				return
+			}
+			defer meta.provisional.retire()
 		}
+		select {
+		case l.completionSlots <- struct{}{}:
+			defer func() { <-l.completionSlots }()
+			l.completion(conn.Context(), conn, meta)
+		default:
+			meta.buffer()
+			_ = conn.CloseWithError(2, "completion capacity")
+		}
+		return
+	}
+	meta.buffer()
+	if state.NegotiatedProtocol == DecRepairALPN {
+		lookup, cancel := context.WithTimeout(conn.Context(), 5*time.Second)
+		known := l.repairKnown(lookup, state)
+		cancel()
+		if !known {
+			_ = conn.CloseWithError(1, "unknown repair peer")
+			return
+		}
+	}
+	if protocol := state.NegotiatedProtocol; protocol != PeerALPN && protocol != DecRepairALPN {
+		_ = conn.CloseWithError(1, "unsupported application protocol")
+		return
+	}
+	select {
+	case l.slots <- struct{}{}:
+		go l.serveConnection(conn)
+	default:
+		_ = conn.CloseWithError(2, "too many peer connections")
 	}
 }
 
@@ -202,6 +301,10 @@ func (l *streamListener) serveConnection(conn *quic.Conn) {
 		stream, err := conn.AcceptStream(l.ctx)
 		if err != nil {
 			return
+		}
+		if state.NegotiatedProtocol == DecRepairALPN {
+			go l.repair(conn.Context(), newStreamConn(stream, conn, state), state)
+			continue
 		}
 		select {
 		case l.streams <- newStreamConn(stream, conn, state):
@@ -357,6 +460,10 @@ func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reuse
 	if relayed {
 		key += relayKey(network)
 	}
+	resources := s.decResourceClients()
+	for _, client := range resources {
+		key += "|4:" + client.setting.Address + "/" + client.setting.Key
+	}
 	s.peer.mu.Lock()
 	if c, ok := s.peer.conns[peer.ID]; ok {
 		if c.key == key && c.conn.Context().Err() == nil {
@@ -380,21 +487,26 @@ func (s *Store) peerConn(ctx context.Context, peer Peer) (conn *quic.Conn, reuse
 		var addr *net.UDPAddr
 		if addr, err = net.ResolveUDPAddr("udp", peer.Address); err == nil {
 			direct := ctx
-			if relayed {
+			if relayed || len(resources) != 0 {
 				var cancel context.CancelFunc
 				direct, cancel = context.WithTimeout(ctx, relayDirectAttempt)
 				defer cancel()
 			}
 			conn, err = transport.Dial(direct, addr, config, PeerQUICConfig(false))
 		}
-		if err != nil && !relayed {
+		if err != nil && !relayed && len(resources) == 0 {
 			return nil, false, err
 		}
-	} else if !relayed {
+	} else if !relayed && len(resources) == 0 {
 		return nil, false, errors.New("peer has no direct address and shares no network relay")
 	}
 	if conn == nil {
-		if conn, err = s.dialRelayed(ctx, transport, network, peer, config); err != nil {
+		if len(resources) != 0 {
+			conn, err = s.dialDecResourcePeer(ctx, transport, peer, config, resources)
+		} else {
+			conn, err = s.dialRelayed(ctx, transport, network, peer, config)
+		}
+		if err != nil {
 			return nil, false, err
 		}
 	}
@@ -559,11 +671,24 @@ func PeerStreamRequestLimit(ctx context.Context, conn *quic.Conn, address, metho
 	return peerStreamRequest(ctx, conn, address, method, path, body, limit)
 }
 
-// PeerResponseLimit is the response bound of a peer route: 4 MiB for the
-// capability listing and call status, which may hold a 1 MiB result, and 1 MiB
-// otherwise.
+// PeerResponseLimit preserves each declared route's bound, including complete
+// DEC normal/repair catalogs rather than truncating them at the legacy1MiB.
 func PeerResponseLimit(method, path string) int {
 	route, _, _ := strings.Cut(path, "?")
+	if method == http.MethodGet && strings.HasPrefix(route, "/repair/v1/networks/") && strings.HasSuffix(route, "/catalog") {
+		return decPublicationLimit
+	}
+	if strings.HasPrefix(route, "/peer/v2/networks/") {
+		if strings.HasSuffix(route, "/catalog") {
+			return decPublicationLimit
+		}
+		if strings.HasSuffix(route, "/contacts") {
+			return 1 << 20
+		}
+		if strings.HasSuffix(route, "/contact") {
+			return 16 << 10
+		}
+	}
 	if method == http.MethodGet && strings.HasPrefix(route, "/peer/v1/networks/") && strings.HasSuffix(route, "/agent-lookup") {
 		return agentLookupMaxBody
 	}

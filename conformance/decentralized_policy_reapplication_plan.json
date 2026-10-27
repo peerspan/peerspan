@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "contract_merge": "d96e17ac80cdf72f7e00c87f89a017970a366463",
+  "spec": "conformance/decentralized_policy_reapplication_cases.json",
+  "state": "AUTHOR-FROZEN CASES AND FIXTURE PLAN; executable/artifact binding not yet offered; zero runtime cases executed",
+  "fixture_ownership": {
+    "A": "Fresh actual creator host HOME/state, actual host/root keys owned in place, sole original SSH key in A signer HOME. New daemon process has no --person-key-file, --person-agent or inherited SSH_AUTH_SOCK.",
+    "B": "Fresh actual same-person sibling HOME/state, actually admitted and explicitly selected current scope7 policy device through ordinary full linking. Actual host/device keys remain in B only. Explicit selection and final consent are separate.",
+    "helpers": "No coordinator or required helper. Necessary actual enrollment/setup is uncounted constructor work, not invocation of any prior positive test function.",
+    "historical_alias": "Separate fresh actual A/B stores and a separately offered old writer. Upgrade B then A in place; never copy an actual DB/private key to another home or edit a legitimate private row. Original SSH signing stays on its own A machine."
+  },
+  "selected_fixture_choices": [
+    "Create a real signed two-sibling fork from one actual admitted baseline and explicitly resolve all heads using an exact existing branch. This establishes an actual unique baseline that omits the signed local withdrawal under the merged owner-local recovery rule.",
+    "Keep A's original key outside every new daemon and scrub SSH_AUTH_SOCK. A native command must therefore use the new public pure candidate and external typed signing flow rather than a background signer hiding unsettled state.",
+    "Use actual current member QUIC catalogs with the proper probe --state. For controlled siblings, reserve dead advertised direct endpoints and use separate unadvertised actual listener ports for explicit imports, or another reviewed public transport-only partition. Assert no propagation before both branch signatures; stop if the partition precondition fails.",
+    "Use actual B device scope7 as the sibling writer and A original scope1 as the independently authorized resolver/reapply signer. No root/admin policy ownership substitution.",
+    "For deny, register an actual reviewer agent and use a fresh authenticated message POST before/after. For untrust, install an actual deterministic fixture MCP source through public agent/source writers, open it to B and use self listing/call without an independent policy share. Neither acceptance implies live-model execution.",
+    "Build collision payloads through actual edit reservations and ordinary actions. Full settings define distinct RuleKeys; R3 is an independently present baseline permission outside the frozen local addition set.",
+    "Use separate fresh actual fixtures for timing and each rule-order variant. Continue deny/untrust to external reapply on their actual existing store, preserving row/reference/seed/provider identities.",
+    "Use a separately offered historical writer to materialize legitimate alternate marker rows, including an actual closed row. Preserve first old-reader response and exact committed row even if the old response later refuses. New reader upgrades the same store."
+  ],
+  "discarded_fixture_choices": [
+    "Legacy hash/version tie-break instead of a DEC fork or a synthetic winner injected into admission/head rows.",
+    "SQL-created settled/unsettled/dropped edit, swapping start/signed references, changing of/in strings by hand, or copying an actual private database into another reader fixture.",
+    "Allowing the daemon to use A's original SSH file/agent and treating successful background reapply as proof of the external-native functional path.",
+    "Using peer_messaging.fixture_context seed export, --seed-hex or copied TLS keys instead of actual owner --state.",
+    "A globally filtered display string that deletes independent R3 baseline authority, a full RuleKey collapsed to its agent name, or a first provisional merge treated as final.",
+    "A stale timing payload whose Created is falsely backdated, a first preparation at equality accepted by extending expiry, or a retry rebuilt with a new issued time/action ID.",
+    "Treating historical pure signing-age checks, old native functions or prior API positive functions as these new runtime controls.",
+    "Inferring exact global diagnostic precedence for a payload that fails more than one precondition. Isolate the named refusal or assert mandatory no-sign/no-admission outcome."
+  ],
+  "public_routes": {
+    "reservation": "POST /v2/networks/{id}/policy-edits {provider_id}",
+    "summary": "GET /v2/networks/{id}/policy-edits",
+    "preview": "POST /v2/networks/{id}/policy-edits/reapply-preview {provider_id}",
+    "action": "POST /v2/networks/{id}/actions {kind,provider_id,signature_format,payload_base64,approve}",
+    "action_get": "GET /v2/networks/{id}/actions/{action_id}",
+    "action_signed": "POST /v2/networks/{id}/actions/{action_id}/signed {intent_id,signatures}",
+    "claim": "POST /v2/networks/{id}/policy-claims {capability,provider_id,signature_format,payload_base64,approve}",
+    "catalog": "Current normal member GET/POST /peer/v2/networks/{id}/catalog; sender exact actual --state and independently retained H",
+    "native": "Documented top-level allow network --agent NAME --no-tasks and deny network --agent NAME, advanced access allow/renew, and untrust with actual network/agent/host and --person-key path. Top-level message-only settings remain exact, without unsupported allow-disconnected flags; exact argv/help binding is frozen before execution, no invented --approve or signature-format flags.",
+    "message": "POST /peer/v1/messages with fresh request_id,target_agent_id,deadline,content,policy:{person_id,version}",
+    "self_listing": "GET /peer/v1/capabilities?network=ID",
+    "self_call": "POST /peer/v1/calls with call_id,capability,operation,input,deadline,self:{person_id,network_id}; no independent policy citation or origin"
+  },
+  "phase_evidence": [
+    "Before/after each pure read or refused operation retain exact public clock rows and all-row hashes. Name any permitted guarded refusal difference; blanket purity waiver is forbidden.",
+    "For fork/resolver retain exact complete branch envelopes/body bytes, all current head IDs/maxima, independently verified root/P/H/B/D provenance and actual typed review/signature requests.",
+    "For every private edit retain only a protected row capture plus public start/signed reference hashes, version/timestamps/dropped/state. Public result uploads contain no actual private record body, seed or original key.",
+    "For native new mutation retain the ordered exact reapply action/application and subsequent distinct new reservation/action. A final permissive outcome or success exit alone cannot prove phase order.",
+    "For original SSHSIG slots recompute statement ID, exact issuer message/public key/format/template; sign only on A. Retain public signature/template bytes and no key contents.",
+    "For actual deny/untrust operation retain baseline acceptance, later fresh denial, and absence of an accepted message/call/source invocation at the denied IDs. No model/session traffic is needed.",
+    "For historical alias upgrades retain exact old row/reference bytes and closed/live state, whole original-container hashes and hash-only all private key/file custody on that same actual machine.",
+    "For timing retain separate fixed issued, actual created, approved, expiry, guarded decision second, action ID and immutable templates/provider. Use actual monotonic DEC clock movements with real transport timing unchanged."
+  ],
+  "execution_gates": [
+    "Freeze the case spec/fixture plan commit before executable binding. Bind exact merged contract document hashes and actual independently authored runner/support files.",
+    "No runtime until root reviews the executable, exact artifact source/SHA and intended command. All7c runtime scopes remain withdrawn except a future separately explicit old-writer constructor offer.",
+    "Use shared /tmp/peerspan-full-language-gates.lock and wait3s outside it. Stop at first dependent failure. Never edit oracles during a run.",
+    "Historical alternate rows and invalid-reader corruption are separate supported boundaries. Hold what is not actually constructible rather than fabricate provenance.",
+    "No final common-head full5, true installed service, owned whole-migration, NAT, copied-key custody or aggregate milestone claim from this suite."
+  ]
+}

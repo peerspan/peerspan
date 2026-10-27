@@ -1,0 +1,109 @@
+{
+  "format": 1,
+  "group": "migration_inherited_access_floors_after_ordinary_root_successor",
+  "implementation_source_read": false,
+  "execution_status": "executable_and_exact_eight_inputs_frozen_unrun_waiting_separate_offer",
+  "references": [
+    "decentralized-authority-contract.md sections5 and6: ordinary root successor and migration-only first access generation above inherited floor",
+    "decentralized-migration-contract.md sections2 and5: exact endorsed all-subject floors survive without active new policy/group",
+    "decentralized-verification-contract.md section4: authenticated migration-inherited headless prior maximum"
+  ],
+  "scope": "NEW ordinary-root-successor pure controls. Neither M07 runtime4 nor M07 current-root pure3 runs again. No owned migration controller, implicit generation/increment, installed, final-head or live-agent claim.",
+  "fixture": {
+    "construction": [
+      "Use independent fixture-owned signing keys and public codecs only. Construct one complete authenticated M with exact source-state policy/group floors and no new-context policy/group heads.",
+      "Retain a valid original Alice person head and unbound actual host plus the unrelated required source restrictions. Preserve full original M/source bytes.",
+      "Construct valid ordinary R0-to-R1 successor at epoch1, signed by the old and actual new root, migration_proposal_id dash, exact predecessor R0 and no fork. Explicitly carry the live finite person/host contributions needed by the actors.",
+      "The conformance-private prior models this already verified M plus R1 history, before FIRST new-context access. It pins R1 as current but retains the exact original authenticated M/floors; these fields are never a peer-supplied admission claim.",
+      "Use policy floor2^53+1 for Alice and finite group floor2^53+7 for rotation-floor. Keep unrelated Carol policy/max-u64 and m07-history group/max-u64 floors as exact controls; they supply no active body.",
+      "Every candidate uses current R1, valid current time/deadline, exact original Alice SSHSIG plus its explicitly retained P for policy, or actual new-root signature for group. Groups name a real admitted Alice person ID.",
+      "All candidates have empty predecessors/resolves because no new-context access head has ever been admitted. Recompute exact signatures and hashes for every changed sequence; do not use a malformed body/signature to obtain a refusal."
+    ],
+    "paired_inputs": "Within each kind, complete prior/catalog/issuer/parent/time/body contents are identical except sequence/version and their derived exact signature/IDs.",
+    "key_custody": "All keys are independently generated synthetic fixture keys, never real daemon keys or copied installed identities."
+  },
+  "matrix": [
+    {
+      "kind": "policy",
+      "case": "first_after_R1_floor_plus_one",
+      "sequence": 9007199254740994,
+      "must_admit": true
+    },
+    {
+      "kind": "policy",
+      "case": "first_after_R1_sequence_one",
+      "sequence": 1,
+      "must_admit": false
+    },
+    {
+      "kind": "policy",
+      "case": "first_after_R1_below_floor",
+      "sequence": 9007199254740992,
+      "must_admit": false
+    },
+    {
+      "kind": "policy",
+      "case": "first_after_R1_equal_floor",
+      "sequence": 9007199254740993,
+      "must_admit": false
+    },
+    {
+      "kind": "group",
+      "case": "first_after_R1_floor_plus_one",
+      "sequence": 9007199254741000,
+      "must_admit": true
+    },
+    {
+      "kind": "group",
+      "case": "first_after_R1_sequence_one",
+      "sequence": 1,
+      "must_admit": false
+    },
+    {
+      "kind": "group",
+      "case": "first_after_R1_below_floor",
+      "sequence": 9007199254740998,
+      "must_admit": false
+    },
+    {
+      "kind": "group",
+      "case": "first_after_R1_equal_floor",
+      "sequence": 9007199254740999,
+      "must_admit": false
+    }
+  ],
+  "mandatory_oracles": {
+    "positive": [
+      "Projection succeeds under actual current issuer and R1. The first candidate at exact floor+1 with empty predecessors is admitted, its exact statement becomes the active sole head and exact new maximum.",
+      "Other inherited policy/group floors remain exact full-u64 values with no fabricated heads. Current root remains R1, origin remains the original complete M and its original bytes persist."
+    ],
+    "negative": [
+      "Do not guess an unspecified exact global error code. A structured rejected result is allowed; an otherwise successful projection may only retain the candidate as inert raw evidence.",
+      "The lower/equal candidate is never admitted, selected active, installed as a head or used to reset/advance the inherited floor. If next_prior is returned, all original exact floors/current root/origin survive and target access remains without an admitted new-context head.",
+      "An unsupported-kind generic failure alone cannot establish the slice: the paired complete valid floor+1 positive must actually pass."
+    ]
+  },
+  "max_u64_generation_boundary": "Existing pure interfaces accept supplied signed integers; they do not generate an implicit next version. No runtime generation API/artifact is offered for this new slice, so no default-increment/version_exhausted claim is made. Unrelated exact max-u64 floors are retained only as authenticated metadata.",
+  "execution_gate": "Freeze executable plus exact input/oracle hashes before any run. M07 Go257 probe is explicitly NOT offered for this scope. Wait for a separately reviewed exact-source probe; preserve first failure and use failed-only/unevaluated continuations.",
+  "frozen_executable_binding": {
+    "script": "conformance/decentralized_migration_root_floor.py",
+    "script_sha256": "469960d8b51b711df8a04a8fa1a0c9a382102be8be105306b0e185012ed2dd29",
+    "manifest": "/tmp/peerspan-dec-root-successor-floor-frozen/manifest.json",
+    "manifest_sha256": "98de620a8d059797df77aaae81c77c5216cf411fa1c76eb98b15e55c7f2c4acf",
+    "input_sha256": "54799d9ec3ee5b167d6318af0d4993d259e956e2a1685c61e6af574b5b05f95f",
+    "oracles_sha256": "f9773fa11f664844dd3f1bf39308faf6526d436a3803753c95c34864ef1df22a",
+    "case_names": [
+      "root_successor_floor/policy/first_after_R1_floor_plus_one",
+      "root_successor_floor/policy/first_after_R1_sequence_one",
+      "root_successor_floor/policy/first_after_R1_below_floor",
+      "root_successor_floor/policy/first_after_R1_equal_floor",
+      "root_successor_floor/group/first_after_R1_floor_plus_one",
+      "root_successor_floor/group/first_after_R1_sequence_one",
+      "root_successor_floor/group/first_after_R1_below_floor",
+      "root_successor_floor/group/first_after_R1_equal_floor"
+    ],
+    "model_boundary": "Private PRIOR models already verified complete originalM and valid ordinaryR1 before first access; current root is R1 with migration_proposal_id dash but original authenticated M/floors remain exact. No raw remote admission marker or local outcome is invented.",
+    "proper_probe_offer": null,
+    "executed_cases": 0
+  }
+}

@@ -25,11 +25,11 @@ type CoordinatorEndpoint struct {
 	PublicKey string `json:"public_key"`
 }
 
-// HostInfo is GET /v1/host: this host's identity and the build's default
-// coordinator, or null.
+// HostInfo is the public host identity and supported network protocols.
 type HostInfo struct {
 	Identity
 	DefaultCoordinator *CoordinatorEndpoint `json:"default_coordinator"`
+	NetworkProtocols   []string             `json:"network_protocols"`
 }
 
 func defaultCoordinator() *CoordinatorEndpoint {
@@ -39,9 +39,10 @@ func defaultCoordinator() *CoordinatorEndpoint {
 	return &CoordinatorEndpoint{Address: DefaultCoordinator, PublicKey: DefaultCoordinatorKey}
 }
 
-// Info is this host's identity with the build's default coordinator.
+// Info advertises the coordinator-free launch protocol. Legacy fixture
+// configuration is never advertised as new-network authority.
 func (s *Store) Info() HostInfo {
-	return HostInfo{Identity: s.identity, DefaultCoordinator: defaultCoordinator()}
+	return HostInfo{Identity: s.identity, NetworkProtocols: []string{"peerspan-decentralized-v1"}}
 }
 
 // withDefaultCoordinator fills an omitted coordinator from the build's

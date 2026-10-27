@@ -980,7 +980,7 @@ type OwnCapabilityRule struct {
 // ownCapabilityRules lists the capability rules of this host's person's
 // stored policy in each network where this host is bound.
 func (s *Store) ownCapabilityRules(ctx context.Context, q dbQuerier) ([]OwnCapabilityRule, error) {
-	own, err := membershipsOf(ctx, q, s.identity.ID)
+	own, err := s.membershipsOf(ctx, q, s.identity.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -989,7 +989,7 @@ func (s *Store) ownCapabilityRules(ctx context.Context, q dbQuerier) ([]OwnCapab
 		if n.member.PersonID == nil {
 			continue
 		}
-		g, err := s.loadGovernance(ctx, q, n.network)
+		g, err := s.loadProductGovernance(ctx, q, n.network)
 		if err != nil {
 			return nil, err
 		}
@@ -1002,7 +1002,7 @@ func (s *Store) ownCapabilityRules(ctx context.Context, q dbQuerier) ([]OwnCapab
 			continue
 		}
 		// The view authorization uses: unsettled withdrawals applied.
-		if p, err = s.enforcedPolicy(ctx, q, n.network, p); err != nil {
+		if p, err = s.enforcedProductPolicy(ctx, q, g, key, p); err != nil {
 			return nil, err
 		}
 		for _, r := range p.CapabilityRules {
@@ -1068,6 +1068,35 @@ func openTo(ctx context.Context, q dbQuerier, host string) (bool, error) {
 	return found, err
 }
 
+// samePersonHost reports whether a host is bound to this host's person in
+// at least one network, reading verified current members in one read
+// transaction, so a coordinator-free sibling counts and retained legacy
+// history does not.
+func (s *Store) samePersonHost(ctx context.Context, host string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	own, err := s.membershipsOf(ctx, tx, s.identity.ID)
+	if err != nil {
+		return false, err
+	}
+	for _, n := range own {
+		if n.member.PersonID == nil {
+			continue
+		}
+		members, err := s.membersOf(ctx, tx, n.network)
+		if err != nil {
+			return false, err
+		}
+		if m, ok := members[host]; ok && m.PersonID != nil && *m.PersonID == *n.member.PersonID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // OpenSources adds a host, or "*", to the open list. A host must be bound
 // to this host's person in at least one network map, and is never this
 // host. It reports whether the entry was added.
@@ -1076,8 +1105,8 @@ func (s *Store) OpenSources(ctx context.Context, host string) (OpenTo, bool, err
 		if !validID(host, "host", 32) || host == s.identity.ID {
 			return OpenTo{}, false, fmt.Errorf("%w: give another host ID, or * for all", ErrInvalid)
 		}
-		var bound bool
-		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM network_members a JOIN network_members b ON a.network_id = b.network_id WHERE a.host_id = ? AND b.host_id = ? AND json_extract(a.record, '$.person_id') IS NOT NULL AND json_extract(a.record, '$.person_id') = json_extract(b.record, '$.person_id'))`, s.identity.ID, host).Scan(&bound); err != nil {
+		bound, err := s.samePersonHost(ctx, host)
+		if err != nil {
 			return OpenTo{}, false, err
 		}
 		if !bound {

@@ -91,13 +91,12 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		}
 		args = []string{"network", "invite"}
 	case "join":
-		if err := fs.Set("token", args[1]); err != nil {
-			return err
-		}
 		args = []string{"network", "join"}
 	}
-	if err := resolveExpiry(args, fs); err != nil {
-		return err
+	if !(len(args) > 1 && args[0] == "network" && args[1] == "invite") {
+		if err := resolveExpiry(args, fs); err != nil {
+			return err
+		}
 	}
 	explicitState := state
 	if state == "" {
@@ -170,11 +169,38 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	if err != nil {
 		return err
 	}
+	if len(args) == 2 && args[0] == "network" && args[1] == "invite" {
+		return runDecInvitation(ctx, client, fs, out, errOut)
+	}
 	if len(args) == 2 && args[0] == "network" && args[1] == "enable-linking" {
 		return runLinkFeature(ctx, client, fs, out)
 	}
 	if len(args) == 3 && args[0] == "network" && args[1] == "repair" {
 		return runFeatureImport(ctx, client, args[2], fs, out, errOut)
+	}
+	if len(args) == 3 && args[0] == "network" && (args[1] == "rotate-root" || args[1] == "resolve-root") {
+		return runDecRoot(ctx, client, args[1], args[2], fs, out, errOut)
+	}
+	if len(args) == 2 && args[0] == "network" && args[1] == "bind" {
+		return runDecBind(ctx, client, fs, out, errOut)
+	}
+	if len(args) == 2 && args[0] == "network" && (args[1] == "delegate-admin" || args[1] == "remove-admin" || args[1] == "remove-person" || args[1] == "revoke" || args[1] == "unbind") {
+		if handled, err := runDecAdminMutation(ctx, client, args[1], fs, out, errOut); handled {
+			return err
+		}
+	}
+	if len(args) == 3 && args[0] == "network" && args[1] == "group" && args[2] == "set" {
+		if handled, err := runDecGroupSet(ctx, client, fs, out, errOut); handled {
+			return err
+		}
+	}
+	if len(args) == 3 && args[0] == "network" && args[1] == "groups" {
+		if handled, err := runDecGroups(ctx, client, args[2], out); handled {
+			return err
+		}
+	}
+	if len(args) == 4 && args[0] == "network" && args[1] == "migrate" {
+		return runDecMigration(ctx, client, args[2], args[3], fs, out, errOut)
 	}
 	if len(args) >= 2 && args[0] == "network" && (args[1] == "create" || args[1] == "join") {
 		return networkCreateOrJoin(ctx, client, args[1], args[2:], fs, explicitState, out, errOut)
@@ -188,6 +214,11 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 		return runUnshare(ctx, client, args, fs, out, errOut)
 	case "allow", "deny":
 		return allowOrDeny(ctx, client, args[0], args[1], fs, out, errOut)
+	}
+	if len(args) == 2 && args[0] == "access" && args[1] == "show" {
+		if handled, err := runDecAccessShow(ctx, client, fs, out); handled {
+			return err
+		}
 	}
 	var method, path string
 	var body any
@@ -259,7 +290,22 @@ func execute(ctx context.Context, args []string, fs *pflag.FlagSet, state string
 	}
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
+	if err := encoder.Encode(value); err != nil {
+		return err
+	}
+	if method == "POST" && strings.HasPrefix(path, "/v2/networks/") && strings.HasSuffix(path, "/sync") {
+		var synced host.DecSyncResult
+		if json.Unmarshal(result, &synced) != nil {
+			return errors.New("invalid network sync response")
+		}
+		if len(synced.Attempted) == 0 {
+			return errors.New("network sync has no independently pinned peer contacts to attempt")
+		}
+		if len(synced.Unavailable) == len(synced.Attempted) {
+			return errors.New("network sync could not reach any attempted peer within its bounded transport window")
+		}
+	}
+	return nil
 }
 
 func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error) {
@@ -564,7 +610,7 @@ func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error)
 			if len(args) != 2 {
 				return invalid()
 			}
-			return "GET", "/v1/networks", nil, nil
+			return "GET", "/v2/networks", nil, nil
 		case "members", "sync", "leave", "rotate-root":
 			if args[1] == "rotate-root" && (fs.Changed("to-ssh") || fs.Changed("root-key")) {
 				return "", "", nil, errAdminCommand
@@ -575,13 +621,13 @@ func buildRequest(args []string, fs *pflag.FlagSet) (string, string, any, error)
 			path := "/v1/networks/" + url.PathEscape(args[2])
 			switch args[1] {
 			case "sync":
-				return "POST", path + "/sync", nil, nil
+				return "POST", "/v2/networks/" + url.PathEscape(args[2]) + "/sync", struct{}{}, nil
 			case "leave":
 				return "POST", path + "/leave", nil, nil
 			case "rotate-root":
 				return "POST", path + "/rotate", nil, nil
 			}
-			return "GET", path + "/members", nil, nil
+			return "GET", "/v2/networks/" + url.PathEscape(args[2]) + "/members", nil, nil
 		case "revoke", "revoke-invite":
 			var network string
 			var req host.RevokeMembership
@@ -773,6 +819,8 @@ func downloadArtifact(ctx context.Context, client host.Client, path, out string)
 
 func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.Writer) error {
 	peerListen, _ := fs.GetString("peer-listen")
+	bootstrapListen, _ := fs.GetString("bootstrap-listen")
+	transportConfig, _ := fs.GetString("transport-config")
 	advertise, _ := fs.GetString("advertise")
 	interval, _ := fs.GetInt("coordination-interval")
 	personAgent, _ := fs.GetString("person-agent")
@@ -814,12 +862,19 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		}
 		fmt.Fprintf(errOut, "peer listener %s (advertised %q)\n", peerListener.Addr(), advertise)
 	}
-	// Every member host keeps its coordinators' relay connections, which
-	// carry change notifications; a listening host is also reachable there.
-	go store.RunRelays(daemonCtx)
-	linkingDone := make(chan struct{})
-	go func() { defer close(linkingDone); store.RunLinking(daemonCtx) }()
-	defer func() { cancel(); <-linkingDone }()
+	var peerAddress net.Addr
+	if peerListener != nil {
+		peerAddress = peerListener.Addr()
+	}
+	bootstrap, err := store.ListenDecentralizedBootstrap(daemonCtx, bootstrapListen, peerAddress, transportConfig)
+	if err != nil {
+		return err
+	}
+	defer bootstrap.Close()
+	fmt.Fprintf(errOut, "isolated pairing listener %s\n", bootstrap.Addr())
+	// Legacy network state is history/migration-only. Starting the new host
+	// never syncs old coordinators, renews legacy authority or resumes an old
+	// submitted linking operation implicitly.
 	if err = store.ConfigureCoordination(advertise, time.Duration(interval)*time.Second); err != nil {
 		return err
 	}
@@ -828,25 +883,22 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		personKeyFile, _ = person.GeneratedKeyPath()
 	}
 	store.ConfigurePersonKeyFile(personKeyFile)
+	replicationDone := make(chan struct{})
+	go func() { defer close(replicationDone); store.RunDecentralizedReplication(daemonCtx) }()
+	defer func() { cancel(); <-replicationDone }()
+	policyDone := make(chan struct{})
+	go func() {
+		defer close(policyDone)
+		store.RunDecentralizedPolicyRenewal(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
+	}()
+	defer func() { cancel(); <-policyDone }()
 	if err = store.ConfigureArtifacts(artifactQuota); err != nil {
 		return err
 	}
-	coordinationDone := make(chan struct{})
-	go func() {
-		defer close(coordinationDone)
-		store.RunCoordination(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
-	}()
-	defer func() { cancel(); <-coordinationDone }()
 	repliesDone := make(chan struct{})
 	go func() { defer close(repliesDone); store.RunReplyWorkers(daemonCtx) }()
-	policiesDone := make(chan struct{})
-	go func() {
-		defer close(policiesDone)
-		store.RunPolicySync(daemonCtx, func(format string, args ...any) { fmt.Fprintf(errOut, format+"\n", args...) })
-	}()
-	defer func() { cancel(); <-policiesDone }()
 	directoryDone := make(chan struct{})
-	go func() { defer close(directoryDone); store.RunDirectory(daemonCtx) }()
+	go func() { defer close(directoryDone); store.RunDecentralizedDirectory(daemonCtx) }()
 	defer func() { cancel(); <-directoryDone }()
 	retriesDone := make(chan struct{})
 	go func() { defer close(retriesDone); store.RunOutboundRetries(daemonCtx) }()
@@ -868,10 +920,11 @@ func runDaemon(ctx context.Context, fs *pflag.FlagSet, state string, errOut io.W
 		return err
 	}
 	defer adapterListener.Close()
-	results := make(chan error, 3)
+	results := make(chan error, 4)
 	go func() { results <- host.ServeLocal(daemonCtx, listener, host.Handler(store)) }()
 	go func() { results <- host.ServeLocal(daemonCtx, adapterListener, host.AdapterHandler(store)) }()
-	count := 2
+	go func() { results <- bootstrap.Serve(daemonCtx) }()
+	count := 3
 	if peerListener != nil {
 		count++
 		go func() { results <- host.Serve(daemonCtx, peerListener, host.PeerHandler(store)) }()

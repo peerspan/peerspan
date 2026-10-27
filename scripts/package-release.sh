@@ -24,12 +24,10 @@ case "$version" in
     ;;
 esac
 
-# The hosted default coordinator, used by network create without
-# --coordinator; both or neither.
-coordinator=${PEERSPAN_COORDINATOR:-}
-coordinator_key=${PEERSPAN_COORDINATOR_KEY:-}
-if [ -n "$coordinator" ] && [ -z "$coordinator_key" ] || [ -z "$coordinator" ] && [ -n "$coordinator_key" ]; then
-  echo "set both PEERSPAN_COORDINATOR and PEERSPAN_COORDINATOR_KEY, or neither" >&2
+# Coordinator-free hosts do not embed a required transport service identity.
+# Refuse stale release configuration instead of silently carrying it forward.
+if [ "${PEERSPAN_COORDINATOR+x}" = x ] || [ "${PEERSPAN_COORDINATOR_KEY+x}" = x ]; then
+  echo "unset PEERSPAN_COORDINATOR and PEERSPAN_COORDINATOR_KEY for coordinator-free releases; configure optional helpers on participating hosts" >&2
   exit 2
 fi
 
@@ -127,7 +125,7 @@ case "$implementation" in
     go_host=github.com/peerspan/peerspan/go/internal/host
     GOOS=linux GOARCH="$go_arch" CGO_ENABLED=0 \
       go -C "$repo/go" build -trimpath \
-      -ldflags "-X $go_host.Version=$version -X $go_host.DefaultCoordinator=$coordinator -X $go_host.DefaultCoordinatorKey=$coordinator_key" \
+      -ldflags "-X $go_host.Version=$version" \
       -o "$bundle/bin/peerspan-host" ./cmd/peerspan-host
     ;;
   rust)
@@ -136,8 +134,7 @@ case "$implementation" in
       exit 1
     }
     cargo_target="$repo/rust/target/peerspan-package-$rust_target"
-    PEERSPAN_COORDINATOR="$coordinator" PEERSPAN_COORDINATOR_KEY="$coordinator_key" \
-      CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
+    CARGO_TARGET_DIR="$cargo_target" cargo build --release --locked \
       --target "$rust_target" --manifest-path "$repo/rust/Cargo.toml"
     cp "$cargo_target/$rust_target/release/peerspan-host" "$bundle/bin/peerspan-host"
     ;;

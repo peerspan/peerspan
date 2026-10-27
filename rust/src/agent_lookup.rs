@@ -16,7 +16,6 @@ use axum::{
     extract::{Path, Query, RawQuery, State, rejection::QueryRejection},
     routing::get,
 };
-use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
@@ -136,15 +135,11 @@ impl Store {
         network: &str,
         raw_query: &str,
     ) -> Result<Option<(String, Option<String>)>, Error> {
-        let conn = self.connection()?;
-        let member = |host: &str| -> Result<bool, Error> {
-            Ok(conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM network_members WHERE network_id = ?1 AND host_id = ?2)",
-                params![network, host],
-                |r| r.get(0),
-            )?)
-        };
-        if !member(&self.identity().id)? {
+        let mut connection = self.connection()?;
+        let conn = connection.transaction()?;
+        let members = self.product_members(&conn, network)?;
+        let member = |host: &str| members.iter().any(|m| m.host_id == host);
+        if !member(&self.identity().id) {
             return Err(coded(
                 404,
                 "not_found",
@@ -152,7 +147,7 @@ impl Store {
                 json!({}),
             ));
         }
-        if caller == self.identity().id || !member(caller)? {
+        if caller == self.identity().id || !member(caller) {
             return Err(Error::Forbidden);
         }
         if raw_query.len() > MAX_QUERY {
@@ -308,8 +303,9 @@ pub async fn resolve_agent_address(
     // whether this host has an agent with the name.
     let (network, hosts, who, members, local) = blocking(store.clone(), move |s| {
         let network = s.directory_network(network)?;
-        let conn = s.connection()?;
-        let members = s.stored_members(&conn, &network)?;
+        let mut connection = s.connection()?;
+        let conn = connection.transaction()?;
+        let members = s.product_members(&conn, &network)?;
         let (hosts, who) = if is_host_id(&l) {
             if !members.iter().any(|m| m.host_id == l) {
                 return Err(coded(
@@ -321,8 +317,8 @@ pub async fn resolve_agent_address(
             }
             (vec![l.clone()], l.clone())
         } else {
-            let persons = s.stored_persons(&conn, &network)?;
-            let p = match crate::admins::resolve_person(&persons, &l) {
+            let persons = s.product_persons(&conn, &network)?;
+            let p = match crate::decentralized::product::resolve_person(&persons, &l) {
                 Ok(p) => p,
                 Err(Error::NotFound) => {
                     return Err(coded(
@@ -454,10 +450,11 @@ pub(crate) async fn label_agent_recipients(
     };
     let members: BTreeMap<String, Vec<crate::network::Member>> =
         blocking(store.clone(), move |s| {
-            let conn = s.connection()?;
+            let mut connection = s.connection()?;
+            let conn = connection.transaction()?;
             let mut out = BTreeMap::new();
             for n in networks {
-                out.insert(n.clone(), s.stored_members(&conn, &n)?);
+                out.insert(n.clone(), s.product_members(&conn, &n)?);
             }
             Ok(out)
         })

@@ -137,6 +137,65 @@ pub async fn finish(store: Arc<Store>, id: &str) -> Result<bool> {
     .await?;
     Ok(true)
 }
+/// Settle only an already durably signed old operation. This path never
+/// publishes an activation, signs a packet, refreshes a deadline or recreates a
+/// pairing resource; an unknown remote result remains unresolved recovery work.
+pub(crate) async fn finish_historical(store: Arc<Store>, id: &str) -> Result<()> {
+    let p = load(store.clone(), id).await?;
+    ensure!(
+        p.record.commit_approved && p.record.commit_packet_base64 != "-",
+        Failure::new("recovery_required", id, "resume")
+    );
+    let lookup = id.to_owned();
+    let captured = store.clone();
+    let retained = tokio::task::spawn_blocking(move || -> Result<Option<Vec<u8>>> {
+        let c = captured.connection()?;
+        let raw: Option<String> = c
+            .query_row(
+                "SELECT record FROM link_operations WHERE request_id=?1",
+                [&lookup],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(raw) = raw {
+            return Ok(Some(raw.into_bytes()));
+        }
+        if p.record.result_packet_base64 != "-" {
+            return Ok(Some(crypto::bytes(
+                &p.record.result_packet_base64,
+                linking::MAX_OBJECT,
+            )?));
+        }
+        Ok(None)
+    })
+    .await??;
+    let raw = if let Some(raw) = retained {
+        raw
+    } else {
+        let p = load(store.clone(), id).await?;
+        let d: map::Descriptor = linking::decode_mutation(
+            &crypto::bytes(&p.record.network_base64, linking::MAX_OBJECT)?,
+            "network_id name genesis_root_public_key coordinator_address coordinator_public_key",
+        )
+        .map_err(|_| Failure::new("recovery_required", id, "resume"))?;
+        transport::request(
+            store.clone(),
+            &p.record.coordinator_address,
+            &p.record.coordinator_public_key,
+            Method::GET,
+            &format!("/coord/v2/networks/{}/link-operations/{}", d.network_id, id),
+            Vec::new(),
+        )
+        .await
+        .map_err(|_| Failure::new("recovery_required", id, "resume"))?
+    };
+    let captured = store.clone();
+    let lookup = id.to_owned();
+    tokio::task::spawn_blocking(move || apply(&captured, &lookup, &raw))
+        .await?
+        .map_err(|_| Failure::new("recovery_required", id, "resume"))?;
+    Ok(())
+}
 fn apply(store: &Store, id: &str, raw: &[u8]) -> Result<()> {
     ensure!(
         raw.len() <= linking::MAX_OBJECT,

@@ -479,6 +479,9 @@ func (s *Store) CancelLinkRequest(ctx context.Context, id string) (LinkRequestVi
 	if e != nil {
 		return LinkRequestView{}, e
 	}
+	if s.publicDecRuntime() && (p.Record.CommitApproved || p.Record.CommitPacketBase64 != "-") {
+		return LinkRequestView{}, linkFail("recovery_required", id, "resume")
+	}
 	if p.State == "linked" {
 		return s.linkView(p, now), nil
 	}
@@ -534,6 +537,11 @@ func (s *Store) CancelLinkRequest(ctx context.Context, id string) (LinkRequestVi
 	}
 	if e = tx.Commit(); e != nil {
 		return LinkRequestView{}, e
+	}
+	// In the coordinator-free runtime a retained legacy attempt is cancelled
+	// locally only; no legacy coordinator mutation is sent (as in Rust).
+	if s.publicDecRuntime() {
+		return s.linkView(p, now), nil
 	}
 	_, e = s.linkCoordinator(ctx, linkPendingNetwork(p), http.MethodDelete, "/coord/v2/link-mailboxes/"+linkLocator(secret), nil)
 	if e != nil {

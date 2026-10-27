@@ -19,10 +19,12 @@ type transportPeer struct {
 type transportContextKey struct{}
 
 type mailboxHandler struct {
-	store      *resourceStore
-	limits     *limits
-	accounts   resourceAccounts
-	completion ParticipantCompletion
+	store          *resourceStore
+	limits         *limits
+	accounts       resourceAccounts
+	completion     ParticipantCompletion
+	completionOnly bool
+	queuedResponse func(int64) // retain QUIC response credit until carrier closes
 }
 
 func respondJSON(w http.ResponseWriter, status int, value any) {
@@ -108,8 +110,16 @@ func (h *mailboxHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondError(w, wireError("invalid"))
 		return
 	}
+	if h.completionOnly && r.URL.Path != activationPath && (!strings.HasPrefix(r.URL.Path, operationPrefix) || !wireID(strings.TrimPrefix(r.URL.Path, operationPrefix), "link_")) {
+		respondError(w, wireError("not_found"))
+		return
+	}
 	if h.completionRoute(r.URL.Path) {
 		h.serveCompletion(w, r, peer)
+		return
+	}
+	if h.completionOnly {
+		respondError(w, wireError("not_found"))
 		return
 	}
 	const base = "/bootstrap/v1/mailboxes"

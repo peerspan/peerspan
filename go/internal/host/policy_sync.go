@@ -120,7 +120,9 @@ func (s *Store) siblingGained(network string) {
 	}
 }
 
-// ownPerson is the person this host is bound to in a network, or "".
+// ownPerson is the person this host is bound to in a network's legacy
+// member record, or "". Coordinator-free networks have their own policy
+// paths; legacy policy code must not act on them.
 func (s *Store) ownPerson(ctx context.Context, q dbQuerier, network string) (string, error) {
 	self, err := readJSON[NetworkMember](q.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", network, s.identity.ID))
 	if errors.Is(err, ErrNotFound) {
@@ -128,6 +130,24 @@ func (s *Store) ownPerson(ctx context.Context, q dbQuerier, network string) (str
 	}
 	if err != nil || self.PersonID == nil {
 		return "", err
+	}
+	return *self.PersonID, nil
+}
+
+// verifiedOwnPerson is the person this host is bound to among a network's
+// verified current members, or "", so a coordinator-free binding counts and
+// retained legacy history does not.
+func (s *Store) verifiedOwnPerson(ctx context.Context, q dbQuerier, network string) (string, error) {
+	members, err := s.membersOf(ctx, q, network)
+	if errors.Is(err, ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	self, ok := members[s.identity.ID]
+	if !ok || self.PersonID == nil {
+		return "", nil
 	}
 	return *self.PersonID, nil
 }

@@ -57,6 +57,15 @@ func networkFromPath(path string) string {
 }
 
 func personsOf(ctx context.Context, client host.Client, id string) ([]host.Person, error) {
+	networks, e := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
+	if e != nil {
+		return nil, e
+	}
+	for _, network := range networks {
+		if network.ID == id || network.Name == id {
+			return decCurrentPeople(ctx, client, network)
+		}
+	}
 	return call[[]host.Person](ctx, client, "GET", "/v1/networks/"+url.PathEscape(id)+"/persons")
 }
 

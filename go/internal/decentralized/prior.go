@@ -32,6 +32,13 @@ type Prior struct {
 }
 
 func readPrior(d Descriptor, raw []byte) (*Prior, error) {
+	return readPriorMode(d, raw, false)
+}
+
+// Only an already admitted read can retain unavailable historical bodies.
+// The exact metadata remains unchanged and supplies no replacement proof;
+// every current consumer still resolves its required DS through the graph.
+func readPriorMode(d Descriptor, raw []byte, reading bool) (*Prior, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte(`"-"`)) {
 		return nil, nil
 	}
@@ -166,7 +173,7 @@ func readPrior(d Descriptor, raw []byte) (*Prior, error) {
 				missingAllowed = true
 			}
 		}
-		if !missingAllowed {
+		if !missingAllowed && !reading {
 			return nil, failure("proof_required", id)
 		}
 	}

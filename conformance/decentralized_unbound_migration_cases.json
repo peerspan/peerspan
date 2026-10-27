@@ -1,0 +1,131 @@
+{
+  "format": 1,
+  "group": "decentralized_unbound_migration_completion",
+  "contract_pin": "5871eb080c15e102a1369583fea6a8e6a89ebea8",
+  "implementation_source_read": false,
+  "execution_status": "frozen_only_failed_M4_and_unevaluated_M5_typed_root_subject_correction",
+  "fixture": {
+    "state": "/tmp/dmi-first/unbound/state",
+    "H4_original_receipt": "/tmp/peerspan-dec-migration-host-first/results.json",
+    "H4_remaining_receipt": "/tmp/peerspan-dec-migration-host-participation/results.json",
+    "proposal_id": "ds_4adbb46e0b60092859d7bbd805cf2aac1aeb51da4e75ec10ab5e33cba01ae79e",
+    "context_id": "ctx_623c5fc5265453c90ae3a33cd8e67ea61bf7bd89dd5181788d230330380c4a72",
+    "root_state_id": "ds_dd025dfe5ba5f66822618f6670f9b613f0812f94eeff54308d42cc4e87deefb6",
+    "host_lease_id": "ds_289ab1a4044a1ff0f861fc0ce1a4070ed49afc1297244e1923d195860a3f3820",
+    "completed_host_lease_sha256": "93c106d7c2c78e63862a36a630f5a14defd47099937132179184cb25b2fe3678",
+    "expires_at": "2026-10-27T23:46:41Z",
+    "rules": [
+      "Reuse original actual U host/root keys IN PLACE, unique approved host-only identity and already complete H; never read/copy those private keys",
+      "No H4 function, proposal/source/roster/nonce or participation consent is repeated",
+      "Report fixed original source/H/template/review hashes and generic before-state",
+      "Guarded authority NOW remains monotonic and inside the same original proposal/current H interval; no time rewind, new proposal, TTL extension or seed replacement",
+      "No person/device, owned seven-stage transcript, per-host outcome or ordinary selected provider is fabricated"
+    ],
+    "prepared_catalog_sha256": "3bae6810c8317f66d84378f29ede3522c8dcd13ffaff8c47ba29ef49d875f58e"
+  },
+  "cases": [
+    {
+      "name": "unbound_exact_six_base64_evidence_is_pure_and_malformed_carriers_cannot_prepare_ACK",
+      "actions": [
+        "GET original evidence and independently decode exact six canonical Base64 fields",
+        "Outer-only JSON key order/whitespace/accepted escaping roundtrip through the same exact evidence route",
+        "Reject old inline carrier, unknown/duplicate field, noncanonical Base64 and partial public H replacement before ACK"
+      ],
+      "assert": [
+        "Original proposal/source/prepared/H decoded bytes and proof IDs stay exact; root source/identity/H templates/reviews are preserved",
+        "GET exports one coherent snapshot and changes no intent/approval/fence/authority/provider/guard",
+        "Malformed carriers refuse400 invalid and do not create ACK/fence/admission; record any permitted named clock metadata separately",
+        "No first-import consent is invented by an exact carrier roundtrip"
+      ]
+    },
+    {
+      "name": "unbound_full_catalog_ACK_preview_is_readonly_and_not_host_membership_consent",
+      "actions": [
+        "POST acknowledgment with exact proposal/prepared hash and approve:false"
+      ],
+      "assert": [
+        "Exact acknowledgment review names complete original roster/source/prepared hash, actual unbound host and durable-fence cost",
+        "No ready signature, ACK, fence, root commit, new context/provider/outcome or adopted state",
+        "Either read-only, or ONLY one exact unapproved migration_ack intent/template, its local_ack_intent_id reference and named monotonic guard. Capture every changed row; require approved false/approved_at dash/signatures empty/completed false/secret NULL. Every other row, identity/participation approval and public authority stays exact. Exact preview retry preserves the same template; earlier H approval is never ACK consent."
+      ],
+      "historical_identifier_note": "Keep the original receipt identifier; readonly was an oracle overconstraint. M08 permits only named exact unapproved preparation changes."
+    },
+    {
+      "name": "unbound_explicit_host_ACK_fences_exact_catalog_before_publication_and_survives_restart",
+      "actions": [
+        "POST separately explicit acknowledgment approve:true; allow only owning daemon to fill exact dependency-ready host slot through normal resume",
+        "Independently verify exact emitted migration_ack and actual owned-host raw signature",
+        "Restart same state and exact retry after monotonic301 seconds within original proposal/H window"
+      ],
+      "assert": [
+        "ACK pins exact proposal/root/prepared hash/host/H; person/device/binding/device-lease/activation are dash and signature roles are exactly host",
+        "Approved exact ACK and fence are durably present before publication; no device key, generic signer/provider or ordinary context installed",
+        "Restart/retry preserves exact ACK bytes, acknowledged_at, prepared hash, original source/review and fence; no timed abort or replacement",
+        "No root commit appears before its separate explicit root approval"
+      ]
+    },
+    {
+      "name": "unbound_current_root_commit_and_atomic_adoption_preserve_legacy_and_create_no_owner",
+      "actions": [
+        "Preview then explicitly approve current root commit for exact prepared hash and the one exact roster ACK ID",
+        "Owning root fills only its exact migration_commit issuer role; verify its public signature",
+        "Allow preapproved eventual adoption via normal resume, or explicitly apply exact complete transition through adopt route if still pending"
+      ],
+      "assert": [
+        "M09 root preview is read-only OR changes only one exact unapproved migration_commit intent/template, its root_intent_ids entry and named monotonic guard. Capture every changed row; false approval, dash approved_at, empty signatures, false completion, NULL secret, no ready slot/public commit/adoption. Existing ACK/fence/identity/participation and every other row stay exact; retry keeps exact all-host set/hash/time/template.",
+        "Whole-network migration_commit intent has subject person/host/device dash, scopes8, not_after dash and exact current-root selector. Actual owned writer, approved own identity, participation and exact own ACK/fence remain separately required. Ordinary root-action and target-link host variants are unchanged.",
+        "Root commit includes all exact ACK IDs and original proposal/root/prepared hash; no alternate source/hash or inferred receipt",
+        "After complete verification one coherent current mode/context/origin/root/H projection and one network.migrated event exist together",
+        "Unbound identity stays host-only, selected device/provider and owned-device key rows remain absent; no participant outcome or network.link_applied event",
+        "All original legacy rows, product state/private files and source floors/restrictions remain preserved; no fault-injection atomicity claim from this positive alone",
+        "ACK already preapproves exact eventual adoption; do not invent an extra mandatory mutable consent"
+      ]
+    },
+    {
+      "name": "unbound_adopted_original_export_restart_and_exact_retry_are_immutable",
+      "actions": [
+        "GET and exact carrier/application retries, restart actual same state, then GET exact original export again",
+        "Try changed immutable transition identity through the public route only"
+      ],
+      "assert": [
+        "Same proposal/source/prepared/ACK/commit bytes and complete migration proof persist, independent of later local wrapper spelling",
+        "Exactly one migrated event, no duplicate authority/application/provider or new key/signature/consent/guard change from historical pure reads/retries",
+        "Changed immutable transition identity refuses409 operation_conflict without changing adopted pin/history",
+        "Record any transport scheduling metadata separately from immutable authority/outcome state"
+      ]
+    }
+  ],
+  "wrong_reference_boundary": "Runtime does not expose an arbitrary ACK-body signer. Verify actual signed ACK exact H/dash references. A modified real ACK retaining its signature is only a malformed/signature-negative control. A cryptographically valid wrong-H ACK must be a separately frozen pure vector using independently owned fixture keys, never actual daemon key extraction.",
+  "stop_rule": "Freeze executable/support hashes before run and use explicit coherent artifact offer. Preserve first failure and stop dependent cases; rerun only failed/unevaluated controls. H4 positives stay skipped.",
+  "limits": [
+    "Unbound-only one-host all-roster migration; no owned device/three-host/seven-stage profile or whole DEC completion claim",
+    "No coordinator, private host/root key copy, arbitrary signing endpoint, source reset or adoption by public carrier alone",
+    "Inherited-device-ban M07 is independently attributed and is not exercised by this U continuation."
+  ],
+  "prior_contract_pin": "b36bc2ec8b947419a63388f7ab3a8cfa0aca32d8",
+  "prior_ACK_preview_pin": "da44637bcdb48d6f443b88aaa82b09cbd19b4830",
+  "prior_root_commit_preview_pin": "7a63e4eccbb588168cd3e0321e18f9b78eb023d1",
+  "failed_M4_unevaluated_M5_continuation": {
+    "root_typed_variant_pin": "5871eb080c15e102a1369583fea6a8e6a89ebea8",
+    "original_failed_receipt": "/tmp/peerspan-dec-migration-unbound-root-commit/results.json",
+    "oracle_correction": "Previously overgeneralized private host=actual writer. M10 now explicitly makes whole-network root commit subject host/person/device dash; no source or stored metadata is repaired.",
+    "original_state": "/tmp/dmi-first/unbound/state",
+    "unchanged_artifact": "/tmp/peerspan-dec-go-migration-unbound-v1-host",
+    "artifact_sha256": "19418a2354028dee957f2ff24289487e744553dbeb9415d410e3e68494f268e0",
+    "source": "7a9c34a6a7fa0b7fc3477d990f2951eb672af1a1",
+    "after_acknowledged_from": "/tmp/dmigration-unbound-ACK-named",
+    "old_unapproved_root_intent_id": "dint_05ec0639f1cb990d15512d6cda0c0e51",
+    "old_unapproved_record_sha256": "c385a21cf3ffc8e6a7d9f3a1b15bd717244582619b11f8f6a212181580c8eb5e",
+    "old_exact_template_sha256": "abbb0a89ece3e0fa7e1bae2ca6a2d83917e808d63faf2ac7acdfaf4e309f57bd",
+    "before_database_snapshot_sha256": "4411c5c7b63bb74cef69a0b91cd736046ad0a10e8c29de491f826c7a32937a2d",
+    "exact_clock": "2026-10-27T00:37:05Z",
+    "suite_sha256": "3246c24edd2b076b26790be519a9435c126fa82fdeb2f7805389f5ab35e4d030",
+    "work_dir": "/tmp/dmigration-unbound-root-typed",
+    "results": "/tmp/peerspan-dec-migration-unbound-root-typed/results.json",
+    "only_cases": [
+      "unbound_current_root_commit_and_atomic_adoption_preserve_legacy_and_create_no_owner",
+      "unbound_adopted_original_export_restart_and_exact_retry_are_immutable"
+    ],
+    "skip": "H4/carrier/ACK preview/approval/signature/restart positive functions; no source/proposal/nonce/clock/consent reset or old root intent rewrite."
+  }
+}

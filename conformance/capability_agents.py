@@ -3095,7 +3095,7 @@ def check_migration(original, replacement, label, baseline=None):
     approval tables, which later binaries add), credential records without the new fields, and user_version 17.
     Binaries since per-call approval migrate 17 on to the current version (host_service.SCHEMA_VERSION) and refuse
     19, which is reserved."""
-    from host_service import APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, SCHEMA_VERSION, Host
+    from host_service import APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, SCHEMA_VERSION, Host
     with tempfile.TemporaryDirectory(prefix='peerspan-capability-agents-migration-') as directory:
         host = Host(baseline or original, Path(directory) / 'host')
         try:
@@ -3115,7 +3115,7 @@ def check_migration(original, replacement, label, baseline=None):
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                    for table in (*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
+                    for table in (*DEC_TABLES, *OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *LINKING_TABLES, *NEW_TABLES):
                         connection.execute(f'DROP TABLE {table}')
                     connection.execute(f'PRAGMA user_version = {VERSION - 1}')
                     connection.commit()

@@ -102,7 +102,7 @@ type AttentionItem struct {
 // Attention kinds, in the order status reports them. The CLI adds
 // service_not_installed and linger_disabled.
 var AttentionOrder = []string{"coordination_error", "policy_expired", "policy_expiring", "policy_delivery_failing", "credential_expiring", "tasks_failed", "artifact_quota",
-	"service_not_installed", "linger_disabled", "person_agent_unreachable", "person_device_signer_unavailable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped", "call_approval_pending"}
+	"service_not_installed", "linger_disabled", "person_agent_unreachable", "network_authority_expired", "network_proof_required", "network_state_conflict", "network_clock_rollback", "network_migration_pending", "person_device_signer_unavailable", "coordinator_limit", "agent_name_conflict", "channel_unverified", "capability_failing", "capability_name_conflict", "policy_edit_unsettled", "policy_edit_dropped", "call_approval_pending"}
 
 // SortAttention orders items by kind, then subject.
 func SortAttention(items []AttentionItem) {
@@ -130,7 +130,11 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	defer tx.Rollback()
-	now := time.Now()
+	return s.statusIn(ctx, tx, time.Now(), false)
+}
+
+func (s *Store) statusIn(ctx context.Context, tx *sql.Tx, now time.Time, modern bool) (Status, error) {
+	var err error
 	st := Status{HostID: s.identity.ID, Version: Version, Networks: []NetworkStatus{}, Agents: []AgentStatus{}, Attention: []AttentionItem{}}
 	attend := func(kind, subject, detail, command string) {
 		st.Attention = append(st.Attention, AttentionItem{kind, subject, detail, command})
@@ -138,7 +142,11 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	// owners maps networks to the key of this host's person, when that
 	// person has a stored policy the daemon renews.
 	owners := map[string]string{}
-	if st.Networks, err = s.networkStatus(ctx, tx, now, owners, attend); err != nil {
+	networkAttention := attend
+	if modern {
+		networkAttention = func(string, string, string, string) {}
+	}
+	if st.Networks, err = s.networkStatus(ctx, tx, now, owners, networkAttention); err != nil {
 		return st, err
 	}
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM access_blocks`).Scan(&st.Blocks); err != nil {
@@ -161,11 +169,15 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	if used := st.Artifacts.StoredBytes + st.Artifacts.PendingBytes; used*10 > st.Artifacts.Quota*9 {
 		attend("artifact_quota", "artifacts", fmt.Sprintf("%d of %d artifact bytes are stored or pending", used, st.Artifacts.Quota), "peerspan artifact prune")
 	}
-	s.personAgentAttention(owners, attend)
+	if !modern {
+		s.personAgentAttention(owners, attend)
+	}
 	if err = s.nameConflicts(ctx, tx, attend); err != nil {
 		return st, err
 	}
-	s.limitAttention(st.Networks, attend)
+	if !modern {
+		s.limitAttention(st.Networks, attend)
+	}
 	if err = channelAttention(ctx, tx, now, attend); err != nil {
 		return st, err
 	}
@@ -177,7 +189,7 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 }
 
 func (s *Store) networkStatus(ctx context.Context, tx *sql.Tx, now time.Time, owners map[string]string, attend func(kind, subject, detail, command string)) ([]NetworkStatus, error) {
-	rows, err := tx.QueryContext(ctx, networkColumns+" ORDER BY id")
+	rows, err := tx.QueryContext(ctx, networkColumns+" WHERE COALESCE(json_extract(record, '$.mode'), '') != 'decentralized' ORDER BY id")
 	if err != nil {
 		return nil, err
 	}

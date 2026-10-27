@@ -326,11 +326,11 @@ func latestProgress(ctx context.Context, tx *sql.Tx, sender, id string) (*string
 
 // chainOriginatorPerson is the person bound to a task chain's originator in
 // the chain's network, or nil.
-func chainOriginatorPerson(ctx context.Context, tx *sql.Tx, r TaskRequest) (*string, error) {
+func (s *Store) chainOriginatorPerson(ctx context.Context, tx *sql.Tx, r TaskRequest) (*string, error) {
 	if len(r.Delegation) == 0 {
 		return nil, nil
 	}
-	members, err := networkMembers(ctx, tx, r.Delegation[0].NetworkID)
+	members, err := s.membersOf(ctx, tx, r.Delegation[0].NetworkID)
 	if err != nil {
 		return nil, err
 	}

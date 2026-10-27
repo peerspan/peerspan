@@ -617,6 +617,31 @@ func personIDOf(key string) string {
 
 // Persons lists valid persons with their bound hosts.
 func (s *Store) Persons(ctx context.Context, id string) ([]Person, error) {
+	product, e := s.loadProductGovernance(ctx, s.db, id)
+	if e != nil {
+		return nil, e
+	}
+	if product.snapshot != nil {
+		out := product.personList()
+		members := product.members()
+		for i := range out {
+			out[i].Hosts = []string{}
+			_, _, e := product.projection.Current([]string{"admin", out[i].PublicKey})
+			out[i].Administrator = e == nil
+			for _, member := range members {
+				if member.PersonID != nil && *member.PersonID == out[i].PersonID {
+					out[i].Hosts = append(out[i].Hosts, member.HostID)
+				}
+			}
+			sort.Strings(out[i].Hosts)
+			for j := range out {
+				if i != j && membership.LabelsConflict(out[i].Member, out[j].Member) {
+					out[i].LabelConflict = true
+				}
+			}
+		}
+		return out, nil
+	}
 	g, err := s.loadGovernance(ctx, s.db, id)
 	if err != nil {
 		return nil, err

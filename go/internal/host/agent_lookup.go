@@ -90,18 +90,15 @@ func isHostID(left string) bool { return validID(left, "host", 32) }
 // LookupLocalAgent is the peer lookup route: whether this host has an
 // agent with the exact addressable name, or the agent ID, the query names.
 func (s *Store) LookupLocalAgent(ctx context.Context, caller, network, rawQuery string) (*LookupAgent, error) {
-	var exists bool
-	if err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM network_members WHERE network_id = ? AND host_id = ?)", network, s.identity.ID).Scan(&exists); err != nil {
+	// Both memberships come from current verified members in one read.
+	members, err := s.membersOf(ctx, s.db, network)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	if !exists {
+	if _, exists := members[s.identity.ID]; !exists {
 		return nil, &codedError{status: http.StatusNotFound, code: "not_found", message: "this host is not in network " + network}
 	}
-	var member bool
-	if err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM network_members WHERE network_id = ? AND host_id = ?)", network, caller).Scan(&member); err != nil {
-		return nil, err
-	}
-	if !member || caller == s.identity.ID {
+	if _, member := members[caller]; !member || caller == s.identity.ID {
 		return nil, ErrForbidden
 	}
 	invalid := fmt.Errorf("%w: give exactly one of name or agent_id", ErrInvalid)
@@ -289,7 +286,7 @@ func (s *Store) ResolveAgentAddress(ctx context.Context, address, given string) 
 		}
 		hosts = []string{left}
 	} else {
-		g, err := s.loadGovernance(ctx, s.db, network)
+		g, err := s.loadProductGovernance(ctx, s.db, network)
 		if err != nil {
 			return AgentLookupResult{}, err
 		}

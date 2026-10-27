@@ -193,6 +193,9 @@ impl Verifier<'_> {
         }
         self.restrict_state();
         self.active_records.insert(id.into());
+        if ordinary_restriction(s(&p.object, "kind")) {
+            self.history.restriction_proofs.insert(id.into());
+        }
         Ok(())
     }
 

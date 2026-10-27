@@ -4,6 +4,16 @@ mod admin;
 mod builtin_discovery;
 mod capability_cli;
 mod cli;
+mod decentralized_action_cli;
+mod decentralized_admin_cli;
+mod decentralized_cli;
+mod decentralized_groups_cli;
+mod decentralized_link_cli;
+mod decentralized_migration_cli;
+mod decentralized_onboarding_cli;
+mod decentralized_policy_cli;
+mod decentralized_root_cli;
+mod decentralized_up;
 mod discovery;
 mod integration;
 mod link_cli;
@@ -95,46 +105,16 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     if let cli::Command::Network(cli::NetworkCommand::Repair(args)) = command {
         return link_cli::repair(args, cli.state).await;
     }
+    if let cli::Command::Network(cli::NetworkCommand::Migrate(args)) = command {
+        return decentralized_migration_cli::run(args, cli.state).await;
+    }
     if let cli::Command::Network(cli::NetworkCommand::EnableLinking { network, root_key }) = command
     {
         return link_cli::enable(network, root_key, cli.state).await;
     }
-    // The top-level invite and join are network invite and network join.
-    let mut top_invite = false;
-    command = match command {
-        cli::Command::Invite {
-            label,
-            network,
-            expires_at,
-            expires_in,
-            person_key,
-        } => {
-            top_invite = true;
-            cli::Command::Network(cli::NetworkCommand::Invite {
-                network,
-                member: label,
-                expires_at,
-                expires_in,
-                host_only: false,
-                person_key,
-            })
-        }
-        cli::Command::Join {
-            token,
-            person_key,
-            no_person,
-            trusted,
-            untrusted,
-        } => cli::Command::Network(cli::NetworkCommand::Join {
-            token: Some(token),
-            descriptor: None,
-            person_key,
-            no_person,
-            trusted,
-            untrusted,
-        }),
-        other => other,
-    };
+    if decentralized_onboarding_cli::run(&command, cli.state.as_deref()).await? {
+        return Ok(());
+    }
     command.resolve_expiries()?;
     if matches!(
         &command,
@@ -200,6 +180,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     // this binary currently either starts a host daemon or a local admin client
     // the daemon serves admin requests, peer-listeners etc
     if let cli::Command::Run {
+        bootstrap_listen,
+        transport_config,
         peer_listen,
         advertise,
         coordination_interval,
@@ -216,8 +198,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         let person_key_file = person_key_file.or_else(persons::generated_key_path);
         return run_daemon(
             directory,
-            peer_listen,
-            advertise,
+            ListenerOptions {
+                bootstrap_listen,
+                transport_config,
+                peer_listen,
+                advertise,
+            },
             coordination_interval,
             person_agent,
             person_key_file,
@@ -225,18 +211,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         )
         .await;
     }
-    let mut value = dispatch(command, &directory).await?;
-    if top_invite {
-        let token = value["token"].clone();
-        value = json!({
-            "network_id": value["network_id"],
-            "member": value["member"],
-            "invite_expires_at": value["invite_expires_at"],
-            "token": token,
-            "join": format!("peerspan join {}", token.as_str().unwrap_or_default()),
-        });
-    }
+    let value = dispatch(command, &directory).await?;
     println!("{}", serde_json::to_string_pretty(&value)?);
+    if value.get("creation_id").is_some() && value["committed"] == false {
+        bail!("network creation requires review or signing repair");
+    }
     Ok(())
 }
 
@@ -260,7 +239,16 @@ async fn dispatch(command: cli::Command, directory: &Path) -> anyhow::Result<Val
     if let Some(value) = access::top_command(&command, &socket).await? {
         return Ok(value);
     }
+    if let Some(value) = decentralized_admin_cli::command(&command, &socket).await? {
+        return Ok(value);
+    }
     if let Some(value) = person_command(&command, directory).await? {
+        return Ok(value);
+    }
+    if let Some(value) = decentralized_root_cli::command(&command, &socket).await? {
+        return Ok(value);
+    }
+    if let Some(value) = decentralized_groups_cli::command(&command, &socket).await? {
         return Ok(value);
     }
     if let Some(value) = admin::command(&command, &socket).await? {
@@ -296,7 +284,7 @@ fn help(topic: &[String]) -> anyhow::Result<()> {
 /// The one network this host is in, for a command that omits it. Never
 /// chosen by name.
 async fn only_network(socket: &Path) -> anyhow::Result<String> {
-    let networks = admin::Local(socket).get("/v1/networks".into()).await?;
+    let networks = admin::Local(socket).get("/v2/networks".into()).await?;
     let networks = networks.as_array().context("invalid daemon response")?;
     match networks.as_slice() {
         [] => bail!("not a member of any network"),
@@ -328,7 +316,7 @@ async fn status(directory: &Path, json: bool) -> anyhow::Result<()> {
         call(
             directory.join("admin.sock"),
             Method::GET,
-            "/v1/status".into(),
+            "/v2/status".into(),
             None,
         ),
     )
@@ -409,6 +397,18 @@ fn summary(value: &Value) -> String {
         out += "Networks:\n";
     }
     for n in &networks {
+        if n["mode"] == "decentralized" {
+            out += &format!(
+                "  {} {}: authority {}, deadline {}, provider {} ({})\n",
+                text(&n["id"]),
+                text(&n["name"]),
+                text(&n["authority"]["state"]),
+                text(&n["authority"]["not_after"]),
+                text(&n["provider"]["kind"]),
+                text(&n["provider_state"]["state"])
+            );
+            continue;
+        }
         out += &format!(
             "  {} {}: {} members, coordinator {}, last sync {}\n",
             text(&n["id"]),
@@ -545,88 +545,24 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
                 Some(label) => label.clone(),
                 None => login_name().context("cannot determine the login name; give --as LABEL")?,
             };
-            let choice = match no_person {
-                true => None,
-                false => Some(choose_key(person_key)?),
-            };
-            // Without either coordinator flag, the daemon uses its build's
-            // default coordinator.
-            let mut body = json!({"name": name, "member": member});
-            if let Some(address) = coordinator {
-                body["coordinator_address"] = json!(address);
+            if coordinator.is_some() || coordinator_key.is_some() {
+                bail!(
+                    "coordinator-based creation is no longer supported; create locally without coordinator flags"
+                );
             }
-            if let Some(key) = coordinator_key {
-                body["coordinator_public_key"] = json!(key);
+            if *no_person {
+                bail!("local genesis requires an original-person owner; omit --no-person");
             }
-            if let Some(choice) = &choice {
-                body["person_public_key"] = json!(choice.signer.public_key_b64());
+            if *trusted {
+                bail!("create the network, then review a separate typed trust policy");
             }
-            let mut value = local(Method::POST, "/v1/networks".into(), Some(body)).await?;
-            if let Some(choice) = &choice {
-                choice.save(&member)?;
-            }
-            let network = value["id"].as_str().unwrap_or_default().to_owned();
-            match &choice {
-                Some(choice) if value["person"]["admitted"] == json!(true) => {
-                    // Admitted with the new root: bind this host now, signed
-                    // here so the person key never reaches the daemon.
-                    let result = async {
-                        let host = local(Method::GET, "/v1/host".into(), None).await?;
-                        let key = host["public_key"]
-                            .as_str()
-                            .context("host daemon returned no public key")?;
-                        let binding =
-                            persons::HostBinding::sign(&choice.signer, &network, key, &at())
-                                .map_err(|e| anyhow::anyhow!("{e}"))?;
-                        local(
-                            Method::POST,
-                            format!("/v1/networks/{}/bindings", encoded(&network)),
-                            Some(json!({"binding": binding})),
-                        )
-                        .await
-                    }
-                    .await;
-                    match result {
-                        Ok(_) => {
-                            value["person"]["bound"] = json!(true);
-                            value["person"]["next"] = Value::Null;
-                            capability_cli::trust_outcome(
-                                &mut value,
-                                &socket,
-                                &network,
-                                &choice.signer,
-                                *trusted,
-                                *untrusted,
-                            )
-                            .await;
-                        }
-                        Err(e) => {
-                            value["person"]["skipped"] = json!(format!("binding failed: {e:#}"));
-                            value["person"]["next"] = json!(bind_next(&network));
-                        }
-                    }
-                }
-                Some(_) => {}
-                None => {
-                    let next = format!(
-                        "an administrator runs: {} network admit --network {network} --person '<your ssh-ed25519 public key>' --member {member}; then: {}",
-                        program(),
-                        bind_next(&network)
-                    );
-                    value["person"] =
-                        skipped("person step disabled with --no-person".into(), Some(next));
-                }
-            }
-            if value.get("trusted").is_none() {
-                value["trusted"] = json!(false);
-            }
-            if let Some(choice) = &choice {
-                choice.describe(&mut value, false);
-            }
-            value
+            let _ = untrusted;
+            let choice = choose_key(person_key)?;
+            decentralized_cli::create(&admin::Local(&socket), &name, &member, &choice).await?
         }
         Command::Network(NetworkCommand::Join {
             token,
+            invitation: _,
             descriptor,
             person_key,
             no_person,
@@ -800,6 +736,7 @@ async fn person_command(command: &cli::Command, directory: &Path) -> anyhow::Res
             network,
             host,
             person_key,
+            ..
         }) => {
             let network = cli::resolved(network);
             let provider =
@@ -1100,15 +1037,26 @@ impl Drop for SocketCleanup {
     }
 }
 
-async fn run_daemon(
-    directory: PathBuf,
+struct ListenerOptions {
+    bootstrap_listen: Option<std::net::SocketAddr>,
+    transport_config: Option<PathBuf>,
     peer_listen: Option<std::net::SocketAddr>,
     advertise: Option<std::net::SocketAddr>,
+}
+async fn run_daemon(
+    directory: PathBuf,
+    listeners: ListenerOptions,
     coordination_interval: u64,
     person_agent: Option<PathBuf>,
     person_key_file: Option<PathBuf>,
     artifact_quota: i64,
 ) -> anyhow::Result<()> {
+    let ListenerOptions {
+        bootstrap_listen,
+        transport_config,
+        peer_listen,
+        advertise,
+    } = listeners;
     let store = Arc::new(Store::open(&directory)?);
     store.set_artifact_quota(artifact_quota);
     store.set_coordination_interval(coordination_interval);
@@ -1164,6 +1112,23 @@ async fn run_daemon(
         None => false,
     };
     let (shutdown, peer_shutdown) = tokio::sync::watch::channel(false);
+    let bootstrap_address = bootstrap_listen.unwrap_or_else(|| {
+        std::net::SocketAddr::new(
+            peer_listen
+                .map(|p| p.ip())
+                .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+            0,
+        )
+    });
+    let bootstrap = peerspan_host::decentralized::bootstrap_io::Listener::bind(
+        store.clone(),
+        bootstrap_address,
+        transport_config,
+    )
+    .await?;
+    eprintln!("bootstrap listener tcp {}", bootstrap.local_addr()?);
+    store.enable_decentralized_runtime();
+    let bootstrap = bootstrap.serve(peer_shutdown.clone());
     let mut adapter_shutdown = peer_shutdown.clone();
     let adapter = axum::serve(
         adapter_listener,
@@ -1182,18 +1147,20 @@ async fn run_daemon(
             let _ = shutdown.send(true);
         })
         .into_future();
-    let coordination = peerspan_host::network::coordinate(store.clone(), peer_shutdown.clone());
+    // Legacy coordinator histories remain available for explicit migration
+    // and exact committed-operation recovery. Launch never starts their
+    // enrollment, policy publication, signing or automatic renewal workers.
     let reply_workers =
         peerspan_host::adapter_outbound::reply_workers(store.clone(), peer_shutdown.clone());
     let retries = peerspan_host::retry::retry_worker(store.clone(), peer_shutdown.clone());
     let tasks = peerspan_host::task_outbound::task_worker(store.clone(), peer_shutdown.clone());
     let expiry = peerspan_host::task::expiry_worker(store.clone(), peer_shutdown.clone());
     let retention = peerspan_host::artifact::retention_worker(store.clone(), peer_shutdown.clone());
-    let policy_sync = peerspan_host::policy_sync::worker(store.clone(), peer_shutdown.clone());
-    let linking = peerspan_host::link_runtime::worker(store.clone(), peer_shutdown.clone());
     let directory = peerspan_host::directory::worker(store.clone(), peer_shutdown.clone());
     let presence = peerspan_host::presence::worker(store.clone(), peer_shutdown.clone());
     let calls = peerspan_host::calls::worker(store.clone(), peer_shutdown.clone());
+    let decentralized_state =
+        peerspan_host::decentralized::state_worker(store.clone(), peer_shutdown.clone());
     let peers = async {
         if listening {
             peerspan_host::quic::serve(store, peer_shutdown).await?;
@@ -1204,6 +1171,7 @@ async fn run_daemon(
     };
     use std::future::IntoFuture;
     tokio::try_join!(
+        bootstrap,
         async { admin.await.map_err(anyhow::Error::from) },
         async { adapter.await.map_err(anyhow::Error::from) },
         peers,
@@ -1228,10 +1196,6 @@ async fn run_daemon(
             Ok(())
         },
         async {
-            policy_sync.await;
-            Ok(())
-        },
-        async {
             directory.await;
             Ok(())
         },
@@ -1244,20 +1208,16 @@ async fn run_daemon(
             Ok(())
         },
         async {
-            coordination.await;
+            decentralized_state.await;
             Ok(())
         },
-        async {
-            linking.await;
-            Ok(())
-        }
     )?;
     Ok(())
 }
 
 /// Local responses may carry a call's result of up to 1 MiB with its
 /// record.
-const RESPONSE_LIMIT: usize = 16 << 20;
+const RESPONSE_LIMIT: usize = 32 << 20;
 
 /// A `DELETE` on the local socket.
 pub(crate) async fn delete(socket: &Path, path: String) -> anyhow::Result<Value> {

@@ -91,6 +91,9 @@ func (a *authority) evaluateContents(s, consumer *Statement, busy map[string]boo
 	if !a.admitted[s.ID] {
 		return result, failure("forbidden")
 	}
+	if e := a.graph.readMissing[s.ID]; e != nil {
+		return result, e
+	}
 	key := a.retentionContext + "/" + s.ID
 	if consumer != nil {
 		key += "/" + consumer.ID

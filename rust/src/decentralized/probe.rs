@@ -123,6 +123,21 @@ fn run(bytes: &[u8]) -> Result<Value> {
                 &b64(text(o, "unsigned_payload_base64")?, MAX_PAYLOAD)?,
             )
         }
+        "migration" => {
+            fields(
+                o,
+                "format kind descriptor_base64 legacy_prior prior migration_base64 now purpose local_host_public_key",
+            )?;
+            super::migration::verify(
+                &descriptor,
+                o.get("legacy_prior").ok_or_else(|| Error::new("invalid"))?,
+                o.get("prior").ok_or_else(|| Error::new("invalid"))?,
+                &b64(text(o, "migration_base64")?, MAX_OBJECT)?,
+                text(o, "now")?,
+                text(o, "purpose")?,
+                text(o, "local_host_public_key")?,
+            )
+        }
         _ => Err(Error::new("invalid")),
     }
 }

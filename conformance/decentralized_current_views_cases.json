@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "group": "current_v2_person_policy_native_reads",
+  "contract_pin": "e7cb49bdec5dbaa254abfb2417d6bc695d65d88d",
+  "implementation_source_read": false,
+  "scope": "New current-view and native read controls on an already admitted two-person fixture. No enrollment-function, info, installed, product-call or final-head acceptance replay.",
+  "fixture": "Use actual stopped creator A after the independently observed cold Bob operation. Reopen IN PLACE, without passing an original private key, generating a key, changing selection or copying daemon state. Public creation/completion receipts identify the exact two people and network.",
+  "cases": [
+    {"name": "current_persons_equal_exact_admitted_person_leases_and_reads_preserve_state", "assert": ["Exact four-field person rows, sorted unique by stable person key, equal the two independently admitted original people, labels, current person-lease IDs and finite deadlines resolved from retained public catalog", "GET persons/policy/planning/catalog does not commit clock, admission, signer, signature, event or provider changes; actual provider availability stays separate from usable cached public authority"]},
+    {"name": "current_policy_returns_original_signed_bytes_and_absent_Bob_policy_is_not_fabricated", "assert": ["Alice's policy response is exactly statement_id plus canonical Base64 of the ORIGINAL retained signed current statement, independently matching its ds_ and policy owner", "Bob is admitted but has not signed a policy; GET for that exact canonical encoded key returns404 not_found without a fabricated legacy policy or mutation"]},
+    {"name": "native_agents_and_access_read_current_DEC_views_without_signing_or_legacy_policy_failure", "assert": ["Public help-bound agents --network ID --json succeeds with a directory object; access show --network ID --person exact Alice label succeeds with nonempty output", "No new approval, signature, provider selection, authority, clock or event follows; reads preserve actual identity and current usable public membership even when a signer is unavailable", "Positive commands establish observable native DEC read behavior, not packet-level tracing of their internal HTTP calls or live agents/capabilities"]}
+  ],
+  "stop_rule": "Freeze executable and exact supported binary/source before execution. Retain first failure; repeat only failed and unevaluated cases. No private key extraction and no earlier native A or six-case function is called."
+}

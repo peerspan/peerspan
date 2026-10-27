@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"net"
 	"path/filepath"
 	"sync"
 	"time"
@@ -152,6 +153,97 @@ func (m *ParticipantMailbox) ServeConn(parent context.Context, conn *tls.Conn) {
 	stopTransport := context.AfterFunc(ctx, func() { transport.Close() })
 	defer stopTransport()
 	serveMailbox(ctx, conn, transportPeer{key: encoded, source: owned.source}, m.handler)
+}
+
+// ServeCompletion accepts one stream only after the actual QUIC TLS proof and
+// host-derived source bucket have passed the caller's transport gates. It uses
+// the SAME request/rate/byte pools as TCP bootstrap, before accepting a stream,
+// and exposes ONLY the original complete-publication routes. The service owns
+// no keys and derives no identity from HTTP or a relay's claimed source ID.
+func (m *ParticipantMailbox) ServeCompletion(parent context.Context, state tls.ConnectionState, source string, accept func(context.Context) (net.Conn, error)) {
+	if parent == nil || accept == nil || source == "" || len(source) > 512 || !state.HandshakeComplete || state.Version != tls.VersionTLS13 || state.NegotiatedProtocol != "peerspan-completion/1" {
+		return
+	}
+	key, err := tlsid.PeerKey(state)
+	if err != nil {
+		return
+	}
+	peer := transportPeer{key: base64.StdEncoding.EncodeToString(key), source: source}
+	m.mu.Lock()
+	if m.closed || m.ctx.Err() != nil || m.handler.completion == nil {
+		m.mu.Unlock()
+		return
+	}
+	m.workers.Add(1)
+	m.mu.Unlock()
+	defer m.workers.Done()
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+	stopParent := context.AfterFunc(parent, cancel)
+	defer stopParent()
+	if !m.handler.limits.beginRequest(peer) {
+		return
+	}
+	defer m.handler.limits.endRequest(peer)
+	waiting, stop := context.WithTimeout(ctx, 5*time.Second)
+	conn, err := accept(waiting)
+	stop()
+	if err != nil || conn == nil {
+		return
+	}
+	defer conn.Close()
+	stopTransport := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopTransport()
+	var queued int64
+	defer func() { m.handler.limits.release("response", queued) }()
+	handler := &mailboxHandler{limits: m.handler.limits, completion: m.handler.completion, completionOnly: true, queuedResponse: func(amount int64) { queued += amount }}
+	serveMailboxRequest(ctx, conn, peer, handler)
+	_ = conn.Close() // queue FIN before waiting for the client to consume it
+	select {
+	case <-parent.Done():
+	case <-ctx.Done():
+	}
+}
+
+// ReserveCompletionTransport accounts for the bounded QUIC receive window and
+// HTTP header lookahead BEFORE an unqualified connection advertises data credit.
+// Body and queued-response reservations continue to use these same pools.
+func (m *ParticipantMailbox) ReserveCompletionTransport() (func(), bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.ctx.Err() != nil || !m.handler.limits.reserve("receive", 64<<10) {
+		return nil, false
+	}
+	if !m.handler.limits.reserve("response", 64<<10) {
+		m.handler.limits.release("receive", 64<<10)
+		return nil, false
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() { m.handler.limits.release("receive", 64<<10); m.handler.limits.release("response", 64<<10) })
+	}, true
+}
+
+// ReserveCompletionExchange bounds an outgoing complete request and its
+// response in the SAME pools as participant server traffic. It carries no key,
+// endpoint, operation or authority information.
+func (m *ParticipantMailbox) ReserveCompletionExchange() (func(), bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.ctx.Err() != nil || !m.handler.limits.reserve("receive", maxCompletionBody) {
+		return nil, false
+	}
+	if !m.handler.limits.reserve("response", maxCompletionBody) {
+		m.handler.limits.release("receive", maxCompletionBody)
+		return nil, false
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.handler.limits.release("receive", maxCompletionBody)
+			m.handler.limits.release("response", maxCompletionBody)
+		})
+	}, true
 }
 
 // Close cancels and drains this service's exact connections before closing its

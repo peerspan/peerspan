@@ -16,6 +16,7 @@ pub struct NetworkState {
     pub members: Vec<MemberProof>,
     pub epoch: u64,
     pub root_public_key: String,
+    pub(crate) applicable_restrictions: BTreeSet<String>,
 }
 
 fn choose(map: &mut BTreeMap<String, String>, host: &str, id: &str) {
@@ -28,6 +29,24 @@ pub fn verify_stored_network_state(
     ctx: CatalogFactContext<'_>,
     catalog: &[u8],
 ) -> Result<NetworkState> {
+    verify_network_state(ctx, catalog, false)
+}
+
+/// Migration can inspect an actual pre-feature legacy source. This does not
+/// create a feature, activate a device, or supply new-context authority.
+pub(crate) fn verify_stored_migration_source(
+    ctx: CatalogFactContext<'_>,
+    catalog: &[u8],
+) -> Result<NetworkState> {
+    let pre_feature = ctx.known_feature_id == "-";
+    verify_network_state(ctx, catalog, pre_feature)
+}
+
+fn verify_network_state(
+    ctx: CatalogFactContext<'_>,
+    catalog: &[u8],
+    pre_feature: bool,
+) -> Result<NetworkState> {
     let run = || -> Result<NetworkState> {
         check(
             verification_budget(true, ctx.network.len(), catalog.len(), 0),
@@ -36,6 +55,41 @@ pub fn verify_stored_network_state(
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
         v.stored_snapshot = true;
         v.catalog(catalog)?;
+        if pre_feature {
+            check(
+                !v.proofs.values().any(|p| p.kind == "feature"),
+                "state_conflict",
+            )?;
+            for proof in v.proofs.values() {
+                check(
+                    matches!(
+                        proof.kind.as_str(),
+                        "rotation"
+                            | "coordinator_move"
+                            | "coordinator_successor"
+                            | "attestation"
+                            | "admin_delegation"
+                            | "admin_removal"
+                            | "person_admission"
+                            | "person_membership"
+                            | "host_membership"
+                            | "host_admission"
+                            | "host_binding"
+                            | "host_unbinding"
+                            | "host_leave"
+                            | "host_revocation"
+                            | "invite_revocation"
+                            | "person_removal"
+                            | "certificate"
+                            | "device_revocation"
+                            | "group"
+                            | "policy"
+                    ),
+                    "forbidden",
+                )?;
+            }
+            v.feature_preparation = true;
+        }
         v.bootstrap(true)?;
         let requests: Vec<_> = v.activations.keys().cloned().collect();
         for request in requests {
@@ -176,7 +230,7 @@ pub fn verify_stored_network_state(
             let membership = memberships
                 .get(host)
                 .ok_or_else(|| problem("proof_required"))?;
-            let join = if roster.contains(host) {
+            let join = if pre_feature || roster.contains(host) {
                 "-"
             } else {
                 joins.get(host).ok_or_else(|| problem("proof_required"))?
@@ -209,6 +263,7 @@ pub fn verify_stored_network_state(
             });
         }
         Ok(NetworkState {
+            applicable_restrictions: v.history.restriction_proofs,
             members,
             epoch: v.epoch,
             root_public_key: v.root,

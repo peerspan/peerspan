@@ -219,25 +219,22 @@ type networkRecord struct {
 }
 
 // membershipsOf lists a host's member records, ordered by network ID.
-func membershipsOf(ctx context.Context, q queryer, host string) ([]networkRecord, error) {
-	rows, err := q.QueryContext(ctx, "SELECT network_id, record FROM network_members WHERE host_id = ? ORDER BY network_id", host)
+func (s *Store) membershipsOf(ctx context.Context, q dbQuerier, host string) ([]networkRecord, error) {
+	ids, err := s.networkIDs(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []networkRecord
-	for rows.Next() {
-		var r networkRecord
-		var record string
-		if err = rows.Scan(&r.network, &record); err != nil {
+	out := []networkRecord{}
+	for _, id := range ids {
+		members, err := s.membersOf(ctx, q, id)
+		if err != nil {
 			return nil, err
 		}
-		if err = json.Unmarshal([]byte(record), &r.member); err != nil {
-			return nil, err
+		if member, ok := members[host]; ok {
+			out = append(out, networkRecord{id, member})
 		}
-		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // SubmitPolicy verifies an owner-signed policy from the CLI and stores it
@@ -380,10 +377,23 @@ func (s *Store) Policy(ctx context.Context, id, given string) (PolicyView, error
 
 // blocked reports whether the block list refuses a sender: by host ID, or as
 // bound to a blocked person in any network.
-func blocked(ctx context.Context, tx *sql.Tx, sender string) (bool, error) {
+func (s *Store) blocked(ctx context.Context, tx *sql.Tx, sender string) (bool, error) {
 	var found bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM access_blocks WHERE (kind = 'host' AND subject = ?1) OR (kind = 'person' AND subject IN (SELECT json_extract(record, '$.person_id') FROM network_members WHERE host_id = ?1)))`, sender).Scan(&found)
-	return found, err
+	if e := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM access_blocks WHERE kind='host' AND subject=?)`, sender).Scan(&found); e != nil || found {
+		return found, e
+	}
+	own, e := s.membershipsOf(ctx, tx, sender)
+	if e != nil {
+		return false, e
+	}
+	for _, n := range own {
+		if n.member.PersonID != nil {
+			if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM access_blocks WHERE kind='person' AND subject=?)`, *n.member.PersonID).Scan(&found); e != nil || found {
+				return found, e
+			}
+		}
+	}
+	return false, nil
 }
 
 // messageBounds checks everything except coordination connectivity: the
@@ -399,7 +409,7 @@ func (s *Store) actionBounds(ctx context.Context, tx *sql.Tx, sender, action str
 	if r.Self != nil {
 		return s.selfBounds(ctx, tx, sender, r, requireDeadline)
 	}
-	if refused, err := blocked(ctx, tx, sender); err != nil || refused {
+	if refused, err := s.blocked(ctx, tx, sender); err != nil || refused {
 		if err == nil {
 			err = ErrForbidden
 		}
@@ -432,7 +442,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 	if err != nil {
 		return authority{}, err
 	}
-	own, err := membershipsOf(ctx, tx, s.identity.ID)
+	own, err := s.membershipsOf(ctx, tx, s.identity.ID)
 	if err != nil {
 		return authority{}, err
 	}
@@ -442,7 +452,7 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 		if n.member.PersonID == nil || *n.member.PersonID != r.Policy.PersonID || sender == s.identity.ID {
 			continue
 		}
-		g, err := s.loadGovernance(ctx, tx, n.network)
+		g, err := s.loadProductGovernance(ctx, tx, n.network)
 		if err != nil {
 			return authority{}, err
 		}
@@ -457,21 +467,22 @@ func (s *Store) policyBounds(ctx context.Context, tx *sql.Tx, sender, action str
 		}
 		// The receiver evaluates its own newest version, with the
 		// withdrawals of this host's unsettled edits.
-		if p, err = s.enforcedPolicy(ctx, tx, n.network, p); err != nil {
+		if p, err = s.enforcedProductPolicy(ctx, tx, g, key, p); err != nil {
 			return authority{}, err
 		}
 		until, _ := membership.ParseTime(p.ValidUntil)
-		if !membership.PolicyActive(p, now) || deadline.After(until) {
+		if !p.active(now) || deadline.After(until) {
 			continue
 		}
-		member, err := readJSON[NetworkMember](tx.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", n.network, sender))
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
+		members, err := s.membersOf(ctx, tx, n.network)
 		if err != nil {
 			return authority{}, err
 		}
-		named := membership.NamesAgent(p, agent)
+		member, present := members[sender]
+		if !present {
+			continue
+		}
+		named := p.namesAgent(agent)
 		for _, rule := range p.Rules {
 			if !membership.RuleApplies(rule, agent, named) || !ruleAllows(rule, action) || int64(len(r.Content)) > rule.MaxMessageBytes || !artifactsAllowed(r, rule.MaxArtifactBytes) || !g.principalMatches(rule, member, r.Origin) {
 				continue
@@ -579,7 +590,7 @@ func (s *Store) chainCitation(ctx context.Context, q dbQuerier, peer, originator
 
 // selfPerson is this host's person when peer, a current member, is bound to
 // that person in a network both hosts share, in the lowest such network.
-func (s *Store) selfPerson(ctx context.Context, q queryer, peer string) (string, bool, error) {
+func (s *Store) selfPerson(ctx context.Context, q dbQuerier, peer string) (string, bool, error) {
 	if peer == s.identity.ID {
 		return "", false, nil
 	}
@@ -588,12 +599,12 @@ func (s *Store) selfPerson(ctx context.Context, q queryer, peer string) (string,
 
 // boundPerson is the person both hosts are bound to in the lowest network
 // where both are current members bound to one person, in this host's view.
-func (s *Store) boundPerson(ctx context.Context, q queryer, host, peer string) (string, bool, error) {
-	own, err := membershipsOf(ctx, q, host)
+func (s *Store) boundPerson(ctx context.Context, q dbQuerier, host, peer string) (string, bool, error) {
+	own, err := s.membershipsOf(ctx, q, host)
 	if err != nil {
 		return "", false, err
 	}
-	theirs, err := membershipsOf(ctx, q, peer)
+	theirs, err := s.membershipsOf(ctx, q, peer)
 	if err != nil {
 		return "", false, err
 	}
@@ -646,14 +657,28 @@ func (s *Store) selfBounds(ctx context.Context, tx *sql.Tx, sender string, r Mes
 // in some network they share. A chain may return to its originator, so peer
 // may be this host.
 func (s *Store) boundTogether(ctx context.Context, q dbQuerier, peer, person string) (bool, error) {
-	var found bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM network_members a JOIN network_members b ON a.network_id = b.network_id WHERE a.host_id = ? AND b.host_id = ? AND json_extract(a.record, '$.person_id') = ? AND json_extract(b.record, '$.person_id') = ?)`, s.identity.ID, peer, person, person).Scan(&found)
-	return found, err
+	own, e := s.membershipsOf(ctx, q, s.identity.ID)
+	if e != nil {
+		return false, e
+	}
+	for _, row := range own {
+		if row.member.PersonID == nil || *row.member.PersonID != person {
+			continue
+		}
+		members, e := s.membersOf(ctx, q, row.network)
+		if e != nil {
+			return false, e
+		}
+		if m, ok := members[peer]; ok && m.PersonID != nil && *m.PersonID == person {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // policyCitationUntil is the policy a send cites, with its valid_until.
 func (s *Store) policyCitationUntil(ctx context.Context, q dbQuerier, peer string) (*PolicyCitation, time.Time, error) {
-	memberships, err := membershipsOf(ctx, q, peer)
+	memberships, err := s.membershipsOf(ctx, q, peer)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -663,7 +688,7 @@ func (s *Store) policyCitationUntil(ctx context.Context, q dbQuerier, peer strin
 			continue
 		}
 		owner = *n.member.PersonID
-		g, err := s.loadGovernance(ctx, q, n.network)
+		g, err := s.loadProductGovernance(ctx, q, n.network)
 		if err != nil {
 			return nil, time.Time{}, err
 		}
@@ -852,7 +877,7 @@ func (s *Store) RenewPolicies(ctx context.Context, logf func(string, ...any)) {
 			return
 		}
 	}
-	own, err := membershipsOf(ctx, s.db, s.identity.ID)
+	own, err := s.membershipsOf(ctx, s.db, s.identity.ID)
 	if err != nil {
 		return
 	}

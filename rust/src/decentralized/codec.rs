@@ -17,18 +17,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Error {
     pub code: &'static str,
     pub required_ids: BTreeSet<String>,
+    pub(crate) stage: Option<&'static str>,
+    pub(crate) retry_after: Option<u64>,
 }
 impl Error {
     pub fn new(code: &'static str) -> Self {
         Self {
             code,
             required_ids: BTreeSet::new(),
+            stage: None,
+            retry_after: None,
         }
     }
     pub fn missing(id: &str) -> Self {
         Self {
             code: "proof_required",
             required_ids: BTreeSet::from([id.into()]),
+            stage: None,
+            retry_after: None,
         }
     }
     pub fn response(&self) -> Value {
@@ -229,7 +235,7 @@ impl<'de> Visitor<'de> for Strict {
         Ok(Value::Object(values))
     }
 }
-pub fn parse(bytes: &[u8], limit: usize) -> Result<Value> {
+fn parse_json(bytes: &[u8], limit: usize) -> Result<Value> {
     require(bytes.len() <= limit, "quota_exceeded")?;
     std::str::from_utf8(bytes).map_err(|_| Error::new("invalid"))?;
     let mut d = serde_json::Deserializer::from_slice(bytes);
@@ -241,6 +247,15 @@ pub fn parse(bytes: &[u8], limit: usize) -> Result<Value> {
         })
     })?;
     d.end().map_err(|_| Error::new("invalid"))?;
+    Ok(value)
+}
+pub fn parse(bytes: &[u8], limit: usize) -> Result<Value> {
+    let value = parse_json(bytes, limit)?;
     object(&value)?;
+    Ok(value)
+}
+pub(crate) fn parse_array(bytes: &[u8], limit: usize) -> Result<Value> {
+    let value = parse_json(bytes, limit)?;
+    check(value.is_array())?;
     Ok(value)
 }

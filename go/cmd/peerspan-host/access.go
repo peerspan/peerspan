@@ -127,9 +127,9 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 			return "", "", nil, errors.New("access sync needs --network")
 		}
 		if status {
-			return "GET", policyPath(network) + "/sync", nil, nil
+			return "GET", decNetworkPath(network) + "/policy-edits", nil, nil
 		}
-		return "POST", policyPath(network) + "/sync", nil, nil
+		return "POST", "/v2/networks/" + url.PathEscape(network) + "/sync", struct{}{}, nil
 	case "show":
 		if network == "" {
 			return "", "", nil, errors.New("access show needs --network")
@@ -160,6 +160,10 @@ func accessRequest(ctx context.Context, client host.Client, args []string, fs *p
 	o, err := loadOwner(ctx, client, network, personKey)
 	if err != nil {
 		return "", "", nil, err
+	}
+	if o.dec != nil && fs.Changed("valid-days") && validDays != 1 {
+		o.close()
+		return "", "", nil, errors.New("DEC policies have a maximum 24-hour lifetime; use --valid-days 1")
 	}
 	if args[1] == "renew" {
 		return "POST", policyPath(network), policyEdit{o: o, run: func(ctx context.Context, client host.Client) (json.RawMessage, error) {
@@ -236,6 +240,15 @@ func (e policyEdit) submit(ctx context.Context, client host.Client, errOut io.Wr
 // same duration. A renewal copies edits; when the edit route folded in this
 // host's unsettled edits, it signs them as an edit, which settles them.
 func renewPolicy(ctx context.Context, client host.Client, o *ownerContext) (json.RawMessage, error) {
+	if o.dec != nil {
+		if err := o.decReapplyBeforeMutation(ctx, client); err != nil {
+			return nil, err
+		}
+		if o.dec.current == nil {
+			return nil, errors.New("no currently active policy to renew; explicitly review a new policy")
+		}
+		return o.decWritePolicy(ctx, client, o.body(), false)
+	}
 	for attempt := 0; ; attempt++ {
 		if o.current == nil {
 			return nil, errors.New("you have no access policy in that network to renew; use access allow")
@@ -455,10 +468,7 @@ func allowOrDeny(ctx context.Context, client host.Client, command, given string,
 	}
 	if command == "deny" {
 		if !changed {
-			var policy any
-			if o.current != nil {
-				policy = o.current
-			}
+			policy := o.policyView()
 			return printJSON(out, map[string]any{"policy": policy, "removed": 0, "note": "no rule of your policy names " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"})
 		}
 		return printJSON(out, map[string]any{"policy": json.RawMessage(data), "removed": removed})

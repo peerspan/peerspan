@@ -119,9 +119,8 @@ impl Failure {
             | "device_revoked"
             | "authority_would_be_invalidated" => StatusCode::FORBIDDEN,
             "not_found" => StatusCode::NOT_FOUND,
-            "operation_conflict" | "state_conflict" | "quota_exceeded" | "proof_required" => {
-                StatusCode::CONFLICT
-            }
+            "operation_conflict" | "state_conflict" | "quota_exceeded" | "proof_required"
+            | "recovery_required" => StatusCode::CONFLICT,
             "expired" | "deleted" => StatusCode::GONE,
             "upgrade_required" => StatusCode::UPGRADE_REQUIRED,
             "rate_limited" => StatusCode::TOO_MANY_REQUESTS,

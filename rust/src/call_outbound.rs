@@ -209,11 +209,11 @@ impl Store {
             let own = self.identity().id;
             let conn = self.connection()?;
             // A member host of a network shared with this one.
-            let member: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM network_members WHERE host_id = ?1 AND host_id != ?2)",
-                params![owner, own],
-                |r| r.get(0),
-            )?;
+            let member = owner != own
+                && self
+                    .product_members_of(&conn, owner)?
+                    .iter()
+                    .any(|(id, _)| network.is_none_or(|n| n == id));
             if !member {
                 return Err(not_found(format!("no member host {owner}"), &[]));
             }
@@ -233,7 +233,9 @@ impl Store {
         let conn = self.connection()?;
         let networks: Vec<String> = match network {
             Some(n) => {
-                self.network_record(&conn, n)?;
+                if !self.product_network_ids(&conn)?.iter().any(|id| id == n) {
+                    return Err(Error::NotFound);
+                }
                 vec![n.to_owned()]
             }
             None => {
@@ -246,17 +248,18 @@ impl Store {
         let mut found = false;
         let mut out = Vec::new();
         for n in &networks {
-            let persons = self.stored_persons(&conn, n)?;
+            let persons = self.product_persons(&conn, n)?;
             let want = match owner {
                 None => None,
-                Some(owner) => match crate::admins::resolve_person(&persons, owner) {
+                Some(owner) => match crate::decentralized::product::resolve_person(&persons, owner)
+                {
                     Ok(p) => Some(p.person_id.clone()),
                     Err(Error::NotFound) => continue,
                     Err(e) => return Err(e),
                 },
             };
             found = true;
-            for m in self.stored_members(&conn, n)? {
+            for m in self.product_members(&conn, n)? {
                 let Some(person) = m.person_id else { continue };
                 if m.host_id == own || want.as_ref().is_some_and(|w| *w != person) {
                     continue;
@@ -300,8 +303,8 @@ impl Store {
             if network.is_some_and(|x| x != n) {
                 continue;
             }
-            for p in self.stored_persons(&conn, &n)? {
-                if let Some(policy) = self.stored_policy(&conn, &n, &p.person_public_key)? {
+            for p in self.product_persons(&conn, &n)? {
+                if let Some(policy) = self.product_policy(&conn, &n, &p.person_public_key)? {
                     out.rules.insert(
                         (p.person_id.clone(), n.clone()),
                         policy
@@ -527,11 +530,11 @@ impl Store {
     /// The end of a stored policy, which caps a default deadline.
     fn policy_end(&self, network: &str, person: &str) -> Result<Option<DateTime<Utc>>, Error> {
         let conn = self.connection()?;
-        let Some(key) = self.person_key(&conn, network, person)? else {
+        let Some(key) = self.product_person_key(&conn, network, person)? else {
             return Ok(None);
         };
         Ok(self
-            .stored_policy(&conn, network, &key)?
+            .product_policy(&conn, network, &key)?
             .and_then(|p| crate::membership::time(&p.valid_until).ok()))
     }
 }
@@ -904,17 +907,20 @@ async fn reachable_agents(
     person: Option<&str>,
     network: Option<&str>,
 ) -> Result<Vec<Value>, Error> {
-    let networks: Vec<String> = blocking(store.clone(), |s| s.networks())
-        .await?
-        .into_iter()
-        .map(|n| n.id)
-        .filter(|n| network.is_none_or(|x| x == n))
-        .collect();
+    let networks: Vec<String> =
+        blocking(store.clone(), |s| s.product_network_ids(&*s.connection()?))
+            .await?
+            .into_iter()
+            .filter(|n| network.is_none_or(|x| x == n))
+            .collect();
     let mut out: Vec<Value> = Vec::new();
     for n in networks {
         let id = n.clone();
         let view = blocking(store.clone(), move |s| s.directory_view(Some(id))).await?;
-        let members = blocking(store.clone(), move |s| s.members(&n)).await?;
+        let members = blocking(store.clone(), move |s| {
+            s.product_members(&*s.connection()?, &n)
+        })
+        .await?;
         let states: BTreeMap<String, String> = view["hosts"]
             .as_array()
             .into_iter()

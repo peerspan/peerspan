@@ -31,6 +31,12 @@ func networkCreateOrJoin(ctx context.Context, client host.Client, command string
 }
 
 func onboard(ctx context.Context, client host.Client, command string, positional []string, fs *pflag.FlagSet, state string, errOut io.Writer, complete func(map[string]any) error) error {
+	if command == "join" {
+		return onboardDecJoin(ctx, client, fs, errOut, complete)
+	}
+	if command == "create" {
+		return onboardDecCreate(ctx, client, positional, fs, errOut, complete)
+	}
 	var create host.CreateNetwork
 	var join host.JoinNetwork
 	var noPerson bool

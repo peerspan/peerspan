@@ -14,11 +14,19 @@ type graph struct {
 	done, busy     map[string]bool
 	activated      map[string]*ParsedActivation
 	migrationHosts map[string]map[string]bool
-	migrationRoots map[string]bool
+	migrationRoots map[string]*SourceState
+	// pendingAdmissions is used only by the local ceremony preparation reader.
+	// It checks the exact administrator's P/H components without admitting them
+	// or pretending that requester final consent already exists.
+	pendingAdmissions map[string]string
+	// Read-only projections preserve per-domain missing-proof diagnostics.
+	// A remembered head remains unavailable until its exact closure is present;
+	// this map never relaxes candidate admission or trusts incomplete aliases.
+	readMissing map[string]error
 }
 
 func newGraph(d Descriptor, c *Catalog) *graph {
-	return &graph{descriptor: d, catalog: c, done: map[string]bool{}, busy: map[string]bool{}, activated: map[string]*ParsedActivation{}, migrationHosts: map[string]map[string]bool{}, migrationRoots: map[string]bool{}}
+	return &graph{descriptor: d, catalog: c, done: map[string]bool{}, busy: map[string]bool{}, activated: map[string]*ParsedActivation{}, migrationHosts: map[string]map[string]bool{}, migrationRoots: map[string]*SourceState{}}
 }
 func (g *graph) get(id string) (*Statement, error) {
 	s := g.catalog.Statements[id]
@@ -44,7 +52,7 @@ func (g *graph) validate(id string) error {
 		// A self-signed migrated root is a typed draft until the complete verified
 		// old-root/all-host migration authenticates this exact origin. Successors
 		// cannot turn that unauthenticated draft into an ordinary root lineage.
-		if len(r.Predecessors) == 0 && r.Migration != "-" && !g.migrationRoots[s.ID] {
+		if len(r.Predecessors) == 0 && r.Migration != "-" && g.migrationRoots[s.ID] == nil {
 			return failure("proof_required", r.Migration)
 		}
 		max := uint64(0)
@@ -99,7 +107,7 @@ func (g *graph) validate(id string) error {
 		if e = g.checkParentRelations(s); e != nil {
 			return e
 		}
-		if s.Lease != nil && s.Lease.Operation != "-" && !identifier(s.Lease.Operation, "ds_") {
+		if s.Lease != nil && s.Lease.Operation != "-" && !identifier(s.Lease.Operation, "ds_") && g.pendingAdmissions[s.ID] != s.Lease.Operation {
 			activation := g.activated[s.Lease.Operation]
 			if activation == nil {
 				return failure("proof_required", s.Lease.Operation)
@@ -141,10 +149,16 @@ func (g *graph) validate(id string) error {
 				return invalid()
 			}
 		}
-		if s.Restriction == nil && len(s.predecessors()) == 0 && s.sequence() != 1 {
-			// A migration-authenticated legacy floor is checked by full migration;
-			// absent that endorsement, an arbitrary initial sequence is not admitted.
-			if root.Root.Migration == "-" {
+		if s.Restriction == nil && len(s.predecessors()) == 0 {
+			// A first migrated access generation follows its exact authenticated
+			// source floor even after an ordinary root transition. A root's marker
+			// alone never supplies the source or relaxes an initial lease stream.
+			floor, inherited := g.inheritedAccessFloor(root, s.stream(), map[string]bool{})
+			if s.Access != nil && inherited {
+				if s.sequence() <= floor {
+					return failure("state_conflict")
+				}
+			} else if s.sequence() != 1 {
 				return invalid()
 			}
 		}
@@ -221,6 +235,36 @@ func (g *graph) validate(id string) error {
 	}
 	g.done[id] = true
 	return nil
+}
+
+// inheritedAccessFloor follows only the already structurally verified root
+// lineage. The source pointers are installed by verified complete migration or
+// its dedicated preparation reader, never by an untrusted root marker or prior
+// maximum. Multiple authenticated carrying branches preserve the highest floor.
+func (g *graph) inheritedAccessFloor(root *Statement, stream []string, seen map[string]bool) (uint64, bool) {
+	if root == nil || root.Root == nil || seen[root.ID] || len(stream) != 2 || stream[0] != "policy" && stream[0] != "group" {
+		return 0, false
+	}
+	seen[root.ID] = true
+	var floor uint64
+	found := false
+	if source := g.migrationRoots[root.ID]; source != nil {
+		for _, maximum := range source.Maxima {
+			if maximum.Kind == stream[0] && maximum.Subject == stream[1] {
+				floor, found = maximum.Version, true
+			}
+		}
+	}
+	for _, id := range root.Root.Predecessors {
+		value, inherited := g.inheritedAccessFloor(g.catalog.Statements[id], stream, seen)
+		if inherited {
+			if !found || value > floor {
+				floor = value
+			}
+			found = true
+		}
+	}
+	return floor, found
 }
 func (s *Statement) LeasePerson() string {
 	if s.Lease != nil {
@@ -435,38 +479,49 @@ func (g *graph) validateAliases() error {
 	sort.Strings(ids)
 	for _, id := range ids {
 		s := g.catalog.Proofs[id]
-		if r := s.Root; r != nil {
-			for _, pred := range r.Predecessors {
-				p, e := g.get(pred)
-				if e != nil {
-					return e
-				}
-				if p.Root == nil {
-					return invalid()
-				}
-				role := "issuer"
-				if len(r.Predecessors) > 1 {
-					role = "root_branch:" + pred
-				}
-				if s.Signer(role) != p.Root.Key {
-					return invalid()
-				}
-			}
-			continue
-		}
-		if s.Lease != nil || s.Access != nil || s.Restriction != nil {
-			if e := g.checkParentRelations(s); e != nil {
+		if e := g.validateAlias(s); e != nil {
+			if g.readMissing == nil || Code(e) != "proof_required" {
 				return e
 			}
+			if g.readMissing[s.ID] == nil {
+				g.readMissing[s.ID] = e
+			}
 		}
-		if s.Kind == "migration_commit" {
-			root, e := g.get(stringField(s.Object, "root_state_id"))
+	}
+	return nil
+}
+func (g *graph) validateAlias(s *Statement) error {
+	if r := s.Root; r != nil {
+		for _, pred := range r.Predecessors {
+			p, e := g.get(pred)
 			if e != nil {
 				return e
 			}
-			if root.Root == nil || s.Signer("issuer") != root.Root.Key {
+			if p.Root == nil {
 				return invalid()
 			}
+			role := "issuer"
+			if len(r.Predecessors) > 1 {
+				role = "root_branch:" + pred
+			}
+			if s.Signer(role) != p.Root.Key {
+				return invalid()
+			}
+		}
+		return nil
+	}
+	if s.Lease != nil || s.Access != nil || s.Restriction != nil {
+		if e := g.checkParentRelations(s); e != nil {
+			return e
+		}
+	}
+	if s.Kind == "migration_commit" {
+		root, e := g.get(stringField(s.Object, "root_state_id"))
+		if e != nil {
+			return e
+		}
+		if root.Root == nil || s.Signer("issuer") != root.Root.Key {
+			return invalid()
 		}
 	}
 	return nil

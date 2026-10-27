@@ -180,43 +180,37 @@ func (s *Store) ReachableAgents(ctx context.Context, caller, network string) ([]
 		return nil, err
 	}
 	defer tx.Rollback()
-	var exists bool
-	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM network_members WHERE network_id = ? AND host_id = ?)", network, s.identity.ID).Scan(&exists); err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, ErrNotFound
-	}
-	member, err := readJSON[NetworkMember](tx.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", network, caller))
-	if errors.Is(err, ErrNotFound) || caller == s.identity.ID {
-		return nil, ErrForbidden
-	}
+	members, err := s.membersOf(ctx, tx, network)
 	if err != nil {
 		return nil, err
+	}
+	if _, ok := members[s.identity.ID]; !ok {
+		return nil, ErrNotFound
+	}
+	member, ok := members[caller]
+	if !ok || caller == s.identity.ID {
+		return nil, ErrForbidden
 	}
 	now := time.Now()
 	_, self, err := s.boundPerson(ctx, tx, s.identity.ID, caller)
 	if err != nil {
 		return nil, err
 	}
-	refused, err := blocked(ctx, tx, caller)
+	refused, err := s.blocked(ctx, tx, caller)
 	if err != nil {
 		return nil, err
 	}
-	var policy *membership.Policy
-	var g governance
-	own, err := readJSON[NetworkMember](tx.QueryRowContext(ctx, "SELECT record FROM network_members WHERE network_id = ? AND host_id = ?", network, s.identity.ID))
-	if err != nil {
-		return nil, err
-	}
+	var policy *productPolicy
+	var g productGovernance
+	own := members[s.identity.ID]
 	if own.PersonID != nil && !refused {
-		if g, err = s.loadGovernance(ctx, tx, network); err != nil {
+		if g, err = s.loadProductGovernance(ctx, tx, network); err != nil {
 			return nil, err
 		}
 		if key, ok := g.personKey(*own.PersonID); ok {
-			if p, ok := g.storedPolicy(key); ok && membership.PolicyActive(p, now) {
+			if p, ok := g.storedPolicy(key); ok && p.active(now) {
 				// Withdrawals of this host's unsettled edits apply at once.
-				if p, err = s.enforcedPolicy(ctx, tx, network, p); err != nil {
+				if p, err = s.enforcedProductPolicy(ctx, tx, g, key, p); err != nil {
 					return nil, err
 				}
 				policy = &p
@@ -261,7 +255,7 @@ func (s *Store) ReachableAgents(ctx context.Context, caller, network string) ([]
 			auths = append(auths, DirectoryAuthorization{Kind: authorizationKindSelf, Actions: []string{membership.PolicyActionMessage, membership.PolicyActionTask, membership.PolicyActionDelegate}, MaxMessageBytes: selfMaxMessageBytes, MaxArtifactBytes: selfMaxArtifactBytes})
 		}
 		if policy != nil {
-			named := membership.NamesAgent(*policy, agent.Name)
+			named := policy.namesAgent(agent.Name)
 			for _, rule := range policy.Rules {
 				if !membership.RuleApplies(rule, agent.Name, named) {
 					continue
@@ -422,7 +416,9 @@ func (s *Store) mapApplied(network string, members []NetworkMember) {
 
 // RunDirectory refreshes every network's directory at startup, every 5
 // minutes, and at once after a change, until ctx is cancelled.
-func (s *Store) RunDirectory(ctx context.Context) {
+func (s *Store) RunDirectory(ctx context.Context)              { s.runDirectory(ctx, false) }
+func (s *Store) RunDecentralizedDirectory(ctx context.Context) { s.runDirectory(ctx, true) }
+func (s *Store) runDirectory(ctx context.Context, onlyDec bool) {
 	d := s.directoryInit()
 	ticker := time.NewTicker(directoryInterval)
 	defer ticker.Stop()
@@ -430,10 +426,10 @@ func (s *Store) RunDirectory(ctx context.Context) {
 	for {
 		var targets []string
 		if all {
-			networks, err := s.Networks(ctx)
+			networks, err := s.networkIDs(ctx, s.db)
 			if err == nil {
 				for _, n := range networks {
-					targets = append(targets, n.ID)
+					targets = append(targets, n)
 				}
 			}
 			d.mu.Lock()
@@ -449,6 +445,12 @@ func (s *Store) RunDirectory(ctx context.Context) {
 		}
 		var refreshes sync.WaitGroup
 		for _, id := range targets {
+			if onlyDec {
+				var mode string
+				if e := s.db.QueryRowContext(ctx, `SELECT COALESCE(json_extract(record,'$.mode'),'') FROM networks WHERE id=?`, id).Scan(&mode); e != nil || mode != "decentralized" {
+					continue
+				}
+			}
 			refreshes.Add(1)
 			go func() {
 				defer refreshes.Done()
@@ -731,9 +733,7 @@ func (s *Store) localAgents(ctx context.Context) ([]localAgent, error) {
 // person label, or the host ID for a host without a person and for a name
 // that more than one agent of the person uses, including this host's.
 func (s *Store) DirectoryOf(ctx context.Context, network string) (Directory, error) {
-	if _, err := s.Network(ctx, network); err != nil {
-		return Directory{}, err
-	}
+
 	members, err := s.NetworkMembers(ctx, network)
 	if err != nil {
 		return Directory{}, err
@@ -809,9 +809,7 @@ func (s *Store) directoryView(network string, members []NetworkMember, locals []
 // RefreshDirectory refreshes a network's directory synchronously, waiting
 // at most 10 seconds, and returns it.
 func (s *Store) RefreshDirectory(ctx context.Context, network string) (Directory, error) {
-	if _, err := s.Network(ctx, network); err != nil {
-		return Directory{}, err
-	}
+
 	if err := s.refreshWithin(ctx, network, ""); err != nil && !errors.Is(err, ErrNotFound) {
 		return Directory{}, err
 	}
@@ -823,7 +821,7 @@ func (s *Store) directoryNetwork(ctx context.Context, given string) (string, err
 	if given != "" {
 		return given, nil
 	}
-	networks, err := s.Networks(ctx)
+	networks, err := s.networkIDs(ctx, s.db)
 	if err != nil {
 		return "", err
 	}
@@ -831,11 +829,11 @@ func (s *Store) directoryNetwork(ctx context.Context, given string) (string, err
 	case 0:
 		return "", fmt.Errorf("%w: not a member of any network", ErrInvalid)
 	case 1:
-		return networks[0].ID, nil
+		return networks[0], nil
 	}
 	names := make([]string, len(networks))
 	for i, n := range networks {
-		names[i] = n.ID + " (" + n.Name + ")"
+		names[i] = n
 	}
 	return "", fmt.Errorf("%w: several networks; give network: %s", ErrInvalid, strings.Join(names, ", "))
 }
@@ -865,7 +863,7 @@ func localDirectoryRoutes(mux *http.ServeMux, store *Store) {
 // nameConflicts is status item 12: names this host's person uses for more
 // than one agent in a network's directory, where this host has one of them.
 func (s *Store) nameConflicts(ctx context.Context, tx *sql.Tx, attend func(kind, subject, detail, command string)) error {
-	own, err := membershipsOf(ctx, tx, s.identity.ID)
+	own, err := s.membershipsOf(ctx, tx, s.identity.ID)
 	if err != nil {
 		return err
 	}
@@ -894,7 +892,7 @@ func (s *Store) nameConflicts(ctx context.Context, tx *sql.Tx, attend func(kind,
 			continue
 		}
 		person := *n.member.PersonID
-		members, err := membersOf(ctx, tx, n.network)
+		members, err := s.membersOf(ctx, tx, n.network)
 		if err != nil {
 			return err
 		}
@@ -935,7 +933,17 @@ func (s *Store) nameConflicts(ctx context.Context, tx *sql.Tx, attend func(kind,
 }
 
 // membersOf maps a network's current members by host ID.
-func membersOf(ctx context.Context, q queryer, network string) (map[string]NetworkMember, error) {
+func (s *Store) membersOf(ctx context.Context, q dbQuerier, network string) (map[string]NetworkMember, error) {
+	g, e := s.loadProductGovernance(ctx, q, network)
+	if e != nil {
+		return nil, e
+	}
+	if g.historyOnly {
+		return map[string]NetworkMember{}, nil
+	}
+	if g.snapshot != nil {
+		return g.members(), nil
+	}
 	rows, err := q.QueryContext(ctx, "SELECT record FROM network_members WHERE network_id = ?", network)
 	if err != nil {
 		return nil, err

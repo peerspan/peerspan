@@ -1,7 +1,7 @@
 //! Guided setup composes the existing owner-local operations. Its result tracks
 //! completed stages so a partial enrollment is never mistaken for a ready agent.
 use crate::{
-    cli::{Command, NetworkCommand, UpArgs},
+    cli::{Command, UpArgs},
     integration, service,
 };
 use anyhow::{Context, bail};
@@ -31,6 +31,15 @@ impl Drop for TerminalMode {
 }
 
 pub(crate) async fn prompt(question: &str, fallback: &str, secret: bool) -> anyhow::Result<String> {
+    prompt_bounded(question, fallback, secret, 16384).await
+}
+pub(crate) async fn prompt_bounded(
+    question: &str,
+    fallback: &str,
+    secret: bool,
+    limit: usize,
+) -> anyhow::Result<String> {
+    anyhow::ensure!((1..=32768).contains(&limit), "invalid setup input limit");
     if !std::io::stdin().is_terminal() {
         bail!("without a terminal, supply the missing setup choices as flags")
     }
@@ -63,6 +72,14 @@ pub(crate) async fn prompt(question: &str, fallback: &str, secret: bool) -> anyh
         if secret {
             let mut quiet = termios;
             quiet.c_lflag &= !libc::ECHO;
+            if limit > 16384 {
+                // A valid public private-code can exceed the kernel's
+                // canonical input-line ceiling. Keep the explicit byte bound
+                // while reading hidden paste/input directly.
+                quiet.c_lflag &= !libc::ICANON;
+                quiet.c_cc[libc::VMIN] = 1;
+                quiet.c_cc[libc::VTIME] = 0;
+            }
             if libc::tcsetattr(0, libc::TCSANOW, &quiet) != 0 {
                 return Err(std::io::Error::last_os_error().into());
             }
@@ -91,8 +108,22 @@ pub(crate) async fn prompt(question: &str, fallback: &str, secret: bool) -> anyh
         if byte == b'\n' {
             break;
         }
+        if secret && limit > 16384 {
+            match byte {
+                8 | 127 => {
+                    line.pop();
+                    continue;
+                }
+                21 => {
+                    line.clear();
+                    continue;
+                }
+                4 => bail!("setup input ended; completed stages were kept"),
+                _ => {}
+            }
+        }
         line.push(byte);
-        if line.len() > 16384 {
+        if line.len() > limit {
             bail!("setup answer is too long")
         }
     }
@@ -114,6 +145,8 @@ pub(crate) async fn prompt(question: &str, fallback: &str, secret: bool) -> anyh
 fn redact(text: &str) -> String {
     let mut text = text.to_owned();
     for prefix in [
+        "psi2-",
+        "psl2-",
         "peerspan-member-invite-v1.",
         "peerspan-invite-v1.",
         "token_",
@@ -181,22 +214,31 @@ impl Setup {
         if args.no_start && !args.harness_args.is_empty() {
             bail!("harness arguments require a launch; omit --no-start")
         }
-        if args.join.is_some() && (args.person.is_some() || args.coordinator.is_some()) {
-            bail!("--as and coordinator flags are for creation; joining uses its invite")
+        if args.coordinator.is_some() || args.coordinator_key.is_some() {
+            bail!("guided setup is coordinator-free; omit coordinator flags");
+        }
+        if args.invitation.explicit() {
+            if args.create.is_some() || args.link {
+                bail!("choose one of create, same-person link or private new-person join");
+            }
+            args.join.get_or_insert_with(|| "-".into());
+        }
+        if args.join.as_deref().is_some_and(|s| s != "-") {
+            bail!(
+                "keep introductions out of argv; use --join with --invite-stdin or --invite-file"
+            );
+        }
+        if args.join.is_some() && args.person.is_some() {
+            bail!("--as is for creation; new-person join uses its reviewed introduction label");
+        }
+        if args.link && (args.person.is_some() || args.person_key.is_some()) {
+            bail!("same-person linking keeps the original key on its original machine");
         }
         if let Some(name) = &args.create {
             membership::label(name)?;
         }
         if let Some(label) = &args.person {
             membership::label(label)?;
-        }
-        if let Some(address) = &args.coordinator {
-            membership::split_host_port(address)?;
-            membership::public_key(
-                args.coordinator_key
-                    .as_deref()
-                    .context("give both coordinator flags")?,
-            )?;
         }
         if args.calls && args.no_calls || args.no_calls && args.max_calls_per_hour.is_some() {
             bail!("invalid capability call flags; see peerspan up --help")
@@ -339,326 +381,27 @@ impl Setup {
             arguments: &args.harness_args,
         })
         .await?;
-        if let Some(token) = &args.join {
-            invite(token, chrono::DateTime::<chrono::Utc>::MIN_UTC)?;
-        }
+        let private_join = if args.join.is_some() {
+            let token = args.invitation.read().await?;
+            peerspan_host::decentralized::Invitation::read_token(
+                &token,
+                &peerspan_host::decentralized::local_decision_time()?,
+            )?;
+            Some(token)
+        } else {
+            None
+        };
         self.done(profile.is_some());
         let (service, reused) = service::ensure_up(&state).await?;
         self.result["service"] = service;
         self.done(reused);
-        let mut networks = get(&state, "/v1/networks")
-            .await?
-            .as_array()
-            .context("invalid network list")?
-            .clone();
-        if networks.len() > 1 {
-            bail!(
-                "guided up supports one network; found {}; use network and attach commands",
-                networks
-                    .iter()
-                    .map(|n| format!("{} ({})", text(&n["name"]), text(&n["id"])))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }
-        if networks.is_empty() && args.create.is_none() && args.join.is_none() {
-            let pending = get(&state, "/v1/link/requests").await?;
-            let requests: Vec<_> = pending
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|r| {
-                    !matches!(
-                        r["state"].as_str(),
-                        Some("linked" | "cancelled" | "expired")
-                    ) && r["mode"] != "approver"
-                })
-                .collect();
-            if requests.len() > 1 {
-                bail!(
-                    "multiple linking requests are pending; use peerspan link status and resume the intended request"
-                );
-            }
-            if let Some(request) = requests.first() {
-                let id = text(&request["request_id"]);
-                self.result["next"] = json!(format!("peerspan link resume {id}"));
-                let value = crate::link_cli::resume(
-                    &state.join("admin.sock"),
-                    id,
-                    args.person_key.as_deref(),
-                    None,
-                    std::io::stdin().is_terminal(),
-                    false,
-                )
-                .await?;
-                if value["state"] != "linked" {
-                    bail!(
-                        "machine linking is incomplete; {}",
-                        text(&self.result["next"])
-                    );
-                }
-                networks = get(&state, "/v1/networks")
-                    .await?
-                    .as_array()
-                    .context("invalid network list")?
-                    .clone();
-            }
-        }
-        if networks.is_empty() && args.create.is_none() && args.join.is_none() {
-            let choice = prompt(
-                "Create a network, link this machine, or join with an invite (create/link/join)",
-                "",
-                false,
-            )
-            .await
-            .context("choose --create NAME or --join TOKEN")?;
-            match choice.as_str() {
-                "create" => args.create = Some(prompt("Network name", "personal", false).await?),
-                "join" => args.join = Some(prompt("Invite (hidden)", "", true).await?),
-                "link" => {
-                    let value = integration::admin(&state, Method::POST, "/v1/link/requests".into(), Some(json!({"mode":"new","network_id":"-","person_public_key":"-","coordinator_address":args.coordinator.as_deref().unwrap_or("-"),"coordinator_public_key":args.coordinator_key.as_deref().unwrap_or("-")}))).await?;
-                    let id = text(&value["request_id"]).to_owned();
-                    self.result["next"] = json!(format!("peerspan link resume {id}"));
-                    let value =
-                        crate::link_cli::guide(&state.join("admin.sock"), value, true).await?;
-                    if value["state"] != "linked" {
-                        bail!(
-                            "machine linking is incomplete; {}",
-                            text(&self.result["next"])
-                        );
-                    }
-                    networks = get(&state, "/v1/networks")
-                        .await?
-                        .as_array()
-                        .context("invalid network list")?
-                        .clone();
-                }
-                _ => bail!("choose create, link or join"),
-            }
-        }
-        let existing = networks.len() == 1;
-        let mut outcome = None;
-        if let Some(n) = networks.first() {
-            if args
-                .create
-                .as_deref()
-                .is_some_and(|v| v != text(&n["name"]))
-                || args.coordinator.as_deref().is_some_and(|v| {
-                    v != text(&n["coordinator_address"])
-                        || args.coordinator_key.as_deref() != n["coordinator_public_key"].as_str()
-                })
-            {
-                bail!(
-                    "creation inputs conflict with the existing network; use explicit network commands"
-                )
-            }
-            if let Some(token) = &args.join
-                && invite(token, chrono::DateTime::<chrono::Utc>::MIN_UTC)?.network_id
-                    != text(&n["id"])
-            {
-                bail!("invite names a different network; use explicit network commands")
-            }
-        } else {
-            let (name, label, address, coordinator_key) = if let Some(token) = &args.join {
-                let invite = invite(token, chrono::Utc::now())?;
-                (
-                    invite.network_name,
-                    invite.member,
-                    invite.coordinator_address,
-                    invite.coordinator_public_key,
-                )
-            } else {
-                let name = args
-                    .create
-                    .clone()
-                    .context("choose --create NAME or --join TOKEN")?;
-                let label = args
-                    .person
-                    .clone()
-                    .or_else(crate::login_name)
-                    .context("cannot determine the login name; give --as LABEL")?;
-                membership::label(&name)?;
-                membership::label(&label)?;
-                let (address, key) = if let Some(address) = &args.coordinator {
-                    (
-                        address.clone(),
-                        args.coordinator_key.clone().unwrap_or_default(),
-                    )
-                } else {
-                    let info = get(&state, "/v1/host").await?;
-                    if info["default_coordinator"].is_null() {
-                        bail!(
-                            "this build has no default coordinator; pass --coordinator and --coordinator-key"
-                        )
-                    }
-                    (
-                        text(&info["default_coordinator"]["address"]).to_owned(),
-                        text(&info["default_coordinator"]["public_key"]).to_owned(),
-                    )
-                };
-                (name, label, address, key)
-            };
-            eprintln!(
-                "Network: {name}; person: {label}; coordinator: {address} (pinned key {coordinator_key})"
-            );
-            let key = crate::choose_key(&args.person_key)?;
-            eprintln!("Person key: {}", key.source);
-            drop(key);
-            eprintln!(
-                "A machine holding your person private key can sign a policy that marks itself trusted."
-            );
-            if args.join.is_some() {
-                eprintln!(
-                    "To join as the same person on another machine, make that person's existing key available through ssh-agent or the documented key-file copy."
-                );
-            }
-            if !args.trusted && !args.untrusted {
-                if std::io::stdin().is_terminal() {
-                    let answer=prompt("Let this machine use your capabilities on other machines, and source tools those hosts allow? (y/N)","no",false).await?;
-                    args.trusted = matches!(answer.to_lowercase().as_str(), "y" | "yes");
-                }
-                args.untrusted = !args.trusted;
-            }
-            let command = if let Some(token) = &args.join {
-                invite(token, chrono::Utc::now())?;
-                Command::Network(NetworkCommand::Join {
-                    token: Some(token.clone()),
-                    descriptor: None,
-                    person_key: args.person_key.clone(),
-                    no_person: false,
-                    trusted: args.trusted,
-                    untrusted: args.untrusted,
-                })
-            } else {
-                Command::Network(NetworkCommand::Create {
-                    name_arg: args.create.clone(),
-                    name: None,
-                    member: args.person.clone(),
-                    coordinator: args.coordinator.clone(),
-                    coordinator_key: args.coordinator_key.clone(),
-                    person_key: args.person_key.clone(),
-                    no_person: false,
-                    trusted: args.trusted,
-                    untrusted: args.untrusted,
-                })
-            };
-            let value = crate::dispatch(command, &state).await?;
-            self.result["network"] = json!({"id":value["id"],"name":value["name"],"coordinator_address":value["coordinator_address"],"coordinator_public_key":value["coordinator_public_key"],"person":value["person"]});
-            if let Some(error) = value["last_sync_error"].as_str() {
-                self.result["next"] =
-                    json!(format!("peerspan network sync {}", text(&value["id"])));
-                bail!("pinned coordinator check failed: {error}")
-            }
-            if value["person"]["admitted"] != true || value["person"]["bound"] != true {
-                self.result["next"] = value["person"]["next"].clone();
-                bail!(
-                    "host joined, but person identity is incomplete; {}",
-                    text(&value["person"]["next"])
-                )
-            }
-            if let Some(next) = value["person"]["next"].as_str() {
-                eprintln!("{}", redact(next))
-            }
-            outcome = Some(value);
-            networks = get(&state, "/v1/networks")
-                .await?
-                .as_array()
-                .context("invalid network list")?
-                .clone();
-        }
-        if networks.len() != 1 {
-            bail!("membership changed during setup; inspect peerspan status before retrying")
-        }
-        let n = &networks[0];
+        let (n, existing) =
+            crate::decentralized_up::network(&state, args, private_join, &mut self.result).await?;
         let network = text(&n["id"]);
-        let mut status = get(&state, "/v1/status").await?;
-        let person = status["networks"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|s| s["id"] == network)
-            .map(|s| s["person"].clone())
-            .unwrap_or(Value::Null);
-        self.result["network"] = json!({"id":n["id"],"name":n["name"],"coordinator_address":n["coordinator_address"],"coordinator_public_key":n["coordinator_public_key"],"person":person});
-        if person.is_null() {
-            self.result["next"] = json!(format!("peerspan network bind --network {network}"));
-            bail!(
-                "this host's person is unbound; use the original person key and {}",
-                text(&self.result["next"])
-            )
-        }
-        let signer_path = format!("/v1/networks/{}/link-signer", crate::cli::encoded(network));
-        let selected = match get(&state, &signer_path).await {
-            Ok(value) => Some(value),
-            Err(e)
-                if e.downcast_ref::<integration::DaemonError>()
-                    .is_some_and(|e| e.status == 404) =>
-            {
-                None
-            }
-            Err(e) => {
-                self.result["next"] = json!(format!("peerspan link --renew --network {network}"));
-                return Err(e)
-                    .context("repair this person's selected device authority before continuing");
-            }
-        };
-        if let Some(selected) = &selected {
-            if persons::person_id_of(text(&selected["person_public_key"]))? != text(&person["id"]) {
-                bail!("selected device authority differs from this host's bound person");
-            }
-        } else {
-            let signer = persons::PersonSigner::open(args.person_key.as_deref())
-                .context("recover the original person key before continuing")?;
-            if persons::person_id(&signer.public_key()) != text(&person["id"]) {
-                bail!(
-                    "selected person key differs from this host's bound person; recover the original key"
-                );
-            }
-        }
-        if args
-            .person
-            .as_deref()
-            .is_some_and(|p| Some(p) != person["label"].as_str())
-        {
-            bail!("--as differs from the existing bound person")
-        }
-        if existing {
-            self.result["next"] = json!(format!("peerspan network sync {network}"));
-            let synced = integration::admin(
-                &state,
-                Method::POST,
-                format!("/v1/networks/{}/sync", crate::cli::encoded(network)),
-                Some(json!({})),
-            )
-            .await
-            .context("pinned coordinator check failed")?;
-            if let Some(error) = synced["last_sync_error"].as_str() {
-                bail!("pinned coordinator check failed: {error}")
-            }
-            self.result["network"]["coordinator_address"] = synced["coordinator_address"].clone();
-            self.result["network"]["coordinator_public_key"] =
-                synced["coordinator_public_key"].clone();
-            status = get(&state, "/v1/status").await?;
-            let current = status["networks"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|n| n["id"] == network && n["person"]["id"] == person["id"]);
-            if current.is_none() {
-                bail!(
-                    "person binding changed during coordination; inspect peerspan status before retrying"
-                )
-            }
-            if selected.is_some() {
-                let fresh = get(&state, &signer_path)
-                    .await
-                    .context("repair selected device authority before continuing")?;
-                if persons::person_id_of(text(&fresh["person_public_key"]))? != text(&person["id"])
-                {
-                    bail!("selected device authority changed to a different person");
-                }
-            }
-        }
+        let person =
+            json!({"id":persons::person_id_of(text(&n["person_public_key"]))?,"label":n["member"]});
+        self.result["network"] = n.clone();
+        let status = get(&state, "/v2/status").await?;
         eprintln!(
             "Network: {} ({network}); person: {}",
             text(&n["name"]),
@@ -669,7 +412,14 @@ impl Setup {
             "peerspan --state {} up",
             quote(&state.to_string_lossy())
         ));
-        if existing && (args.trusted || args.untrusted) {
+        if !existing && !args.trusted && !args.untrusted {
+            if std::io::stdin().is_terminal() {
+                let answer = prompt("Let this machine use your capabilities on other machines, and source tools those hosts allow? (y/N)", "no", false).await?;
+                args.trusted = matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes");
+            }
+            args.untrusted = !args.trusted;
+        }
+        if args.trusted || args.untrusted {
             let command = if args.trusted {
                 Command::Trust {
                     host: None,
@@ -689,12 +439,6 @@ impl Setup {
             ));
             crate::dispatch(command, &state).await?;
         }
-        if let Some(outcome) = &outcome
-            && !outcome["trusted_error"].is_null()
-        {
-            self.result["next"] = json!(format!("peerspan trust --network {network}"));
-            bail!("requested trust failed: {}", outcome["trusted_error"])
-        }
         self.done(existing && !args.trusted && !args.untrusted);
         self.result["next"] = if let Some(p) = &profile {
             json!(format!(
@@ -707,22 +451,6 @@ impl Setup {
                 quote(&state.to_string_lossy())
             ))
         };
-        let policy = match get(
-            &state,
-            &format!("/v1/networks/{}/policy", crate::cli::encoded(network)),
-        )
-        .await
-        {
-            Ok(p) => p,
-            Err(e)
-                if e.downcast_ref::<integration::DaemonError>()
-                    .is_some_and(|e| e.status == 404) =>
-            {
-                Value::Null
-            }
-            Err(e) => return Err(e),
-        };
-        self.result["network"]["access"] = policy;
         self.result["attention"] = status["attention"].clone();
         if !args.calls && !args.no_calls {
             if std::io::stdin().is_terminal() {
@@ -774,44 +502,6 @@ fn quote(value: &str) -> String {
 }
 async fn get(state: &Path, path: &str) -> anyhow::Result<Value> {
     integration::admin(state, Method::GET, path.into(), None).await
-}
-struct InviteMetadata {
-    network_id: String,
-    network_name: String,
-    member: String,
-    coordinator_address: String,
-    coordinator_public_key: String,
-}
-fn invite(token: &str, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<InviteMetadata> {
-    if token
-        .trim()
-        .starts_with(peerspan_host::link_runtime::invite::PREFIX)
-    {
-        let decoded = peerspan_host::link_runtime::invite::decode(
-            token,
-            peerspan_host::link_runtime::support::now()?,
-            "-",
-        )?;
-        return Ok(InviteMetadata {
-            network_id: decoded.network.id,
-            network_name: decoded.network.name,
-            member: decoded.member,
-            coordinator_address: decoded.network.coordinator_address,
-            coordinator_public_key: decoded.network.coordinator_public_key,
-        });
-    }
-    let decoded = if token.starts_with(persons::MEMBER_TOKEN_PREFIX) {
-        persons::MemberInviteToken::decode_at(token, now)?.host()
-    } else {
-        membership::InviteToken::decode_at(token, now)?
-    };
-    Ok(InviteMetadata {
-        network_id: decoded.network_id,
-        network_name: decoded.network_name,
-        member: decoded.member,
-        coordinator_address: decoded.coordinator_address,
-        coordinator_public_key: decoded.coordinator_public_key,
-    })
 }
 fn required_options(harness: &str) -> &'static [(&'static str, &'static str)] {
     match harness {

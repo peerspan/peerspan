@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,12 +16,11 @@ import (
 	"github.com/peerspan/peerspan/go/internal/host"
 	"github.com/peerspan/peerspan/go/internal/integration"
 	"github.com/peerspan/peerspan/go/internal/membership"
-	"github.com/peerspan/peerspan/go/internal/person"
 	"github.com/spf13/pflag"
 	"golang.org/x/sys/unix"
 )
 
-var setupSecret = regexp.MustCompile(`peerspan-(?:member-)?invite-v1\.[A-Za-z0-9_-]+|(?:token|instance)_[0-9a-f]{64}`)
+var setupSecret = regexp.MustCompile(`(?:psl2-|psi2-)[A-Za-z0-9_-]+|peerspan-(?:member-)?invite-v1\.[A-Za-z0-9_-]+|(?:token|instance)_[0-9a-f]{64}`)
 
 type setupStage struct {
 	Stage string `json:"stage"`
@@ -193,10 +191,14 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 			}
 		}
 		create, _ := fs.GetString("create")
-		token, _ := fs.GetString("join")
+		joinRequested, _ := fs.GetBool("join")
+		token := ""
 		trusted, _ := fs.GetBool("trusted")
 		untrusted, _ := fs.GetBool("untrusted")
-		if create != "" && token != "" {
+		if !joinRequested && (fs.Changed("invite-stdin") || fs.Changed("invite-file")) {
+			return errors.New("private invitation inputs require --join")
+		}
+		if create != "" && joinRequested {
 			return errors.New("give only one of --create and --join")
 		}
 		if trusted && untrusted {
@@ -205,22 +207,12 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 		if noStart && len(harnessArgs) > 0 {
 			return errors.New("harness arguments require a launch; omit --no-start")
 		}
-		address, _ := fs.GetString("coordinator")
-		key, _ := fs.GetString("coordinator-key")
-		if (address == "") != (key == "") {
-			return errors.New("give both --coordinator and --coordinator-key")
-		}
-		if address != "" {
-			if !membership.ValidCoordinatorAddress(address) {
-				return errors.New("--coordinator must be HOST:PORT")
-			}
-			if _, err := membership.DecodeKey(key); err != nil {
-				return err
-			}
+		if fs.Changed("coordinator") || fs.Changed("coordinator-key") {
+			return errors.New("new guided setup is coordinator-free; migrate legacy history explicitly")
 		}
 		label, _ := fs.GetString("as")
-		if token != "" && (label != "" || address != "") {
-			return errors.New("--as and coordinator flags are for creation; joining uses its invite")
+		if joinRequested && label != "" {
+			return errors.New("--as is for creation; the private introduction pins its member label")
 		}
 		if create != "" && !membership.ValidLabel(create) {
 			return errors.New("use a valid network name for --create")
@@ -394,8 +386,12 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 		if err := integration.Preflight(ctx, integration.Options{Directory: dir, State: state, Harness: harness, Integrations: root, Runner: runner, ProviderOptions: options, Workspace: workspace, Args: harnessArgs}); err != nil {
 			return err
 		}
-		if token != "" {
-			if _, err := setupInvite(token, time.Time{}); err != nil {
+		if joinRequested {
+			token, err = decInvitationInput(ctx, fs, errOut)
+			if err != nil {
+				return err
+			}
+			if _, err = inspectDecInvitation(token); err != nil {
 				return err
 			}
 		}
@@ -407,325 +403,20 @@ func runUp(ctx context.Context, harness string, harnessArgs []string, fs *pflag.
 		}
 		finish(reused)
 		client := host.Client{SocketPath: filepath.Join(state, "admin.sock")}
-		requests, err := call[[]host.LinkRequestView](ctx, client, "GET", "/v1/link/requests")
-		if err != nil {
-			var failure *host.ClientError
-			if !errors.As(err, &failure) || failure.Status != 404 {
-				return err
-			}
-			requests = nil
-		}
-		identity, err := call[host.Identity](ctx, client, "GET", "/v1/host")
+		n, existing, err := setupDecMembership(ctx, client, create, joinRequested, token, label, personKey(fs), &result, state, errOut)
 		if err != nil {
 			return err
 		}
-		pending := []host.LinkRequestView{}
-		for _, request := range requests {
-			if request.HostID == identity.ID && request.State != "linked" && request.State != "cancelled" && request.State != "expired" {
-				pending = append(pending, request)
-			}
-		}
-		if len(pending) > 0 {
-			result.Network = map[string]any{"link_request": pending[0]}
-			result.Next = "peerspan --state " + setupQuote(state) + " link resume " + pending[0].RequestID
-			if len(pending) != 1 || create != "" || token != "" {
-				return errors.New("an existing machine link requires explicit resume or cancellation before another setup choice")
-			}
-			var resumedView host.LinkRequestView
-			if isTerminal(os.Stdin) {
-				flags := pflag.NewFlagSet("link resume", pflag.ContinueOnError)
-				flags.String("person-key", personKey(fs), "")
-				flags.String("root-key", "", "")
-				if err = runLinkWithCodeDisplay(ctx, client, []string{"link", "resume", pending[0].RequestID}, flags, io.Discard, errOut, false); err != nil {
-					return err
-				}
-				resumedView, err = call[host.LinkRequestView](ctx, client, "GET", "/v1/link/requests/"+url.PathEscape(pending[0].RequestID))
-				if err != nil {
-					return err
-				}
-			} else {
-				resumed, err := linkCall[host.LinkRequestResult](ctx, client, "POST", "/v1/link/requests/"+url.PathEscape(pending[0].RequestID)+"/resume", map[string]any{})
-				if err != nil {
-					return err
-				}
-				resumedView = resumed.LinkRequestView
-			}
-			result.Network = map[string]any{"link_request": resumedView}
-			if resumedView.State != "linked" {
-				return errors.New("the same machine link needs review before agent attachment; resume it without creating a replacement person")
-			}
-		}
-		networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
-		if err != nil {
-			return err
-		}
-		if len(networks) > 1 {
-			names := []string{}
-			for _, n := range networks {
-				names = append(names, n.Name+" ("+n.ID+")")
-			}
-			return fmt.Errorf("guided up supports one network; found %s; use network and attach commands", strings.Join(names, ", "))
-		}
-		if len(networks) == 0 && create == "" && token == "" {
-			choice, err := setupPrompt(ctx, errOut, "Create a network, link this machine, or join with an invite (create/link/join)", "", false)
-			if err != nil {
-				return errors.New("choose --create NAME or --join TOKEN: " + err.Error())
-			}
-			switch choice {
-			case "create":
-				create, err = setupPrompt(ctx, errOut, "Network name", "personal", false)
-			case "join":
-				token, err = setupPrompt(ctx, errOut, "Invite (hidden)", "", true)
-			case "link":
-				coordinator, coordinatorKey := address, key
-				if coordinator == "" {
-					coordinator, coordinatorKey = "-", "-"
-				}
-				created, e := linkCall[host.LinkRequestResult](ctx, client, "POST", "/v1/link/requests", host.CreateLinkRequest{Mode: "new", NetworkID: "-", PersonPublicKey: "-", CoordinatorAddress: coordinator, CoordinatorPublicKey: coordinatorKey})
-				if e != nil {
-					return e
-				}
-				result.Network = map[string]any{"link_request": created.LinkRequestView}
-				result.Next = "peerspan --state " + setupQuote(state) + " link resume " + created.RequestID
-				flags := pflag.NewFlagSet("link resume", pflag.ContinueOnError)
-				flags.String("person-key", personKey(fs), "")
-				flags.String("root-key", "", "")
-				if err = runLinkWithCodeDisplay(ctx, client, []string{"link", "resume", created.RequestID}, flags, io.Discard, errOut, true); err != nil {
-					return err
-				}
-				resumed, e := call[host.LinkRequestView](ctx, client, "GET", "/v1/link/requests/"+url.PathEscape(created.RequestID))
-				if e != nil {
-					return e
-				}
-				result.Network = map[string]any{"link_request": resumed}
-				if resumed.State != "linked" {
-					return errors.New("the same machine link needs review before agent attachment; resume it without creating a replacement person")
-				}
-				networks, err = call[[]host.Network](ctx, client, "GET", "/v1/networks")
-			default:
-				err = errors.New("choose create, link or join")
-			}
-			if err != nil {
-				return err
-			}
-		}
-		var outcome map[string]any
-		existing := len(networks) == 1
-		if existing {
-			n := networks[0]
-			if create != "" && create != n.Name || address != "" && (address != n.CoordinatorAddress || key != n.CoordinatorPublicKey) {
-				return errors.New("creation inputs conflict with the existing network; use explicit network commands")
-			}
-			if token != "" {
-				invite, err := setupInvite(token, time.Time{})
-				if err != nil {
-					return err
-				}
-				if invite.NetworkID != n.ID {
-					return errors.New("invite names a different network; use explicit network commands")
-				}
-			}
-		} else {
-			reviewName, reviewLabel, reviewAddress, reviewKey := create, label, address, key
-			if token != "" {
-				invite, err := setupInvite(token, time.Now())
-				if err != nil {
-					return err
-				}
-				reviewName, reviewLabel, reviewAddress, reviewKey = invite.NetworkName, invite.Member, invite.CoordinatorAddress, invite.CoordinatorPublicKey
-			} else {
-				if reviewLabel == "" {
-					reviewLabel = loginName()
-				}
-				if !membership.ValidLabel(create) || !membership.ValidLabel(reviewLabel) {
-					return errors.New("use a valid network name and person label")
-				}
-				if reviewAddress == "" {
-					info, err := call[host.HostInfo](ctx, client, "GET", "/v1/host")
-					if err != nil {
-						return err
-					}
-					if info.DefaultCoordinator == nil {
-						return errors.New("this build has no default coordinator; pass --coordinator and --coordinator-key")
-					}
-					reviewAddress, reviewKey = info.DefaultCoordinator.Address, info.DefaultCoordinator.PublicKey
-				}
-			}
-			fmt.Fprintf(errOut, "Network: %s; person: %s; coordinator: %s (pinned key %s)\n", reviewName, reviewLabel, reviewAddress, reviewKey)
-			command := "create"
-			if token != "" {
-				command = "join"
-			}
-			f := pflag.NewFlagSet("onboarding", pflag.ContinueOnError)
-			f.String("person-key", personKey(fs), "")
-			f.Bool("no-person", false, "")
-			f.Bool("trusted", trusted, "")
-			f.Bool("untrusted", untrusted, "")
-			f.String("as", label, "")
-			f.String("member", "", "")
-			f.String("name", create, "")
-			f.String("coordinator", address, "")
-			f.String("coordinator-key", key, "")
-			f.String("token", token, "")
-			f.String("descriptor", "", "")
-			choice, err := person.Choose(personKey(fs))
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(errOut, "Network: %s; person key: %s\n", command, choice.Source)
-			choice.Close()
-			fmt.Fprintln(errOut, "A machine holding your person private key can sign a policy that marks itself trusted.")
-			if token != "" {
-				fmt.Fprintln(errOut, "To join as the same person on another machine, make that person's existing key available through ssh-agent or the documented key-file copy.")
-			}
-			if !trusted && !untrusted {
-				if isTerminal(os.Stdin) {
-					answer, err := setupPrompt(ctx, errOut, "Let this machine use your capabilities on other machines, and source tools those hosts allow? (y/N)", "no", false)
-					if err != nil {
-						return err
-					}
-					trusted = answer == "y" || answer == "yes"
-				}
-				untrusted = !trusted
-				_ = f.Set("trusted", fmt.Sprint(trusted))
-				_ = f.Set("untrusted", fmt.Sprint(untrusted))
-			}
-			if err := onboard(ctx, client, command, nil, f, state, errOut, func(v map[string]any) error { outcome = v; return nil }); err != nil {
-				return err
-			}
-			result.Network = map[string]any{"id": outcome["id"], "name": outcome["name"], "coordinator_address": outcome["coordinator_address"], "coordinator_public_key": outcome["coordinator_public_key"], "person": outcome["person"]}
-			if failure, ok := outcome["last_sync_error"].(string); ok && failure != "" {
-				result.Next = "peerspan network sync " + fmt.Sprint(outcome["id"])
-				return fmt.Errorf("pinned coordinator check failed: %s", failure)
-			}
-			p, _ := outcome["person"].(map[string]any)
-			if p["admitted"] != true || p["bound"] != true {
-				result.Next = fmt.Sprint(p["next"])
-				return errors.New("host joined, but person identity is incomplete; " + result.Next)
-			}
-			if next, ok := p["next"].(string); ok && next != "" {
-				fmt.Fprintln(errOut, next)
-			}
-			networks, err = call[[]host.Network](ctx, client, "GET", "/v1/networks")
-			if err != nil {
-				return err
-			}
-		}
-		if len(networks) != 1 {
-			return errors.New("membership changed during setup; inspect peerspan status before retrying")
-		}
-		n := networks[0]
-		status, _, err := readHostPersons(ctx, client)
-		if err != nil {
-			return err
-		}
-		var bound *host.StatusPerson
-		for _, entry := range status.Networks {
-			if entry.ID == n.ID {
-				bound = entry.Person
-			}
-		}
-		result.Network = map[string]any{"id": n.ID, "name": n.Name, "coordinator_address": n.CoordinatorAddress, "coordinator_public_key": n.CoordinatorPublicKey, "person": bound}
-		if bound == nil {
-			result.Next = "peerspan network bind --network " + n.ID
-			return errors.New("this host's person is unbound; use the original person key and " + result.Next)
-		}
-		id := ""
-		if personKey(fs) == "" {
-			selected, selectErr := call[host.LinkSignerView](ctx, client, "GET", "/v1/networks/"+url.PathEscape(n.ID)+"/link-signer")
-			if selectErr == nil {
-				public, decodeErr := membership.DecodeKey(selected.PersonPublicKey)
-				if decodeErr != nil {
-					return errors.New("the selected device's stable person requires repair")
-				}
-				id = membership.PersonID(public)
-			} else {
-				var failure *host.ClientError
-				if !errors.As(selectErr, &failure) || failure.Status != 404 {
-					return fmt.Errorf("repair this same person's selected device before continuing: %w", selectErr)
-				}
-			}
-		}
-		if id == "" {
-			signer, err := person.Load(personKey(fs))
-			if err != nil {
-				return fmt.Errorf("recover the original person key before continuing: %w", err)
-			}
-			id = membership.PersonID(signer.PublicKey())
-			signer.Close()
-		}
-		if id != bound.ID {
-			return errors.New("selected person key differs from this host's bound person; recover the original key")
-		}
-		if label != "" && (bound.Label == nil || *bound.Label != label) {
-			return errors.New("--as differs from the existing bound person")
-		}
-		if existing {
-			result.Next = "peerspan network sync " + n.ID
-			synced, err := call[host.Network](ctx, client, "POST", "/v1/networks/"+url.PathEscape(n.ID)+"/sync")
-			if err != nil {
-				return fmt.Errorf("pinned coordinator check failed: %w", err)
-			}
-			if synced.LastSyncError != nil {
-				return fmt.Errorf("pinned coordinator check failed: %s", *synced.LastSyncError)
-			}
-			result.Network.(map[string]any)["coordinator_address"] = synced.CoordinatorAddress
-			result.Network.(map[string]any)["coordinator_public_key"] = synced.CoordinatorPublicKey
-			status, _, err = readHostPersons(ctx, client)
-			if err != nil {
-				return err
-			}
-			current := false
-			for _, entry := range status.Networks {
-				if entry.ID == n.ID && entry.Person != nil && entry.Person.ID == id {
-					current = true
-					bound = entry.Person
-				}
-			}
-			if !current {
-				return errors.New("person binding changed during coordination; inspect peerspan status before retrying")
-			}
-			result.Network.(map[string]any)["person"] = bound
-		}
-		fmt.Fprintf(errOut, "Network: %s (%s); person: %s\n", n.Name, n.ID, bound.ID)
 		finish(existing)
 		result.Next = "peerspan --state " + setupQuote(state) + " up"
-		_ = fs.Set("trusted", fmt.Sprint(trusted))
-		_ = fs.Set("untrusted", fmt.Sprint(untrusted))
-		if existing && (trusted || untrusted) {
-			f := pflag.NewFlagSet("trust", pflag.ContinueOnError)
-			f.String("network", n.ID, "")
-			f.String("person-key", personKey(fs), "")
-			command := "trust"
-			if untrusted {
-				command = "untrust"
-			}
-			if err := runTrust(ctx, client, command, nil, f, io.Discard); err != nil {
-				result.Next = "peerspan " + command + " --network " + n.ID
-				return err
-			}
-		}
-		if outcome != nil && outcome["trusted_error"] != nil {
+		if err = setupDecTrust(ctx, client, n, existing, trusted, untrusted, personKey(fs), errOut); err != nil {
 			result.Next = "peerspan trust --network " + n.ID
-			return fmt.Errorf("requested trust failed: %v", outcome["trusted_error"])
+			return err
 		}
 		finish(existing && !trusted && !untrusted)
 		result.Next = "peerspan --state " + setupQuote(state) + " up"
 		if profile != nil {
 			result.Next = "peerspan session doctor --directory " + setupQuote(profile.Directory)
-		}
-		policy, err := call[json.RawMessage](ctx, client, "GET", "/v1/networks/"+url.PathEscape(n.ID)+"/policy")
-		if err == nil {
-			result.Network.(map[string]any)["access"] = policy
-		} else {
-			var e *host.ClientError
-			if !errors.As(err, &e) || e.Status != 404 {
-				return err
-			}
-			result.Network.(map[string]any)["access"] = nil
-		}
-		for _, item := range status.Attention {
-			result.Attention = append(result.Attention, item)
 		}
 		if !calls && !noCalls {
 			if isTerminal(os.Stdin) {

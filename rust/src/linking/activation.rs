@@ -21,6 +21,7 @@ mod records;
 pub use records::{CatalogFactContext, CatalogFacts, verify_catalog_facts};
 #[path = "policy.rs"]
 mod policy;
+pub(crate) use policy::verify_stored_migration_access;
 pub use policy::{
     AccessContext, AccessHighWater, AccessSelection, AccessState, GroupAccess, GroupHighWater,
     PolicyAccess, PolicyHighWater, verify_access_state,
@@ -37,6 +38,7 @@ mod roots;
 mod runtime_network;
 #[path = "stored.rs"]
 mod stored;
+pub(crate) use runtime_network::verify_stored_migration_source;
 pub use runtime_network::{MemberProof, NetworkState, verify_stored_network_state};
 #[path = "runtime_feature.rs"]
 mod runtime_feature;

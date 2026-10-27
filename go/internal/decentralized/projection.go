@@ -25,16 +25,18 @@ type StreamView struct {
 	RequiredIDs []string `json:"required_ids"`
 }
 type Projection struct {
-	OK           bool         `json:"ok"`
-	ContextID    string       `json:"context_id"`
-	DecisionTime string       `json:"decision_time"`
-	Root         RootView     `json:"root"`
-	Streams      []StreamView `json:"streams"`
-	Restrictions []string     `json:"restrictions"`
-	Inert        []string     `json:"inert_statement_ids"`
-	NextPrior    any          `json:"next_prior"`
-	authority    *authority
-	prior        *Prior
+	OK              bool         `json:"ok"`
+	ContextID       string       `json:"context_id"`
+	DecisionTime    string       `json:"decision_time"`
+	Root            RootView     `json:"root"`
+	Streams         []StreamView `json:"streams"`
+	Restrictions    []string     `json:"restrictions"`
+	Inert           []string     `json:"inert_statement_ids"`
+	NextPrior       any          `json:"next_prior"`
+	authority       *authority
+	prior           *Prior
+	admissions      map[string]AdmissionBasis
+	activationBases map[string]AdmissionBasis
 }
 
 func setOf(ids []string) map[string]bool {
@@ -63,10 +65,14 @@ func emptyCatalog(d Descriptor) *Catalog {
 // tests use the frozen prior issuer set; newly supplied grants never form an
 // intra-batch issuer-authority fixed point.
 func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string) (*Projection, error) {
+	return project(d, priorRaw, candidateRaw, now, operation, nil)
+}
+
+func project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string, pending *ceremonyProjectionScope) (*Projection, error) {
 	if operation != "read" && operation != "fresh" && operation != "repair" {
 		return nil, invalid()
 	}
-	prior, e := readPrior(d, priorRaw)
+	prior, e := readPriorMode(d, priorRaw, operation == "read")
 	if e != nil {
 		return nil, e
 	}
@@ -97,7 +103,28 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 			return nil, e
 		}
 	}
+	if pending != nil {
+		// These exact packet-nested drafts are private reference material only.
+		// Their original public containers/DPs are not fabricated or inserted.
+		view := *c
+		view.Statements = map[string]*Statement{}
+		for id, s := range c.Statements {
+			view.Statements[id] = s
+		}
+		for id, s := range pending.statements {
+			if view.Statements[id] == nil {
+				view.Statements[id] = s
+			}
+		}
+		c = &view
+	}
 	g := newGraph(d, c)
+	if operation == "read" {
+		g.readMissing = map[string]error{}
+	}
+	if pending != nil {
+		g.pendingAdmissions = pending.markers
+	}
 	origins := map[string]*migrationValidation{}
 	originKeys := map[string]bool{}
 	for _, m := range c.Migrations {
@@ -108,7 +135,7 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 		// Same proposal with two independently valid prepared sets is still
 		// competing complete origin evidence, never a last-map-entry winner.
 		origins[m.Proposal.ID+"/"+digest(m.PreparedCatalog)] = origin
-		g.migrationRoots[origin.root.ID] = true
+		g.migrationRoots[origin.root.ID] = origin.state
 		if g.migrationHosts[m.Proposal.ID] == nil {
 			g.migrationHosts[m.Proposal.ID] = map[string]bool{}
 		}
@@ -128,7 +155,10 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 	sort.Strings(statementIDs)
 	for _, id := range statementIDs {
 		if e = g.validate(id); e != nil {
-			return nil, e
+			if operation != "read" || Code(e) != "proof_required" {
+				return nil, e
+			}
+			g.readMissing[id] = e
 		}
 	}
 	if e = g.validateAliases(); e != nil {
@@ -141,6 +171,11 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 		activations = setOf(prior.AdmittedActivations)
 	}
 	oldIssuerIDs := copySet(admitted)
+	bases := map[string]AdmissionBasis{}
+	activationBases := map[string]AdmissionBasis{}
+	note := func(id, kind string, extra ...string) {
+		bases[id] = statementBasis(g, c.Statements[id], kind, extra...)
+	}
 	// Root transitions have their own all-branch signatures and structural
 	// equivocation rule; retired roots cannot use this exception for ordinary work.
 	if operation != "read" {
@@ -168,6 +203,12 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 					continue
 				}
 				admitted[id] = true
+				if s.Root.Migration != "-" {
+					origin := matchingMigrationOrigin(origins, s)
+					note(id, "migration", s.Root.Migration, ProofID("migration", origin.migration.Raw))
+				} else {
+					note(id, "current")
+				}
 				changed = true
 			}
 		}
@@ -214,6 +255,7 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 				continue
 			}
 			admitted[id] = true
+			note(id, "current")
 		}
 		a.heads = headsFor(g, admitted)
 		preserveHeads(a, prior)
@@ -227,6 +269,7 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 			for id, s := range origin.prepared.Statements {
 				if s.Restriction != nil {
 					newRestrictions[id] = true
+					note(id, "migration", origin.migration.Proposal.ID, ProofID("migration", origin.migration.Raw))
 				}
 			}
 		}
@@ -245,8 +288,10 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 				continue
 			}
 			newRestrictions[id] = true
+			note(id, "current")
 			if s.Restriction.Ratifies != "-" {
 				newRestrictions[s.Restriction.Ratifies] = true
+				note(s.Restriction.Ratifies, "ratification", id)
 			}
 		}
 		restrictions = newRestrictions
@@ -293,6 +338,7 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 				continue
 			}
 			admitted[id] = true
+			note(id, "current")
 		}
 		a.heads = headsFor(g, admitted)
 		preserveHeads(a, prior)
@@ -306,6 +352,9 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 			}
 			for _, id := range grants {
 				admitted[id] = true
+				if !oldIssuerIDs[id] {
+					note(id, "migration", origin.migration.Proposal.ID, ProofID("migration", origin.migration.Raw))
+				}
 			}
 		}
 		preserveHeads(a, prior)
@@ -315,11 +364,18 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 		}
 		for _, grant := range grants {
 			admitted[grant] = true
+			note(grant, "current")
 		}
-		for id := range c.Activations {
+		for id, activation := range c.Activations {
 			// This records exact complete consent only; each selected statement
 			// above independently proves its current authority before admission.
 			activations[id] = true
+			activationBases[id] = AdmissionBasis{Kind: "current", Evidence: []string{activation.ManifestID}}
+			for _, origin := range origins {
+				if origin.prepared.Activations[id] != nil {
+					activationBases[id] = AdmissionBasis{Kind: "migration", Evidence: []string{origin.migration.Proposal.ID, ProofID("migration", origin.migration.Raw)}}
+				}
+			}
 		}
 		a.heads = headsFor(g, admitted)
 		preserveHeads(a, prior)
@@ -344,6 +400,9 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 			}
 			for _, id := range closure {
 				retained[id] = true
+				if !admitted[id] {
+					note(id, "retention", closure...)
+				}
 			}
 		}
 		for id := range retained {
@@ -358,7 +417,21 @@ func Project(d Descriptor, priorRaw, candidateRaw []byte, now, operation string)
 		a.heads = headsFor(g, admitted)
 		preserveHeads(a, prior)
 	}
-	projection := &Projection{OK: true, ContextID: d.ContextID, DecisionTime: decision, Streams: []StreamView{}, Restrictions: keysSorted(restrictions), Inert: []string{}, authority: a, prior: prior}
+	if pending != nil {
+		// The same fixed requester commit can already be durable while its
+		// ciphertext/application phase is still pending. Its complete public
+		// activation is checked structurally above, but cannot turn these exact
+		// not-previously-admitted drafts into fresh heads in a preparation view.
+		// Otherwise rechecking the fixed prefix would reject its own successor
+		// as a competing next write. Trusted historical admissions never enter
+		// pending.markers and remain governed by their original prior metadata.
+		for id := range pending.markers {
+			delete(admitted, id)
+			delete(bases, id)
+		}
+		preserveHeads(a, prior)
+	}
+	projection := &Projection{OK: true, ContextID: d.ContextID, DecisionTime: decision, Streams: []StreamView{}, Restrictions: keysSorted(restrictions), Inert: []string{}, authority: a, prior: prior, admissions: bases, activationBases: activationBases}
 	maxima := buildMaxima(g, admitted, prior)
 	if operation != "read" {
 		maxima = migrationFloors(maxima, origins, at)

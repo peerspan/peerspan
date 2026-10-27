@@ -291,6 +291,23 @@ pub(super) fn verify_access_state_budget(
     catalog: &[u8],
     stored: bool,
 ) -> Result<AccessState> {
+    verify_access_inner(ctx, catalog, stored, false)
+}
+/// Source inspection may read an actual pre-feature network, without creating
+/// a feature, device activation or ordinary writer authority.
+pub(crate) fn verify_stored_migration_access(
+    ctx: AccessContext<'_>,
+    catalog: &[u8],
+) -> Result<AccessState> {
+    let pre_feature = ctx.known_feature_id == "-";
+    verify_access_inner(ctx, catalog, true, pre_feature)
+}
+fn verify_access_inner(
+    ctx: AccessContext<'_>,
+    catalog: &[u8],
+    stored: bool,
+    pre_feature: bool,
+) -> Result<AccessState> {
     let run = || -> Result<AccessState> {
         check(
             verification_budget(stored, ctx.network.len(), catalog.len(), 0)
@@ -321,8 +338,18 @@ pub(super) fn verify_access_state_budget(
         }
         let mut v = Verifier::new(ctx.network, ctx.epoch, ctx.known_feature_id, ctx.now)?;
         v.stored_snapshot = stored;
-        check(ctx.known_feature_id != "-", "upgrade_required")?;
+        check(
+            ctx.known_feature_id != "-" || pre_feature,
+            "upgrade_required",
+        )?;
         v.catalog(catalog)?;
+        if pre_feature {
+            check(
+                !v.proofs.values().any(|p| p.kind == "feature"),
+                "state_conflict",
+            )?;
+            v.feature_preparation = true;
+        }
         v.bootstrap(true)?;
         v.revocations()?;
         let proofs: Vec<_> = v

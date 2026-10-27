@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	dec "github.com/peerspan/peerspan/go/internal/decentralized"
 	"github.com/peerspan/peerspan/go/internal/linking"
 	"github.com/peerspan/peerspan/go/internal/membership"
 	"io"
@@ -19,6 +20,7 @@ import (
 func Handler(store *Store) http.Handler {
 	mux := http.NewServeMux()
 	localLinkRoutes(mux, store)
+	localDecRoutes(mux, store)
 	mux.HandleFunc("GET /v1/host", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusOK, store.Info(), nil)
 	})
@@ -96,7 +98,7 @@ func Handler(store *Store) http.Handler {
 	localCapabilityRoutes(mux, store)
 	localCallRoutes(mux, store)
 	localApprovalRoutes(mux, store)
-	return store.presenceTouching(mux)
+	return store.decHistoryRoutes(store.presenceTouching(mux))
 }
 
 // decode reads a strict JSON object of the allowed fields, without nulls;
@@ -144,6 +146,13 @@ func decode(w http.ResponseWriter, r *http.Request, dst any, allowed ...string) 
 }
 
 func respond(w http.ResponseWriter, status int, value any, err error) {
+	var decError *dec.Failure
+	if errors.As(err, &decError) {
+		// Resource APIs retain their existing success shapes while a DEC
+		// authority/claim failure keeps its actual structured refusal and IDs.
+		respondDec(w, status, value, err, "-", "-", "-", "request")
+		return
+	}
 	var linkError *linkFailure
 	var pathError *linking.PathError
 	var invalidation *linking.ActionInvalidation

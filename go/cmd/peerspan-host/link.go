@@ -44,24 +44,44 @@ func configureLinkFlags(cmd *cobra.Command, args []string) {
 		fs.String("expect-person", "", "expected original person public key")
 		fs.String("coordinator", "", "pinned coordinator HOST:PORT")
 		fs.String("coordinator-key", "", "pinned coordinator public key")
+		_ = fs.MarkHidden("coordinator")
+		_ = fs.MarkHidden("coordinator-key")
 	case "approve", "admit":
+		if command == "approve" {
+			fs.Uint64("scopes", 15, "reviewed device powers, capped by the current owner path")
+			fs.String("not-after", "", "fixed authority expiry in UTC")
+		} else {
+			fs.String("owner-offer", "", "exact selected owner offer ID")
+			fs.String("selection", "", "exact requester selection ID")
+		}
 		fs.String("network", "", "network ID")
-		fs.String("person", "", "reviewed selected owner's person ID")
+		fs.String("person", "", "reviewed original person public key")
 		fs.String("expect-host-key", "", "reviewed host public key")
 		fs.String("expect-device-key", "", "reviewed device public key")
-		fs.String("signer", "auto", "auto, person_root, network_root or exact device certificate ID")
+		defaultSigner := "auto"
+		if command == "admit" {
+			defaultSigner = "network_root"
+		}
+		fs.String("signer", defaultSigner, "network_root explicitly selects root; auto uses only the selected original/device administrator; or an exact original public key/device lease ID")
 		fs.Bool("code-stdin", false, "read the private code from stdin")
+		fs.String("code-file", "", "read the private code from a protected file")
 		fs.Bool("approve", false, "approve the exact reviewed person and host/device keys")
 		fs.String("person-key", "", "original person SSH key")
 		fs.String("root-key", "", "original network root SSH key")
-	case "select", "commit":
+	case "select", "commit", "finalize":
+		fs.String("context", "", "exact reviewed context ID")
 		fs.String("owner-offer", "", "exact reviewed owner offer ID")
 		fs.String("network", "", "reviewed network ID")
 		fs.String("expect-person", "", "reviewed original person public key")
 		fs.String("expect-host-key", "", "reviewed host public key")
 		fs.String("expect-device-key", "", "reviewed device public key")
 		fs.Bool("approve", false, "consent to every exact reviewed reference")
-		if command == "commit" {
+		if command == "commit" || command == "finalize" {
+			if command == "commit" {
+				fs.String("owner-finalization", "", "exact reviewed owner finalization ID")
+			}
+			fs.String("person-key", "", "same explicitly reviewed original person key")
+			fs.String("root-key", "", "same explicitly reviewed root key")
 			fs.String("selection", "", "exact reviewed selection ID")
 			fs.String("administrator-offer", "", "exact reviewed administrator offer ID, or - for renew")
 		}
@@ -79,6 +99,16 @@ func linkFlag(fs *pflag.FlagSet, name string) string {
 }
 func linkCodeInput(fs *pflag.FlagSet, errOut io.Writer) (string, error) {
 	fromStdin, _ := fs.GetBool("code-stdin")
+	path, _ := fs.GetString("code-file")
+	if path != "" {
+		if fromStdin {
+			return "", errors.New("give only one private code input")
+		}
+		f := pflag.NewFlagSet("code", pflag.ContinueOnError)
+		f.Bool("invite-stdin", false, "")
+		f.String("invite-file", path, "")
+		return decInvitationInput(context.Background(), f, errOut)
+	}
 	if fromStdin {
 		return readLine(), nil
 	}
@@ -199,7 +229,7 @@ func runLink(ctx context.Context, client host.Client, args []string, fs *pflag.F
 	return runLinkWithCodeDisplay(ctx, client, args, fs, out, errOut, true)
 }
 
-func runLinkWithCodeDisplay(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet, out, errOut io.Writer, displayCode bool) error {
+func runLegacyLinkWithCodeDisplay(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet, out, errOut io.Writer, displayCode bool) error {
 	command := "link"
 	if len(args) > 1 {
 		command = args[1]

@@ -2060,8 +2060,8 @@ def check_migration(original, replacement, label, baseline=None):
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     # Version 22 (remote MCP servers and OAuth) tables too, when the binaries have them.
-                    from host_service import OAUTH_TABLES
-                    for table in OAUTH_TABLES:
+                    from host_service import DEC_TABLES, OAUTH_TABLES
+                    for table in (*DEC_TABLES, *OAUTH_TABLES):
                         connection.execute(f'DROP TABLE IF EXISTS {table}')
                     connection.execute('DROP TABLE builtin_sources')
                     connection.execute('PRAGMA user_version = 20')

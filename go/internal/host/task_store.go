@@ -528,7 +528,7 @@ func (s *Store) NextTask(ctx context.Context, auth AdapterAuth) (*TaskHandoff, e
 			return nil, err
 		}
 		result = &TaskHandoff{Delivery: d, Task: p.request, Status: p.status}
-		if result.SenderPersonID, result.SenderPerson, err = senderPerson(ctx, tx, p.sender); err != nil {
+		if result.SenderPersonID, result.SenderPerson, err = s.senderPerson(ctx, tx, p.sender); err != nil {
 			return nil, err
 		}
 		if check.chain != nil {
@@ -597,7 +597,7 @@ func (s *Store) claimReturnedTask(ctx context.Context, tx *sql.Tx, a Adapter, ss
 			if h.Progress, err = latestProgress(ctx, tx, d.SenderHostID, d.TaskID); err != nil {
 				return nil, err
 			}
-			if h.OriginatorPersonID, err = chainOriginatorPerson(ctx, tx, p.request); err != nil {
+			if h.OriginatorPersonID, err = s.chainOriginatorPerson(ctx, tx, p.request); err != nil {
 				return nil, err
 			}
 		} else {
@@ -628,7 +628,7 @@ func (s *Store) claimReturnedTask(ctx context.Context, tx *sql.Tx, a Adapter, ss
 			}
 		}
 		h.Delivery = d
-		if h.SenderPersonID, h.SenderPerson, err = senderPerson(ctx, tx, d.SenderHostID); err != nil {
+		if h.SenderPersonID, h.SenderPerson, err = s.senderPerson(ctx, tx, d.SenderHostID); err != nil {
 			return nil, err
 		}
 		return h, nil

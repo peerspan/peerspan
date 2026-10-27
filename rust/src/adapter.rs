@@ -218,18 +218,16 @@ fn owned(conn: &Connection, token: &AdapterAuth, id: &str) -> Result<Delivery, E
     Ok(d)
 }
 /// The person a host is bound to, and its label, in the first network by ID
-/// that binds it; both are `None` for an unbound host.
+/// that binds it; both are `None` for an unbound host. It reads current
+/// verified members on the caller's connection or transaction, so a
+/// coordinator-free network contributes its verified binding and a retained
+/// legacy history contributes none.
 pub(crate) fn sender_person(
+    store: &Store,
     conn: &Connection,
     host: &str,
 ) -> Result<(Option<String>, Option<String>), Error> {
-    let mut stmt =
-        conn.prepare("SELECT record FROM network_members WHERE host_id = ?1 ORDER BY network_id")?;
-    let records = stmt
-        .query_map([host], |r| r.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    for record in records {
-        let member: crate::network::Member = serde_json::from_str(&record)?;
+    for (_, member) in store.product_members_of(conn, host)? {
         if member.person_id.is_some() {
             return Ok((member.person_id, member.person_member));
         }
@@ -498,7 +496,8 @@ impl Store {
                 &d.created_at,
             )?;
             if state == "unknown" {
-                let (sender_person_id, sender_person) = sender_person(&tx, &d.sender_host_id)?;
+                let (sender_person_id, sender_person) =
+                    sender_person(self, &tx, &d.sender_host_id)?;
                 handoff = Some(Handoff {
                     delivery: d,
                     request,
@@ -562,7 +561,7 @@ impl Store {
                 params![serde_json::to_string(&d)?, d.session_id, d.id],
             )?;
             append_event(tx, "message.handoff", &d.id, &at)?;
-            let (sender_person_id, sender_person) = sender_person(tx, &d.sender_host_id)?;
+            let (sender_person_id, sender_person) = sender_person(self, tx, &d.sender_host_id)?;
             return Ok(Some(Handoff {
                 delivery: d,
                 request,
@@ -1080,7 +1079,7 @@ mod tests {
             })
             .to_string()
         };
-        assert_eq!(sender_person(&conn, &host).unwrap(), (None, None));
+        assert_eq!(sender_person(&store, &conn, &host).unwrap(), (None, None));
         let person = format!("person_{}", "b".repeat(64));
         for (network, record) in [
             ("network_1", member(None, None)),
@@ -1092,9 +1091,21 @@ mod tests {
                 params![network, host, record],
             )
             .unwrap();
+            // Bindings are read from networks this host currently belongs to.
+            let own = store.identity().id;
+            let own_record = serde_json::json!({
+                "host_id": own, "public_key": "", "member": "self", "address": "",
+                "updated_at": "",
+            })
+            .to_string();
+            conn.execute(
+                "INSERT INTO network_members VALUES (?1, ?2, ?3)",
+                params![network, own, own_record],
+            )
+            .unwrap();
         }
         assert_eq!(
-            sender_person(&conn, &host).unwrap(),
+            sender_person(&store, &conn, &host).unwrap(),
             (Some(person), Some("pat".into()))
         );
     }

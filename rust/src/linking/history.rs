@@ -10,6 +10,7 @@ struct Withdrawal {
 }
 #[derive(Default)]
 pub(super) struct HistoryFacts {
+    pub(super) restriction_proofs: BTreeSet<String>,
     delegated: BTreeSet<String>,
     withdrawals: BTreeMap<String, Withdrawal>,
     pub(super) persons: BTreeSet<String>,
@@ -81,6 +82,9 @@ impl Verifier<'_> {
                 }
             }
             self.apply_ordinary_restriction(&g, kind);
+            self.history
+                .restriction_proofs
+                .insert(proof_id(&p.kind, &p.body));
         }
         Ok(())
     }
@@ -198,6 +202,9 @@ impl Verifier<'_> {
                     v2,
                 },
             );
+            self.history
+                .restriction_proofs
+                .insert(proof_id(&p.kind, &p.body));
             self.admins.remove(&person);
         }
         Ok(())
@@ -261,6 +268,9 @@ impl Verifier<'_> {
                         s(o, "person_public_key").into(),
                         s(o, "host_public_key").into(),
                     ));
+                    self.history
+                        .restriction_proofs
+                        .insert(proof_id(&p.kind, &p.body));
                     continue;
                 }
                 _ => continue,
@@ -282,6 +292,9 @@ impl Verifier<'_> {
             if !valid {
                 continue;
             }
+            self.history
+                .restriction_proofs
+                .insert(proof_id(&p.kind, &p.body));
             match p.kind.as_str() {
                 "person_removal" => {
                     self.history.persons.insert(s(o, subject).into());
@@ -967,6 +980,9 @@ impl Verifier<'_> {
                     person_public_key: person.into(),
                     device_public_key: target.device,
                 });
+                self.history
+                    .restriction_proofs
+                    .insert(proof_id(&p.kind, &p.body));
             }
         }
         self.settle_history()

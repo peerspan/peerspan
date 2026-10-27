@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -51,12 +52,16 @@ func (c Client) Call(ctx context.Context, method, path string, body any) (json.R
 		return nil, fmt.Errorf("connect to local host service: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
+	limit := 16 << 20
+	if strings.HasPrefix(path, "/v2/") {
+		limit = 32 << 20
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > 16<<20 {
-		return nil, fmt.Errorf("host response exceeds 16 MiB")
+	if len(data) > limit {
+		return nil, fmt.Errorf("host response exceeds %d MiB", limit>>20)
 	}
 	if resp.StatusCode >= 400 {
 		var failure struct {

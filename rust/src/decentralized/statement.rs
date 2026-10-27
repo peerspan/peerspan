@@ -72,16 +72,51 @@ impl Statement {
         bytes: &[u8],
         binding_draft: bool,
     ) -> Result<Self> {
+        Self::read_mode(descriptor, bytes, binding_draft, false)
+    }
+    pub(crate) fn read_template(descriptor: &Descriptor, bytes: &[u8]) -> Result<Self> {
+        Self::read_mode(descriptor, bytes, false, true)
+    }
+    fn read_mode(
+        descriptor: &Descriptor,
+        bytes: &[u8],
+        binding_draft: bool,
+        template: bool,
+    ) -> Result<Self> {
+        Self::read_pinned(
+            Some(descriptor),
+            &descriptor.context_id(),
+            bytes,
+            binding_draft,
+            template,
+        )
+    }
+    // Context-only inspection is confined to fixed link-ceremony lease
+    // templates. It cannot decode root/access/migration authority or produce
+    // an ordinary admitted catalog entry without the real descriptor.
+    pub(crate) fn read_link_template(context: &str, bytes: &[u8]) -> Result<Self> {
+        check(ident(context, "ctx_"))?;
+        let s = Self::read_pinned(None, context, bytes, false, true)?;
+        check(ident(text(&s.payload, "operation_id")?, "link_"))?;
+        Ok(s)
+    }
+    fn read_pinned(
+        descriptor: Option<&Descriptor>,
+        expected_context: &str,
+        bytes: &[u8],
+        binding_draft: bool,
+        template: bool,
+    ) -> Result<Self> {
         let value = parse(bytes, MAX_OBJECT)?;
         let o = object(&value)?;
         fields(o, "format kind context_id payload_base64 signatures")?;
         version(o)?;
         let kind = text(o, "kind")?;
         let context = text(o, "context_id")?;
-        check(context == descriptor.context_id())?;
+        check(context == expected_context)?;
         let payload_bytes = b64(text(o, "payload_base64")?, MAX_PAYLOAD)?;
         let payload = object(&parse(&payload_bytes, MAX_PAYLOAD)?)?.clone();
-        validate_payload(descriptor, kind, &payload)?;
+        validate_pinned_payload(descriptor, kind, &payload)?;
         let id = statement_id(kind, context, &payload_bytes);
         let mut signatures = BTreeMap::new();
         let mut previous = "";
@@ -95,7 +130,9 @@ impl Statement {
             let format = text(entry, "format")?;
             let message = signature_message(&id, role, public);
             let encoded = text(entry, "signature")?;
-            if binding_draft && kind == "binding_lease" && role == "host" {
+            if template && encoded == "-" {
+                check(key(public) && matches!(format, "ed25519" | "sshsig"))?;
+            } else if binding_draft && kind == "binding_lease" && role == "host" {
                 check(encoded == "-")?;
             } else {
                 signature(public, format, &message, encoded)?;
@@ -188,13 +225,18 @@ impl Statement {
                 .ok_or_else(|| Error::new("invalid"))?,
         )
     }
-    fn intrinsic_signers(&self, descriptor: &Descriptor) -> Result<()> {
+    fn intrinsic_signers(&self, descriptor: Option<&Descriptor>) -> Result<()> {
         let p = &self.payload;
         if self.kind == "root_state" {
             if array(p, "predecessors")?.is_empty() {
                 check(self.signer("issuer")?.public_key == text(p, "root_public_key")?)?;
                 if text(p, "migration_proposal_id")? == "-" {
-                    check(text(p, "root_public_key")? == descriptor.genesis_root_public_key)?;
+                    check(
+                        text(p, "root_public_key")?
+                            == descriptor
+                                .ok_or_else(|| Error::new("invalid"))?
+                                .genesis_root_public_key,
+                    )?;
                 }
             }
             if let Some(sig) = self.signatures.get("new_root") {
@@ -377,6 +419,15 @@ pub(crate) fn access_body(p: &Obj) -> Result<Obj> {
     .clone())
 }
 pub(crate) fn validate_payload(d: &Descriptor, kind: &str, p: &Obj) -> Result<()> {
+    validate_pinned_payload(Some(d), kind, p)
+}
+fn validate_pinned_payload(d: Option<&Descriptor>, kind: &str, p: &Obj) -> Result<()> {
+    if d.is_none() {
+        check(matches!(
+            kind,
+            "person_lease" | "host_lease" | "binding_lease" | "device_lease"
+        ))?;
+    }
     match kind {
         "root_state" => {
             fields(
@@ -394,7 +445,9 @@ pub(crate) fn validate_payload(d: &Descriptor, kind: &str, p: &Obj) -> Result<()
                 if text(p, "migration_proposal_id")? == "-" {
                     check(
                         num(p, "epoch")? == 0
-                            && text(p, "root_public_key")? == d.genesis_root_public_key,
+                            && text(p, "root_public_key")?
+                                == d.ok_or_else(|| Error::new("invalid"))?
+                                    .genesis_root_public_key,
                     )?;
                 }
             } else {
@@ -492,10 +545,9 @@ pub(crate) fn validate_payload(d: &Descriptor, kind: &str, p: &Obj) -> Result<()
                     num(&body, "format")? == 2
                         && text(&body, "person_public_key")? == text(issuer, "person_public_key")?,
                 )?;
-                let mut value = body.clone();
-                value.insert("signature".into(), Value::from("-"));
-                let policy: crate::policy::Policy = serde_json::from_value(Value::Object(value))
-                    .map_err(|_| Error::new("invalid"))?;
+                let policy: crate::policy::PolicyBody =
+                    serde_json::from_value(Value::Object(body.clone()))
+                        .map_err(|_| Error::new("invalid"))?;
                 policy
                     .check_decentralized_shape()
                     .map_err(|_| Error::new("invalid"))?;
@@ -511,7 +563,7 @@ pub(crate) fn validate_payload(d: &Descriptor, kind: &str, p: &Obj) -> Result<()
                 check(text(&body, "defined_at")? == text(p, "issued_at")?)?;
             }
             check(
-                text(&body, "network_id")? == d.network_id
+                text(&body, "network_id")? == d.ok_or_else(|| Error::new("invalid"))?.network_id
                     && num(&body, "version")? == num(p, "sequence")?,
             )?;
         }
@@ -591,7 +643,7 @@ pub(crate) fn validate_payload(d: &Descriptor, kind: &str, p: &Obj) -> Result<()
                 p.get("new_descriptor")
                     .ok_or_else(|| Error::new("invalid"))?,
             )?;
-            check(embedded.context_id() == d.context_id())?;
+            check(embedded.context_id() == d.ok_or_else(|| Error::new("invalid"))?.context_id())?;
             let issued = stamp(text(p, "issued_at")?)?;
             let end = stamp(text(p, "expires_at")?)?;
             check(end.signed_duration_since(issued).num_seconds() == 86400)?;

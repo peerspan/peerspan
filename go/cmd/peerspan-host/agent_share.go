@@ -31,6 +31,23 @@ func (a *agentRecipient) view() any {
 	return map[string]any{"address": a.Address, "host_id": a.HostID, "agent_id": a.AgentID, "person_id": a.PersonID}
 }
 
+// Use the known protocol's existing sync route. A DEC refusal never falls
+// through to legacy sync; retained history keeps its existing runtime guard.
+func syncRecipientNetwork(ctx context.Context, client host.Client, network string) error {
+	networks, err := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
+	if err != nil {
+		return err
+	}
+	for _, n := range networks {
+		if n.ID == network || n.Name == network {
+			_, err = client.Call(ctx, "POST", decNetworkPath(n.ID)+"/sync", struct{}{})
+			return err
+		}
+	}
+	_, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil)
+	return err
+}
+
 // lookupAgent resolves PERSON/AGENT or HOST_ID/AGENT through the daemon,
 // syncing the network once when the person or host is not known yet.
 func lookupAgent(ctx context.Context, client host.Client, network, address string) (*agentRecipient, error) {
@@ -38,7 +55,7 @@ func lookupAgent(ctx context.Context, client host.Client, network, address strin
 	found, err := call[agentRecipient](ctx, client, "GET", path)
 	var failure *host.ClientError
 	if errors.As(err, &failure) && (failure.Code == "unknown_person" || failure.Code == "unknown_host") {
-		if _, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil); err != nil {
+		if err = syncRecipientNetwork(ctx, client, network); err != nil {
 			return nil, err
 		}
 		found, err = call[agentRecipient](ctx, client, "GET", path)
@@ -71,7 +88,7 @@ func resolveRecipient(ctx context.Context, client host.Client, o *ownerContext, 
 	if errors.Is(err, host.ErrNotFound) {
 		// A person admitted moments ago may not have reached this host yet:
 		// sync the network once and resolve again.
-		if _, err = client.Call(ctx, "POST", "/v1/networks/"+url.PathEscape(network)+"/sync", nil); err != nil {
+		if err = syncRecipientNetwork(ctx, client, network); err != nil {
 			return "", nil, err
 		}
 		if o.persons, err = personsOf(ctx, client, network); err != nil {
@@ -108,7 +125,7 @@ func printAgentReview(errOut io.Writer, o *ownerContext, principal string) {
 		fmt.Fprintln(errOut, "That host makes the claim itself: anyone, and any program, that can run peerspan as that host's owner can call as this agent. Other machines, other agents, and other people cannot.")
 	}
 	fmt.Fprintln(errOut, "The share stays with this agent on this machine. If the agent is set up again on another machine, share it again.")
-	if bound && p.PersonID == o.ownerID && o.current != nil && slices.Contains(o.current.TrustedHosts, hostID) {
+	if bound && p.PersonID == o.ownerID && slices.Contains(o.body().TrustedHosts, hostID) {
 		fmt.Fprintln(errOut, "This machine is trusted, so this agent already reaches all your capabilities through self access. This share matters only if you untrust it.")
 	}
 }

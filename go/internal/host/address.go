@@ -131,20 +131,9 @@ func (s *Store) resolveAddress(ctx context.Context, to, network, action, origin 
 		return addressTarget{}, fmt.Errorf("%w: an address is PERSON/AGENT or HOST_ID/AGENT", ErrInvalid)
 	}
 	left, name := to[:cut], to[cut+1:]
-	var networks []string
-	if network != "" {
-		if _, err := s.Network(ctx, network); err != nil {
-			return addressTarget{}, err
-		}
-		networks = []string{network}
-	} else {
-		all, err := s.Networks(ctx)
-		if err != nil {
-			return addressTarget{}, err
-		}
-		for _, n := range all {
-			networks = append(networks, n.ID)
-		}
+	networks, err := s.selectedNetworks(ctx, network)
+	if err != nil {
+		return addressTarget{}, err
 	}
 	matches, err := s.findAddress(ctx, networks, left, name, action, origin)
 	if err != nil {
@@ -200,7 +189,7 @@ func (s *Store) findAddress(ctx context.Context, networks []string, left, name, 
 	d := s.directoryInit()
 	sort.Strings(networks)
 	for _, network := range networks {
-		members, err := membersOf(ctx, s.db, network)
+		members, err := s.membersOf(ctx, s.db, network)
 		if err != nil {
 			return nil, err
 		}
@@ -583,7 +572,7 @@ func repeatAddressTask(ctx context.Context, tx *sql.Tx, a Adapter, ss Session, r
 // originator and target hosts are bound to one person in the chain's
 // network, otherwise the target owner's policy.
 func (s *Store) forwardCitation(ctx context.Context, tx *sql.Tx, network, originator, target string) (ownerCitation, error) {
-	members, err := membersOf(ctx, tx, network)
+	members, err := s.membersOf(ctx, tx, network)
 	if err != nil {
 		return ownerCitation{}, err
 	}
@@ -811,7 +800,7 @@ func (s *Store) AdapterAgents(ctx context.Context, token AdapterAuth) ([]Adapter
 	if err != nil {
 		return nil, err
 	}
-	networks, err := s.Networks(ctx)
+	networks, err := s.networkIDs(ctx, s.db)
 	if err != nil {
 		return nil, err
 	}
@@ -821,15 +810,15 @@ func (s *Store) AdapterAgents(ctx context.Context, token AdapterAuth) ([]Adapter
 	}
 	out := []AdapterAgent{}
 	for _, n := range networks {
-		members, err := s.NetworkMembers(ctx, n.ID)
+		members, err := s.NetworkMembers(ctx, n)
 		if err != nil {
 			return nil, err
 		}
-		for _, entry := range s.directoryView(n.ID, members, locals).Agents {
+		for _, entry := range s.directoryView(n, members, locals).Agents {
 			if entry.Address == nil {
 				continue
 			}
-			agent := AdapterAgent{Address: *entry.Address, NetworkID: n.ID, Connected: entry.Connected, Endpoint: s.endpointOf(ctx, members, entry.HostID)}
+			agent := AdapterAgent{Address: *entry.Address, NetworkID: n, Connected: entry.Connected, Endpoint: s.endpointOf(ctx, members, entry.HostID)}
 			have := map[string]bool{}
 			applies := false
 			for _, a := range entry.Authorizations {

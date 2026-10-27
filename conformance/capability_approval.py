@@ -44,7 +44,7 @@ import time
 import traceback
 
 from coordination import wait_for
-from host_service import APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, LINKING_TABLES, SCHEMA_VERSION, Host, UnixHTTPConnection, stop_all
+from host_service import APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, LINKING_TABLES, SCHEMA_VERSION, Host, UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need, parse_time as parse_datetime
 from live_delivery import Fixture as ClaudeFixture
 from peer_messaging import fixture_context, timestamp, wire
@@ -1847,7 +1847,7 @@ def check_migration(original, replacement, label, baseline=None, start=18):
                 connection = sqlite3.connect(host.state / 'host.db')
                 try:
                     connection.execute(f'DROP INDEX IF EXISTS {NEW_INDEX}')
-                    for table in (*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *(LINKING_TABLES if start < 19 else ())):
+                    for table in (*DEC_TABLES, *OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, *(LINKING_TABLES if start < 19 else ())):
                         connection.execute(f'DROP TABLE {table}')
                     for name, value in connection.execute('SELECT name, record FROM capabilities').fetchall():
                         record = json.loads(value)

@@ -3,6 +3,8 @@
 //! pinned TLS-over-TCP connection to a network's coordinator. Relayed peers
 //! appear to the QUIC endpoint as synthetic addresses that are never sent on
 //! the real UDP socket, so every peer TLS and request check still applies.
+mod provisional;
+mod resource;
 use crate::{
     disco::{Discovery, Kind, Source, classify},
     membership,
@@ -203,6 +205,7 @@ pub(crate) struct Coordinator {
     pub key: Vec<u8>,
 }
 struct Client {
+    resource_token: Option<Arc<Vec<u8>>>,
     frames: mpsc::Sender<Vec<u8>>,
     connected: watch::Receiver<bool>,
     /// The negotiated version of the current connection, 0 while down.
@@ -226,6 +229,8 @@ struct State {
     /// outbound connection, or the one its datagrams last arrived on.
     routes: HashMap<[u8; HOST_ID], Coordinator>,
     hosts: HashMap<SocketAddrV4, [u8; HOST_ID]>,
+    route_sources: HashMap<[u8; HOST_ID], std::net::IpAddr>,
+    provisional: HashMap<[u8; HOST_ID], provisional::Provisional>,
 }
 
 /// All relay connections of one daemon and the datagrams they deliver.
@@ -297,6 +302,7 @@ impl Relays {
         state.clients.insert(
             coordinator.clone(),
             Client {
+                resource_token: None,
                 frames,
                 connected,
                 version,
@@ -305,6 +311,75 @@ impl Relays {
                 task,
             },
         );
+    }
+    /// Optional helpers authorize transport resources only. Their TLS pin and
+    /// token never become a network root, member or ordinary peer credential.
+    pub(crate) fn ensure_resource(
+        self: &Arc<Self>,
+        store: &Arc<Store>,
+        endpoint: &Coordinator,
+        token: Vec<u8>,
+    ) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state
+            .clients
+            .get(endpoint)
+            .is_some_and(|client| client.resource_token.as_deref() == Some(&token))
+        {
+            return;
+        }
+        let token = Arc::new(token);
+        let (frames, outgoing) = mpsc::channel(QUEUE);
+        let (status, connected) = watch::channel(false);
+        let version = Arc::new(AtomicU8::new(0));
+        let task = tokio::spawn(resource::run(
+            self.clone(),
+            store.clone(),
+            endpoint.clone(),
+            token.clone(),
+            outgoing,
+            status,
+            version.clone(),
+        ));
+        state.clients.insert(
+            endpoint.clone(),
+            Client {
+                resource_token: Some(token),
+                frames,
+                connected,
+                version,
+                persistent: true,
+                idle_since: None,
+                task,
+            },
+        );
+    }
+    pub(crate) fn retain_resources(&self, current: &[Coordinator]) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let State {
+            clients, routes, ..
+        } = &mut *state;
+        clients.retain(|endpoint, client| {
+            client.resource_token.is_none() || current.contains(endpoint)
+        });
+        routes.retain(|_, endpoint| clients.contains_key(endpoint));
+    }
+    pub(crate) fn resource_endpoints(&self) -> Vec<Coordinator> {
+        let Ok(state) = self.state.lock() else {
+            return Vec::new();
+        };
+        let mut endpoints: Vec<_> = state
+            .clients
+            .iter()
+            .filter(|(_, client)| client.resource_token.is_some())
+            .map(|(endpoint, _)| endpoint.clone())
+            .collect();
+        endpoints.sort_by(|a, b| (&a.address, &a.key).cmp(&(&b.address, &b.key)));
+        endpoints
     }
     /// Closes persistent relay connections to coordinators that no longer serve
     /// any of this host's networks, with their routes.

@@ -52,10 +52,14 @@ type hostPersons struct {
 }
 
 func readHostPersons(ctx context.Context, client host.Client) (host.Status, hostPersons, error) {
-	st, err := call[host.Status](ctx, client, "GET", "/v1/status")
+	data, e := client.Call(ctx, "GET", "/v2/status", nil)
 	p := hostPersons{ids: map[string]string{}, labels: map[string]string{}}
-	if err != nil {
-		return st, p, err
+	if e != nil {
+		return host.Status{}, p, e
+	}
+	st, modern, e := decodeStatus(data)
+	if e != nil {
+		return st, p, e
 	}
 	for _, n := range st.Networks {
 		if n.Person == nil {
@@ -66,6 +70,23 @@ func readHostPersons(ctx context.Context, client host.Client) (host.Status, host
 			p.labels[n.ID] = *n.Person.Label
 			if p.label == "" {
 				p.label = *n.Person.Label
+			}
+		}
+	}
+	for _, n := range modern {
+		members, e := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(n.ID)+"/members")
+		if e != nil {
+			return st, p, e
+		}
+		for _, m := range members {
+			if m.PublicKey == n.Host && m.PersonID != nil {
+				p.ids[n.ID] = *m.PersonID
+				if m.PersonMember != nil {
+					p.labels[n.ID] = *m.PersonMember
+					if p.label == "" {
+						p.label = *m.PersonMember
+					}
+				}
 			}
 		}
 	}
@@ -237,20 +258,16 @@ func attachPrepared(ctx context.Context, client host.Client, harness string, har
 	if err != nil {
 		return err
 	}
-	_, persons, err := readHostPersons(ctx, client)
-	if err != nil {
-		return err
-	}
-	networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
+	persons, networkIDs, err := attachmentNetworks(ctx, client, identity.PublicKey)
 	if err != nil {
 		return err
 	}
 	// Names are free only after a synchronous refresh of every directory.
 	var directories []host.Directory
-	for _, n := range networks {
-		d, err := directoryOf(ctx, client, n.ID, true)
-		if err != nil {
-			return err
+	for _, id := range networkIDs {
+		d, e := directoryOf(ctx, client, id, true)
+		if e != nil {
+			return e
 		}
 		directories = append(directories, d)
 	}
@@ -531,6 +548,16 @@ func singleNetwork(ctx context.Context, client host.Client, network string) (str
 	if network != "" {
 		return network, nil
 	}
+	modern, e := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
+	if e != nil {
+		return "", e
+	}
+	if len(modern) == 1 {
+		return modern[0].ID, nil
+	}
+	if len(modern) > 1 {
+		return "", errors.New("several networks; give --network")
+	}
 	networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
 	if err != nil {
 		return "", err
@@ -705,21 +732,57 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		return mine[i].HostID < mine[j].HostID
 	})
 	inbound := []inboundRule{}
-	var policy struct {
-		Rules []inboundRule `json:"rules"`
-	}
 	if person != "" {
-		policy, err = call[struct {
-			Rules []inboundRule `json:"rules"`
-		}](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/policy")
-		var failure *host.ClientError
-		if errors.As(err, &failure) && failure.Status == 404 {
-			err = nil
+		modern, e := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
+		if e != nil {
+			return e
 		}
-		if err != nil {
-			return err
+		var current *host.DecNetworkView
+		for _, n := range modern {
+			if n.ID == network {
+				copy := n
+				current = &copy
+			}
 		}
-		inbound = append(inbound, policy.Rules...)
+		if current != nil {
+			people, e := decCurrentPeople(ctx, client, *current)
+			if e != nil {
+				return e
+			}
+			owner, e := host.ResolvePerson(people, person)
+			if e != nil {
+				return e
+			}
+			statement, e := decReadCurrentPolicy(ctx, client, *current, owner.PublicKey)
+			var failure *host.ClientError
+			if errors.As(e, &failure) && failure.Status == 404 {
+				e = nil
+			}
+			if e != nil {
+				return e
+			}
+			if statement != nil {
+				body, e := decContent(statement)
+				if e != nil {
+					return e
+				}
+				for _, rule := range body.Rules {
+					inbound = append(inbound, inboundRule{rule.Agent, rule.Principals, rule.Actions, rule.MaxArtifactBytes})
+				}
+			}
+		} else {
+			policy, e := call[struct {
+				Rules []inboundRule `json:"rules"`
+			}](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/policy")
+			var failure *host.ClientError
+			if errors.As(e, &failure) && failure.Status == 404 {
+				e = nil
+			}
+			if e != nil {
+				return e
+			}
+			inbound = append(inbound, policy.Rules...)
+		}
 	}
 	if asJSON {
 		return printJSON(out, map[string]any{"network_id": d.NetworkID, "refreshed_at": d.RefreshedAt, "reachable": reachable, "mine": mine, "inbound": inbound, "hosts": d.Hosts})
@@ -757,7 +820,7 @@ func runAgents(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 	fmt.Fprintln(out, "\nInbound:")
 	labels := map[string]string{}
 	if len(inbound) > 0 {
-		if list, err := call[[]host.Person](ctx, client, "GET", "/v1/networks/"+url.PathEscape(network)+"/persons"); err == nil {
+		if list, err := personsOf(ctx, client, network); err == nil {
 			for _, p := range list {
 				labels["person:"+p.PersonID] = p.Member
 			}
@@ -820,4 +883,48 @@ func addressedRequest(args []string, fs *pflag.FlagSet) (string, string, any, er
 	}
 	files, _ := fs.GetStringArray("file")
 	return "POST", "/v1/tasks", addressedTask{body, files}, nil
+}
+
+// attachmentNetworks reads product identity from actual current member/person
+// views. It never treats remembered NETWORK_VIEW identity or a contact as a grant.
+func attachmentNetworks(ctx context.Context, client host.Client, ownKey string) (hostPersons, []string, error) {
+	people := hostPersons{ids: map[string]string{}, labels: map[string]string{}}
+	modern, e := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
+	if e != nil {
+		return people, nil, e
+	}
+	ids := []string{}
+	if len(modern) == 0 {
+		_, people, e = readHostPersons(ctx, client)
+		if e != nil {
+			return people, nil, e
+		}
+		legacy, e := call[[]host.Network](ctx, client, "GET", "/v1/networks")
+		if e != nil {
+			return people, nil, e
+		}
+		for _, n := range legacy {
+			ids = append(ids, n.ID)
+		}
+		return people, ids, nil
+	}
+	for _, n := range modern {
+		ids = append(ids, n.ID)
+		members, e := call[[]host.NetworkMember](ctx, client, "GET", "/v1/networks/"+url.PathEscape(n.ID)+"/members")
+		if e != nil {
+			return people, nil, e
+		}
+		for _, member := range members {
+			if member.PublicKey == ownKey && member.PersonID != nil {
+				people.ids[n.ID] = *member.PersonID
+				if member.PersonMember != nil {
+					people.labels[n.ID] = *member.PersonMember
+					if people.label == "" {
+						people.label = *member.PersonMember
+					}
+				}
+			}
+		}
+	}
+	return people, ids, nil
 }

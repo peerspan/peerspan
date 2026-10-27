@@ -713,7 +713,7 @@ impl Store {
                 ],
             )?;
             let (sender_person_id, sender_person) =
-                crate::adapter::sender_person(&tx, &d.sender_host_id)?;
+                crate::adapter::sender_person(self, &tx, &d.sender_host_id)?;
             let verified = verified.as_ref();
             handoff = Some(TaskHandoff {
                 delivery: d,
@@ -823,7 +823,8 @@ impl Store {
             } else {
                 None
             };
-            let (sender_person_id, sender_person) = crate::adapter::sender_person(tx, &sender)?;
+            let (sender_person_id, sender_person) =
+                crate::adapter::sender_person(self, tx, &sender)?;
             return Ok(Some(TaskHandoff {
                 delivery: d,
                 task: request,

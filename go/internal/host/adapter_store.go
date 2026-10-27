@@ -407,7 +407,7 @@ func (s *Store) NextDelivery(ctx context.Context, token AdapterAuth) (*Handoff, 
 		}
 		if state == "unknown" {
 			result = &Handoff{Delivery: d, Request: p.request}
-			if result.SenderPersonID, result.SenderPerson, e = senderPerson(ctx, tx, p.sender); e != nil {
+			if result.SenderPersonID, result.SenderPerson, e = s.senderPerson(ctx, tx, p.sender); e != nil {
 				return nil, e
 			}
 			break
@@ -494,7 +494,7 @@ func (s *Store) claimReturnedDelivery(ctx context.Context, tx *sql.Tx, a Adapter
 			return nil, e
 		}
 		h := &Handoff{Delivery: d, Request: p.request, Redelivered: true}
-		if h.SenderPersonID, h.SenderPerson, e = senderPerson(ctx, tx, d.SenderHostID); e != nil {
+		if h.SenderPersonID, h.SenderPerson, e = s.senderPerson(ctx, tx, d.SenderHostID); e != nil {
 			return nil, e
 		}
 		return h, nil
@@ -671,21 +671,19 @@ func (s *Store) SaveOutboundReply(ctx context.Context, peer string, r Reply) (Re
 }
 
 // senderPerson is the person a host is bound to, and its label, in the first
-// network by ID that binds it; both are nil for an unbound host.
-func senderPerson(ctx context.Context, tx *sql.Tx, host string) (*string, *string, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT record FROM network_members WHERE host_id = ? ORDER BY network_id", host)
+// network by ID that binds it; both are nil for an unbound host. It reads
+// current verified members within the caller's transaction, so a
+// coordinator-free network contributes its verified binding and a retained
+// legacy history contributes none.
+func (s *Store) senderPerson(ctx context.Context, tx *sql.Tx, host string) (*string, *string, error) {
+	memberships, err := s.membershipsOf(ctx, tx, host)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		member, err := readJSON[NetworkMember](rows)
-		if err != nil {
-			return nil, nil, err
-		}
-		if member.PersonID != nil {
-			return member.PersonID, member.PersonMember, nil
+	for _, m := range memberships {
+		if m.member.PersonID != nil {
+			return m.member.PersonID, m.member.PersonMember, nil
 		}
 	}
-	return nil, nil, rows.Err()
+	return nil, nil, nil
 }

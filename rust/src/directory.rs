@@ -412,7 +412,7 @@ impl Store {
         if !known {
             return Err(Error::NotFound);
         }
-        if caller == self.identity().id || crate::chain::member(&conn, network, caller)?.is_none() {
+        if caller == self.identity().id || self.product_member(&conn, network, caller)?.is_none() {
             return Err(Error::Forbidden);
         }
         let now = Utc::now();
@@ -434,21 +434,21 @@ impl Store {
                 let Some(person) = &m.person_id else {
                     continue;
                 };
-                let Some(key) = self.person_key(&conn, net, person)? else {
+                let Some(key) = self.product_person_key(&conn, net, person)? else {
                     continue;
                 };
-                let Some(policy) = self.stored_policy(&conn, net, &key)? else {
+                let Some(policy) = self.product_policy(&conn, net, &key)? else {
                     continue;
                 };
                 // With this host's unsettled withdrawals applied.
-                let policy = self.enforced(&conn, net, policy)?;
+
                 if !policy.in_window(now) {
                     continue;
                 }
-                let Some(sender) = crate::chain::member(&conn, net, caller)? else {
+                let Some(sender) = self.product_member(&conn, net, caller)? else {
                     continue;
                 };
-                let groups = self.stored_groups(&conn, net)?;
+                let groups = self.product_groups(&conn, net)?;
                 policies.push((policy, sender, groups));
             }
         }
@@ -532,10 +532,10 @@ impl Store {
 
     /// The network a directory request names, or this host's only network.
     pub(crate) fn directory_network(&self, given: Option<String>) -> Result<String, Error> {
-        let networks = self.networks()?;
+        let networks = self.product_network_names(&*self.connection()?)?;
         match given {
             Some(id) => {
-                if networks.iter().any(|n| n.id == id) {
+                if networks.iter().any(|n| n.0 == id) {
                     Ok(id)
                 } else {
                     Err(Error::NotFound)
@@ -543,11 +543,11 @@ impl Store {
             }
             None => match networks.as_slice() {
                 [] => Err(Error::Invalid("not a member of any network".into())),
-                [one] => Ok(one.id.clone()),
+                [one] => Ok(one.0.clone()),
                 many => Err(Error::Invalid(format!(
                     "this host is in several networks; choose one: {}",
                     many.iter()
-                        .map(|n| format!("{} ({})", n.id, n.name))
+                        .map(|n| format!("{} ({})", n.0, n.1))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ))),
@@ -559,7 +559,7 @@ impl Store {
     fn other_members(&self, conn: &Connection, network: &str) -> Result<Vec<Member>, Error> {
         let own = self.identity().id;
         let mut members: Vec<Member> = self
-            .stored_members(conn, network)?
+            .product_members(conn, network)?
             .into_iter()
             .filter(|m| m.host_id != own)
             .collect();
@@ -570,7 +570,13 @@ impl Store {
     /// Every candidate an address may name in `networks`: directory agents
     /// and this host's own, each with its displayed address.
     fn candidates(&self, networks: &[String]) -> Result<Vec<(Candidate, Option<String>)>, Error> {
-        let conn = self.connection()?;
+        self.candidates_in(&*self.connection()?, networks)
+    }
+    fn candidates_in(
+        &self,
+        conn: &Connection,
+        networks: &[String],
+    ) -> Result<Vec<(Candidate, Option<String>)>, Error> {
         let own = self.identity().id;
         let local: Vec<(String, String)> = {
             let mut statement = conn.prepare("SELECT id, name FROM agents ORDER BY name, id")?;
@@ -580,7 +586,7 @@ impl Store {
         };
         let mut result = Vec::new();
         for network in networks {
-            let members = self.stored_members(&conn, network)?;
+            let members = self.product_members(conn, network)?;
             let me = members.iter().find(|m| m.host_id == own);
             let mut list = Vec::new();
             for (id, name) in &local {
@@ -683,7 +689,7 @@ impl Store {
 
     /// The networks an address is resolved in.
     fn searched(&self, network: Option<&str>) -> Result<Vec<String>, Error> {
-        let all: Vec<String> = self.networks()?.into_iter().map(|n| n.id).collect();
+        let all: Vec<String> = self.product_network_ids(&*self.connection()?)?;
         match network {
             Some(id) if all.iter().any(|n| n == id) => Ok(vec![id.to_owned()]),
             Some(id) => Err(Error::Invalid(format!("this host is not in network {id}"))),
@@ -779,7 +785,7 @@ impl Store {
             crate::adapter::authority(&conn, auth)?
         };
         directory_access(&a)?;
-        let networks: Vec<String> = self.networks()?.into_iter().map(|n| n.id).collect();
+        let networks: Vec<String> = self.product_network_ids(&*self.connection()?)?;
         let mut result = Vec::new();
         for (c, address) in self.candidates(&networks)? {
             let (Some(address), Some(agent)) = (address, &c.agent) else {
@@ -804,7 +810,7 @@ impl Store {
             }
             let members = {
                 let conn = self.connection()?;
-                self.stored_members(&conn, &c.network_id)?
+                self.product_members(&conn, &c.network_id)?
             };
             result.push((
                 address.clone(),
@@ -831,10 +837,13 @@ impl Store {
     /// Status item 12: names this host's person uses for more than one
     /// agent, where this host has one of them. Returns `(network, name,
     /// integration)` sorted.
-    pub(crate) fn name_conflicts(&self) -> Result<Vec<(String, String, Option<String>)>, Error> {
-        let networks: Vec<String> = self.networks()?.into_iter().map(|n| n.id).collect();
+    pub(crate) fn name_conflicts(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<(String, String, Option<String>)>, Error> {
+        let networks: Vec<String> = self.product_network_ids(conn)?;
         let mut conflicts = BTreeSet::new();
-        let candidates = self.candidates(&networks)?;
+        let candidates = self.candidates_in(conn, &networks)?;
         for (c, _) in candidates
             .iter()
             .filter(|(c, _)| c.local && c.person_id.is_some())
@@ -852,7 +861,7 @@ impl Store {
         let mut result = Vec::new();
         for (network, name, agent) in conflicts {
             let integration = self
-                .sessions(&agent)?
+                .sessions_in(conn, &agent)?
                 .into_iter()
                 .max_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
                 .map(|s| s.integration);
@@ -910,7 +919,7 @@ fn ordered(actions: &BTreeSet<String>) -> Vec<&'static str> {
 fn rule_entries(
     rule: &Rule,
     sender: &Member,
-    groups: &[crate::admins::Group],
+    groups: &[crate::decentralized::product::Group],
 ) -> Vec<Authorization> {
     let entry = |from_agent: Option<String>| Authorization {
         kind: "policy".into(),
@@ -923,7 +932,7 @@ fn rule_entries(
     };
     if rule.principals.iter().any(|p| {
         crate::policy::agent_principal(p).is_none()
-            && crate::policy::principal_matches(p, sender, groups, None)
+            && crate::decentralized::product::principal_matches(p, sender, groups, None)
     }) {
         return vec![entry(None)];
     }
@@ -1037,7 +1046,7 @@ async fn refresh(store: Arc<Store>, network: String, only: Option<String>, retry
         let conn = s.connection()?;
         let own = s.identity().id;
         let own_person = s
-            .stored_members(&conn, &lookup)?
+            .product_members(&conn, &lookup)?
             .into_iter()
             .find(|m| m.host_id == own)
             .and_then(|m| m.person_id);
@@ -1337,7 +1346,23 @@ pub(crate) async fn authorize(
         .await
     };
     let sync = || async {
-        let _ = crate::network::sync_network(store.clone(), target.network_id.clone()).await;
+        let read = store.clone();
+        let network = target.network_id.clone();
+        let native = blocking(read, move |s| {
+            let c = s.connection()?;
+            crate::decentralized::product::is_decentralized(&c, &network)
+        })
+        .await;
+        match native {
+            Ok(true) => {
+                let _ = crate::decentralized::peer::sync(store.clone(), &target.network_id).await;
+            }
+            Ok(false) if !store.decentralized_runtime() => {
+                let _ =
+                    crate::network::sync_network(store.clone(), target.network_id.clone()).await;
+            }
+            _ => {}
+        }
     };
     let mut synced = false;
     let mut choice = chosen(target.agent.clone());
@@ -1452,7 +1477,7 @@ pub async fn worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
     let mut last: BTreeMap<String, (Instant, String)> = BTreeMap::new();
     loop {
         let networks = blocking(store.clone(), |s| {
-            let ids: Vec<String> = s.networks()?.into_iter().map(|n| n.id).collect();
+            let ids: Vec<String> = s.product_network_ids(&*s.connection()?)?;
             ids.into_iter()
                 .map(|id| Ok((s.directory_fingerprint(&id)?, id)))
                 .collect::<Result<Vec<_>, Error>>()

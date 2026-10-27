@@ -17,7 +17,8 @@ type Packet struct {
 	Statements                                                                      []*Statement
 }
 
-func readPacket(d Descriptor, raw []byte) (*Packet, error) {
+func readPacket(d Descriptor, raw []byte) (*Packet, error) { return readPacketMode(d, raw, false) }
+func readPacketMode(d Descriptor, raw []byte, unsigned bool) (*Packet, error) {
 	o, e := parse(raw)
 	if e != nil {
 		return nil, e
@@ -46,7 +47,7 @@ func readPacket(d Descriptor, raw []byte) (*Packet, error) {
 	p := &Packet{Raw: append([]byte{}, raw...), Payload: payload, ContextID: a[0], RequestID: a[1], Role: a[2], Writer: a[3], Signer: a[4], Person: a[5], Issuer: a[6], HostSignature: a[8], DeviceSignature: a[9], AuthorityFormat: a[10], AuthoritySignature: a[11], Object: po, Statements: []*Statement{}}
 	p.Message = message("peerspan-decentralized-packet-v1", p.ContextID, p.RequestID, p.Role, p.Writer, p.Signer, p.Person, p.Issuer, p.AuthorityFormat, digest(payload))
 	p.ID = "dpk_" + digest(p.Message)
-	if e = VerifySignature(p.Writer, "ed25519", p.Message, p.HostSignature); e != nil {
+	if e = packetSignature(p.Writer, "ed25519", p.Message, p.HostSignature, unsigned); e != nil {
 		return nil, e
 	}
 	switch p.Role {
@@ -54,7 +55,7 @@ func readPacket(d Descriptor, raw []byte) (*Packet, error) {
 		if !key(p.Signer) || p.Issuer != "-" || p.AuthorityFormat != "-" || p.AuthoritySignature != "-" {
 			return nil, invalid()
 		}
-		if e = VerifySignature(p.Signer, "ed25519", p.Message, p.DeviceSignature); e != nil {
+		if e = packetSignature(p.Signer, "ed25519", p.Message, p.DeviceSignature, unsigned); e != nil {
 			return nil, e
 		}
 		if p.Role == "request" {
@@ -77,7 +78,7 @@ func readPacket(d Descriptor, raw []byte) (*Packet, error) {
 				return nil, invalid()
 			}
 		}
-		if e = VerifySignature(p.Signer, p.AuthorityFormat, p.Message, p.AuthoritySignature); e != nil {
+		if e = packetSignature(p.Signer, p.AuthorityFormat, p.Message, p.AuthoritySignature, unsigned); e != nil {
 			return nil, e
 		}
 	case "outcome":

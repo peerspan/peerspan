@@ -71,6 +71,17 @@ func verifyLegacyApproval(d Descriptor, p *LegacyPrior, v *migrationValidation, 
 	if e != nil {
 		return false, e
 	}
+	proposedLegacy, e := decode(stringField(m.Proposal.Object, "legacy_descriptor_base64"), MaxObject)
+	if e != nil {
+		return false, e
+	}
+	compatible, e := MigrationLegacyDescriptorsEqual(legacy, proposedLegacy)
+	if e != nil {
+		return false, e
+	}
+	if !compatible {
+		return false, failure("state_conflict")
+	}
 	catalog, e := decode(p.Catalog, MaxCatalog)
 	if e != nil {
 		return false, e

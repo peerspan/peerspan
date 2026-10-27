@@ -125,7 +125,7 @@ import time
 import traceback
 
 from coordination import Coordinator, wait_for
-from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
+from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
 from peer_messaging import DropResponse, fixture_context, set_probe, timestamp, wire
@@ -3659,7 +3659,7 @@ def check_migration(original, replacement, label):
                 # Version 20 (per-call approval) and 18 (agent tools, slice 2) tables, when the binaries have them,
                 # go first: they refer to received_calls and outbound_calls.
                 connection.execute('DROP INDEX IF EXISTS adapter_calls_rate')
-                for table in (*OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
+                for table in (*DEC_TABLES, *OAUTH_TABLES, *BUILTIN_TABLES, *APPROVAL_TABLES, 'adapter_calls', 'call_update_notifications'):
                     connection.execute(f'DROP TABLE IF EXISTS {table}')
                 for table in (*CAPABILITY_TABLES, *POLICY_EDIT_TABLES):
                     connection.execute(f'DROP TABLE {table}')

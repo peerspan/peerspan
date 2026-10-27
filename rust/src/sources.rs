@@ -1324,7 +1324,8 @@ impl Store {
             let mut bound = false;
             for (network, own) in self.own_members(&tx)? {
                 if let Some(person) = &own.person_id {
-                    bound |= crate::chain::member(&tx, &network, host)?
+                    bound |= self
+                        .product_member(&tx, &network, host)?
                         .is_some_and(|m| m.person_id.as_deref() == Some(person.as_str()));
                 }
             }
@@ -1367,10 +1368,13 @@ impl Store {
     /// Status item 14 for sources: `(subject, detail, command)` for each
     /// failing snapshot, recent start failure, recent authentication-like
     /// error, and an environment file that is too open.
-    pub(crate) fn failing_sources(&self) -> Result<Vec<(String, String, String)>, Error> {
-        let conn = self.connection()?;
-        let names: BTreeMap<String, String> = agent_names(&conn)?;
-        let day = chrono::Utc::now() - chrono::TimeDelta::hours(24);
+    pub(crate) fn failing_sources(
+        &self,
+        conn: &Connection,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, String, String)>, Error> {
+        let names: BTreeMap<String, String> = agent_names(conn)?;
+        let day = at - chrono::TimeDelta::hours(24);
         let recent = |at: &Option<String>| {
             at.as_deref()
                 .and_then(|t| crate::membership::time(t).ok())
@@ -1380,7 +1384,7 @@ impl Store {
         let mut statement =
             conn.prepare("SELECT agent_id, record FROM tool_servers ORDER BY agent_id, name")?;
         let servers: Vec<ServerRecord> = decode_rows(&mut statement, [])?;
-        let hour = chrono::Utc::now() - chrono::TimeDelta::hours(1);
+        let hour = at - chrono::TimeDelta::hours(1);
         let mut check = |agent: &str,
                          label: String,
                          error: &Option<String>,
@@ -1399,7 +1403,7 @@ impl Store {
             let mut causes = Vec::new();
             if let Some(r) = remote {
                 let key = (agent.to_owned(), label.clone(), String::new());
-                let credential = crate::oauth::credential(&conn, &key)?;
+                let credential = crate::oauth::credential(conn, &key)?;
                 let stale = credential.as_ref().is_some_and(|c| {
                     c.state == "refresh_failed"
                         && c.refresh_failed_at
@@ -1412,7 +1416,7 @@ impl Store {
                     .is_some_and(|c| c.state == "login_required");
                 let unsigned = r.reason.as_deref() == Some("login")
                     && credential.is_none()
-                    && !crate::oauth::source_sign_in_users(&conn, agent, &label)?.is_empty();
+                    && !crate::oauth::source_sign_in_users(conn, agent, &label)?.is_empty();
                 if lapsed || stale || unsigned {
                     causes.push(if stale {
                         "its sign-in could not be refreshed for more than an hour".to_owned()
@@ -1450,7 +1454,7 @@ impl Store {
             }
             Ok(())
         };
-        for s in servers.iter().chain(crate::builtin::records(&conn)?.iter()) {
+        for s in servers.iter().chain(crate::builtin::records(conn)?.iter()) {
             check(
                 &s.agent_id,
                 s.definition.name.clone(),

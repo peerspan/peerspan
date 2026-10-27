@@ -67,15 +67,30 @@ pub async fn agents(
     } else {
         local.get(format!("/v1/directory?{query}")).await?
     };
-    let status = local.get("/v1/status".into()).await?;
+    let native = crate::decentralized_policy_cli::network_view(&local, network).await?;
+    let status = local
+        .get(
+            if native.is_some() {
+                "/v2/status"
+            } else {
+                "/v1/status"
+            }
+            .into(),
+        )
+        .await?;
     let host = status["host_id"].as_str().unwrap_or_default().to_owned();
-    let me = status["networks"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|n| n["id"].as_str() == Some(network))
-        .map(|n| n["person"].clone())
-        .unwrap_or(Value::Null);
+    let me = if let Some(view) = &native {
+        let person = view["person_public_key"].as_str().filter(|p| *p != "-");
+        person.map(|person|json!({"id":peerspan_host::persons::person_id_of(person).unwrap_or_default(),"label":view["member"]})).unwrap_or(Value::Null)
+    } else {
+        status["networks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|n| n["id"].as_str() == Some(network))
+            .map(|n| n["person"].clone())
+            .unwrap_or(Value::Null)
+    };
     let person = me["id"].as_str();
     let label = me["label"].as_str();
     let states: std::collections::BTreeMap<String, String> = directory["hosts"]
@@ -89,9 +104,15 @@ pub async fn agents(
             ))
         })
         .collect();
-    let members = local
-        .get(format!("/v1/networks/{}/members", encoded(network)))
-        .await?;
+    // A native current-member view has no unsigned endpoint assertions. Use
+    // only the actual connected path for its endpoint display.
+    let members = if native.is_some() {
+        json!([])
+    } else {
+        local
+            .get(format!("/v1/networks/{}/members", encoded(network)))
+            .await?
+    };
     let mut endpoints = std::collections::BTreeMap::new();
     let mut hosts: Vec<String> = directory["agents"]
         .as_array()
@@ -191,37 +212,60 @@ pub async fn agents(
     let mut inbound = Vec::new();
     let mut labels = std::collections::BTreeMap::new();
     if person.is_some() {
-        match local
-            .get(format!("/v1/networks/{}/policy", encoded(network)))
-            .await
-        {
-            Ok(policy) => {
+        if let Some(view) = &native {
+            let public = view["person_public_key"]
+                .as_str()
+                .context("missing native person")?;
+            if let Some((_, policy)) =
+                crate::decentralized_policy_cli::current_policy(&local, view, public).await?
+            {
+                let policy = serde_json::to_value(policy)?;
                 for rule in policy["rules"].as_array().into_iter().flatten() {
-                    inbound.push(json!({
-                        "agent": rule["agent"],
-                        "principals": rule["principals"],
-                        "actions": rule["actions"],
-                        "max_artifact_bytes": rule["max_artifact_bytes"].as_i64().unwrap_or(0),
-                    }));
+                    inbound.push(json!({"agent":rule["agent"],"principals":rule["principals"],"actions":rule["actions"],
+                        "max_artifact_bytes":rule["max_artifact_bytes"].as_u64().unwrap_or(0)}));
                 }
             }
-            Err(error)
-                if error
-                    .downcast_ref::<DaemonError>()
-                    .is_some_and(|e| e.status == 404) => {}
-            Err(error) => return Err(error),
-        }
-        if let Ok(persons) = local
-            .get(format!("/v1/networks/{}/persons", encoded(network)))
-            .await
-        {
-            for p in persons.as_array().into_iter().flatten() {
-                if let (Some(id), Some(member)) = (p["person_id"].as_str(), p["member"].as_str()) {
-                    labels.insert(format!("person:{id}"), member.to_owned());
+            for row in crate::decentralized_policy_cli::current_persons(&local, view).await? {
+                let key = row["person_public_key"]
+                    .as_str()
+                    .context("missing native person")?;
+                labels.insert(
+                    format!("person:{}", peerspan_host::persons::person_id_of(key)?),
+                    row["member"].as_str().unwrap_or_default().to_owned(),
+                );
+            }
+        } else {
+            match local
+                .get(format!("/v1/networks/{}/policy", encoded(network)))
+                .await
+            {
+                Ok(policy) => {
+                    for rule in policy["rules"].as_array().into_iter().flatten() {
+                        inbound.push(json!({"agent":rule["agent"],"principals":rule["principals"],"actions":rule["actions"],
+                            "max_artifact_bytes":rule["max_artifact_bytes"].as_u64().unwrap_or(0)}));
+                    }
+                }
+                Err(error)
+                    if error
+                        .downcast_ref::<DaemonError>()
+                        .is_some_and(|e| e.status == 404) => {}
+                Err(error) => return Err(error),
+            }
+            if let Ok(persons) = local
+                .get(format!("/v1/networks/{}/persons", encoded(network)))
+                .await
+            {
+                for p in persons.as_array().into_iter().flatten() {
+                    if let (Some(id), Some(member)) =
+                        (p["person_id"].as_str(), p["member"].as_str())
+                    {
+                        labels.insert(format!("person:{id}"), member.to_owned());
+                    }
                 }
             }
         }
     }
+
     if as_json {
         let value = json!({
             "network_id": directory["network_id"],

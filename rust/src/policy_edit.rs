@@ -965,15 +965,17 @@ impl Store {
             .collect())
     }
     /// Status items 16 and 17: `(kind, subject, detail, command)`.
-    pub(crate) fn edit_attention(&self) -> Result<Vec<(String, String, String, String)>, Error> {
-        let conn = self.connection()?;
-        let at = Utc::now();
+    pub(crate) fn edit_attention(
+        &self,
+        conn: &Connection,
+        at: chrono::DateTime<Utc>,
+    ) -> Result<Vec<(String, String, String, String)>, Error> {
         let mut out = Vec::new();
-        for (network, person) in groups(&conn)? {
-            if !self.current_owner(&conn, &network, &person)? {
+        for (network, person) in groups(conn)? {
+            if !self.current_owner(conn, &network, &person)? {
                 continue;
             }
-            let recs = records(&conn, &network, &person)?;
+            let recs = records(conn, &network, &person)?;
             let mine = true;
             let late: Vec<u64> = recs
                 .iter()

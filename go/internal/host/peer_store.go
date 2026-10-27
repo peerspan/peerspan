@@ -430,6 +430,26 @@ func (s *Store) grantConnected(ctx context.Context, tx *sql.Tx, sender string, g
 	if g.allowDisconnected {
 		return true, false, nil
 	}
+	// A DEC grant/rule never uses recent coordinator sync as freshness.
+	ids, e := s.networkIDs(ctx, tx)
+	if e != nil {
+		return false, false, e
+	}
+	for _, id := range ids {
+		g, e := s.loadProductGovernance(ctx, tx, id)
+		if e != nil {
+			return false, false, e
+		}
+		if g.snapshot == nil {
+			continue
+		}
+		members := g.members()
+		if _, own := members[s.identity.ID]; own {
+			if _, peer := members[sender]; peer {
+				return true, false, nil
+			}
+		}
+	}
 	if usable, err = s.connected(ctx, tx, sender, time.Now()); err != nil || usable {
 		return usable, false, err
 	}

@@ -9,10 +9,11 @@ use crate::{
     capabilities::{
         CapabilityRecord, READ, capability_record, capability_records, current, present_resources,
     },
+    decentralized::product::{Policy, principal_matches},
     mcp::{self, Reply},
     model::Error,
     peer_store::{Origin, valid_id},
-    policy::{MAX_INPUT_BYTES, Policy, name_shape, person_id_shape, principal_matches},
+    policy::{MAX_INPUT_BYTES, name_shape, person_id_shape},
     sources::{Instance, ServerRecord, Snapshot, open_to_host, server_record},
     store::{Store, append_event, now, rfc3339},
 };
@@ -397,14 +398,10 @@ fn own_policy(
     network: &str,
     person: &str,
 ) -> Result<Option<Policy>, Error> {
-    let Some(key) = store.person_key(conn, network, person)? else {
+    let Some(key) = store.product_person_key(conn, network, person)? else {
         return Ok(None);
     };
-    // Withdrawals of this host's unsettled edits apply at once.
-    store
-        .stored_policy(conn, network, &key)?
-        .map(|p| store.enforced(conn, network, p))
-        .transpose()
+    store.product_policy(conn, network, &key)
 }
 /// Whether self access covers `sender` in `network`: both hosts are bound
 /// to `person` there, and that person's newest verified policy, within its
@@ -423,7 +420,8 @@ fn trusted_in(
         .own_members(conn)?
         .into_iter()
         .any(|(n, m)| n == network && m.person_id.as_deref() == Some(person));
-    let bound = crate::chain::member(conn, network, sender)?
+    let bound = store
+        .product_member(conn, network, sender)?
         .is_some_and(|m| m.person_id.as_deref() == Some(person));
     if !own || !bound {
         return Ok(false);
@@ -508,12 +506,13 @@ fn candidates(
     if !policy.in_window(Utc::now()) {
         return Err(Error::Forbidden);
     }
-    let Some(sender_member) =
-        crate::chain::member(conn, &cited.network_id, sender)?.filter(|m| m.host_id != me)
+    let Some(sender_member) = store
+        .product_member(conn, &cited.network_id, sender)?
+        .filter(|m| m.host_id != me)
     else {
         return Err(Error::Forbidden);
     };
-    let groups = store.stored_groups(conn, &cited.network_id)?;
+    let groups = store.product_groups(conn, &cited.network_id)?;
     let caller = sender_member
         .person_id
         .clone()
@@ -885,7 +884,7 @@ impl Store {
             (_, Some(s)) => (s.network_id.as_str(), "self"),
             _ => return Ok(None),
         };
-        let member = crate::chain::member(conn, network, sender)?;
+        let member = self.product_member(conn, network, sender)?;
         let person_id = member.as_ref().and_then(|m| m.person_id.clone());
         let person_label = member
             .as_ref()
@@ -1092,12 +1091,13 @@ impl Store {
                 if !policy.in_window(at) {
                     continue;
                 }
-                let Some(sender_member) =
-                    crate::chain::member(&conn, &net, sender)?.filter(|m| m.host_id != me)
+                let Some(sender_member) = self
+                    .product_member(&conn, &net, sender)?
+                    .filter(|m| m.host_id != me)
                 else {
                     continue;
                 };
-                let groups = self.stored_groups(&conn, &net)?;
+                let groups = self.product_groups(&conn, &net)?;
                 policies.push((net, person, policy, sender_member, groups));
             }
         }

@@ -31,6 +31,32 @@ type SourceState struct {
 	Restrictions []LegacyRestriction `json:"admitted_restrictions"`
 }
 
+// VerifyMigrationSourceSnapshot is the strict pre-proposal source reader. It
+// authenticates the original old-context proofs and exact endorsed metadata;
+// it creates no migration origin, approval, private admission or new-mode path.
+func VerifyMigrationSourceSnapshot(d Descriptor, legacy, catalog, state []byte, epoch uint64, feature, root, now string) (*SourceState, linking.NetworkState, error) {
+	at, e := stamp(now)
+	if e != nil {
+		return nil, linking.NetworkState{}, e
+	}
+	return verifyLegacySnapshot(d, legacy, catalog, state, epoch, feature, root, at)
+}
+
+// MigrationSourceRestriction decodes the target of an exact old proof after
+// its surrounding legacy catalog has been independently verified. The caller
+// must not infer prior local admission from this target-only reader.
+func MigrationSourceRestriction(id, kind string, raw []byte) (LegacyRestriction, string, bool, error) {
+	target, restrictive, e := legacyRestrictionTarget(kind, raw)
+	if e != nil || !restrictive {
+		return LegacyRestriction{}, "", restrictive, e
+	}
+	if !identifier(id, "pf_") {
+		return LegacyRestriction{}, "", false, invalid()
+	}
+	ban, e := legacyBanKind(kind, raw)
+	return LegacyRestriction{id, kind, target.Person, target.Host, target.Device}, ban, true, e
+}
+
 func readSourceState(d Descriptor, raw []byte) (*SourceState, error) {
 	o, e := parseLimit(raw, MaxPayload)
 	if e != nil {
@@ -42,6 +68,9 @@ func readSourceState(d Descriptor, raw []byte) (*SourceState, error) {
 	var state SourceState
 	if json.Unmarshal(raw, &state) != nil {
 		return nil, invalid()
+	}
+	if _, e = num(o, "legacy_root_highwater"); e != nil {
+		return nil, e
 	}
 	hosts, e := stringsOf(o, "known_admitted_hosts")
 	if e != nil {

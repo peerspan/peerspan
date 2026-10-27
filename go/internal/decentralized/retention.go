@@ -7,6 +7,9 @@ import "time"
 // point: the retainer is independently admitted first, and every old original
 // signature/consent/ceiling and intervening retention remains required.
 func portableAdmission(a *authority, s *Statement) ([]string, error) {
+	if a.graph.pendingAdmissions[s.ID] != "" {
+		return nil, failure("forbidden")
+	}
 	if s.Lease == nil && s.Access == nil {
 		return nil, failure("forbidden")
 	}
@@ -74,7 +77,7 @@ func portableAdmission(a *authority, s *Statement) ([]string, error) {
 	proofView.admitted = copySet(a.admitted)
 	eligible := map[string]bool{}
 	for id := range closure {
-		if candidateWindow(a.graph.catalog.Statements[id], a.now) == nil {
+		if a.graph.pendingAdmissions[id] == "" && candidateWindow(a.graph.catalog.Statements[id], a.now) == nil {
 			proofView.admitted[id] = true
 			eligible[id] = true
 		}

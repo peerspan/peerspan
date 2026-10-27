@@ -496,10 +496,9 @@ fn sort(list: &mut [ApprovalRecord]) {
 
 impl Store {
     /// The pending approvals, oldest first.
-    pub(crate) fn pending_approvals(&self) -> Result<Vec<ApprovalRecord>, Error> {
-        let conn = self.connection()?;
+    fn pending_approvals_in(&self, conn: &Connection) -> Result<Vec<ApprovalRecord>, Error> {
         let mut list = records(
-            &conn,
+            conn,
             "SELECT record FROM call_approvals WHERE state = 'pending'",
             [],
         )?;
@@ -626,8 +625,11 @@ impl Store {
         Ok(n.notice)
     }
     /// Status item 18: one item while any approval is pending.
-    pub(crate) fn approval_attention(&self) -> Result<Option<(String, String, String)>, Error> {
-        let pending = self.pending_approvals()?;
+    pub(crate) fn approval_attention(
+        &self,
+        conn: &Connection,
+    ) -> Result<Option<(String, String, String)>, Error> {
+        let pending = self.pending_approvals_in(conn)?;
         let Some(oldest) = pending.first() else {
             return Ok(None);
         };

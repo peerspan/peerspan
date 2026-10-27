@@ -1631,6 +1631,64 @@ def migration_cases(w: World) -> list[Case]:
     return result
 
 
+def migration_local_wrapper_cases(w: World) -> list[Case]:
+    """PR127 separates independently materialized LOCAL wrappers from pins.
+
+    Positive requests retain the complete proposed operation byte for byte.
+    Only trusted local-known or independently pinned descriptor wrappers vary;
+    arrays and every exact decoded signed proof body remain unchanged.
+    """
+    pin = "96b6664decbb7cc426b9b5088a9466801ce3161f"
+    m = w.unbound_migration()
+    expected = {"ok": True, "context_id": w.context_id,
+        "proposal_id": m.proposal.statement_id, "root_state_id": m.root.statement_id,
+        "prepared_catalog_sha256": sha(m.prepared_catalog),
+        "roster_host_public_keys": [w.keys.public("host-a")],
+        "local_approval_matched": True, "context_origin_valid": True,
+        "usable_device_lease_ids": [], "inactive_device_lease_ids": []}
+
+    def rematerialize(raw: bytes) -> bytes:
+        def reverse_keys(value):
+            if isinstance(value, dict):
+                return {key: reverse_keys(value[key]) for key in reversed(value)}
+            if isinstance(value, list):
+                return [reverse_keys(item) for item in value]
+            return value
+        text = json.dumps(reverse_keys(json.loads(raw)), indent=2, ensure_ascii=True)
+        # Equivalent escaping changes wrapper spelling, never decoded strings.
+        return (" \n"+text.replace("/", "\\/").replace("i", "\\u0069")+"\n ").encode()
+
+    def add(name, prior, *, descriptor=w.descriptor_bytes, body=m.body, outcome=expected):
+        return Case("migration_local_wrapper/"+name,
+            {"format":1,"kind":"migration","descriptor_base64":b64(descriptor),
+             "legacy_prior":prior,"prior":"-","migration_base64":b64(body),"now":NOW,
+             "purpose":"adoption","local_host_public_key":w.keys.public("host-a")},
+            outcome, oracle_pin=pin)
+
+    descriptor = rematerialize(unb64(m.legacy_prior["legacy_descriptor_base64"]))
+    state = rematerialize(m.source_state)
+    catalog = rematerialize(m.source_catalog)
+    combined = changed(m.legacy_prior, legacy_descriptor_base64=b64(descriptor),
+                       source_state_base64=b64(state), legacy_catalog_base64=b64(catalog))
+    result = [
+        add("local_legacy_descriptor_key_order_whitespace_and_escaping", changed(m.legacy_prior, legacy_descriptor_base64=b64(descriptor))),
+        add("local_source_state_key_order_whitespace_and_escaping", changed(m.legacy_prior, source_state_base64=b64(state))),
+        add("local_catalog_wrapper_preserves_exact_original_proof_body", changed(m.legacy_prior, legacy_catalog_base64=b64(catalog))),
+        add("independently_pinned_new_descriptor_wrapper_same_context", m.legacy_prior, descriptor=rematerialize(w.descriptor_bytes)),
+        add("all_local_wrappers_change_without_rewriting_endorsed_operation", combined, descriptor=rematerialize(w.descriptor_bytes)),
+    ]
+    altered = json.loads(m.body)
+    altered["source_state_base64"] = b64(state)
+    result.append(add("endorsed_source_state_wrapper_still_requires_exact_declared_hash",
+                      m.legacy_prior, body=raw_json(altered), outcome=error("invalid")))
+    local = json.loads(m.source_catalog)
+    original = unb64(local["objects"][0]["body_base64"])
+    local["objects"][0]["body_base64"] = b64(rematerialize(original))
+    result.append(add("local_signed_proof_body_cannot_be_normalized_under_original_proof_id",
+                      changed(m.legacy_prior, legacy_catalog_base64=b64(raw_json(local))), outcome=error("invalid")))
+    return result
+
+
 def migration_source_authority_cases(w: World) -> list[Case]:
     """Raw legacy proof presence is separate from actual inherited authority.
 
@@ -2358,6 +2416,108 @@ def retained_renewal_ancestor_cases(w: World) -> list[Case]:
     return cases
 
 
+def all_head_retention_signing_cases(w: World) -> list[Case]:
+    """PR123 permits only the resolver's narrow branch-intersection check.
+
+    These are unsigned signing checks over independently signed, already
+    remembered histories. The prior root-fork projection cases stay unchanged;
+    no signable result makes any root branch current or supplies other roles.
+    """
+    pin = "434fd0da243dd9dae41cc5c80240b2a0057fd816"
+    cases = []
+    complete = None
+    for old in fork_retention_cases(w):
+        request = old.request
+        catalog = json.loads(unb64(request["candidate_catalog_base64"]))
+        resolver_body = json.loads(unb64(catalog["objects"][0]["body_base64"]))
+        payload = json.loads(unb64(resolver_body["payload_base64"]))
+        prior = request["prior"]
+        roots = {}
+        for entry in json.loads(unb64(prior["catalog_base64"]))["objects"]:
+            body = json.loads(unb64(entry["body_base64"]))
+            if entry["kind"] != "root_state":
+                continue
+            raw = unb64(body["payload_base64"])
+            identifier = "ds_"+sha(lines("peerspan-decentralized-statement-v1", "root_state", w.context_id, sha(raw)))
+            roots[identifier] = json.loads(raw)
+        actor_id = prior["root_head_ids"][0]
+        action = {"format": 1, "kind": "action", "descriptor_base64": b64(w.descriptor_bytes),
+            "prior": prior, "candidate_catalog_base64": b64(w.catalog([])), "now": request["now"],
+            "actor": {"person_public_key": "-", "host_public_key": "-", "device_public_key": "-", "issuer_id": actor_id},
+            "action_kind": "root_state", "unsigned_payload_base64": b64(raw_json(payload))}
+        expected = ({"ok": True, "context_id": w.context_id, "decision_time": request["now"],
+            "issuer_id": actor_id, "signer_public_key": roots[actor_id]["root_public_key"],
+            "required_parent_ids": payload["predecessors"], "effective_not_after": "-"}
+            if old.name.endswith("all_branches_keep") else error("forbidden"))
+        cases.append(Case(old.name.replace("fork_retention/", "all_head_retention_signing/"), action, expected, oracle_pin=pin))
+        if expected["ok"]:
+            complete = (action, payload, roots)
+    assert complete is not None
+    action, payload, roots = complete
+    other = action["prior"]["root_head_ids"][1]
+    cases.append(Case("all_head_retention_signing/other_exact_branch_has_only_its_own_resolver_role",
+        changed(action, actor=changed(action["actor"], issuer_id=other)),
+        changed(cases[-1].expected, issuer_id=other, signer_public_key=roots[other]["root_public_key"]), oracle_pin=pin))
+    host_id = payload["retained_statement_ids"][0]
+    missing = copy.deepcopy(action)
+    prior_catalog = json.loads(unb64(missing["prior"]["catalog_base64"]))
+    prior_catalog["objects"] = [entry for entry in prior_catalog["objects"] if entry["kind"] != "host_lease"]
+    missing["prior"]["catalog_base64"] = b64(raw_json(prior_catalog))
+    cases.append(Case("all_head_retention_signing/missing_exact_carried_host_is_not_known_ineligible",
+        missing, error("proof_required", [host_id]), oracle_pin=pin))
+    person = w.lease_payload("person_lease", root_state_id=action["actor"]["issuer_id"],
+        issued_at=action["now"], not_before=action["now"])
+    cases.append(Case("all_head_retention_signing/hypothetical_retention_does_not_unfreeze_ordinary_root_work",
+        changed(action, action_kind="person_lease", unsigned_payload_base64=b64(raw_json(person))),
+        error("state_conflict"), oracle_pin=pin))
+
+    # The literal nominal mask on an old child is not its current power. Keep
+    # all exact original/renewed consent proof, with the current finite head
+    # narrowing the old parent and its explicitly carried child to common7.
+    narrowed = next(c for c in retained_device_scope_cases(w)
+        if c.name.endswith("retained_child_preserves_policy_bit1_after_parent_narrowing"))
+    base = copy.deepcopy(narrowed.request["prior"])
+    objects = []
+    finite = []
+    for entry in json.loads(unb64(base["catalog_base64"]))["objects"]:
+        body = unb64(entry["body_base64"])
+        if entry["kind"] == "activation":
+            objects.append(PublicObject("activation", w.context_id, b"", body, ""))
+            continue
+        raw = unb64(json.loads(body)["payload_base64"])
+        identifier = "ds_"+sha(lines("peerspan-decentralized-statement-v1", entry["kind"], w.context_id, sha(raw)))
+        objects.append(PublicObject(entry["kind"], w.context_id, raw, body, identifier))
+        if entry["kind"] in {"admin_lease", "person_lease", "host_lease", "binding_lease", "device_lease", "policy", "group"}:
+            finite.append(identifier)
+    finite = sorted(set(finite))
+    branches = []
+    for label in ("common7-left", "common7-right"):
+        branches.append(w.statement("root_state", {"epoch": 1, "predecessors": [w.genesis.statement_id],
+            "resolves": [], "migration_proposal_id": "-", "root_public_key": w.keys.public(label),
+            "issued_at": "2026-10-26T12:00:03Z", "retained_statement_ids": finite},
+            [("issuer", "root", "ed25519"), ("new_root", label, "ed25519")]))
+    heads = sorted(b.statement_id for b in branches)
+    base["catalog_base64"] = b64(w.catalog(objects+branches))
+    base["root_head_ids"] = heads
+    base["admitted_statement_ids"] = sorted(set(base["admitted_statement_ids"]+heads))
+    base["maxima"] = sorted([m for m in base["maxima"] if m["stream"] != ["root"]]+
+        [maximum(["root"], 1, branches)], key=lambda row: row["stream"])
+    base["clock_guard"] = "2026-10-26T12:00:03Z"
+    root_payload = {"epoch": 2, "predecessors": heads, "resolves": heads, "migration_proposal_id": "-",
+        "root_public_key": w.keys.public("common7-resolver"), "issued_at": "2026-10-26T12:00:04Z",
+        "retained_statement_ids": finite}
+    branch = next(b for b in branches if b.statement_id == heads[0])
+    cases.append(Case("all_head_retention_signing/nominal15_effective7_remains_retainable_without_restoring8", {
+        "format": 1, "kind": "action", "descriptor_base64": b64(w.descriptor_bytes), "prior": base,
+        "candidate_catalog_base64": b64(w.catalog([])), "now": "2026-10-26T12:00:04Z",
+        "actor": {"person_public_key": "-", "host_public_key": "-", "device_public_key": "-", "issuer_id": heads[0]},
+        "action_kind": "root_state", "unsigned_payload_base64": b64(raw_json(root_payload))},
+        {"ok": True, "context_id": w.context_id, "decision_time": "2026-10-26T12:00:04Z", "issuer_id": heads[0],
+         "signer_public_key": json.loads(branch.payload)["root_public_key"], "required_parent_ids": heads,
+         "effective_not_after": "-"}, oracle_pin=pin))
+    return cases
+
+
 def migration_root_transition_conflict_cases(w: World) -> list[Case]:
     result = []
     for case in migration_action_conflict_cases(w):
@@ -2382,6 +2542,7 @@ GROUPS = {"descriptor": descriptor_cases, "statement": statement_cases, "catalog
           "current_retained_issuer": current_retained_issuer_cases,
           "imported_resolver": imported_resolver_cases,
           "fork_retention": fork_retention_cases,
+          "all_head_retention_signing": all_head_retention_signing_cases,
           "retained_renewal_ancestor": retained_renewal_ancestor_cases,
           "ceremony_scope": ceremony_scope_cases,
           "fixed_retention_time": fixed_retention_time_cases,
@@ -2397,6 +2558,7 @@ GROUPS = {"descriptor": descriptor_cases, "statement": statement_cases, "catalog
           "root_origin": root_origin_cases,
           "retention_time": retention_time_cases,
           "migration": migration_cases, "migration_source_authority": migration_source_authority_cases,
+          "migration_local_wrapper": migration_local_wrapper_cases,
           "migration_sticky_restriction": migration_sticky_restriction_cases,
           "migration_source_budget": migration_source_budget_cases,
           "migration_origin": migration_origin_cases,

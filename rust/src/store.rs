@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, RwLock,
-        atomic::{AtomicI64, AtomicU64},
+        atomic::{AtomicBool, AtomicI64, AtomicU64},
     },
     time::{Duration, Instant},
 };
@@ -29,9 +29,24 @@ PRAGMA user_version = 1;
 /// Serializes directory queries to one host in one network.
 pub(crate) type HostQueryLock = Arc<tokio::sync::Mutex<()>>;
 
+/// Transport deduplication expires on real monotonic time. The decision-time
+/// anchor only prevents reusing a successful read across a local clock rewind.
+pub(crate) struct BootstrapPoll {
+    pub decision_time: String,
+    pub read_at: Instant,
+}
+
 /// Local persistence and installation ownership. Network coordination is not
 /// required. The process lock lives for as long as the connection does.
 pub struct Store {
+    pub(crate) dec_repair_limits: Arc<crate::decentralized::peer::RepairLimits>,
+    pub(crate) dec_bootstrap_admission: Arc<crate::decentralized::bootstrap_admission::Admission>,
+    pub(crate) bootstrap_mailboxes:
+        RwLock<std::sync::Weak<crate::decentralized::mailbox::ParticipantMailbox>>,
+    pub(crate) bootstrap_settings: RwLock<crate::decentralized::bootstrap_io::Settings>,
+    pub(crate) bootstrap_polls: Mutex<BTreeMap<(String, String, String), BootstrapPoll>>,
+    pub(crate) dec_cancelled: AtomicBool,
+    pub(crate) dec_public_runtime: AtomicBool,
     connection: Mutex<Connection>,
     _lock: File,
     directory: PathBuf,
@@ -119,8 +134,20 @@ pub struct Store {
 }
 
 impl Store {
+    /// Production launch uses DEC authority. Retained legacy rows are history;
+    /// this process-local gate does not rewrite or migrate their contents.
+    pub fn enable_decentralized_runtime(&self) {
+        self.dec_public_runtime
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    pub(crate) fn decentralized_runtime(&self) -> bool {
+        self.dec_public_runtime
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
     /// Answers the held call and status requests at once, for shutdown.
     pub fn close_held_requests(&self) {
+        self.dec_cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
         self.call_timing.close();
     }
 }
@@ -294,6 +321,13 @@ impl Store {
             Instant::now() + Duration::from_secs(crate::adapter_connection::LEASE_SECONDS);
         let adapter_recovery_until = recovering.into_iter().map(|id| (id, deadline)).collect();
         let store = Self {
+            dec_repair_limits: Arc::new(Default::default()),
+            dec_bootstrap_admission: Arc::new(Default::default()),
+            bootstrap_mailboxes: RwLock::new(Default::default()),
+            bootstrap_settings: RwLock::new(Default::default()),
+            bootstrap_polls: Mutex::new(BTreeMap::new()),
+            dec_cancelled: AtomicBool::new(false),
+            dec_public_runtime: AtomicBool::new(false),
             connection: Mutex::new(connection),
             _lock: lock,
             directory,
@@ -419,7 +453,9 @@ impl Store {
     }
 
     pub fn agents(&self) -> Result<Vec<Agent>, Error> {
-        let connection = self.connection()?;
+        self.agents_in(&*self.connection()?)
+    }
+    pub(crate) fn agents_in(&self, connection: &Connection) -> Result<Vec<Agent>, Error> {
         let mut statement = connection.prepare(
             "SELECT id, name, owner, capabilities, created_at FROM agents ORDER BY created_at, id",
         )?;
@@ -497,7 +533,13 @@ impl Store {
     }
 
     pub fn sessions(&self, agent_id: &str) -> Result<Vec<Session>, Error> {
-        let connection = self.connection()?;
+        self.sessions_in(&*self.connection()?, agent_id)
+    }
+    pub(crate) fn sessions_in(
+        &self,
+        connection: &Connection,
+        agent_id: &str,
+    ) -> Result<Vec<Session>, Error> {
         if !agent_id.is_empty() {
             connection.query_row("SELECT id FROM agents WHERE id = ?1", [agent_id], |r| {
                 r.get::<_, String>(0)
@@ -508,7 +550,7 @@ impl Store {
             .query_map([agent_id], read_session)?
             .collect::<Result<Vec<_>, _>>()?;
         for session in &mut sessions {
-            session.channel = session_channel(&connection, &session.id)?;
+            session.channel = session_channel(connection, &session.id)?;
         }
         Ok(sessions)
     }

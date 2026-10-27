@@ -10,6 +10,7 @@ use crate::{
     relay::{Combined, Coordinator, Relays, raw_host},
     store::Store,
 };
+use base64::Engine;
 use hyper_util::{rt::TokioIo, service::TowerToHyperService};
 use quinn::{
     Connection, Endpoint, Incoming, TransportConfig, VarInt,
@@ -27,6 +28,7 @@ use std::{
 use tokio::{sync::watch, task::JoinSet};
 
 pub(crate) const ALPN: &[u8] = b"peerspan-peer/1";
+pub(crate) const COMPLETION_ALPN: &[u8] = b"peerspan-completion/1";
 const HANDSHAKE: Duration = Duration::from_secs(5);
 const IDLE: Duration = Duration::from_secs(30);
 const MAX_CONNECTIONS: usize = 64;
@@ -37,6 +39,12 @@ const MAX_BODY: usize = 1 << 20;
 const MAX_LARGE_RESPONSE: usize = 4 << 20;
 /// The response bound of a peer request.
 fn response_limit(method: &str, path: &str) -> usize {
+    if ((matches!(method, "GET" | "POST") && path.starts_with("/peer/v2/networks/"))
+        || (method == "GET" && path.starts_with("/repair/v1/networks/")))
+        && path.ends_with("/catalog")
+    {
+        return 20 << 20;
+    }
     if matches!(method, "GET" | "POST")
         && path.starts_with("/peer/v1/networks/")
         && path.ends_with("/link-catalog")
@@ -106,7 +114,10 @@ fn transport_config() -> Arc<TransportConfig> {
     let mut config = TransportConfig::default();
     config
         .max_idle_timeout(Some(IDLE.try_into().expect("idle timeout fits")))
-        .max_concurrent_bidi_streams(MAX_STREAMS.into())
+        .max_concurrent_bidi_streams(1u32.into())
+        .stream_receive_window((64u32 << 10).into())
+        .receive_window((16u32 << 10).into())
+        .send_window(64 << 10)
         .max_concurrent_uni_streams(0u32.into())
         .datagram_receive_buffer_size(None)
         // quinn's GSO batches on loopback were silently lost by the Go
@@ -307,6 +318,14 @@ fn sweep_relays(transport: &Arc<Transport>) {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
+    let routing = Arc::downgrade(transport);
+    runtime.spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let Some(t) = routing.upgrade() else { return };
+            t.relays.collect_provisional();
+        }
+    });
     let weak = Arc::downgrade(transport);
     runtime.spawn(async move {
         loop {
@@ -314,6 +333,7 @@ fn sweep_relays(transport: &Arc<Transport>) {
             let Some(transport) = weak.upgrade() else {
                 return;
             };
+            transport.relays.collect_provisional();
             transport
                 .relays
                 .sweep(&transport.relays_in_use(), std::time::Instant::now());
@@ -366,7 +386,7 @@ impl Transport {
         };
         let mut failure = None;
         if let Some(direct) = paths.direct {
-            let bound = if paths.relay.is_some() {
+            let bound = if !paths.relays.is_empty() {
                 DIRECT_HANDSHAKE
             } else {
                 HANDSHAKE
@@ -376,8 +396,10 @@ impl Transport {
                 Err(error) => failure = Some(error),
             }
         }
-        if let Some((coordinator, synthetic)) = &paths.relay {
-            self.relays.ensure(store, coordinator, false);
+        for (coordinator, synthetic) in &paths.relays {
+            if cfg!(test) {
+                self.relays.ensure(store, coordinator, false);
+            }
             if let Some(host) = raw_host(&peer.id) {
                 self.relays.route(&host, coordinator);
             }
@@ -386,11 +408,16 @@ impl Transport {
                 .connected(coordinator, remaining(RELAY_READY)?)
                 .await
             {
-                anyhow::bail!("relay {} is not connected", coordinator.address);
+                failure = Some(anyhow::anyhow!("configured relay is unavailable"));
+                continue;
             }
-            return self
+            match self
                 .dial(store, peer, key, *synthetic, remaining(HANDSHAKE)?)
-                .await;
+                .await
+            {
+                Ok(connection) => return Ok(connection),
+                Err(error) => failure = Some(error),
+            }
         }
         Err(failure.unwrap_or_else(|| anyhow::anyhow!("peer has no dial address")))
     }
@@ -465,6 +492,189 @@ pub(crate) async fn request_direct(
 ) -> anyhow::Result<(u16, Vec<u8>)> {
     request_on(store, peer, method, path, body, true).await
 }
+/// One bounded completion request, pinned to a durable transcript participant.
+/// No connection or key is inserted into the ordinary peer cache.
+pub(crate) async fn completion_request(
+    store: Arc<Store>,
+    peer: &Peer,
+    method: hyper::Method,
+    path: String,
+    body: bytes::Bytes,
+) -> crate::decentralized::Result<crate::decentralized::bootstrap_io::Response> {
+    use crate::decentralized::{Error, bootstrap_io};
+    let fail = |_: anyhow::Error| {
+        let mut e = Error::new("recovery_required");
+        e.stage = Some("transport");
+        e
+    };
+    let key = peer_key(peer).map_err(|e| fail(anyhow::anyhow!("{e}")))?;
+    let transport = transport(&store).map_err(fail)?;
+    let resource_owner = store.clone();
+    let resources =
+        tokio::task::spawn_blocking(move || bootstrap_io::relay_resources(&resource_owner))
+            .await
+            .map_err(|_| Error::new("internal"))??;
+    let mut selected_helpers = Vec::new();
+    for r in resources {
+        selected_helpers.push(Coordinator {
+            address: r.address.clone(),
+            key: r.public_key.clone(),
+        });
+        transport.relays.ensure_resource(
+            &store,
+            &Coordinator {
+                address: r.address,
+                key: r.public_key,
+            },
+            r.credential,
+        );
+    }
+    transport.relays.retain_resources(&selected_helpers);
+    let _transport_budget = store
+        .bootstrap_mailboxes
+        .read()
+        .ok()
+        .and_then(|m| m.upgrade())
+        .and_then(|m| m.transport_buffers())
+        .ok_or_else(|| Error::new("quota_exceeded"))?;
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        let helpers = transport.relays.resource_endpoints();
+        let config = QuicClientConfig::try_from(crate::peer::pinned_client_config(
+            store.clone(),
+            key.clone(),
+            COMPLETION_ALPN,
+        )?)?;
+        let mut config = quinn::ClientConfig::new(Arc::new(config));
+        let mut receive = TransportConfig::default();
+        receive
+            .max_concurrent_bidi_streams(0u32.into())
+            .max_concurrent_uni_streams(0u32.into())
+            .stream_receive_window((64u32 << 10).into())
+            .receive_window((16u32 << 10).into())
+            .send_window(64 << 10)
+            .datagram_receive_buffer_size(None)
+            .enable_segmentation_offload(false);
+        config.transport_config(Arc::new(receive));
+        let exchange = |connection: Connection, body: bytes::Bytes| {
+            let method = method.clone();
+            let path = path.clone();
+            async move {
+                let (send, recv) = connection.open_bi().await?;
+                let response =
+                    bootstrap_io::completion_exchange(Stream { send, recv }, method, path, body)
+                        .await;
+                connection.close(0u32.into(), b"completion finished");
+                response.map_err(|e| anyhow::anyhow!("{}", e.code))
+            }
+        };
+        if !peer.address.is_empty()
+            && let Ok(Ok(addresses)) = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::net::lookup_host(&peer.address),
+            )
+            .await
+        {
+            for address in addresses.take(8) {
+                let bound = if helpers.is_empty() {
+                    HANDSHAKE
+                } else {
+                    DIRECT_HANDSHAKE
+                };
+                let Ok(connected) =
+                    transport
+                        .endpoint
+                        .connect_with(config.clone(), address, SERVER_NAME)
+                else {
+                    continue;
+                };
+                if let Ok(Ok(connection)) = tokio::time::timeout(bound, connected).await {
+                    if negotiated(&connection).as_deref() != Some(COMPLETION_ALPN) {
+                        connection.close(1u32.into(), b"alpn");
+                        continue;
+                    }
+                    if let Ok(response) = exchange(connection, body.clone()).await {
+                        return Ok(response);
+                    }
+                }
+            }
+        }
+        let host =
+            raw_host(&peer.id).ok_or_else(|| anyhow::anyhow!("invalid completion target"))?;
+        for helper in helpers {
+            if !transport
+                .relays
+                .connected(&helper, Duration::from_secs(2))
+                .await
+            {
+                continue;
+            }
+            let Some(address) = transport.relays.address_for(&host) else {
+                continue;
+            };
+            transport.relays.route(&host, &helper);
+            let connected =
+                transport
+                    .endpoint
+                    .connect_with(config.clone(), address.into(), SERVER_NAME)?;
+            if let Ok(Ok(connection)) = tokio::time::timeout(HANDSHAKE, connected).await {
+                if negotiated(&connection).as_deref() != Some(COMPLETION_ALPN) {
+                    connection.close(1u32.into(), b"alpn");
+                    continue;
+                }
+                let Some(_route) =
+                    transport
+                        .relays
+                        .outgoing_completion(&store, address.into(), &key)
+                else {
+                    connection.close(1u32.into(), b"identity");
+                    continue;
+                };
+                if let Ok(response) = exchange(connection, body.clone()).await {
+                    return Ok(response);
+                }
+            }
+            transport.relays.retire_completion(&store, &host);
+        }
+        anyhow::bail!("completion participant unavailable")
+    })
+    .await;
+    // Exact participant hints may be used again, but no unadmitted address/key
+    // survives this one bounded attempt in the QUIC transport maps.
+    if let Some(host) = raw_host(&peer.id) {
+        transport.relays.retire_completion(&store, &host);
+    }
+    match result {
+        Ok(r) => r.map_err(fail),
+        Err(_) => Err(fail(anyhow::anyhow!("completion timeout"))),
+    }
+}
+/// One fresh proof-repair connection, never reused for ordinary peer work.
+/// The caller checks the remembered context pin before requesting public bytes.
+pub(crate) async fn request_repair(
+    store: Arc<Store>,
+    peer: &Peer,
+    path: &str,
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    let key = peer_key(peer).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let transport = transport(&store)?;
+    let mut config = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(
+        crate::peer::pinned_client_config(store, key, crate::decentralized::peer::REPAIR_ALPN)?,
+    )?));
+    config.transport_config(transport_config());
+    let connecting = transport
+        .endpoint
+        .connect_with(config, peer.address.parse()?, SERVER_NAME)?;
+    let connection = tokio::time::timeout(Duration::from_secs(5), connecting).await??;
+    if negotiated(&connection).as_deref() != Some(crate::decentralized::peer::REPAIR_ALPN) {
+        connection.close(VarInt::from_u32(1), b"alpn");
+        anyhow::bail!("peer did not negotiate proof repair");
+    }
+    let result = exchange(&connection, "GET", path, b"")
+        .await
+        .map_err(|e| e.error);
+    connection.close(VarInt::from_u32(0), b"repair complete");
+    result
+}
 async fn request_on(
     store: Arc<Store>,
     peer: &Peer,
@@ -477,7 +687,7 @@ async fn request_on(
     let transport = transport(&store)?;
     let mut paths = paths(&store, &transport, peer).await?;
     if direct_only {
-        paths.relay = None;
+        paths.relays.clear();
         if paths.direct.is_none() {
             anyhow::bail!("peer has no direct address");
         }
@@ -676,13 +886,13 @@ async fn open_download(connection: &Connection, path: &str) -> Result<Download, 
 /// lowest-ID network both hosts belong to with the peer's synthetic address.
 struct Paths {
     direct: Option<SocketAddr>,
-    relay: Option<(Coordinator, SocketAddr)>,
+    relays: Vec<(Coordinator, SocketAddr)>,
 }
 impl Paths {
     fn all(&self) -> Vec<SocketAddr> {
         self.direct
             .into_iter()
-            .chain(self.relay.as_ref().map(|(_, a)| *a))
+            .chain(self.relays.iter().map(|(_, a)| *a))
             .collect()
     }
 }
@@ -693,23 +903,73 @@ async fn paths(store: &Arc<Store>, transport: &Transport, peer: &Peer) -> anyhow
         Some(peer.address.parse()?)
     };
     let id = peer.id.clone();
-    let coordinator = blocking(store.clone(), move |s| s.relay_coordinator(&id))
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let relay = match (coordinator, raw_host(&peer.id)) {
+    let coordinator = if cfg!(test) {
+        blocking(store.clone(), move |s| s.relay_coordinator(&id))
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+    } else {
+        None
+    };
+    let mut relays: Vec<_> = match (coordinator, raw_host(&peer.id)) {
         (Some((address, key)), Some(host)) => {
             let key = membership::canonical(&key, 32).map_err(|e| anyhow::anyhow!("{e}"))?;
             transport
                 .relays
                 .address_for(&host)
                 .map(|synthetic| (Coordinator { address, key }, SocketAddr::V4(synthetic)))
+                .into_iter()
+                .collect()
         }
-        _ => None,
+        _ => Vec::new(),
     };
-    if direct.is_none() && relay.is_none() {
+    if let Some(host) = raw_host(&peer.id)
+        && let Some(synthetic) = transport.relays.address_for(&host)
+    {
+        relays.extend(
+            transport
+                .relays
+                .resource_endpoints()
+                .into_iter()
+                .map(|endpoint| (endpoint, SocketAddr::V4(synthetic))),
+        );
+    }
+    if direct.is_none() && relays.is_empty() {
         anyhow::bail!("peer has no dial address or shared relay");
     }
-    Ok(Paths { direct, relay })
+    Ok(Paths { direct, relays })
+}
+/// Optional relay resources have no network membership prerequisite. Only
+/// explicit private host transport settings create these replaceable clients.
+pub(crate) async fn helper_worker(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(2));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _=shutdown.changed()=>break,
+            _=tick.tick()=>{
+                let owner=store.clone();
+                let resources=tokio::task::spawn_blocking(move||crate::decentralized::bootstrap_io::relay_resources(&owner)).await;
+                if let Ok(Ok(resources))=resources {
+                    // No helper configuration means no transport initialization or
+                    // connection attempt solely because a legacy row exists.
+                    if resources.is_empty() {
+                        if let Some(relays)=relays(&store) {relays.retain_resources(&[]);}
+                        continue;
+                    }
+                    let Ok(transport)=transport(&store) else {continue};
+                    let mut current=Vec::new();
+                    for resource in resources {
+                        let endpoint=Coordinator{address:resource.address,key:resource.public_key};
+                        transport.relays.ensure_resource(&store,&endpoint,resource.credential);current.push(endpoint);
+                    }
+                    transport.relays.retain_resources(&current);
+                }
+            }
+        }
+    }
+    if let Some(relays) = relays(&store) {
+        relays.retain_resources(&[]);
+    }
 }
 /// Keeps a relay connection to every coordinator of this host's networks, so
 /// relayed peers can reach a listening host and every host receives change
@@ -742,6 +1002,9 @@ async fn keep_relays(store: Arc<Store>, transport: Arc<Transport>) {
 /// notifications. Its client-only endpoint still accepts no inbound peer
 /// connections through them.
 pub async fn keep_without_listener(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) {
+    if !cfg!(test) {
+        return;
+    }
     loop {
         let member = blocking(store.clone(), |s| s.coordinators())
             .await
@@ -931,20 +1194,21 @@ impl tokio::io::AsyncWrite for Stream {
 /// outlive the bounded drain remain unknown to their senders.
 pub async fn serve(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
     let transport = transport(&store)?;
-    let relays = tokio::spawn(keep_relays(store.clone(), transport.clone()));
-    let _relays = AbortOnDrop(relays);
+    let _relays = cfg!(test)
+        .then(|| AbortOnDrop(tokio::spawn(keep_relays(store.clone(), transport.clone()))));
     let mut connections = JoinSet::new();
+    let ordinary = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
     loop {
         tokio::select! {
             _ = shutdown.changed() => break,
             Some(_) = connections.join_next(), if !connections.is_empty() => {}
             incoming = transport.endpoint.accept() => {
                 let Some(incoming) = incoming else { break };
-                if connections.len() >= MAX_CONNECTIONS {
+                if connections.len() >= MAX_CONNECTIONS+128 {
                     incoming.refuse();
                     continue;
                 }
-                connections.spawn(connection(store.clone(), incoming, shutdown.clone()));
+                connections.spawn(connection(store.clone(), incoming, shutdown.clone(),ordinary.clone()));
             }
         }
     }
@@ -957,8 +1221,40 @@ pub async fn serve(store: Arc<Store>, mut shutdown: watch::Receiver<bool>) -> an
     transport.endpoint.close(VarInt::from_u32(0), b"shutdown");
     Ok(())
 }
-async fn connection(store: Arc<Store>, incoming: Incoming, mut shutdown: watch::Receiver<bool>) {
-    let handshake = tokio::time::timeout(HANDSHAKE, async {
+async fn connection(
+    store: Arc<Store>,
+    incoming: Incoming,
+    mut shutdown: watch::Receiver<bool>,
+    ordinary: Arc<tokio::sync::Semaphore>,
+) {
+    let Ok(transport) = transport(&store) else {
+        incoming.refuse();
+        return;
+    };
+    let Some(pending) = transport.relays.incoming(&store, incoming.remote_address()) else {
+        incoming.refuse();
+        return;
+    };
+    let dispatcher = store
+        .bootstrap_mailboxes
+        .read()
+        .ok()
+        .and_then(|m| m.upgrade());
+    let preparse = if pending.has_transport_buffers() {
+        None
+    } else if let Some(dispatcher) = &dispatcher {
+        let Some(budget) = dispatcher.transport_buffers() else {
+            incoming.refuse();
+            return;
+        };
+        Some(budget)
+    } else if store.decentralized_runtime() {
+        incoming.refuse();
+        return;
+    } else {
+        None
+    };
+    let handshake = tokio::time::timeout_at(pending.handshake_deadline(), async {
         match incoming.accept() {
             Ok(connecting) => connecting.await,
             Err(error) => Err(error),
@@ -972,19 +1268,98 @@ async fn connection(store: Arc<Store>, incoming: Incoming, mut shutdown: watch::
         return;
     };
     // Rustls accepts a client that offers no ALPN at all; require ours.
-    if negotiated(&connection).as_deref() != Some(ALPN) {
+    let selected_alpn = negotiated(&connection);
+    let repair = selected_alpn.as_deref() == Some(crate::decentralized::peer::REPAIR_ALPN);
+    let completion = selected_alpn.as_deref() == Some(COMPLETION_ALPN);
+    if selected_alpn.as_deref() != Some(ALPN) && !repair && !completion {
         connection.close(VarInt::from_u32(1), b"alpn");
         return;
     }
     let Some(key) = connection
         .peer_identity()
         .and_then(|identity| identity.downcast::<Vec<CertificateDer<'static>>>().ok())
+        .filter(|certs| certs.len() == 1)
         .and_then(|certs| certificate_key(certs.first()?, UnixTime::now()).ok())
     else {
         connection.close(VarInt::from_u32(1), b"identity");
         return;
     };
-    let router = peer_router(store.clone(), key_id(&key));
+    if !pending.verify(&key, completion) || (!completion && !store.knows(&key).unwrap_or(false)) {
+        connection.close(VarInt::from_u32(1), b"unknown identity");
+        return;
+    }
+    if repair
+        && !crate::decentralized::peer::repair_transport_known(store.clone(), key.clone()).await
+    {
+        connection.close(VarInt::from_u32(1), b"unknown repair identity");
+        return;
+    }
+    if completion {
+        if let Some(dispatcher) = dispatcher {
+            let request = async {
+                connection.set_max_concurrent_bi_streams(1u32.into());
+                let (send, recv) = connection.accept_bi().await?;
+                let delivered = send.stopped();
+                let served = dispatcher.serve_completion(
+                    Stream { send, recv },
+                    base64::engine::general_purpose::STANDARD.encode(&key),
+                    pending.source.clone(),
+                );
+                tokio::pin!(served);
+                tokio::select! {
+                    result=&mut served=>{result?;},
+                    extra=connection.accept_bi()=>{
+                        if let Ok((mut send,mut recv))=extra {
+                            let _=send.reset(1u32.into());
+                            let _=recv.stop(1u32.into());
+                        }
+                        connection.close(1u32.into(),b"extra completion stream");
+                        return Err(anyhow::anyhow!("extra completion stream"));
+                    },
+                }
+                // The outer deadline retains the transport send credit until
+                // all queued response data is acknowledged or the request's
+                // original thirty-second bound ends.
+                tokio::select! {
+                    _=delivered=>{},
+                    extra=connection.accept_bi()=>{
+                        if let Ok((mut send,mut recv))=extra {
+                            let _=send.reset(1u32.into());
+                            let _=recv.stop(1u32.into());
+                        }
+                        connection.close(1u32.into(),b"extra completion stream");
+                        return Err(anyhow::anyhow!("extra completion stream"));
+                    },
+                }
+                Ok::<_, anyhow::Error>(())
+            };
+            tokio::select! {_=tokio::time::timeout_at(pending.request_deadline(),request)=>{},_=shutdown.changed()=>{}}
+        }
+        connection.close(VarInt::from_u32(0), b"completion finished");
+        return;
+    }
+    // Known-pin qualification happens BEFORE accept_bi/HTTP for ordinary and
+    // repair ALPNs. Completion possession never reaches either router/cache.
+    let Ok(_ordinary) = ordinary.try_acquire_owned() else {
+        connection.close(1u32.into(), b"peer capacity");
+        return;
+    };
+    let Ok(_transport_budget) = store.dec_repair_limits.transport_budget(128 << 10) else {
+        connection.close(1u32.into(), b"peer capacity");
+        return;
+    };
+    connection.set_receive_window((64u32 << 10).into());
+    if !repair {
+        connection.set_max_concurrent_bi_streams(MAX_STREAMS.into());
+    }
+    drop(preparse);
+    drop(pending);
+    let repair_host = base64::engine::general_purpose::STANDARD.encode(&key);
+    let router = if repair {
+        crate::decentralized::peer::repair_router(store.clone(), repair_host.clone(), None)
+    } else {
+        peer_router(store.clone(), key_id(&key))
+    };
     // Answers every request from a host that is no longer known.
     let forbidden: axum::Router = axum::Router::new()
         .fallback(|| async { Err::<(), crate::model::Error>(crate::model::Error::Forbidden) });
@@ -1000,8 +1375,19 @@ async fn connection(store: Arc<Store>, incoming: Incoming, mut shutdown: watch::
                 // connection stays open gets 403 for anything it submits or
                 // queries, as on a fresh request, and is never routed.
                 let known = store.knows(&key).unwrap_or(false);
+                let repair_permit = repair.then(|| store.dec_repair_limits.admit(&repair_host, connection.remote_address().ip()));
+                let repair_denied = repair_permit.as_ref().and_then(|p| p.as_ref().err()).cloned();
+                let Ok(header_budget) = store.dec_repair_limits.transport_budget(16 << 10) else {
+                    let mut send = send;
+                    let mut recv = recv;
+                    let _ = send.reset(1u32.into());
+                    let _ = recv.stop(1u32.into());
+                    continue;
+                };
                 let long = LongTransfer::default();
-                let service = TowerToHyperService::new(if known {
+                let service = TowerToHyperService::new(if let Some(error) = repair_denied {
+                    crate::decentralized::peer::repair_router(store.clone(), repair_host.clone(), Some(error))
+                } else if known {
                     router.clone().layer(axum::Extension(long.clone()))
                 } else {
                     forbidden.clone()
@@ -1011,14 +1397,17 @@ async fn connection(store: Arc<Store>, incoming: Incoming, mut shutdown: watch::
                 // after what was answered has been delivered.
                 let delivered = send.stopped();
                 streams.spawn(async move {
+                    let _repair_permit = repair_permit;
+                    let _header_budget = header_budget;
                     // The Hyper connection owns the stream; it is dropped at
                     // the end of this block, finishing or resetting it.
                     let answered = {
-                        let served = hyper::server::conn::http1::Builder::new()
-                            .keep_alive(false)
+                        let mut builder = hyper::server::conn::http1::Builder::new();
+                        builder.max_buf_size(16 << 10).keep_alive(false)
                             // The client finishes its send side after the request.
-                            .half_close(true)
-                            .serve_connection(TokioIo::new(Stream { send, recv }), service);
+                            .half_close(true);
+                        if repair { builder.max_buf_size(16 << 10).max_headers(64).timer(hyper_util::rt::TokioTimer::new()).header_read_timeout(Duration::from_secs(5)); }
+                        let served = builder.serve_connection(TokioIo::new(Stream { send, recv }), service);
                         let mut served = std::pin::pin!(served);
                         match tokio::time::timeout(SERVE_BOUND, served.as_mut()).await {
                             Ok(_) => true,

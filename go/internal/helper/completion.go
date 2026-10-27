@@ -82,7 +82,11 @@ func (h *mailboxHandler) serveCompletion(w http.ResponseWriter, r *http.Request,
 		respondError(w, wireError("quota_exceeded"))
 		return
 	}
-	defer h.limits.release("response", maxCompletionBody)
+	if h.queuedResponse != nil {
+		h.queuedResponse(maxCompletionBody)
+	} else {
+		defer h.limits.release("response", maxCompletionBody)
+	}
 	result, err := h.completion(r.Context(), ParticipantRequest{HostPublicKey: peer.key, Method: method, Path: r.URL.Path, Body: body})
 	if err != nil || int64(len(result.Body)) > maxCompletionBody || !json.Valid(result.Body) {
 		panic(http.ErrAbortHandler)

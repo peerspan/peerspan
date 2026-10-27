@@ -28,6 +28,15 @@ DEC_TABLES = {"dec_contexts", "dec_objects", "dec_admissions", "dec_restrictions
     "dec_operations", "dec_outbox", "dec_migrations", "dec_contacts", "dec_helpers"}
 
 
+def require_network_info(host: Host) -> dict:
+    """Public runtime section9 applies to current schema23 binaries as well."""
+    value = host.api("GET", "/v2/info")
+    require(type(value) is dict and value.get("network_protocols") == ["peerspan-decentralized-v1"] and
+            "default_coordinator" in value and value["default_coordinator"] is None,
+            "current owner-local info omitted DEC network_protocols or retained a default coordinator")
+    return value
+
+
 def named(value: str) -> tuple[str, Path]:
     name, separator, path = value.partition("=")
     if not separator or name not in {"go", "rust"}:
@@ -99,6 +108,7 @@ class OpeningSuite:
         def opening() -> dict:
             host = Host(new, state, root / "opening", "actual23")
             with running(host):
+                require_network_info(host)
                 current = public_snapshot(host, {})
                 retain_public(root, "actual23", current)
                 require(same_json(current, expected), "actual23 changed public product views; paths="+
@@ -122,6 +132,7 @@ class OpeningSuite:
         def restart() -> None:
             host = Host(new, state, root / "restart", "actual23-restart")
             with running(host):
+                require_network_info(host)
                 require(same_json(public_snapshot(host, {}), expected), "23 restart changed old public views")
             require(same_json(snapshot(state), after), "23 restart changed durable table/row/version state")
         self.case(label+"/restart23_exact", restart)
@@ -155,6 +166,7 @@ class OpeningSuite:
         initial_files = tree_hashes(state)
         def opening() -> dict:
             with running(Host(new, state, root / "open", "legacy21-to23")) as host:
+                require_network_info(host)
                 observed = public_snapshot(host, {})
                 retain_public(root, "legacy21-after23", observed)
                 require(same_json(observed, expected), "legacy21 product views changed beyond documented OAuth defaults; paths="+

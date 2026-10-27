@@ -261,12 +261,72 @@ pub fn server_config(store: Arc<Store>) -> anyhow::Result<ServerConfig> {
         RenewingCertificate::new(store.clone(), Box::new(::time::OffsetDateTime::now_utc))?;
     let mut config = ServerConfig::builder_with_provider(Arc::new(default_provider()))
         .with_protocol_versions(&[&rustls::version::TLS13])?
-        .with_client_cert_verifier(Arc::new(Pins {
-            store,
-            expected: None,
-        }))
+        .with_client_cert_verifier(Arc::new(BootstrapPossession))
         .with_cert_resolver(Arc::new(resolver));
-    config.alpn_protocols = vec![crate::quic::ALPN.to_vec()];
+    config.alpn_protocols = vec![
+        crate::quic::ALPN.to_vec(),
+        crate::decentralized::peer::REPAIR_ALPN.to_vec(),
+        crate::quic::COMPLETION_ALPN.to_vec(),
+    ];
+    config.send_tls13_tickets = 0;
+    Ok(config)
+}
+/// Isolated bootstrap possession verifier. It is deliberately independent of
+/// ordinary peer Pins: this configuration is usable only with the bootstrap
+/// ALPN/router, and recognizing a certificate never updates network authority.
+#[derive(Debug)]
+struct BootstrapPossession;
+impl ClientCertVerifier for BootstrapPossession {
+    fn root_hint_subjects(&self) -> &[DistinguishedName] {
+        &[]
+    }
+    fn verify_client_cert(
+        &self,
+        cert: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        at: UnixTime,
+    ) -> Result<ClientCertVerified, rustls::Error> {
+        if !intermediates.is_empty() {
+            return Err(tls_error("one bootstrap certificate required"));
+        }
+        certificate_key(cert, at)?;
+        Ok(ClientCertVerified::assertion())
+    }
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Err(tls_error("TLS 1.2 is disabled"))
+    }
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            signature,
+            &default_provider().signature_verification_algorithms,
+        )
+    }
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![SignatureScheme::ED25519]
+    }
+}
+pub fn bootstrap_server_config(store: Arc<Store>) -> anyhow::Result<ServerConfig> {
+    let resolver = RenewingCertificate::new(store, Box::new(::time::OffsetDateTime::now_utc))?;
+    let mut config = ServerConfig::builder_with_provider(Arc::new(default_provider()))
+        .with_protocol_versions(&[&rustls::version::TLS13])?
+        .with_client_cert_verifier(Arc::new(BootstrapPossession))
+        .with_cert_resolver(Arc::new(resolver));
+    config.alpn_protocols = vec![
+        crate::decentralized::bootstrap::ALPN.to_vec(),
+        crate::decentralized::peer::REPAIR_ALPN.to_vec(),
+    ];
     config.send_tls13_tickets = 0;
     Ok(config)
 }
@@ -304,9 +364,14 @@ pub(crate) fn peer_router(store: Arc<Store>, sender: String) -> Router {
         .merge(crate::artifact::peer_routes())
         .merge(crate::policy_sync::peer_routes())
         .merge(crate::link_runtime::peer::routes())
+        .merge(crate::decentralized::peer::routes(store.clone()))
         .merge(crate::directory::peer_routes())
         .merge(crate::agent_lookup::peer_routes())
         .merge(crate::coordinator_move::peer_routes())
+        .layer(axum::middleware::from_fn_with_state(
+            store.clone(),
+            crate::decentralized::history::gate,
+        ))
         .layer(Extension(sender))
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
@@ -377,7 +442,7 @@ pub(crate) async fn https_link(
 ) -> anyhow::Result<(u16, axum::http::HeaderMap, Vec<u8>)> {
     https_bounded(config, address, name, method, path, body, 16 << 20).await
 }
-async fn https_bounded(
+pub(crate) async fn https_bounded(
     config: ClientConfig,
     address: &str,
     name: ServerName<'static>,

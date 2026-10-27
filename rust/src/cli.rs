@@ -39,6 +39,12 @@ pub enum Command {
     /// Run the host daemon in the foreground
     #[command(visible_alias = "serve")]
     Run {
+        /// Isolated bootstrap TCP bind address; defaults to the peer interface, or loopback
+        #[arg(long, value_name = "IP:PORT")]
+        bootstrap_listen: Option<std::net::SocketAddr>,
+        /// Protected optional transport configuration file
+        #[arg(long, value_name = "PATH")]
+        transport_config: Option<PathBuf>,
         /// Opt-in peer bind address
         #[arg(long, value_name = "IP:PORT")]
         peer_listen: Option<std::net::SocketAddr>,
@@ -61,10 +67,13 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         person_key_file: Option<PathBuf>,
     },
-    /// Join a network with an invite
+    /// Join through a private contact introduction and explicit machine approval
     Join {
-        #[arg(value_name = "TOKEN")]
-        token: String,
+        /// Historical argv tokens are refused; use a private input below
+        #[arg(value_name = "TOKEN", hide = true)]
+        token: Option<String>,
+        #[command(flatten)]
+        invitation: crate::decentralized_onboarding_cli::InvitationInput,
         /// Person key: an OpenSSH public key (select an ssh-agent identity) or
         /// unencrypted private key file
         #[arg(long, value_name = "PATH", conflicts_with = "no_person")]
@@ -79,21 +88,20 @@ pub enum Command {
         #[arg(long)]
         untrusted: bool,
     },
-    /// Invite a person to a network
+    /// Produce a private five-minute contact introduction; grants no membership
     Invite {
         #[arg(value_name = "LABEL")]
         label: String,
         #[arg(long, value_name = "ID")]
         network: Option<String>,
-        /// UTC invite expiration, at most 30 days ahead; default 7 days
-        #[arg(long, value_name = "TIME")]
+        /// Unsupported expiration override; introductions last five minutes
+        #[arg(long, value_name = "TIME", hide = true)]
         expires_at: Option<String>,
-        /// Relative lifetime, from 1m to 720h
-        #[arg(long, value_name = "DURATION")]
+        /// Unsupported lifetime override; introductions last five minutes
+        #[arg(long, value_name = "DURATION", hide = true)]
         expires_in: Option<String>,
-        /// Person key for signing as an administrator, when this host does
-        /// not hold the root seed and the agent holds several keys
-        #[arg(long, value_name = "PATH")]
+        /// Unsupported introduction signer override; use explicit machine approval
+        #[arg(long, value_name = "PATH", hide = true)]
         person_key: Option<PathBuf>,
     },
     /// Set a principal's access to your agents
@@ -779,6 +787,8 @@ pub enum PersonCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum NetworkCommand {
+    /// Review and complete an explicit all-host migration without a coordinator.
+    Migrate(crate::decentralized_migration_cli::MigrationArgs),
     /// Review an exact current-root feature recovery snapshot and target
     Repair(crate::link_cli::RepairArgs),
     /// Review and enable approved machine linking with the current root
@@ -798,55 +808,57 @@ pub enum NetworkCommand {
         /// Your person and member label; defaults to the login name
         #[arg(long = "as", alias = "member", value_name = "LABEL")]
         member: Option<String>,
-        /// Coordinator HOST:PORT; defaults to the build's coordinator
-        #[arg(long, value_name = "HOST:PORT")]
+        /// Unsupported legacy coordinator option (creation is local)
+        #[arg(long, value_name = "HOST:PORT", hide = true)]
         coordinator: Option<String>,
-        /// Independently verified coordinator public key; defaults to the build's
-        #[arg(long, value_name = "BASE64")]
+        /// Unsupported legacy coordinator key
+        #[arg(long, value_name = "BASE64", hide = true)]
         coordinator_key: Option<String>,
         /// Person key: an OpenSSH public key (select an ssh-agent identity) or
         /// unencrypted private key file; default is the agent's only ssh-ed25519 key
-        #[arg(long, value_name = "PATH", conflicts_with = "no_person")]
+        #[arg(
+            long,
+            alias = "person-key-file",
+            value_name = "PATH",
+            conflicts_with = "no_person"
+        )]
         person_key: Option<PathBuf>,
-        /// Do not admit or bind a person
-        #[arg(long)]
+        /// Unsupported legacy creation without an original-person owner
+        #[arg(long, hide = true)]
         no_person: bool,
-        /// Let this machine use your capabilities on your other machines
-        #[arg(long, conflicts_with = "untrusted")]
+        /// Unsupported creation-time trust; review trust after creation
+        #[arg(long, hide = true, conflicts_with = "untrusted")]
         trusted: bool,
         /// Do not let this machine use your capabilities on your other machines
         #[arg(long)]
         untrusted: bool,
     },
-    /// Issue a one-time invite token (administrator only). By default a member
-    /// invite, which also admits the joiner's person and binds the host.
+    /// Produce a private five-minute contact introduction; grants no membership
     Invite {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
         #[arg(long)]
         member: String,
-        #[arg(long, value_name = "TIME")]
+        /// Unsupported expiration override; introductions last five minutes
+        #[arg(long, value_name = "TIME", hide = true)]
         expires_at: Option<String>,
-        /// Relative lifetime, from 1m to 720h
-        #[arg(long, value_name = "DURATION")]
+        /// Unsupported lifetime override; introductions last five minutes
+        #[arg(long, value_name = "DURATION", hide = true)]
         expires_in: Option<String>,
-        /// Issue a host-only invite
-        #[arg(long)]
+        /// Unsupported host-only introduction
+        #[arg(long, hide = true)]
         host_only: bool,
-        /// Person key for signing as an administrator, when this host does
-        /// not hold the root seed and the agent holds several keys
-        #[arg(long, value_name = "PATH")]
+        /// Unsupported introduction signer override; use explicit machine approval
+        #[arg(long, value_name = "PATH", hide = true)]
         person_key: Option<PathBuf>,
     },
-    /// Join a network with an invite token or, if an administrator admitted
-    /// this host's key, a network descriptor
+    /// Join through a private contact introduction and explicit machine approval
     Join {
-        #[arg(
-            long,
-            required_unless_present = "descriptor",
-            conflicts_with = "descriptor"
-        )]
+        /// Historical tokens and descriptors are refused
+        #[arg(long, conflicts_with = "descriptor", hide = true)]
         token: Option<String>,
+        #[command(flatten)]
+        invitation: crate::decentralized_onboarding_cli::InvitationInput,
         #[arg(long)]
         descriptor: Option<String>,
         /// Person key: an OpenSSH public key (select an ssh-agent identity) or
@@ -915,7 +927,7 @@ pub enum NetworkCommand {
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
     },
-    /// Unbind one of your hosts; signed with your person key
+    /// Unbind one of your hosts with its current owner authority
     Unbind {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
@@ -923,6 +935,9 @@ pub enum NetworkCommand {
         host: String,
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
+        /// Exact owner provider; auto uses only this host's selected provider
+        #[arg(long, default_value = "auto")]
+        signer: String,
     },
     /// Remove a person and end its bindings (administrator only)
     RemovePerson {
@@ -934,6 +949,12 @@ pub enum NetworkCommand {
         /// not hold the root seed and the agent holds several keys
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
+        /// Exact administrator provider; auto uses only the selected provider
+        #[arg(long, default_value = "auto")]
+        signer: String,
+        /// The external root key, used only when explicitly selected
+        #[arg(long, value_name = "PATH")]
+        root_key: Option<PathBuf>,
     },
     /// List a network's persons and the hosts bound to them
     Persons { id: Option<String> },
@@ -953,6 +974,12 @@ pub enum NetworkCommand {
         /// not hold the root seed and the agent holds several keys
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
+        /// Exact administrator provider; auto uses only the selected provider
+        #[arg(long, default_value = "auto")]
+        signer: String,
+        /// The external root key, used only when explicitly selected
+        #[arg(long, value_name = "PATH")]
+        root_key: Option<PathBuf>,
     },
     /// Revoke an invite, and any host that joined with it (administrator only)
     RevokeInvite {
@@ -967,7 +994,7 @@ pub enum NetworkCommand {
     },
     /// Leave a network; takes effect locally even if coordination is down
     Leave { id: String },
-    /// Rotate the network root key and re-attest current members (root only)
+    /// Rotate the root after reviewing the exact finite authority to retain
     RotateRoot {
         id: String,
         /// Rotate to the SSH key named by --root-key; this host then deletes its root seed
@@ -977,6 +1004,25 @@ pub enum NetworkCommand {
         /// identity) or unencrypted private key file
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Retain exactly these statement IDs; repeat for every needed contribution
+        #[arg(long, value_name = "DS", conflicts_with = "retain_none")]
+        retain: Vec<String>,
+        /// Explicitly retain no finite authority
+        #[arg(long, conflicts_with = "retain")]
+        retain_none: bool,
+    },
+    /// Resolve every known root fork using each branch's exact signing key
+    ResolveRoot {
+        id: String,
+        #[arg(long, value_name = "PATH")]
+        new_root_key: PathBuf,
+        /// Existing branch key; repeat for every externally owned branch
+        #[arg(long, value_name = "PATH")]
+        root_key: Vec<PathBuf>,
+        #[arg(long, value_name = "DS", conflicts_with = "retain_none")]
+        retain: Vec<String>,
+        #[arg(long, conflicts_with = "retain")]
+        retain_none: bool,
     },
     /// Make a person an administrator (root only)
     DelegateAdmin {
@@ -988,6 +1034,15 @@ pub enum NetworkCommand {
         /// The SSH root key, when this host does not hold the root seed
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Select network_root explicitly for an already-owned daemon root
+        #[arg(long, default_value = "auto")]
+        signer: String,
+        /// Exact finite authority deadline
+        #[arg(long, value_name = "TIME")]
+        not_after: Option<String>,
+        /// Resolve exactly these remembered authority barriers or fork heads
+        #[arg(long, value_name = "DS")]
+        resolve: Vec<String>,
     },
     /// Remove an administrator, permanently (root only)
     RemoveAdmin {
@@ -997,11 +1052,20 @@ pub enum NetworkCommand {
         #[arg(long)]
         person: String,
         /// Also invalidate everything that administrator signed
-        #[arg(long)]
+        #[arg(long, conflicts_with = "keep")]
         revoke_admitted: bool,
         /// The SSH root key, when this host does not hold the root seed
         #[arg(long, value_name = "PATH")]
         root_key: Option<PathBuf>,
+        /// Select network_root explicitly for an already-owned daemon root
+        #[arg(long, default_value = "auto")]
+        signer: String,
+        /// Retain exactly these signed contributions; repeat for every ID
+        #[arg(long, value_name = "DS", conflicts_with = "revoke_admitted")]
+        keep: Vec<String>,
+        /// Exact administrator statement to withdraw when more than one is known
+        #[arg(long, value_name = "DS")]
+        statement: Option<String>,
     },
     /// Define groups of persons (administrator or root)
     #[command(subcommand)]
@@ -1026,7 +1090,7 @@ pub enum NetworkCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum GroupCommand {
-    /// Set a group's persons; with no --person, delete the group
+    /// Set a group's current membership; an empty membership is permitted
     Set {
         #[arg(long, value_name = "ID")]
         network: Option<String>,
@@ -1039,6 +1103,15 @@ pub enum GroupCommand {
         /// not hold the root seed and the agent holds several keys
         #[arg(long, value_name = "PATH")]
         person_key: Option<PathBuf>,
+        /// Exact administrator provider; auto uses only the selected provider
+        #[arg(long, default_value = "auto")]
+        signer: String,
+        /// The external root key, used only when explicitly selected
+        #[arg(long, value_name = "PATH")]
+        root_key: Option<PathBuf>,
+        /// Exact finite authority deadline
+        #[arg(long, value_name = "TIME")]
+        not_after: Option<String>,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -1458,9 +1531,14 @@ pub struct UpArgs {
     /// Create or resume a network by name
     #[arg(long, conflicts_with = "join")]
     pub create: Option<String>,
-    /// Join or resume the network named by an invite
-    #[arg(long, conflicts_with = "create")]
+    /// Join through a private introduction (hidden prompt or --invite-stdin/file)
+    #[arg(long, num_args = 0..=1, default_missing_value = "-", conflicts_with = "create")]
     pub join: Option<String>,
+    /// Request same-person linking without an original key on this machine
+    #[arg(long, conflicts_with_all = ["create", "join"])]
+    pub link: bool,
+    #[command(flatten)]
+    pub invitation: crate::decentralized_onboarding_cli::InvitationInput,
     /// Person label when creating a network
     #[arg(long = "as")]
     pub person: Option<String>,
@@ -1709,6 +1787,10 @@ impl Command {
             | Self::Link(_)
             | Self::Network(NetworkCommand::EnableLinking { .. })
             | Self::Network(NetworkCommand::Repair(_))
+            | Self::Network(NetworkCommand::Migrate(_))
+            | Self::Network(
+                NetworkCommand::RotateRoot { .. } | NetworkCommand::ResolveRoot { .. },
+            )
             | Self::Run { .. }
             | Self::Status { .. }
             | Self::Install { .. }
@@ -2071,16 +2153,16 @@ impl Command {
                 None,
             ),
 
-            Self::Network(NetworkCommand::List) => (Method::GET, "/v1/networks".into(), None),
+            Self::Network(NetworkCommand::List) => (Method::GET, "/v2/networks".into(), None),
             Self::Network(NetworkCommand::Members { id }) => (
                 Method::GET,
-                format!("/v1/networks/{}/members", encoded(resolved(&id))),
+                format!("/v2/networks/{}/members", encoded(resolved(&id))),
                 None,
             ),
             Self::Network(NetworkCommand::Sync { id }) => (
                 Method::POST,
-                format!("/v1/networks/{}/sync", encoded(resolved(&id))),
-                None,
+                format!("/v2/networks/{}/sync", encoded(resolved(&id))),
+                Some(json!({})),
             ),
             Self::Network(NetworkCommand::Revoke { network, host, .. }) => (
                 Method::POST,
@@ -2097,11 +2179,6 @@ impl Command {
             Self::Network(NetworkCommand::Leave { id }) => (
                 Method::POST,
                 format!("/v1/networks/{}/leave", encoded(&id)),
-                None,
-            ),
-            Self::Network(NetworkCommand::RotateRoot { id, .. }) => (
-                Method::POST,
-                format!("/v1/networks/{}/rotate", encoded(&id)),
                 None,
             ),
             Self::Network(NetworkCommand::DelegateAdmin {

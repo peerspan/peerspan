@@ -60,7 +60,7 @@ pub(crate) fn mark(c: &Connection, id: &str, kind: &str, body: &[u8]) -> Result<
     )?;
     Ok(())
 }
-fn pending(c: &Connection, id: &str) -> Result<Vec<String>> {
+pub(crate) fn pending(c: &Connection, id: &str) -> Result<Vec<String>> {
     let mut q=c.prepare("SELECT subject,record FROM network_statements WHERE network_id=?1 AND kind=?2 ORDER BY subject")?;
     q.query_map(params![id, KIND], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))

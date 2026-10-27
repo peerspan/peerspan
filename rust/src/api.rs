@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 /// Owner-local administration only. Never serve this router as a peer API.
 pub fn router(store: Arc<Store>) -> Router {
+    let history = store.clone();
     Router::new()
         .route("/v1/host", get(identity))
         .route("/v1/agents", get(agents).post(register))
@@ -29,6 +30,8 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::peer::local_routes())
         .merge(crate::network::local_routes())
         .merge(crate::link_runtime::local_routes())
+        .merge(crate::decentralized::runtime::local_routes())
+        .merge(crate::decentralized::peer::local_routes())
         .merge(crate::coordinator_move::local_routes())
         .merge(crate::policy::local_routes())
         .merge(crate::adapter::local_routes())
@@ -48,6 +51,10 @@ pub fn router(store: Arc<Store>) -> Router {
         .merge(crate::call_outbound::local_routes())
         .layer(DefaultBodyLimit::max(1 << 20))
         .with_state(store)
+        .layer(axum::middleware::from_fn_with_state(
+            history,
+            crate::decentralized::history::gate,
+        ))
 }
 
 pub(crate) async fn blocking<T: Send + 'static>(
@@ -68,13 +75,12 @@ pub(crate) fn decode<T: DeserializeOwned>(body: Result<Bytes, BytesRejection>) -
 /// when given none.
 async fn identity(State(store): State<Arc<Store>>) -> Json<serde_json::Value> {
     let identity = store.identity();
-    let default = crate::network::default_coordinator()
-        .map(|(address, key)| serde_json::json!({"address": address, "public_key": key}));
     Json(serde_json::json!({
         "id": identity.id,
         "public_key": identity.public_key,
         "created_at": identity.created_at,
-        "default_coordinator": default,
+        "default_coordinator": serde_json::Value::Null,
+        "network_protocols":["peerspan-decentralized-v1"],
     }))
 }
 async fn register(

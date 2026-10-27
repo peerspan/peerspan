@@ -680,7 +680,10 @@ pub(crate) fn load_member_pins(
     connection: &Connection,
     self_id: &str,
 ) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
-    let members = records::<Member>(connection, "SELECT record FROM network_members")
+    // Native DEC caches are tagged proof references, never legacy admissions.
+    // Their current peer authority is evaluated by the DEC graph, not decoded
+    // as the former coordinator membership record.
+    let members = records::<Member>(connection, "SELECT record FROM network_members WHERE COALESCE(json_extract(record,'$.mode'),'') <> 'decentralized'")
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut pins = BTreeMap::new();
     for m in members.into_iter().filter(|m| m.host_id != self_id) {
@@ -690,6 +693,9 @@ pub(crate) fn load_member_pins(
         }
         pins.insert(m.host_id, key);
     }
+    pins.extend(crate::decentralized::peer::remembered_pins(
+        connection, self_id,
+    )?);
     Ok(pins)
 }
 
@@ -1251,6 +1257,14 @@ impl Store {
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
+        if serde_json::from_str::<Value>(&record)?["mode"] == "decentralized" {
+            return Err(Error::Coded {
+                status: 426,
+                code: "upgrade_required",
+                message: "use the decentralized network API".into(),
+                extra: Default::default(),
+            });
+        }
         let mut network: Network = json(record)?;
         network.administrator = administrator;
         if network.current_root_public_key.is_empty() {
@@ -1263,7 +1277,7 @@ impl Store {
     pub fn networks(&self) -> Result<Vec<Network>, Error> {
         let connection = self.connection()?;
         let ids = {
-            let mut statement = connection.prepare("SELECT id FROM networks ORDER BY id")?;
+            let mut statement = connection.prepare("SELECT id FROM networks WHERE COALESCE(json_extract(record,'$.mode'),'') <> 'decentralized' ORDER BY id")?;
             statement
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?
@@ -1308,11 +1322,17 @@ impl Store {
         if host == self.identity().id {
             return Ok(false);
         }
+        if crate::decentralized::peer::current_connected(connection, self, host)? {
+            return Ok(true);
+        }
+        if self.decentralized_runtime() {
+            return Ok(false);
+        }
         let window = chrono::TimeDelta::seconds(
             3 * self.coordination_interval.load(Ordering::Relaxed) as i64,
         );
         let mut statement = connection.prepare(
-            "SELECT n.record FROM networks n JOIN network_members m ON m.network_id = n.id WHERE m.host_id = ?1",
+            "SELECT n.record FROM networks n JOIN network_members m ON m.network_id = n.id WHERE m.host_id = ?1 AND COALESCE(json_extract(n.record,'$.mode'),'') <> 'decentralized'",
         )?;
         let networks = statement
             .query_map([host], |r| r.get::<_, String>(0))?
@@ -1342,12 +1362,21 @@ impl Store {
         if id == self.identity().id {
             return Err(Error::NotFound);
         }
-        let mut statement =
-            connection.prepare("SELECT record FROM network_members WHERE host_id = ?1")?;
-        let members = statement
-            .query_map([id], |r| r.get::<_, String>(0))?
-            .map(|r| json::<Member>(r?))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut members: Vec<Member> = self
+            .product_members_of(&connection, id)?
+            .into_iter()
+            .map(|(_, m)| m)
+            .collect();
+        // Retained legacy host keys/addresses remain transport hints for exact
+        // accepted results. Fresh authority is checked separately and disabled
+        // for legacy networks by the production runtime gate.
+        let mut statement = connection.prepare("SELECT record FROM network_members WHERE host_id=?1 AND COALESCE(json_extract(record,'$.mode'),'')<>'decentralized'")?;
+        members.extend(
+            statement
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .map(|r| json::<Member>(r?))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let best = members
             .into_iter()
             .fold(None::<Member>, |best, m| match best {
@@ -1433,18 +1462,29 @@ impl Store {
         if host == self.identity().id {
             return Ok((Vec::new(), Vec::new()));
         }
-        let connection = self.connection()?;
+        let mut held = self.connection()?;
+        // One read transaction keeps verified members and retained hints in
+        // the same snapshot.
+        let connection = held.transaction()?;
         let manual: Option<String> = connection
             .query_row("SELECT record FROM peers WHERE id = ?1", [host], |r| {
                 r.get(0)
             })
             .optional()?;
-        let mut statement =
-            connection.prepare("SELECT record FROM network_members WHERE host_id = ?1")?;
-        let members = statement
-            .query_map([host], |r| r.get::<_, String>(0))?
-            .map(|r| json::<Member>(r?))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut members: Vec<Member> = self
+            .product_members_of(&connection, host)?
+            .into_iter()
+            .map(|(_, member)| member)
+            .collect();
+        // As in dial_target, retained legacy addresses are transport hints for
+        // exact accepted work; tagged DEC rows require verified current readers.
+        let mut statement = connection.prepare("SELECT record FROM network_members WHERE host_id=?1 AND COALESCE(json_extract(record,'$.mode'),'')<>'decentralized'")?;
+        members.extend(
+            statement
+                .query_map([host], |r| r.get::<_, String>(0))?
+                .map(|r| json::<Member>(r?))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let mut candidates = Vec::new();
         let mut advertised = Vec::new();
         if let Some(record) = manual {
@@ -1455,7 +1495,11 @@ impl Store {
         }
         for m in members {
             if let Ok(addr) = m.address.parse() {
-                advertised.push(crate::disco::normalize(addr));
+                // A legacy member can be both verified and retained.
+                let addr = crate::disco::normalize(addr);
+                if !advertised.contains(&addr) {
+                    advertised.push(addr);
+                }
             }
             for c in m.candidates.iter().filter_map(|c| c.parse().ok()) {
                 let c = crate::disco::normalize(c);
@@ -4084,7 +4128,7 @@ fn interface_ips(bound: std::net::SocketAddr) -> Vec<std::net::IpAddr> {
         .filter(usable)
         .collect()
 }
-fn interface_addresses() -> Vec<std::net::IpAddr> {
+pub(crate) fn interface_addresses() -> Vec<std::net::IpAddr> {
     let mut out = Vec::new();
     // SAFETY: getifaddrs allocates a list that is only read here and released
     // with freeifaddrs; each address is read according to its family.

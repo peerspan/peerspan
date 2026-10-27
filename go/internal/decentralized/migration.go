@@ -44,6 +44,13 @@ type migrationValidation struct {
 // verifyMigrationOrigin verifies complete portable origin and the exact staged
 // state. Its scratch graph is never an ordinary prior or signing provider.
 func verifyMigrationOrigin(d Descriptor, m *ParsedMigration) (*migrationValidation, error) {
+	return verifyMigrationParts(d, m, true)
+}
+
+// A prepared catalog is checked before any acknowledgment/final commit exists.
+// Only this private path may omit those later signatures; ordinary portable
+// origin verification always requests complete=true through the wrapper above.
+func verifyMigrationParts(d Descriptor, m *ParsedMigration, complete bool) (*migrationValidation, error) {
 	state, facts, e := verifyMigrationSource(d, m)
 	if e != nil {
 		return nil, e
@@ -87,18 +94,21 @@ func verifyMigrationOrigin(d Descriptor, m *ParsedMigration) (*migrationValidati
 		return nil, failure("proof_required", m.Proposal.ID)
 	}
 	if v.root == nil {
-		return nil, failure("proof_required", stringField(m.Commit.Object, "root_state_id"))
+		if complete {
+			return nil, failure("proof_required", stringField(m.Commit.Object, "root_state_id"))
+		}
+		return nil, failure("proof_required")
 	}
 	r := v.root.Root
 	epoch, _ := num(m.Proposal.Object, "legacy_epoch")
 	if r.Migration != m.Proposal.ID || r.Epoch != epoch || r.Key != facts.RootPublicKey || r.Issued != stringField(m.Proposal.Object, "issued_at") || len(r.Predecessors) != 0 || len(r.Resolves) != 0 || len(r.Retained) != 0 || v.root.Signer("issuer") != facts.RootPublicKey {
 		return nil, invalid()
 	}
-	if stringField(m.Commit.Object, "root_state_id") != v.root.ID {
+	if complete && stringField(m.Commit.Object, "root_state_id") != v.root.ID {
 		return nil, invalid()
 	}
 	g := newGraph(d, prepared)
-	g.migrationRoots[v.root.ID] = true
+	g.migrationRoots[v.root.ID] = state
 	v.graph = g
 	g.migrationHosts[m.Proposal.ID] = map[string]bool{}
 	for id, s := range prepared.Statements {
@@ -125,8 +135,10 @@ func verifyMigrationOrigin(d Descriptor, m *ParsedMigration) (*migrationValidati
 	if e = v.checkPrepared(); e != nil {
 		return nil, e
 	}
-	if e = v.checkAcknowledgments(); e != nil {
-		return nil, e
+	if complete {
+		if e = v.checkAcknowledgments(); e != nil {
+			return nil, e
+		}
 	}
 	return v, nil
 }
@@ -438,7 +450,7 @@ func migrationCurrentGrants(a *authority, v *migrationValidation) ([]string, err
 	view.admitted = copySet(a.admitted)
 	eligible := map[string]bool{}
 	for id, s := range v.prepared.Statements {
-		if (s.Lease != nil || s.Access != nil) && candidateWindow(s, a.now) == nil {
+		if a.graph.pendingAdmissions[id] == "" && (s.Lease != nil || s.Access != nil) && candidateWindow(s, a.now) == nil {
 			view.admitted[id] = true
 			eligible[id] = true
 		}

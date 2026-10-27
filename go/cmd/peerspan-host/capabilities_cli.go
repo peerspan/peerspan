@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -607,68 +608,108 @@ func removeCapability(ctx context.Context, client host.Client, name string, fs *
 	if err != nil {
 		return err
 	}
-	// Every stored policy that holds this host's rule for the name, claim
-	// included, whoever owns it and whether or not this host is still bound
-	// in that network: a claim left behind would come back on rebinding.
-	type holder struct{ network, personID, label string }
-	var holders []holder
-	for _, n := range ownNetworks(ctx, client) {
-		persons, err := personsOf(ctx, client, n)
-		if err != nil {
-			return err
+	networks, err := capabilityNetworks(ctx, client)
+	if err != nil {
+		return err
+	}
+	type holder struct {
+		network capabilityNetwork
+		person  host.Person
+	}
+	holders := []holder{}
+	for _, n := range networks {
+		people, e := capabilityPeople(ctx, client, n)
+		if e != nil {
+			return e
 		}
-		for _, p := range persons {
-			if policy, err := currentPolicy(ctx, client, n, p.PersonID); err == nil && policy != nil && hostRule(policy.CapabilityRules, identity.ID, name) >= 0 {
-				holders = append(holders, holder{n, p.PersonID, p.Member})
+		for _, p := range people {
+			rules, e := capabilityPolicyRules(ctx, client, n, p)
+			if e != nil {
+				return e
+			}
+			if hostRule(rules, identity.ID, name) >= 0 {
+				holders = append(holders, holder{n, p})
 			}
 		}
 	}
-	signed := []json.RawMessage{}
-	if len(holders) > 0 {
-		signer, err := person.Load(keyPath)
-		if err != nil {
-			return fmt.Errorf("withdrawing %s needs the person key; the capability is kept: %w", name, err)
+	// An explicit original selects only its own obligations. Auto uses each
+	// exact current selection; another owner's claim never opens a provider.
+	signerID := ""
+	if keyPath != "" && len(holders) > 0 {
+		signer, e := person.Load(keyPath)
+		if e != nil {
+			return e
 		}
-		signerID := membership.PersonID(signer.PublicKey())
+		signerID = membership.PersonID(signer.PublicKey())
 		signer.Close()
-		var others []holder
-		for _, h := range holders {
-			if h.personID != signerID {
-				// Another person's policy cannot be withdrawn with this key.
+	}
+	signed := []json.RawMessage{}
+	others := []holder{}
+	for _, h := range holders {
+		wanted := signerID
+		if wanted == "" && h.network.Modern != nil {
+			if h.network.Modern.Person == "-" {
 				others = append(others, h)
 				continue
 			}
-			o, err := loadOwner(ctx, client, h.network, keyPath)
-			if err != nil {
-				return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, h.network, err)
+			key, e := membership.DecodeKey(h.network.Modern.Person)
+			if e != nil {
+				return e
 			}
-			data, changed, err := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
-				i := hostRule(body.CapabilityRules, identity.ID, name)
-				if i < 0 {
-					return false, nil
-				}
-				body.CapabilityRules = append(body.CapabilityRules[:i:i], body.CapabilityRules[i+1:]...)
-				return true, nil
-			})
+			wanted = membership.PersonID(key)
+		}
+		if wanted == "" {
+			// Legacy signing keeps its original key semantics. DEC never reaches
+			// this path or falls back from an unavailable selected device.
+			signer, e := person.Load(keyPath)
+			if e != nil {
+				return fmt.Errorf("withdrawing %s needs the person key; the capability is kept: %w", name, e)
+			}
+			wanted = membership.PersonID(signer.PublicKey())
+			signer.Close()
+		}
+		if h.person.PersonID != wanted {
+			others = append(others, h)
+			continue
+		}
+		o, e := loadOwner(ctx, client, h.network.ID, keyPath)
+		if e != nil {
+			return fmt.Errorf("withdrawing %s from %s failed; the capability is kept: %w", name, h.network.ID, e)
+		}
+		if o.ownerID != h.person.PersonID {
 			o.close()
-			if changed {
-				signed = append(signed, data)
-			}
-			if err != nil {
-				return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes the removal: %w", name, h.network, err)
-			}
+			return errors.New("provider changed the exact capability owner; the capability is kept")
 		}
-		if len(others) > 0 {
-			var named []string
-			for _, h := range others {
-				who := h.personID
-				if h.label != "" {
-					who = h.label + " (" + h.personID + ")"
+		data, changed, e := o.edit(ctx, client, true, func(body *membership.PolicyBody) (bool, error) {
+			rules := []membership.CapabilityRule{}
+			for _, rule := range body.CapabilityRules {
+				if rule.Host != identity.ID || rule.Capability != name {
+					rules = append(rules, rule)
 				}
-				named = append(named, who+" in network "+h.network)
 			}
-			return fmt.Errorf("the policy of %s holds this host's rule for %s, and this key cannot withdraw it; the capability is kept; run the command again with that person's key (--person-key)", strings.Join(named, ", and of "), name)
+			changed := len(rules) != len(body.CapabilityRules)
+			body.CapabilityRules = rules
+			return changed, nil
+		})
+		o.close()
+		if changed {
+			signed = append(signed, data)
 		}
+		if e != nil {
+			return fmt.Errorf("withdrawing %s from %s failed; the capability is kept, and repeating the command finishes removal: %w", name, h.network.ID, e)
+		}
+	}
+	// Finish every matching-owner withdrawal before reporting another holder.
+	if len(others) > 0 {
+		named := []string{}
+		for _, h := range others {
+			who := h.person.PersonID
+			if h.person.Member != "" {
+				who = h.person.Member + " (" + who + ")"
+			}
+			named = append(named, who+" in network "+h.network.ID)
+		}
+		return fmt.Errorf("the policy of %s holds this host's rule for %s; the capability is kept; select that person's exact provider or --person-key", strings.Join(named, ", and of "), name)
 	}
 	data, err := client.Call(ctx, "DELETE", "/v1/capabilities/"+url.PathEscape(name), nil)
 	if err != nil {
@@ -979,12 +1020,18 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 	}
 	// A name bound to another host by any stored rule of this person is
 	// refused, in every network.
-	for _, n := range ownNetworks(ctx, client) {
-		if p, err := currentPolicy(ctx, client, n, o.ownerID); err == nil && p != nil {
-			for _, r := range p.CapabilityRules {
-				if r.Capability == name && r.Host != identity.ID {
-					return fmt.Errorf("a capability rule of yours binds %s to host %s (409); choose another name", name, r.Host)
-				}
+	networks, err := capabilityNetworks(ctx, client)
+	if err != nil {
+		return err
+	}
+	for _, n := range networks {
+		rules, e := capabilityPolicyRules(ctx, client, n, host.Person{PersonID: o.ownerID, PublicKey: o.ownerKey})
+		if e != nil {
+			return e
+		}
+		for _, r := range rules {
+			if r.Capability == name && r.Host != identity.ID {
+				return fmt.Errorf("a capability rule of yours binds %s to host %s (409); choose another name", name, r.Host)
 			}
 		}
 	}
@@ -1091,10 +1138,7 @@ func runShare(ctx context.Context, client host.Client, args []string, fs *pflag.
 		}
 	}
 	if !changed {
-		var policy any
-		if o.current != nil {
-			policy = o.current
-		}
+		policy := o.policyView()
 		return printJSON(out, map[string]any{"policy": policy, "capability": name, "principal": principal, "recipient": recipient.view(), "created": false})
 	}
 	data, _, err := o.edit(ctx, client, false, func(body *membership.PolicyBody) (bool, error) {
@@ -1157,16 +1201,34 @@ func sortedNetworks(ids map[string]string) []string {
 // policies with the record. An identical repeat signs nothing. An
 // edit_conflict starts again from the edit route, at most 3 times. It
 // returns the daemon's answer and the signed policies by network.
-func createWithClaims(ctx context.Context, client host.Client, keyPath, name string, body map[string]any, shareNetwork, principal string, calls int64) (json.RawMessage, map[string]membership.Policy, error) {
-	signed := map[string]membership.Policy{}
+func createWithClaims(ctx context.Context, client host.Client, keyPath, name string, body map[string]any, shareNetwork, principal string, calls int64) (json.RawMessage, map[string]any, error) {
+	signed := map[string]any{}
 	body["policies"] = []membership.Policy{}
-	if _, err := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil); err == nil {
+	if _, e := client.Call(ctx, "GET", "/v1/capabilities/"+url.PathEscape(name), nil); e == nil {
 		data, err := client.Call(ctx, "POST", "/v1/capabilities", body)
 		return data, signed, err
+	} else {
+		var failure *host.ClientError
+		if !errors.As(e, &failure) || failure.Status != 404 {
+			return nil, nil, e
+		}
 	}
 	_, persons, err := readHostPersons(ctx, client)
 	if err != nil {
 		return nil, nil, err
+	}
+	currentNetworks, err := capabilityNetworks(ctx, client)
+	if err != nil {
+		return nil, nil, err
+	}
+	current := map[string]bool{}
+	for _, n := range currentNetworks {
+		current[n.ID] = true
+	}
+	for id := range persons.ids {
+		if !current[id] {
+			delete(persons.ids, id)
+		}
 	}
 	if len(persons.ids) == 0 {
 		// A host without a person creates the record without claims.
@@ -1177,8 +1239,30 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 	// signing person; networks bound to another person gain the claim at
 	// their first share.
 	signerID := ""
-	if keyPath == "" {
+	modern, e := call[[]host.DecNetworkView](ctx, client, "GET", "/v2/networks")
+	if e != nil {
+		return nil, nil, e
+	}
+	if keyPath == "" && len(modern) > 0 {
+		for _, n := range modern {
+			if shareNetwork != "" && n.ID != shareNetwork {
+				continue
+			}
+			if _, bound := persons.ids[n.ID]; !bound {
+				continue
+			}
+			if n.Provider == nil || n.ProviderState.State != "available" || n.Provider.Scopes&1 == 0 {
+				return nil, nil, errors.New("the selected DEC policy provider requires repair; no original key fallback is allowed")
+			}
+			signerID = personIDFromKey(n.Provider.Person)
+			break
+		}
+	}
+	if keyPath == "" && signerID == "" {
 		for _, network := range sortedNetworks(persons.ids) {
+			if shareNetwork != "" && network != shareNetwork {
+				continue
+			}
 			selected, e := selectedLinkAdministrator(ctx, client, network, keyPath)
 			if e != nil {
 				return nil, nil, e
@@ -1225,6 +1309,9 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 			} else if err = o.start(ctx, client); err != nil {
 				return nil, nil, err
 			}
+			if err = o.decReapplyBeforeMutation(ctx, client); err != nil {
+				return nil, nil, err
+			}
 			b := o.body()
 			// A name another host holds is refused before anything is signed.
 			for _, r := range b.CapabilityRules {
@@ -1236,6 +1323,29 @@ func createWithClaims(ctx context.Context, client host.Client, keyPath, name str
 				shareRule(&b, o.hostID, name, principal, calls)
 			} else if hostRule(b.CapabilityRules, o.hostID, name) < 0 {
 				b.CapabilityRules = append(b.CapabilityRules, membership.CapabilityRule{Host: o.hostID, Capability: name, Principals: []string{}, MaxInputBytes: shareMaxInputBytes, MaxCallsPerHour: shareMaxCallsPerHour})
+			}
+			if o.dec != nil {
+				before, _ := json.Marshal(o.body())
+				after, _ := json.Marshal(b)
+				preparedRaw, e := o.decWritePolicy(ctx, client, b, !bytes.Equal(before, after), name)
+				if e != nil {
+					return nil, nil, e
+				}
+				var prepared host.DecActionResult
+				if json.Unmarshal(preparedRaw, &prepared) != nil || prepared.Committed || prepared.Statement == "-" {
+					return nil, nil, errors.New("invalid prepare-only DEC claim result")
+				}
+				catalog, e := json.Marshal(prepared.Catalog)
+				if e != nil {
+					return nil, nil, e
+				}
+				catalogs = append(catalogs, host.CapabilityClaimCatalog{NetworkID: n, Catalog: json.RawMessage(catalog)})
+				envelope, e := base64.StdEncoding.Strict().DecodeString(prepared.Statement)
+				if e != nil {
+					return nil, nil, e
+				}
+				signed[n] = json.RawMessage(envelope)
+				continue
 			}
 			p, err := o.next(n, b, n != shareNetwork)
 			if err != nil {
@@ -1289,19 +1399,6 @@ func principalUnless(list []string, principal string) []string {
 	return []string{principal}
 }
 
-// ownNetworks lists this host's networks.
-func ownNetworks(ctx context.Context, client host.Client) []string {
-	networks, err := call[[]host.Network](ctx, client, "GET", "/v1/networks")
-	if err != nil {
-		return nil
-	}
-	ids := make([]string, len(networks))
-	for i, n := range networks {
-		ids[i] = n.ID
-	}
-	return ids
-}
-
 // runUnshare removes a principal from the capability's rule for this host.
 func runUnshare(ctx context.Context, client host.Client, args []string, fs *pflag.FlagSet, out, errOut io.Writer) error {
 	network, _ := fs.GetString("network")
@@ -1321,7 +1418,7 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 	}
 	defer o.close()
 	var rule *membership.CapabilityRule
-	if o.current != nil {
+	if o.policyView() != nil {
 		body := o.body()
 		if i := hostRule(body.CapabilityRules, identity.ID, name); i >= 0 {
 			rule = &body.CapabilityRules[i]
@@ -1354,10 +1451,7 @@ func runUnshare(ctx context.Context, client host.Client, args []string, fs *pfla
 		return err
 	}
 	if removed == 0 {
-		var policy any
-		if o.current != nil {
-			policy = o.current
-		}
+		policy := o.policyView()
 		note := "the rule for " + name + " on this host does not name " + principal + "; access through a group or everyone is unaffected, and block stops a person at once"
 		if recipient != nil {
 			note = "the rule for " + name + " on this host does not name " + principal + ". Access through a group or everyone is unaffected."
@@ -1439,21 +1533,34 @@ func runShares(ctx context.Context, client host.Client, fs *pflag.FlagSet, out i
 		capabilities = append(capabilities, entry)
 	}
 	rules := []map[string]any{}
-	for _, n := range ownNetworks(ctx, client) {
-		if network != "" && n != network {
+	networks, err := capabilityNetworks(ctx, client)
+	if err != nil {
+		return err
+	}
+	for _, n := range networks {
+		if network != "" && n.ID != network {
 			continue
 		}
-		person := persons.ids[n]
-		if person == "" {
+		personID := persons.ids[n.ID]
+		if personID == "" {
 			continue
 		}
-		p, err := currentPolicy(ctx, client, n, person)
-		if err != nil || p == nil {
-			continue
+		people, e := capabilityPeople(ctx, client, n)
+		if e != nil {
+			return e
 		}
-		for _, r := range p.CapabilityRules {
-			entry := map[string]any{"network_id": n, "host": r.Host, "capability": r.Capability, "principals": r.Principals, "max_input_bytes": r.MaxInputBytes, "allow_disconnected": r.AllowDisconnected, "max_calls_per_hour": r.MaxCallsPerHour, "this_host": r.Host == identity.ID}
-			rules = append(rules, entry)
+		for _, person := range people {
+			if person.PersonID != personID {
+				continue
+			}
+			current, e := capabilityPolicyRules(ctx, client, n, person)
+			if e != nil {
+				return e
+			}
+			for _, r := range current {
+				entry := map[string]any{"network_id": n.ID, "host": r.Host, "capability": r.Capability, "principals": r.Principals, "max_input_bytes": r.MaxInputBytes, "allow_disconnected": r.AllowDisconnected, "max_calls_per_hour": r.MaxCallsPerHour, "this_host": r.Host == identity.ID}
+				rules = append(rules, entry)
+			}
 		}
 	}
 	if asJSON {

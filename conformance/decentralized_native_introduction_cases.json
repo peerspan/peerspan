@@ -1,0 +1,212 @@
+{
+  "format": 1,
+  "group": "decentralized_native_introduction",
+  "contract_pin": "b36bc2ec8b947419a63388f7ab3a8cfa0aca32d8",
+  "implementation_source_read": false,
+  "execution_status": "frozen_not_executed",
+  "scope": "Foreground native invitation/private join/cold-original controls only. No installed service, guided up, relay, NAT, live adapter, task or whole migration claim.",
+  "references": [
+    "decentralized-bootstrap-contract.md sections 4 Inviter-origin contact invitation and identity review, 5 Seven-stage ceremony",
+    "decentralized-runtime-contract.md sections 4 Contact-invitation minting, 5 Owner/administrator/finalization reviews, 6 Native commands"
+  ],
+  "fixture": {
+    "machines": [
+      "A: admitted original creator and actual root administrator",
+      "B: independently owned cold original person and requester; no previously admitted network",
+      "C: fresh negative-input host only when needed to isolate pre-key side effects"
+    ],
+    "uncounted_setup": [
+      "Initialize owned foreground daemons with separate private homes and actual direct listeners",
+      "Create A local network with its own original SSH key using public flow; do not call earlier native six test functions",
+      "Choose or generate B original SSH key only in B private fixture; never give it to A",
+      "Use actual owner-local invitation minting for a pinned negative variant if native interface has no expected-person flag"
+    ],
+    "clock": "Begin near actual UTC so fixed300s carrier windows are live; no backdating or TTL changes. Decision clocks and real transport time remain separate.",
+    "ownership": "No daemon seed/TLS key copy, no original key transfer between people, no fabricated admission, no SQL writes."
+  },
+  "cases": [
+    {
+      "name": "native_invite_is_exact_signed_contact_without_new_authority",
+      "actions": [
+        "Run native network invite with exact new member label on A",
+        "Decode psi2 prefix and canonical unpadded Base64URL; independently verify exact payload and Ed25519 invitation message"
+      ],
+      "assert": [
+        "Payload pins current descriptor/context, actual A host, exact reviewed label, person pin or literal dash, fixed300s and bounded ordered contacts/helpers",
+        "Invitation contains no person key material, permission, lease, catalog or claimed administrator role",
+        "Before/after authoritative tables, provider selection, owned identity and authority guard are unchanged; bounded contact metadata is recorded separately",
+        "Only explicit private mint output contains the introduction; normal status/logs do not redisplay it"
+      ]
+    },
+    {
+      "name": "private_native_join_rejects_bad_signature_and_person_mismatch_before_side_effects",
+      "actions": [
+        "Submit a native-minted token with one changed signature byte through private stdin/file, never argv",
+        "Submit a separately valid exact person-pinned invitation while explicitly selecting a different locally owned original key"
+      ],
+      "assert": [
+        "Both commands refuse nonzero before identity generation/key save, pending request/publication, network adoption or service enrollment",
+        "No alternate/replacement original key is selected or generated to repair mismatch",
+        "Report generic before/after database hashes; require unchanged protected identity/key, pending request/secret/consent, network/provider/admission and preexisting private files. Do not count owned diagnostic captures as product writes. No private token appears in argv, URL, logs or status."
+      ]
+    },
+    {
+      "name": "explicit_private_join_pins_one_pending_cold_original_and_restart_preserves_review",
+      "actions": [
+        "Review exact signed network/name/context/genesis/inviter/member/person terms on B and explicitly select its own original key",
+        "Run native join through protected input; retain returned psl2 privately",
+        "Restart actual B and inspect/resume the same attempt without reading the original invitation from a new offer"
+      ],
+      "assert": [
+        "Flat LINK_VIEW is pending/incomplete and exits nonzero; exact reviewed descriptor/context/label/person are durably retained",
+        "Request/device/nonce/secret and saved invitation bytes remain the same through exact retry/restart while live",
+        "B has no adopted network/provider/outcome and both requester consent flags are false",
+        "A never owns B original key; no coordinator or helper is required; no automatic pending path redisplays code"
+      ]
+    },
+    {
+      "name": "cold_original_possession_offer_defaults_seven_and_selection_stays_separate",
+      "actions": [
+        "On B explicitly prepare/review/sign its own original-person possession offer through native typed signing flow",
+        "Inspect preview and actual packet independently",
+        "At requester selection send blank first, then restart and explicitly approve the exact unchanged offer"
+      ],
+      "assert": [
+        "Possession provider reports scopes0 and root/lease/device dash; packet root_state_id/person_lease_id dash and issuer_lease_ids empty",
+        "CLI proposed target default is7, never0 or implicit administrator8; B original key is actual packet signer",
+        "Blank selection returns incomplete/nonzero with unchanged request/key and no selection/final consent",
+        "Only later explicit selection creates its exact durable consent; no provider/admission/outcome or final commit is supplied",
+        "Invitation label/person/context checks survive restart and cannot be learned anew from mutable offer"
+      ]
+    },
+    {
+      "name": "cold_original_admin_and_self_finalization_need_final_requester_consent",
+      "actions": [
+        "A actual current root/admin separately reviews target B and supplies exact pending P/H",
+        "B actual original key explicitly reviews/signs exact self binding/device finalization",
+        "Observe final native requester review with blank first, then explicit yes; finish exact complete publication to A"
+      ],
+      "assert": [
+        "A administrator identity remains distinct from target B original owner; no inviter-key substitution signs B owner/finalization",
+        "Concrete root/P/H/B/D/manifest pins replace possession-only placeholders only after their correct durable phases",
+        "No adoption or selected device before explicit final consent; blank preserves same approved stages/keys/templates",
+        "Explicit final consent yields actual B local application with exact owned device7 and complete outcome; A applies the same operation",
+        "Original B key stays only on B; final historical output and one actual normal direct catalog response agree with exact operation, without service/adapter readiness inference"
+      ]
+    }
+  ],
+  "stop_rule": "Freeze exact executable/source hashes and artifact support before runtime. First concrete failure is retained; stop dependent controls. Correct fixture prerequisites separately; rerun only failed and previously unevaluated cases. No older six test function repeats.",
+  "failed_only_concurrent_resume_continuation": {
+    "implementation_source_read": false,
+    "final_head_acceptance": false,
+    "only_case": "cold_original_admin_and_self_finalization_need_final_requester_consent",
+    "passed_case_functions_skipped": 4,
+    "source": "2e12ce65c8afaf0d86df917915bca7534433dc6a",
+    "artifact": "/tmp/peerspan-decentralized-rust-owner-concurrent-resume-v1-host",
+    "artifact_sha256": "652aa63fdc652982d6fb9192a179ff27d79a08672854357291b34c258b8a564f",
+    "suite_sha256": "8b3311cdebf240ce5da7b6da79df76e8849917b5d3280d2280b3897bcd66c427",
+    "actual_fixture_dir": "/tmp/dnative-introduction-rust-first",
+    "fresh_final_from": "/tmp/dnative-introduction-rust-final-only",
+    "request_capture": "/tmp/dnative-introduction-rust-final-only/cli-001.stdout",
+    "old_request_id": "link_2b2de47e2284ea2f38b0737fc4bf38acce8531a628d73f1623683dcb54943f95",
+    "old_expires_at": "2026-10-27T00:54:12Z",
+    "old_capture_sha256": "98984f265f1c5f431ca0d9faf3b6adde42ab5f62da8e786eec198bf295247de1",
+    "stopped_before_database_snapshot_sha256": {
+      "owner": "c9982808bc961b4cb126bdd556fe5c404ebd8e39f31627a3381e44f740b34c22",
+      "requester": "6c9cba6bea589e59305e0c77349b421aedda4506ba4ad516dde67dda9c5711f7"
+    },
+    "boundary": [
+      "Preserve the original expired selected precommit request and its original reviewed signed evidence.",
+      "Explicitly cancel only that precommit request; normal secret retirement remains permitted and owned device history remains retained.",
+      "Reuse the exact actual Alice/Bob original keys, actual host stores and A network. Create one fresh private introduction and independently nonced request as uncounted minimum prerequisites.",
+      "Explicit original possession and exact selection are necessary uncounted preparation; none of the four successful case functions runs again.",
+      "Execute only the unchanged actual root administration, Bob original finalization, blank final decline, later explicit final consent, both local applies and direct normal catalog assertions.",
+      "No old request TTL/clock rewind, key replacement, copied daemon key, installed or final coherent-head claim."
+    ],
+    "work_dir": "/tmp/dnative-introduction-rust-resume-fixed",
+    "results": "/tmp/peerspan-dec-native-introduction-rust-resume-fixed/results.json"
+  },
+  "failed_only_resume_order_continuation": {
+    "implementation_source_read": false,
+    "final_head_acceptance": false,
+    "only_case": "cold_original_admin_and_self_finalization_need_final_requester_consent",
+    "passed_case_functions_skipped": 4,
+    "source": "e9bc4413d072f2f95c50baf70779dc8b2f42d313",
+    "artifact": "/tmp/peerspan-decentralized-rust-owner-resume-order-v1-host",
+    "artifact_sha256": "1343af6e4622c165529836659b50a6f68b4c2794a304b4fe310bbb3fa63d7963",
+    "suite_sha256": "8b3311cdebf240ce5da7b6da79df76e8849917b5d3280d2280b3897bcd66c427",
+    "actual_fixture_dir": "/tmp/dnative-introduction-rust-first",
+    "fresh_final_from": "/tmp/dnative-introduction-rust-resume-fixed",
+    "request_capture": "/tmp/dnative-introduction-rust-resume-fixed/cli-001.stdout",
+    "old_request_id": "link_aa1dabc9361b22d8264e14571cb850d0e6cdfedbbe22cba804affb152e8dc738",
+    "old_expires_at": "2026-10-27T01:52:57Z",
+    "old_capture_sha256": "c9db41e21bbfabca501edaa7a979e5fa386db55a6e87abcebaeb2f105eb48d69",
+    "stopped_before_database_snapshot_sha256": {
+      "owner": "fc7e4e3b7fced71136cd440d51fda9c0845e887846ff70bb06a92ee62721b5e2",
+      "requester": "7eeeb736560f464e017a49908f595f821fc5733d79fff76785a3d6e37649b042"
+    },
+    "boundary": [
+      "Preserve the original expired selected precommit request and its original reviewed signed evidence.",
+      "Explicitly cancel only that precommit request; normal secret retirement remains permitted and owned device history remains retained.",
+      "Reuse the exact actual Alice/Bob original keys, actual host stores and A network. Create one fresh private introduction and independently nonced request as uncounted minimum prerequisites.",
+      "Explicit original possession and exact selection are necessary uncounted preparation; none of the four successful case functions runs again.",
+      "Execute only the unchanged actual root administration, Bob original finalization, blank final decline, later explicit final consent, both local applies and direct normal catalog assertions.",
+      "No old request TTL/clock rewind, key replacement, copied daemon key, installed or final coherent-head claim."
+    ],
+    "work_dir": "/tmp/dnative-introduction-rust-resume-order",
+    "results": "/tmp/peerspan-dec-native-introduction-rust-resume-order/results.json",
+    "preserved_original_receipts": [
+      "/tmp/peerspan-dec-native-introduction-rust-final-only/results.json",
+      "/tmp/peerspan-dec-native-introduction-rust-resume-fixed/results.json"
+    ],
+    "unchanged_HTTP_reader_timeout_seconds": 10
+  },
+  "failed_only_bounded_reader_continuation": {
+    "implementation_source_read": false,
+    "final_head_acceptance": false,
+    "only_case": "cold_original_admin_and_self_finalization_need_final_requester_consent",
+    "passed_case_functions_skipped": 4,
+    "source": "e9bc4413d072f2f95c50baf70779dc8b2f42d313",
+    "artifact": "/tmp/peerspan-decentralized-rust-owner-resume-order-v1-host",
+    "artifact_sha256": "1343af6e4622c165529836659b50a6f68b4c2794a304b4fe310bbb3fa63d7963",
+    "suite_sha256": "3cb7fe31a65abb6cc493b79cac08007b8614a25d679a5b7913288c297e14888f",
+    "actual_fixture_dir": "/tmp/dnative-introduction-rust-first",
+    "fresh_final_from": "/tmp/dnative-introduction-rust-resume-order",
+    "request_capture": "/tmp/dnative-introduction-rust-resume-order/cli-001.stdout",
+    "old_request_id": "link_887d7389dcc304372202dd3b0b3d1ca37c6420cb34d1321cc6573f891070af98",
+    "old_expires_at": "2026-10-27T02:11:51Z",
+    "old_capture_sha256": "ee36f5272bdb7396d696c6bd67e7ea36acaa44711c288e10ddf3b1fb67ca61b7",
+    "stopped_before_database_snapshot_sha256": {
+      "owner": "f8f028210fa77e1028fa9ed4664e9f7f194764f7ee1a50d1b8c40cb2f60c0352",
+      "requester": "caa182f96b9beeeeec481d0c6c90e983c3f5bd9e32230ac52dc3c38f29401b41"
+    },
+    "boundary": [
+      "Preserve the original expired selected precommit request and its original reviewed signed evidence.",
+      "Explicitly cancel only that precommit request; normal secret retirement remains permitted and owned device history remains retained.",
+      "Reuse the exact actual Alice/Bob original keys, actual host stores and A network. Create one fresh private introduction and independently nonced request as uncounted minimum prerequisites.",
+      "Explicit original possession and exact selection are necessary uncounted preparation; none of the four successful case functions runs again.",
+      "Execute only the unchanged actual root administration, Bob original finalization, blank final decline, later explicit final consent, both local applies and direct normal catalog assertions.",
+      "No old request TTL/clock rewind, key replacement, copied daemon key, installed or final coherent-head claim."
+    ],
+    "work_dir": "/tmp/dnative-introduction-rust-reader-fixed",
+    "results": "/tmp/peerspan-dec-native-introduction-rust-reader-fixed/results.json",
+    "preserved_original_receipts": [
+      "/tmp/peerspan-dec-native-introduction-rust-final-only/results.json",
+      "/tmp/peerspan-dec-native-introduction-rust-resume-fixed/results.json"
+    ],
+    "reader_correction": {
+      "default_API_reader_seconds": 10,
+      "ONLY_post_admin_B_resume_reader_seconds": 40,
+      "runtime_support_SHA": "91ac5e9d4a0844b9e53d0e11b1d9f3947c388818d442e605b1106cf8a58be9e0",
+      "rationale": "Public pending-resume contract has no10-second response guarantee; its bounded completion publication can take30 seconds. This changes only one unsupported fixture observation deadline, not any protocol/production deadline, clock, TTL, retry or authority oracle.",
+      "strict_observation": "Actual HTTP200 and exact flat LINK_VIEW/pins still required; record elapsed/reader bound. All F, two consent, provider, exact application/outcome and normal peer assertions stay intact.",
+      "diagnosis_only_receipt": "/tmp/dnative-rust-resume-40s-diagnostic/results.json",
+      "diagnosis_is_no_conformance_PASS": true,
+      "prior_failures_remain_preserved": [
+        "/tmp/peerspan-dec-native-introduction-rust-final-only/results.json",
+        "/tmp/peerspan-dec-native-introduction-rust-resume-fixed/results.json",
+        "/tmp/peerspan-dec-native-introduction-rust-resume-order/results.json"
+      ]
+    }
+  }
+}

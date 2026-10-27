@@ -553,7 +553,7 @@ func (s *Store) SubmitAgentCall(ctx context.Context, auth AdapterAuth, r Adapter
 	// and the credential's expires_at.
 	deadline := time.Now().Add(callMaxDeadline)
 	if request.Policy != nil {
-		if g, err := s.loadGovernance(ctx, s.db, request.Policy.NetworkID); err == nil {
+		if g, err := s.loadProductGovernance(ctx, s.db, request.Policy.NetworkID); err == nil {
 			if key, ok := g.personKey(request.Policy.PersonID); ok {
 				if p, ok := g.storedPolicy(key); ok {
 					if until, err := membership.ParseTime(p.ValidUntil); err == nil && until.Before(deadline) {

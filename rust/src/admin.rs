@@ -264,7 +264,16 @@ fn root_signer(network: &Value, path: Option<&Path>) -> anyhow::Result<PersonSig
 
 /// Resolves a person ID or label to its public key, erroring on ambiguity.
 pub(crate) async fn person_key(local: &Local<'_>, id: &str, given: &str) -> anyhow::Result<String> {
-    let persons = local.get(under(id, "persons")).await?;
+    let persons =
+        if let Some(network) = crate::decentralized_policy_cli::network_view(local, id).await? {
+            let rows = crate::decentralized_policy_cli::current_persons(local, &network).await?;
+            Value::Array(rows.into_iter().map(|row| json!({
+            "person_id":persons::person_id_of(text(&row,"person_public_key")).unwrap_or_default(),
+            "public_key":row["person_public_key"],"member":row["member"]
+        })).collect())
+        } else {
+            local.get(under(id, "persons")).await?
+        };
     let persons: Vec<&Value> = persons.as_array().into_iter().flatten().collect();
     if let Some(p) = persons
         .iter()

@@ -74,6 +74,7 @@ type Store struct {
 	syncing      sync.Mutex           // serializes coordinator syncs and map application
 	linkMu       sync.Mutex           // serializes local linking ceremonies and frame publication
 	linkPolls    map[string]time.Time // private local throttle, guarded by linkMu
+	decTransport decTransportState    // transport hints only; never network authority
 	// syncStarted is when each network's latest sync started; changesMu
 	// guards it.
 	syncStarted map[string]time.Time

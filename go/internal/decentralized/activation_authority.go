@@ -16,6 +16,9 @@ func activationAdmissions(a *authority) ([]string, error) {
 			if a.admitted[s.ID] {
 				continue
 			}
+			if a.graph.pendingAdmissions[s.ID] != "" {
+				continue
+			}
 			closure, e := activationComponentClosure(a, s)
 			if e != nil {
 				if Code(e) == "forbidden" || Code(e) == "authority_expired" {
@@ -28,7 +31,7 @@ func activationAdmissions(a *authority) ([]string, error) {
 			eligible := map[string]bool{}
 			for id := range closure {
 				node := a.graph.catalog.Statements[id]
-				if candidateWindow(node, a.now) == nil {
+				if a.graph.pendingAdmissions[id] == "" && candidateWindow(node, a.now) == nil {
 					view.admitted[id] = true
 					eligible[id] = true
 				}

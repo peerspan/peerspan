@@ -3,7 +3,10 @@
 //! `discover`, `call`, and the trust question of `join` and `network
 //! create`. Signing stays here; the daemon never sees the person key.
 use crate::{
-    access::{EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, at, edit_conflict, recipient},
+    access::{
+        EDIT_ATTEMPTS, Editor, PolicySigner, PolicySigning, PolicyValue, at, edit_conflict,
+        recipient,
+    },
     admin::Local,
     cli::{
         ApprovalsArgs, ApprovalsCommand, CapabilityCommand, Command, SourcesArgs, SourcesCommand,
@@ -15,9 +18,10 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{TimeDelta, Utc};
 use peerspan_host::{
     persons::{self, PersonSigner},
-    policy::{CapabilityRule, Content, Policy},
+    policy::{CapabilityRule, Content, Policy, PolicyBody},
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     io::{BufRead, IsTerminal, Write},
     path::Path,
@@ -196,7 +200,7 @@ async fn edit_policy<F>(
     network: &str,
     signer: &dyn PolicySigning,
     mut change: F,
-) -> anyhow::Result<(Option<Policy>, Option<Value>)>
+) -> anyhow::Result<(Option<PolicyValue>, Option<Value>)>
 where
     F: FnMut(&mut Content) -> anyhow::Result<bool>,
 {
@@ -204,31 +208,137 @@ where
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let start = editor.start(local).await?;
+        let start = editor.start(local, signer.original()).await?;
         let mut content = start
             .policy
             .as_ref()
-            .map(Policy::content)
+            .map(|p| p.content())
             .unwrap_or_default();
         if !change(&mut content)? {
             return Ok((start.policy, None));
         }
         let policy = editor.sign(signer, &start, content, None, true)?;
-        match editor.submit(local, &policy).await {
+        match editor.submit(local, signer, &policy).await {
             Err(e) if edit_conflict(&e) && attempt < EDIT_ATTEMPTS => continue,
             outcome => return Ok((start.policy, Some(outcome?))),
         }
     }
 }
 
+fn not_found(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::integration::DaemonError>()
+        .is_some_and(|d| d.status == 404)
+}
+async fn current_networks(local: &Local<'_>) -> anyhow::Result<Vec<Value>> {
+    let status = local.get("/v2/status".into()).await?;
+    let rows = status["networks"]
+        .as_array()
+        .context("invalid current network list")?;
+    let mut result = Vec::new();
+    for row in rows.iter().filter(|n| n["mode"] != "legacy_history") {
+        let mut row = row.clone();
+        if row["mode"] == "decentralized" {
+            let key = row["person_public_key"]
+                .as_str()
+                .context("invalid current own person")?;
+            row["person"] = if key == "-" {
+                Value::Null
+            } else {
+                let raw = STANDARD.decode(key)?;
+                anyhow::ensure!(
+                    raw.len() == 32 && STANDARD.encode(&raw) == key,
+                    "invalid current own person key"
+                );
+                json!({"id":persons::person_id(&raw)})
+            };
+        }
+        result.push(row);
+    }
+    Ok(result)
+}
+async fn current_people(local: &Local<'_>, network: &str) -> anyhow::Result<Value> {
+    if let Some(view) = crate::decentralized_policy_cli::network_view(local, network).await? {
+        let people = crate::decentralized_policy_cli::current_persons(local, &view).await?;
+        let members = local
+            .get(format!("/v2/networks/{}/members", encoded(network)))
+            .await?;
+        let members = members["members"]
+            .as_array()
+            .context("invalid current member list")?;
+        let mut out = Vec::new();
+        for p in people {
+            let key = p["person_public_key"]
+                .as_str()
+                .context("invalid current person")?;
+            let raw = STANDARD.decode(key)?;
+            anyhow::ensure!(
+                raw.len() == 32 && STANDARD.encode(&raw) == key,
+                "invalid current person key"
+            );
+            let hosts: Vec<String> = members
+                .iter()
+                .filter(|m| m["person_public_key"] == key)
+                .map(|m| {
+                    let key = m["host_public_key"]
+                        .as_str()
+                        .context("invalid current host")?;
+                    let raw = STANDARD.decode(key)?;
+                    anyhow::ensure!(
+                        raw.len() == 32 && STANDARD.encode(&raw) == key,
+                        "invalid current host key"
+                    );
+                    Ok(format!("host_{}", hex::encode(Sha256::digest(&raw))))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            out.push(json!({"person_id":persons::person_id(&raw),"person_public_key":key,"member":p["member"],"hosts":hosts}));
+        }
+        return Ok(json!(out));
+    }
+    local
+        .get(format!("/v1/networks/{}/persons", encoded(network)))
+        .await
+}
+// Preserve exact native signed bytes for output; unsigned bodies are used only
+// for local deltas/reviews and never serialized as a fake signed legacy policy.
+async fn read_policy(
+    local: &Local<'_>,
+    network: &str,
+    person: &str,
+    key: &str,
+) -> anyhow::Result<Option<(Value, PolicyBody)>> {
+    if let Some(view) = crate::decentralized_policy_cli::network_view(local, network).await? {
+        return Ok(
+            crate::decentralized_policy_cli::current_policy(local, &view, key)
+                .await?
+                .map(|(s, b)| {
+                    (
+                        json!({"statement_id":s.id,"statement_base64":STANDARD.encode(s.body)}),
+                        b,
+                    )
+                }),
+        );
+    }
+    let value = match local
+        .get(format!(
+            "/v1/networks/{}/policy?person={}",
+            encoded(network),
+            encoded(person)
+        ))
+        .await
+    {
+        Ok(v) => crate::access::strip_view(v),
+        Err(e) if not_found(&e) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let policy: Policy = serde_json::from_value(value.clone())?;
+    Ok(Some((value, policy.unsigned_body())))
+}
 /// The networks in which this host is bound to a person, with that
 /// person's ID.
 async fn bound_networks(local: &Local<'_>) -> anyhow::Result<Vec<(String, String)>> {
-    let status = local.get("/v1/status".into()).await?;
-    Ok(status["networks"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    Ok(current_networks(local)
+        .await?
+        .iter()
         .filter_map(|n| {
             Some((
                 n["id"].as_str()?.to_owned(),
@@ -259,17 +369,27 @@ async fn create_claimed(
     let name = body["name"].as_str().unwrap_or_default().to_owned();
     // An identical repeat signs nothing; another record under the name is
     // refused by the daemon.
-    let exists = local
+    let exists = match local
         .get(format!("/v1/capabilities/{}", encoded(&name)))
         .await
-        .is_ok();
+    {
+        Ok(_) => true,
+        Err(e) if not_found(&e) => false,
+        Err(e) => return Err(e),
+    };
     let bound = if exists {
         Vec::new()
     } else {
         bound_networks(local).await?
     };
     let mut signers = std::collections::BTreeMap::new();
-    let mut selected_person = if bound.is_empty() {
+    let mut selected_person = if let Some(first) = first
+        .as_ref()
+        .filter(|_| person_key.is_none() && !bound.is_empty())
+    {
+        let signer = PolicySigner::open(local, first.network, None).await?;
+        Some(persons::person_id(&signer.public_key()))
+    } else if bound.is_empty() {
         None
     } else {
         person_key
@@ -301,11 +421,11 @@ async fn create_claimed(
         for network in &networks {
             let signer = signers.get(network).expect("selected provider");
             let editor = Editor::new(local, network, signer).await?;
-            let start = editor.start(local).await?;
+            let start = editor.start(local, signer.original()).await?;
             let mut content = start
                 .policy
                 .as_ref()
-                .map(Policy::content)
+                .map(|p| p.content())
                 .unwrap_or_default();
             if content
                 .capability_rules
@@ -340,7 +460,13 @@ async fn create_claimed(
                 }
             }
             let signed = editor.sign(signer, &start, content, None, true)?;
-            if let Some((certificate, _)) = signer.device() {
+            if let Some(prepared) = editor.prepare_claim(local, signer, &signed, &name).await? {
+                anyhow::ensure!(
+                    prepared["committed"] == false,
+                    "claim preparation unexpectedly published"
+                );
+                catalogs.push(json!({"network_id":network,"catalog":prepared["catalog"]}));
+            } else if let Some((certificate, _)) = signer.device() {
                 let mut payload = serde_json::to_value(&signed)?;
                 payload
                     .as_object_mut()
@@ -394,13 +520,38 @@ async fn trust(
     };
     if add {
         let me = persons::person_id(&signer.public_key());
-        let members = local
-            .get(format!("/v1/networks/{}/members", encoded(network)))
-            .await?;
-        let bound = members.as_array().into_iter().flatten().any(|m| {
-            m["host_id"].as_str() == Some(host.as_str())
-                && m["person_id"].as_str() == Some(me.as_str())
-        });
+        let bound = if signer.decentralized().is_some() {
+            let response = local
+                .get(format!("/v2/networks/{}/members", encoded(network)))
+                .await?;
+            let members = response["members"]
+                .as_array()
+                .context("invalid current member list")?;
+            let mut bound = false;
+            for member in members {
+                let key = member["host_public_key"]
+                    .as_str()
+                    .context("invalid current host key")?;
+                let raw = STANDARD.decode(key)?;
+                anyhow::ensure!(
+                    raw.len() == 32 && STANDARD.encode(&raw) == key,
+                    "invalid current host key"
+                );
+                let id = format!("host_{}", hex::encode(Sha256::digest(&raw)));
+                if id == host && member["person_public_key"] == signer.public_key_b64() {
+                    bound = true;
+                }
+            }
+            bound
+        } else {
+            let members = local
+                .get(format!("/v1/networks/{}/members", encoded(network)))
+                .await?;
+            members.as_array().into_iter().flatten().any(|m| {
+                m["host_id"].as_str() == Some(host.as_str())
+                    && m["person_id"].as_str() == Some(me.as_str())
+            })
+        };
         if !bound {
             bail!("host {host} is not bound to your person in network {network}");
         }
@@ -1007,48 +1158,32 @@ async fn remove(
     // Every stored policy holding this host's rule, claim included, of any
     // person and in every network, also where this host is no longer
     // bound. Any failure keeps the record.
-    let networks = local.get("/v1/networks".into()).await?;
-    let not_found = |e: &anyhow::Error| {
-        e.downcast_ref::<crate::integration::DaemonError>()
-            .is_some_and(|d| d.status == 404)
-    };
+    let networks = current_networks(local).await?;
     let mut holders: Vec<(String, String, String)> = Vec::new();
-    for n in networks.as_array().into_iter().flatten() {
-        let Some(network) = n["id"].as_str() else {
-            continue;
-        };
-        let persons = local
-            .get(format!("/v1/networks/{}/persons", encoded(network)))
-            .await?;
-        for p in persons.as_array().into_iter().flatten() {
-            let Some(person) = p["person_id"].as_str() else {
-                continue;
-            };
-            let policy = match local
-                .get(format!(
-                    "/v1/networks/{}/policy?person={}",
-                    encoded(network),
-                    encoded(person)
-                ))
-                .await
+    for n in networks {
+        let network = n["id"].as_str().context("invalid current network")?;
+        let people = current_people(local, network).await?;
+        for p in people.as_array().context("invalid current persons")? {
+            let person = p["person_id"]
+                .as_str()
+                .context("invalid current person ID")?;
+            let key = p["person_public_key"]
+                .as_str()
+                .context("invalid current person key")?;
+            if read_policy(local, network, person, key)
+                .await?
+                .is_some_and(|(_, b)| {
+                    b.capability_rules
+                        .as_ref()
+                        .into_iter()
+                        .flatten()
+                        .any(|r| r.host == host && r.capability == name)
+                })
             {
-                Ok(policy) => policy,
-                Err(e) if not_found(&e) => continue,
-                Err(e) => return Err(e),
-            };
-            let holds = policy["capability_rules"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|r| {
-                    r["host"].as_str() == Some(host.as_str())
-                        && r["capability"].as_str() == Some(name)
-                });
-            if holds {
                 holders.push((
-                    network.to_owned(),
-                    person.to_owned(),
-                    p["member"].as_str().unwrap_or(person).to_owned(),
+                    network.into(),
+                    person.into(),
+                    p["member"].as_str().unwrap_or(person).into(),
                 ));
             }
         }
@@ -1062,6 +1197,10 @@ async fn remove(
             .map(|signer| persons::person_id(&signer.public_key()));
         for (network, person, label) in &holders {
             if explicit_person.as_ref().is_some_and(|p| p != person) {
+                other_holders.push(format!("{label} ({person}) in network {network}"));
+                continue;
+            }
+            if explicit_person.is_none() && me_in(local, network).await?.1 != *person {
                 other_holders.push(format!("{label} ({person}) in network {network}"));
                 continue;
             }
@@ -1096,6 +1235,26 @@ async fn remove(
 
 /// This host's person label and ID in a network.
 async fn me_in(local: &Local<'_>, network: &str) -> anyhow::Result<(String, String)> {
+    if let Some(view) = crate::decentralized_policy_cli::network_view(local, network).await? {
+        let key = view["person_public_key"]
+            .as_str()
+            .context("invalid current own person")?;
+        if key == "-" {
+            return Ok((String::new(), String::new()));
+        }
+        let people = crate::decentralized_policy_cli::current_persons(local, &view).await?;
+        let p = people
+            .iter()
+            .find(|p| p["person_public_key"] == key)
+            .context("current own person proof required")?;
+        return Ok((
+            p["member"]
+                .as_str()
+                .context("invalid current label")?
+                .into(),
+            persons::person_id(&STANDARD.decode(key)?),
+        ));
+    }
     let status = local.get("/v1/status".into()).await?;
     let person = status["networks"]
         .as_array()
@@ -1317,17 +1476,11 @@ async fn share(
     // The review reads the stored policy; the edit starts from the edit
     // route after confirmation.
     let me = persons::person_id(&signer.public_key());
-    let current: Option<Policy> = local
-        .get(format!(
-            "/v1/networks/{}/policy?person={}",
-            encoded(network),
-            encoded(&me)
-        ))
-        .await
-        .ok()
-        .map(|v| serde_json::from_value(crate::access::strip_view(v)))
-        .transpose()?;
-    let content = current.as_ref().map(Policy::content).unwrap_or_default();
+    let current = read_policy(local, network, &me, &signer.public_key_b64()).await?;
+    let content = current
+        .as_ref()
+        .map(|(_, p)| p.content())
+        .unwrap_or_default();
     if content
         .capability_rules
         .iter()
@@ -1425,10 +1578,7 @@ async fn share(
             None => eprintln!("Credentials: the source's own environment on this host"),
         },
     }
-    let persons = local
-        .get(format!("/v1/networks/{}/persons", encoded(network)))
-        .await
-        .unwrap_or(Value::Null);
+    let persons = current_people(local, network).await?;
     let shown = match &found {
         Some(f) => f["address"].as_str().unwrap_or(with).to_owned(),
         None => with.to_owned(),
@@ -1443,10 +1593,7 @@ async fn share(
     if let (Some((old, new)), Some(r)) = (limit_change, &existing) {
         // Recipients by label where the principal resolves to one, as in
         // `shares`, falling back to the principal.
-        let persons = local
-            .get(format!("/v1/networks/{}/persons", encoded(network)))
-            .await
-            .unwrap_or(Value::Null);
+        let persons = current_people(local, network).await?;
         let label = |p: &String| {
             p.strip_prefix("person:")
                 .and_then(|id| {
@@ -1484,7 +1631,7 @@ async fn share(
         "{}",
         reach_statement(&shown, gh, &record["bounds"], &sentence)
     );
-    agent_review(&principal, &persons, &me, current.as_ref());
+    agent_review(&principal, &persons, &me, &content);
     if !yes {
         if !terminal {
             bail!("confirm the review above at a terminal, or give --yes");
@@ -1496,7 +1643,7 @@ async fn share(
     if unchanged {
         // Already shared this way: nothing is signed.
         return Ok(
-            json!({"policy": current, "capability": cap, "principal": principal, "recipient": recipient_view, "created": false}),
+            json!({"policy": current.as_ref().map(|(v,_)|v), "capability": cap, "principal": principal, "recipient": recipient_view, "created": false}),
         );
     }
     let mut created_now = false;
@@ -1515,14 +1662,9 @@ async fn share(
         )
         .await?;
         print_warnings(&created);
-        let policy = local
-            .get(format!(
-                "/v1/networks/{}/policy?person={}",
-                encoded(network),
-                encoded(&me)
-            ))
-            .await
-            .map(crate::access::strip_view)
+        let policy = read_policy(local, network, &me, &signer.public_key_b64())
+            .await?
+            .map(|(v, _)| v)
             .unwrap_or(Value::Null);
         if shared {
             return Ok(
@@ -1644,7 +1786,7 @@ fn recipient_lines(found: &Value, persons: &Value) {
 
 /// The review's agent paragraph for an `agent:` principal, and the note
 /// for the signer's own agent on a trusted host.
-fn agent_review(principal: &str, persons: &Value, me: &str, current: Option<&Policy>) {
+fn agent_review(principal: &str, persons: &Value, me: &str, content: &Content) {
     let Some((host, _)) = principal
         .strip_prefix("agent:")
         .and_then(|p| p.split_once('/'))
@@ -1665,7 +1807,7 @@ fn agent_review(principal: &str, persons: &Value, me: &str, current: Option<&Pol
         "The share stays with this agent on this machine. If the agent is set up again on another machine, share it again."
     );
     if person.is_some_and(|p| p["person_id"].as_str() == Some(me))
-        && current.is_some_and(|c| c.trusted_hosts().iter().any(|h| h == host))
+        && content.trusted_hosts.iter().any(|h| h == host)
     {
         eprintln!(
             "This machine is trusted, so this agent already reaches all your capabilities through self access. This share matters only if you untrust it."
@@ -1694,10 +1836,7 @@ async fn unshare(
         .as_str()
         .context("invalid daemon response")?
         .to_owned();
-    let persons = local
-        .get(format!("/v1/networks/{}/persons", encoded(network)))
-        .await
-        .unwrap_or(Value::Null);
+    let persons = current_people(local, network).await?;
     let (principal, found) = match recipient(local, network, with).await {
         Ok(r) => r,
         Err(e)
@@ -1925,7 +2064,7 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
         .context("invalid daemon response")?
         .to_owned();
     let capabilities = local.get("/v1/capabilities?lookup=true".into()).await?;
-    let status = local.get("/v1/status".into()).await?;
+    let networks = current_networks(local).await?;
     let sources = sources_view(local).await.unwrap_or(Value::Null);
     let mut entries = Vec::new();
     for c in capabilities["capabilities"]
@@ -2007,7 +2146,7 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
         }));
     }
     // Rules of this person for capabilities on other hosts.
-    for n in status["networks"].as_array().into_iter().flatten() {
+    for n in &networks {
         let Some(id) = n["id"].as_str() else { continue };
         if network.is_some_and(|x| x != id) {
             continue;
@@ -2015,18 +2154,21 @@ async fn shares(local: &Local<'_>, network: Option<&str>) -> anyhow::Result<Valu
         let Some(person) = n["person"]["id"].as_str() else {
             continue;
         };
-        let policy = match local
-            .get(format!(
-                "/v1/networks/{}/policy?person={}",
-                encoded(id),
-                encoded(person)
-            ))
-            .await
-        {
-            Ok(p) => p,
-            Err(_) => continue,
+        let key =
+            if let Some(view) = crate::decentralized_policy_cli::network_view(local, id).await? {
+                view["person_public_key"]
+                    .as_str()
+                    .context("invalid current own person")?
+                    .to_owned()
+            } else {
+                String::new()
+            };
+        let Some((_, policy)) = read_policy(local, id, person, &key).await? else {
+            continue;
         };
-        for r in policy["capability_rules"].as_array().into_iter().flatten() {
+        for r in policy.capability_rules.as_ref().into_iter().flatten() {
+            let r = serde_json::to_value(r)?;
+
             if r["host"].as_str() == Some(host.as_str()) {
                 continue;
             }

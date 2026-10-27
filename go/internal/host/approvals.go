@@ -340,7 +340,7 @@ func approvalNeed(ctx context.Context, q dbQuerier, r CallRequest) (bool, capabi
 // approvalCaller is the sender's bound person in the cited network, with
 // its binding label, and the pending key: the budget key under policy, the
 // caller alone under self.
-func approvalCaller(ctx context.Context, q dbQuerier, sender string, r CallRequest, budgetKey string) (ApprovalCaller, string, error) {
+func (s *Store) approvalCaller(ctx context.Context, q dbQuerier, sender string, r CallRequest, budgetKey string) (ApprovalCaller, string, error) {
 	caller := ApprovalCaller{HostID: sender, Via: AuthorizationPolicy}
 	network := ""
 	if r.Self != nil {
@@ -348,11 +348,11 @@ func approvalCaller(ctx context.Context, q dbQuerier, sender string, r CallReque
 	} else if r.Policy != nil {
 		network = r.Policy.NetworkID
 	}
-	member, err := readJSON[NetworkMember](q.QueryRowContext(ctx, `SELECT record FROM network_members WHERE network_id = ? AND host_id = ?`, network, sender))
+	members, err := s.membersOf(ctx, q, network)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return caller, "", err
 	}
-	if err == nil && member.PersonID != nil {
+	if member, ok := members[sender]; ok && member.PersonID != nil {
 		person := *member.PersonID
 		caller.PersonID = &person
 		if member.PersonMember != nil {
@@ -375,8 +375,8 @@ var errTooManyPending = &codedError{status: http.StatusTooManyRequests, code: "l
 // requestApproval checks the pending limit and persists a new call's
 // approval, its notice, and the call.approval_requested activity, in the
 // acceptance transaction. It returns the status record's approval.
-func requestApproval(ctx context.Context, tx *sql.Tx, sender string, r CallRequest, c capabilityRecord, changes bool, budgetKey, inputSHA string, now time.Time) (*CallApproval, error) {
-	caller, key, err := approvalCaller(ctx, tx, sender, r, budgetKey)
+func (s *Store) requestApproval(ctx context.Context, tx *sql.Tx, sender string, r CallRequest, c capabilityRecord, changes bool, budgetKey, inputSHA string, now time.Time) (*CallApproval, error) {
+	caller, key, err := s.approvalCaller(ctx, tx, sender, r, budgetKey)
 	if err != nil {
 		return nil, err
 	}

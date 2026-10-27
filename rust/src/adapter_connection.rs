@@ -219,14 +219,16 @@ fn renew(tx: &Transaction<'_>, a: &mut Adapter) -> Result<(), Error> {
 }
 impl Store {
     pub fn adapter_connection(&self, id: &str) -> Result<Connection, Error> {
-        let conn = self.connection()?;
+        self.adapter_connection_in(&*self.connection()?, id)
+    }
+    pub(crate) fn adapter_connection_in(&self, conn: &DB, id: &str) -> Result<Connection, Error> {
         let a: Adapter = read(
-            &conn,
+            conn,
             "SELECT record FROM adapter_credentials WHERE id = ?1",
             [id],
         )?;
-        let ss = session(&conn, &a.session_id)?;
-        status(&conn, &a, &ss)
+        let ss = session(conn, &a.session_id)?;
+        status(conn, &a, &ss)
     }
     pub fn connect_adapter(
         &self,

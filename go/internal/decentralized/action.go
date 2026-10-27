@@ -275,7 +275,17 @@ func VerifyActionIntent(d Descriptor, priorRaw, candidateRaw, actorRaw, unsigned
 		if candidateWindow(child, s.issuedTime()) != nil {
 			return nil, failure("forbidden")
 		}
-		if _, e = a.evaluate(child); e != nil {
+		if s.Root == nil {
+			if _, e = a.evaluate(child); e != nil {
+				return nil, e
+			}
+		}
+	}
+	if s.Root != nil {
+		if e = a.validateRootRetention(s.retained(), s.issuedTime()); e != nil {
+			return nil, e
+		}
+		if e = a.validateRootRetention(s.retained(), a.now); e != nil {
 			return nil, e
 		}
 	}
@@ -372,3 +382,13 @@ func wouldRestrictActor(a *authority, s *Statement, id string) bool {
 }
 
 func mustTime(s string) time.Time { t, _ := stamp(s); return t }
+
+// ReadActionPayload exposes the same strict ephemeral payload reader used by
+// VerifyActionIntent. It makes no signature, admission or authority claim.
+func ReadActionPayload(d Descriptor, kind string, raw []byte) (*Statement, error) {
+	return unsignedStatement(d, kind, raw)
+}
+
+func ActionID(contextID, kind, statementID, providerID string) string {
+	return "act_" + digest(message("peerspan-decentralized-action-intent-v1", contextID, kind, statementID, providerID))
+}

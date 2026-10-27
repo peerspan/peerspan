@@ -16,6 +16,12 @@ pub(crate) struct Packet {
 }
 impl Packet {
     pub fn read(bytes: &[u8]) -> Result<Self> {
+        Self::read_mode(bytes, false)
+    }
+    pub(crate) fn read_template(bytes: &[u8]) -> Result<Self> {
+        Self::read_mode(bytes, true)
+    }
+    fn read_mode(bytes: &[u8], template: bool) -> Result<Self> {
         let value = parse(bytes, MAX_OBJECT)?;
         let o = object(&value)?;
         fields(
@@ -57,9 +63,15 @@ impl Packet {
             text(o, "authority_signature_format")?,
             &hash(&payload_bytes),
         ]);
-        raw_signature(
+        let raw_slot = |public: &str, encoded: &str| -> Result<()> {
+            if template && encoded == "-" {
+                check(key(public))
+            } else {
+                raw_signature(public, &message, encoded)
+            }
+        };
+        raw_slot(
             text(o, "writer_host_public_key")?,
-            &message,
             text(o, "host_signature")?,
         )?;
         match role {
@@ -69,11 +81,7 @@ impl Packet {
                         && text(o, "authority_signature")? == "-"
                         && text(o, "authority_signature_format")? == "-",
                 )?;
-                raw_signature(
-                    text(o, "signer_public_key")?,
-                    &message,
-                    text(o, "device_signature")?,
-                )?;
+                raw_slot(text(o, "signer_public_key")?, text(o, "device_signature")?)?;
                 check(if role == "request" {
                     text(o, "person_public_key")? == "-"
                 } else {
@@ -108,12 +116,15 @@ impl Packet {
                 if issuer != "-" && person != "-" {
                     check(format == "ed25519")?;
                 }
-                signature(
-                    text(o, "signer_public_key")?,
-                    format,
-                    &message,
-                    text(o, "authority_signature")?,
-                )?;
+                let encoded = text(o, "authority_signature")?;
+                if template && encoded == "-" {
+                    check(
+                        key(text(o, "signer_public_key")?)
+                            && matches!(format, "ed25519" | "sshsig"),
+                    )?;
+                } else {
+                    signature(text(o, "signer_public_key")?, format, &message, encoded)?;
+                }
             }
         }
         match role {

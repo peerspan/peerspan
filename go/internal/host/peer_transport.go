@@ -108,6 +108,7 @@ func PeerHandler(store *Store) http.Handler {
 	taskPeerRoutes(mux, store, sender)
 	policyPeerRoutes(mux, store, sender)
 	linkPeerRoutes(mux, store, sender)
+	decPeerRoutes(mux, store, sender)
 	directoryPeerRoutes(mux, store, sender)
 	agentLookupPeerRoutes(mux, store, sender)
 	movePeerRoutes(mux, store, sender)
@@ -115,6 +116,13 @@ func PeerHandler(store *Store) http.Handler {
 	// A stream carries exactly one exchange.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "close")
+		if store.decHistoryPeerMutation(r) {
+			if _, ok := sender(w, r); !ok {
+				return
+			}
+			respondDec(w, 0, nil, decFailure("upgrade_required"), "-", "-", "-", "migration")
+			return
+		}
 		mux.ServeHTTP(w, r)
 	})
 }

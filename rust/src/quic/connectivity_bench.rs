@@ -22,7 +22,7 @@ impl driver::Backend for Peerspan {
                 &key,
                 &Paths {
                     direct: Some(self.target.address.parse()?),
-                    relay: None,
+                    relays: Vec::new(),
                 },
                 tokio::time::Instant::now() + REQUEST_BOUND,
             )

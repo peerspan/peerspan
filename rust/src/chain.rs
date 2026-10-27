@@ -4,13 +4,9 @@
 //! the task, narrowing or keeping the authority it received. The final
 //! receiver verifies that the whole chain only narrows, and authorizes the
 //! originator.
-use crate::{
-    membership::canonical,
-    model::Error,
-    network::Member,
-    peer_store::{json, valid_id},
-    store::Store,
-};
+#[cfg(test)]
+use crate::network::Member;
+use crate::{membership::canonical, model::Error, peer_store::valid_id, store::Store};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
@@ -225,22 +221,6 @@ pub(crate) struct Carried<'a> {
     pub origin_agent_id: Option<&'a str>,
 }
 
-/// The member record of `host` in `network`, if current.
-pub(crate) fn member(
-    conn: &Connection,
-    network: &str,
-    host: &str,
-) -> Result<Option<Member>, Error> {
-    conn.query_row(
-        "SELECT record FROM network_members WHERE network_id = ?1 AND host_id = ?2",
-        params![network, host],
-        |r| r.get::<_, String>(0),
-    )
-    .optional()?
-    .map(json)
-    .transpose()
-}
-
 impl Store {
     /// The bound person of each host in a network, from the current view.
     pub(crate) fn bindings(
@@ -249,7 +229,7 @@ impl Store {
         network: &str,
     ) -> Result<std::collections::HashMap<String, String>, Error> {
         Ok(self
-            .stored_members(conn, network)?
+            .product_members(conn, network)?
             .into_iter()
             .filter_map(|m| m.person_id.map(|p| (m.host_id, p)))
             .collect())
@@ -269,19 +249,24 @@ impl Store {
         validate(chain)?;
         let me = self.identity().id;
         let network = &chain[0].network_id;
+        if require_deadline && crate::decentralized::history::legacy(self, conn, network)? {
+            return Err(Error::Forbidden);
+        }
         // 1. Signatures, and current membership of every party.
-        if member(conn, network, &me)?.is_none() {
+        if self.product_member(conn, network, &me)?.is_none() {
             return Err(Error::Forbidden);
         }
         for link in chain {
             if link.network_id != *network {
                 return Err(Error::Forbidden);
             }
-            let Some(issuer) = member(conn, network, &link.issuer_host_id)? else {
+            let Some(issuer) = self.product_member(conn, network, &link.issuer_host_id)? else {
                 return Err(Error::Forbidden);
             };
             if !link.verify(&issuer.public_key)
-                || member(conn, network, &link.audience_host_id)?.is_none()
+                || self
+                    .product_member(conn, network, &link.audience_host_id)?
+                    .is_none()
             {
                 return Err(Error::Forbidden);
             }
@@ -374,11 +359,16 @@ impl Store {
     pub(crate) fn shared_network(&self, conn: &Connection, peer: &str) -> Result<String, Error> {
         let network: Option<String> = conn
             .query_row(
-                "SELECT a.network_id FROM network_members a JOIN network_members b ON a.network_id = b.network_id WHERE a.host_id = ?1 AND b.host_id = ?2 ORDER BY a.network_id LIMIT 1",
-                params![self.identity().id, peer],
+                "SELECT a.network_id FROM network_members a JOIN network_members b ON a.network_id = b.network_id LEFT JOIN networks n ON n.id=a.network_id WHERE a.host_id = ?1 AND b.host_id = ?2 AND (?3=0 OR json_extract(n.record,'$.mode')='decentralized') ORDER BY a.network_id LIMIT 1",
+                params![self.identity().id, peer,self.decentralized_runtime()],
                 |r| r.get(0),
             )
             .optional()?;
+        if let Some(id) = &network
+            && crate::decentralized::history::legacy(self, conn, id)?
+        {
+            return Err(Error::Forbidden);
+        }
         network.ok_or_else(|| {
             Error::Invalid(format!(
                 "delegation needs a network shared with host {peer}"

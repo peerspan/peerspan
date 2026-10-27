@@ -34,6 +34,12 @@ const (
 // from a private IPv6 range and are never sent on the real UDP socket.
 var syntheticPrefix = [4]byte{0xfd, 0x63, 0x61, 0x70}
 
+// A datagram carrier has no membership, directory or authority interface.
+// Legacy fixture relays and explicitly selected resource relays share only it.
+type datagramRelay interface {
+	send(relay.HostID, []byte)
+}
+
 // packetConn is the peer QUIC endpoint's socket. Real addresses use the UDP
 // socket; synthetic addresses, one per relayed peer host ID, use the relay
 // connection on which that peer's datagrams arrived, or the one chosen to
@@ -47,13 +53,15 @@ type packetConn struct {
 	// paths runs path discovery; it is set once, right after construction.
 	paths *pathManager
 
-	mu       sync.Mutex
-	peers    map[[16]byte]relay.HostID
-	routes   map[relay.HostID]*relayClient
-	direct   map[relay.HostID]netip.AddrPort // validated endpoint in use
-	owners   map[netip.AddrPort]relay.HostID // inverse of direct
-	deadline time.Time
-	changed  chan struct{}
+	mu              sync.Mutex
+	peers           map[[16]byte]relay.HostID
+	routes          map[relay.HostID]datagramRelay
+	provisional     map[relay.HostID]*decCompletionRoute
+	completionDials map[relay.HostID]*decCompletionDial
+	direct          map[relay.HostID]netip.AddrPort // validated endpoint in use
+	owners          map[netip.AddrPort]relay.HostID // inverse of direct
+	deadline        time.Time
+	changed         chan struct{}
 }
 
 type datagram struct {
@@ -62,7 +70,7 @@ type datagram struct {
 }
 
 func newPacketConn(udp *net.UDPConn) *packetConn {
-	c := &packetConn{udp: udp, in: make(chan datagram, 1024), done: make(chan struct{}), peers: map[[16]byte]relay.HostID{}, routes: map[relay.HostID]*relayClient{}, direct: map[relay.HostID]netip.AddrPort{}, owners: map[netip.AddrPort]relay.HostID{}, changed: make(chan struct{})}
+	c := &packetConn{udp: udp, in: make(chan datagram, 1024), done: make(chan struct{}), peers: map[[16]byte]relay.HostID{}, routes: map[relay.HostID]datagramRelay{}, provisional: map[relay.HostID]*decCompletionRoute{}, completionDials: map[relay.HostID]*decCompletionDial{}, direct: map[relay.HostID]netip.AddrPort{}, owners: map[netip.AddrPort]relay.HostID{}, changed: make(chan struct{})}
 	go c.readUDP()
 	return c
 }
@@ -135,14 +143,14 @@ func isSynthetic(addr *net.UDPAddr) bool {
 }
 
 // route sets the relay used to reach a peer host.
-func (c *packetConn) route(id relay.HostID, client *relayClient) {
+func (c *packetConn) route(id relay.HostID, client datagramRelay) {
 	c.mu.Lock()
 	c.routes[id] = client
 	c.mu.Unlock()
 }
 
 // deliver hands a relayed datagram to the endpoint and records its return path.
-func (c *packetConn) deliver(from relay.HostID, data []byte, client *relayClient) {
+func (c *packetConn) deliver(from relay.HostID, data []byte, client datagramRelay) {
 	addr := c.synthetic(from)
 	c.route(from, client)
 	switch {
@@ -241,6 +249,7 @@ func (c *packetConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	id, known := c.peers[ip]
 	client := c.routes[id]
 	endpoint, direct := c.direct[id]
+	temporary := c.provisional[id] != nil || c.completionDials[id] != nil
 	c.mu.Unlock()
 	if !known {
 		return len(p), nil
@@ -251,7 +260,9 @@ func (c *packetConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 		return len(p), err
 	}
 	if client != nil {
-		c.paths.active(id, true)
+		if !temporary {
+			c.paths.active(id, true)
+		}
 		client.send(id, p)
 	}
 	// An unroutable relayed datagram is dropped like lost UDP.
@@ -263,6 +274,15 @@ func (c *packetConn) Close() error {
 	c.once.Do(func() {
 		close(c.done)
 		err = c.udp.Close()
+		c.mu.Lock()
+		routes := make([]*decCompletionRoute, 0, len(c.provisional))
+		for _, route := range c.provisional {
+			routes = append(routes, route)
+		}
+		c.mu.Unlock()
+		for _, route := range routes {
+			route.retire()
+		}
 	})
 	return err
 }
@@ -568,7 +588,13 @@ func (s *Store) dropRelay(client *relayClient) {
 // relayNetwork returns the lowest-ID network this host shares with a peer,
 // whose coordinator relays between them.
 func (s *Store) relayNetwork(ctx context.Context, id string) (Network, bool, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT n.record, n.root_seed IS NOT NULL FROM networks n JOIN network_members m ON m.network_id = n.id WHERE m.host_id = ? AND m.host_id != ? ORDER BY n.id LIMIT 1`, id, s.identity.ID)
+	s.decTransport.mu.RLock()
+	publicDecRuntime := s.decTransport.Configured
+	s.decTransport.mu.RUnlock()
+	if publicDecRuntime {
+		return Network{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, `SELECT n.record, n.root_seed IS NOT NULL FROM networks n JOIN network_members m ON m.network_id = n.id WHERE m.host_id = ? AND m.host_id != ? AND COALESCE(json_extract(n.record, '$.mode'), '') != 'decentralized' ORDER BY n.id LIMIT 1`, id, s.identity.ID)
 	n, err := scanNetwork(row)
 	if errors.Is(err, ErrNotFound) {
 		return n, false, nil

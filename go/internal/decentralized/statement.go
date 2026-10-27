@@ -134,6 +134,9 @@ func VerifySignature(public, format string, m []byte, s string) error {
 }
 func ReadStatement(d Descriptor, raw []byte) (*Statement, error) { return readStatement(d, raw, false) }
 func readStatement(d Descriptor, raw []byte, pendingBinding bool) (*Statement, error) {
+	return readStatementMode(d, raw, pendingBinding, false)
+}
+func readStatementMode(d Descriptor, raw []byte, pendingBinding, unsigned bool) (*Statement, error) {
 	o, e := parse(raw)
 	if e != nil {
 		return nil, e
@@ -187,6 +190,9 @@ func readStatement(d Descriptor, raw []byte, pendingBinding bool) (*Statement, e
 		if _, e = texts(so, "role", "public_key", "format", "signature"); e != nil {
 			return nil, e
 		}
+		if !key(sig.PublicKey) || (sig.Format != "ed25519" && sig.Format != "sshsig") {
+			return nil, invalid()
+		}
 		if pendingBinding && s.Kind == "binding_lease" && sig.Role == "host" {
 			if sig.PublicKey != s.Lease.Subject.Host || sig.Format != "ed25519" || sig.Signature != "-" {
 				return nil, invalid()
@@ -194,8 +200,10 @@ func readStatement(d Descriptor, raw []byte, pendingBinding bool) (*Statement, e
 			s.Signatures = append(s.Signatures, sig)
 			continue
 		}
-		if e = VerifySignature(sig.PublicKey, sig.Format, SignatureMessage(s.ID, sig.Role, sig.PublicKey), sig.Signature); e != nil {
-			return nil, e
+		if !unsigned || sig.Signature != "-" {
+			if e = VerifySignature(sig.PublicKey, sig.Format, SignatureMessage(s.ID, sig.Role, sig.PublicKey), sig.Signature); e != nil {
+				return nil, e
+			}
 		}
 		if sig.Role == "host" || sig.Role == "device" || sig.Role == "issuer" && s.issuerKind() == "device" {
 			if sig.Format != "ed25519" {
@@ -209,6 +217,9 @@ func readStatement(d Descriptor, raw []byte, pendingBinding bool) (*Statement, e
 			return nil, invalid()
 		}
 		s.Signatures = append(s.Signatures, sig)
+	}
+	if unsigned {
+		s.ProofID = "-"
 	}
 	return s, nil
 }

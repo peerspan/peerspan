@@ -37,7 +37,7 @@ const (
 // discoRoute is how a discovery message arrived, and so how to answer it.
 type discoRoute struct {
 	udp    netip.AddrPort // set for the UDP socket
-	client *relayClient   // set for a relay connection
+	client datagramRelay  // set for a relay connection
 	peer   relay.HostID   // the relay frame's source host
 }
 
@@ -209,23 +209,19 @@ func (m *pathManager) mapCandidates(id relay.HostID) ([]netip.AddrPort, map[neti
 	direct := map[netip.AddrPort]bool{}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	rows, err := m.store.db.QueryContext(ctx, "SELECT record FROM network_members WHERE host_id = ?", id.String())
+	memberships, err := m.store.membershipsOf(ctx, m.store.db, id.String())
 	if err != nil {
 		return nil, direct
 	}
-	defer rows.Close()
 	var endpoints []netip.AddrPort
-	for rows.Next() {
-		member, err := readJSON[NetworkMember](rows)
-		if err != nil {
-			continue
+	for _, n := range memberships {
+		member := n.member
+		if endpoint, e := netip.ParseAddrPort(member.Address); e == nil {
+			direct[normalize(endpoint)] = true
 		}
-		if e, err := netip.ParseAddrPort(member.Address); err == nil {
-			direct[normalize(e)] = true
-		}
-		for _, c := range member.Candidates {
-			if e, err := netip.ParseAddrPort(c); err == nil {
-				endpoints = append(endpoints, normalize(e))
+		for _, candidate := range member.Candidates {
+			if endpoint, e := netip.ParseAddrPort(candidate); e == nil {
+				endpoints = append(endpoints, normalize(endpoint))
 			}
 		}
 	}
