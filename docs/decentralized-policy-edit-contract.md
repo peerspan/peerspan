@@ -175,7 +175,8 @@ A complete independently verified policy fork is retained as all known
 incomparable heads; it is not rejected merely because edit reconciliation has
 no unique baseline. The domain stays unusable. Keep every frozen signed/start
 reference and dropped marker, leave unsigned reservations unsigned, and treat
-signed local intent not reflected by a unique current policy as unsettled.
+live signed rows (settled or unsettled) not reflected by a unique current
+policy as unsettled. Closed rows stay closed; no retired intent is resurrected.
 Automatic renewal, new reservations and reapply-preview still refuse the fork.
 
 The owner-local ordinary typed action path permits one narrow explicit recovery:
@@ -190,7 +191,7 @@ This is an explicitly reviewed branch choice, never a hash/order winner.
 This recovery consumes no new reservation, advances no local edit counter,
 creates no policy_claim, and never marks a never-signed reservation signed.
 Final reconciliation compares the resolver's actual reflected own sequence
-with existing signed local rows: omitted intent stays unsettled, reflected
+with existing live signed local rows: omitted intent stays unsettled, reflected
 intent may settle with its original frozen references/drops preserved. It does
 not fabricate a new signed reference for an old edit. After resolution, normal
 old-sequence reapplication restores the retained local withdrawal before any
