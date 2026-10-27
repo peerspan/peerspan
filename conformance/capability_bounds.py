@@ -48,7 +48,7 @@ import threading
 import time
 import traceback
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import stop_all
 from launch_onboarding import Failure, need, parse_time
 from peer_messaging import fixture_context, timestamp, wire

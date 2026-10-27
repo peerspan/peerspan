@@ -13,7 +13,7 @@ import tempfile
 import time
 
 from agent_adapter import adapter_call, credential
-from coordination import CoordHost, Coordinator, INTERVAL
+from support import CoordHost, Coordinator, INTERVAL
 from peer_messaging import DropResponse, PeerHost, request_id, set_probe, timestamp
 from adapter_outbound import route
 

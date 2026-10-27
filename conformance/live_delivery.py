@@ -124,7 +124,7 @@ import threading
 import time
 import traceback
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import Failure, near, need, parse_time

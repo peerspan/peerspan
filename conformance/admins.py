@@ -17,7 +17,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 
-from coordination import Coordinator
+from support import Coordinator
 from host_service import stop_all
 from peer_messaging import set_probe, timestamp
 from persons import Agent, PersonHost, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent

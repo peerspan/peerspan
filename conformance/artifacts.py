@@ -26,7 +26,7 @@ import tempfile
 import time
 
 from agent_adapter import Channel, adapter_call, credential, instance_for, sql
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from peer_messaging import PeerHost, fixture_context, set_probe, timestamp, wire
 from tasks import (EVENT_KEYS, LOCAL_KEYS, STATUS_KEYS, act, adapter_for, channel_event, claim, events, inspect,

@@ -64,7 +64,7 @@ import traceback
 
 from agent_adapter import adapter_call, credential
 from artifacts import adapter_upload
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import stop_all
 from peer_messaging import fixture_context, request_id, set_probe, timestamp, wire
 from persons import Agent, person_id, ssh_key

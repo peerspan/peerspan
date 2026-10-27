@@ -78,7 +78,7 @@ import threading
 import time
 import urllib.request
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import stop_all
 from launch_directory import DEFAULT, DirectoryHost
 from live_opencode_agents import Conversation

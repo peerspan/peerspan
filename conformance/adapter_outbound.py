@@ -12,7 +12,7 @@ import time
 from agent_adapter import Channel, adapter_call, credential, sql
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, ARTIFACT_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, TASK_TABLES
 from peer_messaging import PeerHost, request_id, timestamp, DropResponse
-from coordination import Coordinator, CoordHost
+from support import Coordinator, CoordHost
 
 
 def route(

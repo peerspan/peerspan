@@ -27,7 +27,7 @@ import subprocess
 import tempfile
 
 from agent_adapter import Channel, adapter_call, credential, sql
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, DELEGATION_TABLES, Host, POLICY_DELIVERY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
 import peer_messaging
 from peer_messaging import set_probe, timestamp

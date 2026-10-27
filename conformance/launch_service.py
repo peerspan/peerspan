@@ -70,7 +70,7 @@ import threading
 import time
 import traceback
 
-from coordination import Coordinator, decode_token, wait_for
+from support import Coordinator, decode_token, wait_for
 from host_service import die_with_parent, stop_all
 from peer_messaging import PeerHost, available_port, set_probe
 from persons import Agent, ssh_key

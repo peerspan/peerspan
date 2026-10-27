@@ -18,6 +18,7 @@ Contents:
   - [DEC-OWN1: merge gates for the coordinator-free runtime, PR #139](#dec-own1-merge-gates-for-the-coordinator-free-runtime-pr-139-2026-10-27) (2026-10-27)
   - [DEC-OWN2: retire the coordinator product at the coordinator-free merge](#dec-own2-retire-the-coordinator-product-at-the-coordinator-free-merge-2026-10-27) (2026-10-27)
   - [DEC-OWN3: in-place migration from coordinator networks](#dec-own3-in-place-migration-from-coordinator-networks-2026-10-27) (2026-10-27)
+  - [DEC-OWN4: delete the coordinator-only conformance suites](#dec-own4-delete-the-coordinator-only-conformance-suites-2026-10-27) (2026-10-27)
   - [DEC-Q: answers to the open questions of the first draft](#dec-q-answers-to-the-open-questions-of-the-first-draft-2026-10-27) (2026-10-27)
   - [DEC-S: simplifying the coordinator-free design](#dec-s-simplifying-the-coordinator-free-design-2026-10-27) (2026-10-27)
   - [DEC-D2: hand-over of DEC-01 to DEC-07 to the agents](#dec-d2-hand-over-of-dec-01-to-dec-07-to-the-agents-2026-10-26) (2026-10-26)
@@ -53,6 +54,16 @@ Contents:
 - **Authority:** owner decision, 2026-10-27.
 - **Options:** keep in-place migration of a coordinator network into a coordinator-free one; replace it with "create a new network and re-invite".
 - **Chosen:** replace it with "create a new network and re-invite". A follow-up PR removes the migration paths. PR #139 leaves the existing migration code in place, ungated: the three-host owned-migration check does not gate its merge.
+
+### DEC-OWN4: delete the coordinator-only conformance suites (2026-10-27)
+
+- **Authority:** owner decision, 2026-10-27.
+- **Question:** DEC-OWN2 retired the conformance suites that create coordinator networks, pending ports. The port's classification found suites that test only the coordinator product or in-place migration (DEC-OWN3). Should they be deleted rather than ported?
+- **Options:** for each of `coord_deploy`, `coordination`, `coord_move`, `coord_ops`, `coord_successor` and `relay` (the coordinator product and its relay), `decentralized_migration_identity` and `decentralized_owned_migration_fixture` (in-place migration), `launch_presence` (presence push through the coordinator relay; the coordinator-free spec defines no presence push), and `linking_hosts` and `linking_management` (coordinator-era machine linking, replaced by spec section 8): delete, or keep and port. For `send_retry`'s `connected_case`, which asserts a 503 for stale coordination: drop the case, or keep it.
+- **Chosen:** delete all eleven suites, and drop `send_retry`'s `connected_case`.
+- **Follow-up question:** other suites import code from the eleven. They are the in-place migration suites (`decentralized_unbound_migration`, `decentralized_migration_device_bans` and its fixture, `decentralized_owned_migration`, `decentralized_migration_host_lease`, `decentralized_migration_preparation`) and the coordinator-era linking suites (`linking_installed`, `linking_cold_invites`, `linking_rotation_faults`, `linking_imports`). The product suites import only small helpers. Options: delete these dependents too, and move the shared helpers (`wait_for`, `decode_token`, `encode_token`, `sshsig`) into `conformance/support.py`; or delete only the eleven, and copy whatever helpers the dependents need so they still import.
+- **Chosen:** delete the dependents too, and move the shared helpers into `conformance/support.py`. `linking_backups`, which is built on `linking_imports`, goes with it. Suites still waiting for their port import placeholder `Coordinator` and `CoordHost` names from `support.py`, which stop the suite with a message naming DEC-OWN2.
+- **Implemented in:** this decision's PR (suite deletions); the `send_retry` case is dropped in the first port PR.
 
 ### DEC-impl: settled by the implementer in PR #139 (not owner decisions)
 

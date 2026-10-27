@@ -124,7 +124,7 @@ import threading
 import time
 import traceback
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import LINKING_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, Host, stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import DEFAULT, Failure, need, parse_time
@@ -3612,7 +3612,7 @@ def vector_policy(person_b64):
 def check_vector(directory):
     """Build the v1 vector (self-check against the coordination contract's signature) and the capabilities
     contract's v2 vector from its inputs, sign the v2 statement, and verify it with ssh-keygen -Y verify."""
-    from coord_move import sshsig
+    from support import sshsig
     from launch_service import Key
     person = Key(directory, base64.b64decode(VECTOR_PERSON_SEED))
     need(person.b64 == 'bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=', 'the vector person key')

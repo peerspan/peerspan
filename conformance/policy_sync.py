@@ -63,7 +63,7 @@ import tempfile
 import threading
 import time
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import LINKING_TABLES, AGENT_CALL_TABLES, APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, CAPABILITY_TABLES, POLICY_EDIT_TABLES, SCHEMA_VERSION, stop_all
 from peer_messaging import fixture_context, set_probe, timestamp, wire
 from persons import Agent, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent

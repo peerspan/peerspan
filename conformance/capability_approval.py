@@ -43,7 +43,7 @@ import threading
 import time
 import traceback
 
-from coordination import wait_for
+from support import wait_for
 from host_service import APPROVAL_TABLES, BUILTIN_TABLES, DEC_TABLES, OAUTH_TABLES, LINKING_TABLES, SCHEMA_VERSION, Host, UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need, parse_time as parse_datetime
 from live_delivery import Fixture as ClaudeFixture

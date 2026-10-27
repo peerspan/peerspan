@@ -22,7 +22,7 @@ import tempfile
 import textwrap
 import time
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import die_with_parent, stop_all
 from peer_messaging import PeerHost, set_probe, timestamp
 

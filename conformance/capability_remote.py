@@ -53,7 +53,7 @@ import time
 import traceback
 import urllib.parse
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from launch_directory import uts_available
 from host_service import stop_all
 from launch_onboarding import Failure, need, parse_time

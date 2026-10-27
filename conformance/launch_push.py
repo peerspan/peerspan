@@ -61,7 +61,7 @@ import time
 import traceback
 
 from agent_adapter import Channel, adapter_call, instance_for
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import stop_all
 from launch_directory import DirectoryHost
 from launch_onboarding import Failure, need, parse_time

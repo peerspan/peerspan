@@ -40,7 +40,7 @@ import time
 
 from agent_adapter import adapter_call, instance_for
 from artifacts import upload
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from harness_setup import catalog
 from host_service import stop_all
 from peer_messaging import set_probe

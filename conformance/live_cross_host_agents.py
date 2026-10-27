@@ -29,7 +29,7 @@ from adapter_outbound import route
 from adapter_recovery import atomic_credential
 from agent_adapter import Channel, credential, sql
 from claude_session import ClaudeSession
-from coordination import Coordinator
+from support import Coordinator
 from host_service import Host
 from peer_messaging import PeerHost, timestamp
 

@@ -32,8 +32,8 @@ import tempfile
 
 from agent_adapter import Channel, sql
 from claude_session import ClaudeSession, wait_for
-from coordination import Coordinator, CoordHost
-from coordination import wait_for as wait_until
+from support import Coordinator, CoordHost
+from support import wait_for as wait_until
 from peer_messaging import timestamp
 from tasks import channel_event, tool
 

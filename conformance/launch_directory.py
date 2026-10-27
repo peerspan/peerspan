@@ -81,7 +81,7 @@ import time
 import traceback
 
 from agent_adapter import Channel, adapter_call, sql
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import UnixHTTPConnection, die_with_parent, stop_all
 from launch_onboarding import DEFAULT, Failure, OnboardHost, near, need, parse_time
 from peer_messaging import available_port, fixture_context, request_id, set_probe, timestamp, wire

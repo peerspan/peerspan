@@ -69,7 +69,7 @@ import time
 import traceback
 import urllib.parse
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import LINKING_TABLES, SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from launch_onboarding import Failure, need
 import live_delivery

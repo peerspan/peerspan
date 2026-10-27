@@ -17,9 +17,9 @@ import subprocess
 import tempfile
 import time
 
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from peer_messaging import PeerHost, request_id, set_probe, timestamp
-from relay import raw_relay, read_frame
+from support import raw_relay, read_frame
 
 INTERVAL = 1
 

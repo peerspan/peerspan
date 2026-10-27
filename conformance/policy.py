@@ -25,7 +25,7 @@ import tempfile
 import time
 
 from agent_adapter import adapter_call, credential
-from coordination import Coordinator, wait_for
+from support import Coordinator, wait_for
 from host_service import SCHEMA_VERSION, UnixHTTPConnection, stop_all
 from peer_messaging import fixture_context, request_id, set_probe, timestamp, wire
 from persons import Agent, PersonHost, coord_db, person_id, ssh_key, ssh_sign, ssh_verify, use_agent
