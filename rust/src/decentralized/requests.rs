@@ -535,7 +535,10 @@ pub(crate) fn save(c: &Connection, p: &Pending) -> Result<()> {
         }
         None => record.stage_at = now,
         Some(old) if p.stages() > old.stages() => {
-            require(!old.stage_expired(&now)?, "expired")?;
+            // A complete activation (its commit, or the applied outcome) has
+            // no timeout (spec 8.5 "After commit").
+            let complete = p.record.commit_packet_base64 != "-" || p.record.terminal == "applied";
+            require(complete || !old.stage_expired(&now)?, "expired")?;
             record.stage_at = now;
         }
         Some(_) => {}
