@@ -1619,6 +1619,11 @@ impl Projection {
             if head.id != id {
                 scopes &= self.retained_lineage(&head.id, &id, &child)?;
             }
+            // The ancestor's own binding must not be unbound; the binding is
+            // checked for restrictions only, not followed (no cycle).
+            if let Some(binding) = head.parents()?.get("subject_binding") {
+                self.known_restrictions(self.catalog.get(binding)?)?;
+            }
             scopes &= num(head.subject()?, "scopes")?;
             child = head.id.clone();
             next = head.parents()?.get("issuer_device").cloned();
@@ -1721,11 +1726,9 @@ impl Projection {
             // admitted it keeps the renewal inert (spec 4.2 first admission).
             if matches!(s.kind.as_str(), "device_lease" | "binding_lease") {
                 require(
-                    self.admitted.contains(&id)
-                        || self
-                            .prior
-                            .as_ref()
-                            .is_some_and(|p| p.admitted.contains(&id)),
+                    self.prior
+                        .as_ref()
+                        .is_some_and(|p| p.admitted.contains(&id)),
                     "forbidden",
                 )?;
             }
@@ -1806,8 +1809,12 @@ impl Projection {
         // already admitted (spec 4.2 first admission); a signer never admitted
         // here leaves the renewal inert.
         require(admitted, "forbidden")?;
+        // Records arriving in the same batch cannot authorize each other
+        // (spec 4.2): the signer's grant was trusted before this batch.
+        let trusted = |id: &str| self.prior.as_ref().is_some_and(|p| p.admitted.contains(id));
         let mut scopes = 15;
         for own in self.renewable_heads(&stream)? {
+            require(trusted(&own.id), "forbidden")?;
             scopes &= self
                 .active_inner(&own.id, &mut BTreeSet::new(), true)?
                 .scopes;
