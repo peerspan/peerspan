@@ -296,7 +296,16 @@ class DecNetwork:
                         break
                     except (SetupFailure, TimeoutError):
                         pass
-            cli_json(owner_host, 'link', 'finalize', request_id, *fixed, '--person-key', str(person.key), '--approve')
+            try:
+                cli_json(owner_host, 'link', 'finalize', request_id, *fixed, '--person-key', str(person.key), '--approve')
+            except SetupFailure as error:
+                # The owner's stage-2 approval also approves its own stage-5 signatures (spec 8.2 "Preapproval"),
+                # so the owner's host may already have finalized; a second finalization is then a conflict.
+                # Whether it did is decided by the requester's view below.
+                if 'conflict' not in str(error):
+                    raise
+                print(f'NOTE dec_network: link finalize answered a conflict ({str(error)[-80:]}); '
+                      f'waiting for the preapproved finalization', flush=True)
         view = self._wait(requester, request_id, lambda v: v['owner_finalization_id'] != '-', 'owner finalization at requester')
         if view['state'] != 'linked':
             cli_json(requester, 'link', 'commit', request_id, *fixed, '--owner-finalization', view['owner_finalization_id'],
