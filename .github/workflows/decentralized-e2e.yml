@@ -32,6 +32,9 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Build host and peer probe from this checkout
         run: |
           set -euo pipefail
