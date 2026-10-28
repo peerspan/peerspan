@@ -40,14 +40,14 @@ tokio = { version = "1", features = ["io-util", "fs", "macros", "net", "rt-multi
 [dev-dependencies]
 tempfile = "3"
 
-# Debug builds run the conformance suites and CI end-to-end checks. Unoptimized,
-# every coordinator-free read (which rebuilds its verified projection) ran 50
-# to 100 times slower than a release build, so multi-host link and policy
-# steps outran their bounded windows. Dependencies (signature, hashing, JSON,
-# SQLite) are fully optimized and this crate lightly, keeping debug info and
-# overflow checks.
+# Debug builds run the conformance suites and CI end-to-end checks. With
+# unoptimized dependencies, every coordinator-free read (which rebuilds its
+# verified projection) ran 50 to 100 times slower than a release build, so
+# multi-host link and policy steps outran their bounded windows. Dependencies
+# (signature, hashing, JSON, SQLite) are fully optimized; this crate stays
+# unoptimized so it compiles quickly.
 [profile.dev]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package."*"]
 opt-level = 3
